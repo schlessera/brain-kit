@@ -50,6 +50,43 @@ function trace(calls: TracedCall[], over: Partial<TurnTrace> = {}): TurnTrace {
 
 const EROFS = "EROFS: read-only file system, open '/srv/ithaca/brain/.brain/suitors.md'";
 
+describe("compound shell command intents", () => {
+  test.each([
+    ["for f in a b; do git push origin x; done", "git push"],
+    ["while read l; do brain index; done < x", "brain index"],
+    ["if [ -f x ]; then git status; fi", "git status"],
+    ["until false; do sleep 1; done", "sleep"],
+    ["case $x in a) ls;; esac", "ls"],
+    ["case $x in a) ! git status;; esac", "git status"],
+    ["case $x in a) for f in a; do git push; done;; esac", "git push"],
+    ["select f in a b; do git status; done", "git status"],
+    ["if false; then true; elif test -f x; then cd notes; else git status; fi", "git status"],
+    ["{ ! sudo -u penelope git push origin x; }", "git push"],
+    ["for f in a; do while read l; do env -i X=y brain index; done; done", "brain index"],
+    ["case $x in\na) cd notes; git status;;\nesac", "git status"],
+    ["case $x in a) cd notes;; b) git status;; esac", "git status"],
+    ["case $x in a) cd notes; git status $(pwd);; esac", "git status"],
+    ["for f in a; do cd notes; git -C . --no-pager push; done", "git push"],
+    ["done; fi; esac; }", "(empty)"],
+    ['"if" argument', "if"],
+    ["printf 'for while if case'", "printf"],
+  ])("reserved words lead to the body program: %s", (command, intent) => {
+    expect(commandIntent(command)).toBe(intent);
+  });
+
+  test("a plain push resolves a failed loop push with guidance", () => {
+    const turn = trace([
+      call("loop", "Bash", { command: "for f in a b; do git push origin x; done" }, 100,
+        { output: "rejected\nExit code 1", isError: true }),
+      call("push", "Bash", { command: "git push origin x" }, 300, { output: "ok" }),
+    ]);
+    const episodes = classifyRoadblocks(turn, []);
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]).toMatchObject({ family: "shell:git push", resolution: { toolCallId: "push" }, remedy: "guidance" });
+    expect(classifyRoadblocks(structuredClone(turn), [])).toEqual(episodes);
+  });
+});
+
 describe("roadblock episodes", () => {
   test("EROFS on .brain/x, then a write to .brain/scratch/x: one fs_denied episode resolved by it, remedy guidance", () => {
     const episodes = classifyRoadblocks(trace([

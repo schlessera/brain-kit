@@ -66,8 +66,14 @@ Hosted turns route authoritative Markdown through the server-owned application
 boundary. Standalone terminal `brain mcp` names and schemas above are unchanged.
 Claude registers the tools below under `mcp__brain-ui__`; pi uses the unprefixed
 names. Hosted Claude disallows project `mcp__brain__brain_add`,
-`mcp__brain__brain_update` and `mcp__brain__brain_archive`, plus built-in raw
-writers; its server tools apply the validated effects instead.
+`mcp__brain__brain_update` and `mcp__brain__brain_archive`.
+Hosted interactive Claude keeps native `Write`/`Edit`/`NotebookEdit` registered
+across governed, strict and voice turns. Governed typed natives are auto-allowed
+when configured, under existing stale-read, write-lock, journaling and protected
+mount controls. Strict and voice native calls refuse at call time before
+execution or an approval card, including with settings or remembered allows;
+server application tools retain their existing per-turn authority. Autonomous
+registration and authority are unchanged (#2022, #2048 A).
 
 | Tool | Exact input (unknown keys refuse) |
 | --- | --- |
@@ -152,7 +158,11 @@ results through its existing tool-error path.
 
 CLI commands encountering `EROFS` exit 2. On Linux, known write forms also
 refuse a read-only brain mount before entering handlers which collect per-file
-errors; dry-run forms and read-only commands remain available. Machine mode emits
+errors; dry-run forms and read-only commands remain available. Since #2038,
+`brain render` checks that its input is inside the brain and exists before this
+refusal: an outside or missing input is a usage error (exit 1), even on a
+read-only brain. Stdin (`-`) and reference forms have no input path to check.
+Other commands retain their existing error precedence. Machine mode emits
 `{ schema_version: 1, ok: false, error: { code: "read_only_brain", message: string,
 tool: string } }`. The message states that the brain is read-only here and names
 `brain_add`, `brain_archive`, or `apply_staged_changes` for the corresponding
@@ -163,7 +173,9 @@ directory a command writes: `brain scratch` and a `brain render` sent to
 which a hosted worker binds writable, so they run there. For `brain render`
 and `brain image` into the read-only brain the message names `--scratch` as
 the route and says to link the printed path; when `.brain/scratch/` is
-read-only as well it says nothing written now is kept. For `brain scratch` it
+read-only as well it states that condition, points to the sandbox note for the
+reason, and says nothing written now is kept; it does not guess the host's
+mount reason. For `brain scratch` it
 says the scratch area is read-only and nothing was removed. Nothing is staged or replayed;
 read-only commands continue to work. Writable index connections retain SQLite WAL
 sidecars after clean close, so a read-only mount can read the checkpointed index

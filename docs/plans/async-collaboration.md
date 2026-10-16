@@ -79,7 +79,7 @@ is a security-critical build for both first-party backends (tool availability co
 environment, `strictMcpConfig`, real-subprocess containment testing), not a configuration
 change — the current backend auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`,
 and `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) and automatic SDK permission paths can bypass
-`canUseTool`; the existing mandatory posture catches measured bypasses with hooks (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:183-212`).
+`canUseTool`; the existing mandatory posture catches measured bypasses with hooks (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:189-218`).
 
 Because nothing ships until containment passes, **U14 and U15 are sequenced early** (see
 Sequencing below) rather than in unit order. Discovering a containment problem after the
@@ -137,7 +137,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:271-365`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:359-365`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
-- **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:183-212`) closes measured bypasses.
+- **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:189-218`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and

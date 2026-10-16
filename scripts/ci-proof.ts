@@ -33,7 +33,9 @@ export function proofProblems(needs: Record<string, { result?: string; outputs?:
 export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[] {
   if (!plan.local.fullTests) throw new Error("Unit proof was not selected");
   const roots = plan.global ? ["packages", "tests"] : ["tests", ...plan.affected.map(dir => `packages/${dir}`)];
-  const files = discoverTests(root, roots);
+  const discovered = discoverTests(root, !plan.global && plan.unitTests ? ["packages", "tests"] : roots);
+  const files = !plan.global && plan.unitTests ? plan.unitTests : discovered;
+  if (files.some(file => !discovered.includes(file)) || new Set(files).size !== files.length) throw new Error("Invalid selected unit inventory");
   const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(shard);
   if (!match) throw new Error("Expected proof --shard=M/N");
   const index = Number(match[1]), total = Number(match[2]);

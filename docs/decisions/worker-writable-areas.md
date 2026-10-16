@@ -169,7 +169,14 @@ actually writes: the scratch area for `brain scratch` and for `brain render`
 sent there (`export function writeTarget`, `packages/core/src/cli/read-only.ts:42-48`).
 `brain render` and `brain image` into the read-only brain now say to write
 with `--scratch` and link the printed path; when scratch is read-only too, the
-message says nothing written now is kept. The `read_only_brain` code and its
+message states that condition and points to the sandbox note for the reason,
+without guessing why the host left scratch read-only; nothing written now is
+kept (`export function readOnlyBrainError`, `packages/core/src/cli/read-only.ts:17-33`).
+Render source validation precedes the read-only refusal (#2038): outside
+and missing input paths remain usage errors, while a valid input retains the
+same refusal and scratch advice
+(`export function validateRenderInput`, `packages/core/src/cli/commands/render.ts:194-203`).
+The `read_only_brain` code and its
 `tool` field are unchanged.
 
 **Serving.** The file routes refuse any symlink at or below `.brain` for a
