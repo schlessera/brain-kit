@@ -3486,3 +3486,17 @@ Call it before mounting. Registration is build-time trusted code, identity
 idempotent, with first-claim dispatch. It never imports server-named code.
 `@schlessera/brain-ui-sdk` exports `ContentRendererDeclaration` for the
 [authenticated bootstrap metadata](http.md#content-renderer-bootstrap-declarations-additive-2087).
+
+
+### Native persisted Claude memory observation (additive, #1658)
+
+`StartTurnRequest.persistClaudeMemory` is an optional host-only callback for
+validated native Claude memory copy-out. The backend supplies a direct note,
+its host-owned external directory, exact before/after bytes and before mode,
+and a synchronous save closure. A null observation explicitly reports copy-out
+that could not be inspected before a note callback. It is never serialized into a worker or
+accepted from a client. The first-party server retains/pins versions and a
+private pending receipt before invoking the closure, then publishes a steering
+change only after the save succeeds. Failed or interrupted finalization remains
+partial/unconfirmed. Other backends need not implement Claude native-memory
+persistence; this adds no agent history authority or new public request route.

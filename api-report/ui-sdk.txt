@@ -1121,6 +1121,7 @@ export "./internal" (./src/internal.ts)
   resolveWorkerStateLimits
   restrictedReadPaths
   retainWorkerStartupView
+  rewriteWorkerRtk
   runMaintenanceWorker
   runMaintenanceWorkerSync
   sessionPromptContext

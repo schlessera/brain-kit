@@ -85,7 +85,7 @@ Source anchors, checked against the reviewed commit:
   decisions distinguish the independent configured limits and mounts. Delivered
   #1703 adds scoped turn-temp usage/purge and promotion protection; those
   measurements do not include the separate runtime-state tmpfs.
-- J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:34-48`)
+- J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:34-49`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
 - K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:254-269`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its

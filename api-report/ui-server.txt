@@ -1457,6 +1457,12 @@ signatures (every public export and the types it is made of)
         }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
         bindSession(turnId: string, sessionId: string): void;
+        claudeMemoryTarget(turnId: string, path: string): null | {
+            device: string;
+            directory: string;
+            inode: string;
+            note: string;
+        };
         close(): Promise<void>;
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
@@ -1475,6 +1481,19 @@ signatures (every public export and the types it is made of)
             after(completed: boolean): void;
             before(): void;
         }): () => boolean;
+        persistClaudeMemory(turnId: string, change: null | {
+            after: Uint8Array;
+            before: Uint8Array | null;
+            beforeMode: number;
+            directory: string;
+            note: string;
+        }, save: () => void): void;
+        recordClaudeMemory(turnId: string, path: string, target: {
+            device: string;
+            directory: string;
+            inode: string;
+            note: string;
+        }, before: JournalVersion | null, after: JournalVersion | null): void;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;

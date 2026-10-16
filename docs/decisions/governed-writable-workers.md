@@ -700,7 +700,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:885-913`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:886-914`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1003,7 +1003,7 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:105`).
+`packages/ui-backend-claude/src/permission-hooks.ts:107`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
@@ -1294,7 +1294,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:195`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:196`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1306,7 +1306,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1489`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1492`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1547,11 +1547,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:852-880`;
+`packages/ui-sdk/src/server/worker-launcher.ts:853-881`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:885-911`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:886-912`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1044-1103`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1045-1104`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1868,13 +1868,31 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:184-252`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
 
-Claude auto-memory currently persists outside the authoritative brain through
-its backend state service. That service supplies no journal version receipt;
-the canonical brain/workspace journal does not invent a memory path or user
-restore authority. Its external memory integration remains a separate source
-limitation, not a claim of delivered raw-memory review/revert.
+Claude auto-memory persists outside the authoritative brain. Its validated
+native copy-out wraps each changed direct `.md` note in host journal retention:
+exact before/after objects and the private destination are staged and pinned
+before saving; only a successful save publishes the attributed steering change.
+The logical `claude-memory://<note.md>` path and `claude_memory` scope cannot
+collide with a canonical brain-relative path. Host directories, credentials,
+transcripts and settings never become journal change entries. Taint is captured
+from existing session/turn evidence at save time, not inferred on replay.
+
+The existing reader and authenticated per-file/whole-turn recovery use the
+private saved destination. Current bytes and saved-directory identity must match
+before restoration, preserving later memory. Revert is user-attributed and
+journaled for Undo; voice/agent/autonomous actors gain no recovery authority.
+Ordinary persistence never deletes notes. Refused or interrupted saves retain
+truthful partial/unconfirmed history, including the window between file commit
+and receipt finalization. Staged raw versions remain under the same aggregate
+cap, active pins and completed-turn retention/collection. This is the external
+memory completion of the earlier 0.42.0 steering slice, not a widening of memory
+providers or a claim of capturing intervening external writes. The copy-out
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:201-215`;
+retention/finalization is `persistClaudeMemory`,
+`packages/ui-server/src/brain/turn-journal.ts:374-409`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
 
@@ -1907,7 +1925,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:48-71`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:49-72`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name

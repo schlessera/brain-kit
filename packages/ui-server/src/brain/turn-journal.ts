@@ -7,7 +7,7 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
-import { constants } from "node:fs";
+import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -149,6 +149,7 @@ export function createTurnJournal(db: Database, options: {
     const before = summary(turnId);
     accounting.write(() => {
       db.query("DELETE FROM turn_journal_changes WHERE turn_id=?").run(turnId);
+      db.query("DELETE FROM turn_journal_claude_memory WHERE turn_id=?").run(turnId);
       db.query("DELETE FROM turn_journal_manifests WHERE turn_id=?").run(turnId);
       db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=?").run(turnId);
       if (removeSummary) db.query("DELETE FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL").run(turnId);
@@ -342,7 +343,7 @@ export function createTurnJournal(db: Database, options: {
           if (failures.has(turnId)) db.query("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?").run(failures.get(turnId)!.padEnd(64), turnId);
           db.query("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' THEN state ELSE 'complete' END WHERE turn_id=?").run(now(), turnId);
           db.query("DELETE FROM turn_journal_manifests WHERE turn_id=?").run(turnId);
-          db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash))").run(turnId, turnId);
+          db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))").run(turnId, turnId, turnId);
         });
         collectObjects(); publish(turnId);
       }
@@ -368,6 +369,64 @@ export function createTurnJournal(db: Database, options: {
       if (!selected.hash || selected.ignored || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
       if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
       try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
+    },
+    /** Validated copy-out is the only native source of an external destination. */
+    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): void {
+      if (!active.has(turnId)) throw new JournalStorageUnavailable("memory persistence requires an active turn");
+      const path = change ? `claude-memory://${change.note}` : "claude-memory://";
+      try {
+        if (!change) throw new JournalStorageUnavailable("native memory persistence could not be inspected");
+        if (!change.note.endsWith(".md") || /[\\/\u0000-\u001f\u007f]/u.test(change.note) || [".", ".."].includes(change.note)) throw new Error("invalid memory note");
+        const directory = realpathSync(change.directory), info = lstatSync(directory);
+        if (directory !== change.directory || !info.isDirectory() || directory === options.brainPath || directory.startsWith(`${options.brainPath}/`)) throw new Error("invalid external memory store");
+        const retained = (bytes: Uint8Array | null, mode: number): JournalVersion | null => bytes === null ? null : {
+          kind: "file", mode, bytes: bytes.length, hash: retain(() => objects.putBytes(bytes)), ignored: false,
+        };
+        const before = retained(change.before, change.beforeMode);
+        // Pin the first object before a second admission can collect under pressure.
+        retain(() => accounting.write(() => pin(turnId, before)));
+        const after = retained(change.after, 0o600);
+        retain(() => accounting.write(() => pin(turnId, after)));
+        retain(() => accounting.write(() => db.query("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)")
+          .run(turnId, path, directory, String(info.dev), String(info.ino), change.note, before ? JSON.stringify(before) : null, JSON.stringify(after), "pending")));
+        save();
+        this.recordClaudeMemory(turnId, path, { directory, device: String(info.dev), inode: String(info.ino), note: change.note }, before, after);
+      } catch (error) {
+        // A note-specific refusal does not erase other successfully retained
+        // changes. If even this bounded missing receipt cannot fit, use the
+        // admission's preallocated partial terminal slot instead.
+        try {
+          retain(() => accounting.write(() => {
+            const row = db.query("SELECT missing FROM turn_journal_turns WHERE turn_id=?").get(turnId) as {missing:string} | null;
+            if (!row) throw error;
+            const missing = (JSON.parse(row.missing) as {path:string;reason:string}[]).filter(item => item.path !== path);
+            missing.push({path,reason:"memory_persistence_unconfirmed"});
+            db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify(missing),turnId);
+          })); publish(turnId);
+        } catch { fail(turnId, error); }
+        if (change) throw error;
+      }
+    },
+    /** @internal Reads only a durable host-created destination, never a requested path. */
+    claudeMemoryTarget(turnId: string, path: string) {
+      return db.query("SELECT directory,device,inode,note FROM turn_journal_claude_memory WHERE turn_id=? AND path=?").get(turnId, path) as { directory: string; device: string; inode: string; note: string } | null;
+    },
+    /** @internal Record a successful native save or authenticated recovery with existing retained objects. */
+    recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null) {
+      const turn = active.get(turnId); if (!turn) throw new JournalStorageUnavailable("memory observation requires an active turn");
+      const metadata = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
+      const actor = metadata.actor === "user" ? "user" : "agent";
+      const taint = actor === "agent" ? db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1").get(turnId, metadata.session_id, metadata.session_id) as { id: number } | null : null;
+      const sequence = ++turn.sequence;
+      retain(() => accounting.write(() => {
+        db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,'steering',?,'[]',?)")
+          .run(turnId, sequence, path, "claude_memory", before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, actor, taint?.id ?? null);
+        db.query("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)").run(turnId, path, target.directory, target.device, target.inode, target.note, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, "saved");
+        pin(turnId, before); pin(turnId, after);
+        recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId, actor: metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
+          payload: { path, sequence, beforeHash: before?.hash ?? null, afterHash: after?.hash ?? null, taintSourceEventId: taint?.id ?? null, overlappingTurnIds: [] } });
+      }));
+      publish(turnId);
     },
     /** All operation metadata uses the journal's existing physical allocation owner. */
     writeOperation<T>(write: () => T): T { return accounting.write(write); },
@@ -416,7 +475,7 @@ export function createTurnJournal(db: Database, options: {
       const outwardActions: JournalOutwardAction[] = outward.slice(0, 1000).map(event => ({ id: event.id, at: event.at,
         tool: String(event.payload.tool), action: event.payload.action as JournalOutwardAction["action"], target: event.payload.target as string | null,
         decision: event.payload.decision as JournalOutwardAction["decision"], historyRewrite: event.payload.historyRewrite === true, revertible: false }));
-      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(JSON.parse(row.steering_inventory_missing) as string[]).map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
+      return { turnId, sessionId, summary: summary(turnId), changes, ...(outwardActions.length ? { outwardActions, outwardActionsTruncated: outward.length > 1000 } : {}), missing: [...JSON.parse(row.missing), ...(db.query("SELECT path FROM turn_journal_claude_memory WHERE turn_id=? AND state!='saved'").all(turnId) as {path:string}[]).filter(item => !(JSON.parse(row.missing) as {path:string}[]).some(missing => missing.path === item.path)).map(item => ({path:item.path,reason:"memory_persistence_unconfirmed"})), ...(JSON.parse(row.steering_inventory_missing) as string[]).map(path => ({ path, reason: "configuration_inputs_not_fully_identified" })), ...(failure ? [{ path: ".", reason: failure }] : [])] };
     },
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);

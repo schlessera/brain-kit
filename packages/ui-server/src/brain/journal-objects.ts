@@ -34,6 +34,7 @@ export class JournalCapacityError extends Error {
 export function createJournalObjects(root: string, accounting: JournalObjectAccounting): {
   has(hash: string): boolean;
   putFileAsync(source: number, size: number, signal?: AbortSignal): Promise<string>;
+  putBytes(bytes: Uint8Array): string;
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
   withVerifiedCopy<T>(hash: string, bytes: number, apply: (copy: (destination: number) => void) => T): T;
@@ -63,6 +64,31 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
   };
   return {
     has,
+    putBytes(bytes) {
+      assertOpen();
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      const reservation = accounting.reserve(bytes.length, digest);
+      const temporary = `pending-${reservation.id ?? crypto.randomUUID()}`;
+      let output: number | undefined, created = false, published = false;
+      try {
+        output = openSync(path(temporary), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); created = true;
+        if (output !== undefined) {
+          let position = 0;
+          while (position < bytes.length) { const count = writeSync(output, bytes, position, Math.min(64 * 1024, bytes.length - position), position); if (!count) throw new Error("Journal object write made no progress."); position += count; }
+          fsyncSync(output); closeSync(output); output = undefined; fsyncSync(directory);
+        }
+        let duplicate = false;
+        try { fs.linkSync(path(temporary), path(digest)); published = true; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !has(digest)) throw error; duplicate = true; }
+        unlinkSync(path(temporary)); created = false; fsyncSync(directory);
+        reservation.finish(digest, bytes.length, duplicate);
+        return digest;
+      } catch (error) {
+        if (output !== undefined) closeSync(output);
+        if (created) unlinkSync(path(temporary));
+        if (!published) reservation.cancel(); throw error;
+      }
+    },
     async putFileAsync(source, size, signal) {
       assertOpen(); signal?.throwIfAborted();
       if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid journal object size.");

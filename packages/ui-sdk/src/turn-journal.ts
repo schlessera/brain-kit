@@ -51,6 +51,7 @@ export interface TurnRevertRequest {
 export interface TurnJournalChange {
   sequence: number;
   path: string;
+  /** `claude_memory` identifies external persisted notes; their path is a logical `claude-memory://<note.md>` identity, never a host pathname. */
   scope: string;
   class: "content" | "steering" | "policy";
   actor: "agent" | "user";

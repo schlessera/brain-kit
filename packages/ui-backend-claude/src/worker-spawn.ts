@@ -1,6 +1,6 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { workerCleanupUnconfirmed } from "@schlessera/brain-ui-sdk/internal";
+import { rewriteWorkerRtk, workerCleanupUnconfirmed } from "@schlessera/brain-ui-sdk/internal";
 import { EventEmitter } from "node:events";
 import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
@@ -87,7 +87,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
-  startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView) {
+  startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
+  persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"]) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -95,6 +96,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   // Every worker's /tmp is a private tmpfs of exactly this allowance (#1703).
   const turnTempLimits: WorkerStateLimits = stateOptions.turnTempLimits ?? resolveTurnTempLimits({});
   /** The running worker's turn temp, for the `turn_temp` tool and the pressure warnings. */
+  let liveWorker: LaunchedWorker | undefined;
   let liveTurnTemp: WorkerStateHandle | undefined;
   let liveConfigurationRoot: string | undefined;
   let liveFileObserver: import("@schlessera/brain-ui-sdk/internal").LaunchedWorker["observeFile"];
@@ -151,6 +153,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
+      liveWorker = worker;
       const turnTemp = worker.turnTemp;
       liveTurnTemp = turnTemp;
       liveConfigurationRoot = worker.configurationRoot;
@@ -198,12 +201,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const promoter = turnTemp && promotion && sandbox && !restricted ? createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root,
           turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [WORKER_STATE],
           scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
+        let persistenceAttempted = false;
         try {
           const recovered = await prepareRecoveredWorkerFiles(handle.root, signal);
           if (promoter && recovered) await state.prepareCopyOut?.(handle.root, text => promoter.prepareRecovery(text, signal), signal);
           if (recovered) signal.throwIfAborted();
-          state.persist(handle.root, promoter?.rewrite);
+          persistenceAttempted = true;
+          state.persist(handle.root, promoter?.rewrite, persistMemory);
         } catch (error) {
+          if (!persistenceAttempted) persistMemory?.(null, () => {});
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
           else if (!failure) failure = workerStateSaveFailure(error);
@@ -218,6 +224,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       })
         .finally(() => {
           checks.delete(check);
+          if (liveWorker === worker) liveWorker = undefined;
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
           const failures: unknown[] = [];
           try { handle.close(); } catch (error) { failures.push(error); }
@@ -242,6 +249,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
     /** A server-side path to the running worker's `/tmp`, while one runs (#1703). */
     turnTempRoot: (): string | undefined => liveTurnTemp?.root,
     configurationRoot: (): string | undefined => liveConfigurationRoot,
+    // An opaque wrapper may alter PATH/identity below the observed process.
+    rewriteRtk: (command: string) => config.wrapper ? Promise.resolve(command) : rewriteWorkerRtk(liveWorker, command),
     observeFile: (path: string) => liveFileObserver?.(path),
     stateRoom: (): StateRoomObservation | undefined => observation,
     /** The same, once the workers have exited or `waitMs` has passed. */
