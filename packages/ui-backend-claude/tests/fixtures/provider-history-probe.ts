@@ -24,7 +24,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   const tool = main && sequence++ === 0;
   const content = tool ? [{ type: "tool_use", id: "toolu_odysseus", name: scenario === "promotion" ? "Bash" : "Read",
     input: scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { file_path: join(brain, "notes/raft.md") } }]
-    : [{ type: "text", text: scenario === "promotion" && main ? "[Raft plan](/tmp/raft.txt)" : "Odysseus checks the mast." }];
+    : [{ type: "text", text: !main ? JSON.stringify({ title: "Odysseus checks the mast" }) : scenario === "promotion" ? "[Raft plan](/tmp/raft.txt)" : "Odysseus checks the mast." }];
   capture.exchanges.push({ turn: turnIndex, path, raw, main, answer: { role: "assistant", content } });
   const events: any[] = [{ type: "message_start", message: { id: `msg_odysseus_${capture.exchanges.length}`, type: "message", role: "assistant",
     model: body.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 0 } } }];
@@ -37,7 +37,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -59,7 +59,7 @@ try {
           async proposePolicyChange() { throw new Error("Unused fixture capability"); } },
       }, profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
         HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
-        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+        ...(scenario === "title" ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
       }) }, abortController: controller, allowedTools: ["Read", "Bash"], confirmPatterns: [],
         turnLock: { acquire: () => undefined, release: () => undefined } as never, log() {},
       });

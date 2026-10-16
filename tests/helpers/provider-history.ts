@@ -15,6 +15,7 @@ export interface HistoryCapture {
   exchanges: Exchange[];
   appends: unknown[];
   budgets?: unknown[];
+  voiceRefusal?: { message: string; before: number; after: number };
 }
 export type Captures = Record<string, HistoryCapture>;
 

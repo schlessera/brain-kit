@@ -69,6 +69,17 @@ try {
       } finally { clearTimeout(timer); }
     }
   }
+  // Unsupported voice must stop before session acquisition or inference.
+  const voiceCapture = captures.control!;
+  const requestCount = () => Object.values(captures).reduce((count, value) => count + value.exchanges.length, 0);
+  const before = requestCount();
+  let message = "";
+  const voiceBackend = createPiBackend({ brainPath: brain, loadExtensions: false });
+  try { await voiceBackend.startTurn({ prompt: "Check the voyage", signal: new AbortController().signal,
+    posture: "voice", noGrantSurface: true, enforceAllowedTools: true,
+    bridge: { emit() {}, async requestPermission() { throw new Error("Voice permission unexpectedly reached"); } } }); }
+  catch (error) { message = String(error); }
+  voiceCapture.voiceRefusal = { message, before, after: requestCount() };
   scenario = "budget";
   brain = fixtureBrain(scratch, scenario);
   capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };

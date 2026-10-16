@@ -56,41 +56,42 @@ message is resent on every later request for the rest of the session. A
 and 1,200 by turn 10. They are cheap cache reads, but they are paid on every
 request, and they crowd the context window.
 
-**Changing the history costs the whole conversation.** A changed byte in the
-prefix makes the provider rewrite everything after it into the cache. For the
-Claude models brain-kit ships with, the
-[prompt-caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
-(checked 2026-10-16) prices a cache read at about 0.1× the base input price
-(0.05× on Claude Opus 5.5), and a cache write at 1.25× for the five-minute
-lifetime or 2× for the one-hour lifetime. So one turn that should have read a
-63,000-token prefix from the cache instead pays for it as a fresh write: 12.5×
-the read cost at the five-minute lifetime, and up to 40× at the one-hour
-lifetime on Opus 5.5. The first mistake adds to the bill. The second multiplies
-it.
-
-**Changing the history can also cost the answer.** On the current Claude
-generation, earlier turns' thinking is preserved and bound to the conversation
-as sent. Editing an earlier message invalidates the thinking after it, and
-accounts created on or after 2026-08-31 receive a 400 for edited history
-([extended thinking](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)).
-Rewriting history is not only a cost problem.
+**Changing the history can lose reuse and prior thinking.** A changed prefix
+can prevent reuse of the cache entry for that prefix. Provider pricing,
+cache lifetime and thinking behavior depend on the model and platform; consult
+the provider's [prompt-caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+and [extended-thinking documentation](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)
+for their current rules. This guard proves byte stability, not a particular
+bill, cache hit or thinking-invalidation response.
 
 ### What prompted this
 
-On a hosted deployment running 0.43.1, Activity usage from two days of traffic
-showed two same-model turns inside the cache lifetime reading nothing from the
-cache. Each rewrote a prefix of about 63,000 tokens, including the system
-prompt. A control session with the same flow hit the cache. In the session that
-missed, the first turn had left an untracked file in the brain; in the control,
-it had been removed. Every turn starts a new Claude CLI process, and the most
-likely cause is that process re-reading git status into the preset system
-prompt (#2046). The local guard does not reproduce it, because there the CLI
-replays turn 1's recorded system prompt, so the cause is not confirmed. The
-same audit
-found the system-prompt append rebuilt from per-turn facts, tool lists that
-depend on posture, saved transcripts rewritten after a turn, and a budget note
-appended to every user message. Each is tracked under the provider prompt-cache
-stability epic.
+The prompt-cache stability epic #2045 identified several independent prefix
+risks: repository context in the Claude preset (#2046), a system append rebuilt
+from per-turn facts (#2047), posture-dependent tool lists (#2048), rewritten
+native transcripts (#2049), routine budget notes (#2051), and auxiliary title
+traffic (#2052). Local request captures establish request assembly only; they
+do not identify a production cache miss's cause or demonstrate provider savings.
+
+## Selected ruling: new facts in the new tail
+
+The maintainer selected option B on 2026-10-16 for #2047. Authoritative state,
+change tracking, attribution and structured provenance stay internal. Relevant
+changes to device/capability facts, sandbox/journal/protected-path facts and
+actionable budget thresholds may reach the model once, in the new user content
+or equivalent new-turn context. Static configured warn/stop limits may remain
+in the session's fixed append. Routine running totals do not enter it.
+
+Replay recognizes additions through structured ownership keyed to native
+message identity and content, preserving user-authored lookalikes exactly.
+The native transcript remains untouched. This retains the enforcement decisions
+in [voice-permission.md](voice-permission.md), [worker-writable-areas.md](worker-writable-areas.md)
+and [governed-writable-workers.md](governed-writable-workers.md).
+
+Rejected alternatives are freezing all live facts out of the model (which
+withholds relevant safety/context changes), rebuilding the system append
+(which rewrites the prefix), and recognizing owned context by display text
+(which can corrupt user-authored lookalikes).
 
 ## The guard
 
@@ -117,10 +118,20 @@ never shows up in the request there. The SDK documents that recording as
 account-gated, so production can still send the changed append, and only the
 option-level check catches it.
 
-A known break that is not fixed yet is written as `test.failing` with the
+The resolved #2047/#2048/#2049/#2051 cases are ordinary passing tests.
+A new known break that is not fixed yet is written as `test.failing` with the
 issue that tracks it. When the fix lands the case starts to pass, `bun test`
 reports that as a failure, and the fix's PR turns it into a plain `test`. A
 break can therefore be acknowledged, but not silently tolerated or forgotten.
+
+The Claude probe also runs with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+unset: the installed CLI issues a tool-free title helper on the first turn,
+using the same model as the main request. Explicitly setting the flag to `1`
+suppresses it. Auxiliary traffic is separated from main history; its supported
+OTLP `query_source=generate_session_title` attribution and cumulative-once
+accounting are guarded separately by #2052. Same-model usage alone is not a
+classifier. Pi voice is rejected before session acquisition, so the guard
+asserts that refusal and unchanged request count, rather than comparing a nonexistent voice request.
 
 The guard proves how brain-kit assembles a request. It does not prove that a
 provider hits its cache: a local endpoint changes some request details (see

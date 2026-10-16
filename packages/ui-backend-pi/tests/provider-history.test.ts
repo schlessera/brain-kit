@@ -36,14 +36,17 @@ test("Pi ordinary messages retain every previous request and scripted answer", (
 test("Pi requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);
 });
-test.failing("Pi hosted requests contain no internal budget notes (#2051)", () => { noInternalNotes(captures.budget!); });
-test.failing("Pi system stays identical across device and sandbox changes (#2047)", () => {
+test("Pi hosted requests contain no internal budget notes (#2051)", () => { noInternalNotes(captures.budget!); });
+test("Pi system stays identical across device and sandbox changes (#2047)", () => {
   for (const [a, b] of pairs(captures.facts!)) identical(system(a), system(b), "system facts");
 });
-test.failing("Pi hosted system stays identical across ambient changes (#2047)", () => {
+test("Pi hosted system stays identical across ambient changes (#2047)", () => {
   for (const [a, b] of pairs(captures.budget!)) identical(system(a), system(b), "system hosted");
 });
-test.failing("Pi promoted answer remains the exact provider answer (#2049)", () => {
+test("Pi promoted answer remains the exact provider answer (#2049)", () => {
   for (const [a, b] of pairs(captures.promotion!)) history(a, b);
 });
-test.todo("Pi typed -> voice -> typed tools (#2048): createPiTurnRunner rejects voice before acquiring a session; no provider request exists to compare", () => {});
+test("Pi voice is refused before inference (#2048)", () => {
+  expect(captures.control!.voiceRefusal!.message).toContain("declares no voice tool posture");
+  expect(captures.control!.voiceRefusal!.after).toBe(captures.control!.voiceRefusal!.before);
+});
