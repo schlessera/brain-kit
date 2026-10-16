@@ -28,6 +28,13 @@ test("producer, execution-order, receipt and package-script drift refuse generat
   for(const file of producer){const original=readFileSync(join(root,file),"utf8");write(file,original+"\n// drift\n");expect(generatedCssInputs(root,"packages/ui-react/dist/styles.css")).toBeUndefined();write(file,original);}
   expect(generatedCssInputs(root,"../outside/dist/styles.css")).toBeUndefined();
 });
+test("copied theme and kit token exports bind their source without admitting nonexistent react tokens",()=>{
+  const {root,write}=fixture();write("packages/ui-react/src/theme.css",".theme{}");write("packages/ui-kit/src/theme.css",".theme{}");write("packages/ui-kit/src/tokens.css",":root{--token:1}");
+  expect(generatedCssInputs(root,"packages/ui-react/dist/theme.css")?.entry).toBe("packages/ui-react/src/theme.css");
+  expect(generatedCssInputs(root,"packages/ui-kit/dist/theme.css")?.entry).toBe("packages/ui-kit/src/theme.css");
+  expect(generatedCssInputs(root,"packages/ui-kit/dist/tokens.css")?.entry).toBe("packages/ui-kit/src/tokens.css");
+  expect(generatedCssInputs(root,"packages/ui-react/dist/tokens.css")).toBeUndefined();
+});
 test("locked offline Tailwind CLI really derives changed bytes from owned stylesheet source",async()=>{
   const {root,write}=fixture();symlinkSync(join(repo,"node_modules"),join(root,"node_modules"),"dir");
   write("packages/ui-react/src/styles.css",'@import "tailwindcss" source(none); .marker { color: red; }');

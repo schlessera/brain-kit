@@ -112,5 +112,26 @@
         "targets": []
       }
     ]
+  },
+  {
+    "owner": "packages/ui-kit/tests/visual/dictation-theme.css",
+    "inputs": [
+      {
+        "expression": "@import \"tailwindcss\" source(none);",
+        "targets": [
+          "package.json",
+          "bun.lock",
+          "packages/ui-kit/package.json"
+        ]
+      },
+      {
+        "expression": "@import \"@schlessera/brain-ui-react/theme.css\";",
+        "targets": [
+          "packages/ui-react/src/theme.css",
+          "packages/ui-react/package.json",
+          "packages/ui-kit/package.json"
+        ]
+      }
+    ]
   }
 ]

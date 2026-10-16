@@ -48,29 +48,35 @@ export type BrowserRuntimeBindings=Map<string,Map<string,string[]>>;
  * root/cache flow. Any new import/loader edge to either reader invalidates it.
  * Targets are bytes consumed by those readers, not executed source or CSS.
  */
-export function boundBrowserRuntimeInputs(root:string,files:readonly string[]):BrowserRuntimeBindings {
+export type BrowserImporters=Map<string,Set<string>>;
+export function browserImporters(root:string,files:readonly string[]):BrowserImporters {
+  const result:BrowserImporters=new Map();
+  for(const file of files){
+    if(!/\.[cm]?[jt]sx?$/.test(file))continue;
+    const source=ts.createSourceFile(file,readFileSync(join(root,file),"utf8"),ts.ScriptTarget.Latest,true);
+    const edge=(specifier:string)=>{
+      const target=ts.resolveModuleName(specifier,join(root,file),options,ts.sys).resolvedModule?.resolvedFileName;
+      if(!target)return;const normalized=relative(root,target).replaceAll("\\","/");
+      const sources=result.get(normalized)??new Set<string>();sources.add(file);result.set(normalized,sources);
+    };
+    const walk=(node:ts.Node)=>{
+      if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier&&ts.isStringLiteral(node.moduleSpecifier)&&
+          !(ts.isImportDeclaration(node)?node.importClause?.isTypeOnly:node.isTypeOnly))edge(node.moduleSpecifier.text);
+      if(ts.isCallExpression(node)&&node.arguments.length===1&&ts.isStringLiteralLike(node.arguments[0]!)&&
+          (node.expression.kind===ts.SyntaxKind.ImportKeyword||node.expression.getText(source)==="require"))edge(node.arguments[0]!.text);
+      ts.forEachChild(node,walk);
+    };walk(source);
+  }
+  return result;
+}
+export function boundBrowserRuntimeInputs(root:string,files:readonly string[],importers=browserImporters(root,files)):BrowserRuntimeBindings {
   const result:BrowserRuntimeBindings=new Map();
   for(const declaration of declarations){
     if(!files.includes(declaration.owner)||!files.includes(declaration.caller))continue;
     const matches=(file:string,expected:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===expected;};
     if(!matches(declaration.owner,declaration.ownerHash)||!matches(declaration.caller,declaration.callerHash))continue;
     if(declaration.data && Object.entries(declaration.data).some(([file,digest])=>!matches(file,digest)))continue;
-    let sealed=true;
-    for(const file of files){
-      if(!/\.[cm]?[jt]sx?$/.test(file))continue;
-      const source=ts.createSourceFile(file,readFileSync(join(root,file),"utf8"),ts.ScriptTarget.Latest,true);
-      const edge=(specifier:string)=>{
-        const target=ts.resolveModuleName(specifier,join(root,file),options,ts.sys).resolvedModule?.resolvedFileName;
-        if(target&&relative(root,target).replaceAll("\\","/")===declaration.owner&&file!==declaration.caller)sealed=false;
-      };
-      const walk=(node:ts.Node)=>{
-        if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier&&ts.isStringLiteral(node.moduleSpecifier)&&
-            !(ts.isImportDeclaration(node)?node.importClause?.isTypeOnly:node.isTypeOnly))edge(node.moduleSpecifier.text);
-        if(ts.isCallExpression(node)&&node.arguments.length===1&&ts.isStringLiteralLike(node.arguments[0]!)&&
-            (node.expression.kind===ts.SyntaxKind.ImportKeyword||node.expression.getText(source)==="require"))edge(node.arguments[0]!.text);
-        ts.forEachChild(node,walk);
-      };walk(source);
-    }
+    const sealed=[...(importers.get(declaration.owner)??[])].every(file=>file===declaration.caller);
     if(sealed)result.set(declaration.owner,new Map(Object.entries(declaration.sites)));
   }
   return result;

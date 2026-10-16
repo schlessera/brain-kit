@@ -4,7 +4,9 @@ import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
-import { boundBrowserRuntimeInputs, type BrowserRuntimeBindings } from "./bound-browser-runtime-inputs";
+import { generatedThemeInputs } from "./generated-theme-inputs";
+import { sourceBrowserDispatch } from "./source-browser-dispatch";
+import { browserImporters, boundBrowserRuntimeInputs, type BrowserRuntimeBindings } from "./bound-browser-runtime-inputs";
 import { sourceBrowserPayload } from "./source-browser-payloads";
 import { lockedBrowserAsset, type LockedBrowserAsset } from "./locked-browser-assets";
 import { generatedCssInputs, generatedCssReadInputs } from "./generated-build-inputs";
@@ -39,10 +41,17 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   const declared = new Map<string, Map<string, IndirectInput>>();
   const inactive = new Map<string, Set<string>>();
   let runtimeBindings: BrowserRuntimeBindings = new Map();
+  let dispatchBindings = new Map<string, Set<string>>();
+  let themeBinding: ReturnType<typeof generatedThemeInputs>;
   if (activation) {
     const audit = auditCommandActivation(root, activation.config, activation.selected, activation.candidates);
     for (const failure of audit.unresolved) unresolved.add(failure);
-    if (!audit.unresolved.length) runtimeBindings = boundBrowserRuntimeInputs(root, audit.files);
+    if (!audit.unresolved.length) {
+      const importers = browserImporters(root, audit.files);
+      runtimeBindings = boundBrowserRuntimeInputs(root, audit.files, importers);
+      dispatchBindings = sourceBrowserDispatch(root, audit.files, importers);
+      themeBinding = generatedThemeInputs(root, audit.files, importers);
+    }
     if (!audit.unresolved.length) for (const candidate of audit.candidates) {
       const names = inactive.get(candidate.owner) ?? new Set<string>();
       names.add(candidate.name); inactive.set(candidate.owner, names);
@@ -185,6 +194,11 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       }
       return matches;
     };
+    const boundAlias = (node: ts.Identifier): boolean => {
+      if(themeBinding?.owner!==normalized)return false;
+      const contexts=themeBinding.aliases.get(node.text);if(!contexts)return false;
+      return [node.parent,node.parent?.parent].some(parent=>parent&&contexts.has(parent.getText(ast)));
+    };
     const walk = (node: ts.Node, dormant = sourceOnly) => {
       if (!dormant && ts.isPropertyAccessExpression(node) && /^(?:process|Bun)\.env$/.test(node.getText(ast)) &&
           !((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.expression === node))
@@ -205,13 +219,13 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       }
       if (!dormant && ts.isIdentifier(node) && aliases.has(node.text) && readOperations.has(aliases.get(node.text)!)) {
         const parent = node.parent;
-        if (!ts.isImportSpecifier(parent) && !(ts.isCallExpression(parent) && parent.expression === node)) unresolved.add(`Unsupported input alias ${normalized}: ${node.text}`);
+        if (!ts.isImportSpecifier(parent) && !(ts.isCallExpression(parent) && parent.expression === node) && !boundAlias(node)) unresolved.add(`Unsupported input alias ${normalized}: ${node.text}`);
       }
       if (!dormant && ts.isIdentifier(node) && namespaces.has(node.text)) {
         const parent = node.parent;
         if (!ts.isImportClause(parent) && !ts.isNamespaceImport(parent) && !(ts.isPropertyAccessExpression(parent) && parent.expression === node) && !(ts.isElementAccessExpression(parent) && parent.expression === node)) unresolved.add(`Unsupported input namespace alias ${normalized}: ${node.text}`);
       }
-      if (!dormant && ts.isIdentifier(node) && node.text === "require" && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) unresolved.add(`Unsupported require alias ${normalized}`);
+      if (!dormant && ts.isIdentifier(node) && node.text === "require" && !(ts.isCallExpression(node.parent) && node.parent.expression === node) && !boundAlias(node)) unresolved.add(`Unsupported require alias ${normalized}`);
       if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier))
         edge(node.moduleSpecifier.text, ts.isImportDeclaration(node) ? node.importClause?.isTypeOnly === true : node.isTypeOnly);
       if (dormant && (ts.isCallExpression(node) || ts.isNewExpression(node))) {
@@ -251,6 +265,9 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           const locked = literalRead ? lockedBrowserAsset(root, normalized, literalRead) : undefined;
           const literalPayload = /\.(?:fulfill|setContent)$/.test(originalCallee) && sourceBrowserPayload(root, normalized, expression);
           const boundRuntime = runtimeBindings.get(normalized)?.get(expression);
+          const boundDispatch = dispatchBindings.get(normalized)?.has(expression) === true;
+          const generatedTheme = themeBinding?.owner===normalized && themeBinding.read===expression ? themeBinding : undefined;
+          if(generatedTheme){for(const target of generatedTheme.css)visit(target);for(const target of generatedTheme.bytes)visit(target,true);external.set(`${generatedTheme.compiler.package}/${generatedTheme.compiler.asset}`,generatedTheme.compiler);}
           if (boundRuntime) for (const target of boundRuntime) visit(target, true);
           if (locked) {
             external.set(`${locked.package}/${locked.asset}`, locked);
@@ -262,7 +279,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           }
           const matching = inputDeclarations(node);
           if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
-          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime && !boundDispatch && !generatedTheme) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }

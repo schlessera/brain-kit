@@ -19,13 +19,13 @@ const auditedProducer: Record<string,string> = {
 export function generatedCssInputs(root: string, artifact: string): { entry: string; producer: string[] } | undefined {
   const normalized=relative(root,resolve(root,artifact)).replaceAll("\\","/");
   if(isAbsolute(normalized)||normalized.startsWith("../")) return undefined;
-  const match=/^packages\/(ui-kit|ui-react)\/dist\/styles\.css$/.exec(normalized);
-  if(!match) return undefined;
+  const match=/^packages\/(ui-kit|ui-react)\/dist\/(styles|theme|tokens)\.css$/.exec(normalized);
+  if(!match || match[1] === "ui-react" && match[2] === "tokens") return undefined;
   for(const [file,digest] of Object.entries(auditedProducer)) {
     const path=resolve(root,file);
     if(!existsSync(path)||realpathSync(path)!==path||createHash("sha256").update(readFileSync(path)).digest("hex")!==digest) return undefined;
   }
-  const entry=`packages/${match[1]}/src/styles.css`,absolute=resolve(root,entry);
+  const entry=`packages/${match[1]}/src/${match[2]}.css`,absolute=resolve(root,entry);
   if(!existsSync(absolute)||realpathSync(absolute)!==absolute) return undefined;
   return {entry,producer:[...Object.keys(auditedProducer),`packages/${match[1]}/package.json`]};
 }

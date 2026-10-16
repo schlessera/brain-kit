@@ -11,12 +11,17 @@ export function lockedBrowserAsset(root:string,owner:string,literal:string):Lock
   if(literal!=="../../node_modules/axe-core/axe.min.js"||!readers[owner]) return undefined;
   const source=resolve(root,owner);
   if(!existsSync(source)||realpathSync(source)!==source||createHash("sha256").update(readFileSync(source)).digest("hex")!==readers[owner]) return undefined;
+  return lockedPackageAsset(root,"axe-core","axe.min.js");
+}
+/** Only these two audited installed assets have a supported read boundary. */
+export function lockedPackageAsset(root:string,packageName:string,assetName:string):LockedBrowserAsset|undefined {
+  if(!["axe-core/axe.min.js","@tailwindcss/cli/dist/index.mjs"].includes(`${packageName}/${assetName}`))return undefined;
   if(!existsSync(join(root,"bun.lock"))||!existsSync(join(root,"package.json"))) return undefined;
-  const directory=join(root,"node_modules/axe-core"),asset=join(directory,"axe.min.js"),manifest=join(directory,"package.json");
+  const directory=join(root,"node_modules",packageName),asset=join(directory,assetName),manifest=join(directory,"package.json");
   if(!existsSync(asset)||!existsSync(manifest)) return undefined;
   const base=realpathSync(directory),real=realpathSync(asset),stat=lstatSync(asset);
   if(!real.startsWith(base+sep)||!stat.isFile()||stat.isSymbolicLink()||lstatSync(manifest).isSymbolicLink()) return undefined;
   const data=JSON.parse(readFileSync(manifest,"utf8"));
-  if(data.name!=="axe-core"||typeof data.version!=="string"||!/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(data.version)) return undefined;
-  return {package:"axe-core",version:data.version,asset:"axe.min.js",sha256:createHash("sha256").update(readFileSync(asset)).digest("hex"),mode:stat.mode&0o777};
+  if(data.name!==packageName||typeof data.version!=="string"||!/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(data.version)) return undefined;
+  return {package:packageName,version:data.version,asset:assetName,sha256:createHash("sha256").update(readFileSync(asset)).digest("hex"),mode:stat.mode&0o777};
 }

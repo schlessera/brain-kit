@@ -299,7 +299,7 @@ imports remain fingerprinted source bytes. This bounded support does not close
 unrelated generated assets or provenance inputs.
 
 Generated consumer stylesheet imports bind the exact `ui-kit`/`ui-react`
-`dist/styles.css` output to its source stylesheet, recursive CSS inputs and
+`dist/styles.css` output and byte-copied theme/token exports to their source stylesheets, recursive CSS inputs and
 tracked producer. The audited build cleans package output, uses the frozen
 Tailwind dependency and completes successfully before browser execution and its
 fresh receipt. Three audited command readers additionally bind the runner's
@@ -330,6 +330,23 @@ caller and font JSON/CSS/head identities must match their audit; additional
 imports, reexports or loaders into either reader require fresh execution. These
 bindings name only the exact consumed repository bytes. They do not bless
 arbitrary file parameters, changed font data or unverified cached content.
+
+Two finite private dispatch registries admit their exact indexed calls while
+every handler and imported helper retains normal runtime input traversal. The
+source audit verifies literal function entries, copied handler maps and private
+non-escaping registries. The complete importer inventory rejects additional
+map consumers; two exact consumers of a different chat helper are separately
+audited. Changed source, escaping maps or new consumers require fresh execution.
+
+The dictation theme command has a separate temporary-output producer binding.
+Its exact source owns a new temporary directory, invokes the locked Tailwind
+CLI with constant input/output arguments, awaits successful completion, reads
+only that output and removes the directory. The binding includes the compiler
+asset identity, checked build producer and recursively resolved CSS entry,
+theme, tokens and explicit source scan. Its precise `promisify` and
+`createRequire` uses do not permit other aliases. The runner registration and
+complete importer inventory seal the command's caller; source or input drift
+requires a new audit. This support does not admit arbitrary subprocess outputs.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
 and modes, selected discovery ownership/order, the two measured partitions and
