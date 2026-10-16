@@ -40,6 +40,8 @@ function toPermissionResult(
 
 export function createPermissionWiring(options: {
   req: StartTurnRequest;
+  /** Hosted strict/voice natives stay registered but cannot gain execution authority. */
+  denyNativeWrites?: boolean;
   allowedTools: readonly string[];
   confirmPatterns: readonly RegExp[];
   brainPath: string;
@@ -56,6 +58,10 @@ export function createPermissionWiring(options: {
   observeFile?: (path: string) => ObservedWorkerFile | undefined;
 }): Pick<Options, "canUseTool" | "hooks"> {
   const { req, allowedTools, brainPath, turnLock, childEnv, log } = options;
+  const nativeAuthorityRefusal = (name: string): string | undefined =>
+    options.denyNativeWrites && ["Write", "Edit", "NotebookEdit"].includes(name)
+      ? "Native file writes are unavailable in this turn's profile or voice posture. Use the permitted server application tools instead."
+      : undefined;
   const fileVersions = options.fileVersions ?? new NativeFileVersions();
   const legacyObserve = req.workerSandbox?.profile === "governed" ? createWorkerFileObserver({ brain: brainPath, configurationRoot: brainPath, areas: [], maskPaths: req.workerSandbox.maskPaths }) : undefined;
   const filePath = (toolName: string, input: unknown): string | undefined => {
@@ -254,6 +260,8 @@ export function createPermissionWiring(options: {
   ) => {
     if (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, toolName, input))
       return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
+    const nativeDenied = nativeAuthorityRefusal(toolName);
+    if (nativeDenied) return { behavior: "deny", message: nativeDenied };
     const denied = denyCommand(toolName, input, opts.toolUseID);
     if (denied) return { behavior: "deny", message: denied };
     if (routed(toolName)) return { behavior: "allow" };
@@ -343,6 +351,10 @@ export function createPermissionWiring(options: {
       return { continue: true };
     }
     if (req.signal.aborted) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Turn cancelled before tool admission." } };
+    const nativeDenied = nativeAuthorityRefusal(hookInput.tool_name);
+    if (nativeDenied) return { continue: true, hookSpecificOutput: {
+      hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: nativeDenied,
+    } };
     const denied = denyCommand(hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id);
     if (denied) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denied } };
     if (routed(hookInput.tool_name)) return { continue: true };

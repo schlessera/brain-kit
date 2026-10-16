@@ -124,7 +124,15 @@ function assembleClaudeSdkTurn(
     mcp__brain__brain_add: "mcp__brain-ui__brain_add", mcp__brain__brain_update: "mcp__brain-ui__brain_update",
     mcp__brain__brain_archive: "mcp__brain-ui__brain_archive", Write: "mcp__brain-ui__write_file", Edit: "mcp__brain-ui__edit_file",
   };
-  const allowed = [...new Set(options.allowedTools.map(name => hosted ? (migrations[name] ?? name) : name))];
+  // Registration is stable across interactive profiles/postures (#2048 A).
+  // Native writers keep their auto-allow on governed typed turns; the hook
+  // refuses them on strict/voice turns before any settings or remembered grant.
+  // Keep server writers alongside the natives, with their existing authority.
+  const allowed = [...new Set(options.allowedTools.flatMap(name => {
+    if (!hosted) return [name];
+    const migrated = migrations[name] ?? name;
+    return !req.autonomous && (name === "Write" || name === "Edit") ? [name, migrated] : [migrated];
+  }))];
   if (req.bridge.readBrainBase) allowed.push("mcp__brain-ui__brain_read_base");
   // Application permission lives in the server. These are callable tools,
   // never authority: every executor goes through the server-owned route.
@@ -225,9 +233,10 @@ function assembleClaudeSdkTurn(
     // when no ask-user handler is present.
     disallowedTools: ["AskUserQuestion", ...((hosted || req.autonomous) ? [
       "mcp__brain__brain_add", "mcp__brain__brain_update", "mcp__brain__brain_archive",
-    ] : []), ...(hosted && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
+    ] : []), ...(hosted && req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice") ? ["Write", "Edit", "NotebookEdit"] : [])],
     ...createPermissionWiring({
       req,
+      denyNativeWrites: hosted && !req.autonomous && (sandbox.profile !== "governed" || req.posture === "voice"),
       allowedTools: allowed,
       confirmPatterns,
       brainPath: backend.brainPath,

@@ -66,8 +66,14 @@ Hosted turns route authoritative Markdown through the server-owned application
 boundary. Standalone terminal `brain mcp` names and schemas above are unchanged.
 Claude registers the tools below under `mcp__brain-ui__`; pi uses the unprefixed
 names. Hosted Claude disallows project `mcp__brain__brain_add`,
-`mcp__brain__brain_update` and `mcp__brain__brain_archive`, plus built-in raw
-writers; its server tools apply the validated effects instead.
+`mcp__brain__brain_update` and `mcp__brain__brain_archive`.
+Hosted interactive Claude keeps native `Write`/`Edit`/`NotebookEdit` registered
+across governed, strict and voice turns. Governed typed natives are auto-allowed
+when configured, under existing stale-read, write-lock, journaling and protected
+mount controls. Strict and voice native calls refuse at call time before
+execution or an approval card, including with settings or remembered allows;
+server application tools retain their existing per-turn authority. Autonomous
+registration and authority are unchanged (#2022, #2048 A).
 
 | Tool | Exact input (unknown keys refuse) |
 | --- | --- |
