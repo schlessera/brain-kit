@@ -762,6 +762,8 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
 export interface PrepareWorkerSandboxOptions {
   profile?: "governed" | "strict";
   protectedPaths?: readonly string[];
+  /** Literal existing provider folder roots to retain read-write, with every ancestor. */
+  folderPaths?: readonly string[];
   appearedPaths?: readonly string[];
   readPaths?: readonly string[];
   maskPaths?: readonly string[];
@@ -789,7 +791,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
-    paths: options.protectedPaths, appeared: options.appearedPaths,
+    paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
@@ -811,6 +813,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   // directory on the host, where no size-limited mount can hold it (#1703).
   const home: WorkerHome = { mode: "xdg" };
   return { brain, restricted: false, areas, scratchAliasesRemoved: removed,
+    ...(options.folderPaths?.length ? { retainedFolders: Object.freeze([...options.folderPaths]) } : {}),
     ...(options.profile ? { profile: resolved?.reason ? "strict" as const : options.profile,
       ...(resolved ? { protection: resolved.protection } : {}),
       ...(resolved?.reason ? { fallbackReason: resolved.reason } : {}),

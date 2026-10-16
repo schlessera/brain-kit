@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, linkSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, existsSync, linkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { prepareWorkerSandbox, workerCommand } from "../src/server/worker-launcher.js";
@@ -129,4 +129,88 @@ test("a missing protection root reports a strict fallback instead of throwing", 
     expect(result.reason, "MISSING_PROTECTION_ROOT_REFUSAL").toBe("protected paths could not be verified: ENOENT");
     expect(result.protection).toEqual({ paths: [], ancestors: [] });
   } finally { rmSync(join(missing, ".."), { recursive: true, force: true }); }
+});
+
+
+test("provider folder topology pins its root and ancestors while preserving live writes", () => {
+  const brain = fixture();
+  mkdirSync(join(brain, "group/private"), { recursive: true });
+  writeFileSync(join(brain, "group/private/identity.md"), "Odysseus private identity.\n");
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+  expect(workerSandboxNote(sandbox)).toContain("Keep these folders and their ancestors in place: `group/private`");
+  const child = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
+    if mv group/private group/moved-private 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi
+    if mv group group-moved 2>/dev/null; then echo ANCESTOR_RENAMED; exit 42; fi
+    printf 'Athena private addition.\\n' > group/private/new.md || exit 43
+    printf 'Odysseus public addition.\\n' > group/public.md || exit 44
+  `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+  expect(child.exitCode, `PROVIDER_FOLDER_TOPOLOGY_SURVIVES_NATIVE_WRITER: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
+  expect(readFileSync(join(brain, "group/private/new.md"), "utf8")).toBe("Athena private addition.\n");
+  expect(readFileSync(join(brain, "group/public.md"), "utf8")).toBe("Odysseus public addition.\n");
+});
+
+
+test("unverified provider folder topology selects strict without materializing missing roots", () => {
+  for (const kind of ["missing", "symlink", "hardlink", "linked-child"] as const) {
+    const brain = fixture();
+    if (kind !== "missing") {
+      mkdirSync(join(brain, "group/private"), { recursive: true });
+      writeFileSync(join(brain, "outside.md"), "Odysseus original.\n");
+      if (kind === "symlink") { rmSync(join(brain, "group/private"), { recursive: true }); symlinkSync("../outside.md", join(brain, "group/private")); }
+      if (kind === "hardlink") linkSync(join(brain, "outside.md"), join(brain, "group/private/alias.md"));
+      if (kind === "linked-child") symlinkSync("../../outside.md", join(brain, "group/private/alias.md"));
+    }
+    const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+    expect(sandbox.profile, `UNVERIFIED_PROVIDER_FOLDER_REFUSES_GOVERNED_TOPOLOGY: ${kind}`).toBe("strict");
+    expect(sandbox.fallbackReason).toContain("protected paths could not be verified");
+    if (kind === "missing") expect(existsSync(join(brain, "group")), "ABSENT_PROVIDER_FOLDER_IS_NOT_MATERIALIZED").toBe(false);
+  }
+});
+
+test("a provider folder swapped before launch is not pinned under its stale inspection", () => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  renameSync(join(brain, "group/private"), join(brain, "group/held")); mkdirSync(join(brain, "group/private"));
+  expect(() => workerCommand({ brainPath: brain, sandbox, env: {}, command: ["/bin/true"] }), "STALE_PROVIDER_FOLDER_TOPOLOGY_REFUSES_LAUNCH").toThrow("provider folder topology changed before launch");
+});
+
+
+test("root and ancestor pins keep live peer additions behind a fixed directory cover", async () => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  writeFileSync(join(brain, "group/private/identity.md"), "Odysseus private identity.\n");
+  const prepare = () => prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  const sandbox = prepare(); expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+  const argv = workerCommand({ brainPath: brain, sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
+    'printf "READY\\n"; IFS= read -r go; cat group/private/born.md 2>/dev/null || :; cat group/public.md'] });
+  // A fixed fixture cover exercises topology only. Production provider routing remains inactive.
+  argv.splice(argv.lastIndexOf("--clearenv"), 0, "--tmpfs", join(brain, "group/private"), "--remount-ro", join(brain, "group/private"));
+  const reader = Bun.spawn(argv, { env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const stream = reader.stdout.getReader(); let output = "";
+  const errors = new Response(reader.stderr).text();
+  const ready = async () => {
+    while (!output.includes("READY\n")) { const next = await stream.read(); if (next.done) throw Error("Provider folder reader exited before readiness"); output += new TextDecoder().decode(next.value); }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([ready(), new Promise((_, reject) => { timer = setTimeout(() => reject(Error("Provider folder reader readiness timed out")), 5000); })]);
+    clearTimeout(timer);
+    const writer = Bun.spawnSync(workerCommand({ brainPath: brain, sandbox: prepare(), env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
+      mv -T group/private group/moved-private 2>/dev/null; printf 'root=%s\\n' "$?"
+      mkdir -p group/private
+      mv -T group group-moved 2>/dev/null; printf 'ancestor=%s\\n' "$?"
+      mkdir -p group/private
+      printf 'Athena new private marker.\\n' > group/private/born.md || exit 43
+      printf 'Odysseus public witness.\\n' > group/public.md || exit 44
+      ln group/private/born.md public-alias.md 2>/dev/null; printf 'alias=%s\\n' "$?"
+    `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(writer.exitCode, writer.stderr.toString()).toBe(0);
+    reader.stdin.write("go\n"); reader.stdin.end();
+    for (;;) { const next = await stream.read(); if (next.done) break; output += new TextDecoder().decode(next.value); }
+    expect(await reader.exited, await errors).toBe(0);
+    expect(output, "ALL_WRITER_ROOT_AND_ANCESTOR_PINS_KEEP_LIVE_PRIVATE_CHILD_HIDDEN").not.toContain("Athena new private marker");
+    expect(output, "PERMITTED_SIBLING_REMAINS_LIVE").toContain("Odysseus public witness");
+    expect(writer.stdout.toString(), "ROOT_ANCESTOR_AND_OUTSIDE_HARDLINK_REFUSALS").toBe("root=1\nancestor=1\nalias=1\n");
+    expect(readFileSync(join(brain, "group/private/born.md"), "utf8"), "ALLOWED_PEER_RETAINS_PRIVATE_SUBTREE_WRITES").toBe("Athena new private marker.\n");
+  } finally { clearTimeout(timer); reader.kill(); await reader.exited; await errors; stream.releaseLock(); }
 });
