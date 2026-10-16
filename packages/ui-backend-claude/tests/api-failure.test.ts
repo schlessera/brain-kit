@@ -1,3 +1,4 @@
+import { usageEvents } from "./helpers/usage-events.js";
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 // A turn whose model call failed ends on a terminal frame that says so, with
 // the failure's class, its status where the runtime stated one, and its text
@@ -260,16 +261,17 @@ describe("a failed model call ends the turn as a failure", () => {
     expect(result.failure?.authAction).toBeUndefined();
   });
 
-  test("a partial answer survives; the status comes from the result; usage is the result's, once", async () => {
-    const frames = await runTurn(overloadedMidAnswer);
+  test("a partial answer survives; the status comes from the result; usage comes from its completed responses once", async () => {
+    const frames = await runTurn([...overloadedMidAnswer.slice(0, -1),
+      ...usageEvents(SESSION, "claude-sonnet-4-6", 12, 4), overloadedMidAnswer.at(-1)!]);
     expect(frames.filter((frame) => frame.type === "text_delta").map((frame) => frame.type === "text_delta" && frame.text)).toEqual([
       PARTIAL_ANSWER,
     ]);
     const result = terminal(frames);
     expect(result.failure).toEqual({ errorClass: "server_error", status: 529, message: OVERLOADED_TEXT });
-    expect(result.costUsd).toBe(0.0123);
-    expect(result.usage?.inputTokens).toBe(1200);
-    expect(result.usage?.outputTokens).toBe(40);
+    expect(result.costUsd).toBeUndefined();
+    expect(result.usage?.inputTokens).toBe(12);
+    expect(result.usage?.outputTokens).toBe(4);
     expect(frames.filter((frame) => frame.type === "result" && frame.usage)).toHaveLength(1);
   });
 

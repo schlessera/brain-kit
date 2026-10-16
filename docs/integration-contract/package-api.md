@@ -3198,6 +3198,20 @@ The client preserves selected predefined answers beside custom text in a
 multi-select and the existing grouped-question submission path. No wire,
 CLI/MCP or answer-delivery contract changes.
 
+### Claude cumulative usage evidence (additive, #2025)
+
+The server-only `BackendActivityEvent` variant `claude_session_usage` carries
+optional `completed: TurnUsage`, `cumulative: TurnUsage` and
+`reportedCostUsd: number`. `completed` is this host turn's completed root/child
+response usage; `cumulative` and `reportedCostUsd` are source-qualified runtime
+session totals, never turn receipts. Repeated events refine one host turn;
+they do not represent additional spend. An absent cumulative total or completed
+receipt stays unknown. The host persists a conservative auxiliary high-water
+reconciliation separately from main usage, without assigning title-helper
+provenance or relying on a model name. Direct backend consumers receive own
+completed token counts on `result`; its absent cost remains unknown until a
+host prices those counts. Autonomous Queue semantics are unchanged.
+
 ## Content-renderer entries (additive #2081)
 
 The experimental `@schlessera/brain-ui-sdk/client` content seam exports

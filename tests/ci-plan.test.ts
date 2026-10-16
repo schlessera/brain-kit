@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -186,6 +186,7 @@ describe("affected CI checks", () => {
 
   test("the executable writes affected job outputs and keeps drafts on cheap gates", async () => {
     const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
+    f.write("scripts/browser-input-closure.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/browser-input-closure.ts"))};\n`);
     f.write("packages/core/src/note.ts", "export const note = 2;\n");
     f.git("add", "."); f.git("commit", "-qm", "planner fixture");
     for (const draft of ["true", "false"]) {
@@ -300,4 +301,41 @@ test("internal symlink aliases retain target and transitive test consumers", () 
   symlinkSync("fixtures/tide.json", join(f.dir, "tests/tide-alias.json"));
   f.write("tests/alias.test.ts", 'const fixture = "./tide-alias.json";'); f.git("add", ".");
   expect(rootConsumers(f.dir, ["tests/fixtures/tide.json"]).tests, "SYMLINK_TARGET_CONSUMER_REQUIRED").toEqual(["tests/alias.test.ts"]);
+});
+
+test("category closure selection preserves full commands and independent exhaustive cadence", () => {
+  const packages = [{ dir: "ui-server", name: "fixture", dependencies: [], files: ["src"] }];
+  const changed = ["packages/ui-server/src/unrelated.ts"];
+  const broad = planChecks(changed, packages);
+  const closed = { files: ["packages/ui-server/src/reached.ts"], unresolved: [] };
+  const closures = { browser: closed, layout: closed, endurance: closed, captures: { files: changed, unresolved: [] } };
+  const selected = selectBrowserClosures(broad, closures);
+  expect(selected.local.browser).toBe(false); expect(selected.local.layout).toBe(false); expect(selected.local.endurance).toBe(false);
+  expect(selected.local.captures).toBe(true);
+  expect(selected.tests).toEqual(broad.tests); expect(selected.local.fullTests).toBe(broad.local.fullTests);
+  expect(selected.local.runtime).toBe(broad.local.runtime);
+  expect(proofSelections(selected).captures).toBe(true);
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    const exhaustive = selectBrowserClosures(planChecks(["package.json"], packages), closures);
+    exhaustive.cadence = proofCadence({ GITHUB_EVENT_NAME: event }, {});
+    expect(exhaustive.cadence).toBe("exhaustive");
+    for (const category of ["browser", "layout", "endurance", "captures"] as const) expect(proofSelections(exhaustive)[category]).toBe(true);
+  }
+  const integrated = { ...selected, cadence: proofCadence({ GITHUB_EVENT_NAME: "push" }, {}) };
+  expect(integrated.cadence).toBe("integrated");
+  expect(proofSelections(integrated).browser).toBe(false);
+  expect(proofSelections(integrated).captures).toBe(true);
+});
+
+test("browser closure composition preserves exact consumer inventories and bounded unit shards", () => {
+  const base = planChecks(["packages/ui-server/src/unrelated.ts"], [{ dir: "ui-server", name: "fixture", dependencies: [], files: ["src"] }]);
+  const unitTests = ["tests/owned.test.ts"];
+  const plan = { ...base, unitTests };
+  const closed = { files: [], unresolved: [] };
+  const selected = selectBrowserClosures(plan, { browser: closed, layout: closed, endurance: closed, captures: closed });
+  expect(selected.unitTests).toBe(unitTests);
+  expect(selected.tests).toEqual(plan.tests);
+  expect(unitShards(selected)).toEqual([1]);
+  expect(unitShards(selectBrowserClosures(base, { browser: closed, layout: closed, endurance: closed, captures: closed }))).toEqual([1, 2, 3, 4]);
+  expect(selected.local.runtime).toBe(plan.local.runtime);
 });
