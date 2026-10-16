@@ -321,11 +321,13 @@ async function runRetainedSession(
     coordinator.queueChanged(turn.sessionId, { dropped: { entries: [entry], reason } });
   };
 
+  let activeLifecycle = initialLifecycle;
   try {
     while (next && !turn.cancelled) {
       const current: QueuedFollowUp = next;
       const lifecycle = turn.turnId === initialTurnId ? initialLifecycle : current.lifecycle ?? (host.activity
         ? createTurnLifecycle(host.activity.store, turn.turnId, turn.sessionId, current.queuedAt ?? Date.now(), () => host.activity!.stream.pump()) : undefined);
+      activeLifecycle = lifecycle;
       if (current.queuedAt !== undefined) lifecycle?.mark("dequeuedAt");
       releaseActiveAuthorization = current.releaseAuthorization;
       // The slot now holds this request; recovery reads it as queued until
@@ -411,14 +413,14 @@ async function runRetainedSession(
         turn.revision = undefined;
         await failureRecording.finish();
         clearTimeout(timeoutHandle);
-        releaseActiveAuthorization();
-        releaseActiveAuthorization = undefined;
         // A cancellation accepted while billing was in flight is already a
         // decision someone made; losing it because the turn's own principal
         // was revoked a moment later would erase the actor, not the turn. Drain
         // the buffer before leaving.
         recordPendingCancellations(host, turn, billing, lifecycle);
         lifecycle?.finish("cancelled", REVOKED_REASON);
+        releaseActiveAuthorization();
+        releaseActiveAuthorization = undefined;
         dropHandedOver(current, REVOKED_REASON);
         next = dequeue();
         continue;
@@ -790,6 +792,10 @@ async function runRetainedSession(
       if (!turn.cancelled && turn.queue.length > 0) await settleDeliveries(turn);
       if (!turn.cancelled) next = dequeue();
     }
+  } catch (error) {
+    activeLifecycle?.finish(turn.cancelled ? "cancelled" : turn.abortController?.signal.aborted ? "timeout" : "error",
+      error instanceof Error ? error.message : String(error));
+    throw error;
   } finally {
     releaseActiveAuthorization?.();
     next?.releaseAuthorization();
