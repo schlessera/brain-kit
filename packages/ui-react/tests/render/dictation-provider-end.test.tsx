@@ -18,7 +18,6 @@ import type { VoiceSessionResponse } from "@schlessera/brain-ui-sdk/client";
 
 import { BrainUiProvider } from "../../src/root-context.js";
 import { createBrainUiRoot, type BrainUiRoot } from "../../src/root.js";
-import type { BrainApi } from "../../src/lib/api-client.js";
 import { useVpnStatus } from "../../src/hooks/use-vpn-status.js";
 import type { LocalWork } from "../../src/lib/local-work.js";
 import { useDictation } from "../../src/voice/use-dictation.js";
@@ -189,11 +188,13 @@ function voiceRoot(provider: Provider) {
     expiresAt: Date.now() + 60_000,
     capabilities,
   };
-  const api = {
-    voiceSession: async () => session,
-    voiceOverrides: async () => ({ overrides: [] }),
-  } as unknown as BrainApi;
-  const root = createBrainUiRoot({ storage: null, api });
+  const root = createBrainUiRoot({ storage: null, request: async input => {
+    const path = new URL(input, "http://localhost").pathname;
+    if (path === "/api/voice/session") return Response.json(session);
+    if (path === "/api/voice/overrides") return Response.json({ overrides: [] });
+    if (path === "/api/status") return Response.json({ contentRenderers: [] });
+    throw new Error(`Unexpected dictation fixture request: ${path}`);
+  } });
   roots.push(root);
   return root;
 }

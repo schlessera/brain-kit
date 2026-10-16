@@ -107,6 +107,7 @@ describe.skipIf(!executablePath)("mounted approval recovery", () => {
       await connected(page);
       const composer = page.locator("textarea.bk-composer");
       await composer.fill("Row past the Sirens");
+      await composer.locator("..").locator('[aria-label="Send"]').waitFor();
       await composer.press("Enter");
       await page.locator("[data-approval-card]").waitFor();
       // Raised while this page watched the turn: not restored.
@@ -148,6 +149,7 @@ describe.skipIf(!executablePath)("mounted approval recovery", () => {
       await connected(first);
       const composer = first.locator("textarea.bk-composer");
       await composer.fill("Steer clear of Scylla");
+      await composer.locator("..").locator('[aria-label="Send"]').waitFor();
       await composer.press("Enter");
       await first.locator("[data-approval-card]").waitFor();
       await first.reload();

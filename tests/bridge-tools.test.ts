@@ -329,7 +329,7 @@ describe("bridge tool adapter identity", () => {
     }
   });
 
-  test("Claude preserves migration receipts except the additive roadblocks definition", async () => {
+  test("Claude preserves migration receipts except the additive roadblocks/remedy definition", async () => {
     const before = readSnapshot("before");
     const after = readSnapshot("after");
     for (const name of SNAPSHOT_NAMES) {
