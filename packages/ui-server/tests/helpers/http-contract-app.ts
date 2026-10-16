@@ -54,7 +54,8 @@ else if (args[0] === "sync") console.log("Fixture sync complete");
     { mode: 0o755 });
   const native = createNativeAppFixture(brainPath);
   const config = resolveServerConfig({
-    AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: ":memory:", BRAIN_PATH: brainPath,
+    // Each independent app owns its existing state-path admission domain.
+    AUTH_MODE: "none", HOST: "127.0.0.1", DB_PATH: join(root, "ui.db"), BRAIN_PATH: brainPath,
     BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", VOICE_PROVIDER: "webspeech",
     BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS: "https://inference.example",
     ...options.env, ...native.env,
