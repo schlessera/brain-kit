@@ -21,7 +21,7 @@
     "observerSha256": "5d1760000e759cca123066c3b38b8d23320316e6878896aec4031cd2b2e46303"
   },
   "guardedFreshProofRequired": true,
-  "targetedDiagnostic": {
+  "historicalTargetedDiagnostic": {
     "projects": [
       "diagrams-chromium",
       "diagrams-webkit"
@@ -30,7 +30,19 @@
     "passed": 18,
     "workerAttempts": 0,
     "logSha256": "282640cec719b3e5940018963f64b383a3eee13c4bc03a69d711fe66965b7fcd",
-    "scope": "Both added project pairs passed all 18 original cases with zero Worker attempts on the current audited source, after the intended resource mutation failed in Chromium and WebKit and originals were restored. This remains two project pairs, not a whole-299-domain observation.",
+    "scope": "Both added project pairs passed all 18 original cases with zero Worker attempts on the audited source at that checkpoint, after the intended resource mutation failed in Chromium and WebKit and originals were restored. This remains two project pairs, not a whole-299-domain observation.",
     "source": "a0f007ae0f8cbe224c101179a1955044c3d241c3"
+  },
+  "targetedDiagnostic": {
+    "projects": [
+      "diagrams-chromium",
+      "diagrams-webkit"
+    ],
+    "observed": 8,
+    "passed": 102,
+    "workerAttempts": 0,
+    "logSha256": "f23e7fd21eb7a995371825f948b6edb13007eb4949c1ca96da0a62b53f5e4baf",
+    "source": "aab3d5556ad6332eeaae7dceb84dae68806ae48f",
+    "scope": "All four diagram specs in both engines passed 102 unchanged cases under the permanent returned-cleanup Worker boundary and zero-request replay guards, with registry-verified pristine Vitest packages. Source includes the exact viewport restoration from #2253. The intended new-family resource mutation failed in both engines; originals restored. This is eight selected file/project pairs, not a complete 305-pair observation or hosted passing proof."
   }
 }
