@@ -53,7 +53,7 @@ try {
       const turn = createClaudeSdkTurn({ backend: { brainPath: brain }, req: {
         prompt: `Odysseus checks voyage step ${turnIndex}.`, sessionId, signal: controller.signal, turnId: `odysseus-${turnIndex}`,
         workerStartupView: view, workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } } },
-        client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100 }, turnBudgetMs: 60_000 + facts * 1000,
+        client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
         ...(scenario === "posture" && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" as const }; },
           async proposePolicyChange() { throw new Error("Unused fixture capability"); } },
@@ -96,7 +96,7 @@ try {
       if (turnIndex) changeRepository(brain, turnIndex);
       if (turnIndex === 1) mkdirSync(join(brain, "workspaces"));
       capture.sessions.push(await hosted.turn(`Odysseus checks voyage step ${turnIndex}.`,
-        { formFactor: turnIndex === 1 ? "phone" : "tablet", viewportWidth: 800 + turnIndex * 100 }, capture.sessions.at(-1)));
+        { formFactor: turnIndex === 1 ? "phone" : "tablet", viewportWidth: 800 + turnIndex * 100, camera: turnIndex !== 1 }, capture.sessions.at(-1)));
     }
     capture.budgets = hosted.receipts();
   } finally { await hosted.close(); }

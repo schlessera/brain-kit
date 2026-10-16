@@ -59,7 +59,7 @@ try {
         await startFixtureTurn(backend, brain, { prompt: `Odysseus checks voyage step ${turnIndex}.`, profileId: "fixture", sessionId,
           signal: controller.signal, turnId: `odysseus-${turnIndex}`,
           workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } } },
-          client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100 }, turnBudgetMs: 60_000 + facts * 1000,
+          client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
           bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; } },
         });
         const result = frames.findLast(f => f.type === "result");
@@ -91,7 +91,7 @@ try {
       if (turnIndex) changeRepository(brain, turnIndex);
       if (turnIndex === 1) mkdirSync(join(brain, "workspaces"));
       capture.sessions.push(await hosted.turn(`Odysseus checks voyage step ${turnIndex}.`,
-        { formFactor: turnIndex === 1 ? "phone" : "tablet", viewportWidth: 800 + turnIndex * 100 }, capture.sessions.at(-1)));
+        { formFactor: turnIndex === 1 ? "phone" : "tablet", viewportWidth: 800 + turnIndex * 100, camera: turnIndex !== 1 }, capture.sessions.at(-1)));
     }
     capture.budgets = hosted.receipts();
   } finally { await hosted.close(); }
