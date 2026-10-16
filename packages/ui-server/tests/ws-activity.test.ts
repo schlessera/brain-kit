@@ -384,17 +384,10 @@ describe("activity stream over the ws path", () => {
     billing.resolve();
     await until(() => s.host.coordinator.running.size === 0);
 
-    const root = s.store.changesSince(0).find((change) => change.kind === "span")!;
-    const snapshot = s.store.snapshotRun(root.runId)!;
-    expect(snapshot.spans.find((span) => span.kind === "turn")).toEqual(
-      expect.objectContaining({ outcome: "cancelled", principalId: "test-principal" })
-    );
-    expect(snapshot.events).toContainEqual(
-      expect.objectContaining({
-        eventType: "turn_cancelled",
-        payload: { principalId: "principal-b" },
-      })
-    );
+    const lifecycle = s.store.lifecycles()[0]!;
+    expect(lifecycle).toMatchObject({outcome:"cancelled",backendRunId:null,firstFrameAt:null});
+    expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({principalId:"principal-b",kind:"turn_cancelled"}));
+    expect(s.store.snapshotRun(lifecycle.turnId)).toBeNull();
   });
 
   test("a sessionless cancellation during billing retains its responder", async () => {
@@ -437,13 +430,10 @@ describe("activity stream over the ws path", () => {
     billing.resolve();
     await until(() => s.host.coordinator.running.size === 0);
 
-    const root = s.store.changesSince(0).find((change) => change.kind === "span")!;
-    expect(s.store.snapshotRun(root.runId)!.events).toContainEqual(
-      expect.objectContaining({
-        eventType: "turn_cancelled",
-        payload: { principalId: "principal-b" },
-      })
-    );
+    const lifecycle = s.store.lifecycles()[0]!;
+    expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({principalId:"principal-b",kind:"turn_cancelled"}));
+    expect(lifecycle.backendRunId).toBeNull();
+    expect(s.store.snapshotRun(lifecycle.turnId)).toBeNull();
   });
 
   test("subscribing to a terminal run returns a snapshot with high-water, then silence (AE6)", async () => {

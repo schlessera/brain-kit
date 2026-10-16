@@ -489,8 +489,7 @@ describe("principal revocation boundary", () => {
     const billing = deferred();
     let billingCalls = 0;
     const backend = makeFakeBackend({ id: "fake", startTurn: async () => {} });
-    const { host, registry } = activityHostFor(backend);
-    const db = databases[databases.length - 1]!;
+    const { host, registry, store } = activityHostFor(backend);
     registry.listAllProviders = async () => {
       billingCalls += 1;
       await billing.promise;
@@ -517,12 +516,10 @@ describe("principal revocation boundary", () => {
     billing.resolve();
     await running;
 
-    const events = db
-      .query(
-        "SELECT event_type AS type, payload FROM activity_events WHERE event_type = 'turn_cancelled'"
-      )
-      .all() as Array<{ type: string; payload: string }>;
-    expect(events.map((e) => JSON.parse(e.payload).v.principalId)).toEqual(["owner-b"]);
+    const lifecycle = store.lifecycles()[0]!;
+    expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({kind:"turn_cancelled",principalId:"owner-b"}));
+    expect(lifecycle.backendRunId).toBeNull();
+    expect(store.snapshotRun(lifecycle.turnId)).toBeNull();
     host.coordinator.reset();
   });
 
@@ -852,14 +849,11 @@ describe("principal revocation boundary", () => {
     release.resolve();
     await running;
 
-    const snapshot = store.snapshotRun(turnId)!;
-    expect(snapshot.events).toContainEqual(
-      expect.objectContaining({
-        eventType: "principal_revoked",
-        payload: { principalId: "revoked" },
-      })
-    );
-    expect(snapshot.spans.find((span) => span.kind === "turn")?.outcome).toBe("success");
+    const lifecycle = store.lifecycle(turnId)!;
+    expect(lifecycle.hostEvents).toContainEqual(expect.objectContaining({kind:"principal_revoked",principalId:"revoked"}));
+    expect(lifecycle.outcome).toBe("success");
+    expect(lifecycle.backendRunId).toBeNull();
+    expect(store.snapshotRun(turnId)).toBeNull();
   });
 
   test("a revoked principal cannot answer its pending approval", async () => {

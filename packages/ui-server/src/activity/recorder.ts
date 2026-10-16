@@ -183,6 +183,7 @@ export function createTurnRecorder(
 
   function ensureRoot() {
     if (rootStarted) return;
+    turn.lifecycle?.firstFrame(null);
     rootStarted = true;
     store.startSpan({
       spanId: rootSpanId,
@@ -484,6 +485,7 @@ export function createTurnRecorder(
     recordPrincipalRevocation(principalId) {
       guard(() => {
         if (finished || principalRevocationRecorded) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordHostEvent("principal_revoked", principalId); principalRevocationRecorded = true; return; }
         ensureRoot();
         store.appendEvent(rootSpanId, "principal_revoked", { principalId });
         principalRevocationRecorded = true;
@@ -494,6 +496,7 @@ export function createTurnRecorder(
     recordFollowUp(principalId) {
       guard(() => {
         if (finished) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordHostEvent("follow_up", principalId); return; }
         ensureRoot();
         store.appendEvent(rootSpanId, "follow_up", { principalId });
         onWrite?.();
@@ -503,6 +506,7 @@ export function createTurnRecorder(
     recordCancellation(principalId, kind = "turn") {
       guard(() => {
         if (finished) return;
+        if (turn.lifecycle && !rootStarted) { turn.lifecycle.recordCancellation(principalId, kind); return; }
         ensureRoot();
         store.appendEvent(rootSpanId, `${kind}_cancelled`, { principalId });
         onWrite?.();

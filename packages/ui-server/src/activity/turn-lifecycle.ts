@@ -6,7 +6,7 @@ export type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedA
 export function createTurnLifecycle(store: ActivityStore, turnId: string, sessionId: string | null,
   acceptedAt: number, onWrite: () => void, clock: () => number = Date.now) {
   const record: ActivityTurnLifecycle = {
-    skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
+    hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
     governedStartedAt: null, governedAcquiredAt: null, budgetStartedAt: null, budgetAdmittedAt: null,
     journalStartedAt: null, journalBeganAt: null, backendInvokedAt: null, firstFrameAt: null, failureObservedAt: null,
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
@@ -15,7 +15,15 @@ export function createTurnLifecycle(store: ActivityStore, turnId: string, sessio
   // Observability, including fanout, must never fail the observed turn.
   const persist = () => { try { store.writeLifecycle(record); onWrite(); } catch { /* best effort */ } };
   persist();
+  const recordHostEvent = (kind: ActivityTurnLifecycle["hostEvents"][number]["kind"], principalId: string) => {
+    if (record.endedAt !== null) return;
+    record.hostEvents.push({ principalId, kind, observedAt: clock() }); persist();
+  };
   return {
+    recordHostEvent,
+    recordCancellation(principalId: string, kind: "turn" | "ask_user" = "turn") {
+      recordHostEvent(kind === "turn" ? "turn_cancelled" : "ask_user_cancelled", principalId);
+    },
     skip(phase: "governed" | "budget" | "journal") {
       if (record.endedAt === null && !record.skippedPhases.includes(phase)) { record.skippedPhases.push(phase); persist(); }
     },

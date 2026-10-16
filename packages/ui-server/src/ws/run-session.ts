@@ -56,9 +56,15 @@ import {
 function recordPendingCancellations(
   host: WsHost,
   turn: RunningTurn,
-  billing: Awaited<ReturnType<typeof resolveRunBilling>> | undefined
+  billing: Awaited<ReturnType<typeof resolveRunBilling>> | undefined,
+  lifecycle?: ReturnType<typeof createTurnLifecycle>
 ): void {
   if (turn.pendingCancellationPrincipalIds.length === 0) return;
+  if (lifecycle && !turn.recorder) {
+    for (const principalId of turn.pendingCancellationPrincipalIds) lifecycle.recordCancellation(principalId);
+    turn.pendingCancellationPrincipalIds.length = 0;
+    return;
+  }
   const recorder =
     turn.recorder ??
     (host.activity
@@ -411,8 +417,8 @@ async function runRetainedSession(
         // decision someone made; losing it because the turn's own principal
         // was revoked a moment later would erase the actor, not the turn. Drain
         // the buffer before leaving.
+        recordPendingCancellations(host, turn, billing, lifecycle);
         lifecycle?.finish("cancelled", REVOKED_REASON);
-        recordPendingCancellations(host, turn, billing);
         dropHandedOver(current, REVOKED_REASON);
         next = dequeue();
         continue;

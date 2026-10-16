@@ -3054,6 +3054,7 @@ export function isPricingRoute(v: unknown): v is PricingRoute {
 
 /** Host-owned envelope; never contributes inference usage or cost. */
 export interface ActivityTurnLifecycle {
+  hostEvents: Array<{ principalId: string; kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up"; observedAt: number }>;
   skippedPhases: Array<"governed" | "budget" | "journal">;
   lifecycleId: string;
   turnId: string;

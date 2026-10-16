@@ -3029,6 +3029,11 @@ signatures (every public export and the types it is made of)
     export type ActivitySpanOutcome = "success" | "error" | "timeout" | "cancelled" | "denied" | "interrupted";
   ActivityTurnLifecycle (packages/ui-sdk/src/protocol.ts)
     export interface ActivityTurnLifecycle {
+        hostEvents: Array<{
+            principalId: string;
+            kind: "turn_cancelled" | "ask_user_cancelled" | "principal_revoked" | "follow_up";
+            observedAt: number;
+        }>;
         skippedPhases: Array<"governed" | "budget" | "journal">;
         lifecycleId: string;
         turnId: string;
@@ -13149,6 +13154,16 @@ signatures (every public export and the types it is made of)
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -13252,6 +13267,16 @@ signatures (every public export and the types it is made of)
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -15467,6 +15492,16 @@ signatures (every public export and the types it is made of)
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;
@@ -15571,6 +15606,16 @@ signatures (every public export and the types it is made of)
             governedAcquiredAt: z.ZodNullable<z.ZodNumber>;
             governedAdmissionMs: z.ZodNullable<z.ZodNumber>;
             governedStartedAt: z.ZodNullable<z.ZodNumber>;
+            hostEvents: z.ZodArray<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    ask_user_cancelled: "ask_user_cancelled";
+                    follow_up: "follow_up";
+                    principal_revoked: "principal_revoked";
+                    turn_cancelled: "turn_cancelled";
+                }>;
+                observedAt: z.ZodNumber;
+                principalId: z.ZodString;
+            }, z.core.$loose>>;
             journalBeganAt: z.ZodNullable<z.ZodNumber>;
             journalBeginMs: z.ZodNullable<z.ZodNumber>;
             journalStartedAt: z.ZodNullable<z.ZodNumber>;

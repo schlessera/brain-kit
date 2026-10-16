@@ -65,8 +65,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3658-3664`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1812-1814`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3659-3665`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1813-1815`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -449,7 +449,9 @@ success. A started phase whose completion is null is pending, or incomplete
 when the enclosing record is terminal.
 
 `totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
-acceptance to the first observed backend frame. Governed, budget and journal
+acceptance to the first observed backend frame/Activity event or backend bridge
+operation that opens its root. Host cancellation/revocation/follow-up decisions
+do not count as backend observations. Governed, budget and journal
 phase durations measure their paired milestones; an incomplete terminal phase
 measures its observed start to `failureObservedAt` (the caught failure
 boundary), or terminal time after interruption when no failure was observed. `backendStartupMs` measures
@@ -461,7 +463,10 @@ The envelope terminates once with the existing outcome vocabulary: `success`,
 `error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
 in nullable `reason`. Admission refusal, cancellation/revocation and failures
 before any frame persist an envelope without fabricating a backend run or
-first frame. Terminal time follows host cleanup. The existing boot recovery
+first frame. Pre-backend cancellation actors, kinds and observed times remain
+in `hostEvents` (also pre-root revocation and follow-up actors); after a
+backend root exists the existing cancellation
+events remain on that root. Terminal time follows host cleanup. The existing boot recovery
 owner interrupts unfinished session envelopes, including admission-only
 records; late observations cannot reopen a terminal record. Recording/fanout
 failures never fail the observed turn. Existing historical runs have no

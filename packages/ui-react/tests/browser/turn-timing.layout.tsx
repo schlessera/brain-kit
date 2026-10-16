@@ -11,7 +11,7 @@ let host: HTMLDivElement | undefined;
 let style: HTMLStyleElement | undefined;
 afterEach(()=>{if(renderer)flushSync(()=>renderer!.unmount());host?.remove();style?.remove();renderer=undefined;});
 const fixture = (over: Partial<ActivityTurnLifecycle>): ActivityTurnLifecycle => ({
-  skippedPhases: [],lifecycleId:"lifecycle:turn-ithaca",turnId:"turn-ithaca",sessionId:"ithaca",backendRunId:"turn-ithaca",acceptedAt:1000,dequeuedAt:null,
+  hostEvents: [], skippedPhases: [],lifecycleId:"lifecycle:turn-ithaca",turnId:"turn-ithaca",sessionId:"ithaca",backendRunId:"turn-ithaca",acceptedAt:1000,dequeuedAt:null,
   governedStartedAt:1000,governedAcquiredAt:2000,budgetStartedAt:2000,budgetAdmittedAt:3000,
   journalStartedAt:3000,journalBeganAt:4000,backendInvokedAt:4000,firstFrameAt:6000,failureObservedAt:null,endedAt:10000,
   outcome:"success",reason:null,totalElapsedMs:9000,timeToFirstFrameMs:5000,queueWaitMs:null,

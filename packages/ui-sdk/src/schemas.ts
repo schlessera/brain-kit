@@ -1444,6 +1444,7 @@ const activitySpanEventSchema = z.looseObject({
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
 const activityTurnLifecycleSchema = z.looseObject({
+  hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
   skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
   lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
   acceptedAt: z.number(),
