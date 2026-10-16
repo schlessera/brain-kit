@@ -86,8 +86,19 @@ the observation record. Browser sharding uses the committed per-project/
 file table under #1082, rather than grouping every pointer variant of a costly
 file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
-with `bun scripts/refresh-browser-costs.ts <run-id> <attempt>`; reviewed CI
-reports are measurement inputs, never runtime dependencies.
+with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
+(the default remains browser). Each domain retains its own run/attempt/job,
+checkout/tree/parent and pinned-image provenance. Refresh requires both fresh
+successful jobs from a successful CI run, matching actual checkouts, complete
+reported project/file coverage and source/image attribution; cancelled,
+partial or retained-only proof supplies no measurements. Refreshing one domain
+preserves the other's costs and provenance. Reviewed CI reports are measurement
+inputs, never runtime dependencies. Layout refresh admits ordinary
+`ui-react-layout` measurements; `ui-react-endurance` remains a separate mandatory
+fresh job and never becomes an ordinary browser/layout weight. Requalify timing
+inputs after scenario ownership changes: the former combined recording-file
+measurement includes endurance and is not its current ordinary-layout cost.
+Two layout shards, per-project serial execution and all deadlines remain unchanged.
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
 `proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,
