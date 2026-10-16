@@ -499,6 +499,7 @@ jobs:
         with:
           persist-credentials: false
           ref: 1c8b4366dbc162b2ea535737939375408168009b
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
