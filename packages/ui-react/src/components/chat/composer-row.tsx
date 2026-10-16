@@ -1,3 +1,6 @@
+import { useMediaQuery } from "../../hooks/use-media-query.js";
+import { useStore } from "zustand";
+import { useBrainUiRoot } from "../../root-context.js";
 import { ComposerRow, PendingFollowUps, SessionStrip, type PendingFollowUp, type WorkingSession } from "@schlessera/brain-ui-kit";
 import { useMemo } from "react";
 import { useChatStore } from "../../stores/chat-store.js";
@@ -57,9 +60,14 @@ export function ChatComposerRow({ wide = false, onOpenTracker }: {
   const pending = useFollowUpStore((s) => (sessionId ? s.pending[sessionId] : undefined)) ?? NONE;
   const announcement = useFollowUpStore((s) => s.announcement);
   const keyboard = useSoftKeyboard();
+  const root = useBrainUiRoot();
+  const voiceActive = useStore(root.connection.conversation.state, (s) => s.active);
+  const voiceReview = useStore(root.connection.conversation.state, (s) => !!s.text);
+  const shortScreen = useMediaQuery("(max-height: 580px)");
   const tracked = useWorkingSessions();
   const now = useNow(AGE_TICK_MS);
   const hidden = keyboard.open && keyboard.composerLines > 3;
+  const collapseVoiceRow = voiceActive && voiceReview && shortScreen;
   const followUps = hidden ? [] : pending.map(pendingView);
   const mine = announcement && announcement.sessionId === sessionId ? announcement : null;
   const working: WorkingSession[] = useMemo(
@@ -67,13 +75,13 @@ export function ChatComposerRow({ wide = false, onOpenTracker }: {
     [hidden, wide, tracked, onOpenTracker],
   );
   return (
-    <div className="px-4 md:px-6">
+    <div className={collapseVoiceRow ? "px-4 md:px-6 [&_[data-session-strip]]:hidden! [&_[data-pending-follow-ups]]:hidden!" : "px-4 md:px-6"}>
       <ComposerRow
-        left={<SessionStrip sessions={working} now={now} keyboardOpen={keyboard.open} />}
+        left={<SessionStrip sessions={working} now={now} keyboardOpen={keyboard.open || voiceActive} />}
         right={
           <PendingFollowUps
             followUps={followUps}
-            keyboardOpen={keyboard.open}
+            keyboardOpen={keyboard.open || voiceActive}
             announcement={mine?.text}
             announcementKey={mine?.seq}
           />

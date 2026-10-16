@@ -196,6 +196,8 @@ export interface ToolCall {
 
 export interface AskUserExchange {
   requestId: string;
+  /** Host terminal state ended the unanswered exchange. */
+  terminal?: true;
   /**
    * The host turn that raised the request, from the request frame. A card
    * rebuilt from history has none until the host re-delivers the request.
@@ -539,6 +541,7 @@ export interface ChatState {
    */
   reopenAskExchange: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
+  endTurnQuestions: (key: ChatKey, turnId?: string) => void;
   /**
    * Delivery state of submitted ask answers, by request id (#910). Held
    * outside the transcript buffers: an answer queued in one session must
@@ -1782,6 +1785,17 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         }),
 
       clearAskUser: (key) => mutateBuffer(key, () => ({ askUser: null })),
+
+      endTurnQuestions: (key, turnId) => mutateBuffer(key, (chat) => {
+        const end = (exchange: AskUserExchange): AskUserExchange => {
+          if ((turnId && exchange.turnId !== turnId) || exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled) return exchange;
+          return { ...exchange, cancelled: true, terminal: true };
+        };
+        return {
+          messages: chat.messages.map((message) => message.askUserExchanges ? { ...message, askUserExchanges: message.askUserExchanges.map(end) } : message),
+          askUser: chat.askUser ? end(chat.askUser) : null,
+        };
+      }),
 
       finishAssistantMessage: (key) =>
         mutateLastAssistant(

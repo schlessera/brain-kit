@@ -103,6 +103,7 @@ export function AskUserCard({
   questions,
   answered,
   cancelled,
+  lapsedNote,
   typed,
   answeredAt,
   onSubmit,
@@ -115,6 +116,7 @@ export function AskUserCard({
   questions: AskUserQuestion[];
   answered?: Record<string, string>;
   cancelled?: boolean;
+  lapsedNote?: string;
   /** The answer was typed into the composer rather than chosen. */
   typed?: boolean;
   /** When the answer was given; absent on resumed history. */
@@ -289,7 +291,7 @@ export function AskUserCard({
           };
         })}
         answerMeta={answeredAt === undefined ? "you answered" : `you answered · ${formatRelativeTime(answeredAt)}`}
-        lapsedNote={DISMISSED_NOTE}
+        lapsedNote={lapsedNote ?? DISMISSED_NOTE}
         onSubmit={(answers, annotations) => {
           if (reopened) {
             onReask?.(reaskMessage(questions, answers));
@@ -340,7 +342,7 @@ export function AskUserCard({
               question={q.question}
               options={[]}
               showActions={false}
-              lapsedNote={DISMISSED_NOTE}
+              lapsedNote={lapsedNote ?? DISMISSED_NOTE}
               // One "Ask again" per exchange, on the last card, like Submit.
               onAskAgain={onReask && isLast ? () => setReopened(true) : undefined}
             />

@@ -852,7 +852,8 @@ export interface ServerHello {
    * absent/false means unsupported. Delivery still requires `inbox_subscribe`.
    * `toolResolution: true` offers `tool_resolution` to clients that declare
    * the same flag; `liveConversation: true` means a conversation provider is
-   * registered and the `conversation_*` frames are accepted.
+   * registered and the `conversation_*` frames are accepted. `conversationPause`
+   * advertises resumable stop plus start/open/close request identity echoes.
    * `sessionDrafts: true` means the `/api/drafts` routes store drafts;
    * `sessionDraftLimits` then carries their bounds. `sessionRecovery: true`
    * means `GET /api/sessions/:id/recovery` answers (#964). */
@@ -2044,6 +2045,10 @@ export interface ConversationOutputRecord {
 /** Client → Server. Open a conversation, or a new epoch of an existing one. */
 export interface ClientConversationStart {
   type: "conversation_start";
+  /** Client start identity, echoed for this opening attempt, including a failed open. */
+  requestId?: string;
+  /** Independently selected agent profile for a new chat; resumed sessions stay pinned. */
+  agentProviderId?: string;
   /** Resume this conversation as a new epoch. Absent starts a new one. */
   conversationId?: string;
   /** Chat session the conversation's work runs in. Absent: the first commit creates one. */
@@ -2101,6 +2106,8 @@ export interface ClientConversationPlayback {
 export interface ClientConversationStop {
   type: "conversation_stop";
   conversationId: string;
+  /** Close this epoch and retain a detached identity for explicit resync. Requires conversationPause. */
+  resumable?: boolean;
 }
 
 /**
@@ -2113,6 +2120,10 @@ export interface ClientConversationStop {
  */
 export interface ServerConversationOpened {
   type: "conversation_opened";
+  /** Client start identity, echoed for this opening attempt, including a failed open. */
+  requestId?: string;
+  /** Independently selected agent profile for a new chat; resumed sessions stay pinned. */
+  agentProviderId?: string;
   conversationId: string;
   epoch: number;
   /** Chat session, once known. */
@@ -2143,6 +2154,8 @@ export type ConversationCloseReason =
 /** Server → Client. A conversation epoch ended. Capture must restart explicitly. */
 export interface ServerConversationClosed {
   type: "conversation_closed";
+  /** Client start identity, echoed for this opening attempt, including a failed open. */
+  requestId?: string;
   conversationId: string;
   epoch: number;
   reason: ConversationCloseReason;

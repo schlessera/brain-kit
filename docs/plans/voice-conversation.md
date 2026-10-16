@@ -49,7 +49,7 @@ The binding constraints are:
 - A single-question `ask_user` may consume a composer answer. Multiple
   questions and `ask_user_list` do not. The current guard is
   (`questionForTypedAnswer`,
-  `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`). The
+  `packages/ui-react/src/lib/ask-user-typed.ts:33-35`). The
   [list contract](../integration-contract/mcp.md#ask_user_list-additive-in-0400)
   requires a reader and withholds the tool under `noGrantSurface`; voice does
   not widen it.
@@ -186,7 +186,7 @@ existing pronunciation overrides only as disclosed text correction, retaining
 the distinction between recognized words and submitted text. The present
 `AsrEvent` carries partial/final text and `endsTurn`, not confidence, overlap
 evidence or an output transcript (`AsrEvent`,
-`packages/ui-sdk/src/protocol.ts:1838`). #317 must resolve those gaps rather
+`packages/ui-sdk/src/protocol.ts:1839`). #317 must resolve those gaps rather
 than pretending that dictation supplies them.
 
 Assistant text remains the generated answer; playback progress is a separate
@@ -349,7 +349,7 @@ requests (`drainPendingForTurn`,
 `packages/ui-server/src/ws/turns.ts:704-738`). Clear the correlated card's
 actionable state on the host terminal outcome even if no `tool_result` arrives;
 the current terminal-frame contract is (`ServerResultMessage`,
-`packages/ui-sdk/src/protocol.ts:1108-1118`). Keep the existing card/receipt in
+`packages/ui-sdk/src/protocol.ts:1109-1119`). Keep the existing card/receipt in
 the transcript with "Expired · denied" and no live approval controls. Speak
 once: "I stopped without doing it. Ask me again when you can look at a screen."
 Cancellation similarly resolves only the requests of the cancelled turn.

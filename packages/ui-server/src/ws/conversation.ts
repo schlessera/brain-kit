@@ -84,6 +84,7 @@ interface Work {
 
 interface Epoch {
   number: number;
+  requestId?: string;
   session?: LiveConversationSession;
   abort: AbortController;
   closed: boolean;
@@ -97,6 +98,7 @@ interface Epoch {
 
 interface Conversation {
   id: string;
+  agentProviderId?: string;
   principalId: string;
   connection: ConnectionState | null;
   ws: WSContext | null;
@@ -169,6 +171,7 @@ export class ConversationHost {
       }
       conversation = {
         id: crypto.randomUUID(),
+        ...(!msg.sessionId && msg.agentProviderId ? { agentProviderId: msg.agentProviderId } : {}),
         principalId,
         connection: null,
         ws: null,
@@ -193,6 +196,7 @@ export class ConversationHost {
     this.endEpoch(conversation, "replaced");
     const epoch: Epoch = {
       number: (conversation.epoch?.number ?? 0) + 1,
+      ...(msg.requestId ? { requestId: msg.requestId } : {}),
       abort: new AbortController(),
       closed: false,
       utterances: new Map(),
@@ -226,10 +230,12 @@ export class ConversationHost {
     epoch.session = session;
     this.send(conversation, {
       type: "conversation_opened",
+      ...(epoch.requestId ? { requestId: epoch.requestId } : {}),
       conversationId: conversation.id,
       epoch: epoch.number,
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
       providerId: this.provider.id,
+      ...(conversation.agentProviderId ? { agentProviderId: conversation.agentProviderId } : {}),
       capabilities: { ...this.provider.capabilities },
       disclosure: { voiceService: this.provider.disclosure.voiceService, destinations: [...this.provider.disclosure.destinations] },
       limits: { ...CONVERSATION_LIMITS },
@@ -412,11 +418,13 @@ export class ConversationHost {
   }
 
   stop(ws: WSContext, connection: ConnectionState, msg: ClientConversationStop): void {
-    const conversation = this.owned(ws, connection, msg.conversationId);
+    const retained = this.conversations.get(msg.conversationId);
+    const conversation = retained && retained.connection === null && retained.principalId === connection.authorization.principalId
+      ? retained : this.owned(ws, connection, msg.conversationId);
     if (!conversation) return;
     this.endEpoch(conversation, "stopped");
     this.detach(conversation);
-    this.conversations.delete(conversation.id);
+    if (!msg.resumable) this.conversations.delete(conversation.id);
   }
 
   /** The socket closed. Its conversation stays resumable as a new epoch. */
@@ -605,6 +613,7 @@ export class ConversationHost {
     void handleChatMessage(this.host, ws, {
       authorization: connection.authorization,
       text: work.receipt.submitted,
+      ...(conversation.agentProviderId ? { providerId: conversation.agentProviderId } : {}),
       ...(conversation.sessionId !== undefined ? { sessionId: conversation.sessionId } : {}),
       attachments: [],
       source: "voice-conversation",
@@ -759,6 +768,7 @@ export class ConversationHost {
     if (conversation.ws && reason !== "disconnected") {
       this.send(conversation, {
         type: "conversation_closed",
+        ...(epoch.requestId ? { requestId: epoch.requestId } : {}),
         conversationId: conversation.id,
         epoch: epoch.number,
         reason,

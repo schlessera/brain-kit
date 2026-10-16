@@ -381,6 +381,7 @@ export const chatFrameHandlers = {
   result: (msg, context) => {
     if (context.key !== null && msg.stateRoom
       && !["worker_state_busy", "session_too_large", "worker_state_exceeded"].includes(msg.failure?.errorClass ?? "")) context.state.setStateRoom(context.key, msg.stateRoom);
+    context.state.endTurnQuestions(context.key, context.frameTurnId);
     context.state.finishAssistantMessage(context.key);
     // An absent outcome is the legacy wire, where `isError` alone decides.
     const failed = msg.outcome === "error" || (msg.outcome === undefined && msg.isError);
@@ -477,6 +478,7 @@ export const chatFrameHandlers = {
     // THIS frame's session: a background session settling must not consume
     // (or trigger) the active session's pending resync.
     if (msg.status === "idle" || msg.status === "cancelled") {
+      context.state.endTurnQuestions(context.key, context.frameTurnId);
       const current = context.stores.chat.getState();
       context.resyncIfNeeded(context.frameSessionId ?? current.activeSessionId);
       // The selected session's history is still unconfirmed (#1328): the
