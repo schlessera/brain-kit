@@ -164,7 +164,6 @@ describe("StreamAdapter", () => {
         type: "result",
         sessionId: "sess-1",
         outcome: "success",
-        costUsd: 0.42,
         durationMs: 1234,
         numTurns: 3,
         isError: false,
@@ -348,8 +347,8 @@ describe("StreamAdapter: subagent handling", () => {
 });
 
 describe("StreamAdapter: result usage", () => {
-  test("modelUsage maps to per-model breakdown with summed totals", () => {
-    const adapter = new StreamAdapter();
+  test("autonomous modelUsage maps to per-model breakdown with summed totals", () => {
+    const adapter = new StreamAdapter(undefined, { autonomousUsage: true });
     const out = adapter.adapt(
       asMsg({
         type: "result",
@@ -388,8 +387,8 @@ describe("StreamAdapter: result usage", () => {
     });
   });
 
-  test("error result carries real accounting and detail when present", () => {
-    const adapter = new StreamAdapter();
+  test("autonomous error result carries real accounting and detail when present", () => {
+    const adapter = new StreamAdapter(undefined, { autonomousUsage: true });
     const out = adapter.adapt(
       asMsg({
         type: "result",

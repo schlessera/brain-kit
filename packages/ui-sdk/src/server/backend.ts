@@ -255,6 +255,13 @@ export type BackendActivityEvent =
       model: string;
       sessionId: string;
     }
+    | {
+      /** Claude session-cumulative evidence, never a turn receipt or helper classifier. */
+      kind: "claude_session_usage";
+      completed?: import("../protocol.js").TurnUsage;
+      cumulative?: import("../protocol.js").TurnUsage;
+      reportedCostUsd?: number;
+    }
   | { kind: "budget_backstop" }
   | {
       /** Cumulative completed-response inference usage for interactive and voice turns. */

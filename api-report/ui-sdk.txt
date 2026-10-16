@@ -4623,6 +4623,11 @@ signatures (every public export and the types it is made of)
         model: string;
         sessionId: string;
     } | {
+        kind: "claude_session_usage";
+        completed?: import("../protocol.js").TurnUsage;
+        cumulative?: import("../protocol.js").TurnUsage;
+        reportedCostUsd?: number;
+    } | {
         kind: "budget_backstop";
     } | {
         kind: "usage";

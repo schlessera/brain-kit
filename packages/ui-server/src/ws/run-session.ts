@@ -630,6 +630,7 @@ async function runRetainedSession(
               abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
             }
           } : undefined,
+          billing,
           { current: () => mainModel, bind: model => {
             if (host.journal && governedHold && !host.journal.bindModel(scopeTurnId, turn.sessionId, model)) return;
             mainModel = model; recorder?.setMainModel(model);

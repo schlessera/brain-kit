@@ -141,6 +141,7 @@ export function createClaudeTurnRunner(options: {
     const adapter = new StreamAdapter(req.bridge.activity, {
       subscriptionAuth: profile.billing !== "api",
       autonomousUsage: req.autonomous?.containment === "restricted",
+      freshRuntimeUsage: req.autonomous?.persistence === "none" && req.sessionId === undefined,
     });
     const reportActivity = (event: BackendActivityEvent): void => {
       try {
@@ -478,8 +479,8 @@ export function createClaudeTurnRunner(options: {
        * A `result` that follow-ups outlived (#1003): the CLI runs them as
        * continuation turns of the same process, so the one frame the client
        * gets is built from the LAST result, with the per-run counts of the
-       * earlier ones added. Cost and model usage are already cumulative over
-       * the process, so the last result carries them for the whole turn.
+       * earlier ones added. The adapter tracks completed-response receipts across
+       * these continuations; session-cumulative SDK totals are evidence only.
        */
       let carried: {
         numTurns: number;

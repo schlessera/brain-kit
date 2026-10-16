@@ -500,7 +500,11 @@ deltas at or below the snapshot's high-water for that run. Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,
-never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
+never zero). Claude main-turn usage/cost uses completed root and child
+responses, including resumed turns. Newly observed session-cumulative usage
+outside those receipts is retained separately as unattributed Activity work;
+unknown/imported coverage never becomes a zero-cost claim. `tool_use_start`
+additionally carries an optional `parentToolUseId` marking tool
 calls that ran inside a subagent. Activity spans may carry the additive
 `principalId` of the actor responsible for them; absence means unattributed.
 Each human tool response also appends an `approval_decision` event whose payload
