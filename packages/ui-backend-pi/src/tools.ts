@@ -583,7 +583,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
         // The exit line goes after the clip, so a long failing output still
         // ends with it: the host classifies a nonzero exit from it (#1671).
         return textResult(
-          `${clip(`$ ${cmd}\n${body}`)}${code === 0 ? "" : `\n[exit ${code}]`}`,
+          `${clip(body || "(no output)")}${code === 0 ? "" : `\n[exit ${code}]`}`,
           { exitCode: code }
         );
       });

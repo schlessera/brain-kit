@@ -225,6 +225,8 @@ the tool arguments in place before execution. `bash` commands are additionally r
 [rtk](https://github.com/rtk-ai/rtk) when the binary is on PATH — a
 token-optimizing proxy rewrite (`git status` → `rtk git status`) applied AFTER
 the gate, so confirm patterns always see the command as the model wrote it.
+Bash results contain combined command output without echoing the command. Empty
+output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marker.
 
 | Tool | Risk | Gate | Containment |
 |---|---|---|---|

@@ -106,8 +106,8 @@ describe("roadblock episodes", () => {
 
   test("pi's bash exit line is a nonzero exit; grep's exit 1 is an answer, as Claude Code treats it", () => {
     const episodes = classifyRoadblocks(trace([
-      call("p1", "bash", { command: "grep -r Calypso notes" }, 0, { output: "$ grep -r Calypso notes\n\n[exit 1]" }),
-      call("p2", "bash", { command: "cd notes && brain index --force" }, 100, { output: "$ brain index\nindex failed\n[exit 2]" }),
+      call("p1", "bash", { command: "grep -r Calypso notes" }, 0, { output: "(no output)\n[exit 1]" }),
+      call("p2", "bash", { command: "cd notes && brain index --force" }, 100, { output: "index failed\n[exit 2]" }),
     ]), []);
     expect(episodes).toHaveLength(1);
     expect(episodes[0]).toMatchObject({ category: "shell_nonzero", family: "shell:brain index",
@@ -160,7 +160,7 @@ describe("roadblock episodes", () => {
     const inputs = [{ command: "git push origin main" }, { command: "brain index" }, { file_path: ".brain/x.md" },
       { file_path: ".brain/scratch/x.md" }, { path: "/tmp/x" }, { url: "https://sirens.example/song" }];
     const outputs = [{ output: "ok" }, { output: EROFS, isError: true }, { output: "fatal\nExit code 1", isError: true },
-      { output: "$ x\n[exit 3]" }, { output: "ECONNREFUSED", isError: true }, { output: "boom", isError: true }, { denied: "user declined" }];
+      { output: "(no output)\n[exit 3]" }, { output: "ECONNREFUSED", isError: true }, { output: "boom", isError: true }, { denied: "user declined" }];
     for (let round = 0; round < 300; round += 1) {
       const calls = Array.from({ length: Math.floor(rand() * 12) }, (_, i) =>
         call(`c${i}`, pick(tools), pick(inputs), Math.floor(rand() * 5000), pick(outputs) as { output: string }));

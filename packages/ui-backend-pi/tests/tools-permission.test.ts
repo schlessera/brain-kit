@@ -467,6 +467,27 @@ describe("curated tools execute without in-tool gating", () => {
     }
   });
 
+  test.each([
+    ["echo hi", "hi", 0],
+    ["true", "(no output)", 0],
+    ["printf 'failure' >&2; exit 7", "failure\n[exit 7]", 7],
+    ["exit 3", "(no output)\n[exit 3]", 3],
+  ])("bash returns output without a command echo: %s", async (command, output, exitCode) => {
+    const brain = makeEmptyBrain();
+    try {
+      const tools = toolMap(createBrainTools({
+        brain: createBrainAccess(brain.root),
+        turn: createTurnContext(),
+        lock: toolLockFromKeyed(createKeyedLock()),
+      }));
+      const res = await tools.bash!.execute("bash-output", { command }, undefined, undefined, CTX);
+      expect(resultText(res)).toBe(output);
+      expect(res.details).toEqual({ exitCode });
+    } finally {
+      brain.cleanup();
+    }
+  });
+
   test("ask_user degrades to an error when the host lacks askUser", async () => {
     const brain = makeEmptyBrain();
     try {
