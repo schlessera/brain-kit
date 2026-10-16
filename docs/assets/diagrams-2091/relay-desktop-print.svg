@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="480" viewBox="0 0 720 480" role="img" aria-labelledby="relay-desktop-print-title relay-desktop-print-description" data-layout="desktop" data-theme="print">
+<title id="relay-desktop-print-title">The homecoming relay</title>
+<desc id="relay-desktop-print-description">Eight nodes: Odysseus’s phone captures to the inbox; News from Sparta reaches source-watch, which delivers to the inbox. The inbox feeds note-filer, which updates the crew ledger and voyage notes and sends a digest to Penelope on Ithaca. 06:40 on Ogygia, 2026-07-12; Ithaca is one hour ahead.</desc>
+<style>:root{--bk-diagram-bg:#ffffff;--bk-diagram-node:#ffffff;--bk-diagram-cluster:#ffffff;--bk-diagram-line:#5f584c;--bk-diagram-cluster-border:#847c6f;--bk-diagram-text:#231f1a;--bk-color-ink-mute:#5f584c;--bk-diagram-focal-tint:#ffffff;--bk-amber-ink:#7f4c08;--bk-blue-ink:#1a5c7f;--bk-color-line:#cbc3b2;--bk-focus-ring:#231f1a;}</style>
+<rect width="720" height="480" fill="var(--bk-diagram-bg)"/>
+<g data-group="ogygia">
+<rect x="16.5" y="48.5" width="167" height="127" rx="8" fill="var(--bk-diagram-cluster)" stroke="var(--bk-diagram-cluster-border)" stroke-width="1"/>
+<rect x="23.799999999999997" y="41" width="48" height="14" fill="var(--bk-diagram-bg)"/><text x="47.8" y="51.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">OGYGIA</text>
+</g>
+<g data-group="brain">
+<rect x="216.5" y="48.5" width="327" height="351" rx="8" fill="var(--bk-diagram-cluster)" stroke="var(--bk-diagram-cluster-border)" stroke-width="1"/>
+<rect x="223.7" y="41" width="68" height="14" fill="var(--bk-diagram-bg)"/><text x="257.7" y="51.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">THE BRAIN</text>
+</g>
+<g data-group="ithaca">
+<rect x="576.5" y="48.5" width="127" height="127" rx="8" fill="var(--bk-diagram-cluster)" stroke="var(--bk-diagram-cluster-border)" stroke-width="1"/>
+<rect x="583.8" y="41" width="48" height="14" fill="var(--bk-diagram-bg)"/><text x="607.8" y="51.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">ITHACA</text>
+</g>
+<g data-edge="capture" data-from="phone" data-to="inbox" data-kind="primary">
+<path d="M168,120 L223,120" fill="none" stroke="var(--bk-diagram-text)" stroke-width="1.5"/><polygon points="223,124 231,120 223,116" fill="var(--bk-diagram-text)" stroke="var(--bk-diagram-text)" stroke-width="1.5"/>
+<rect x="172.5" y="99" width="55" height="14" fill="var(--bk-diagram-bg)"/><text x="200" y="109.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-diagram-text)" text-anchor="middle" letter-spacing="0.855">CAPTURE</text>
+</g>
+<g data-edge="watch" data-from="news" data-to="source-watch" data-kind="async">
+<path d="M168,240 L231,240" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1.5" stroke-dasharray="1.5 3.5" stroke-linecap="round"/><polyline points="223,244 231,240 223,236" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1.5" stroke-linejoin="miter"/>
+<rect x="179.5" y="219" width="41" height="14" fill="var(--bk-diagram-bg)"/><text x="200" y="229.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">WATCH</text>
+</g>
+<g data-edge="deliver" data-from="source-watch" data-to="inbox" data-kind="default">
+<path d="M288,208 L288,153" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1"/><polyline points="292,161 288,153 284,161" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1" stroke-linejoin="miter"/>
+<rect x="296.5" y="173" width="55" height="14" fill="var(--bk-diagram-cluster)"/><text x="324" y="183.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">DELIVER</text>
+</g>
+<g data-edge="intake" data-from="inbox" data-to="note-filer" data-kind="default">
+<path d="M344,120 L399,120" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1"/><polyline points="391,124 399,120 391,116" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1" stroke-linejoin="miter"/>
+</g>
+<g data-edge="ledger" data-from="note-filer" data-to="crew" data-kind="default">
+<path d="M442.667,152 L442.667,280 Q442.667,288 434.667,288 L320,288 Q312,288 312,296 L312,311" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1"/><polyline points="308,303 312,311 316,303" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1" stroke-linejoin="miter"/>
+<rect x="386.0" y="241" width="48" height="14" fill="var(--bk-diagram-cluster)"/><text x="410" y="251.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">LEDGER</text>
+</g>
+<g data-edge="file" data-from="note-filer" data-to="voyage" data-kind="default">
+<path d="M485.333,152 L485.333,272 Q485.333,280 477.333,280 L472,280 Q464,280 464,288 L464,311" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1"/><polyline points="460,303 464,311 468,303" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1" stroke-linejoin="miter"/>
+<rect x="494.5" y="209" width="35" height="14" fill="var(--bk-diagram-cluster)"/><text x="512" y="219.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" text-anchor="middle" letter-spacing="0.855">FILE</text>
+</g>
+<g data-edge="digest" data-from="note-filer" data-to="penelope" data-kind="link">
+<path d="M528,120 L579,120" fill="none" stroke="var(--bk-blue-ink)" stroke-width="1"/><polygon points="579,124 587,120 579,116" fill="var(--bk-diagram-cluster)" stroke="var(--bk-blue-ink)" stroke-width="1"/>
+<rect x="534.0" y="99" width="48" height="14" fill="var(--bk-diagram-bg)"/><text x="558" y="109.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-blue-ink)" text-anchor="middle" letter-spacing="0.855">DIGEST</text>
+</g>
+<g data-node="phone" data-role="input">
+<rect x="32.5" y="88.5" width="135" height="63" rx="5" fill="var(--bk-diagram-node)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<text x="44" y="108" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">INPUT</text>
+<text x="44" y="126" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">Odysseus&#x27;s phone</text>
+<text x="44" y="141" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">capture, 06:40</text>
+</g>
+<g data-node="news" data-role="external">
+<rect x="32.5" y="208.5" width="135" height="63" rx="5" fill="var(--bk-diagram-bg)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<text x="44" y="228" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">EXTERNAL</text>
+<text x="44" y="246" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">News from Sparta</text>
+<text x="44" y="261" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">Telemachus</text>
+</g>
+<g data-node="source-watch" data-role="default">
+<rect x="232.5" y="208.5" width="111" height="63" rx="5" fill="var(--bk-diagram-node)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<text x="244" y="228" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">AGENT</text>
+<text x="244" y="246" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">source-watch</text>
+<text x="244" y="261" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">watches Sparta</text>
+</g>
+<g data-node="inbox" data-role="store">
+<rect x="232.5" y="88.5" width="111" height="63" rx="5" fill="var(--bk-diagram-node)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<line x1="233" y1="94.5" x2="343" y2="94.5" stroke="var(--bk-diagram-line)"/>
+<text x="244" y="108" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">STORE</text>
+<text x="244" y="126" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">Inbox</text>
+<text x="244" y="141" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">inbox/</text>
+</g>
+<g data-node="note-filer" data-role="focal">
+<rect x="401.0" y="89.0" width="126" height="62" rx="5" fill="var(--bk-diagram-focal-tint)" stroke="var(--bk-amber-ink)" stroke-width="2"/>
+<text x="412" y="108" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-amber-ink)" letter-spacing="0.855">AGENT</text>
+<text x="412" y="126" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">note-filer</text>
+<text x="412" y="141" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-diagram-text)">files each note</text>
+</g>
+<g data-node="crew" data-role="store">
+<rect x="248.5" y="312.5" width="127" height="63" rx="5" fill="var(--bk-diagram-node)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<line x1="249" y1="318.5" x2="375" y2="318.5" stroke="var(--bk-diagram-line)"/>
+<text x="260" y="332" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">STORE</text>
+<text x="260" y="350" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">Crew ledger</text>
+<text x="260" y="365" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">crew/ledger.md</text>
+</g>
+<g data-node="voyage" data-role="store">
+<rect x="400.5" y="312.5" width="127" height="63" rx="5" fill="var(--bk-diagram-node)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<line x1="401" y1="318.5" x2="527" y2="318.5" stroke="var(--bk-diagram-line)"/>
+<text x="412" y="332" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">STORE</text>
+<text x="412" y="350" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">Voyage notes</text>
+<text x="412" y="365" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">voyage/</text>
+</g>
+<g data-node="penelope" data-role="external">
+<rect x="588.5" y="88.5" width="103" height="63" rx="5" fill="var(--bk-diagram-cluster)" stroke="var(--bk-diagram-line)" stroke-width="1"/>
+<text x="600" y="108" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">EXTERNAL</text>
+<text x="600" y="126" font-family="&#x27;Plus Jakarta Sans&#x27;, system-ui, sans-serif" font-size="12" font-weight="600" fill="var(--bk-diagram-text)">Penelope</text>
+<text x="600" y="141" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="10" font-weight="400" fill="var(--bk-color-ink-mute)">Ithaca, +1 h</text>
+</g>
+<line x1="16" y1="432" x2="704" y2="432" stroke="var(--bk-color-line)"/><path d="M16,456 L31,456" fill="none" stroke="var(--bk-diagram-text)" stroke-width="1.5"/><polygon points="31,460 39,456 31,452" fill="var(--bk-diagram-text)" stroke="var(--bk-diagram-text)" stroke-width="1.5"/><text x="48" y="459.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">PRIMARY</text><path d="M110,456 L133,456" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1"/><polyline points="125,460 133,456 125,452" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1" stroke-linejoin="miter"/><text x="142" y="459.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">DEFAULT</text><path d="M204,456 L227,456" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1.5" stroke-dasharray="1.5 3.5" stroke-linecap="round"/><polyline points="219,460 227,456 219,452" fill="none" stroke="var(--bk-diagram-line)" stroke-width="1.5" stroke-linejoin="miter"/><text x="236" y="459.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">ASYNC</text><path d="M298,456 L313,456" fill="none" stroke="var(--bk-blue-ink)" stroke-width="1"/><polygon points="313,460 321,456 313,452" fill="var(--bk-diagram-bg)" stroke="var(--bk-blue-ink)" stroke-width="1"/><text x="330" y="459.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">LINK</text><rect x="393.0" y="452.0" width="22" height="8" rx="3" fill="var(--bk-diagram-focal-tint)" stroke="var(--bk-amber-ink)" stroke-width="2"/><text x="424" y="459.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">FOCAL</text><rect x="486.5" y="451.5" width="23" height="9" rx="3" fill="var(--bk-diagram-node)" stroke="var(--bk-diagram-line)" stroke-width="1"/><line x1="487" y1="454" x2="509" y2="454" stroke="var(--bk-diagram-line)"/><text x="518" y="459.4" font-family="&#x27;JetBrains Mono&#x27;, ui-monospace, monospace" font-size="9.5" font-weight="600" fill="var(--bk-color-ink-mute)" letter-spacing="0.855">STORE</text>
+</svg>

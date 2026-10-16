@@ -1,0 +1,1248 @@
+{
+  "fontLockSha256": "3ec58a552059527131bda0277703425243a63aa311d58b67201a7b2c9fe136ad",
+  "offline": true,
+  "captures": [
+    {
+      "name": "relay-desktop-light",
+      "nodes": 8,
+      "edges": 7,
+      "renderedWidth": 720,
+      "minimumFont": 9.5,
+      "text": [
+        {
+          "node": "phone",
+          "text": "INPUT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 76.78125,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "phone",
+          "text": "Odysseus's phone",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 151.234375,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "phone",
+          "text": "capture, 06:40",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 128,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 96.453125,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "News from Sparta",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 147.80467224121094,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "Telemachus",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "source-watch",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 276.78125,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "source-watch",
+          "text": "source-watch",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 326.671875,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "source-watch",
+          "text": "watches Sparta",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 328,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 276.78125,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "Inbox",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 276.93218994140625,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "inbox/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 280,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "note-filer",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 444.78125,
+          "nodeRight": 527
+        },
+        {
+          "node": "note-filer",
+          "text": "note-filer",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 468.25238037109375,
+          "nodeRight": 527
+        },
+        {
+          "node": "note-filer",
+          "text": "files each note",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 502,
+          "nodeRight": 527
+        },
+        {
+          "node": "crew",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 292.78125,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "crew",
+          "text": "Crew ledger",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 331.93646240234375,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "crew",
+          "text": "crew/ledger.md",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 344,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "voyage",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 444.78125,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "voyage",
+          "text": "Voyage notes",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 491.140625,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "voyage",
+          "text": "voyage/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 454,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "penelope",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 652.453125,
+          "nodeRight": 691.5
+        },
+        {
+          "node": "penelope",
+          "text": "Penelope",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 655.4375,
+          "nodeRight": 691.5
+        },
+        {
+          "node": "penelope",
+          "text": "Ithaca, +1 h",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 672,
+          "nodeRight": 691.5
+        }
+      ],
+      "fonts": [
+        true,
+        true,
+        true
+      ],
+      "documentOverflow": false
+    },
+    {
+      "name": "relay-narrow-light",
+      "nodes": 8,
+      "edges": 7,
+      "renderedWidth": 320,
+      "minimumFont": 9.5,
+      "text": [
+        {
+          "node": "phone",
+          "text": "INPUT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "phone",
+          "text": "Odysseus's phone",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 159.234375,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "phone",
+          "text": "capture, 06:40",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104.453125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "News from Sparta",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 155.80467224121094,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "Telemachus",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 112,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "source-watch",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 134.671875,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "watches Sparta",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "Inbox",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 84.93217468261719,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "inbox/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 88,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "note-filer",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279
+        },
+        {
+          "node": "note-filer",
+          "text": "note-filer",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 108.25236511230469,
+          "nodeRight": 279
+        },
+        {
+          "node": "note-filer",
+          "text": "files each note",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 142,
+          "nodeRight": 279
+        },
+        {
+          "node": "crew",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "crew",
+          "text": "Crew ledger",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 123.93646240234375,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "crew",
+          "text": "crew/ledger.md",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "voyage",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 212.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "voyage",
+          "text": "Voyage notes",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 259.140625,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "voyage",
+          "text": "voyage/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 222,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104.453125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "Penelope",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 107.4375,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "Ithaca, +1 h",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 124,
+          "nodeRight": 279.5
+        }
+      ],
+      "fonts": [
+        true,
+        true,
+        true
+      ],
+      "documentOverflow": false
+    },
+    {
+      "name": "relay-desktop-dark",
+      "nodes": 8,
+      "edges": 7,
+      "renderedWidth": 720,
+      "minimumFont": 9.5,
+      "text": [
+        {
+          "node": "phone",
+          "text": "INPUT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 76.78125,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "phone",
+          "text": "Odysseus's phone",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 151.234375,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "phone",
+          "text": "capture, 06:40",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 128,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 96.453125,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "News from Sparta",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 147.80467224121094,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "Telemachus",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "source-watch",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 276.78125,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "source-watch",
+          "text": "source-watch",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 326.671875,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "source-watch",
+          "text": "watches Sparta",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 328,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 276.78125,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "Inbox",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 276.93218994140625,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "inbox/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 280,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "note-filer",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 444.78125,
+          "nodeRight": 527
+        },
+        {
+          "node": "note-filer",
+          "text": "note-filer",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 468.25238037109375,
+          "nodeRight": 527
+        },
+        {
+          "node": "note-filer",
+          "text": "files each note",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 502,
+          "nodeRight": 527
+        },
+        {
+          "node": "crew",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 292.78125,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "crew",
+          "text": "Crew ledger",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 331.93646240234375,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "crew",
+          "text": "crew/ledger.md",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 344,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "voyage",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 444.78125,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "voyage",
+          "text": "Voyage notes",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 491.140625,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "voyage",
+          "text": "voyage/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 454,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "penelope",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 652.453125,
+          "nodeRight": 691.5
+        },
+        {
+          "node": "penelope",
+          "text": "Penelope",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 655.4375,
+          "nodeRight": 691.5
+        },
+        {
+          "node": "penelope",
+          "text": "Ithaca, +1 h",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 672,
+          "nodeRight": 691.5
+        }
+      ],
+      "fonts": [
+        true,
+        true,
+        true
+      ],
+      "documentOverflow": false
+    },
+    {
+      "name": "relay-narrow-dark",
+      "nodes": 8,
+      "edges": 7,
+      "renderedWidth": 320,
+      "minimumFont": 9.5,
+      "text": [
+        {
+          "node": "phone",
+          "text": "INPUT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "phone",
+          "text": "Odysseus's phone",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 159.234375,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "phone",
+          "text": "capture, 06:40",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104.453125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "News from Sparta",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 155.80467224121094,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "Telemachus",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 112,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "source-watch",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 134.671875,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "watches Sparta",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "Inbox",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 84.93217468261719,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "inbox/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 88,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "note-filer",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279
+        },
+        {
+          "node": "note-filer",
+          "text": "note-filer",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 108.25236511230469,
+          "nodeRight": 279
+        },
+        {
+          "node": "note-filer",
+          "text": "files each note",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 142,
+          "nodeRight": 279
+        },
+        {
+          "node": "crew",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "crew",
+          "text": "Crew ledger",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 123.93646240234375,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "crew",
+          "text": "crew/ledger.md",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "voyage",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 212.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "voyage",
+          "text": "Voyage notes",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 259.140625,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "voyage",
+          "text": "voyage/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 222,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104.453125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "Penelope",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 107.4375,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "Ithaca, +1 h",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 124,
+          "nodeRight": 279.5
+        }
+      ],
+      "fonts": [
+        true,
+        true,
+        true
+      ],
+      "documentOverflow": false
+    },
+    {
+      "name": "relay-desktop-print",
+      "nodes": 8,
+      "edges": 7,
+      "renderedWidth": 720,
+      "minimumFont": 9.5,
+      "text": [
+        {
+          "node": "phone",
+          "text": "INPUT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 76.78125,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "phone",
+          "text": "Odysseus's phone",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 151.234375,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "phone",
+          "text": "capture, 06:40",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 128,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 96.453125,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "News from Sparta",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 147.80467224121094,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "news",
+          "text": "Telemachus",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104,
+          "nodeRight": 167.5
+        },
+        {
+          "node": "source-watch",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 276.78125,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "source-watch",
+          "text": "source-watch",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 326.671875,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "source-watch",
+          "text": "watches Sparta",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 328,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 276.78125,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "Inbox",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 276.93218994140625,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "inbox",
+          "text": "inbox/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 280,
+          "nodeRight": 343.5
+        },
+        {
+          "node": "note-filer",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 444.78125,
+          "nodeRight": 527
+        },
+        {
+          "node": "note-filer",
+          "text": "note-filer",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 468.25238037109375,
+          "nodeRight": 527
+        },
+        {
+          "node": "note-filer",
+          "text": "files each note",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 502,
+          "nodeRight": 527
+        },
+        {
+          "node": "crew",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 292.78125,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "crew",
+          "text": "Crew ledger",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 331.93646240234375,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "crew",
+          "text": "crew/ledger.md",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 344,
+          "nodeRight": 375.5
+        },
+        {
+          "node": "voyage",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 444.78125,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "voyage",
+          "text": "Voyage notes",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 491.140625,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "voyage",
+          "text": "voyage/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 454,
+          "nodeRight": 527.5
+        },
+        {
+          "node": "penelope",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 652.453125,
+          "nodeRight": 691.5
+        },
+        {
+          "node": "penelope",
+          "text": "Penelope",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 655.4375,
+          "nodeRight": 691.5
+        },
+        {
+          "node": "penelope",
+          "text": "Ithaca, +1 h",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 672,
+          "nodeRight": 691.5
+        }
+      ],
+      "fonts": [
+        true,
+        true,
+        true
+      ],
+      "documentOverflow": false
+    },
+    {
+      "name": "relay-narrow-print",
+      "nodes": 8,
+      "edges": 7,
+      "renderedWidth": 320,
+      "minimumFont": 9.5,
+      "text": [
+        {
+          "node": "phone",
+          "text": "INPUT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "phone",
+          "text": "Odysseus's phone",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 159.234375,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "phone",
+          "text": "capture, 06:40",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104.453125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "News from Sparta",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 155.80467224121094,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "news",
+          "text": "Telemachus",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 112,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "source-watch",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 134.671875,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "source-watch",
+          "text": "watches Sparta",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "Inbox",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 84.93217468261719,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "inbox",
+          "text": "inbox/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 88,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "note-filer",
+          "text": "AGENT",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 279
+        },
+        {
+          "node": "note-filer",
+          "text": "note-filer",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 108.25236511230469,
+          "nodeRight": 279
+        },
+        {
+          "node": "note-filer",
+          "text": "files each note",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 142,
+          "nodeRight": 279
+        },
+        {
+          "node": "crew",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 84.78125,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "crew",
+          "text": "Crew ledger",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 123.93646240234375,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "crew",
+          "text": "crew/ledger.md",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 136,
+          "nodeRight": 151.5
+        },
+        {
+          "node": "voyage",
+          "text": "STORE",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 212.78125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "voyage",
+          "text": "Voyage notes",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 259.140625,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "voyage",
+          "text": "voyage/",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 222,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "EXTERNAL",
+          "size": 9.5,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 104.453125,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "Penelope",
+          "size": 12,
+          "family": "\"Plus Jakarta Sans\", system-ui, sans-serif",
+          "right": 107.4375,
+          "nodeRight": 279.5
+        },
+        {
+          "node": "penelope",
+          "text": "Ithaca, +1 h",
+          "size": 10,
+          "family": "\"JetBrains Mono\", ui-monospace, monospace",
+          "right": 124,
+          "nodeRight": 279.5
+        }
+      ],
+      "fonts": [
+        true,
+        true,
+        true
+      ],
+      "documentOverflow": false
+    }
+  ]
+}

@@ -1,0 +1,547 @@
+{
+  "artifact_format": "homecoming-design-layout-v1",
+  "nodes": [
+    [
+      "phone",
+      "Odysseus's phone",
+      "capture, 06:40",
+      "input",
+      "INPUT"
+    ],
+    [
+      "news",
+      "News from Sparta",
+      "Telemachus",
+      "external",
+      "EXTERNAL"
+    ],
+    [
+      "source-watch",
+      "source-watch",
+      "watches Sparta",
+      "default",
+      "AGENT"
+    ],
+    [
+      "inbox",
+      "Inbox",
+      "inbox/",
+      "store",
+      "STORE"
+    ],
+    [
+      "note-filer",
+      "note-filer",
+      "files each note",
+      "focal",
+      "AGENT"
+    ],
+    [
+      "crew",
+      "Crew ledger",
+      "crew/ledger.md",
+      "store",
+      "STORE"
+    ],
+    [
+      "voyage",
+      "Voyage notes",
+      "voyage/",
+      "store",
+      "STORE"
+    ],
+    [
+      "penelope",
+      "Penelope",
+      "Ithaca, +1 h",
+      "external",
+      "EXTERNAL"
+    ]
+  ],
+  "edges": [
+    [
+      "capture",
+      "phone",
+      "inbox",
+      "primary",
+      "CAPTURE"
+    ],
+    [
+      "watch",
+      "news",
+      "source-watch",
+      "async",
+      "WATCH"
+    ],
+    [
+      "deliver",
+      "source-watch",
+      "inbox",
+      "default",
+      "DELIVER"
+    ],
+    [
+      "intake",
+      "inbox",
+      "note-filer",
+      "default",
+      ""
+    ],
+    [
+      "ledger",
+      "note-filer",
+      "crew",
+      "default",
+      "LEDGER"
+    ],
+    [
+      "file",
+      "note-filer",
+      "voyage",
+      "default",
+      "FILE"
+    ],
+    [
+      "digest",
+      "note-filer",
+      "penelope",
+      "link",
+      "DIGEST"
+    ]
+  ],
+  "groups": [
+    [
+      "ogygia",
+      "OGYGIA",
+      [
+        "phone"
+      ]
+    ],
+    [
+      "brain",
+      "THE BRAIN",
+      [
+        "source-watch",
+        "inbox",
+        "note-filer",
+        "crew",
+        "voyage"
+      ]
+    ],
+    [
+      "ithaca",
+      "ITHACA",
+      [
+        "penelope"
+      ]
+    ]
+  ],
+  "layouts": {
+    "desktop": {
+      "width": 720,
+      "height": 480,
+      "boxes": {
+        "phone": [
+          32,
+          88,
+          136,
+          64
+        ],
+        "news": [
+          32,
+          208,
+          136,
+          64
+        ],
+        "source-watch": [
+          232,
+          208,
+          112,
+          64
+        ],
+        "inbox": [
+          232,
+          88,
+          112,
+          64
+        ],
+        "note-filer": [
+          400,
+          88,
+          128,
+          64
+        ],
+        "crew": [
+          248,
+          312,
+          128,
+          64
+        ],
+        "voyage": [
+          400,
+          312,
+          128,
+          64
+        ],
+        "penelope": [
+          588,
+          88,
+          104,
+          64
+        ]
+      },
+      "groups": {
+        "ogygia": [
+          16,
+          48,
+          168,
+          128
+        ],
+        "brain": [
+          216,
+          48,
+          328,
+          352
+        ],
+        "ithaca": [
+          576,
+          48,
+          128,
+          128
+        ]
+      },
+      "routes": {
+        "capture": [
+          [
+            168,
+            120
+          ],
+          [
+            232,
+            120
+          ]
+        ],
+        "watch": [
+          [
+            168,
+            240
+          ],
+          [
+            232,
+            240
+          ]
+        ],
+        "deliver": [
+          [
+            288,
+            208
+          ],
+          [
+            288,
+            152
+          ]
+        ],
+        "intake": [
+          [
+            344,
+            120
+          ],
+          [
+            400,
+            120
+          ]
+        ],
+        "ledger": [
+          [
+            442.6666666666667,
+            152
+          ],
+          [
+            442.6666666666667,
+            288
+          ],
+          [
+            312,
+            288
+          ],
+          [
+            312,
+            312
+          ]
+        ],
+        "file": [
+          [
+            485.3333333333333,
+            152
+          ],
+          [
+            485.3333333333333,
+            280
+          ],
+          [
+            464,
+            280
+          ],
+          [
+            464,
+            312
+          ]
+        ],
+        "digest": [
+          [
+            528,
+            120
+          ],
+          [
+            588,
+            120
+          ]
+        ]
+      },
+      "labels": {
+        "capture": [
+          200,
+          106,
+          "bg"
+        ],
+        "watch": [
+          200,
+          226,
+          "bg"
+        ],
+        "deliver": [
+          324,
+          180,
+          "cluster"
+        ],
+        "ledger": [
+          410,
+          248,
+          "cluster"
+        ],
+        "file": [
+          512,
+          216,
+          "cluster"
+        ],
+        "digest": [
+          558,
+          106,
+          "bg"
+        ]
+      },
+      "legend": 432
+    },
+    "narrow": {
+      "width": 320,
+      "height": 1088,
+      "boxes": {
+        "phone": [
+          40,
+          56,
+          240,
+          64
+        ],
+        "news": [
+          40,
+          176,
+          240,
+          64
+        ],
+        "source-watch": [
+          40,
+          312,
+          240,
+          64
+        ],
+        "inbox": [
+          40,
+          432,
+          240,
+          64
+        ],
+        "note-filer": [
+          40,
+          552,
+          240,
+          64
+        ],
+        "crew": [
+          40,
+          712,
+          112,
+          64
+        ],
+        "voyage": [
+          168,
+          712,
+          112,
+          64
+        ],
+        "penelope": [
+          40,
+          880,
+          240,
+          64
+        ]
+      },
+      "groups": {
+        "ogygia": [
+          16,
+          32,
+          288,
+          112
+        ],
+        "brain": [
+          16,
+          288,
+          288,
+          520
+        ],
+        "ithaca": [
+          16,
+          856,
+          288,
+          112
+        ]
+      },
+      "routes": {
+        "capture": [
+          [
+            280,
+            88
+          ],
+          [
+            296,
+            88
+          ],
+          [
+            296,
+            464
+          ],
+          [
+            280,
+            464
+          ]
+        ],
+        "watch": [
+          [
+            160,
+            240
+          ],
+          [
+            160,
+            312
+          ]
+        ],
+        "deliver": [
+          [
+            160,
+            376
+          ],
+          [
+            160,
+            432
+          ]
+        ],
+        "intake": [
+          [
+            160,
+            496
+          ],
+          [
+            160,
+            552
+          ]
+        ],
+        "ledger": [
+          [
+            120,
+            616
+          ],
+          [
+            120,
+            656
+          ],
+          [
+            96,
+            656
+          ],
+          [
+            96,
+            712
+          ]
+        ],
+        "file": [
+          [
+            200,
+            616
+          ],
+          [
+            200,
+            680
+          ],
+          [
+            224,
+            680
+          ],
+          [
+            224,
+            712
+          ]
+        ],
+        "digest": [
+          [
+            280,
+            584
+          ],
+          [
+            296,
+            584
+          ],
+          [
+            296,
+            912
+          ],
+          [
+            280,
+            912
+          ]
+        ]
+      },
+      "labels": {
+        "capture": [
+          261,
+          264,
+          "bg"
+        ],
+        "watch": [
+          190,
+          272,
+          "bg"
+        ],
+        "deliver": [
+          196,
+          404,
+          "cluster"
+        ],
+        "ledger": [
+          88,
+          640,
+          "cluster"
+        ],
+        "file": [
+          226,
+          652,
+          "cluster"
+        ],
+        "digest": [
+          263,
+          832,
+          "bg"
+        ]
+      },
+      "legend": 992
+    }
+  }
+}
