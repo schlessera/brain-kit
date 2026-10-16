@@ -31,6 +31,18 @@ process cleanup. Native probes run against loopback fixtures without live keys.
 The Linux runner setup retains the existing ephemeral namespace prerequisite;
 the test/preload and offline namespace guards remain enabled.
 
+
+Root `tests/**`, `scripts/**`, `experiments/**` and `website/**` now use a
+conservative reverse reference closure to select root and package test consumers,
+plus the reviewed category table in `scripts/ci-plan.ts`. Root test leaves select
+themselves. Narrow unit inventories include the tooling fast invariants exactly
+once: when complete unit proof is selected, verify does not repeat the fast
+subset. Package changes still discover all root tests alongside affected packages.
+Unreadable inputs, outside symlinks, conflicting mappings and inputs without a
+recognised test/category consumer remain global. Lockfiles, root manifests,
+changeset configuration, workflows and unknown roots remain global. Exhaustive
+and event/candidate/aggregate requirements are unchanged.
+
 Complete local commands remain available: `check:pr --full` runs the affected
 full inventory and `check:pr --all` runs every category for releases or diagnosis.
 Neither is mandatory for an ordinary contribution with complete passing hosted
@@ -99,6 +111,15 @@ fresh job and never becomes an ordinary browser/layout weight. Requalify timing
 inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
 Two layout shards, per-project serial execution and all deadlines remain unchanged.
+
+Unit weights have the same explicit reviewed path:
+`bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
+successful exhaustive unit jobs and binds actual checkout logs, immutable
+source discovery, complete JUnit/timing partitions and downloaded archive
+digests. `scripts/unit-shard-measurement.json` records that provenance; the
+refresh names any observed unweighted file exceeding 30 seconds. Timings
+are reviewed inputs, never fetched during contribution CI.
+
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
 `proof` gate recomputes selection from the actual event and inputs, then examines every selected job: success is required; missing output,

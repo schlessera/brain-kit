@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BackendRequestError, type TurnFailure } from "@schlessera/brain-ui-sdk/server";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
-import { mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { sessionReplay, mib, resolveWorkerStateLimits, WORKER_STATE_BYTES_ENV, WorkerHostError, type WorkerNoteLimit, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { processStateLedger, type Reservation, type StateLedger } from "./worker-state-budget.js";
 
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -104,7 +104,7 @@ export interface ClaudeWorkerState {
   populate(root: string): void;
   /**
    * Copies validated results out of the private tmpfs, after the worker's
-   * namespace is gone; `rewrite` maps the answer text this run appended (#1655).
+   * namespace is gone; `rewrite` promotes newly appended answer links for display.
    */
   persist(root: string, rewrite?: (text: string) => string): void;
   /** Releases the admission reservation; idempotent, called on every exit path. */
@@ -220,8 +220,8 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
       if (options.resume && transcripts.length > 0) observation = { usedBytes: total, allowanceBytes: allowance, observedAt: Date.now() };
     },
     /**
-     * `rewrite` maps the answer text of the transcript lines this run
-     * appended to a session (#1655); earlier lines are saved as they were.
+     * `rewrite` observes this turn’s answer links for promotion. All transcript
+     * bytes stay exactly as the runtime wrote them (#2049).
      */
     persist(root, rewrite) {
       // Only this brain's native transcript files and its memory notes, never
@@ -247,7 +247,17 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         if (total > allowance) throw new WorkerHostError("runtime transcripts and memory exceed their byte bound");
         const prefix = initial.has(name) ? { length: initialLength.get(name)!, hash: initial.get(name)! } : undefined;
         // Only a session's own transcript holds the answer; subagent files stay as written.
-        const bytes = rewrite && !file.includes("/") ? rewriteAppendedAnswers(read, prefix, rewrite) : read;
+        // Promotion observes only newly appended answer parts. Its display output
+        // belongs to host metadata; copy out the exact runtime bytes.
+        if (rewrite && !file.includes("/")) {
+          const display = sessionReplay(saved, brain, id);
+          rewriteAppendedAnswers(read, prefix, (text, messageId, part) => {
+            const next = rewrite(text);
+            if (messageId !== undefined) display.retainText(messageId, part!, text, next);
+            return text;
+          });
+        }
+        const bytes = read;
         if (initial.get(name) === hash(bytes)) continue;
         write(name, bytes, "transcript");
       }
@@ -282,19 +292,19 @@ export function workerStateLimit(limits: WorkerStateLimits): WorkerNoteLimit {
  * returned as it is: nothing but this run's own lines may be rewritten.
  */
 export function rewriteAppendedAnswers(bytes: Buffer, prefix: { length: number; hash: string } | undefined,
-  rewrite: (text: string) => string): Buffer {
+  rewrite: (text: string, messageId?: string, part?: number) => string): Buffer {
   const start = prefix?.length ?? 0;
   if (prefix && (bytes.length < start || hash(bytes.subarray(0, start)) !== prefix.hash)) return bytes;
   let changed = false;
   const lines = bytes.subarray(start).toString("utf8").split("\n").map(line => {
     if (!line.includes("\"assistant\"")) return line;
-    let record: { type?: unknown; message?: { content?: unknown } };
+    let record: { type?: unknown; uuid?: string; message?: { content?: unknown } };
     try { record = JSON.parse(line); } catch { return line; }
     if (record?.type !== "assistant" || !Array.isArray(record.message?.content)) return line;
     let touched = false;
-    for (const part of record.message.content as Array<{ type?: unknown; text?: unknown }>) {
+    for (const [index, part] of (record.message.content as Array<{ type?: unknown; text?: unknown }>).entries()) {
       if (part?.type !== "text" || typeof part.text !== "string") continue;
-      const next = rewrite(part.text);
+      const next = rewrite(part.text, record.uuid, index);
       if (next !== part.text) { part.text = next; touched = true; }
     }
     if (!touched) return line;

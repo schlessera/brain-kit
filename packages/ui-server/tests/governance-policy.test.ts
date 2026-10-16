@@ -156,6 +156,20 @@ test("confirmed session preference tightens the next actual worker without chang
 });
 
 
+test("session profile renders the byte cap in binary units without changing the policy's exact value", () => {
+  const f = fixture();
+  const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
+  const profiles = createSessionProfiles(f.db, f.turns);
+  const readScope = () => profiles.read(principal.id, "draft", "ithaca-draft").limits.find(limit => limit.name === "Per-turn scope")!.value;
+  expect(readScope(), "PROFILE_DEFAULT_READABLE_BYTE_CAP").toContain("4 GiB observed bytes");
+  expect(f.turns.facts("interactive").policy.policy.scope.max_bytes_written).toBe(4 * 1024 ** 3);
+  for (const [bytes, display] of [[512, "512 B"], [1024, "1 KiB"], [1536 * 1024, "1.5 MiB"]] as const) {
+    f.write(`scope: { max_bytes_written: ${bytes} }`);
+    expect(readScope(), "PROFILE_CUSTOM_READABLE_BYTE_CAP").toContain(`${display} observed bytes`);
+    expect(f.turns.facts("interactive").policy.policy.scope.max_bytes_written).toBe(bytes);
+  }
+});
+
 test("authenticated profile routes persist named preferences, lock policy and refuse expired, unknown and mismatched drafts", async () => {
   const f = fixture(); const principal = createPrincipal(f.db, { authMethod: "password", label: "Athena device", ttlSeconds: 3600 });
   const catalog = createSessionCatalog(() => f.db); catalog.persistSessionStub("ithaca-chat", "Odysseus reviews the harbor.", "claude", "claude");

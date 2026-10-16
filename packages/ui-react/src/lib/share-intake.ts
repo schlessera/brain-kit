@@ -128,7 +128,17 @@ function formatBytes(bytes: number): string {
 export function buildSharePrompt(result: ShareIntakeResult): string {
   const lines = ["I shared something into my brain.", ""];
   lines.push(`Staged at \`${result.dir}/\`:`);
-  lines.push("- meta.json — title, text and URL exactly as shared");
+  const fields = [
+    ...(result.title ? ["title"] : []),
+    ...(result.text ? ["text"] : []),
+    ...(result.url ? ["URL"] : []),
+  ];
+  const sharedFields = fields.length > 1
+    ? `${fields.slice(0, -1).join(", ")} and ${fields.at(-1)}`
+    : fields[0];
+  lines.push(sharedFields
+    ? `- meta.json — ${sharedFields} exactly as shared`
+    : "- meta.json — staged files only");
   for (const file of result.files) {
     if (file.detected && file.summary) {
       lines.push(`- Validated ${file.detected} track at ${JSON.stringify(file.path)}; file-provided coordinates, timestamps do not prove travel. Summary (usable sections only): ${JSON.stringify(file.summary)}`);

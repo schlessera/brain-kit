@@ -3225,3 +3225,16 @@ client components in every mode/theme and static output in every theme.
 The [authoring guide](../extending/content-renderers.md) specifies the token
 block/root ground convention. Conformance tests trusted bundled code; it is
 not a sanitizer. Dispatch, manifests and concrete packs are separate epic work.
+
+### Stable hosted application roster (#2048)
+
+The additive, trusted `StartTurnRequest.applicationAuthority?: "server"` field
+identifies a deployment whose authoritative mutations use the server route.
+The UI server supplies it on every interactive turn, independent of posture,
+strict fallback or temporary bridge handler availability. It is session-stable
+host configuration, never client/model input or a grant. Claude uses it to keep
+legacy project MCP writers shadowed even when `applyBrain` is temporarily absent;
+its fixed in-process application tools then refuse unavailable routes at call
+time. Direct unhosted consumers omitting it retain their legacy project MCP
+roster. Existing custom bridges without the field retain the prior `applyBrain`
+presence fallback. Autonomous authority/rosters are unchanged.

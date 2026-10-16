@@ -755,7 +755,7 @@ export function createBrainApi(
       limit?: number;
       before?: number;
     }) =>
-      fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] }>(
+      fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[]; lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[] }>(
         "/activity/runs?" +
           [
             opts?.origin && `origin=${opts.origin}`,
