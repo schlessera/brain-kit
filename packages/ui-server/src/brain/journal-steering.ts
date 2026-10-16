@@ -1,4 +1,5 @@
 /** Data-only inventory of known steering surfaces and retained local references. */
+import { steeringReferences, type SteeringReference } from "./journal-reference-roles.js";
 import { posix } from "node:path";
 import type { JournalSnapshot, JournalSnapshotEntry } from "./journal-snapshot.js";
 
@@ -7,67 +8,71 @@ const configuration = /(?:^|\/)(?:brain\.config\.(?:ts|json)|bunfig\.toml|packag
 const surfaces = /(?:^|\/)(?:\.claude|\.agents|\.pi)\//;
 const schedules = /(?:^|\/)context\/scheduled-tasks\//;
 const policy = /(?:^|\/)context\/policies(?:\/|$)/;
-const scripts = /\.(?:[cm]?[jt]sx?|json|toml|ya?ml)$/;
+const scripts = /\.(?:[cm]?[jt]sx?|json|toml|ya?ml|sh|bash)$/;
+
+/** Trusted journal-relative identities, never values inferred from repository text. */
+export interface JournalSteeringOptions { resolvedIndexPaths?: readonly string[] }
 
 export const isJournalSteeringPath = (path: string): boolean => !policy.test(path) &&
   (instructions.test(path) || configuration.test(path) || surfaces.test(path) || schedules.test(path));
 
 /** A classification inventory, never a claim that arbitrary code was executed. */
-function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (path: string) => JournalSnapshotEntry | undefined): Generator<JournalSnapshotEntry, { paths: Set<string>; unavailable: string[] }, Buffer | undefined> {
+function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (path: string) => JournalSnapshotEntry | undefined, options: JournalSteeringOptions = {}): Generator<JournalSnapshotEntry, { paths: Set<string>; unavailable: string[] }, Buffer | undefined> {
   const entries = new Map<string, JournalSnapshotEntry>();
-  const paths = new Set<string>(), pending: JournalSnapshotEntry[] = [];
+  const paths = new Set<string>(), pending: { entry: JournalSnapshotEntry; instructionDepth?: number }[] = [];
   const unavailable = new Set<string>();
   for (const snapshot of snapshots) for (const entry of snapshot.entries) {
     entries.set(entry.path, entry);
     if (isJournalSteeringPath(entry.path)) {
-      paths.add(entry.path); pending.push(entry);
+      paths.add(entry.path); pending.push({entry, instructionDepth: /(?:^|\/)(?:CLAUDE|AGENTS)(?:\.local)?\.md$/.test(entry.path) ? 0 : undefined});
     }
   }
+  // Core initContext fixes its index at <root>/brain.db. Explicit identities
+  // support callers that already resolved a different index; this is no new
+  // repository configuration format. Sidecars derive from that exact identity.
+  const indexes = options.resolvedIndexPaths ?? [...new Set([...entries.values()].map(entry => posix.join(entry.scope, "brain.db")))];
+  const disposable = new Set(indexes.flatMap(path => ["", "-wal", "-shm", "-journal"].map(suffix => `${posix.normalize(path)}${suffix}`)));
+  for (const path of disposable) paths.delete(path);
   const visited = new Set<string>();
-  const add = (from: JournalSnapshotEntry, reference: string) => {
-    if (!reference || reference.startsWith("/") || reference.includes(":") || reference.includes("\0")) return;
-    const candidate = posix.normalize(posix.join(posix.dirname(from.path), reference));
-    const rootRelative = posix.normalize(posix.join(from.scope, reference));
-    for (const path of [candidate, rootRelative]) for (const suffix of ["", ".ts", ".tsx", ".js", ".mjs", ".json", "/index.ts", "/index.js"]) {
-      const resolved = `${path}${suffix}`, entry = entries.get(resolved) ?? lookup?.(resolved);
-      if (!entry || policy.test(resolved) || entry.scope !== from.scope || paths.has(resolved)) continue;
-      paths.add(resolved); pending.push(entry);
+  const add = (from: JournalSnapshotEntry, reference: SteeringReference) => {
+    const value = reference.path;
+    if (!value || value.startsWith("/") || value.includes(":") || value.includes("\\") || value.includes("\0")) { unavailable.add(from.path); return; }
+    const base = reference.base === "file" ? posix.dirname(from.path) : from.scope;
+    const candidate = posix.normalize(posix.join(base, value));
+    const suffixes = reference.manifest ? [".ts", ".js"] : reference.module ? ["", ".ts", ".tsx", ".js", ".mjs", ".json", "/index.ts", "/index.js"] : [""];
+    for (const suffix of suffixes) {
+      const resolved = `${candidate}${suffix}`;
+      // Scope checks precede lookup, including the canonical root/workspaces
+      // distinction. Readers never receive a traversal/out-of-scope candidate.
+      if (resolved.startsWith("../") || resolved === ".." || (from.scope ? !resolved.startsWith(`${from.scope}/`) : resolved.startsWith("workspaces/"))) continue;
+      if (policy.test(resolved) || disposable.has(resolved)) return;
+      const entry = entries.get(resolved) ?? lookup?.(resolved);
+      if (!entry || entry.scope !== from.scope) continue;
+      if (!paths.has(resolved) || reference.instructionDepth !== undefined) { paths.add(resolved); pending.push({entry, instructionDepth:reference.instructionDepth}); }
+      return;
     }
+    unavailable.add(from.path);
   };
   while (pending.length) {
-    const entry = pending.pop()!;
-    if (!scripts.test(entry.path) || visited.has(`${entry.path}:${entry.hash ?? entry.stamp}`)) continue;
-    visited.add(`${entry.path}:${entry.hash ?? entry.stamp}`);
+    const { entry, instructionDepth } = pending.pop()!;
+    if (disposable.has(entry.path) || visited.has(`${entry.path}:${entry.hash ?? entry.stamp}:${instructionDepth ?? "module"}`)) continue;
+    visited.add(`${entry.path}:${entry.hash ?? entry.stamp}:${instructionDepth ?? "module"}`);
     // Readers use retained objects or pinned sealed roots, never live imports.
-    if (entry.ignored || entry.bytes > 1024 * 1024) { unavailable.add(entry.path); continue; }
+    if (entry.kind !== "file" || entry.ignored || entry.bytes > 1024 * 1024) { unavailable.add(entry.path); continue; }
+    if (instructionDepth === undefined && !scripts.test(entry.path)) continue;
     const bytes = yield entry;
     if (!bytes) { unavailable.add(entry.path); continue; }
     const text = bytes.toString("utf8");
-    if (/\.[cm]?[jt]sx?$/.test(entry.path)) {
-      try {
-        const loader = entry.path.endsWith("x") ? "tsx" : "ts";
-        for (const reference of new Bun.Transpiler({ loader }).scan(text).imports) if (reference.path.startsWith(".")) add(entry, reference.path);
-      } catch { unavailable.add(entry.path); }
-      // Computed imports/resources cannot be identified by a data-only reader.
-      for (const call of text.matchAll(/\b(?:import|require|readFile(?:Sync)?)\s*\(([^)]*)\)/g)) {
-        if (!/^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*(?:,|$)/.test(call[1]!.trim())) unavailable.add(entry.path);
-      }
-    }
-    // Literal local resources, settings paths, preload names and hook command
-    // arguments from the audited startup consumers. Resolve only names already
-    // in this same journal scope; no shell/config execution or path following.
-    for (const match of text.matchAll(/["']([^"'\r\n]+)["']/g)) {
-      const value = match[1]!;
-      if (!value.includes(" ")) add(entry, value);
-      else for (const word of value.split(/\s+/)) if (word.startsWith(".") || word.includes("/")) add(entry, word);
-    }
+    const roles = steeringReferences(entry.path, text, instructionDepth);
+    if (roles.unknown) unavailable.add(entry.path);
+    for (const reference of roles.references) add(entry, reference);
   }
   return { paths, unavailable: [...unavailable].sort() };
 }
 
 /** Existing retained-object reader, also used by historical journal fixtures. */
-export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (hash: string, maximum: number) => Buffer) {
-  const inventory = steeringInventory(snapshots);
+export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (hash: string, maximum: number) => Buffer, options: JournalSteeringOptions = {}) {
+  const inventory = steeringInventory(snapshots, undefined, options);
   let step = inventory.next();
   while (!step.done) {
     let bytes: Buffer | undefined;
@@ -78,8 +83,8 @@ export function journalSteeringInputs(snapshots: readonly JournalSnapshot[], rea
 }
 
 /** Native admission needs no CAS copy of unchanged configuration inputs. */
-export async function nativeJournalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (entry: JournalSnapshotEntry, maximum: number) => Promise<Buffer>, lookup?: (path: string) => JournalSnapshotEntry | undefined) {
-  const inventory = steeringInventory(snapshots, lookup);
+export async function nativeJournalSteeringInputs(snapshots: readonly JournalSnapshot[], read: (entry: JournalSnapshotEntry, maximum: number) => Promise<Buffer>, lookup?: (path: string) => JournalSnapshotEntry | undefined, options: JournalSteeringOptions = {}) {
+  const inventory = steeringInventory(snapshots, lookup, options);
   let step = inventory.next();
   while (!step.done) {
     let bytes: Buffer | undefined;

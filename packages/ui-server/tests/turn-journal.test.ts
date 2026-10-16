@@ -8,13 +8,13 @@ import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 
-function fixture(capBytes?: number) {
+function fixture(capBytes?: number, resolvedIndexPaths?: readonly string[]) {
   const root = mkdtempSync(join(tmpdir(), "turn-journal-odysseus-")), brain = join(root, "brain"), path = join(root, "ui.db");
   mkdirSync(join(brain, "notes"), { recursive: true });
   writeFileSync(join(brain, ".gitignore"), "ignored.txt\n");
   writeFileSync(join(brain, "notes", "odysseus.md"), "# Ithaca\r\n");
   const native = createNativeJournalFixture(brain, root);
-  const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes });
+  const db = createUiDb(path), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes, resolvedIndexPaths });
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
@@ -274,5 +274,41 @@ test("opaque configuration input limitations survive replay without executing co
       expect(details.missing, "STEERING_OPAQUE_INPUT_HONEST_REPLAY").toContainEqual({ path: "brain.config.ts", reason: "configuration_inputs_not_fully_identified" });
       expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
     } finally { await replay.close(); }
+  } finally { await f.close(); }
+});
+
+
+for (const index of ["brain.db", "cache/voyage.sqlite"]) test(`native journal excludes resolved index ${index} and sidecars while preserving input-role events`, async () => {
+  const f = fixture(undefined, [index]);
+  try {
+    mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude"));
+    const ignored = [index, ...["-wal","-shm","-journal"].map(suffix=>`${index}${suffix}`)];
+    writeFileSync(join(f.brain,".gitignore"), ignored.join("\n"));
+    writeFileSync(join(f.brain,"brain.config.ts"), `export default { db: "${index}", output: "./ordinary" };`);
+    writeFileSync(join(f.brain,"bunfig.toml"), `preload = ["./startup.ts", ${ignored.map(path=>JSON.stringify(`./${path}`)).join(", ")}]`);
+    writeFileSync(join(f.brain,"startup.ts"), 'import "./instructions" with {type:"text"}; import "./resources/brain.db" with {type:"text"};');
+    writeFileSync(join(f.brain,".claude/settings.json"), JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]}}));
+    const genuine = ["startup.ts","instructions","resources/brain.db","hook.ts",".claude/settings.json"];
+    for (const path of [...ignored,"instructions","resources/brain.db","hook.ts","ordinary"]) writeFileSync(join(f.brain,path), "initial");
+    await f.begin("index-only");
+    for (const path of ignored) writeFileSync(join(f.brain,path), "index changed");
+    await f.journal.finish("index-only");
+    const details = f.journal.details("ithaca","index-only")!;
+    expect(details.changes.map(change=>change.path).sort()).toEqual(ignored.sort());
+    expect(details.changes.every(change=>change.class === "content"), "NATIVE_INDEX_HAS_NO_STEERING_CLASS").toBe(true);
+    expect(queryGovernanceEvents(f.db,{turnId:"index-only",kinds:["steering_change"],limit:100}), "NATIVE_INDEX_HAS_NO_STEERING_EVENTS").toEqual([]);
+    expect(details.summary.steeringFiles).toBe(0);
+    await f.begin("inputs");
+    writeFileSync(join(f.brain,"startup.ts"), 'import "./instructions" with {type:"text"}; import "./resources/brain.db" with {type:"text"}; // edited');
+    writeFileSync(join(f.brain,"hook.ts"), 'export {}; // edited');
+    writeFileSync(join(f.brain,"instructions"), "Athena guides the return.");
+    writeFileSync(join(f.brain,"resources/brain.db"), "A genuine text input, despite its basename.");
+    writeFileSync(join(f.brain,"ordinary"), "data changed");
+    writeFileSync(join(f.brain,".claude/settings.json"), JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]},model:"voyage"}));
+    await f.journal.finish("inputs");
+    const controls = f.journal.details("ithaca","inputs")!;
+    expect(controls.changes.filter(change=>change.class === "steering").map(change=>change.path).sort(), "NATIVE_GENUINE_INPUT_ROLE_CONTROLS").toEqual(genuine.sort());
+    expect(controls.changes.find(change=>change.path === "ordinary")?.class, "NATIVE_ORDINARY_ARGUMENT_IS_DATA").toBe("content");
+    expect(queryGovernanceEvents(f.db,{turnId:"inputs",kinds:["steering_change"],limit:100}).map(event=>event.payload.path).sort()).toEqual(genuine.sort());
   } finally { await f.close(); }
 });
