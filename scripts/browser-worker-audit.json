@@ -1,7 +1,7 @@
 {
   "version": 1,
   "category": "browser",
-  "identity": "e3bb0876f03824f6ef0652a7ac45f336a36c7cfadceb1f1e93b70b1a22efb981",
+  "identity": "87fe1b8e4b329668298dfd1cee24fa16de21b977d3e9b343e89225a4d3330595",
   "diagnostic": {
     "base": "b0b4340cd",
     "observed": 297,
@@ -14,9 +14,9 @@
   },
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
-    "base": "53cfbf94ff8b5b153ad23e39289096dc1a2ef91a",
+    "base": "fbff319c4256c7670f0fac6aa138bfb1d5c7aaf4",
     "selected": 297,
     "files": 1337,
-    "scope": "Immutable production discovery entrypoints; all selected source/data/config/hooks/imports/resources included; main delta re-audited, sole configurable PDF Worker edge bounded by earliest setup and cleanup guard. Declaration bytes remain separate ordinary harness fingerprint material."
+    "scope": "Immutable production discovery entrypoints and unchanged selected inventory/import/resource membership. Changed shared tokens, protected-output and activity-recorder/store sources re-audited; no new runtime resources or Worker realms/hooks. Old audit rejected this combined tree before update. Declaration bytes remain separate ordinary harness fingerprint material. The original diagnostic cleanup gap remains; complete guarded hosted proof is still mandatory."
   }
 }
