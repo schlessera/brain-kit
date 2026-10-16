@@ -29,7 +29,8 @@
     "observed": 2,
     "passed": 18,
     "workerAttempts": 0,
-    "logSha256": "71b20259c89a251c19fe8146931ce59817024b760ae386e0172ee6e0f47c4d7d",
-    "scope": "Dirty prototype over 053993 integration, two new selected project pairs only; no claim to cover all 299."
+    "logSha256": "282640cec719b3e5940018963f64b383a3eee13c4bc03a69d711fe66965b7fcd",
+    "scope": "Both added project pairs passed all 18 original cases with zero Worker attempts on the current audited source, after the intended resource mutation failed in Chromium and WebKit and originals were restored. This remains two project pairs, not a whole-299-domain observation.",
+    "source": "a0f007ae0f8cbe224c101179a1955044c3d241c3"
   }
 }
