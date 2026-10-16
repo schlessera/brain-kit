@@ -54,6 +54,7 @@ test.each(["strict", "governed"] as const)("%s real worker uses proxy while dire
     const result = JSON.parse(stdout);
     expect(result.direct, "EGRESS_NO_DIRECT_TCP").toBe(false);
     expect(result.explicit).toBe("Odysseus reaches Ithaca");
+    expect(result.automatic, "EGRESS_BUN_ENV_PROXY_MEASURED").toBe("Odysseus reaches Ithaca");
     expect(result.curlExit, "EGRESS_REAL_CURL_PROXY").toBe(0);
     expect(result.curl).toBe("Odysseus reaches Ithaca");
     expect(result.tlsExit, String(result.tlsError)).toBe(0);
