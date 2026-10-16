@@ -17,6 +17,12 @@ means CI has not started on that commit, which is not the same as green.
 
 Before opening/marking ready, execute `bun run check:pr --base origin/main`
 (`--base <parent-ref>` for an upper stack layer) for focused preflight.
+Default preflight includes offline-wrapped `--changed=<merge-base-sha>`
+import-graph feedback, including working-tree changes, in addition to fast
+invariants. An empty selection prints Bun’s no-affected-tests reason and
+succeeds. This misses spawned commands and file-read/string-named inputs;
+it does not replace complete affected hosted discovery. Full/all modes retain
+their existing suites without adding this feedback step.
 Record actual behavioral failing-first/restored mutation
 receipts and visual judgment. Complete repeatable proof runs in selected hosted
 jobs under #1326, including full affected discovery, pinned browser/layout/

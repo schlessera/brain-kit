@@ -1,7 +1,7 @@
 import { createActivityStore, priceUsage, type ActivityStore, type RollupPricing } from "../activity/store.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { resolveStandalonePricingConfig } from "../config/env.js";
-import { reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
+import { allocateClaudeTitleUsage, reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
 import type { BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -193,24 +193,46 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
             .get(sessionId, backendId) as { state_json: string } | null;
           const previous = row ? JSON.parse(row.state_json) as ClaudeUsageState : undefined;
           const result = reconcileClaudeUsage(previous, evidence.completed, evidence.cumulative, resumed, evidence.cumulativeCompleted);
-          const auxiliaryCost = result.auxiliary?.perModel ? priceUsage(result.auxiliary.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
+          const allocation = allocateClaudeTitleUsage(result.auxiliary, evidence.title, previous?.titleReceiptIds);
+          result.state.titleReceiptIds = allocation.seenIds;
+          result.state.partial ||= allocation.partial;
+          for (const [index, receipt] of allocation.title.entries()) {
+            const cost = receipt.costUsd ?? priceUsage(receipt.usage.perModel!, pricing, context?.pricingRoute)?.costUsd;
+            const runId = `${turnId}:claude-title:${index}`, spanId = `${runId}:root`;
+            store.startSpan({ runId, spanId, sessionId, principalId: context?.principalId, kind: "turn", origin: "session",
+              name: "Claude session title", attrs: { "brain.backend.id": backendId } });
+            store.endSpan(spanId, { outcome: "success", usage: {
+              inputTokens: receipt.usage.inputTokens, outputTokens: receipt.usage.outputTokens,
+              cacheReadTokens: receipt.usage.cacheReadTokens, cacheCreationTokens: receipt.usage.cacheCreationTokens,
+              ...(cost !== undefined ? { costUsd: cost } : {}),
+            }, attrs: { "brain.usage.source": receipt.source, "brain.usage.attribution": "title_helper",
+              "brain.usage.receipt_id": receipt.receiptId, "brain.usage.coverage": "observed",
+              "gen_ai.usage.per_model": receipt.usage.perModel!,
+              ...(context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
+              ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
+            } });
+            store.rollupRun(runId);
+            if (cost !== undefined) db().query("UPDATE sessions SET total_cost_usd=total_cost_usd+? WHERE id=?").run(cost, sessionId);
+          }
+          const auxiliaryCost = allocation.unattributed?.perModel ? priceUsage(allocation.unattributed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
           // An independent run keeps main conversation/cache metrics clean.
           // Unavailable coverage remains visible as an unpriced run; this is
           // unstreamed usage, not a claim that a model was a title helper.
-          if (result.auxiliary || result.state.partial && !previous?.partial) {
+          if (allocation.unattributed || result.state.partial && !previous?.partial) {
             const runId = `${turnId}:claude-unstreamed`, spanId = `${runId}:root`;
             store.startSpan({ runId, spanId, sessionId, principalId: context?.principalId, kind: "turn", origin: "session",
               name: "Unstreamed Claude usage", attrs: { "brain.backend.id": backendId } });
-            store.endSpan(spanId, { outcome: "success", usage: result.auxiliary ? {
-              inputTokens: result.auxiliary.inputTokens, outputTokens: result.auxiliary.outputTokens,
-              cacheReadTokens: result.auxiliary.cacheReadTokens, cacheCreationTokens: result.auxiliary.cacheCreationTokens,
+            store.endSpan(spanId, { outcome: "success", usage: allocation.unattributed ? {
+              inputTokens: allocation.unattributed.inputTokens, outputTokens: allocation.unattributed.outputTokens,
+              cacheReadTokens: allocation.unattributed.cacheReadTokens, cacheCreationTokens: allocation.unattributed.cacheCreationTokens,
               ...(auxiliaryCost !== undefined ? { costUsd: auxiliaryCost } : {}),
             } : undefined, attrs: {
               "brain.usage.source": "claude_session_cumulative_remainder",
               "brain.usage.attribution": "unattributed",
+              ...(evidence.title ? { "brain.usage.title_evidence": JSON.stringify(evidence.title) } : {}),
               "brain.usage.coverage": result.state.partial ? "partial" : "observed",
-              ...(result.auxiliary?.perModel ? { "gen_ai.usage.per_model": result.auxiliary.perModel } : {}),
-              ...(result.auxiliary && context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
+              ...(allocation.unattributed?.perModel ? { "gen_ai.usage.per_model": allocation.unattributed.perModel } : {}),
+              ...(allocation.unattributed && context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
               ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
               ...(evidence.reportedCostUsd !== undefined ? { "brain.usage.reported_session_cost_usd": evidence.reportedCostUsd } : {}),
             } });

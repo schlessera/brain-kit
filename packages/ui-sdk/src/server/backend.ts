@@ -251,6 +251,9 @@ interface PolicyCommandRecord<L extends "commands.deny" | "commands.confirm"> {
 }
 
 export type BackendActivityEvent =
+  | { kind: "prompt_prefix"; prefix: import("../protocol.js").PromptPrefixFingerprint; resumed: boolean }
+  | { kind: "first_request_cache"; usage: import("../protocol.js").FirstRequestCacheUsage }
+
   | {
       /** Executing main model, never inferred from helper usage. Scoped to this startTurn bridge. */
       kind: "main_model";
@@ -258,6 +261,14 @@ export type BackendActivityEvent =
       sessionId: string;
     }
     | {
+      /** Supported per-request title provenance, separate from root/child receipts.
+       * Reported after worker/exporter shutdown, before the terminal result. */
+      kind: "claude_title_usage";
+      coverage: "observed" | "partial" | "unknown";
+      receipts: Array<{ receiptId: string; source: "generate_session_title";
+        usage: import("../protocol.js").TurnUsage; costUsd?: number }>;
+    }
+  | {
       /** Claude session-cumulative evidence, never a turn receipt or helper classifier. */
       kind: "claude_session_usage";
       completed?: import("../protocol.js").TurnUsage;

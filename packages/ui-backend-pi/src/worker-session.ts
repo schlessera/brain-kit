@@ -494,6 +494,12 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
         model = msg.model as Model<any> | undefined;
         cost = msg.cost; thinkingLevel = msg.thinkingLevel as ThinkingLevel; levels = msg.levels as ThinkingLevel[];
         ready.resolve();
+      } else if (msg.type === "prompt_prefix") {
+        if (!active) throw new Error("Pi worker emitted a prefix outside the turn");
+        if (!env.autonomous) {
+          try { turnContext.bridge?.activity?.({ kind: "prompt_prefix", prefix: msg.prefix, resumed: Boolean(resumeId) }); }
+          catch { /* Observability must not fail the observed turn. */ }
+        }
       } else if (msg.type === "rpc") {
         // Do not block reading: a bridge may wait for user input while other
         // sibling calls, cancellation and model frames need to flow.
@@ -576,7 +582,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   finally { workerSignal?.removeEventListener("abort", abortInitialization); }
   const session: PiSessionLike = {
     ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
-    sessionId, get model() { return model; }, get thinkingLevel() { return thinkingLevel; },
+    reportsPromptPrefix: true, sessionId, get model() { return model; }, get thinkingLevel() { return thinkingLevel; },
     getAvailableThinkingLevels: () => levels,
     setThinkingLevel(level) { thinkingLevel = level; send({ type: "thinking", level }); },
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },

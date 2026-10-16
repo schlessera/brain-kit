@@ -1,3 +1,5 @@
+import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
+import { createClaudeTitleUsageCollector } from "./title-usage.js";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
 import { claudePromptContext, acknowledgeClaudeContext } from "./prompt-context.js";
 import { describeClient } from "@schlessera/brain-ui-sdk/internal";
@@ -91,7 +93,42 @@ export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTur
   // route out, a placeholder credential and no ambient project configuration.
   const envelope = options.req.autonomous?.containment === "restricted"
     ? claudeAutonomousEnvelope(options.profile, turnEnv(options.profile)) : undefined;
-  try { return assembleClaudeSdkTurn(options, envelope); }
+  try {
+    const turn = assembleClaudeSdkTurn(options, envelope);
+    if (options.req.autonomous) return turn;
+    let collector: ReturnType<typeof createClaudeTitleUsageCollector> | undefined;
+    const spawn = turn.options.spawnClaudeCodeProcess!;
+    let attempted = false;
+    turn.options.spawnClaudeCodeProcess = input => {
+      if (!attempted) {
+        attempted = true;
+        // Respect operator telemetry and opt-outs in the actual launch env.
+        // Merely assembling options never opens an observability listener.
+        const configured = Object.entries(input.env).some(([key, value]) => value &&
+          (key.startsWith("OTEL_") || key.includes("TELEMETRY") || key === "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"));
+        if (!configured) {
+          try {
+            collector = createClaudeTitleUsageCollector();
+            Object.assign(input.env, collector.env);
+            Object.assign(turn.options.env ??= {}, collector.env);
+          } catch { /* Observability unavailable: retain unknown coverage. */ }
+        }
+      }
+      return spawn(input);
+    };
+    const finish = turn.finishWorker;
+    let settled: Promise<void> | undefined;
+    turn.finishWorker = () => settled ??= (async () => {
+      try { await finish(); }
+      finally {
+        const evidence = collector?.snapshot() ?? { receipts: [], coverage: "unknown" as const };
+        collector?.stop();
+        try { options.req.bridge.activity?.({ kind: "claude_title_usage", ...evidence }); }
+        catch { /* Observability must not fail the observed turn. */ }
+      }
+    })();
+    return turn;
+  }
   catch (error) { envelope?.relay.stop(); throw error; }
 }
 
@@ -344,8 +381,10 @@ function assembleClaudeSdkTurn(
   // Interactive schema membership is deployment-stable, even without a live
   // handler. The mandatory hook refuses unavailable calls; fallback tool
   // bodies also return model-readable errors instead of acquiring authority.
+  let assembledTools: unknown[] | undefined;
   sdkOptions.mcpServers = {
     "brain-ui": createBrainUiMcpServer({
+      observeTools: tools => { assembledTools = tools; },
       stableRoster: !req.autonomous,
       proposePolicyChange,
       application: req.bridge,
@@ -380,6 +419,18 @@ function assembleClaudeSdkTurn(
     // changes. This also removes the CLI's commit/PR guidance; a brain can
     // keep its own guidance in CLAUDE.md. Apply after both billing branches.
     sdkOptions.settings = { ...sdkOptions.settings as object, includeGitInstructions: false };
+  }
+
+
+  if (!req.autonomous) {
+    try { req.bridge.activity?.({ kind: "prompt_prefix", resumed: req.sessionId !== undefined,
+      prefix: promptPrefixFingerprint({
+        // These are SDK assembly inputs. CLI built-ins/project MCP schemas are
+        // opaque here; this digest must never be called a complete wire roster.
+        tools: assembledTools === undefined ? undefined : { builtinSelection: sdkOptions.tools ?? "runtime_default", disallowed: sdkOptions.disallowedTools, bridge: assembledTools },
+        system: sdkOptions.systemPrompt, model: sdkOptions.model, thinking: sdkOptions.effort,
+        gitStatusIncluded: false,
+      }) }); } catch { /* Observability must not fail the observed turn. */ }
   }
 
   // The selected relay origin makes the CLI coalesce custom system blocks.

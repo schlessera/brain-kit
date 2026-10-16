@@ -247,7 +247,15 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
-  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
+  through the offline wrapper as import-graph affected feedback. Bun includes
+  committed, staged, unstaged and untracked changes; no affected test files
+  prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
+  remain `./packages ./tests`, and the optional changed value uses `=`. This
+  feedback misses spawned commands and inputs read from disk or named as
+  strings; complete hosted discovery remains the required proof. Full/all
+  modes retain their existing suites without this extra step.
+  Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
 - Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
@@ -312,6 +320,20 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `pull_request`, a read-only token (`contents: read`, plus `actions: read` /
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
+
+Hosted unit partitions run up to two serial Bun test processes through
+`scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
+install, build output and workspace lease. The wrapper preserves the caller's
+umask, drops setup capabilities and binds a private maintenance ledger without
+changing within-worker child limits or hiding the host's `/tmp` from Docker.
+Its checkout container lives outside host `/tmp`, which native workers replace
+with private storage. Namespace setup is a real prerequisite, never a skipped
+runtime. JUnit and timings must each match the complete discovered file set;
+combined reports and per-worker diagnostics are uploaded. Local `bun run test`
+and `check:pr` defaults keep their existing behavior. Use the internal unit
+proof `--workers=1` diagnostic for a serial measurement, preserving the actual
+source identity; performance qualification and remaining evidence live in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121).
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the

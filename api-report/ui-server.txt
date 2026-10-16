@@ -136,6 +136,7 @@ signatures (every public export and the types it is made of)
         snapshotRun(runId: string): RunSnapshot | null;
         runHighWaterSeq(runId: string): number;
         getSpan(spanId: string): SpanRow | null;
+        previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;
         openRootSpans(): SpanRow[];
         runRollup?(runId: string): RunRollupRow | null;
         rollupRun(runId: string): void;

@@ -3146,7 +3146,37 @@ export interface ActivityRunRollup {
   failureReason: string | null;
 }
 
+/** Hashes describe backend-assembled inputs, not provider cache keys or hits. */
+export interface PromptPrefixFingerprint {
+  tools: string | null;
+  system: string | null;
+  model: string | null;
+  thinking: string | null;
+  gitStatusIncluded: boolean | null;
+  /** CLI-owned preset, tools and project configuration can remain opaque. */
+  coverage: "assembled_inputs";
+}
+
+export interface FirstRequestCacheUsage {
+  inputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheCreationTokens: number | null;
+  source: "claude_root_stream" | "pi_main_message";
+  /** Pi may normalize absent provider fields to zero; those are not raw reported zeros. */
+  coverage: "provider_reported" | "runtime_normalized";
+}
+
+export interface ActivityCacheDiagnostics {
+  firstRequest: FirstRequestCacheUsage | null;
+  prefix: PromptPrefixFingerprint | null;
+  resumed: boolean | null;
+  suspectedBreak: boolean | null;
+  /** unknown includes absent/pruned prior fingerprints. Multiple components may change. */
+  changed: Array<"tools" | "system" | "model" | "thinking" | "gitStatusIncluded"> | "unchanged" | "unknown";
+}
+
 export interface ActivityRunDetail {
+  cacheDiagnostics?: ActivityCacheDiagnostics;
   lifecycleSeq?: number;
   lifecycle?: ActivityTurnLifecycle;
   runId: string;
@@ -3268,6 +3298,18 @@ export interface ActivityRuntimeStats {
     detailRetention: { days: number; cutoffAt: number; insideWindow: boolean };
     /** Runs in the window whose detail is already gone. */
     detailPrunedRuns: number;
+    /** Retained diagnostic details only; unknown runs are excluded from each sum. */
+    cacheDiagnostics?: {
+      scope: "retained_detail";
+      observedRuns: number;
+      runtimeNormalizedRuns: number;
+      unknownRuns: number;
+      inputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      suspectedBreaks: number;
+      unknownBreakRuns: number;
+    };
     runs: number;
     failures: number;
     /**

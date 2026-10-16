@@ -326,7 +326,7 @@ export function proofSelections(plan: CheckPlan, draft = false): Record<string, 
   return Object.fromEntries(Object.entries({
     verify: plan.typecheck || ((feedback || !plan.local.fullTests) && plan.tests.length > 0), pack: !feedback && plan.pack,
     unit: !feedback && plan.local.fullTests, browser: !feedback && plan.local.browser, layout: !feedback && plan.local.layout,
-    captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
+    captures: !feedback && plan.local.captures, runtime: !feedback && plan.local.runtime, runtime_host: !feedback && plan.local.runtime, endurance: !feedback && plan.local.endurance,
   }).map(([name, selected]) => [name, !draft && selected]));
 }
 

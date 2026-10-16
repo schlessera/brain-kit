@@ -1385,7 +1385,7 @@ are `text`, `number`, `toggle`, `choice`, `multichoice`, `tags` and `weights`;
 `record`, `list` and `variant` compose them. Unlisted representable schema
 fields appear through the generic renderer. Unsupported fields show their
 complete JSON value read-only; unchanged JSON subtrees retain their bytes.
-Modules do not contribute React implementations. A module using settings has
+Modules do not contribute React settings implementations. Content renderers use the separately declared, build-time-bundled renderer seam. A module using settings has
 a lowercase name matching `^[a-z][a-z0-9-]{0,30}$`.
 
 Core reads `settings/<module-name>.json`, a JSON object without the reserved
@@ -3293,3 +3293,57 @@ its fixed in-process application tools then refuse unavailable routes at call
 time. Direct unhosted consumers omitting it retain their legacy project MCP
 roster. Existing custom bridges without the field retain the prior `applyBrain`
 presence fallback. Autonomous authority/rosters are unchanged.
+
+### Prompt-cache diagnostic events (additive, #2050)
+
+`BackendActivityEvent` adds `prompt_prefix` (`prefix: PromptPrefixFingerprint`,
+`resumed: boolean`) once before the first request, and `first_request_cache`
+(`usage: FirstRequestCacheUsage`) once for the first main request's receipt.
+Both use the existing `BackendBridge.activity` channel and are observational,
+never permission grants or provider-cache promises. Raw assembly text must be
+hashed within the backend. Missing input components/counters stay `null`.
+The host validates digest/counter shapes, copies only documented fields and
+retains the first receipt; invalid or duplicate evidence cannot overwrite it.
+Title helpers and child channels must never be reported as the first main
+request. Their separately retained accounting remains independent.
+
+`PromptPrefixFingerprint`, `FirstRequestCacheUsage` and `ActivityCacheDiagnostics`
+are additive protocol types; their HTTP meaning and retention limits are in
+[cache diagnostics](http.md#prompt-cache-diagnostics-additive-2050).
+
+## Module content renderer declarations
+
+`ModuleContribution.renderers?: Record<string, ModuleRenderer>` is an additive
+module input. `ModuleRenderer` has optional `fences: string[]` and
+`extensions: string[]`, required `client: string` and optional `static: string`.
+Declarations are strict: unknown fields fail loading. Fence names match
+`^[a-z][a-z0-9-]*$`; extensions start with `.`. Both entry specifiers
+name export subpaths of the declaring module's own package, verified against
+its `package.json` name.
+
+Duplicate active fence/extension claims fail load naming both module owners.
+Dormant declarations do not claim dispatch names. Built-in Mermaid reserves
+`mermaid`, `mmd`, `.mermaid` and `.mmd`. Module lint resolves entries and
+requires the static entry's named `toStatic` export to be a function. Ordinary
+loading does not execute renderer entries. No runtime browser loading is added.
+See [modules](../modules.md#content-renderers) and the
+[renderer decision](../decisions/module-renderers.md).
+
+## Claude title-helper evidence (additive, #2052)
+
+The server-only `BackendActivityEvent` gains `claude_title_usage` with
+`coverage: "observed" | "partial" | "unknown"` and `receipts`, an array of
+`{ receiptId: string; source: "generate_session_title"; usage: TurnUsage;
+costUsd?: number }`. It follows worker/exporter shutdown and precedes release
+of the held terminal result. It does not replace or add to the existing
+`claude_session_usage.completed` root/child receipt.
+
+Purpose comes from the installed runtime's supported OTLP API-request event,
+not a model name. Receipt identity deduplicates exports/replays; measured
+helper usage is allocated only against the matching newly reconciled auxiliary
+delta in the session transaction. A separate `Claude session title` Activity
+run retains that usage/cost, while unmatched usage remains unattributed and
+main/cache usage retains its existing completed-response semantics. Missing
+or unjoinable evidence stays unknown/partial, not a free helper or an inferred
+main-model charge. Operator telemetry destinations and opt-outs are preserved;
+without a local receipt, ordinary unattributed accounting still applies.

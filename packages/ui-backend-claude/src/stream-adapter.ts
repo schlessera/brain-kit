@@ -41,6 +41,7 @@ export class StreamAdapter {
   private retryAttempts = 0;
   private resetsAt: number | undefined;
   private readonly completedUsage = new CompletedResponseUsage();
+  private firstMainRequest = false;
 
 
   constructor(
@@ -69,6 +70,18 @@ export class StreamAdapter {
         // surface streams the MAIN transcript only; subagent content arrives
         // at block granularity via the activity channel.
         const event = msg.event;
+        if (!this.options.autonomousUsage && !this.options.freshRuntimeUsage && !parentToolUseId
+            && !this.firstMainRequest && event.type === "message_start") {
+          this.firstMainRequest = true;
+          const u = event.message.usage;
+          const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+          // Runtime title requests are not root stream events. Model equality
+          // cannot establish provenance; child channels are excluded above.
+          this.report({ kind: "first_request_cache", usage: { inputTokens: token(u.input_tokens),
+            cacheReadTokens: token(u.cache_read_input_tokens), cacheCreationTokens: token(u.cache_creation_input_tokens),
+            source: "claude_root_stream", coverage: "provider_reported" } });
+        }
+
         if (this.options.autonomousUsage) {
           // Queue accounting keeps its existing root-only checkpoint semantics.
           if (!parentToolUseId) {

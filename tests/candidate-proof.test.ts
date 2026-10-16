@@ -26,7 +26,7 @@ test("events distinguish cheap drafts, fast pushes, explicit final requests and 
   expect(() => proofCadence({ GITHUB_EVENT_NAME: "unknown" }, {})).toThrow("Unknown proof event");
   const plan = planChecks(["package.json"], [{ dir: "ui-react", name: "@fixture/ui-react", dependencies: [], files: ["src"] }]);
   plan.cadence = "feedback";
-  expect(proofSelections(plan)).toEqual({ verify: true, pack: false, unit: false, browser: false, layout: false, captures: false, runtime: false, endurance: false });
+  expect(proofSelections(plan)).toEqual({ verify: true, pack: false, unit: false, browser: false, layout: false, captures: false, runtime: false, runtime_host: false, endurance: false });
   plan.cadence = "confirmation";
   expect(proofSelections(plan).endurance).toBe(true);
 });

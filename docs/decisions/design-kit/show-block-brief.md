@@ -107,7 +107,7 @@ no route to `trend`, `bars` or `contact`:
 **Why the no-brief arm is near zero, which is the actual finding.** Not
 reluctance. The SDK **defers an MCP server's tools behind tool search by
 default** — they are not in the model's context at all until it runs
-`ToolSearch` — and `packages/ui-backend-claude/src/ask-user-tool.ts:109` does
+`ToolSearch` — and `packages/ui-backend-claude/src/ask-user-tool.ts:111` does
 not pass `alwaysLoad`, so this is production's behaviour and the harness
 inherits it. Over the two runs below — **run A**, 108 turns, taken before the
 turn budget was enforced and therefore losing none, and **run B**, the 108-turn

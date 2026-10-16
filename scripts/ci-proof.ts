@@ -11,8 +11,8 @@ import { resolveBrowserPin } from "./captures/provenance";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
-export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "endurance"] as const;
-export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "endurance";
+export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"] as const;
+export type ProofCategory = "unit" | "browser" | "layout" | "captures" | "runtime" | "runtime_host" | "endurance";
 
 /** Aggregate requires passed selected jobs; missing/false-looking output is not proof. */
 export function proofProblems(needs: Record<string, { result?: string; outputs?: Record<string, string> }>, retained: ReadonlySet<string> = new Set()): string[] {
@@ -43,17 +43,21 @@ export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[
   return balanceTests(files, total)[index - 1]!;
 }
 
-export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string): Command[] {
+export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string, unitWorkers = 2): Command[] {
+  if (![1, 2].includes(unitWorkers)) throw new Error("Unit worker measurement supports 1 or 2 workers");
   const inventory = localChecks(plan, true);
-  if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: [process.execPath, "run", "test",
-    ...unitFiles(plan, root, shard).map(file => join(root, file)), "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml",
-    "--timings=tmp/unit-timings.json", "--update-timings"], env: { BRAIN_REQUIRE_CHROME: "1" } }];
+  if (category === "unit") return [{ name: "complete affected unit and integration suite", argv: unitWorkers === 2
+    ? [process.execPath, join(root, "scripts/unit-workers.ts"), ...unitFiles(plan, root, shard).map(file => join(root, file))]
+    : [process.execPath, "run", "test", ...unitFiles(plan, root, shard).map(file => join(root, file)),
+      "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
+    env: { BRAIN_REQUIRE_CHROME: "1" } }];
   const names: Record<Exclude<ProofCategory, "unit">, string[]> = {
     browser: ["workspace build for real browser checks", "complete pinned visual/accessibility/pointer suite"],
     layout: ["workspace build for real browser checks", "complete pinned layout/offline suite"],
     endurance: ["workspace build for real browser checks", "complete pinned endurance suite"],
     captures: ["editorial provenance and reproducibility"],
-    runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "native separate-UID worker identity", "shared-process Chrome then child cleanup"],
+    runtime: ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"],
+    runtime_host: ["native managed hosted admission", "native separate-UID worker identity"],
   };
   const selected = inventory.filter(command => names[category].includes(command.name));
   if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
@@ -84,9 +88,14 @@ if (import.meta.main) {
     } else {
       const root = resolve(import.meta.dir, "..");
       const category = process.argv[2] as ProofCategory;
-      if (!["unit", "browser", "layout", "captures", "runtime", "endurance"].includes(category)) throw new Error("Unknown proof category");
-      const shard = process.argv[3]?.replace(/^--shard=/, "");
-      if (process.argv.length > 4 || (process.argv[3] && !process.argv[3].startsWith("--shard="))) throw new Error("Unexpected proof argument");
+      if (!["unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"].includes(category)) throw new Error("Unknown proof category");
+      const args = process.argv.slice(3);
+      const shardArg = args.find(arg => arg.startsWith("--shard="));
+      const workersArg = args.find(arg => arg.startsWith("--workers="));
+      if (args.length !== Number(Boolean(shardArg)) + Number(Boolean(workersArg)) ||
+          (workersArg && (category !== "unit" || !/^--workers=[12]$/.test(workersArg)))) throw new Error("Unexpected proof argument");
+      const shard = shardArg?.slice("--shard=".length);
+      const unitWorkers = workersArg ? Number(workersArg.slice("--workers=".length)) : 2;
       const plan = await Bun.file(process.env.CI_PLAN_PATH ?? join(root, "tmp/ci-plan.json")).json() as CheckPlan;
       let inputs;
       if (category === "browser" || category === "layout") {
@@ -100,12 +109,12 @@ if (import.meta.main) {
       const [sha, tree, ...parents] = new TextDecoder().decode(identity.stdout).trim().split(" ");
       await Bun.write(join(root, "tmp/proof-checkout.json"), JSON.stringify({ category, shard,
         checkout: { sha, tree, parents }, plan, inputs, files: category === "unit" ? unitFiles(plan, root, shard) : undefined }, null, 2));
-      const native = category === "unit" || category === "runtime";
+      const native = category === "unit" || category === "runtime" || category === "runtime_host";
       const chrome = requireRuntimeTools({ ...plan, local: { ...plan.local, fullTests: native,
         browser: !native, layout: !native, captures: !native } });
       if (chrome && category === "unit") await runCommands([{ name: "first real Chrome launch and render",
         argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome] }], root);
-      const commands = categoryCommands(category, plan, root, shard).map(command => ({ ...command,
+      const commands = categoryCommands(category, plan, root, shard, unitWorkers).map(command => ({ ...command,
         env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env } }));
       // The host/container lease regression deliberately uses --pull=never
       // under the offline test harness. Prepare its actual pinned image once,
@@ -141,6 +150,12 @@ if (import.meta.main) {
           scope: "VM-wide during proof commands, including container work; setup/install and queue are measured separately by job steps. Sampling is not an exact process peak." };
         await Bun.write(join(root, "tmp/proof-resources.json"), JSON.stringify(resources, null, 2));
         console.log(`BRAIN_RESOURCE_RECEIPT ${JSON.stringify(resources)}`);
+      }
+      if (category === "unit") {
+        const { validateUnitReports } = await import("./unit-proof-report");
+        const report = validateUnitReports(unitFiles(plan, root, shard),
+          await Bun.file(join(root, "tmp/unit-report.xml")).text(), await Bun.file(join(root, "tmp/unit-timings.json")).json());
+        await Bun.write(join(root, "tmp/unit-report-summary.json"), JSON.stringify({ checkout: { sha, tree, parents }, shard, unitWorkers, ...report }, null, 2));
       }
       if (inputs) {
         if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Reusable execution changed tracked inputs");

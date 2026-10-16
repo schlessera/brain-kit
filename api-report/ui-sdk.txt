@@ -11,6 +11,7 @@ export "." (./src/index.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -138,6 +139,7 @@ export "." (./src/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   type GeoCoords
   type GeoRequestOptions
   type GovernedStatus
@@ -211,6 +213,7 @@ export "." (./src/index.ts)
   type PasskeySummary
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProviderInfo
   type QueueAddRequest
@@ -384,6 +387,7 @@ export "./client" (./src/client/index.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -537,6 +541,7 @@ export "./client" (./src/client/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
   GET_CURRENT_LOCATION_INPUT_SCHEMA
@@ -640,6 +645,7 @@ export "./client" (./src/client/index.ts)
   type PolicyChangeReview
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProtocolError
   type ProviderInfo
@@ -1013,6 +1019,7 @@ export "./internal" (./src/internal.ts)
   probeNativeMaintenanceWorker
   probeWorkerHost
   processStateLedger
+  promptPrefixFingerprint
   protectedPaths
   purgeTurnTemp
   readWebSearchOverride
@@ -1089,6 +1096,7 @@ export "./protocol" (./src/protocol.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -1214,6 +1222,7 @@ export "./protocol" (./src/protocol.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   type GeoCoords
   type GeoRequestOptions
   type GovernedStatus
@@ -1282,6 +1291,7 @@ export "./protocol" (./src/protocol.ts)
   type PasskeySummary
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProviderInfo
   type QueueAddRequest
@@ -1612,6 +1622,7 @@ export "./server" (./src/server/index.ts)
   type ActionDigestState
   type ActionDigestSummary
   type ActivityAggregate
+  type ActivityCacheDiagnostics
   type ActivityDigest
   type ActivityIntent
   type ActivityPrincipalKind
@@ -1821,6 +1832,7 @@ export "./server" (./src/server/index.ts)
   type FileEntry
   type FileResolveResponse
   type FileTreeResponse
+  type FirstRequestCacheUsage
   type FollowUpRequest
   GET_CURRENT_LOCATION_CONTRACT
   GET_CURRENT_LOCATION_DESCRIPTION
@@ -1935,6 +1947,7 @@ export "./server" (./src/server/index.ts)
   type PolicyChangeReview
   type PricingRoute
   type ProfileUnavailableReason
+  type PromptPrefixFingerprint
   type PronunciationOverride
   type ProviderInfo
   QUERY_ACTIVITY_CONTRACT
@@ -2849,6 +2862,14 @@ signatures (every public export and the types it is made of)
         cacheCreationTokens: number;
         durationMs: number;
     }
+  ActivityCacheDiagnostics (packages/ui-sdk/src/protocol.ts)
+    export interface ActivityCacheDiagnostics {
+        firstRequest: FirstRequestCacheUsage | null;
+        prefix: PromptPrefixFingerprint | null;
+        resumed: boolean | null;
+        suspectedBreak: boolean | null;
+        changed: Array<"tools" | "system" | "model" | "thinking" | "gitStatusIncluded"> | "unchanged" | "unknown";
+    }
   ActivityDigest (packages/ui-sdk/src/protocol.ts)
     export interface ActivityDigest {
         generatedAt: number;
@@ -2911,6 +2932,7 @@ signatures (every public export and the types it is made of)
     }
   ActivityRunDetail (packages/ui-sdk/src/protocol.ts)
     export interface ActivityRunDetail {
+        cacheDiagnostics?: ActivityCacheDiagnostics;
         lifecycleSeq?: number;
         lifecycle?: ActivityTurnLifecycle;
         runId: string;
@@ -2995,6 +3017,17 @@ signatures (every public export and the types it is made of)
                 insideWindow: boolean;
             };
             detailPrunedRuns: number;
+            cacheDiagnostics?: {
+                scope: "retained_detail";
+                observedRuns: number;
+                runtimeNormalizedRuns: number;
+                unknownRuns: number;
+                inputTokens: number;
+                cacheReadTokens: number;
+                cacheCreationTokens: number;
+                suspectedBreaks: number;
+                unknownBreakRuns: number;
+            };
             runs: number;
             failures: number;
             costUsd: number;
@@ -4633,9 +4666,25 @@ signatures (every public export and the types it is made of)
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
     export type BackendActivityEvent = {
+        kind: "prompt_prefix";
+        prefix: import("../protocol.js").PromptPrefixFingerprint;
+        resumed: boolean;
+    } | {
+        kind: "first_request_cache";
+        usage: import("../protocol.js").FirstRequestCacheUsage;
+    } | {
         kind: "main_model";
         model: string;
         sessionId: string;
+    } | {
+        kind: "claude_title_usage";
+        coverage: "observed" | "partial" | "unknown";
+        receipts: Array<{
+            receiptId: string;
+            source: "generate_session_title";
+            usage: import("../protocol.js").TurnUsage;
+            costUsd?: number;
+        }>;
     } | {
         kind: "claude_session_usage";
         completed?: import("../protocol.js").TurnUsage;
@@ -5950,6 +5999,14 @@ signatures (every public export and the types it is made of)
     }
   FirstPartyFailureClass (packages/ui-sdk/src/protocol.ts)
     type FirstPartyFailureClass = "authentication_failed" | "oauth_org_not_allowed" | "account_on_hold" | "verification_required" | "billing_error" | "subscription_required" | "auth_failure" | "rate_limit" | "overloaded" | "server_error" | "invalid_request" | "model_not_found" | "max_output_tokens" | "cloud_credential_error" | "worker_host_unsupported" | "session_too_large" | "worker_resource_limit" | "worker_state_busy" | "worker_state_exceeded" | "worker_state_save_refused" | "journal_capacity" | "journal_unavailable" | "budget_exceeded" | "budget_unavailable" | "unknown";
+  FirstRequestCacheUsage (packages/ui-sdk/src/protocol.ts)
+    export interface FirstRequestCacheUsage {
+        inputTokens: number | null;
+        cacheReadTokens: number | null;
+        cacheCreationTokens: number | null;
+        source: "claude_root_stream" | "pi_main_message";
+        coverage: "provider_reported" | "runtime_normalized";
+    }
   FollowUpRequest (packages/ui-sdk/src/server/backend.ts)
     export interface FollowUpRequest {
         sessionId: string;
@@ -6978,6 +7035,15 @@ signatures (every public export and the types it is made of)
     export type PricingRoute = "openrouter" | "direct";
   ProfileUnavailableReason (packages/ui-sdk/src/protocol.ts)
     export type ProfileUnavailableReason = (typeof PROFILE_UNAVAILABLE_REASONS)[number];
+  PromptPrefixFingerprint (packages/ui-sdk/src/protocol.ts)
+    export interface PromptPrefixFingerprint {
+        tools: string | null;
+        system: string | null;
+        model: string | null;
+        thinking: string | null;
+        gitStatusIncluded: boolean | null;
+        coverage: "assembled_inputs";
+    }
   PronunciationOverride (packages/ui-sdk/src/protocol.ts)
     export interface PronunciationOverride {
         match: string;

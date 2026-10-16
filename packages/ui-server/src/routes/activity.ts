@@ -1,3 +1,4 @@
+import { cacheDiagnostics } from "../activity/cache-diagnostics.js";
 import { Hono } from "hono";
 import type { Database } from "bun:sqlite";
 import {
@@ -260,6 +261,7 @@ export function createActivityRoutes(deps: {
             lifecycle, lifecycleSeq,
             runId,
             detailPruned: false,
+            cacheDiagnostics: cacheDiagnostics(snapshot.spans.find(span => span.parentSpanId === null)?.attrs ?? {}),
             spans: snapshot.spans.map(toWireSpan),
             events: events.map(toWireEvent),
             highWaterSeq: snapshot.highWaterSeq,

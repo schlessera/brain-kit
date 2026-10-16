@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { categoryCommands, proofProblems, PROOF_JOBS, unitFiles } from "../scripts/ci-proof";
 import { planChecks, proofSelections, workspaces, type Workspace } from "../scripts/ci-plan";
 import { discoverTests } from "../scripts/test-shards";
+import { localChecks } from "../scripts/check-pr";
 import { checkout } from "../scripts/proof-inputs";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -16,7 +17,7 @@ function receipt(selected = true): { changeset: { result: string; outputs: Recor
 }
 
 test("aggregate accepts actual selected passes and intentional exclusions only", () => {
-  expect(PROOF_JOBS.length).toBe(8);
+  expect(PROOF_JOBS.length).toBe(9);
   expect(proofProblems(receipt())).toEqual([]);
   expect(proofProblems(receipt(false))).toEqual([]);
   for (const name of PROOF_JOBS) for (const result of ["failure", "cancelled", "skipped", "queued", ""]) {
@@ -75,11 +76,14 @@ test("hosted global commands retain the full local inventory and real offline na
   const selections = proofSelections(plan);
   expect(Object.values(selections).every(Boolean)).toBe(true);
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
-  const cmds = ["unit", "runtime", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
+  const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
   const argv = cmds.map(command => command.argv.join(" ")).join("\n");
   for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts", "scripts/prove-worker-identity.ts"]) expect(argv).toContain(phase);
   const unit = cmds.find(command => command.name === "complete affected unit and integration suite")!;
   expect(unit.env?.BRAIN_REQUIRE_CHROME).toBe("1");
+  expect(unit.argv).toContain(join(ROOT, "scripts/unit-workers.ts"));
+  expect(categoryCommands("unit", plan, ROOT, "1/4", 1)[0]!.argv).not.toContain(join(ROOT, "scripts/unit-workers.ts"));
+  expect(() => categoryCommands("unit", plan, ROOT, "1/4", 4)).toThrow("supports 1 or 2 workers");
   expect(unit.argv.filter(arg => arg.endsWith(".test.ts")).length).toBeGreaterThan(100);
   expect(categoryCommands("layout", plan, ROOT, "1/2").at(-1)!.argv.at(-1)).toBe("--shard=1/2");
 });
@@ -143,4 +147,42 @@ test("explicit leaf inventory is exact, validated and preserves aggregate obliga
   expect(() => unitFiles(plan, ROOT), "UNKNOWN_LEAF_REJECTED").toThrow("Invalid selected unit inventory");
   plan.unitTests = ["tests/ci-plan.test.ts", "tests/ci-plan.test.ts"];
   expect(() => unitFiles(plan, ROOT)).toThrow("Invalid selected unit inventory");
+});
+
+
+test("native runtime split requires both selected jobs and preserves all six phases exactly once", () => {
+  const plan = planChecks(["package.json"], workspaces(ROOT));
+  const selections = proofSelections(plan);
+  expect(selections.runtime_host, "NATIVE_HOST_PROOF_SELECTED_WITH_RUNTIME").toBe(true);
+  for (const state of ["skipped", "failure", "cancelled", undefined]) {
+    const needs = receipt();
+    if (state === undefined) delete needs.runtime_host;
+    else needs.runtime_host = { result: state };
+    expect(proofProblems(needs), "NATIVE_HOST_MISSING_OR_SKIPPED_REFUSED").toContain(`runtime_host: selected proof did not pass (${state ?? "missing"})`);
+  }
+  const allLocal = localChecks(plan, true);
+  expect(allLocal.filter(c => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "native separate-UID worker identity", "shared-process Chrome then child cleanup"].includes(c.name))).toHaveLength(6);
+  const ordinary = categoryCommands("runtime", plan, ROOT);
+  const native = categoryCommands("runtime_host", plan, ROOT);
+  expect(native.map(c => c.name)).toEqual(["native managed hosted admission", "native separate-UID worker identity"]);
+  expect(ordinary.map(c => c.name)).toEqual(["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"]);
+  const shared = ordinary.at(-1)!;
+  expect(shared.argv).toContain("--shard=1/1");
+  expect(shared.argv.filter(arg => arg.endsWith("runtime.test.ts"))).toEqual(["packages/ui-react/tests/chat-focus-runtime.test.ts", "packages/ui-react/tests/external-speech-runtime.test.ts"]);
+  expect(shared.env?.BRAIN_REQUIRE_CHROME).toBe("1");
+});
+
+
+test("emitted aggregate refuses skipped or missing selected native host job", async () => {
+  for (const state of ["skipped", "missing", "success"]) {
+    const needs = receipt();
+    if (state === "missing") delete needs.runtime_host;
+    else needs.runtime_host = { result: state };
+    const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
+      env: { ...process.env, GITHUB_ACTIONS: "false", GITHUB_EVENT_PATH: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
+    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, "EMITTED_NATIVE_HOST_REQUIRED").toBe(state === "success" ? 0 : 1);
+    if (state !== "success") expect(err).toContain(`runtime_host: selected proof did not pass (${state})`);
+    else expect(out).toContain("All selected hosted proof passed");
+  }
 });
