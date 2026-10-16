@@ -139,3 +139,29 @@ test("a failed bucket stays a comparison gap after history reopens before its fi
   recovered.offer(aggregate(start + RECENT + 60_000));
   expect(recovered.read()!.samples.find(row => row[1] === 0 && row[3] === start + RECENT + 60_000)?.[2], "STORAGE_DURABLE_FAILURE_BREAKS_COMPARISON").toBe(1);
 });
+
+test("repeated successful owner reports cannot hide the next refusal", () => {
+  const f = fixture(); f.history.offer(aggregate(start)); f.advance(start + 1000);
+  const report = { identity, rootScope: scope, target: hashScope("Odysseus retained attachment"), resource: "unknown" as const, outcome: "success" as const, at: start + 1000 };
+  for (let index = 0; index < 500; index++) f.history.ownerWrite(report);
+  f.history.ownerWrite({ ...report, outcome: "no-space" });
+  f.advance(start + 60_000); f.history.flush();
+  expect(f.history.read()!.metadata.state.pressures[0], "STORAGE_OWNER_BURST_PRESERVES_REFUSAL")
+    .toMatchObject({ severity: "critical", refusals: [{ target: report.target, successAt: null }] });
+  expect(f.history.status().paused).toBeNull();
+});
+
+test("unrecordable owner evidence remains unknown after flush, restart and fresh capacity", () => {
+  const f = fixture(); f.history.offer(aggregate(start)); f.advance(start + 1000);
+  for (let index = 0; index < 500; index++) f.history.ownerWrite({ identity, rootScope: scope,
+    target: hashScope(`Odysseus attachment ${index}`), resource: "unknown", outcome: "no-space", at: start + 1000 });
+  expect(f.history.status().paused).toBe("history-owner-evidence-budget");
+  f.advance(start + 60_000); f.history.flush(); f.history.close();
+  invalidateRestoredStorage(f.db, start + 90_000);
+  let time = start + 120_000;
+  const reopened = createStorageHistory(f.db, f.root, { now: () => time });
+  for (let index = 0; index < 3; index++) { reopened.offer(aggregate(time)); time += 60_000; }
+  expect(reopened.status().paused, "STORAGE_OWNER_OVERFLOW_STAYS_UNKNOWN").toBe("history-owner-evidence-budget");
+  expect(reopened.read()!.metadata.state.pressures[0]?.severity).toBe("critical");
+  reopened.close();
+});

@@ -24,7 +24,11 @@ prevent qualification even when direct available-byte warnings remain usable.
 One newest aggregate can wait in memory between history transactions, at most
 one per minute. Intervening failures still break comparison/recovery. Pending
 owner refusals are bounded separately in memory and are applied without being
-erased by a newer aggregate. A crash can lose pending observations. A failed
+erased by a newer aggregate. Repeated successes without a matching refusal do
+not occupy that buffer. If distinct owner evidence exceeds its bound, the next
+successful transaction durably marks it unknown; later scans and restores cannot
+reconstruct the missing refusals or automatically clear that warning. Ordinary
+inventory remains available. A crash can lose pending observations. A failed
 SQLite write preserves the last valid durable payload and reports paused
 history; it never deletes recovery data to gain headroom.
 
