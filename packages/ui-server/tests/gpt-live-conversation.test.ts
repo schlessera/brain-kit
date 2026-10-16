@@ -293,3 +293,21 @@ test("the native primary socket refuses redirects instead of forwarding Bearer c
   await expect(createGptLiveConversationProvider("keyless-odyssey-placeholder").open({ conversationId: "ithaca", epoch: 1 }, { signal: abort.signal, resync: { work: [] } })).rejects.toThrow("GPT-Live connection failed.");
   expect(redirectedRequests).toBe(0);
 });
+
+
+test("completed input identities do not consume the host active-utterance capacity", async () => {
+  const f = await fixture();
+  for (let i = 0; i < 17; i++) {
+    const utteranceId = `u${i}`; const nativeHandle = `delegation-${i}`;
+    const audio = f.audio(utteranceId, i);
+    await expect(audio).resolves.toEqual(expect.any(String));
+    const command = await audio;
+    f.session.markEndpoint(utteranceId);
+    f.emit(input("Capture the Ithaca note.", `input-${i}`, command));
+    f.emit(delegation(nativeHandle, command));
+    await until(() => f.received.some((e) => e.kind === "work_requested" && e.handle === nativeHandle));
+    await f.session.returnWork({ ...ref(nativeHandle), utteranceId, turnId: `t${i}`, requestId: `r${i}` }, { ...result, delivery: "quiet" });
+  }
+  await until(() => f.sent.filter((m) => m.type === "session.thinking.append").length === 17);
+  expect(f.received.some((e) => e.kind === "error")).toBe(false);
+});

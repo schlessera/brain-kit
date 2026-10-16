@@ -204,7 +204,9 @@ async function openGptLive(apiKey: string, scope: ConversationScope, options: Li
         fail("GPT-Live invalid input audio."); throw new Error("GPT-Live invalid input audio.");
       }
       if (inputs.get(chunk.utteranceId)?.endpointed) { fail("GPT-Live input already ended."); throw new Error("GPT-Live input already ended."); }
-      if (audioCommands.size >= MAX_IDENTITIES || (!inputs.has(chunk.utteranceId) && inputs.size >= CONVERSATION_LIMITS.maxUtterances)) {
+      // This ledger is historical. The host separately enforces the active
+      // utterance cap; completed inputs must not consume its live slots here.
+      if (audioCommands.size >= MAX_IDENTITIES || (!inputs.has(chunk.utteranceId) && inputs.size >= MAX_IDENTITIES)) {
         fail("GPT-Live input identity capacity exceeded."); throw new Error("GPT-Live input identity capacity exceeded.");
       }
       inputs.set(chunk.utteranceId, inputs.get(chunk.utteranceId) ?? { sequence: 0, endpointed: false });
