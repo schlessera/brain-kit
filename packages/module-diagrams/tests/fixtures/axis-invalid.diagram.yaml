@@ -1,0 +1,20 @@
+schema_version: 1
+type: sequence
+title: Word reaches Ithaca
+desc: Athena carries Odysseus's message to Penelope in order.
+size: doc-inline
+nodes:
+  - id: odysseus
+    label: Odysseus
+    at: [40, 120]
+  - id: athena
+    label: Athena
+  - id: penelope
+    label: Penelope
+edges:
+  - from: odysseus
+    to: athena
+    label: SEND
+  - from: athena
+    to: penelope
+    label: DELIVER

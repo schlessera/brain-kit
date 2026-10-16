@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { cleanup, makeTempBrain, runCli } from "../../core/tests/cli-harness.js";
 import manifest, { configSchema } from "../src/module.js";
 
-test("the enabled scaffold lints and exposes only diagram help", async () => {
+test("the enabled module lints and exposes diagram validation help", async () => {
   const root = makeTempBrain({ empty: true });
   try {
     writeFileSync(join(root, "brain.config.ts"), `import { defineConfig } from "@schlessera/brain";
@@ -13,10 +13,10 @@ export default defineConfig({ modules: { "@schlessera/brain-module-diagrams": {}
     expect(lint.code, lint.stderr + lint.stdout).toBe(0);
     const help = await runCli(root, ["diagram", "--help"]);
     expect(help.code, help.stderr).toBe(0);
-    expect(help.stdout).toContain("checking and rendering are not available yet");
+    expect(help.stdout).toContain("check <file|->");
     const unavailable = await runCli(root, ["diagram", "render", "odysseus.yaml"]);
     expect(unavailable.code).toBe(1);
-    expect(unavailable.stderr).toContain("Unknown diagram command");
+    expect(JSON.parse(unavailable.stdout).errors[0].code).toBe("usage");
     expect(configSchema.safeParse({ unknown: true }).success).toBe(false);
     expect(Object.keys(manifest.setup({}).commands!)).toEqual(["diagram"]);
   } finally { cleanup(root); }

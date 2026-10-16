@@ -296,3 +296,9 @@ reconstruct that state. UI operational storage likewise has its own backup and
 recovery requirements. Those schemas can remain internal while their state must
 be preserved. Canonical module Markdown, JSON settings and user-kept assets are
 never disposable merely because they are outside the core content index.
+
+## Diagram specs
+
+The enabled diagrams module accepts a versioned YAML `diagram` fence or
+standalone `.diagram.yaml` document. The [v1 spec and check contract](integration-contract/diagrams.md)
+owns its strict fields, family grammar, budgets, geometry validation and parse bounds.

@@ -383,8 +383,10 @@ regenerated; `skills sync` alone only refreshes skill discovery and emitter outp
 
 ## First-party modules
 
-The opt-in `@schlessera/brain-module-diagrams` scaffold currently contributes
-`brain diagram --help` and [upstream review tooling](../packages/module-diagrams/UPSTREAM.md).
+The opt-in `@schlessera/brain-module-diagrams` contributes
+`brain diagram check <file|-> --json` and [upstream review tooling](../packages/module-diagrams/UPSTREAM.md).
+The [v1 spec contract](integration-contract/diagrams.md) defines standalone and fenced YAML,
+strict family grammars, finding envelopes, budgets and free-layout geometry checks.
 Its client/static entries are reserved stubs; no diagram renderer or authoring
 skill is registered yet.
 
