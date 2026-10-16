@@ -47,7 +47,7 @@ export function balanceBrowserSpecs<T extends BrowserSpec>(specs: readonly T[], 
 /** Recorded Vitest reports contain each reported project/file elapsed time. */
 export function browserTimingReports(raw: string): { key: string; seconds: number }[] {
   const text = raw.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
-  return [...text.matchAll(/✓\s+([^ ]+) \(chromium\)\s+(.+?) \([^\n]*?tests?[^\n]*?\)\s+(\d+)ms/g)].map(match => {
+  return [...text.matchAll(/✓\s+([^ ]+) \((?:chromium|webkit)\)\s+(.+?) \([^\n]*?tests?[^\n]*?\)\s+(\d+)ms/g)].map(match => {
     const file = resolve("/repo/packages/ui-kit", match[2]!);
     if (!file.startsWith("/repo/packages/") || !file.endsWith(".tsx")) throw new Error("Invalid recorded browser path");
     const seconds = Number(match[3]) / 1000;

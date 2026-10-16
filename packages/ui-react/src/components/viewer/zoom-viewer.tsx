@@ -49,6 +49,8 @@ export interface ZoomViewerProps {
    * image callers pass 1.
    */
   maxFitScale?: number;
+  /** Preserve a diagram’s readable text floor during fit and explicit zoom. */
+  minScale?: number;
   /** Aria label for the overlay. */
   label?: string;
 }
@@ -59,8 +61,10 @@ export function ZoomViewer({
   actions,
   refitKey,
   maxFitScale = 2.5,
+  minScale = MIN_SCALE,
   label = "Zoomed view",
 }: ZoomViewerProps) {
+  const boundedScale = useCallback((value: number) => Math.max(minScale, clampScale(value)), [minScale]);
   const stageRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -97,7 +101,7 @@ export function ZoomViewer({
     const pad = 32;
     const sx = (stage.clientWidth - pad * 2) / size.w;
     const sy = (stage.clientHeight - pad * 2) / size.h;
-    const next = clampScale(Math.min(maxFitScale, Math.min(sx, sy)));
+    const next = boundedScale(Math.min(maxFitScale, Math.min(sx, sy)));
     fitScale.current = next;
     apply({
       scale: next,
@@ -106,7 +110,7 @@ export function ZoomViewer({
         y: (stage.clientHeight - size.h * next) / 2,
       },
     });
-  }, [apply, natural, maxFitScale]);
+  }, [apply, natural, maxFitScale, boundedScale]);
 
   useLayoutEffect(() => {
     // Re-runs when the content itself changes, which happens while a message is
@@ -123,7 +127,7 @@ export function ZoomViewer({
       // streaming would re-fit itself out from under the reader's zoom.
       touched.current = true;
       const { scale: prev, offset: prevOffset } = view.current;
-      const next = clampScale(prev * factor);
+      const next = boundedScale(prev * factor);
       if (next === prev) return;
       const ratio = next / prev;
       apply({
@@ -134,7 +138,7 @@ export function ZoomViewer({
         },
       });
     },
-    [apply]
+    [apply, boundedScale]
   );
 
   const zoomCenter = useCallback(
@@ -310,6 +314,16 @@ export function ZoomViewer({
         onPointerUp={endPointer}
         onPointerCancel={endPointer}
         onDoubleClick={onDoubleClick}
+        onFocusCapture={(event) => {
+          // Native focus scrolling does not reveal nodes inside translated SVG.
+          // Move the existing view, preserving its readable scale and focus.
+          const stage=stageRef.current;
+          if(!stage || !(event.target instanceof Element)) return;
+          const frame=stage.getBoundingClientRect(), target=event.target.getBoundingClientRect();
+          const dx=target.left<frame.left+8?frame.left+8-target.left:target.right>frame.right-8?frame.right-8-target.right:0;
+          const dy=target.top<frame.top+8?frame.top+8-target.top:target.bottom>frame.bottom-8?frame.bottom-8-target.bottom:0;
+          if(dx || dy){ touched.current=true; apply({scale:view.current.scale,offset:{x:view.current.offset.x+dx,y:view.current.offset.y+dy}}); }
+        }}
       >
         <div
           ref={contentRef}
