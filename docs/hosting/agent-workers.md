@@ -1147,10 +1147,13 @@ through a private Unix socket. An explicitly selected governed or strict worker
 has a private network namespace and a trusted loopback forwarder. Its existing
 host masks, private sized temp, protected brain paths and dropped capabilities
 remain in force. The host transport checks destination rules before opening an
-upstream, charges bidirectional payload bytes against one turn counter, and
+upstream, charges a conservative HTTP wire bound (target, headers, bodies and framing)
+and exact opaque CONNECT stream bytes against one turn counter, and
 requires explicit host approval for outward destinations and cleartext writes.
 Records contain host, port, method, cleartext path where observable, payload
-bytes, elapsed time and outcome; they omit headers, bodies and query strings.
+bytes, accounting coverage, elapsed time and outcome; they omit headers, bodies
+and query strings. HTTP accounting includes conservative framing allowances,
+so it is an enforced upper bound rather than an exact network-byte measurement.
 A CONNECT record never invents a cleartext path or method inside TLS.
 
 Offline qualification on 2026-10-16 used Bun 1.4.2 and real bubblewrap workers
@@ -1162,10 +1165,10 @@ and a host home-directory Unix socket.
 | --- | --- |
 | Bun fetch with explicit HTTP proxy | Fixture response through the Unix transport |
 | Bun fetch with proxy environment only | Fixture response; this installed Bun honors HTTP_PROXY |
-| curl over HTTP | Fixture response and cleartext path/payload accounting |
+| curl over HTTP | Fixture response and cleartext path and conservative wire accounting |
 | curl over HTTPS with a fixture CA | Verified TLS through CONNECT; only opaque bytes recorded |
 | Destination omitted from allowlist | Refused before upstream contact |
-| Payload budget exhausted across requests | Refused with max_bytes_per_turn |
+| Byte budget exhausted across requests | Refused with max_bytes_per_turn |
 | Turn cancelled during outward approval | Pending connection closed and private proxy storage removed |
 
 These controls qualify the transport primitive, not default backend activation

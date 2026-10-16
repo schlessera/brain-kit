@@ -14,6 +14,8 @@ export interface EgressRecord {
   /** Only cleartext HTTP has an observable path. Never invent one for CONNECT. */
   path?: string;
   bytes: number;
+  /** HTTP includes a conservative framing allowance; CONNECT counts opaque stream bytes. */
+  accounting: "http_wire_bound" | "opaque_bytes";
   durationMs: number;
   outcome: "completed" | "denied" | "failed" | "cancelled";
   reason?: string;
@@ -71,6 +73,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       finished = true; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
       try { options.observe({ method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+        accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
     const charge = (count: number) => {
@@ -140,10 +143,23 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     response.once("close", () => op.finish(stopped ? "cancelled" : response.writableFinished ? "completed" : "cancelled"));
     void (async () => {
       if (!await op.admit() || response.destroyed) { response.writeHead(403); response.end(); return; }
-      const outgoing = httpRequest(target, { method: request.method, headers: { ...headers(request), host: target.host } }, incoming => {
+      const outgoingHeaders = { ...headers(request), host: target.host, connection: "close" };
+      // Include the complete observable target and headers: a body-only cap
+      // would allow uncharged exfiltration in query strings or header values.
+      // The fixed allowance covers runtime-generated framing fields. Chunk
+      // accounting below additionally covers each HTTP chunk's framing.
+      const headerBytes = (first: string, values: Record<string, string | string[]>) => Buffer.byteLength(first + "\r\n"
+        + Object.entries(values).flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).map(item => `${name}: ${item}\r\n`)).join("") + "\r\n") + 64;
+      if (!op.charge(headerBytes(`${request.method} ${target.pathname}${target.search} HTTP/1.1`, outgoingHeaders))) {
+        response.writeHead(403); response.end(); return;
+      }
+      const outgoing = httpRequest(target, { method: request.method, headers: outgoingHeaders }, incoming => {
+        if (!op.charge(headerBytes(`HTTP/1.1 ${incoming.statusCode} ${incoming.statusMessage}`, headers(incoming)))) {
+          response.writeHead(403); response.end(); incoming.destroy(); outgoing.destroy(); return;
+        }
         const writeHeaders = () => { if (!response.headersSent) response.writeHead(incoming.statusCode ?? 502, headers(incoming)); };
         incoming.on("data", chunk => {
-          if (!op.charge(chunk.length)) {
+          if (!op.charge(chunk.length + 16)) {
             if (!response.headersSent) { response.writeHead(403); response.end(); } else response.destroy();
             incoming.destroy(); outgoing.destroy(); return;
           }
@@ -155,7 +171,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       });
       outgoing.once("error", () => { op.finish("failed", "upstream_unreachable"); if (!response.headersSent) response.writeHead(502); response.end(); });
       response.once("close", () => outgoing.destroy());
-      request.on("data", chunk => { if (!op.charge(chunk.length)) { outgoing.destroy(); response.destroy(); return; } if (!outgoing.write(chunk)) request.pause(); });
+      request.on("data", chunk => { if (!op.charge(chunk.length + 16)) { outgoing.destroy(); response.destroy(); return; } if (!outgoing.write(chunk)) request.pause(); });
       outgoing.on("drain", () => request.resume());
       request.once("end", () => outgoing.end());
       request.once("error", () => { op.finish("cancelled", "client_disconnected"); outgoing.destroy(); });
