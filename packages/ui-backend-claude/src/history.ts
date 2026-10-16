@@ -1,4 +1,6 @@
 import { claudePromptContext } from "./prompt-context.js";
+import { sessionReplay } from "@schlessera/brain-ui-sdk/internal";
+import { dirname } from "node:path";
 import { FIRST_PARTY_FAILURE_CLASSES } from "@schlessera/brain-ui-sdk/protocol";
 import {
   listSessions as sdkListSessions,
@@ -11,7 +13,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk";
-import { listArchivedSessions, restoreArchivedSession } from "./transcript-archive.js";
+import { listArchivedSessions, restoreArchivedSession, transcriptPaths } from "./transcript-archive.js";
 import { isSessionId } from "./worker-state.js";
 import { statusFromText } from "./stream-adapter.js";
 
@@ -78,7 +80,8 @@ export function createHistory(deps: HistoryDeps): History {
     sessionId: string
   ): Promise<SessionHistoryMessage[]> {
     if (isSessionId(sessionId)) restoreArchivedSession(sessionId, deps);
-    return buildSessionHistory(sessionId, getSessionMessagesFn, dir);
+    const root = dirname(dirname(transcriptPaths(dir, deps.env).live));
+    return buildSessionHistory(sessionId, getSessionMessagesFn, dir, sessionReplay(root, dir, sessionId).texts());
   }
 
   return { listSessions, getHistory };
@@ -94,7 +97,8 @@ export function createHistory(deps: HistoryDeps): History {
 export async function buildSessionHistory(
   sessionId: string,
   getSessionMessagesFn: typeof sdkGetSessionMessages,
-  dir: string
+  dir: string,
+  displayText: (id: string, part: number, text: string) => string = (_id, _part, text) => text
 ): Promise<SessionHistoryMessage[]> {
   const history = await getSessionMessagesFn(sessionId, { dir });
 
@@ -197,14 +201,15 @@ export async function buildSessionHistory(
         }
       };
 
-      for (const block of content as any[]) {
+      for (const [index, block] of (content as any[]).entries()) {
         if (block.type === "thinking" && block.thinking) {
           thinking += block.thinking;
           pushText("thinking", block.thinking);
         }
         if (block.type === "text" && block.text) {
-          text += block.text;
-          pushText("text", block.text);
+          const displayed = displayText(entry.uuid, index, block.text);
+          text += displayed;
+          pushText("text", displayed);
         }
         if (block.type === "tool_use") {
           const result = toolResults.get(block.id);

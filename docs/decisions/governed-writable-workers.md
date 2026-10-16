@@ -698,9 +698,10 @@ against its own budget, and a turn that cannot reserve it is refused as
 reports usage and purges paths through the same descriptor
 (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
-After the worker exits, the backend
-rewrites the answer text the turn appended to its saved transcript, and only
-that text. It looks at Markdown link and image destinations and reference
+After the worker exits, the backend observes the answer text the turn
+appended and retains promoted-link display mappings in host-owned storage.
+The runtime transcript stays byte-identical; #2049 supersedes the original
+transcript rewrite described by #1655. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
 (`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
@@ -709,8 +710,9 @@ file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
 `promotion_refused` activity event, which it stores as the governance event of
 the same name. `scratch_unavailable` is the refusal for a turn whose
-`.brain/scratch/` was not usable. The stored answer is rewritten before the
-turn's history boundary is read. A reader still watching the live stream
+`.brain/scratch/` was not usable. History readers apply the retained mapping
+by native session/message/part identity and the original text's digest before
+normalization. It survives reload and archival without entering runtime input. A reader still watching the live stream
 holds the text as it streamed, so the server also sends the turn's clients
 a `message_links` frame for each promoted file, and the client rewrites the
 same destinations with the function the backend used. The link changes in
