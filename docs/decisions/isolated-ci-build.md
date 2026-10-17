@@ -75,3 +75,41 @@ absence check address that ID, so replacement of a name grants no authority.
 Session-owned container removal and confirmed absence precede output publication and reuse
 stamps. Unconfirmed cleanup fails, records the incomplete cleanup and retains
 owned state; it never grants successful reuse authority.
+
+## Private qualification operation
+
+The fixed `--qualify-private` controller creates one fresh private workspace
+and exercises the same capture, necessary receipt predicates, derived-output
+capture, compiler scheduler, cleanup and publication implementation. Its
+operation name, receipt purpose and random workspace domain differ from
+production. Copying a qualification receipt into the production cache cannot
+make it eligible. Only this fixed controller creates that private context;
+there is no caller-selected executor or output-root option.
+
+Qualification runs never update the production policy. The controller checks
+real unchanged child omission and output identities, per-package recovery,
+source/config/installed-compiler/nested-stylesheet changes and the existing
+nineteen-package packed consumer assertions. Each observation retains actual
+phase costs. Producer failures remain failures; unsupported inputs use the
+ordinary private-workspace builder. Real interruption, browser consumers and
+comparable hosted costs remain separate required evidence before activation.
+
+The trace arm adds a captured diagnostic executable and its libraries through
+read-only mounts, without network, extra capabilities or seccomp relaxation.
+It is a different observed arm: exact output identity is compared to the
+unobserved operation, and its receipts cannot seed ordinary repeat reuse.
+Syscall observation cannot establish vDSO or hardware independence. Kernel,
+device, time, randomness, unresolved paths and incomplete traces remain
+unqualified until a finite source-specific audit and causal controls explain
+the actual output dependency. An image hash or a sample output match cannot
+remove those unknowns.
+
+Packed consumers use the existing `ciPack` assertions. Dependency acquisition
+happens only as separate preparation before the closed operation: a fixed
+private catalog records exact registry tarball integrity and transitive
+packages, with reviewed integrity from the workspace lock or explicit consumer
+records. The operation itself uses Bun's native offline mode, a fresh private
+cache and no install scripts. Before consumer imports, installed payload bytes
+must equal verified archived bytes. Missing cache artifacts, integrity or
+unsupported install shapes fail; they do not fall back to an online installer.
+Preparation does not change project dependencies or the workspace lock.

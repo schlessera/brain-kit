@@ -9,7 +9,7 @@ import { listPublishablePackages } from "./publishable-packages";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 type Entry = {
-  version: 1; uid: number; gid: number; originalRoot: string; canary: string; selected: string[]; jobs: 1 | 2;
+  version: 1; mode: "build" | "consumers"; uid: number; gid: number; originalRoot: string; canary: string; selected: string[]; jobs: 1 | 2;
   topology: Record<string, string[]>; rootNames: string[]; node: string;
   readonlyTargets: string[]; writableTargets: string[];
 };
@@ -47,7 +47,14 @@ if (import.meta.main) {
   process.env.TMPDIR = "/tmp"; process.env.XDG_CACHE_HOME = "/tmp/cache";
   const packages = listPublishablePackages("/repo").filter(pkg => entry.selected.includes(pkg.dir));
   assert.equal(packages.length, entry.selected.length, "CI_BUILD_ONLY_VALIDATED_PENDING_PACKAGES");
-  const code = await executeBuild("/repo", packages, entry.jobs);
+  assert(entry.mode === "build" || entry.mode === "consumers", "CI_BUILD_FIXED_ENTRY_MODE");
+  let consumers: unknown;
+  const code = entry.mode === "consumers" ? 0 : await executeBuild("/repo", packages, entry.jobs);
+  if (entry.mode === "consumers") {
+    assert.equal(entry.selected.length, 0, "CI_BUILD_CONSUMERS_ONLY_CHECKED_DERIVED_OUTPUTS");
+    const { runBuildConsumers } = await import("./ci-build-consumers");
+    consumers = await runBuildConsumers(Object.keys(entry.topology));
+  }
   assert.deepEqual(readdirSync("/repo").sort(), entry.rootNames, "CI_BUILD_NO_UNKNOWN_ROOT_OUTPUT");
   assert.deepEqual(readdirSync("/repo/packages").sort(), Object.keys(entry.topology).sort(), "CI_BUILD_NO_UNKNOWN_PACKAGE");
   for (const [pkg, names] of Object.entries(entry.topology)) {
@@ -57,6 +64,6 @@ if (import.meta.main) {
   }
   const receipts = readdirSync("/repo/tmp").filter(name => /^build-\d+-[0-9a-f-]+-probe\.json$/.test(name)).sort()
     .map(name => ({ name, value: JSON.parse(buildRead(join("/repo/tmp", name), undefined, 16 * 1024 * 1024).bytes.toString("utf8")) }));
-  writeFileSync("/repo/tmp/isolated-producer.json", JSON.stringify({ version: 1, code, runtime, receipts, mounts, topology: "checked-after-child-exit" }));
+  writeFileSync("/repo/tmp/isolated-producer.json", JSON.stringify({ version: 1, kind: entry.mode === "consumers" ? "packed-consumers" : "workspace-build", code, runtime, receipts, consumers, mounts, topology: "checked-after-child-exit" }));
   process.exitCode = code;
 }

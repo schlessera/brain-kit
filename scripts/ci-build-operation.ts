@@ -1,10 +1,13 @@
 /** One dormant, fixed isolated build operation. CI intent is not authority. */
 import { dockerControl as docker, inspectOwnedBuildContainer, removeOwnedBuildContainer } from "./ci-build-lifetime";
 import { buildRead } from "./ci-build-files";
+import { buildMaterial, buildProducerPaths, matchingBuildReceipt, operationFor, sameBuildMaterial, successfulBuildProducer, type BuildMaterial } from "./ci-build-state";
+import { spawnSync } from "node:child_process";
+import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
-import { buildMounts, captureBuildInputs, captureDerivedOutput, captureOutputs, digest, identity, outputFiles, sameOutputIdentity, type BuildFile } from "./ci-build-boundary";
+import { chmodSync, closeSync, existsSync, fstatSync, openSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { buildMounts, captureBuildInputs, captureDerivedOutput, captureOutputs, digest, identity, outputFiles, sameOutputIdentity } from "./ci-build-boundary";
 import { selectBuildPackages } from "./publishable-packages";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -17,10 +20,7 @@ type Qualification = {
 };
 const policyPath = join(import.meta.dir, "ci-build-qualification.json");
 const fixedImage = "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
-const producerPaths = ["scripts/build.ts", "scripts/build-execution.ts", "scripts/build-receipt.ts", "scripts/bin-modes.ts", "scripts/publishable-packages.ts", "scripts/workspace-lease.mjs",
-  "scripts/ci-build-files.ts", "scripts/ci-build-lifetime.ts", "scripts/ci-build-boundary.ts", "scripts/ci-build-operation.ts", "scripts/ci-build-entry.ts"];
-const configuration = (entry: BuildFile) => !/(^|\/)node_modules(?:\/|$)/.test(entry.path) &&
-  (/(^|\/)package\.json$/.test(entry.path) || /(^|\/)tsconfig[^/]*\.json$/.test(entry.path) || /(^|\/)bunfig\.toml$/.test(entry.path) || entry.path.endsWith(".css"));
+const producerPaths = buildProducerPaths;
 const launcher = '#!/bin/sh\nexec /tool/bun x --no-install "$@"\n';
 // Run once before Bun and its lease coordinator can initialize HOME.
 const entryLauncher = '#!/bin/sh\nset -eu\numask 077\n/usr/bin/mkdir -m 0700 /tmp/home /tmp/cache\nexec /tool/bun /repo/scripts/ci-build-entry.ts\n';
@@ -36,11 +36,7 @@ function complete(policy: Qualification): boolean {
     policy.node.path === "/usr/bin/node" && Object.keys(policy.producer).sort().join("\0") === [...producerPaths].sort().join("\0") && Object.keys(policy.configuration).length > 0;
 }
 function policyMatches(policy: Qualification, captured: ReturnType<typeof captureBuildInputs>, bun: string): boolean {
-  if (!complete(policy) || policy.installation !== captured.installation || policy.bun !== bun) return false;
-  const byPath = new Map(captured.records.map(entry => [entry.path, entry]));
-  if (!producerPaths.every(path => byPath.get(path)?.kind === "file" && policy.producer[path] === identity(byPath.get(path)))) return false;
-  const actual = Object.fromEntries(captured.records.filter(configuration).map(entry => [entry.path, identity(entry)]));
-  return identity(actual) === identity(Object.fromEntries(Object.entries(policy.configuration).sort(([a], [b]) => a.localeCompare(b))));
+  return complete(policy) && sameBuildMaterial(buildMaterial(captured.records, captured.installation, bun), policy as BuildMaterial);
 }
 
 function imagePresent(image: string, config: string) {
@@ -83,17 +79,6 @@ function ownedJSON(path: string) {
   if (stat.uid !== BigInt(process.getuid!())) throw new Error("Invalid owned build receipt");
   return { sha256: digest(bytes), value: JSON.parse(bytes.toString("utf8")) };
 }
-function successfulProducer(producer: any, selected: string[], policy: Qualification, bun: string, qualificationOnly: boolean): boolean {
-  if (producer?.version !== 1 || producer.code !== 0 || producer.runtime?.bun !== bun || producer.runtime?.node?.path !== policy.node.path ||
-    (!qualificationOnly && producer.runtime?.node?.sha256 !== policy.node.sha256) || producer.topology !== "checked-after-child-exit" || producer.receipts?.length !== 1) return false;
-  const receipt = producer.receipts[0]?.value;
-  return receipt?.kind === "workspace-build" && receipt.state === "complete" && receipt.success === true && receipt.code === 0 &&
-    Array.isArray(receipt.packages) && identity(receipt.packages.map((pkg: any) => pkg.name).sort()) === identity([...selected].sort()) &&
-    receipt.packages.every((pkg: any) => pkg.state === "complete" && Array.isArray(pkg.children) &&
-      pkg.children.length === (["ui-kit", "ui-react"].includes(pkg.name) ? 2 : 1) &&
-      pkg.children.filter((child: any) => child.compiler === "tsc" && child.code === 0).length === 1 &&
-      pkg.children.filter((child: any) => child.compiler === "css" && child.code === 0).length === (["ui-kit", "ui-react"].includes(pkg.name) ? 1 : 0));
-}
 function writableCleanup(path: string) {
   if (!existsSync(path)) return;
   const stat = lstatSync(path);
@@ -125,12 +110,19 @@ export async function attemptCiBuild(root: string, options: Options): Promise<nu
   return await execute(root, options, policy, false);
 }
 
-async function execute(root: string, options: Options, policy: Qualification, qualificationOnly: boolean): Promise<number | undefined> {
+type PrivateProof = { workspace: string; domain: string; candidate?: BuildMaterial; node?: string; results: any[];
+  trace?: Awaited<ReturnType<typeof import("./ci-build-trace").prepareBuildTrace>>;
+  consumers?: Awaited<ReturnType<typeof import("./ci-build-consumers").prepareBuildConsumers>> };
+async function execute(root: string, options: Options, policy: Qualification, qualificationOnly: boolean, proof?: PrivateProof): Promise<number | undefined> {
   if (process.getuid!() === 0 || process.getgid!() === 0) {
     if (qualificationOnly) throw new Error("Fixed build requires non-root UID and GID");
     operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "unsupported", action: "ordinary-rebuild", reason: "non-root-context-required" });
     return;
   }
+  if (proof && (!qualificationOnly || proof.workspace !== root || !/^[0-9a-f-]{36}$/.test(proof.domain))) throw new Error("Invalid private qualification workspace");
+  const purpose = qualificationOnly ? "qualification" : "production", operation = operationFor(purpose), domain = proof?.domain ?? "workspace";
+  const diagnostic = proof?.trace ? "trace" : proof?.consumers ? "consumers" : undefined;
+  const publish = (!qualificationOnly || proof !== undefined) && !diagnostic;
   const started = performance.now(), session = randomUUID(), name = `brain-ci-build-${session}`;
   const selected = selectBuildPackages(root, options.directories).map(pkg => pkg.dir);
   let state: string, dockerConfig: string;
@@ -180,28 +172,27 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       if (executable.stat.dev !== loaded.dev || executable.stat.ino !== loaded.ino) throw new Error("Captured Bun differs from running executable");
       const bun = executable.bytes, bunHash = digest(bun);
       phases.captureMs = performance.now() - captureStart;
-      if (!qualificationOnly && !policyMatches(policy, captured, bunHash)) {
+      const material = buildMaterial(captured.records, captured.installation, bunHash);
+      const { buildDataRefusals } = await import("./ci-build-data");
+      const dataRefusals = buildDataRefusals(input, captured.records);
+      if (dataRefusals.length || (!qualificationOnly && !policyMatches(policy, captured, bunHash)) || (proof?.candidate && !sameBuildMaterial(material, proof.candidate))) {
         operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "unsupported", action: "ordinary-rebuild", reason: "captured-policy-mismatch", phases });
         return;
       }
       imagePresent(policy.image, dockerConfig);
       const scope = workspaceScope(root);
-      const key = identity({ version: 1, inputs: captured.sha256, image: policy.image, bun: bunHash, bunVersion: Bun.version, policy: identity(policy), jobs: options.jobs, scope });
-      const stampDirectory = join(root, "tmp", "ci-build-cache");
-      if (!qualificationOnly) ownedDirectory(root, stampDirectory, true);
+      const key = identity({ version: 1, purpose, domain, inputs: captured.sha256, image: policy.image, bun: bunHash, bunVersion: Bun.version, policy: identity(policy), jobs: options.jobs, scope });
+      const stampDirectory = join(root, "tmp", proof ? "ci-build-qualification-cache" : "ci-build-cache");
+      if (publish) ownedDirectory(root, stampDirectory, true);
       const reused: string[] = [], pending: string[] = [], previousOutputs: Record<string, string> = {};
       for (const pkg of selected) {
         let matches = false;
-        if (!qualificationOnly && !options.force) try {
+        if ((publish || proof?.consumers) && !options.force) try {
           const stamp = ownedJSON(join(stampDirectory, `${pkg}.json`)).value;
           if (!/^[0-9a-f-]{36}$/.test(stamp.producerSession)) throw new Error("Missing producer ownership");
           const producerReceipt = ownedJSON(join(stampDirectory, `${stamp.producerSession}.json`));
           const prior = producerReceipt.value;
-          matches = stamp.version === 1 && stamp.key === key && stamp.operation === "fixed-isolated-ci-v1" &&
-            producerReceipt.sha256 === stamp.receipt && prior.version === 1 && prior.operation === stamp.operation &&
-            prior.session === stamp.producerSession && prior.key === key && prior.image === policy.image && prior.drained === true && prior.removed === true &&
-            Array.isArray(prior.compiled) && prior.compiled.includes(pkg) && prior.outputs?.[pkg] === stamp.output &&
-            successfulProducer(prior.producer, prior.compiled, policy, bunHash, false) &&
+          matches = matchingBuildReceipt(stamp, prior, producerReceipt.sha256, { purpose, domain, key, image: policy.image, pkg, node: { path: policy.node.path, sha256: proof?.node ?? policy.node.sha256 }, bun: bunHash }) &&
             sameOutputIdentity(join(root, "packages", pkg, "dist"), stamp.output);
           if (matches) previousOutputs[pkg] = stamp.output;
         } catch { /* Missing, partial or changed output is a miss. */ }
@@ -209,8 +200,11 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       }
       phases.lookupMs = performance.now() - captureStart - phases.captureMs!;
       for (const pkg of reused) console.log(`Up to date packages/${pkg} (qualified isolated operation)`);
-      if (!pending.length) {
-        operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "reused", key, selected, reused, compiled: [], phases, elapsedMs: performance.now() - started });
+      if (proof?.consumers && pending.length) throw new Error("Consumer proof requires every current output's successful same-operation receipt");
+      if (!pending.length && !proof?.consumers) {
+        const value = { version: 1, kind: "isolated-ci-build", purpose, domain, authority: qualificationOnly ? "none" : "qualified-production", state: qualificationOnly ? "unqualified-private-repeat" : "reused", key, selected, reused, compiled: [], phases, elapsedMs: performance.now() - started };
+        proof?.results.push(value);
+        operationReceipt(root, value);
         return 0;
       }
       // CSS package exports can consume another selected package's dist. These
@@ -232,16 +226,17 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       const uid = process.getuid!(), gid = process.getgid!();
       const argv = ["run", "--name", name, "--label", `brain-ci-build-session=${session}`, "--pull=never", "--read-only", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user", `${uid}:${gid}`, "--hostname", "brain-build", "--cpus=2", "--memory=4g", "--pids-limit=256", "--shm-size=64m",
         "--tmpfs", `/repo:rw,nosuid,nodev,mode=0700,uid=${uid},gid=${gid},size=64m`, "--tmpfs", "/tmp:rw,exec,nosuid,nodev,mode=1777,size=256m"];
-      const allMounts = [...mounts, { source: tool, target: "/tool", readonly: true }, { source: entryPath, target: "/operation/entry.json", readonly: true },
+      const diagnosticMounts = proof?.trace ? [{ source: proof.trace.source, target: "/trace", readonly: true }] : proof?.consumers ? [{ source: proof.consumers.source, target: "/consumer-input", readonly: true }] : [];
+      const allMounts = [...mounts, ...diagnosticMounts, { source: tool, target: "/tool", readonly: true }, { source: entryPath, target: "/operation/entry.json", readonly: true },
         ...["hosts", "hostname", "resolv.conf"].map(file => ({ source: join(hostFiles, file), target: `/etc/${file}`, readonly: true }))];
-      writeFileSync(entryPath, JSON.stringify({ version: 1, uid, gid, originalRoot: root, canary, selected: pending, jobs: options.jobs, topology, rootNames, node: policy.node.path,
+      writeFileSync(entryPath, JSON.stringify({ version: 1, mode: proof?.consumers ? "consumers" : "build", uid, gid, originalRoot: root, canary, selected: pending, jobs: options.jobs, topology, rootNames, node: policy.node.path,
         readonlyTargets: allMounts.filter(mount => mount.readonly).map(mount => mount.target), writableTargets: allMounts.filter(mount => !mount.readonly).map(mount => mount.target) }));
       for (const mount of allMounts) {
         if (/[\r\n,]/.test(mount.source + mount.target)) throw new Error("Unsupported fixed build mount path");
         argv.push("--mount", `type=bind,src=${mount.source},dst=${mount.target}${mount.readonly ? ",readonly" : ""}`);
       }
-      argv.push("--workdir", "/repo", policy.image, "/usr/bin/env", "-i", "PATH=/tool:/usr/bin:/bin", "HOME=/tmp/home", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TZ=UTC", "/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", "300s", "/bin/sh", "/tool/entry.sh");
-      writeFileSync(join(state, "invocation.json"), JSON.stringify({ version: 1, session, key, argv, mounts: allMounts, captured, derived: derivedIdentities, runtime: { image: policy.image, bun: bunHash }, lifetime: { producerSeconds: 300, killGraceSeconds: 5, clientSeconds: 330, dockerControlMilliseconds: 10_000 }, scope, qualificationOnly }, null, 2));
+      argv.push("--workdir", "/repo", policy.image, "/usr/bin/env", "-i", "PATH=/tool:/usr/bin:/bin", "HOME=/tmp/home", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TZ=UTC", "/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", "300s", ...(proof?.trace?.command ?? ["/bin/sh", "/tool/entry.sh"]));
+      writeFileSync(join(state, "invocation.json"), JSON.stringify({ version: 1, session, key, argv, mounts: allMounts, captured, derived: derivedIdentities, runtime: { image: policy.image, bun: bunHash }, diagnostic: diagnostic ? { kind: diagnostic, identity: proof?.trace?.identity ?? proof?.consumers?.identity } : undefined, lifetime: { producerSeconds: 300, killGraceSeconds: 5, clientSeconds: 330, dockerControlMilliseconds: 10_000 }, scope, qualificationOnly }, null, 2));
       const compileStart = performance.now();
       child = Bun.spawn(["/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", "330s", "/usr/bin/docker", "--host", "unix:///var/run/docker.sock", "--config", dockerConfig, ...argv], { stdout: "inherit", stderr: "inherit", env: { PATH: "/usr/bin:/bin" } });
       containerKnown = true;
@@ -259,7 +254,11 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       if (actual.Mounts.some(mount => !["bind", "tmpfs"].includes(mount.Type)) || identity(actualBinds) !== identity([...allMounts].sort((a, b) => a.target.localeCompare(b.target)))) throw new Error("Actual build mounts differ from captured inputs");
       if (interrupted || code !== 0) throw new Error(`Isolated compiler failed (${code})`);
       const producer = ownedJSON(join(state, "diagnostics/isolated-producer.json")).value;
-      if (!successfulProducer(producer, pending, policy, bunHash, qualificationOnly)) throw new Error("Consumed runtime or compiler receipt mismatch");
+      const runtime = producer.runtime;
+      if (runtime?.bun !== bunHash || runtime?.node?.path !== policy.node.path || ((proof?.node ?? policy.node.sha256) && runtime.node.sha256 !== (proof?.node ?? policy.node.sha256))) throw new Error("Consumed runtime mismatch");
+      if (proof?.consumers) {
+        if (producer.kind !== "packed-consumers" || producer.code !== 0 || producer.consumers?.completed !== true || identity(producer.consumers.packages) !== identity(selected)) throw new Error("Packed consumer receipt mismatch");
+      } else if (!successfulBuildProducer(producer, pending, { path: policy.node.path, sha256: qualificationOnly ? proof?.node ?? null : policy.node.sha256 }, bunHash)) throw new Error("Consumed compiler receipt mismatch");
       // Removal is part of success, not best-effort work after publication.
       cleanup();
       if (interrupted) throw new Error("Isolated compiler interrupted before publication");
@@ -268,7 +267,7 @@ async function execute(root: string, options: Options, policy: Qualification, qu
         const staged = join(state, "validated", pkg);
         outputs[pkg] = identity(captureOutputs(join(state, "parents", pkg, "dist"), staged));
       }
-      if (!qualificationOnly) {
+      if (publish) {
         for (const pkg of pending) {
           const staged = join(state, "validated", pkg);
           const destination = join(root, "packages", pkg, "dist");
@@ -277,21 +276,23 @@ async function execute(root: string, options: Options, policy: Qualification, qu
         }
         // No new package stamp is written until every selected publication and
         // its verification have completed after the real container drained.
-        const record = JSON.stringify({ version: 1, operation: "fixed-isolated-ci-v1", session, key, image: policy.image, drained: true, removed: true, compiled: pending, derived: derivedIdentities, outputs, producer });
+        const record = JSON.stringify({ version: 1, purpose, domain, operation, session, key, image: policy.image, drained: true, removed: true, compiled: pending, derived: derivedIdentities, outputs, producer });
         writeFileSync(join(stampDirectory, `${session}.json`), record, { flag: "wx", mode: 0o600 });
         for (const pkg of pending) {
           const stamp = join(stampDirectory, `${pkg}.json`);
-          writeFileSync(`${stamp}.writing`, JSON.stringify({ version: 1, operation: "fixed-isolated-ci-v1", key, output: outputs[pkg], producerSession: session, receipt: digest(record) }), { mode: 0o600 }); renameSync(`${stamp}.writing`, stamp);
+          writeFileSync(`${stamp}.writing`, JSON.stringify({ version: 1, purpose, domain, operation, key, output: outputs[pkg], producerSession: session, receipt: digest(record) }), { mode: 0o600 }); renameSync(`${stamp}.writing`, stamp);
         }
       }
       phases.publishMs = performance.now() - publishStart;
-      operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: qualificationOnly ? "unqualified" : "compiled", action: qualificationOnly ? "qualification-only" : "publish", session, key, selected, reused, compiled: pending, outputs, producer, drained, removed, phases, elapsedMs: performance.now() - started });
-      if (qualificationOnly) console.log(`Unqualified build artifacts retained at ${state}; no reuse stamp or workspace output published.`);
+      if (proof) { proof.candidate ??= material; proof.node ??= producer.runtime.node.sha256; }
+      const value = { version: 1, kind: "isolated-ci-build", purpose: diagnostic ? `qualification-${diagnostic}` : purpose, domain, authority: qualificationOnly ? "none" : "qualified-production", artifactDirectory: qualificationOnly ? state : undefined, state: qualificationOnly ? "unqualified" : "compiled", action: proof ? "private-qualification-output" : qualificationOnly ? "qualification-only" : "publish", session, key, selected, reused, compiled: pending, outputs, producer, drained, removed, phases, elapsedMs: performance.now() - started };
+      proof?.results.push(value); operationReceipt(root, value);
+      if (qualificationOnly && !proof) console.log(`Unqualified build artifacts retained at ${state}; no reuse stamp or workspace output published.`);
       return 0;
     } catch (error) {
       if (containerKnown) preserve = true;
       operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: containerKnown ? "failed" : "unsupported", action: containerKnown ? "fail" : "ordinary-rebuild", reason: containerKnown ? "producer-incomplete" : "boundary-unavailable", phases });
-      if (!containerKnown && !qualificationOnly) return;
+      if (!containerKnown && (!qualificationOnly || proof)) return;
       throw error;
     }
   };
@@ -315,9 +316,146 @@ async function execute(root: string, options: Options, policy: Qualification, qu
   return result;
 }
 
+/** Fixed evidence controller. It can publish only inside its own fresh workspace. */
+async function qualifyPrivateBuild(root: string): Promise<number> {
+  const owner = join(root, "tmp", "isolated-ci-build"); ownedDirectory(root, owner, true);
+  const directory = mkdtempSync(join(owner, "qualification-")), workspace = join(directory, "workspace");
+  const source = captureBuildInputs(root, workspace), domain = randomUUID();
+  const gitEnv = { PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_OPTIONAL_LOCKS: "0" };
+  const git = (args: string[], input?: Buffer) => {
+    const result = spawnSync("/usr/bin/git", ["--no-lazy-fetch", "--no-replace-objects", "-c", "core.fsmonitor=false", ...args], { cwd: workspace, env: gitEnv, input, timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+    if (result.error || result.status !== 0) throw new Error("Private qualification Git setup failed");
+  };
+  const templates = join(directory, "git-template"); mkdirSync(templates, { mode: 0o700 });
+  git(["init", "--quiet", `--template=${templates}`]);
+  const paths = source.records.filter(entry => entry.kind !== "directory" && !/(^|\/)node_modules(?:\/|$)/.test(entry.path)).map(entry => entry.path);
+  git(["add", "--force", "--pathspec-from-file=-", "--pathspec-file-nul"], Buffer.from(paths.join("\0") + "\0"));
+  const lock = join(workspace, "tmp/workspace-operation/output.lock"); mkdirSync(dirname(lock), { recursive: true, mode: 0o700 });
+  const fd = openSync(lock, "a+", 0o600), held = fstatSync(fd);
+  const previous = { lease: process.env.BRAIN_WORKSPACE_LEASE, path: process.env.PATH };
+  const proof: PrivateProof = { workspace, domain, results: [] }, policy = readPolicy();
+  const tool = join(directory, "ordinary-tool"); mkdirSync(tool, { mode: 0o700 });
+  const quote = (text: string) => "'" + text.replaceAll("'", "'\\''") + "'";
+  writeFileSync(join(tool, "bunx"), `#!/bin/sh\nexec ${quote(process.execPath)} x --no-install "$@"\n`, { mode: 0o700, flag: "wx" });
+  const resultPath = join(directory, "qualification.json");
+  try {
+    const acquired = spawnSync("/usr/bin/flock", ["--exclusive", "--timeout", "10", "3"], { stdio: ["ignore", "pipe", "pipe", fd], timeout: 12_000 });
+    if (acquired.error || acquired.status !== 0) throw new Error("Private qualification lease unavailable");
+    process.env.BRAIN_WORKSPACE_LEASE = JSON.stringify({ mode: "write", fd, dev: held.dev, ino: held.ino, ownerPid: process.pid, ownerFd: fd });
+    process.env.PATH = `${tool}:${dirname(process.execPath)}:/usr/bin:/bin`;
+    const run = async (label: string, options: Options = { jobs: 1, force: false }) => {
+      const start = performance.now(), before = proof.results.length;
+      const code = await execute(workspace, options, policy, true, proof);
+      if (code === undefined) {
+        const args = [process.execPath, join(workspace, "scripts/build.ts"), `--jobs=${options.jobs}`, ...(options.force ? ["--force"] : []), ...(options.directories ? ["--for", options.directories.join(",")] : [])];
+        const child = Bun.spawn(args, { cwd: workspace, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+        const fallback = await child.exited;
+        if (fallback !== 0) throw new Error(`Private unsupported-context ordinary build failed (${fallback})`);
+        const result = { label, purpose: "qualification", authority: "none", state: "unsupported-ordinary-rebuild", elapsedMs: performance.now() - start };
+        proof.results.push(result); return result as any;
+      }
+      assert.equal(code, 0, `CI_BUILD_PRIVATE_${label}_EXIT`); assert.equal(proof.results.length, before + 1);
+      const result = proof.results.at(-1); result.label = label;
+      if (result.artifactDirectory) {
+        const { compactBuildEvidence } = await import("./ci-build-evidence");
+        Object.assign(result, compactBuildEvidence(workspace, directory, result));
+      }
+      return result;
+    };
+    // Validate the fixed offline consumer prerequisite before any expensive arm.
+    const { prepareBuildConsumers } = await import("./ci-build-consumers");
+    const consumerInputs = prepareBuildConsumers(root, directory);
+    const cold = await run("cold", { jobs: 1, force: true }); assert.equal(cold.compiled.length, 19); assert.equal(cold.reused.length, 0);
+    const outputs = Object.fromEntries(source.packages.map(pkg => [pkg, identity(outputFiles(join(workspace, "packages", pkg, "dist")))]));
+    const repeat = await run("unchanged"); assert.equal(repeat.compiled.length, 0, "CI_BUILD_UNCHANGED_HAS_NO_COMPILER_CHILDREN"); assert.equal(repeat.reused.length, 19);
+    for (const pkg of source.packages) assert.equal(identity(outputFiles(join(workspace, "packages", pkg, "dist"))), outputs[pkg], "CI_BUILD_REPEAT_PRESERVES_OUTPUT");
+    const dist = join(workspace, "packages/common/dist"), entry = outputFiles(dist).find(file => file.kind === "file")!;
+    assert(entry); const file = join(dist, entry.path);
+    const changes = [
+      { name: "delete", change: () => rmSync(file) },
+      { name: "edit", change: () => writeFileSync(file, "// Odysseus keeps the harbour ledger.\n") },
+      { name: "extra", change: () => writeFileSync(join(dist, "odysseus-extra.js"), "export const harbour='Ithaca';\n") },
+      { name: "mode", change: () => chmodSync(file, entry.mode ^ 0o100) },
+    ];
+    for (const mutation of changes) {
+      mutation.change(); const recovered = await run(`output-${mutation.name}`);
+      assert.deepEqual(recovered.compiled, ["common"], "CI_BUILD_OUTPUT_DAMAGE_REBUILDS_ONLY_AFFECTED"); assert.equal(recovered.reused.length, 18);
+      assert.equal(identity(outputFiles(dist)), outputs.common, "CI_BUILD_OUTPUT_DAMAGE_RECOVERED");
+    }
+    rmSync(join(workspace, "packages/ui-react/dist/styles.css"));
+    const css = await run("css-derived-recovery", { jobs: 1, force: false, directories: ["ui-react"] });
+    assert.deepEqual(css.compiled, ["ui-react"], "CI_BUILD_VALID_DERIVED_DEPENDENCIES_HAVE_NO_CHILDREN"); assert(css.reused.includes("ui-kit"));
+    const force = await run("force", { jobs: 2, force: true }); assert.equal(force.compiled.length, 19); assert.equal(force.reused.length, 0);
+    const marker = join(workspace, "packages/common/src/qualification-marker.ts");
+    writeFileSync(marker, 'export const cargo = 1; export const harbour=(x?:{name?:string})=>x?.name??"Ithaca";\n', { flag: "wx" });
+    try {
+      const changed = await run("source-change"); assert.equal(changed.compiled.length, 19, "CI_BUILD_SOURCE_CHANGE_REBUILDS_SELECTION");
+      const consume = () => {
+        const child = spawnSync("/usr/bin/node", ["--input-type=module", "-e", `import {cargo} from ${JSON.stringify(join(workspace, "packages/common/dist/qualification-marker.js"))};console.log(cargo)`], { timeout: 10_000 });
+        assert.equal(child.status, 0); return Number(child.stdout.toString().trim());
+      };
+      assert.equal(consume(), 1);
+      const configPath = join(workspace, "tsconfig.json"), configBytes = buildRead(configPath).bytes;
+      const aliased = join(directory, "aliased-tsconfig.json"), config = JSON.parse(configBytes.toString("utf8"));
+      config.compilerOptions.target = "ES2019";
+      writeFileSync(aliased, JSON.stringify(config), { flag: "wx", mode: 0o600 });
+      try {
+        rmSync(configPath); symlinkSync("../aliased-tsconfig.json", configPath);
+        const alias = await run("effective-config-alias", { jobs: 1, force: false, directories: ["common"] });
+        assert.equal(alias.state, "unsupported-ordinary-rebuild", "CI_BUILD_EFFECTIVE_ALIAS_REFUSES_REUSE");
+        assert.equal(consume(), 1);
+        assert(!buildRead(join(workspace, "packages/common/dist/qualification-marker.js")).bytes.toString().includes("?."), "CI_BUILD_ALIASED_TARGET_REACHES_ACTUAL_CONSUMER");
+      } finally { rmSync(configPath, { force: true }); writeFileSync(configPath, configBytes); }
+      await run("restored-config", { jobs: 1, force: false, directories: ["common"] });
+      assert(buildRead(join(workspace, "packages/common/dist/qualification-marker.js")).bytes.toString().includes("?."), "CI_BUILD_ORIGINAL_TARGET_RESTORED");
+      const compiler = join(workspace, "node_modules/typescript/lib/_tsc.js"), original = buildRead(compiler).bytes;
+      const anchor = "function emitNumericOrBigIntLiteral(node) {"; assert.equal(original.toString().split(anchor).length, 2);
+      try {
+        writeFileSync(compiler, original.toString().replace(anchor, anchor + '\n    if(node.text === "1"){writeStringLiteral("2");return;}'));
+        const rejected = await run("installed-compiler", { jobs: 1, force: false, directories: ["common"] });
+        assert.equal(rejected.state, "unsupported-ordinary-rebuild", "CI_BUILD_INSTALLED_DRIFT_REFUSES_REUSE"); assert.equal(consume(), 2, "CI_BUILD_ACTUAL_CHANGED_COMPILER_CONSUMER");
+      } finally { writeFileSync(compiler, original); }
+      await run("restored-compiler", { jobs: 1, force: false, directories: ["common"] }); assert.equal(consume(), 1);
+    } finally { rmSync(marker, { force: true }); }
+    const restored = await run("restored-source"); assert.equal(restored.compiled.length, 19);
+    for (const pkg of source.packages) assert.equal(identity(outputFiles(join(workspace, "packages", pkg, "dist"))), outputs[pkg], "CI_BUILD_ORIGINAL_SOURCE_RESTORED");
+    const themePath = join(workspace, "packages/ui-react/src/theme.css"), theme = buildRead(themePath).bytes;
+    try {
+      writeFileSync(themePath, Buffer.concat([theme, Buffer.from("\n[data-odysseus-cargo]{min-width:2319px}\n")]));
+      const stylesheet = await run("nested-css-input", { jobs: 1, force: false, directories: ["ui-react"] });
+      assert.equal(stylesheet.state, "unsupported-ordinary-rebuild", "CI_BUILD_NESTED_CSS_DRIFT_REFUSES_REUSE");
+      assert(buildRead(join(workspace, "packages/ui-react/dist/styles.css")).bytes.toString().includes("2319px"), "CI_BUILD_NESTED_CSS_REACHES_ACTUAL_OUTPUT");
+    } finally { writeFileSync(themePath, theme); }
+    await run("restored-stylesheet", { jobs: 1, force: false, directories: ["ui-react"] });
+    assert.equal(identity(outputFiles(join(workspace, "packages/ui-react/dist"))), outputs["ui-react"], "CI_BUILD_ORIGINAL_STYLESHEET_RESTORED");
+    // Diagnostic modes use the same actual engine/boundary but cannot seed
+    // either production or ordinary private-repeat receipts.
+    const { prepareBuildTrace, classifyBuildTrace } = await import("./ci-build-trace");
+    proof.trace = prepareBuildTrace(directory);
+    try { await run("diagnostic-trace", { jobs: 1, force: true }); } finally { delete proof.trace; }
+    const traced = proof.results.at(-1), trace = classifyBuildTrace(buildRead(join(traced.artifactDirectory, "diagnostics/qualification-syscalls.log"), undefined, 256 * 1024 * 1024).bytes.toString("utf8"));
+    for (const pkg of source.packages) assert.equal(traced.outputs[pkg], outputs[pkg], "CI_BUILD_TRACE_ARM_PRESERVES_OUTPUT");
+    proof.consumers = consumerInputs;
+    try { await run("packed-consumers"); } finally { delete proof.consumers; }
+    const consumers = proof.results.at(-1);
+    writeFileSync(resultPath, JSON.stringify({ version: 1, purpose: "qualification", authority: "none", domain, workspace, results: proof.results, trace, consumers, remainingQualification: ["finite-ambient-source-audit-and-counterfactuals", "actual-owner-interruption", "browser-marker-and-default-export-consumers", "comparable-hosted-cost"], productionActivation: "unqualified" }, null, 2), { flag: "wx", mode: 0o600 });
+    console.log(`Private qualification evidence retained at ${directory}; production reuse remains unqualified.`);
+    return 0;
+  } catch (error) {
+    writeFileSync(resultPath, JSON.stringify({ version: 1, purpose: "qualification", authority: "none", domain, state: "failed", results: proof.results, productionActivation: "unqualified" }, null, 2), { flag: "wx", mode: 0o600 });
+    throw error;
+  } finally {
+    closeSync(fd);
+    if (previous.lease === undefined) delete process.env.BRAIN_WORKSPACE_LEASE; else process.env.BRAIN_WORKSPACE_LEASE = previous.lease;
+    if (previous.path === undefined) delete process.env.PATH; else process.env.PATH = previous.path;
+  }
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  if (args.shift() !== "--qualify") throw new Error("Only the fixed --qualify operation is available");
+  const command = args.shift();
+  if (command !== "--qualify" && command !== "--qualify-private") throw new Error("Only fixed qualification operations are available");
+  if (command === "--qualify-private" && args.length) throw new Error("The fixed private controller takes no arguments");
   const options: Options = { jobs: 1, force: true };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
@@ -328,7 +466,7 @@ if (import.meta.main) {
   const root = resolve(import.meta.dir, "..");
   const coordinated = await ensureWorkspaceLease(root, "write");
   if (coordinated !== undefined) process.exit(coordinated);
-  // This path emits evidence only. It cannot authorize reuse, write stamps,
-  // change qualification, or replace the ordinary workspace's dist outputs.
-  process.exitCode = await execute(root, options, readPolicy(), true) ?? 1;
+  // These paths emit evidence only. Private-repeat stamps are purpose-bound;
+  // neither path changes production qualification or ordinary workspace outputs.
+  process.exitCode = command === "--qualify-private" ? await qualifyPrivateBuild(root) : await execute(root, options, readPolicy(), true) ?? 1;
 }
