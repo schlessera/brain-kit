@@ -1,5 +1,5 @@
 /** Fixed Git startup-input collection, executed only in the read-only worker view. */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, type Stats } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 export interface MaintenanceGitSources {
   rootIdentity: string;
@@ -26,7 +26,7 @@ class CollectionFailure extends Error {
   }
 }
 /** Decode only the fixed refusal receipt; never forward worker stderr. */
-export function parseMaintenanceGitFailure(stderr: string) {
+export function parseMaintenanceGitFailure(stderr: string): { phase: string; errorClass: string; errno: string; attrs?: AttrContext } {
   if (Buffer.byteLength(stderr) > 512) return unknownFailure();
   try {
     const lines = stderr.trim().split("\n");
@@ -63,8 +63,8 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
   const answer: MaintenanceGitSources = { rootIdentity: identity(rootInfo), repository: false, config: [], hookNames: [], attributes: [] };
   let entries = 0, bytes = 0, phase = "metadata";
   let attrs: AttrContext | undefined;
-  const heldMetadata = new Map<number, ReturnType<typeof fstatSync>>([[fd, rootInfo]]);
-  const attrContext = (path: string, depth: number, info: ReturnType<typeof fstatSync>) => {
+  const heldMetadata = new Map<number, Stats>([[fd, rootInfo]]);
+  const attrContext = (path: string, depth: number, info: Stats) => {
     const first = path.split("/")[0]!;
     attrs = { rootClass: rootClasses.includes(first as any) ? first : "other", depth, uid: info.uid, gid: info.gid,
       mode: info.mode & 0o7777, type: info.isDirectory() ? "directory" : info.isFile() ? "file" : info.isSymbolicLink() ? "symlink" : "other" };
