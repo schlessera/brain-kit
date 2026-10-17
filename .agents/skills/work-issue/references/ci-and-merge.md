@@ -238,6 +238,21 @@ Reconcile any different integrated tree and verify automatic main-push proof,
 then read back issue closure and milestone assignments for every delivered
 slice. Queued PRs require actual merge-group and eventual landing evidence.
 
+## Reservation before expensive confirmation
+
+For ordinary PRs, use `bun scripts/integrate.ts confirm <pr> --issues
+owner/repo#N,...` before requesting full confirmation. It acquires the remote
+exact PR/head/base reservation, renews every minute, waits for actual complete
+candidate proof, and uses the shared merge path. `inspect` shows ownership;
+busy callers have bounded retries, never a FIFO queue. Separate `acquire`
+requires minute `renew` and explicit `merge --lease`; `release` abandons it.
+The lease lasts five minutes with an absolute sixty-minute cap including
+queue, proof and merge. Do not reacquire to extend an old proof window; a new
+candidate/lease needs new confirmation. Maintainer `revoke '<reason>'` records
+actor/time/reason and immediately removes the old authority without waiving
+proof. Native candidates need separately qualified prefix integration; this
+ordinary command rejects them. See the [binding decision](../../../../docs/decisions/ci-utility.md#exact-candidate-integration-reservation).
+
 ## Merge and verify
 
 Before every merge, assign the PR and each completed/advanced issue a release
@@ -270,8 +285,8 @@ passing head, a ready PR and satisfied branch rules. A completed partial
 slice uses `Refs` and states remaining acceptance/verification work.
 
 ```sh
-rtk proxy gh pr merge <pr> --repo schlessera/brain-kit \
-  --squash --match-head-commit <verified-head-sha>
+rtk proxy bun scripts/integrate.ts merge <pr> --lease <owned-lease-id> \
+  --issues schlessera/brain-kit#<advanced-issue>
 rtk proxy gh pr view <pr> --repo schlessera/brain-kit \
   --json state,mergeCommit,mergedAt,headRefOid,url
 rtk proxy git fetch origin
@@ -283,7 +298,12 @@ rtk proxy test "$(rtk proxy git rev-parse <merge-commit-sha>^{tree})" \
   = "$verified_tree"
 ```
 
-Avoid `--delete-branch` while a worktree/worker needs the branch. Follow a
+The shared command independently verifies selected jobs, actual checkout
+identities, milestones and final live ownership before its matching-head
+squash. A successful squash returns exit 2: reconcile automatic main jobs and
+checkout evidence separately even if a workflow summary is already green.
+Direct `gh pr merge` is not the cooperative merge procedure. Preserve branches
+while a worktree/worker needs them. Follow a
 required merge queue's accepted strategy and monitor queue checks and
 **actual merge**: enqueued does not mean merged. For a queue, inspect the
 actual merge-group checkout, its head/base relationships and required checks;
