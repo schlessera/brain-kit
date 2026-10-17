@@ -595,7 +595,11 @@ defines the independent merge operation; this check does not claim that every
 possible native checkout uses that model.
 
 The contract gate compares the frozen head with its verified own parent;
-proof selection remains conservative over the contributing prefix. Categories,
+proof selection always compares the frozen trunk to the requested head, even
+when the native event names its immediate own parent. The event/request/head
+bindings must agree before planning; live authority is independently checked
+at admission/final verification. An upper-only diff never narrows selected
+runtime coverage for its contributing lower layers. Categories,
 freshness and retention obligations are unchanged. A higher layer may change
 only if fresh evidence proves this prefix and tested identity unchanged. A
 contributing merge/rebase, head/ref/order change, replaced request or changed
