@@ -1,6 +1,6 @@
 /** Test-only copied roots and synthetic native records; never a production fallback. */
 import { createHash } from "node:crypto";
-import { cpSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync } from "node:fs";
+import { cpSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { NativeJournalCheckpoint, NativeJournalManager } from "../../src/brain/native-journal-observer.js";
 import type { createNativeBrainManagerClient } from "../../../ui-sdk/src/server/native-brain-manager-client.js";
@@ -43,7 +43,7 @@ function inventory(root: string): Map<string, Entry> {
 
 export function createNativeJournalFixture(brain: string, root: string) {
   const snapshots = join(root, "native-test-checkpoints"); mkdirSync(snapshots, { recursive: true });
-  const inodePins = join(root, "native-test-inode-pins"); mkdirSync(inodePins, { mode: 0o700 });
+  const inodePins = mkdtempSync(join(root, "native-test-inode-pins-"));
   let pinSequence = 0;
   const retained = new Map<string, { checkpoint: NativeJournalCheckpoint; entries: Map<string, Entry> }>();
   const deleted = new Set<string>(); let sequence = 0, checkpointFailure: Error | undefined;
