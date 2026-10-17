@@ -335,6 +335,29 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
+  const separateIdentity = Boolean(workerIdentityHelper());
+  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
+  const coverageRoot = (path: string): string => {
+    if (!separateIdentity) return path;
+    let covered = path;
+    for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
+      const info = lstatSync(parent);
+      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+        throw new WorkerHostError("a private mask ancestor changed or is linked");
+      }
+      // The verified helper keeps only the server's primary shared group.
+      // Cover an inaccessible parent with empty tmpfs, never its real contents.
+      const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
+      if (searchable) continue;
+      if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
+      covered = parent;
+    }
+    if (covered !== path && (within(covered, brain) || within(brain, covered) || envelope.readPaths.some(requested => {
+      const runtime = realpathSync(requested);
+      return within(covered, runtime) || within(runtime, covered);
+    }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
+    return covered;
+  };
   for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
@@ -347,11 +370,15 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // Host /tmp is already absent behind the worker's private tmpfs. A
     // second operational mask would replace its capacity and writable mode.
     if (within(TURN_TEMP_ROOT, path)) continue;
-    if (info.isFile()) { fileMasks.add(path); continue; }
-    resolved.push(path);
+    if (info.isFile()) fileMasks.add(path);
+    else resolved.push(path);
     if (masks.some(mask => within(mask, path))) continue;
-    for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
-    masks.push(path);
+    const covered = coverageRoot(path);
+    if (info.isFile() && covered === path) continue;
+    if (covered !== path) resolved.push(covered);
+    if (masks.some(mask => within(mask, covered))) continue;
+    for (let i = masks.length - 1; i >= 0; i--) if (within(covered, masks[i]!)) masks.splice(i, 1);
+    masks.push(covered);
   }
   const masked = (path: string) => within(TURN_TEMP_ROOT, path) || masks.some(mask => within(mask, path));
   const argv = masks.flatMap(mask => ["--tmpfs", mask]);

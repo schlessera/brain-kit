@@ -72,7 +72,7 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:802-843`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:829-870`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
 note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:479-521`).
@@ -80,7 +80,7 @@ The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:749-779`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:776-806`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -142,7 +142,7 @@ its private, size-limited turn-temp tmpfs. Real HOME stays read-only: a tool
 that writes it directly receives `EROFS`, recorded through the roadblock
 path. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:802-843`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:829-870`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
