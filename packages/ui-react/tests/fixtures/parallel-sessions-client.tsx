@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { useEffect } from "react";
 import { ActivityPage, AppShell, BrainUiProvider, ChatPage, GraphPage, createBrainUiRoot, useServiceWorkerUpdates, useUIStore } from "../../src/index.ts";
 import { trackerViews } from "../../src/stores/tracker-state.ts";
+import { restorationOf } from "../../src/stores/chat-state.ts";
 import { claudeToolPack } from "../../src/components/chat/renderers/claude-tools.tsx";
 import { anyStagedTracks } from "../../src/lib/draft-tracks.ts";
 
@@ -59,6 +60,13 @@ Object.assign(window, {
   __parallel: {
     approvalTools: (sessionId: string) => root.stores.chat.getState().buffers[sessionId]?.messages.flatMap((m) => m.toolCalls) ?? [],
     connected: () => root.stores.connection.getState().wsStatus === "connected",
+    admission: () => ({
+      draftId: root.stores.drafts.getState().idFor(root.stores.chat.getState().activeSessionId),
+      restoration: restorationOf(root.stores.chat.getState()),
+      profilesSupported: root.stores.connection.getState().sessionProfiles,
+      profileEpoch: root.stores.connection.getState().profileEpoch,
+      authPhase: root.authLock.state.getState().phase,
+    }),
     draftsSupported: () => root.stores.drafts.getState().supported,
     activeSessionId: () => root.stores.chat.getState().activeSessionId,
     view: () => root.stores.ui.getState().activeView,
