@@ -1,6 +1,6 @@
 /** Owned native bytes remain executable without restoring host temporary storage. */
 import { afterEach, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { restrictedReadPaths, workerCommand, type WorkerLaunch } from "../src/server/worker-launcher.js";
@@ -16,6 +16,8 @@ function fixture() {
   cleanups.push(() => rmSync(root, { recursive: true, force: true }), () => rmSync(temporary, { recursive: true, force: true }));
   const brain = join(root, "brain"), relay = join(root, "relay"), mirror = join(root, "mirror");
   mkdirSync(brain); mkdirSync(relay, { mode: 0o700 }); mkdirSync(mirror);
+  const server = Bun.serve({ unix: join(relay, "relay.sock"), fetch: () => new Response("ithaca") });
+  chmodSync(join(relay, "relay.sock"), 0o600); cleanups.unshift(() => server.stop(true));
   writeFileSync(join(brain, "identity.txt"), "Odysseus");
   writeFileSync(join(temporary, "host-secret.txt"), "Polyphemus: never exposed.");
   return { root, temporary, brain, relay, mirror };

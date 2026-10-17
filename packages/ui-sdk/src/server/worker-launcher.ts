@@ -233,10 +233,19 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     seen.add(path);
     argv.push("--ro-bind", path, path);
   }
-  const inference = realpathSync(envelope.inferenceDir);
-  if (!lstatSync(inference).isDirectory() || (statSync(inference).mode & 0o077) !== 0) {
-    throw new WorkerHostError("the inference relay directory must be a private directory");
-  }
+  const separateIdentity = Boolean(workerIdentityHelper());
+  let inference = "", valid = false;
+  try {
+    inference = realpathSync(envelope.inferenceDir);
+    const directory = lstatSync(inference), socket = lstatSync(join(inference, "relay.sock"));
+    valid = inference === normalize(envelope.inferenceDir) && directory.isDirectory() && socket.isSocket()
+      && directory.uid === process.getuid?.() && socket.uid === process.getuid?.()
+      && (directory.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+      && (socket.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+      && (!separateIdentity || directory.gid === process.getgid?.() && socket.gid === process.getgid?.())
+      && !within(brain, inference) && !within(inference, brain);
+  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+  if (!valid) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
   return argv;
 }
@@ -1434,6 +1443,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   let identitySentinel: string | undefined;
   let verifiedWorkerUid: number | undefined;
   let identityRelay: ReturnType<typeof Bun.spawn> | undefined;
+  let privateRelay: ReturnType<typeof Bun.serve> | undefined;
   try {
     if (process.platform !== "linux") throw new Error("Linux namespaces are required");
     brainPath = realpathSync(brainPath);
@@ -1480,6 +1490,9 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
           throw new WorkerHostError("worker_identity_relay_probe_invalid");
         }
         if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];
+      } else {
+        privateRelay = Bun.serve({ unix: join(relayDir, "relay.sock"), fetch: () => new Response("ithaca") });
+        chmodSync(join(relayDir, "relay.sock"), 0o600);
       }
     }
     // The worker must see each rlimit the plan sets, as its hard limit (#1660).
@@ -1593,6 +1606,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   } finally {
     if (fixture) rmSync(fixture, { recursive: true, force: true });
     identityRelay?.kill("SIGKILL");
+    privateRelay?.stop(true);
     if (relayDir) rmSync(relayDir, { recursive: true, force: true });
     if (identitySentinel) rmSync(identitySentinel, { recursive: true, force: true });
   }

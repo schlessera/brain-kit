@@ -86,12 +86,12 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   server?.stop(true);
   await app?.close();
   if (fixture) await rm(fixture, { recursive: true, force: true });
-});
+}));
 
 async function open(format: string, mode: string, theme: string, width: number) {
   const context = await browser!.newContext({ viewport: { width, height: 900 } });

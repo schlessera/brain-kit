@@ -81,7 +81,7 @@ test("validated installed asset bytes and mode join immutable source fingerprint
   const installed=resolve(import.meta.dir,"../node_modules");
   for(const entry of readdirSync(installed)) if(entry!=="axe-core") symlinkSync(join(installed,entry),join(root,"node_modules",entry),"dir");
   const owner="packages/ui-react/tests/browser/offline/cold-capture/commands.ts";
-  for(const file of [owner,"scripts/build.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","packages/ui-react/package.json","packages/ui-kit/package.json"])
+  for(const file of [owner,"scripts/build.ts","scripts/build-receipt.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","packages/ui-react/package.json","packages/ui-kit/package.json"])
     write(root,file,readFileSync(resolve(import.meta.dir,"..",file),"utf8"));
   write(root,spec,`import "../../../ui-react/tests/browser/offline/cold-capture/commands.ts";`);
   write(root,"node_modules/axe-core/package.json",JSON.stringify({name:"axe-core",version:"4.13.0"}));write(root,"node_modules/axe-core/axe.min.js","owned asset before");commit(root);
