@@ -13,6 +13,8 @@ import { requireWorkerHost, WorkerHostError, workerLimitsStatus, type WorkerHost
 import type { RuntimeStatus, WorkerHostMode } from "../activity/runtime-status.js";
 import type { WorkerHostCheck } from "@schlessera/brain-ui-sdk/protocol";
 
+import { workerIdentitySentinelDirectory, type WorkerProbeState } from "../brain/operational-state.js";
+
 type Recorder = Partial<Pick<RuntimeStatus, "recordWorkerHost" | "recordWorkerLimits">> | undefined;
 
 /**
@@ -32,10 +34,12 @@ export function probeWorkerHostRecorded(
   stateBytes?: number,
   /** Every agent worker's turn-temp allowance: the probe also mounts its size-limited /tmp (#1703). */
   turnTempBytes?: number,
+  state?: WorkerProbeState,
 ): WorkerHostProbe {
   let probe: WorkerHostProbe;
   try {
-    probe = requireWorkerHost(brainPath, { restricted: mode === "restricted", ...(stateBytes !== undefined ? { stateBytes } : {}),
+    const directory = workerIdentitySentinelDirectory(brainPath, state);
+    probe = requireWorkerHost(brainPath, { restricted: mode === "restricted", ...(directory ? { identitySentinelDirectory: directory } : {}), ...(stateBytes !== undefined ? { stateBytes } : {}),
       ...(turnTempBytes !== undefined ? { turnTempBytes } : {}) });
   } catch (error) {
     // requireWorkerHost refuses only with WorkerHostError; anything else is
@@ -52,8 +56,8 @@ export function probeWorkerHostRecorded(
  * A turn's own gate: the real probe, recorded, refusing with the same
  * `WorkerHostError` as `requireWorkerHost`.
  */
-export function requireWorkerHostRecorded(brainPath: string, mode: WorkerHostMode, runtime: Recorder): Extract<WorkerHostProbe, { ok: true }> {
-  const probe = probeWorkerHostRecorded(brainPath, mode, runtime, "turn");
+export function requireWorkerHostRecorded(brainPath: string, mode: WorkerHostMode, runtime: Recorder, state?: WorkerProbeState): Extract<WorkerHostProbe, { ok: true }> {
+  const probe = probeWorkerHostRecorded(brainPath, mode, runtime, "turn", undefined, undefined, state);
   if (!probe.ok) throw new WorkerHostError(probe.requirement);
   return probe;
 }

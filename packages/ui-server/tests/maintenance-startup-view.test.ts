@@ -462,3 +462,26 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
     expect(processStateLedger().outputStagingHeld).toBe(heldBefore);
   } finally { spy?.mockRestore(); selectGit?.mockRestore(); if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath; db.close(); }
 });
+
+
+test("legacy credentialed Git consumer freezes attributes and publishes its real index", async () => {
+  const brain = fixture();
+  const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: brain, stdout: "pipe", stderr: "pipe" });
+  expect(git("init", "-q").exitCode).toBe(0);
+  writeFileSync(join(brain, ".gitattributes"), "*.md text eol=lf\n");
+  const boundary = createHostBoundary({ brainPath: brain });
+  const program = `await Bun.write(process.env.BRAIN_ROOT+"/raft.md", "Odysseus builds a raft.\\n");
+    for(const args of [["add","raft.md"],["show",":raft.md"]]) {
+      const p=Bun.spawnSync(["git",...args],{stdout:"pipe",stderr:"pipe"});
+      if(p.exitCode)throw new Error(p.stderr.toString());
+      if(args[0]==="show")process.stdout.write(p.stdout);
+    }`;
+  const result = await boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
+    env: { PATH: "/usr/bin:/bin" }, credentials: true, gate: "exclusive", purpose: "Odysseus legacy credentialed Git" });
+  expect(result.exitCode, result.stderr).toBe(0);
+  expect(result.stdout, "LEGACY_CREDENTIALED_GIT_CONSUMER_RAN").toBe("Odysseus builds a raft.\n");
+  const indexed = git("show", ":raft.md");
+  expect(indexed.exitCode, indexed.stderr.toString()).toBe(0);
+  expect(indexed.stdout.toString(), "LEGACY_CREDENTIALED_GIT_INDEX_PUBLISHED").toBe(result.stdout);
+  expect(existsSync(join(brain, "git-adapter")), "PRIVATE_GIT_INPUT_NOT_PUBLISHED").toBe(false);
+});
