@@ -36,7 +36,7 @@ async function compilerDrain(storageFailure?: StorageFailure) {
   const release = join(root, "release");
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "build-receipt.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    for (const file of ["build.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
       copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
@@ -127,7 +127,7 @@ async function successfulBuild(storageFailure?: StorageFailure) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-compiler-levels-"));
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "build-receipt.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    for (const file of ["build.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
       copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
