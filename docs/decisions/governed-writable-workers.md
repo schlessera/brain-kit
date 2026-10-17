@@ -1384,9 +1384,9 @@ owner prepares each concrete command; the synchronous launcher consumes its
 private plan once, bound to the stage/checkpoint, keeper identity, command and
 stage generation. Stale, foreign, closed or unprepared protected inputs refuse
 before payload (`prepareNativeMaintenanceMasks`,
-`packages/ui-sdk/src/server/worker-native-output.ts:100-112`),
+`packages/ui-sdk/src/server/worker-native-output.ts:101-120`),
 (`consumeNativeMaintenanceMasks`,
-`packages/ui-sdk/src/server/worker-native-output.ts:125-130`).
+`packages/ui-sdk/src/server/worker-native-output.ts:133-138`).
 
 Configured-helper credential-free maintenance uses the same verified launcher
 as agent workers. It retains one execution view and binds the owned stage drain
@@ -1411,7 +1411,7 @@ publication also checks live absence and excludes only those exact validated
 empty directories. Protected descendants and unregistered changes still refuse.
 Partial installation poisons the disposable stage; cleanup retains the existing
 owned drain (`validateGitScaffolds`,
-`packages/ui-sdk/src/server/worker-native-output.ts:302-314`).
+`packages/ui-sdk/src/server/worker-native-output.ts:310-322`).
 
 ### Owned runtime placement beneath `/tmp` — 2026-10-14
 

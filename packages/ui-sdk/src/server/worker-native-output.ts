@@ -12,6 +12,7 @@ import type { KeyedLock } from "./keyed-lock.js";
 import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
 import { maintenanceEnvMaskQueries, hostEnvMaskQuery, type EnvMaskQuery } from "./maintenance-env-masks.js";
 import { captureMaintenanceGitFiles, maintenanceGitDigest, type MaintenanceGitManifest, type MaintenanceGitScaffold, type MaintenanceGitScaffoldReceipt } from "./maintenance-git-input.js";
+import { reportMaintenanceMaskFailure } from "./maintenance-mask-failure.js";
 import type { WorkerLaunch } from "./worker-launcher.js";
 import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 
@@ -100,15 +101,22 @@ export async function finishNativeMaintenanceGit(preparation: NativeMaintenanceG
 export async function prepareNativeMaintenanceMasks(input: WorkerLaunch, signal?: AbortSignal): Promise<void> {
   nativeMaintenancePlans.delete(input);
   const owner = maintenanceOwner(input); if (!owner) return;
+  let phase = "startup-view";
   try {
     if (!input.startupView) throw Error("native maintenance requires an explicit prepared startup view");
-    signal?.throwIfAborted();
-    owner.assertCurrent(input); const context = maskContext(input), generation = owner.generation, masks = await owner.masks(input, signal);
-    owner.assertCurrent(input);
-    signal?.throwIfAborted();
-    if (generation !== owner.generation || context !== maskContext(input)) throw Error("changed maintenance command");
-    nativeMaintenancePlans.set(input, { owner, context, generation, masks });
-  } catch { throw Error("native maintenance mask metadata is unavailable or changed"); }
+    phase = "pre-abort"; signal?.throwIfAborted();
+    phase = "pre-current"; owner.assertCurrent(input);
+    phase = "context"; const context = maskContext(input), generation = owner.generation;
+    phase = "masks"; const masks = await owner.masks(input, signal);
+    phase = "post-current"; owner.assertCurrent(input);
+    phase = "post-abort"; signal?.throwIfAborted();
+    phase = "generation"; if (generation !== owner.generation) throw Error("changed maintenance command");
+    phase = "post-context"; if (context !== maskContext(input)) throw Error("changed maintenance command");
+    phase = "store"; nativeMaintenancePlans.set(input, { owner, context, generation, masks });
+  } catch (error) {
+    reportMaintenanceMaskFailure(phase, error, signal);
+    throw Error("native maintenance mask metadata is unavailable or changed");
+  }
 }
 /** Transfer only between the same concrete envelope before its single synchronous launch. */
 export function transferNativeMaintenanceMasks(from: WorkerLaunch, to: WorkerLaunch): void {
