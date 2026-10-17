@@ -1834,3 +1834,49 @@ working/pending row collapses during voice; on short screens it hides first when
 needed to retain transcript space. Cards remain in the existing scrolling Chat
 transcript. No live recognition, latency, echo or exact permission-speech
 qualification is implied; #961 owns the bounded provider/device measurements.
+
+### Conversation permission fallback (#114)
+
+The shipped SDK client declares `client_hello.capabilities.toolResolution: true`.
+The React conversation owner consumes scoped `tool_resolution` frames before
+ordinary chat dispatch. A host `permission_denied` activity event from a current,
+authorized voice-posture turn publishes one `denied` outcome with the fixed
+reason `voice_posture`; this is a posture refusal, not a user decision, and it
+raises no approval card. It uses the existing bounded host outcome ledger.
+
+Pending ordinary-turn approvals retain their visual grant controls. A refusal
+matches original, attributed user input only while approvals are pending in the
+selected session's current turn. A phrase-like `brain, stop` candidate snapshots
+that turn's pending requests and sends the existing `tool_denial` with explicit
+`turnId` and `channel: "voice"`. Partial, missing-confidence or unproven-isolation
+candidates are treated as ambiguous. Bare stop/no/cancel and affirmatives remain
+ordinary input. Assistant/output transcripts and unknown-origin input never
+invoke the detector. Both built-in adapters retain their unproven attribution
+profiles; manual review is not evidence authorizing a spoken decision.
+
+Sending a refusal locks only the affected controls and says `Refusal sent ·
+checking`. It never claims host confirmation. A correlated host outcome reports
+denied, the actual winning screen grant, expired, or unknown. Disconnect stops
+capture and retains uncertainty; it never queues an old denial for a replacement
+request. Host terminal state reconciles unanswered requests without depending on
+`tool_result`. Receipts remain readable if reconnect replaces the transcript.
+
+Neither built-in adapter has a proven deterministic exact-copy permission audio
+path. The approved fallback therefore uses a local earcon, the existing card and
+a 40px strip line. Permission scripts and confirmed outcome wording are visual
+only: they are never submitted as model commentary or to a separate TTS service.
+Labels come only from bounded static registry labels (four words at most), with
+`An action` as the generic fallback. Payloads and unproven effect descriptions
+never enter those scripts. Cues wait for quiet, survive duplicate/reconnect
+identities without repeating, and are dropped if the request resolves first.
+Earcons use the existing PCM owner; speech over an earcon keeps recognition live.
+Headphones/isolation limitations remain visible in the entry disclosure.
+
+The local permission view retains at most 128 records and 4096 once-only cue
+identities. If pending records exhaust the bound, capture closes and the screen
+remains the decision surface; a partial snapshot is never silently denied.
+At 320 × 568, shared-row summaries hide first; with review and a refusal line,
+the controls' eight pixels of empty vertical space give way while every target
+stays at least 44px and the transcript retains 264px. Real speaker/headphone
+listening, recognition, echo and latency qualification remain human/device
+verification under #114 and #961.

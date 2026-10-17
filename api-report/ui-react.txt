@@ -833,6 +833,7 @@ signatures (every public export and the types it is made of)
     };
   ToolCall (packages/ui-react/src/stores/chat-state.ts)
     export interface ToolCall {
+        voicePermission?: VoicePermissionReceipt;
         policyChange?: PolicyChangeReview;
         id: string;
         name: string;
@@ -872,6 +873,21 @@ signatures (every public export and the types it is made of)
         hasUnsentText?: () => boolean;
         enabled?: boolean;
         reload?: () => void;
+    }
+  VoicePermissionReceipt (packages/ui-react/src/voice/conversation-permissions.ts)
+    export interface VoicePermissionReceipt {
+        sessionId: string;
+        turnId: string;
+        toolUseId: string;
+        phase: "pending" | "sent" | "unknown" | "denied" | "granted" | "expired";
+        announced: boolean;
+        ambiguous: boolean;
+        byVoice: boolean;
+        heardAt?: number;
+        script: string;
+        word: string;
+        label?: string;
+        postureDenied?: true;
     }
   VoiceShellState (packages/ui-react/src/stores/shell-stores.ts)
     export interface VoiceShellState {
@@ -1275,6 +1291,21 @@ signatures (every public export and the types it is made of)
             frame: (message: ServerMessage) => ServerMessage | null;
             leave: () => void;
             mute(): void;
+            permissions: {
+                clear(): void;
+                dispose(): void;
+                frame: (message: ServerMessage) => void;
+                input: (event: Extract<import("@schlessera/brain-ui-sdk").ConversationWireEvent, {
+                    kind: "input_fragment";
+                }>) => boolean;
+                lost(): void;
+                quiet: () => void;
+                refresh(): void;
+                state: import("zustand").StoreApi<{
+                    line: string;
+                    records: import("./voice/conversation-permissions.js").VoicePermissionReceipt[];
+                }>;
+            };
             resume(): void;
             start(): void;
             state: import("zustand").StoreApi<import("./voice/conversation-client.js").ConversationClientState>;
@@ -1307,6 +1338,8 @@ signatures (every public export and the types it is made of)
     function flushChatDeltas(): void;
   frame (packages/ui-react/src/voice/conversation-client.ts)
     function frame(message: ServerMessage): ServerMessage | null;
+  frame (packages/ui-react/src/voice/conversation-permissions.ts)
+    function frame(message: ServerMessage): void;
   handleServerMessage (packages/ui-react/src/connection.ts)
     function handleServerMessage(msg: ServerMessage): void;
   hasPendingShare (packages/ui-react/src/stores/share-state.ts)
@@ -1315,10 +1348,16 @@ signatures (every public export and the types it is made of)
     export function hasUnsentText(): boolean;
   inlineMermaidDiagrams (packages/ui-react/src/lib/mermaid.ts)
     export function inlineMermaidDiagrams(markdown: string, theme?: MermaidTheme): Promise<string>;
+  input (packages/ui-react/src/voice/conversation-permissions.ts)
+    function input(event: Extract<ConversationWireEvent, {
+        kind: "input_fragment";
+    }>): boolean;
   leave (packages/ui-react/src/voice/conversation-client.ts)
     function leave(): void;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
+  quiet (packages/ui-react/src/voice/conversation-permissions.ts)
+    function quiet(): void;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function receipt(frame: ServerAskAnswerReceipt): void;
   reconnectWebSocketNow (packages/ui-react/src/connection.ts)

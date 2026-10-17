@@ -44,6 +44,7 @@ afterEach(() => {
 function setup(options: {
   capabilities?: Parameters<typeof fakeLiveProvider>[0];
   conversation?: boolean;
+  authorized?: boolean;
   holdReturns?: boolean;
   turnTimeoutMs?: number;
   wsRate?: { ratePerSecond: number; burst: number };
@@ -70,6 +71,7 @@ function setup(options: {
   const host = new WsHost({
     registry: createStaticBackendRegistry([backend], backend.id),
     catalog: createSessionCatalog(() => db),
+    ...(options.authorized ? { isPrincipalAuthorized: () => true } : {}),
     ...(options.turnTimeoutMs ? { turnTimeoutMs: options.turnTimeoutMs } : {}),
     ...(options.wsRate ? { wsRate: options.wsRate } : {}),
     ...(options.conversation === false ? {} : { conversationProvider: live.provider }),
@@ -1092,4 +1094,21 @@ test("opening correlation is echoed so an abandoned client's late opening can be
   await until(() => client.frames("conversation_closed").length === 1);
   const resumed = await client.open({ conversationId: conversation.id, requestId: "ithaca-resume" });
   expect(resumed.opened).toMatchObject({ requestId: "ithaca-resume", epoch: 2 });
+});
+
+test("a voice posture denial publishes one host outcome without raising a grant card", async () => {
+  const s = setup({ authorized: true });
+  const client = await s.connect();
+  client.send({ type: "client_hello", protocolRev: 5, capabilities: { toolResolution: true } });
+  const conversation = await client.open();
+  await client.speak(conversation, "u-denied", "Update the raft plan");
+  client.commit(conversation, "u-denied", "r-denied", "Update the raft plan");
+  await until(() => s.turns.length === 1);
+  const event = { kind: "permission_denied" as const, toolUseId: "ithaca-posture-denial", requestKind: "tool" as const, reason: "Voice cannot grant tools." };
+  s.turns[0]!.req.bridge.activity!(event);
+  s.turns[0]!.req.bridge.activity!(event);
+  expect(client.frames("tool_resolution"), "a posture-denied action needs one authoritative outcome, even with no approval card").toHaveLength(1);
+  expect(client.frames("tool_resolution")[0]).toMatchObject({ toolUseId: event.toolUseId, outcome: "denied", reason: "voice_posture", sessionId: s.turns[0]!.sessionId });
+  expect(client.frames("tool_approval_request")).toHaveLength(0);
+  expect(s.host.coordinator.pendingApprovals.size).toBe(0);
 });

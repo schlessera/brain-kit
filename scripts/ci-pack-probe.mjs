@@ -152,9 +152,12 @@ async function diagramsStatic() {
     }
     assert.equal(typeof document,"undefined"); assert.equal(typeof window,"undefined");
     import("@schlessera/brain-module-diagrams/render").then(async renderer => {
-      const source=JSON.stringify({schema_version:1,type:"architecture",title:"Raft",desc:"Odysseus prepares the raft.",size:"fit",nodes:[{id:"raft",label:"Raft",role:"input",at:[32,32],size:[128,64]}],edges:[]});
+      const source=JSON.stringify({schema_version:1,type:"architecture",title:"Raft",desc:"Odysseus prepares the raft.",size:"fit",nodes:[{id:"raft",label:"Raft",role:"input",at:[32,32],size:[128,64]}],edges:[],callouts:[{target:"raft",text:"Prepare provisions",side:"above"},{target:"raft",text:"Read the ledger"}]});
       const svg=await renderer.toStatic(source,{theme:"print"});
       assert(svg.startsWith("<svg "));assert(svg.includes('data-theme="print"'));assert(svg.includes("Odysseus prepares the raft."));assert.equal(renderer.diagramsStaticPack.renderers[0].needsBrowser,false);
+      assert(svg.includes("Prepare provisions"));assert(svg.includes("Read the ledger"));
+      assert.equal((svg.match(/data-diagram-callout="/g)||[]).length,2);assert.equal((svg.match(/data-diagram-callout-key=/g)||[]).length,1);
+      assert(svg.includes(", 2 notes"));
       const { readFileSync }=require("node:fs"),{dirname,join}=require("node:path"),packageRoot=dirname(require.resolve("@schlessera/brain-module-diagrams/package.json"));
       for(const name of ["architecture","flowchart","state-machine","tree","er","dependency","architecture-containment"]){
         const example=readFileSync(join(packageRoot,"skills/diagram/references/examples/"+name+".diagram.yaml"),"utf8");
