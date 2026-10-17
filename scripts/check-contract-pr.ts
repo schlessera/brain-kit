@@ -89,13 +89,31 @@ export function parseLabels(raw: string | undefined): string[] {
 }
 
 if (import.meta.main) {
-  const [base, head] = process.argv.slice(2);
+  let [base, head] = process.argv.slice(2);
   const title = process.env.PR_TITLE;
   if (!base || !head || title === undefined) {
     console.error(
       "usage: PR_TITLE=… PR_LABELS='[…]' bun scripts/check-contract-pr.ts <base-ref> <head-sha>"
     );
     process.exit(2);
+  }
+
+  if (process.env.GITHUB_EVENT_PATH) {
+    const event = await Bun.file(process.env.GITHUB_EVENT_PATH).json();
+    if (event.pull_request?.stack) {
+      try {
+        if (!process.env.GH_TOKEN || !process.env.GITHUB_REPOSITORY) throw new Error("Native contract comparison requires read-only GitHub identity verification");
+        const { GitHubProofAPI } = await import("./proof-reuse");
+        const { verifyNativePrefix, ownNativeParent } = await import("./native-candidate");
+        const { checkout } = await import("./proof-inputs");
+        if (head !== event.pull_request.head?.sha || checkout(ROOT).sha !== head) throw new Error("Native contract checkout differs from the frozen candidate head");
+        base = ownNativeParent(await verifyNativePrefix(event, process.env,
+          new GitHubProofAPI(process.env.GITHUB_REPOSITORY, process.env.GH_TOKEN), true));
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(2);
+      }
+    }
   }
 
   const changed = changedFiles(ROOT, base, head);

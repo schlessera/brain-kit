@@ -1,0 +1,75 @@
+{
+  "source_issue": "https://github.com/schlessera/brain-kit/issues/2141",
+  "scope": "Immutable replay of observed own-parent checkout; not new live-prefix or passing full candidate qualification. Original run was superseded and fixtures returned to draft.",
+  "git": "git version 2.51.0",
+  "run": 39019059474,
+  "metadata_job": 117357054877,
+  "actual_checkout_from_job_log": "7f92440e874e53eae0ef3d0ee0302e0229facf7b",
+  "prefix": {
+    "version": 1,
+    "request": "17670a921e36ca5b8e989596666e69ab",
+    "repository": "schlessera/brain-kit",
+    "pr": 2286,
+    "stack": 2287,
+    "position": 2,
+    "trunk": {
+      "ref": "test/2141-qualification-trunk-07f4f991",
+      "sha": "41a00e0ab38937d752d320e932ba240bf2a19770"
+    },
+    "members": [
+      {
+        "number": 2285,
+        "ref": "test/2141-native-lower-07f4f991",
+        "head": "1d2408a9cffd6db11920828dfc36c0666e88fb75",
+        "parent": "test/2141-qualification-trunk-07f4f991"
+      },
+      {
+        "number": 2286,
+        "ref": "test/2141-native-upper-07f4f991",
+        "head": "111d118add10b4c79c51663960f339b35e6fd155",
+        "parent": "test/2141-native-lower-07f4f991"
+      }
+    ]
+  },
+  "commits": [
+    {
+      "sha": "7f92440e874e53eae0ef3d0ee0302e0229facf7b",
+      "tree": "4bcc9f6665ed1dec863d40ee3b7aba1a80ea2ea2",
+      "parents": [
+        "1d2408a9cffd6db11920828dfc36c0666e88fb75",
+        "111d118add10b4c79c51663960f339b35e6fd155"
+      ],
+      "immutable_api_matches_local_git": true
+    },
+    {
+      "sha": "1d2408a9cffd6db11920828dfc36c0666e88fb75",
+      "tree": "a108352ee1643c4963d8187e80ff5247b02b01cd",
+      "parents": [
+        "e4997f38f4aa986ab5dc08d515b8faa017ff72ad"
+      ],
+      "immutable_api_matches_local_git": true
+    },
+    {
+      "sha": "111d118add10b4c79c51663960f339b35e6fd155",
+      "tree": "4bcc9f6665ed1dec863d40ee3b7aba1a80ea2ea2",
+      "parents": [
+        "1d2408a9cffd6db11920828dfc36c0666e88fb75"
+      ],
+      "immutable_api_matches_local_git": true
+    }
+  ],
+  "ancestry": [
+    {
+      "ancestor": "41a00e0ab38937d752d320e932ba240bf2a19770",
+      "descendant": "1d2408a9cffd6db11920828dfc36c0666e88fb75",
+      "exit": 0
+    },
+    {
+      "ancestor": "1d2408a9cffd6db11920828dfc36c0666e88fb75",
+      "descendant": "111d118add10b4c79c51663960f339b35e6fd155",
+      "exit": 0
+    }
+  ],
+  "reconstructed_tree": "4bcc9f6665ed1dec863d40ee3b7aba1a80ea2ea2",
+  "reconstruction_exit": 0
+}

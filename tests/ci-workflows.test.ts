@@ -147,7 +147,7 @@ describe("the authoritative jobs retain their important phases", () => {
     const checkout = job.steps.find(s => s.uses === "actions/checkout@v7");
     expect(checkout?.with?.ref).toBe("${{ github.event.pull_request.head.sha }}");
     expect(checkout?.with?.["fetch-depth"]).toBe(0);
-    const command = job.steps.find(s => s.run)!;
+    const command = job.steps.find(s => s.run?.startsWith("bun scripts/check-contract-pr.ts"))!;
     expect(command.run).toBe('bun scripts/check-contract-pr.ts "$BASE_REF" "$HEAD_SHA"');
     expect(command.env?.PR_TITLE).toBe("${{ github.event.pull_request.title }}");
     expect(command.env?.PR_LABELS).toBe("${{ toJSON(github.event.pull_request.labels.*.name) }}");
@@ -224,7 +224,7 @@ describe("contributions execute without privileged credentials", () => {
   }
   test("a fork's hostile title stays inert in the emitted contract step", () => {
     const adapter = workflows.find(w => w.file === "contract.yml")!.workflow;
-    const steps = Object.values(adapter.jobs).flatMap((job) => job.steps).filter((step) => step.run);
+    const steps = Object.values(adapter.jobs).flatMap((job) => job.steps).filter((step) => step.run?.startsWith("bun scripts/check-contract-pr.ts"));
     expect(steps.length).toBe(1);
     const step = steps[0]!;
     const scratch = mkdtempSync(join(tmpdir(), "fork-contract-"));
@@ -240,6 +240,7 @@ describe("contributions execute without privileged credentials", () => {
       });
       // The values the runner would place in the step's env.
       const valueOf = (expression: string): string => {
+        if (expression === "github.token") return "offline-fixture-token";
         const labels = /^toJSON\(github\.event\.pull_request\.labels\.\*\.name\)$/.exec(expression);
         const pr = (context.event as Obj).pull_request as Obj;
         if (labels) return JSON.stringify((pr.labels as Obj[]).map((l) => l.name));
