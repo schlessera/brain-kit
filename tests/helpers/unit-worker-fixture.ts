@@ -2,11 +2,12 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-export function unitWorkerFixture() {
+export function unitWorkerFixture(options: { failBuild?: boolean } = {}) {
   const source = resolve(import.meta.dir, "../..");
   const root = mkdtempSync(join(dirname(source), ".odysseus-unit-workers-"));
   mkdirSync(join(root, "tmp"));
   const lease = join(source, "scripts/workspace-lease.mjs");
+  const receipt = join(source, "scripts/build-receipt.ts");
   const guard = join(source, "scripts/test-network-child-preload.ts");
   const budget = join(source, "packages/ui-sdk/src/server/maintenance-temp-budget.ts");
   const write = (file: string, content: string) => {
@@ -21,8 +22,12 @@ export function unitWorkerFixture() {
   write("node_modules/typescript/package.json", '{"name":"odysseus-dependency-fixture"}\n');
   write("scripts/build.ts", `import {mkdirSync,writeFileSync} from "node:fs";
 import {ensureWorkspaceLease} from ${JSON.stringify(lease)};
+import {buildReceipt} from ${JSON.stringify(receipt)};
 const code=await ensureWorkspaceLease(process.cwd(),"write");if(code!==undefined)process.exit(code);
-mkdirSync("dist",{recursive:true});writeFileSync("dist/ready.txt","Odysseus builds the raft.");\n`);
+// Synthetic queue-fixture build, not a real workspace compiler invocation.
+const receipt=buildReceipt(process.cwd(),{jobs:1,subset:false,packages:["raft"]});receipt.packageStart("raft");
+${options.failBuild ? "process.exit(7);" : ""}
+mkdirSync("dist",{recursive:true});writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
   write("scripts/test.ts", `import {ensureWorkspaceLease,inheritWorkspaceLease} from ${JSON.stringify(lease)};
 const code=await ensureWorkspaceLease(process.cwd(),"write");if(code!==undefined)process.exit(code);
 const child=Bun.spawn([process.execPath,"test","--preload",${JSON.stringify(guard)},...process.argv.slice(2)],inheritWorkspaceLease({stdio:["inherit","inherit","inherit"]}));

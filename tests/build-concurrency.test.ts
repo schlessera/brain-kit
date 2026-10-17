@@ -1,18 +1,42 @@
 import { expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const repo = resolve(import.meta.dir, "..");
+function receipts(root: string) {
+  const directory = join(root, "tmp");
+  return existsSync(directory) ? readdirSync(directory).filter(name => /^build-\d+-[0-9a-f-]{36}-probe\.json$/.test(name))
+    .map(name => JSON.parse(readFileSync(join(directory, name), "utf8"))) : [];
+}
+
+
+type StorageFailure = "startup" | "after-spawn";
+function storageFailurePreload(root: string, point?: StorageFailure): string[] {
+  if (!point) return [];
+  const path = join(root, "receipt-storage-preload.ts");
+  writeFileSync(path, `import fs from "node:fs";
+import {mock} from "bun:test";
+let launched=false, blocked=false;
+const spawn=Bun.spawn;Bun.spawn=(...args)=>{const child=spawn(...args);if(Array.isArray(args[0]) && args[0].includes("tsc"))launched=true;return child};
+const write=fs.writeFileSync;mock.module("node:fs",()=>({...fs,writeFileSync:(path,...args)=>{
+  if(!blocked && String(path).endsWith("-probe.json.writing") && (${JSON.stringify(point)}==="startup" || launched)) {
+    blocked=true;fs.mkdirSync(path); // Actual EISDIR on the original filesystem write.
+  }
+  return write(path,...args);
+}}));
+`);
+  return ["--preload", path];
+}
 
 /** Actual installed compiler, fixed fixture barrier after the successful peer compile. */
-test("parallel build preserves named compiler exit 2 and drains its started peer", async () => {
+async function compilerDrain(storageFailure?: StorageFailure) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-compiler-drain-"));
   let child: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
   const release = join(root, "release");
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    for (const file of ["build.ts", "build-receipt.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
       copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
@@ -38,13 +62,21 @@ process.exitCode=code;
       }, include: ["src"] }));
       writeFileSync(join(directory, "src/index.ts"), name === "alpha" ? "export const value: string = 1;\n" : "export const value = 1;\n");
     }
-    child = Bun.spawn([process.execPath, "scripts/build.ts", "--jobs=2"], { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    child = Bun.spawn([process.execPath, ...storageFailurePreload(root, storageFailure), "scripts/build.ts", "--jobs=2"], { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const output = new Response(child.stdout).text(), error = new Response(child.stderr).text();
     let exited = false;
     void child.exited.then(() => { exited = true; });
     const deadline = Date.now() + 15_000;
     while (!existsSync(join(root, "peer-ready")) && !exited && Date.now() < deadline) await Bun.sleep(10);
-    expect(existsSync(join(root, "peer-ready")), `REAL_COMPILER_PEER_REACHED_RELEASE_BARRIER${exited ? (await output) + (await error) : ""}`).toBe(true);
+    const peerReady = existsSync(join(root, "peer-ready"));
+    if (!peerReady && exited) writeFileSync(release, "");
+    expect(peerReady, `REAL_COMPILER_PEER_REACHED_RELEASE_BARRIER${exited ? (await output) + (await error) : ""}`).toBe(true);
+    if (!storageFailure) {
+    const running = receipts(root);
+    expect(running.length, "EXACTLY_ONE_EXECUTING_BUILD_OWNER_RECEIPT").toBe(1);
+    expect(running[0].state, "LIVE_PEER_RECEIPT_REMAINS_PARTIAL").toBe("running");
+    expect(running[0].packages.find((pkg: {name: string}) => pkg.name === "beta").children[0].code).toBeUndefined();
+    }
     await Bun.sleep(300);
     expect(exited, "PARALLEL_BUILD_WAITS_LIVE_COMPILER_PEER_AFTER_ERROR").toBe(false);
     writeFileSync(release, "");
@@ -56,6 +88,16 @@ process.exitCode=code;
     expect(existsSync(join(root, "peer-drained"))).toBe(true);
     expect(existsSync(join(root, "gamma-started")), "DEPENDENT_NOT_STARTED_AFTER_COMPILER_FAILURE").toBe(false);
     expect(readFileSync(join(root, "packages/beta/dist/index.js"), "utf8")).toContain("export const value");
+    if (storageFailure) {
+      expect(err.split('"kind":"workspace-build-receipt-unavailable"').length - 1, "FAILED_COMPILER_EXIT_AND_PEER_DRAIN_SURVIVE_RECEIPT_IO_FAILURE").toBe(1);
+    } else {
+    const [receipt] = receipts(root);
+    expect(receipt.state).toBe("complete"); expect(receipt.success).toBe(false); expect(receipt.code).toBe(2);
+    expect(receipt.jobs).toBe(2); expect(receipt.mode).toBe("full");
+    expect(receipt.packages.map((pkg: {name: string; state: string}) => [pkg.name, pkg.state])).toEqual([["alpha", "failed"], ["beta", "complete"], ["gamma", "pending"]]);
+    expect(receipt.packages.flatMap((pkg: {children: {code: number}[]}) => pkg.children.map(child => child.code))).toEqual([2, 0]);
+
+    }
   } finally {
     writeFileSync(release, "");
     if (child) await child.exited;
@@ -79,13 +121,13 @@ process.exitCode=code;
     }
     rmSync(root, { recursive: true, force: true });
   }
-});
+}
 
-test("parallel optional dependency finishes before a lexical-first consumer, despite a peer cycle", async () => {
+async function successfulBuild(storageFailure?: StorageFailure) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-compiler-levels-"));
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    for (const file of ["build.ts", "build-receipt.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
       copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
@@ -110,11 +152,32 @@ process.exitCode=await compiler.exited;
       writeFileSync(join(directory, "src/index.ts"), name === "a-consumer"
         ? 'export { value } from "../../z-dependency/dist/index.js";\n' : "export const value = 1;\n");
     }
-    const child = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "a-consumer,b-peer,c-peer", "--jobs=2"],
+    const dry = Bun.spawn([process.execPath, "scripts/build.ts", "--dry-run"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const [dryCode, , dryError] = await Promise.all([dry.exited, new Response(dry.stdout).text(), new Response(dry.stderr).text()]);
+    expect(dryCode, dryError).toBe(0); expect(receipts(root), "DRY_RUN_HAS_NO_BUILD_OWNER_RECEIPT").toHaveLength(0);
+    const child = Bun.spawn([process.execPath, ...storageFailurePreload(root, storageFailure), "scripts/build.ts", "--for", "a-consumer,b-peer,c-peer", "--jobs=2"],
       { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, `OPTIONAL_DEPENDENCY_FINISHED_BEFORE_CONSUMER\n${out}\n${err}`).toBe(0);
     expect(readFileSync(join(root, "packages/a-consumer/dist/index.d.ts"), "utf8")).toContain("z-dependency/dist");
     expect(existsSync(join(root, "packages/b-peer/dist/index.js"))).toBe(true);
+    if (storageFailure) {
+      expect(err.split('"kind":"workspace-build-receipt-unavailable"').length - 1, "SUCCESSFUL_BUILD_EXIT_SURVIVES_RECEIPT_IO_FAILURE").toBe(1);
+    } else {
+    const completed = receipts(root);
+    expect(completed.length, "EXACTLY_ONE_EXECUTING_BUILD_OWNER_RECEIPT").toBe(1);
+    expect(completed[0].success).toBe(true); expect(completed[0].state).toBe("complete");
+    expect(completed[0].jobs).toBe(2); expect(completed[0].mode).toBe("subset");
+    expect(completed[0].packages.every((pkg: {state: string; children: {code: number}[]}) => pkg.state === "complete" && pkg.children.length === 1 && pkg.children[0].code === 0)).toBe(true);
+    expect(JSON.stringify(completed), "BUILD_RECEIPT_OMITS_HOST_PATHS").not.toContain(root);
+
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}
+
+test("parallel build preserves named compiler exit 2 and drains its started peer", () => compilerDrain());
+test("parallel optional dependency finishes before a lexical-first consumer, despite a peer cycle", () => successfulBuild());
+for (const point of ["startup", "after-spawn"] as const) {
+  test(`receipt storage failure at ${point} preserves the compiler error and held peer drain`, () => compilerDrain(point));
+  test(`receipt storage failure at ${point} preserves a successful actual compiler build`, () => successfulBuild(point));
+}
