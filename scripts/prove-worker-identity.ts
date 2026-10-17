@@ -5,23 +5,87 @@ import { join, resolve } from "node:path";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
 
+/** Fixed, diagnostic-only source variant; never changes the checked-out product files. */
+export function collectorInventoryVariant(collectorSource: string, hostSource: string) {
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  const collectorHash = digest(collectorSource);
+  const shim = `import { createHash } from "node:crypto";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync } from "node:fs";
+const original = "/repo/packages/ui-server/src/brain/maintenance-git-source.ts";
+const expectedHash = ${JSON.stringify(collectorHash)};
+if (createHash("sha256").update(readFileSync(original)).digest("hex") !== expectedHash) throw Error("FIXTURE_COLLECTOR_BYTES_CHANGED");
+const root = process.cwd(), fd = openSync(".", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+try {
+  const info = fstatSync(fd), identity = String(info.dev) + ":" + String(info.ino);
+  if (identity !== process.argv[4]) throw Error("FIXTURE_COLLECTOR_ROOT_IDENTITY_CHANGED");
+  const names = readdirSync("/proc/self/fd/" + fd);
+  if (names.length > 512) throw Error("FIXTURE_COLLECTOR_INVENTORY_ENTRY_BOUND");
+  const entries = names.sort().map(name => {
+    const entry = lstatSync("/proc/self/fd/" + fd + "/" + name);
+    return { name, uid: entry.uid, gid: entry.gid, mode: entry.mode & 0o7777, dev: String(entry.dev), ino: String(entry.ino),
+      type: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "symlink" : "other" };
+  });
+  const receipt = JSON.stringify({ collectorHash: expectedHash, rootIdentity: identity, entries });
+  if (Buffer.byteLength(receipt) > 65536) throw Error("FIXTURE_COLLECTOR_INVENTORY_BYTE_BOUND");
+  console.error("LOCAL_FIXTURE_GIT_ROOT " + receipt);
+} finally { closeSync(fd); }
+const child = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", original, ...process.argv.slice(2)],
+  { cwd: root, env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+const code = await child.exited;
+process.exitCode = code;
+`;
+  const replace = (text: string, before: string, after: string) => {
+    if (!text.includes(before) || text.indexOf(before) !== text.lastIndexOf(before)) throw Error("Collector inventory fixture anchor changed");
+    return text.replace(before, after);
+  };
+  let host = replace(hostSource, 'const entry = Bun.resolveSync("./maintenance-git-source", import.meta.dir), maximum = storage.allowanceBytes;',
+    'const entry = "/fixture-variants/collector-inventory.ts", maximum = storage.allowanceBytes;');
+  host = replace(host, '  if (result.exitCode !== 0 || result.killed) {', `  // Diagnostic variant only: local artifact, never product logs or a receipt contract.
+  for (const line of result.stderr.split("\\n")) {
+    if (!line.startsWith("LOCAL_FIXTURE_GIT_ROOT ") || Buffer.byteLength(line) > 65536 + 32) continue;
+    try {
+      const value = JSON.parse(line.slice("LOCAL_FIXTURE_GIT_ROOT ".length));
+      const uint = (n: unknown, max: number) => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= max;
+      if (!value || value.collectorHash !== ${JSON.stringify(collectorHash)} || value.rootIdentity !== expectedRoot || !Array.isArray(value.entries)
+        || value.entries.length > 512 || Object.keys(value).sort().join(",") !== "collectorHash,entries,rootIdentity") continue;
+      if (value.entries.some((item: any) => !item || Object.keys(item).sort().join(",") !== "dev,gid,ino,mode,name,type,uid"
+        || typeof item.name !== "string" || Buffer.byteLength(item.name) > 1024 || item.name.includes("/")
+        || !uint(item.uid, 0xffffffff) || !uint(item.gid, 0xffffffff) || !uint(item.mode, 0o7777)
+        || typeof item.dev !== "string" || !/^[0-9]{1,24}$/.test(item.dev) || typeof item.ino !== "string" || !/^[0-9]{1,24}$/.test(item.ino)
+        || !["directory", "file", "symlink", "other"].includes(item.type))) continue;
+      console.error("LOCAL_FIXTURE_GIT_ROOT " + JSON.stringify(value));
+    } catch { /* Malformed diagnostic stderr is never forwarded. */ }
+  }
+  if (result.exitCode !== 0 || result.killed) {`);
+  return { shim, host, hashes: { originalCollector: collectorHash, originalHost: digest(hostSource), shim: digest(shim), variantHost: digest(host) } };
+}
+
 if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory]");
     const image = options.find(arg=>arg.startsWith("--image="))?.slice("--image=".length) ?? NATIVE_PROOF_IMAGE;
     const sharedGit = options.includes("--shared-git");
     const privateGitInputs = options.includes("--private-git-inputs");
     if (privateGitInputs && !sharedGit) throw Error("Private Git input proof requires the separate shared Git composition");
     const nativePhaseOnly = options.includes("--native-phase-only");
+    const collectorInventory = options.includes("--collector-inventory");
     const mutation = options.find(arg=>arg.startsWith("--mutation="))?.slice("--mutation=".length);
     if (nativePhaseOnly && (!sharedGit || mutation)) throw Error("Native-phase-only proof requires shared Git composition and forbids mutations");
+    if (collectorInventory && (!nativePhaseOnly || !sharedGit || !privateGitInputs || mutation)) throw Error("Collector inventory requires the separate private native-phase diagnostic composition");
     const changed = (text: string, before: string, after: string) => { if(!text.includes(before))throw Error("Identity fixture mutation anchor changed");return text.replace(before,after); };
     const source = resolve(import.meta.dir, ".."), output = join(source, "tmp", "worker-identity-proof");
     mkdirSync(output, { recursive: true });
     const artifact = mkdtempSync(join(output, "run-")); chmodSync(artifact, 0o755);
     const hash = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
+    const inventoryVariant = collectorInventory ? collectorInventoryVariant(
+      readFileSync(join(source, "packages/ui-server/src/brain/maintenance-git-source.ts"), "utf8"),
+      readFileSync(join(source, "packages/ui-server/src/brain/maintenance-git.ts"), "utf8")) : undefined;
+    if (inventoryVariant) {
+      writeFileSync(join(artifact, "collector-inventory.ts"), inventoryVariant.shim);
+      writeFileSync(join(artifact, "maintenance-git.fixture.ts"), inventoryVariant.host);
+    }
     const helperSource = join(source, "packages/ui-sdk/tests/fixtures/identity-helper.c");
     const helper = join(artifact, "identity-helper");
     const compile = Bun.spawnSync(["cc", "-O2", "-Wall", "-Wextra", helperSource, "-o", helper], { stdout: "pipe", stderr: "pipe" });
@@ -186,7 +250,8 @@ exit "$case_code"
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, proofScope: nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+    const metadata = { image, proofScope: collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+      collectorInventoryHashes: inventoryVariant?.hashes ?? null,
       skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls"] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
       helperSourceSha256: hash(readFileSync(helperSource)), helperSha256: hash(readFileSync(helper)),
@@ -198,7 +263,9 @@ exit "$case_code"
       `--security-opt=seccomp=${join(source, "scripts/native-proof/seccomp.json")}`,
       ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
       "--mount", `type=bind,source=${artifact},target=/proof`,
-      "--mount", `type=bind,source=${source},target=/repo,readonly`, "--mount", `type=bind,source=${realpathSync(process.execPath)},target=/usr/local/bin/bun,readonly`,
+      "--mount", `type=bind,source=${source},target=/repo,readonly`,
+      ...(inventoryVariant ? ["--mount", `type=bind,source=${join(artifact, "maintenance-git.fixture.ts")},target=/repo/packages/ui-server/src/brain/maintenance-git.ts,readonly`] : []),
+      "--mount", `type=bind,source=${realpathSync(process.execPath)},target=/usr/local/bin/bun,readonly`,
       "--mount", `type=bind,source=${helper},target=/fixture-helper,readonly`, "--mount", `type=bind,source=${helperScriptPath},target=/helper.py,readonly`, "--mount", `type=bind,source=${filter},target=/filter.py,readonly`,
       "--mount", `type=bind,source=${setup},target=/setup.sh,readonly`, "--mount", `type=bind,source=${artifact},target=/fixture-variants,readonly`, "--workdir=/repo", "--entrypoint=/bin/sh", image, "/setup.sh"];
     console.log(`Worker identity proof artifacts: ${artifact}`);
