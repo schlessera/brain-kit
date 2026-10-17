@@ -1098,6 +1098,8 @@ export "./internal" (./src/internal.ts)
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareMaintenanceGitInput
+  prepareMaintenanceWorker
   prepareNativeWorkerOutput
   prepareNativeWorkerStartupView
   prepareOutwardPlan
@@ -6101,6 +6103,10 @@ signatures (every public export and the types it is made of)
         readonly description: "Resource limits for each agent worker, as comma-separated name=value pairs over the defaults: processes, data, file_size and open_files (rlimits), memory, pids and cpu (the per-worker cgroup, when the host delegates one), and cgroup=on|off. Sizes take KiB, MiB, GiB or TiB; `unlimited` turns one limit off. A malformed entry refuses agent turns and names the entry. See docs/hosting/agent-workers.md#resource-limits.";
         readonly name: "BRAIN_UI_WORKER_LIMITS";
         readonly required: false;
+    }, {
+        readonly description: "Internal maintenance output root supplied in the launcher-cleared environment. It identifies the existing attested writable output target, never an operator input or additional host path authority.";
+        readonly name: "BRAIN_ROOT";
+        readonly required: "trusted maintenance worker only";
     }, {
         readonly description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.";
         readonly name: "BRAIN_MAINTENANCE_GIT";

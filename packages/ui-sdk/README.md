@@ -336,6 +336,7 @@ there is no operator switch that disables worker admission.
 | Variable | What it controls | Unset |
 | --- | --- | --- |
 | `BRAIN_MAINTENANCE_GIT` | Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input. | **required** — trusted maintenance Git adapter only |
+| `BRAIN_ROOT` | Internal maintenance output root supplied in the launcher-cleared environment. It identifies the existing attested writable output target, never an operator input or additional host path authority. | **required** — trusted maintenance worker only |
 | `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES` | Separate aggregate maintenance temporary-write budget, shared atomically by server and cron processes. Positive page-aligned integer covering at least one command allowance. Busy admission refuses with worker_state_busy before execution. Not derived from agent session concurrency. | 268435456 |
 | `BRAIN_UI_MAINTENANCE_TEMP_BYTES` | Per-maintenance-command temporary-write allowance in bytes, covering its private /tmp, scratch and XDG directories. Positive page-aligned integer. Separate from agent turn temp, runtime state and output staging; overflow is ENOSPC. | 268435456 |
 | `BRAIN_UI_OUTPUT_STAGING_BUDGET_BYTES` | Aggregate output-staging capacity in the shared worker admission ledger; positive page-aligned bytes, at least one allowance. Busy admission refuses with worker_state_busy and Retry. | BRAIN_UI_OUTPUT_STAGING_BYTES × MAX_CONCURRENT_SESSIONS |

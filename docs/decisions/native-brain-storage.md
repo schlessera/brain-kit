@@ -143,6 +143,22 @@ subtree deletion checks enumerate the affected sealed subtree, not every
 unchanged file in the brain. The server still checks authoritative paths
 immediately before publishing each permitted change.
 
+Separate-UID maintenance prepares only the fixed disposable index family
+(`brain.db`, `-wal`, `-shm`, `-journal`) in that same bounded stage. Readable,
+regular, singly linked inherited files with owner-write permission are copied
+to worker-owned files with the exact original modes. This does not chown or
+widen permissions on the authoritative brain. Already worker-owned files are
+validated without recopying. Preparation runs before the payload with no other
+command active, preserving the complete immutable SQLite family; committed WAL
+and hot single-database rollback state remain available for SQLite recovery.
+SHM may be reconstructed from WAL. Aliases, special nodes, orphan sidecars,
+non-owner-writable inputs and cross-database super-journal recovery refuse.
+A failed or interrupted preparation poisons the stage for further payloads and
+publication until it is discarded. The private control marker is bound to the
+existing stage/checkpoint, command generation, descriptor and owned drain;
+no generic copying or reader authority is added (`prepareMaintenanceWorker`,
+`packages/ui-sdk/src/server/maintenance-worker.ts:108-139`).
+
 The root manager configuration fixes the application UID/group and the existing
 output allowance and aggregate budget. Requests cannot choose host paths or
 identities. Manager and application require a shared PID namespace and matching

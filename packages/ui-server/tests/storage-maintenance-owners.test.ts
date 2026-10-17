@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -52,6 +52,35 @@ test("maintenance revalidates authorization after the real cross-process writer 
     await expect(pending).rejects.toThrow("authorization revoked");
     expect(existsSync(join(f.brain, "started.txt")), "STORAGE_MAINTENANCE_AFTER_GATE_AUTHORITY").toBe(false);
   } finally { hold.release(); await pending.catch(() => {}); await f.close(); }
+});
+
+test("maintenance revalidates authority after asynchronous worker preparation before entering the command", async () => {
+  const nativeOutput = await import("../../ui-sdk/src/server/worker-native-output");
+  const f = fixture(); let allowed = true, prepared = false, entered = 0, revoke = true;
+  const effectRoot = mkdtempSync("/var/tmp/odysseus-maintenance-effect-"), effect = join(effectRoot, "entered");
+  writeFileSync(effect, "untouched");
+  const program = `await Bun.write(${JSON.stringify(effect)},"entered");`;
+  const descriptor = Object.getOwnPropertyDescriptor(nativeOutput, "prepareNativeMaintenanceMasks")!;
+  const original = nativeOutput.prepareNativeMaintenanceMasks;
+  const preparation = spyOn(nativeOutput, "prepareNativeMaintenanceMasks").mockImplementation(async (launch, signal) => {
+    await original(launch, signal);
+    if (launch.command.includes(program)) { prepared = true; if (revoke) allowed = false; }
+  });
+  const execution = { argv: [process.execPath, "-e", program], env: { PATH: process.env.PATH, BRAIN_ROOT: f.brain },
+    credentials: false, gate: "shared" as const, purpose: "Storage preparation authority", outputBytes: 1024, writeFiles: [effect],
+    assertAuthorized() { if (!allowed) throw Error("authorization revoked during preparation"); },
+    onExecute() { entered++; } };
+  try {
+    await expect(f.boundary.run(execution)).rejects.toThrow("authorization revoked during preparation");
+    expect(prepared, "STORAGE_REAL_MAINTENANCE_PREPARATION_COMPLETED").toBe(true);
+    expect(readFileSync(effect, "utf8"), "STORAGE_REQUESTED_COMMAND_DID_NOT_RUN").toBe("untouched");
+    expect(entered, "STORAGE_AUTHORITY_AFTER_ASYNC_PREPARATION").toBe(0);
+    revoke = false; allowed = true;
+    const control = await f.boundary.run(execution);
+    expect(control.exitCode, control.stderr).toBe(0);
+    expect(readFileSync(effect, "utf8"), "STORAGE_AUTHORIZED_COMMAND_REACHES_OWNED_EFFECT").toBe("entered");
+    expect(entered).toBe(1);
+  } finally { preparation.mockRestore(); Object.defineProperty(nativeOutput, "prepareNativeMaintenanceMasks", descriptor); rmSync(effectRoot, { recursive: true, force: true }); await f.close(); }
 });
 
 test("bounded maintenance kills and reaps an actual output-flooding worker", async () => {
