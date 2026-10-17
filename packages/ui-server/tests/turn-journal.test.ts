@@ -22,6 +22,33 @@ function fixture(capBytes?: number) {
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
+test("reconstructed copied fixtures keep separate inode reservation lifetimes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-restart-odysseus-")), brain = join(root, "brain");
+  mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Odysseus returns to Ithaca.");
+  const first = createNativeJournalFixture(brain, root);
+  let second: ReturnType<typeof createNativeJournalFixture> | undefined;
+  const descriptors: number[] = [];
+  try {
+    const before = await first.manager.checkpoint("before-restart");
+    descriptors.push(openSync(join(before.path, "note.md"), "r"));
+    await first.manager.release(before.id);
+    expect(() => { second = createNativeJournalFixture(brain, root); }, "RESTART_FIXTURE_HAS_OWN_RESERVATIONS").not.toThrow();
+    const after = await second!.manager.checkpoint("after-restart");
+    descriptors.push(openSync(join(after.path, "note.md"), "r"));
+    await second!.manager.release(after.id);
+    expect(fstatSync(descriptors[0]!).nlink, "PREDECESSOR_RESERVATION_SURVIVES_RECONSTRUCTION").toBeGreaterThan(0);
+    await first.close();
+    expect(fstatSync(descriptors[0]!).nlink, "PREDECESSOR_CLOSE_RELEASES_OWN_RESERVATION").toBe(0);
+    expect(fstatSync(descriptors[1]!).nlink, "SUCCESSOR_RESERVATION_SURVIVES_PREDECESSOR_CLOSE").toBeGreaterThan(0);
+    await second!.close();
+    expect(fstatSync(descriptors[1]!).nlink, "SUCCESSOR_CLOSE_RELEASES_OWN_RESERVATION").toBe(0);
+  } finally {
+    await first.close(); await second?.close();
+    for (const descriptor of descriptors) closeSync(descriptor);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("copied checkpoint release reserves file inodes until fixture cleanup", async () => {
   const root = mkdtempSync(join(tmpdir(), "journal-inodes-odysseus-")), brain = join(root, "brain");
   mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Odysseus returns to Ithaca.");
