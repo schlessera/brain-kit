@@ -60,3 +60,9 @@ export function buildLink(path: string, expected: BigIntStats): string {
     return target;
   });
 }
+
+/** The fixed image bootstrap creates these inside its fresh operation tmpfs. */
+export function checkBuildPrivateDirectory(path: string): void {
+  const stat = buildStat(path);
+  if (!stat.isDirectory() || stat.uid !== BigInt(process.getuid!()) || stat.gid !== BigInt(process.getgid!()) || (stat.mode & 0o7777n) !== 0o700n) throw new Error("Invalid private build directory");
+}

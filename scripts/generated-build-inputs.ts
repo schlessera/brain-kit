@@ -6,12 +6,12 @@ import { isAbsolute, relative, resolve } from "node:path";
 // Tailwind CLI, build-before-browser order, checked exits and post-success receipt.
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
-  "scripts/ci-build-files.ts": "29c2ca0fa5640ae98ab7860a8289d9b48e533ccbf150333f3555fa9593a088ac",
-  "scripts/ci-build-lifetime.ts": "54acc253aba0f432bf4a204d34c6da902aaffc508131d02dd046927c6925af5d",
+  "scripts/ci-build-files.ts": "afb8020ce5976f2d848554c970b3f9330167baeaf13cfd89fcd015f7fdce03a3",
+  "scripts/ci-build-lifetime.ts": "97ac87d386df8010c90de814b472bddc7166a2d3844809ceb73719e9c204a7e9",
   "scripts/ci-build-qualification.json": "31044cc0055d43353ae235daf56f88b4d24f40fef9ea5aac96f69421f5c20fc6",
-  "scripts/ci-build-entry.ts": "e7d2891c6b0737066f0f6818ed2f774b55d59549e81610ac2db264cb71dd6809",
-  "scripts/ci-build-operation.ts": "8fb5c0c8424be481c2476bf178365237ba67580e9b9e8d8b7b4e63ea223be143",
-  "scripts/ci-build-boundary.ts": "4f8c6fc11d838adff3dc91f4df75042f6d22bf76819c3519579c82b22d0e9e5e",
+  "scripts/ci-build-entry.ts": "f8519a004586c7ec6d7017853b3bc0c5b1f26b4d44682455553ce48f8152e4e9",
+  "scripts/ci-build-operation.ts": "28eb2de8d48d1e73a5557dc1031f9c44d03c7968ae726287c0dd44869f2d54db",
+  "scripts/ci-build-boundary.ts": "34926ef4e78f53112c401f3ad5df26d028b98fec3d6d428ea5fc18990ae02ed8",
   "scripts/build-execution.ts": "17ee42de1b37aa8034c6b0719b32ec432ac8fde321fb9c2c3a426799ea996a5e",
   "scripts/build.ts": "30c1ecc7272921efe4e437b23e3d088e03d38869a9f5b2365fc08592e248d8d8",
   "scripts/build-receipt.ts": "567c3d13b5e3e1295f597e4f57a9d0d9912685f2669cf3872daa26c2931bd1e6",

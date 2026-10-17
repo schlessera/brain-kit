@@ -8,7 +8,7 @@ export function dockerControl(config: string, ...argv: string[]): string {
   return result.stdout.toString("utf8").trim();
 }
 type Container = {
-  Id: string; State: { Running: boolean }; Config: { Image: string; Labels: Record<string, string> };
+  Id: string; State: { Running: boolean }; Config: { Image: string; User: string; Labels: Record<string, string> };
   HostConfig: { ReadonlyRootfs: boolean; NetworkMode: string; Privileged: boolean; CapDrop: string[]; SecurityOpt: string[]; Tmpfs: Record<string, string> };
   Mounts: Array<{ Type: string; Source: string; Destination: string; RW: boolean }>;
 };

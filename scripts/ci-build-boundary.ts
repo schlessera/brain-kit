@@ -169,4 +169,3 @@ export function buildMounts(input: string, state: string, packages: readonly str
   const diagnostics = join(state, "diagnostics"); mkdirSync(diagnostics, { mode: 0o700 }); mount(diagnostics, "/repo/tmp", false);
   return { mounts, topology, rootNames: [...readdirSync(input).filter(name => name !== "packages"), "packages", "tmp"].sort() };
 }
-

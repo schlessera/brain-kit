@@ -1,7 +1,7 @@
 /** The only program run by the fixed CI build container. Not a plugin host. */
-import { buildRead } from "./ci-build-files";
+import { buildRead, checkBuildPrivateDirectory } from "./ci-build-files";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { digest } from "./ci-build-boundary";
 import { executeBuild } from "./build-execution";
@@ -9,7 +9,7 @@ import { listPublishablePackages } from "./publishable-packages";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 type Entry = {
-  version: 1; originalRoot: string; canary: string; selected: string[]; jobs: 1 | 2;
+  version: 1; uid: number; gid: number; originalRoot: string; canary: string; selected: string[]; jobs: 1 | 2;
   topology: Record<string, string[]>; rootNames: string[]; node: string;
   readonlyTargets: string[]; writableTargets: string[];
 };
@@ -19,6 +19,8 @@ if (import.meta.main) {
   process.umask(0o022);
   const entry = JSON.parse(buildRead("/operation/entry.json", undefined, 1024 * 1024).bytes.toString("utf8")) as Entry;
   assert.equal(entry.version, 1);
+  assert(entry.uid > 0 && entry.gid > 0, "CI_BUILD_NONROOT_IDENTITY");
+  assert.equal(process.getuid!(), entry.uid, "CI_BUILD_EXPECTED_UID"); assert.equal(process.getgid!(), entry.gid, "CI_BUILD_EXPECTED_GID");
   assert(!existsSync(entry.originalRoot), "CI_BUILD_ORIGINAL_CHECKOUT_UNMOUNTED");
   assert(!existsSync(entry.canary), "CI_BUILD_HOST_DATA_UNMOUNTED");
   const mounts = readFileSync("/proc/self/mountinfo", "utf8").trim().split("\n").map(line => {
@@ -40,7 +42,8 @@ if (import.meta.main) {
     assert.deepEqual(readdirSync(`/repo/packages/${pkg}`).sort(), names, "CI_BUILD_INITIAL_PACKAGE_TOPOLOGY");
   }
   const runtime = { bun: digest(buildRead("/tool/bun").bytes), node: { path: entry.node, sha256: digest(buildRead(entry.node).bytes) } };
-  mkdirSync("/tmp/home", { mode: 0o700 }); mkdirSync("/tmp/cache", { mode: 0o700 });
+  assert(mounts.some(mount => mount.target === "/tmp" && mount.type === "tmpfs" && mount.options.split(",").includes("rw")), "CI_BUILD_FRESH_PRIVATE_TMPFS");
+  checkBuildPrivateDirectory("/tmp/home"); checkBuildPrivateDirectory("/tmp/cache");
   process.env.TMPDIR = "/tmp"; process.env.XDG_CACHE_HOME = "/tmp/cache";
   const packages = listPublishablePackages("/repo").filter(pkg => entry.selected.includes(pkg.dir));
   assert.equal(packages.length, entry.selected.length, "CI_BUILD_ONLY_VALIDATED_PENDING_PACKAGES");

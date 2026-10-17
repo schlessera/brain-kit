@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildRead } from "../scripts/ci-build-files";
+import { buildRead, checkBuildPrivateDirectory } from "../scripts/ci-build-files";
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function fixture() {
@@ -33,4 +33,13 @@ test("anchored capture bounds regular-file bytes and retains mode", () => {
   const root = fixture(), file = join(root, "source/file"); fs.chmodSync(file, 0o640);
   expect(() => buildRead(file, undefined, 5), "CI_BUILD_FILE_BUDGET_REFUSAL").toThrow("Unsupported");
   const captured = buildRead(file); expect(captured.bytes.toString()).toBe("Ithaca"); expect(Number(captured.stat.mode & 0o777n)).toBe(0o640);
+});
+
+test("fixed build HOME and cache require private owned nonalias directories", () => {
+  const root = fixture(), home = join(root, "home"); fs.mkdirSync(home, { mode: 0o700 });
+  checkBuildPrivateDirectory(home);
+  fs.chmodSync(home, 0o755);
+  expect(() => checkBuildPrivateDirectory(home), "CI_BUILD_HOME_MODE_REFUSAL").toThrow("Invalid private");
+  fs.rmSync(home, { recursive: true }); fs.symlinkSync("source", home);
+  expect(() => checkBuildPrivateDirectory(home), "CI_BUILD_HOME_ALIAS_REFUSAL").toThrow("Invalid private");
 });

@@ -22,6 +22,8 @@ const producerPaths = ["scripts/build.ts", "scripts/build-execution.ts", "script
 const configuration = (entry: BuildFile) => !/(^|\/)node_modules(?:\/|$)/.test(entry.path) &&
   (/(^|\/)package\.json$/.test(entry.path) || /(^|\/)tsconfig[^/]*\.json$/.test(entry.path) || /(^|\/)bunfig\.toml$/.test(entry.path) || entry.path.endsWith(".css"));
 const launcher = '#!/bin/sh\nexec /tool/bun x --no-install "$@"\n';
+// Run once before Bun and its lease coordinator can initialize HOME.
+const entryLauncher = '#!/bin/sh\nset -eu\numask 077\n/usr/bin/mkdir -m 0700 /tmp/home /tmp/cache\nexec /tool/bun /repo/scripts/ci-build-entry.ts\n';
 function readPolicy(): Qualification {
   const policy = JSON.parse(buildRead(policyPath, undefined, 1024 * 1024).bytes.toString("utf8")) as Qualification;
   if (policy.image !== fixedImage || policy.node.path !== "/usr/bin/node") throw new Error("Unknown fixed build operation");
@@ -159,11 +161,13 @@ async function execute(root: string, options: Options, policy: Qualification, qu
   for (const signal of signals) process.on(signal, interrupt);
   const cleanup = () => {
     try {
-      removeOwnedBuildContainer(dockerConfig, containerID ?? name, session);
+      const owned = inspectOwnedBuildContainer(dockerConfig, containerID ?? name, session); containerID = owned.id;
+      removeOwnedBuildContainer(dockerConfig, owned.id, session);
       drained = true; removed = true;
+      writeFileSync(join(state, "cleanup.json"), JSON.stringify({ version: 1, session, containerID, drained, removed }), { flag: "wx", mode: 0o600 });
     } catch (error) {
       preserve = true;
-      operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "failed", action: "fail", session, reason: "owned-container-cleanup-incomplete", drained, removed: false });
+      operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "failed", action: "fail", session, reason: removed ? "cleanup-audit-unavailable" : "owned-container-cleanup-incomplete", drained, removed });
       throw error;
     }
   };
@@ -221,6 +225,7 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       const tool = join(state, "tool"); mkdirSync(tool, { mode: 0o700 });
       writeFileSync(join(tool, "bun"), bun, { mode: 0o755, flag: "wx" }); chmodSync(join(tool, "bun"), 0o755);
       writeFileSync(join(tool, "bunx"), launcher, { mode: 0o755, flag: "wx" }); chmodSync(join(tool, "bunx"), 0o755);
+      writeFileSync(join(tool, "entry.sh"), entryLauncher, { mode: 0o700, flag: "wx" }); chmodSync(join(tool, "entry.sh"), 0o700);
       const hostFiles = join(state, "host-files"); mkdirSync(hostFiles, { mode: 0o700 });
       for (const [file, bytes] of Object.entries({ hosts: "127.0.0.1 localhost brain-build\n::1 localhost\n", hostname: "brain-build\n", "resolv.conf": "" })) writeFileSync(join(hostFiles, file), bytes, { flag: "wx" });
       const entryPath = join(state, "entry.json"), canary = join(state, "ambient-canary"); writeFileSync(canary, "Odysseus stays outside the build");
@@ -229,13 +234,13 @@ async function execute(root: string, options: Options, policy: Qualification, qu
         "--tmpfs", `/repo:rw,nosuid,nodev,mode=0700,uid=${uid},gid=${gid},size=64m`, "--tmpfs", "/tmp:rw,exec,nosuid,nodev,mode=1777,size=256m"];
       const allMounts = [...mounts, { source: tool, target: "/tool", readonly: true }, { source: entryPath, target: "/operation/entry.json", readonly: true },
         ...["hosts", "hostname", "resolv.conf"].map(file => ({ source: join(hostFiles, file), target: `/etc/${file}`, readonly: true }))];
-      writeFileSync(entryPath, JSON.stringify({ version: 1, originalRoot: root, canary, selected: pending, jobs: options.jobs, topology, rootNames, node: policy.node.path,
+      writeFileSync(entryPath, JSON.stringify({ version: 1, uid, gid, originalRoot: root, canary, selected: pending, jobs: options.jobs, topology, rootNames, node: policy.node.path,
         readonlyTargets: allMounts.filter(mount => mount.readonly).map(mount => mount.target), writableTargets: allMounts.filter(mount => !mount.readonly).map(mount => mount.target) }));
       for (const mount of allMounts) {
         if (/[\r\n,]/.test(mount.source + mount.target)) throw new Error("Unsupported fixed build mount path");
         argv.push("--mount", `type=bind,src=${mount.source},dst=${mount.target}${mount.readonly ? ",readonly" : ""}`);
       }
-      argv.push("--workdir", "/repo", policy.image, "/usr/bin/env", "-i", "PATH=/tool:/usr/bin:/bin", "HOME=/tmp/home", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TZ=UTC", "/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", "300s", "/tool/bun", "/repo/scripts/ci-build-entry.ts");
+      argv.push("--workdir", "/repo", policy.image, "/usr/bin/env", "-i", "PATH=/tool:/usr/bin:/bin", "HOME=/tmp/home", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TZ=UTC", "/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", "300s", "/bin/sh", "/tool/entry.sh");
       writeFileSync(join(state, "invocation.json"), JSON.stringify({ version: 1, session, key, argv, mounts: allMounts, captured, derived: derivedIdentities, runtime: { image: policy.image, bun: bunHash }, lifetime: { producerSeconds: 300, killGraceSeconds: 5, clientSeconds: 330, dockerControlMilliseconds: 10_000 }, scope, qualificationOnly }, null, 2));
       const compileStart = performance.now();
       child = Bun.spawn(["/usr/bin/timeout", "--signal=TERM", "--kill-after=5s", "330s", "/usr/bin/docker", "--host", "unix:///var/run/docker.sock", "--config", dockerConfig, ...argv], { stdout: "inherit", stderr: "inherit", env: { PATH: "/usr/bin:/bin" } });
@@ -246,7 +251,8 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       if (owned.running) throw new Error("Build container did not drain");
       drained = true;
       const actual = owned.record, host = actual.HostConfig;
-      if (actual.Config.Image !== policy.image || host.ReadonlyRootfs !== true || host.NetworkMode !== "none" || host.Privileged !== false ||
+      writeFileSync(join(state, "container-boundary.json"), JSON.stringify({ version: 1, session, containerID, actual }, null, 2), { flag: "wx", mode: 0o600 });
+      if (actual.Config.Image !== policy.image || actual.Config.User !== `${uid}:${gid}` || host.ReadonlyRootfs !== true || host.NetworkMode !== "none" || host.Privileged !== false ||
         !host.CapDrop?.includes("ALL") || !host.SecurityOpt?.some(value => value === "no-new-privileges" || value === "no-new-privileges=true") ||
         identity(Object.keys(host.Tmpfs ?? {}).sort()) !== identity(["/repo", "/tmp"])) throw new Error("Actual build container boundary changed");
       const actualBinds = actual.Mounts.filter(mount => mount.Type === "bind").map(mount => ({ source: mount.Source, target: mount.Destination, readonly: !mount.RW })).sort((a, b) => a.target.localeCompare(b.target));
