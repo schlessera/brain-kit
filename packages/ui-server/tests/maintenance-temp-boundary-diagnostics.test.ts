@@ -1,5 +1,6 @@
+import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ledgerChildLine } from "../../ui-sdk/tests/maintenance-temp-ledger-protocol";
 
@@ -37,4 +38,44 @@ for (const fault of ["native-fixture", "db-open"] as const) test(`actual boundar
   expect(evidence.stderr).toContain(`maintenance-boundary phase=${fault}`);
   expect(evidence.stderr).toContain(fault === "native-fixture" ? "ENOENT" : "file is not a database");
   expect(await child.exited).toBe(1);
+});
+
+// The sentinel runs inside the actual maintenance worker, after its mask checks.
+test("held real worker retains bounded pre-receipt stderr and original exit before cleanup", async () => {
+  const root = mkdtempSync("/tmp/odysseus-inner-diagnostic-"); roots.push(root);
+  const brain = join(root, "brain"), state = join(root, "state"), temporary = join(root, "temporary");
+  for (const directory of [brain, state, temporary]) mkdirSync(directory);
+  const marker = join(brain, "worker-ran");
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "maintenance-temp-boundary-child.ts"), brain,
+    marker, "server", JSON.stringify({ allowanceBytes: 268435456, budgetBytes: 268435456 }), join(state, "ui.db"), "stderr-exit"], {
+    stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, TMPDIR: temporary },
+  });
+  children.push(child);
+  let failure: Error | undefined;
+  try { await ledgerChildLine(child, "controlled inner failure"); }
+  catch (error) { failure = error as Error; }
+  expect(failure).toBeInstanceOf(Error);
+  const outer = JSON.parse(failure!.message.slice(failure!.message.indexOf("{")));
+  expect(outer.exitStatus).toBe(1);
+  expect(outer.signalCode).toBeNull();
+  expect(outer.stdout).toBe("");
+  expect(await child.exited).toBe(1);
+  const stderr: string = outer.stderr;
+  expect(existsSync(marker), stderr).toBe(true);
+  expect(readFileSync(marker, "utf8")).toBe("server ran");
+  expect(stderr, "INNER_WORKER_STDERR_RETAINED").toContain("ODYSSEUS_INNER_STDERR_SENTINEL");
+  const line = stderr.split("\n").find(line => line.startsWith("owned ledger child receipt failed: "))!;
+  const inner = JSON.parse(line.slice(line.indexOf("{")));
+  expect(inner.phase).toBe("inner server hold");
+  expect(inner.exitStatus, "ORIGINAL_INNER_EXIT_BEFORE_CLEANUP").toBe(23);
+  expect(inner.signalCode).toBeNull();
+  expect(inner.stdout).toBe("");
+  expect(Buffer.byteLength(inner.stderr)).toBe(512);
+  expect(inner.stderr.endsWith("ODYSSEUS_INNER_STDERR_SENTINEL\n")).toBe(true);
+  expect(Buffer.byteLength(stderr)).toBeLessThan(8192);
+  expect(readdirSync(temporary), "OWNED_NATIVE_FIXTURE_CLEANED").toEqual([]);
+  const ledgerFile = readdirSync(state).find(name => name.startsWith(".brain-maintenance-") && name.endsWith(".db"))!;
+  const ledger = new Database(join(state, ledgerFile));
+  try { expect(ledger.query("SELECT bytes FROM reservations").all(), "FAILED_WORKER_RESERVATION_RELEASED").toEqual([]); }
+  finally { ledger.close(); }
 });
