@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { startEgressProxy, type EgressRecord } from "../src/server/egress-proxy.js";
+import { belowEphemeral } from "./helpers/below-ephemeral-port.js";
 import { launchFixtureAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import type { WorkerSandbox } from "../src/server/worker-sandbox.js";
 
@@ -12,7 +13,8 @@ test.each(["strict", "governed"] as const)("%s real worker uses proxy while dire
   const fixture = mkdtempSync(join(root, "odysseus-egress-"));
   const brain = join(fixture, "brain"); mkdirSync(brain);
   const records: EgressRecord[] = [];
-  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Odysseus reaches Ithaca") });
+  // Below the worker's ephemeral range, so the direct probe cannot reach its egress forward.
+  const origin = belowEphemeral(port => Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("Odysseus reaches Ithaca") }));
   const certificate = join(brain, "ca.pem"), key = join(fixture, "key.pem");
   const certificateProcess = Bun.spawnSync(["/usr/bin/openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
     "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", key, "-out", certificate], { stdout: "pipe", stderr: "pipe" });
@@ -32,6 +34,7 @@ test.each(["strict", "governed"] as const)("%s real worker uses proxy while dire
     const direct=await import("node:net");
     result.direct=await new Promise(resolve=>{const socket=direct.connect({host:"127.0.0.1",port:${origin.port}});
       socket.on("connect",()=>{resolve(true);socket.destroy()});socket.on("error",()=>resolve(false));});
+    result.ephemeralLow=Number((await Bun.file("/proc/sys/net/ipv4/ip_local_port_range").text()).trim().split(/\\s+/)[0]);
     result.explicit=await(await fetch(url,{proxy:process.env.HTTP_PROXY})).text();
     try{result.automatic=await(await fetch(url)).text()}catch{result.automatic="unavailable"}
     const curl=Bun.spawn(["/usr/bin/curl","--silent","--show-error","--fail","--max-time","3",url],{stdout:"pipe",stderr:"pipe"});
@@ -52,6 +55,7 @@ test.each(["strict", "governed"] as const)("%s real worker uses proxy while dire
     expect(code, stderr).toBe(0);
     expect(stdout.startsWith("{"), stdout).toBe(true);
     const result = JSON.parse(stdout);
+    expect(origin.port, "the direct probe's origin lies below the worker's ephemeral range").toBeLessThan(result.ephemeralLow);
     expect(result.direct, "EGRESS_NO_DIRECT_TCP").toBe(false);
     expect(result.explicit).toBe("Odysseus reaches Ithaca");
     expect(result.automatic, "EGRESS_BUN_ENV_PROXY_MEASURED").toBe("Odysseus reaches Ithaca");

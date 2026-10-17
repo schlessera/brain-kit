@@ -1,4 +1,4 @@
-import "../src/server/worker-launcher.js";
+import { verifiedWorkerIdentity } from "../src/server/worker-launcher.js";
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
@@ -130,4 +130,58 @@ test("a process admission refusal never releases an unrequested stage or masks t
   try {await expect(prepareNativeWorkerOutput(f.brain,{startupView:view}),"NATIVE_UNREQUESTED_STAGE_NEVER_RELEASED").rejects.toMatchObject({errorClass:"worker_state_busy"});
     expect(stages).toBe(0);expect(releases).toBe(0);
   } finally {held.release();await view.cleanup();f.cleanup();}
+});
+
+for (const setgidDirectory of [false, true]) test(`no-helper production publisher copies real readable ${setgidDirectory ? "setgid directory" : "file"} output without requiring a separate identity`, async () => {
+  const f = fixture(), previousHelper = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+  delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+  let checkpointId = "", stagePath = "", stageReleases = 0;
+  // Only acquisition/inspection is an owned ordinary-directory fixture. The
+  // production publisher opens, hashes, copies and commits the actual bytes;
+  // this does not qualify Btrfs or namespace behavior.
+  const manager = { ...f.manager,
+    async prepareStage(id: string, lower: string, allowanceBytes: number) {
+      checkpointId = lower; stagePath = join(f.brain, "..", ".brain-native", "stages", id);
+      fs.mkdirSync(join(stagePath, "merged"), { recursive: true });
+      const root = fs.lstatSync(stagePath, { bigint: true });
+      const start = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+      return { id, checkpointId: lower, checkpointUuid: "00000000000000000000000000000002", sourceUuid: "0123456789abcdef0123456789abcdef",
+        path: stagePath, namespacePid: process.pid, namespaceStart: start, appUid: process.getuid!(), appGid: process.getgid!(),
+        allowanceBytes, rootDevice: String(root.dev), rootInode: String(root.ino) };
+    },
+    async inspectStage() {
+      return { checkpointId, checkpointUuid: "00000000000000000000000000000002",
+        changes: (async function* () {
+          if (setgidDirectory) yield { pathHex: Buffer.from("voyage").toString("hex"), kind: "entry" as const };
+          yield { pathHex: Buffer.from(setgidDirectory ? "voyage/voyage.md" : "voyage.md").toString("hex"), kind: "entry" as const };
+        })(),
+        completed: Promise.resolve({ exitCode: 0 as const, bytes: 0 }) };
+    },
+    async releaseStage(id: string) { stageReleases++; fs.rmSync(stagePath, { recursive: true, force: true }); return { id, state: "deleted" as const }; },
+  };
+  const held = processStateLedger().outputStagingHeld;
+  let view: Awaited<ReturnType<typeof prepareNativeWorkerStartupView>> | undefined;
+  let output: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
+  try {
+    view = await prepareNativeWorkerStartupView(f.brain, manager);
+    output = await prepareNativeWorkerOutput(f.brain, { startupView: view });
+    expect(verifiedWorkerIdentity(f.brain), "NO_HELPER_FRESH_BRAIN_HAS_NO_QUALIFIED_IDENTITY").toBeUndefined();
+    const rel = setgidDirectory ? "voyage/voyage.md" : "voyage.md";
+    const program = 'const fs=require("node:fs"),path=require("node:path");'
+      + (setgidDirectory ? 'fs.mkdirSync(path.dirname(process.argv[1]));fs.chmodSync(path.dirname(process.argv[1]),0o2775);' : "")
+      + 'fs.writeFileSync(process.argv[1],"Odysseus returns to Ithaca.\\n");';
+    const writer = Bun.spawnSync([process.execPath, "--config=/dev/null", "--no-env-file", "-e", program, join(output.output.source, rel)],
+      { stdout: "pipe", stderr: "pipe" });
+    expect(writer.exitCode, writer.stderr.toString()).toBe(0);
+    const publication = await output.publish().then(() => undefined, error => error);
+    expect(publication, "NO_HELPER_READABLE_OUTPUT_PUBLISHED_WITHOUT_IDENTITY_READER").toBeUndefined();
+    expect(fs.readFileSync(join(f.brain, rel), "utf8"), "NO_HELPER_REAL_OUTPUT_BYTES_COMMITTED").toBe("Odysseus returns to Ithaca.\n");
+    if (setgidDirectory) expect(fs.statSync(join(f.brain, "voyage")).mode & 0o7777, "SHARED_GIT_DIRECTORY_SETGID_MODE_PRESERVED").toBe(0o2775);
+    await output.cleanup(); output = undefined;
+    expect(stageReleases, "NO_HELPER_OWNED_STAGE_RELEASED").toBe(1);
+    expect(processStateLedger().outputStagingHeld).toBe(held);
+  } finally {
+    try { try { await output?.cleanup(); } finally { await view?.cleanup(); } }
+    finally { if (previousHelper === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER; else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = previousHelper; f.cleanup(); }
+  }
 });

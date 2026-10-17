@@ -4,6 +4,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, r
 import { join } from "node:path";
 import { launchAgentWorker, type LaunchedWorker } from "../src/server/worker-launcher.js";
 import { startEgressProxy, type EgressRecord } from "../src/server/egress-proxy.js";
+import { belowEphemeral } from "./helpers/below-ephemeral-port.js";
 
 if (process.getuid?.() !== 21001 || !existsSync("/usr/local/bin/identity-helper") || process.env.BRAIN_UI_WORKER_IDENTITY_HELPER !== "/usr/local/bin/identity-helper") {
   throw Error("EGRESS_IDENTITY_QUALIFICATION_REQUIRES_DISPOSABLE_CONTAINER");
@@ -47,7 +48,8 @@ try {
     if (separate) process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = helper;
     else delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
     const records: EgressRecord[] = [];
-    const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Odysseus reaches Ithaca") });
+    // Below the worker's ephemeral range, so the direct probe cannot reach a worker-local endpoint.
+    const origin = belowEphemeral(port => Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("Odysseus reaches Ithaca") }));
     const priorTemp = process.env.TMPDIR;
     let proxy: Awaited<ReturnType<typeof startEgressProxy>>;
     try {
@@ -76,18 +78,20 @@ s=socket.socket();s.settimeout(1)
 try: s.connect(('127.0.0.1',${origin.port})); direct=True
 except OSError: direct=False
 finally: s.close()
+ephemeral_low=int(open('/proc/sys/net/ipv4/ip_local_port_range').read().split()[0])
 try:
  with open('/identity-server-private/sentinel','rb') as f: f.read(1); sentinel='READABLE'
 except OSError: sentinel='REFUSED'
 client=urllib.request.build_opener(urllib.request.ProxyHandler({'http':os.environ['HTTP_PROXY']}))
 with client.open(${JSON.stringify(origin.url.href)},timeout=3) as response: body=response.read().decode()
-print(json.dumps(dict(uid=os.getuid(),gid=os.getgid(),ipc=ipc,direct=direct,sentinel=sentinel,body=body)))`;
+print(json.dumps(dict(uid=os.getuid(),gid=os.getgid(),ipc=ipc,direct=direct,ephemeralLow=ephemeral_low,sentinel=sentinel,body=body)))`;
       const result = await run(proxy.dir, program);
       expect(result.exit, result.errors).toBe(0); expect(result.errors).toBe("");
       const receipt = JSON.parse(result.output);
       expect(receipt.uid, "EGRESS_ACTUAL_WORKER_UID").toBe(separate ? 21002 : 21001);
       expect(receipt.ipc, "CROSS_UID_EGRESS_UNIX_SOCKET_REACHABLE").toBe("CONNECTED");
       expect(receipt.body, "EGRESS_REAL_HTTP_REACHES_ONLY_PROXY").toBe("Odysseus reaches Ithaca");
+      expect(origin.port, "the direct probe's origin lies below the worker's ephemeral range").toBeLessThan(receipt.ephemeralLow);
       expect(receipt.direct, "EGRESS_IDENTITY_PRIVATE_NETWORK").toBe(false);
       if (separate) expect(receipt.sentinel, "EGRESS_IDENTITY_SERVER_SENTINEL_PRIVATE").toBe("REFUSED");
       expect(records).toHaveLength(1); expect(records[0]).toMatchObject({ method: "GET", host: "127.0.0.1", outcome: "completed" });

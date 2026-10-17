@@ -37,3 +37,6 @@ export function maintenanceTempEnvironment(): Record<string, string | undefined>
   return { BRAIN_UI_MAINTENANCE_TEMP_BYTES: readEnvVar("BRAIN_UI_MAINTENANCE_TEMP_BYTES"),
     BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES: readEnvVar("BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES") };
 }
+
+/** Internal fixed maintenance-output target, supplied only by the launcher. */
+export function maintenanceOutputRoot(): string | undefined { return readEnvVar("BRAIN_ROOT"); }
