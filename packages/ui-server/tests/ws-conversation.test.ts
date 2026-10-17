@@ -1031,3 +1031,65 @@ describe("negotiation keeps legacy clients unchanged", () => {
     expect(first.frames("conversation_closed")).toEqual([]);
   });
 });
+
+test("a resumable pause closes capture but retains the conversation for an explicit new epoch", async () => {
+  const s = setup();
+  const client = await s.connect();
+  const conversation = await client.open();
+  await client.speak(conversation, "u-pause", "Find the departure note");
+  client.commit(conversation, "u-pause", "r-pause", "Find the departure note");
+  await until(() => s.turns.length === 1);
+  client.send({ type: "conversation_stop", conversationId: conversation.id, resumable: true });
+  await until(() => client.frames("conversation_closed").length === 1);
+  client.send({ type: "conversation_start", conversationId: conversation.id });
+  await settle();
+  expect(client.frames("conversation_opened"), "pause retains the identity instead of reporting CONVERSATION_UNKNOWN").toHaveLength(2);
+  expect(client.frames("conversation_opened").at(-1)).toMatchObject({ conversationId: conversation.id, epoch: 2, resync: { work: 1, outputs: 0 } });
+  expect(s.turns).toHaveLength(1);
+  s.turns[0]!.answer("The note is at the palace.");
+  await until(() => client.last("r-pause").state === "completed");
+  expect(client.last("r-pause").delivery).toBe("discarded");
+  expect(s.live.sessions[1]!.returned).toHaveLength(0);
+});
+
+test("a new voice conversation uses its independently selected agent profile", async () => {
+  const s = setup({ listProfiles: async () => [{ id: "palace-default", label: "Palace default" }, { id: "palace-model", label: "Palace model" }] });
+  const client = await s.connect();
+  const conversation = await client.open({ agentProviderId: "palace-model" });
+  await client.speak(conversation, "u-profile", "Find the departure note");
+  client.commit(conversation, "u-profile", "r-profile", "Find the departure note");
+  await until(() => s.turns.length === 1);
+  expect(s.turns[0]!.req.profileId, "the disclosed selected profile is the one given to the agent backend").toBe("palace-model");
+});
+
+for (const kind of ["list", "rank", "form"] as const) test(`voice posture preserves the ${kind} card's independent host response`, async () => {
+  const s = setup();
+  const client = await s.connect();
+  const conversation = await client.open();
+  await client.speak(conversation, "u-card", "Review the voyage supplies");
+  client.commit(conversation, "u-card", "r-card", "Review the voyage supplies");
+  await until(() => s.turns.length === 1);
+  const bridge = s.turns[0]!.req.bridge;
+  expect(s.turns[0]!.req.noGrantSurface).toBe(true);
+  const requestId = `ithaca-${kind}`;
+  const pending = kind === "list" ? bridge.askUserList!(requestId, { prompt: "Review the supplies", scale: [{ label: "Ready" }, { label: "Missing" }], items: [{ id: "rope", label: "Rope" }], allowSkip: false, notes: false })
+    : kind === "rank" ? bridge.askUserRank!(requestId, { prompt: "Order the supplies", items: [{ id: "rope", label: "Rope" }, { id: "timber", label: "Timber" }] })
+    : bridge.askUserForm!(requestId, { prompt: "Plan the departure", nodes: [{ kind: "text", id: "day", prompt: "Which day?" }] });
+  await until(() => client.frames(`ask_user_${kind}_request`).length === 1);
+  const frame = client.frames(`ask_user_${kind}_request`)[0]!;
+  const payload = kind === "list" ? { answers: { rope: "Ready" } } : kind === "rank" ? { order: ["timber", "rope"], unchanged: false } : { answers: { day: "Tomorrow" } };
+  client.send({ type: `ask_user_${kind}_response`, requestId, submissionId: `ithaca-${kind}-answer`, turnId: frame.turnId, ...payload });
+  expect(await pending).toMatchObject(payload);
+  expect(s.turns).toHaveLength(1);
+});
+
+test("opening correlation is echoed so an abandoned client's late opening can be retired", async () => {
+  const s = setup();
+  const client = await s.connect();
+  const conversation = await client.open({ requestId: "ithaca-opening" });
+  expect(conversation.opened.requestId).toBe("ithaca-opening");
+  client.send({ type: "conversation_stop", conversationId: conversation.id, resumable: true });
+  await until(() => client.frames("conversation_closed").length === 1);
+  const resumed = await client.open({ conversationId: conversation.id, requestId: "ithaca-resume" });
+  expect(resumed.opened).toMatchObject({ requestId: "ithaca-resume", epoch: 2 });
+});

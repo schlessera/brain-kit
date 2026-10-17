@@ -24,6 +24,7 @@ import { createRecordingObservability, createStaticBackendRegistry, resolveServe
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import type { AgentBackend, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/server";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
+import { installPausedLivenessClock } from "./fixtures/liveness-clock";
 import { installReceiptWatchdogObserver } from "./fixtures/receipt-watchdog-observer";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 
@@ -780,7 +781,7 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       const page = await context.newPage();
       // Install before app timers exist. Native sockets, host, IndexedDB and
       // event delivery stay real; only this page's JS clock is controlled.
-      await page.clock.install({ time: new Date("2026-07-12T12:00:00Z") });
+      await installPausedLivenessClock(page);
       await page.addInitScript(() => {
         const frames: Array<{ dir: string; type: string; probeId?: string; at: number }> = [];
         const NativeSocket = WebSocket;
@@ -812,7 +813,6 @@ describe.skipIf(!executablePath)("answer delivery in a real browser", () => {
       await answer(page, "ask_user_rank");
       await waitForState(page, requestId, "answered");
       await page.getByText("Completed ask_user_rank", { exact: true }).waitFor();
-      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
       const frames = () => page.evaluate(() => (window as unknown as {
         __livenessFrames: Array<{ dir: string; type: string; probeId?: string; at: number }>;
       }).__livenessFrames);

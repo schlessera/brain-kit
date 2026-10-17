@@ -577,10 +577,10 @@ function DeliveredExchange({
   const record = shown && delivery.state !== "answered" ? UNCONFIRMED_RECORD : undefined;
   const card = (
       ex.form ? (
-        <AskUserFormExchangeCard record={record} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserFormSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+        <AskUserFormExchangeCard record={record} requestId={ex.requestId} form={ex.form} answers={ex.formAnswers} cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined} answeredAt={ex.answeredAt} onSubmit={onAskUserFormSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
       ) : ex.rank ? (
         <AskUserRankExchangeCard record={record} requestId={ex.requestId} rank={ex.rank} order={ex.order} unchanged={ex.unchanged}
-          cancelled={ex.cancelled} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
+          cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined} answeredAt={ex.answeredAt} onSubmit={onAskUserRankSubmit} onCancel={onAskUserCancel} onReask={onAskUserReask} />
       ) : ex.list ? (
         <AskUserListExchangeCard
           record={record}
@@ -588,7 +588,7 @@ function DeliveredExchange({
           list={ex.list}
           answered={ex.answers}
           notes={ex.notes}
-          cancelled={ex.cancelled}
+          cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined}
           answeredAt={ex.answeredAt}
           onSubmit={onAskUserListSubmit}
           onCancel={onAskUserCancel}
@@ -600,7 +600,7 @@ function DeliveredExchange({
           requestId={ex.requestId}
           questions={ex.questions}
           answered={ex.answers}
-          cancelled={ex.cancelled}
+          cancelled={ex.cancelled} lapsedNote={ex.terminal ? "no longer waiting · the turn ended" : undefined}
           typed={ex.typed}
           answeredAt={ex.answeredAt}
           onSubmit={onAskUserSubmit}
