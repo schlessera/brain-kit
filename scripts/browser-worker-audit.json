@@ -1,14 +1,14 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "a6d3c460eddb71d435cd63e5676a9fc3c408605127c5df900306da9d7d5d2042",
+  "identity": "6b8beeb6fc5c315e0cb5db3a77d9472fcfcc393f8728d8bb9cd70a8f68564b8b",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "41a00e0ab38937d752d320e932ba240bf2a19770",
+    "base": "8c4d191e761bec31f3267d3b612a77712692f54a",
     "selected": 307,
     "files": 2280,
-    "scope": "Complete 307-pair selected source/import/configuration/command inventory, including the separate network-disabled read-only-root native Docker producer. All six source families and preparation inputs, copied external installation membership/bytes/modes/internal aliases, actual immutable image ID and mounted Bun bytes join current identity. The producer mounts only private source/install/Bun and initially empty owned output; HOME/tmp/shared-memory are fresh container filesystems. Host checkout/state mount counterfactuals fail the named absent-data assertions. Imported initialization and shared helpers remain active inside this finite filesystem boundary. Fresh per-launch output session, artifact hashes, exact native entry/configuration/core-dispatch guards and original generated SVG/reference consumers remain enforced. Source or installation drift makes the binding unavailable; runtime drift changes its fingerprint. All resource/Worker guards, complete fresh same-PR two-shard proof and whole-workflow success remain mandatory. Metadata is not passing proof; historical observations retain their scope and source.",
+    "scope": "Complete 307-pair selected source/import/configuration/command inventory, including the separate network-disabled read-only-root native Docker producer. All six source families and preparation inputs, copied external installation membership/bytes/modes/internal aliases, actual immutable image ID and captured private Bun bytes join current identity. The producer mounts only private source/install/Bun and initially empty owned output; HOME/tmp/shared-memory are fresh container filesystems. Host checkout/state mount counterfactuals fail the named absent-data assertions. Imported initialization and shared helpers remain active inside this finite filesystem boundary. Fresh per-launch output session, captured validated artifact bytes, artifact hashes, exact native entry/configuration/core-dispatch guards and original generated SVG/reference consumers remain enforced. Source or installation drift makes the binding unavailable; runtime drift changes its fingerprint. All resource/Worker guards, complete fresh same-PR two-shard proof and whole-workflow success remain mandatory. Metadata is not passing proof; historical observations retain their scope and source.",
     "native": {
       "source": "870b3fe36250c1b2e986006ded1cc525c3771f048662da6d0f0218492f72e3fe",
       "installation": "2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05",

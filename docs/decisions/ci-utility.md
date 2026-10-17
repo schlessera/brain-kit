@@ -365,7 +365,7 @@ The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
 actual immutable image ID. The only host mounts are the private six-workspace
 source view (read-only), a private external-package installation (read-only), the
-exact installed Bun executable (read-only), and an initially empty owned output
+captured installed Bun bytes (read-only), and an initially empty owned output
 directory. Its HOME/temp and shared-memory filesystems are fresh container state;
 neither the original checkout nor host temporary directories or browser font
 cache are mounted. Image and Bun identities join the browser input fingerprint.
@@ -388,7 +388,8 @@ mounts qualify the mount restriction.
 Only a successful, drained native process publishes its artifact identities into
 a fresh per-launch handoff directory. The browser validates the preparation
 session, checkout, source/installation/runtime identities and all three artifact
-hashes before retaining the original SVG/reference zero-request replay and
+hashes, writes those exact validated bytes into its private consumer view, then
+retains the original SVG/reference zero-request replay and
 raster/font/PDF assertions. Different launches never share a prepared output root.
 The browser-side pinned font cache remains a separately owned browser input.
 
