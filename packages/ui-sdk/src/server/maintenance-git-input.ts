@@ -1,5 +1,5 @@
 /** First-party, bounded installer for one concrete maintenance Git adapter. */
-import { constants, fstatSync, lstatSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync,
+import { constants, fstatSync, fchmodSync, lstatSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync,
   rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -58,10 +58,16 @@ if (import.meta.main) {
           if (!item.previous) mkdirSync(path, { mode: 0o700 });
           const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
           try {
-            const info = fstatSync(fd, { bigint: true });
-            const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+            let info = fstatSync(fd, { bigint: true });
             const visible = lstatSync(path, { bigint: true });
-            if (visible.dev !== info.dev || visible.ino !== info.ino || !info.isDirectory() || info.uid !== BigInt(process.getuid!()) || (info.mode & 0o7777n) !== 0o700n
+            if (visible.dev !== info.dev || visible.ino !== info.ino || !info.isDirectory() || info.uid !== BigInt(process.getuid!()))
+              throw Error("Changed fixed Git mask scaffold owner");
+            // Only our newly created private control loses an inherited setgid bit.
+            // Existing paths are validated, never repaired or chmodded.
+            if (!item.previous) { fchmodSync(fd, 0o700); info = fstatSync(fd, { bigint: true }); }
+            const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+            const after = lstatSync(path, { bigint: true });
+            if (after.dev !== info.dev || after.ino !== info.ino || (info.mode & 0o7777n) !== 0o700n
               || readdirSync(`/proc/self/fd/${fd}`).length || item.previous && (item.previous.inode !== String(info.ino) || item.previous.stamp !== stamp))
               throw Error("Changed fixed Git mask scaffold");
             scaffolds.push({ name: item.name, inode: String(info.ino), stamp, uid: Number(info.uid), mode: Number(info.mode & 0o7777n) });

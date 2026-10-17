@@ -23,7 +23,9 @@ function stamp(path: string) {
   return { inode: String(info.ino), stamp: `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}` };
 }
 test("fixed Git scaffold installer creates only registered empty owned directories and verifies subsequent identity", () => fixture(root => {
+  chmodSync(join(root, ".git"), 0o2775);
   const input = manifest(); const first = run(root, input);
+  expect(lstatSync(join(root, ".git/modules")).mode & 0o7777, "NEW_OWNED_SCAFFOLD_PRIVATE_MODE_BELOW_SETGID_PARENT").toBe(0o700);
   expect(first.exitCode, first.stderr.toString()).toBe(0);
   const receipt = JSON.parse(first.stdout.toString());
   const row = receipt.scaffolds[0] as MaintenanceGitScaffoldReceipt;
@@ -35,15 +37,16 @@ test("fixed Git scaffold installer creates only registered empty owned directori
   expect(repeated.exitCode, repeated.stderr.toString()).toBe(0);
   expect(JSON.parse(repeated.stdout.toString()).scaffolds).toEqual(receipt.scaffolds);
 }));
-for (const kind of ["existing", "symlink", "file", "wrong-mode", "replaced", "nonempty"] as const)
+for (const kind of ["existing", "symlink", "file", "wrong-mode", "inherited-setgid", "replaced", "nonempty"] as const)
   test(`fixed Git scaffold installer refuses ${kind} input`, () => fixture(root => {
     const input = manifest(), path = join(root, ".git/modules");
     if (kind === "file") writeFileSync(path, "Odysseus");
     else if (kind === "symlink") { mkdirSync(join(root, "foreign")); symlinkSync("../foreign", path); }
     else mkdirSync(path, { mode: 0o700 });
     if (kind === "wrong-mode") chmodSync(path, 0o750);
+    if (kind === "inherited-setgid") chmodSync(path, 0o2700);
     if (kind === "nonempty") writeFileSync(join(path, "unexpected"), "Odysseus");
-    if (kind === "wrong-mode" || kind === "nonempty") input.scaffolds = [{ name: "modules", previous: stamp(path) }];
+    if (kind === "wrong-mode" || kind === "inherited-setgid" || kind === "nonempty") input.scaffolds = [{ name: "modules", previous: stamp(path) }];
     if (kind === "replaced") { const before = stamp(path); rmSync(path, { recursive: true }); mkdirSync(path, { mode: 0o700 }); input.scaffolds = [{ name: "modules", previous: before }]; }
     const result = run(root, input);
     expect(result.exitCode, `GIT_SCAFFOLD_${kind.toUpperCase()}_REFUSED`).not.toBe(0);
