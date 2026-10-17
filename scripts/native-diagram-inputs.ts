@@ -10,12 +10,12 @@ export interface NativeDiagramIdentity {source:string;installation:string;runtim
 // Candidate qualification is exact: all source/installation drift requires fresh
 // execution and requalification. The separate Docker mount boundary closes
 // active initialization/shared-library reads; byte hashes alone do not.
-const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"870b3fe36250c1b2e986006ded1cc525c3771f048662da6d0f0218492f72e3fe",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
+const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"7ada9a57aa772ff74548e79d847966cf56be2a9f14da09809f281e83267615e0",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
   "packages/ui-react/tests/browser/diagram-export-command.ts": "f7c3d14ccf96438bf4e28ecc1929b1208fb99520d21a9947086bb43bca933328",
-  "scripts/ci-proof.ts": "dec94a5b3af083feb1b167afc93bdea79f520facd77dfbc7ff08d5d582a3a7ca"
+  "scripts/ci-proof.ts": "121509cca05420dcf6ffed2b4fc245c1a16409d5efbf5f299f506d81d053f7d1"
 };
 /** The same complete source family the trusted host preparer enumerates. */
 export function nativeDiagramSourceInventory(root:string){

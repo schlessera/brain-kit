@@ -2,7 +2,7 @@ import {afterEach,expect,test} from "bun:test";
 import {chmodSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname,join,resolve} from "node:path";
-import {hasAuditedWorkerBoundary,pdfWorkerInput,workerAuditFile,workerAuditIdentity} from "../scripts/browser-worker-audit";
+import {hasAuditedWorkerBoundary,inspectWorkerAudit,pdfWorkerInput,workerAuditFile,workerAuditIdentity} from "../scripts/browser-worker-audit";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[],guard="scripts/browser-worker-boundary.ts",setup="packages/ui-kit/tests/visual/worker-boundary-setup.ts",config="packages/ui-kit/vitest.config.ts";
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 function fixture(){const root=mkdtempSync(join(tmpdir(),"browser-worker-audit-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};for(const file of [guard,setup,config])write(file,readFileSync(join(repo,file),"utf8"));write("spec.ts","export const specimen=1;");write("data.json",'{"fixture":"Odysseus"}');write("fixtures/a.txt","owned directory bytes");const closure={files:[guard,setup,config,"spec.ts","data.json","fixtures","fixtures/a.txt"].sort(),directories:["fixtures"],external:[],unresolved:[pdfWorkerInput]},selected=[{file:"spec.ts",project:"visual"}];
@@ -34,4 +34,20 @@ test("legacy observation metadata cannot admit the newly audited domain",()=>{
 
 test("missing or inconsistent current-domain capability metadata stays fresh",()=>{
  for(const mutate of [(v:any)=>delete v.sourceAudit,(v:any)=>{v.sourceAudit.selected++},(v:any)=>{v.sourceAudit.files++},(v:any)=>{v.guardedFreshProofRequired=false},(v:any)=>delete v.historicalDiagnostic]){const {root,write,closure,selected}=fixture(),record=JSON.parse(readFileSync(join(root,workerAuditFile),"utf8"));mutate(record);write(workerAuditFile,JSON.stringify(record));expect(hasAuditedWorkerBoundary(root,closure,selected)).toBe(false);}
+});
+
+test("covered byte drift stays unavailable and the bounded manifest names only the changed identity",()=>{
+ const {root,closure,selected,write}=fixture();
+ const before=inspectWorkerAudit(root,closure,selected);
+ write("data.json",'{"fixture":"Penelope"}');
+ const after=inspectWorkerAudit(root,closure,selected);
+ expect(after.qualified,"COVERED_DRIFT_REMAINS_UNQUALIFIED").toBe(false);
+ expect(after.diagnostic.expectedIdentity).toBe(before.diagnostic.actualIdentity);
+ expect(after.diagnostic.actualIdentity).not.toBe(before.diagnostic.actualIdentity);
+ const oldFiles=(before.diagnostic as any).material.files,newFiles=(after.diagnostic as any).material.files;
+ const changed=newFiles.filter((entry:any)=>JSON.stringify(entry)!==JSON.stringify(oldFiles.find((old:any)=>old[0]===entry[0])));
+ expect(changed.map((entry:any)=>entry[0]),"WORKER_DIAGNOSTIC_NAMES_CHANGED_BLOB").toEqual(["data.json"]);
+ expect(JSON.stringify(after.diagnostic)).not.toContain(root);
+ expect(JSON.stringify(after.diagnostic)).not.toContain("Penelope");
+ expect(JSON.stringify(after.diagnostic).length).toBeLessThan(768*1024);
 });

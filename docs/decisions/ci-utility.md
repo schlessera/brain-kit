@@ -363,13 +363,14 @@ until their own bindings are validated.
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
-actual immutable image ID. The only host mounts are the private six-workspace
+actual immutable manifest reference. The only host mounts are the private six-workspace
 source view (read-only), a private external-package installation (read-only), the
 captured installed Bun bytes (read-only), and an initially empty owned output
 directory. Its HOME/temp and shared-memory filesystems are fresh container state;
 neither the original checkout nor host temporary directories or browser font
 cache are mounted. Image and Bun identities join the browser input fingerprint.
-Metadata lookup projects the explicit image ID without requiring a Docker image
+Execution bootstrap provisions the exact manifest digest and verifies its RepoDigest before either producer or browser consumption. Acquisition stays outside the offline producer and proof lookup.
+Metadata lookup projects the explicit manifest reference without requiring a Docker image
 on the metadata runner; actual execution requires that existing ID with no pull.
 The kernel mount boundary applies to imported initialization and shared library
 helpers as well as the fixed entry; their inactivity is not assumed.

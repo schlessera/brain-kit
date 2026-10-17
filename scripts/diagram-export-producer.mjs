@@ -8,7 +8,7 @@ import {materializeDiagramExportSource} from "./diagram-export-source.mjs";
 import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
 export const diagramProducerImage="mcr.microsoft.com/playwright:v1.63.0-noble";
 // Qualified Linux x64 image config: Docker launches this immutable identity.
-export const diagramProducerImageIdentity="sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
+export const diagramProducerImageIdentity="mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
 const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
 export function diagramProducerRuntime(){
  const bun=(process.env.PATH??"").split(delimiter).map(dir=>resolve(dir,"bun")).find(path=>{try{accessSync(path,constants.X_OK);return statSync(path).isFile();}catch{return false;}});

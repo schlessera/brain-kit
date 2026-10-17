@@ -46,11 +46,11 @@ import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 import { prepareDiagramExportSource } from "./prepare-diagram-export-source.mjs";
-import { prepareDiagramNativeArtifacts } from "./diagram-export-producer.mjs";
+import { prepareDiagramNativeArtifacts, diagramProducerImageIdentity } from "./diagram-export-producer.mjs";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
  * pinned offline browser image used by local proof, and D10. */
-const IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble";
+const IMAGE = diagramProducerImageIdentity;
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const KIT = "packages/ui-kit";
@@ -118,6 +118,21 @@ if (inside) {
 // which the next `rm` then cannot remove.
 const uid = typeof process.getuid === "function" ? process.getuid() : 0;
 const gid = typeof process.getgid === "function" ? process.getgid() : 0;
+
+// Execution bootstrap owns acquisition. Metadata lookup and the network-disabled
+// native producer never pull; both consumers launch this exact manifest digest.
+const inspectImage = () => spawnSync("docker", ["image", "inspect", IMAGE, "--format", "{{json .RepoDigests}}"], { encoding: "utf8" });
+let image = inspectImage();
+if (image.error || image.status !== 0 || image.signal) {
+  const acquired = run("docker", ["pull", IMAGE]);
+  if (acquired !== 0) process.exit(acquired);
+  image = inspectImage();
+}
+let digests;
+try { digests = JSON.parse(image.stdout); } catch { /* Missing evidence is refused below. */ }
+if (image.error || image.status !== 0 || image.signal || !Array.isArray(digests) || !digests.includes(IMAGE)) {
+  throw new Error("PINNED_VISUAL_IMAGE_DIGEST_MISMATCH");
+}
 
 // The ranking footer proves layout with the actual preview faces. Prepare public
 // pinned inputs before the browser runs; the test command only reads this cache.

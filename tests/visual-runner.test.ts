@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function invoke(args: string[], exit = 0) {
+async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift" = "warm") {
   const root = await mkdtemp(resolve(tmpdir(), "brain-visual-runner-"));
   roots.push(root);
   for (const path of ["scripts/captures", "packages/ui-kit", "node_modules/vitest", "commands"]) {
@@ -58,7 +58,7 @@ async function invoke(args: string[], exit = 0) {
       import { spawnSync } from "node:child_process";
       import { dirname, resolve } from "node:path";
       const argv = process.argv.slice(2);
-      const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright:"));
+      const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright@sha256:"));
       if (image < 0 || argv[image + 1] !== "node" || argv[image + 2] !== "scripts/visual.mjs") process.exit(91);
       const child = spawnSync(process.execPath,
         [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 3)],
@@ -68,13 +68,27 @@ async function invoke(args: string[], exit = 0) {
       import {mkdirSync,writeFileSync} from "node:fs";
       import {join} from "node:path";
       const nativeArgs=process.argv.slice(2);
-      if(nativeArgs.some(value=>/^sha256:[a-f0-9]{64}$/.test(value))){
+      if(nativeArgs[0]==="run"&&nativeArgs.some(value=>value.endsWith(":/proof"))){
         const mount=nativeArgs.find(value=>value.endsWith(":/proof"));const output=mount.slice(0,-7);mkdirSync(output,{recursive:true});
         for(const format of ["svg","png","pdf"])writeFileSync(join(output,"release."+format),"owned wrapper routing output");
         console.log("[]");process.exit(0);
       }
     ` : "";
-    await writeFile(script, `#!${node}\n` + nativeRouting + record.replace("COMMAND", JSON.stringify(command)) + docker);
+    const bootstrap=command==="docker"?`
+      import * as imageFs from "node:fs";
+      const imageArgs=process.argv.slice(2),imageRef="mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
+      const recordImage=()=>imageFs.appendFileSync(process.env.RUNNER_ROOT+"/image-bootstrap.jsonl",JSON.stringify(imageArgs)+"\\n");
+      if(imageArgs[0]==="image"&&imageArgs[1]==="inspect"){
+        recordImage();
+        if(${JSON.stringify(imageState)}==="cold"&&!imageFs.existsSync(process.env.RUNNER_ROOT+"/image-acquired"))process.exit(1);
+        console.log(JSON.stringify([${JSON.stringify(imageState)}==="drift"?"mcr.microsoft.com/playwright@sha256:"+"0".repeat(64):imageRef]));process.exit(0);
+      }
+      if(imageArgs[0]==="pull"){
+        recordImage();if(imageArgs[1]!==imageRef)process.exit(95);
+        imageFs.writeFileSync(process.env.RUNNER_ROOT+"/image-acquired","acquired");process.exit(0);
+      }
+    `:"";
+    await writeFile(script, `#!${node}\n` + bootstrap + nativeRouting + record.replace("COMMAND", JSON.stringify(command)) + docker);
     await chmod(script, 0o755);
   }
   const child = Bun.spawn([node!, resolve(root, "scripts/visual.mjs"), ...args], {
@@ -88,7 +102,9 @@ async function invoke(args: string[], exit = 0) {
   let calls: Call[] = [];
   try { calls = (await readFile(log, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  return { root, code, stdout, stderr, calls };
+  let bootstrapCalls:string[][]=[];
+  try{bootstrapCalls=(await readFile(resolve(root,"image-bootstrap.jsonl"),"utf8")).trim().split("\n").map(line=>JSON.parse(line));}catch{/* Inside mode has no image bootstrap. */}
+  return { root, code, stdout, stderr, calls, bootstrapCalls };
 }
 
 test("inside default serializes browser files in every configured project", async () => {
@@ -177,3 +193,16 @@ for (const filter of ["--filter", "--filter=", "--filter=--passWithNoTests"]) {
     expect(result.calls).toEqual([]);
   });
 }
+
+test("cold execution provisions the exact manifest before either native or browser consumption",async()=>{
+ const result=await invoke(["--project=diagrams-chromium"],0,"cold");
+ expect(result.code,result.stderr).toBe(0);
+ expect(result.bootstrapCalls.map(args=>args.slice(0,2)),"COLD_IMAGE_IS_ACQUIRED_BEFORE_CONSUMPTION").toEqual([["image","inspect"],["pull","mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"],["image","inspect"]]);
+});
+test("a mismatching manifest is refused before native source preparation",async()=>{
+ const result=await invoke(["--project=diagrams-chromium"],0,"drift");
+ expect(result.code).not.toBe(0);
+ expect(result.stderr,"IMAGE_DRIFT_REFUSED_BEFORE_PRODUCER").toContain("PINNED_VISUAL_IMAGE_DIGEST_MISMATCH");
+ expect(result.calls).toEqual([]);
+ expect(await Bun.file(resolve(result.root,"tmp/diagram-export-source.json")).exists()).toBe(false);
+});

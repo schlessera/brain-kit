@@ -1,3 +1,4 @@
+import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
 import { requireCandidate, validateSelections } from "./candidate-proof";
 import { cpus, freemem, totalmem } from "node:os";
@@ -104,7 +105,7 @@ if (import.meta.main) {
         try {
           if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Dirty tracked inputs");
           inputs = proofInputs(root, category as Reusable, await browserInventory(root), runnerIdentity());
-        } catch (error) { console.log(`Fresh execution remains required: reusable input inventory is unavailable: ${String(error)}`); }
+        } catch (error) { logWorkerAuditDiagnostic(error); console.log(`Fresh execution remains required: reusable input inventory is unavailable: ${String(error)}`); }
       }
       const identity = Bun.spawnSync(["git", "show", "-s", "--format=%H %T %P", "HEAD"], { cwd: root, stdout: "pipe", stderr: "pipe" });
       if (identity.exitCode !== 0) throw new Error("Cannot record actual proof checkout");

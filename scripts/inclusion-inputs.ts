@@ -2,7 +2,7 @@
 import ts from "typescript";
 import { includeBrowserScreenshots } from "./browser-screenshot-inputs";
 import { auditedInactiveCommands } from "./browser-command-activation";
-import {hasAuditedWorkerBoundary,pdfWorkerInput} from "./browser-worker-audit";
+import {inspectWorkerAudit,WorkerAuditError,pdfWorkerInput} from "./browser-worker-audit";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,7 +87,8 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     // the recognizable constructor behind a new alias/realm. Such edits cannot
     // turn an absent audit into a generally closed domain.
     if(category==="browser"){
-      if(!hasAuditedWorkerBoundary(snapshot,closure,selected))throw new Error("Unresolved immutable browser inputs require fresh proof: unvalidated selected Worker capability audit");
+      const audit=inspectWorkerAudit(snapshot,closure,selected);
+      if(!audit.qualified)throw new WorkerAuditError(audit.diagnostic);
       closure.unresolved=closure.unresolved.filter(input=>input!==pdfWorkerInput);
     }
     if (closure.unresolved.length) throw new Error(`Unresolved immutable ${category} inputs require fresh proof: ${closure.unresolved.slice(0, 3).join("; ")}`);

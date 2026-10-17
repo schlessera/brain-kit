@@ -1,3 +1,4 @@
+import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Bounded immutable GitHub receipts; no passing-result cache or privileged event. */
 import { appendFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -130,7 +131,7 @@ export async function findRetained(root: string, selected: Record<string, boolea
   const currentInputs = new Map<Reusable, Inputs>();
   for (const category of candidates) {
     try { currentInputs.set(category, proofInputs(root, category, inventory, runner)); }
-    catch { /* Unresolved current ownership requires fresh execution without API lookup. */ }
+    catch(error) { logWorkerAuditDiagnostic(error); /* Unresolved ownership stays fresh without API lookup. */ }
   }
   const targets = candidates.filter(category => currentInputs.has(category));
   if (!targets.length) return retained;
