@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import signal
 import subprocess
@@ -50,6 +51,41 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def worker_resolution(worker):
+    manifests = [(path.parent, json.loads(path.read_text())) for path in (worker / "packages").glob("*/package.json")]
+    known = {manifest["name"]: manifest for _, manifest in manifests}
+    requests = []
+    for directory, manifest in manifests:
+        dependencies = {**manifest.get("dependencies", {}), **manifest.get("devDependencies", {}),
+                        **manifest.get("optionalDependencies", {}), **manifest.get("peerDependencies", {})}
+        for name in sorted({manifest["name"], *[name for name in dependencies if name in known]}):
+            source_exports = [key for key, value in known[name].get("exports", {}).items()
+                              if isinstance(value, dict) and isinstance(value.get("bun"), str)
+                              and value["bun"].startswith("./src/") and "*" not in key]
+            assert source_exports, "Workspace package has no explicit Bun source export"
+            for key in sorted(source_exports):
+                requests.append({"specifier": name + (key[1:] if key != "." else ""), "importer": str(directory / "src")})
+    script = 'console.log(JSON.stringify(JSON.parse(process.argv.at(-1)).map(item => ({...item, resolved:Bun.resolveSync(item.specifier,item.importer)}))));'
+    resolved = json.loads(command(["bun", "-e", script, json.dumps(requests)], worker))
+    sources = []
+    for item in resolved:
+        path = pathlib.Path(item["resolved"]).resolve(strict=True)
+        relative = path.relative_to(worker)
+        assert relative.parts[0] == "packages", "Workspace dependency resolved outside private sources"
+        assert sha(path) == sha(ROOT / relative), "Private resolved source differs"
+        sources.append({"specifier": item["specifier"], "importer": str(pathlib.Path(item["importer"]).relative_to(worker)),
+                        "resolved": str(relative), "sha256": sha(path)})
+    compiler = (worker / "node_modules/.bin/tsc").resolve(strict=True)
+    compiler.relative_to(worker)
+    implementation = worker / "node_modules/typescript/lib/_tsc.js"
+    parent = ROOT / "node_modules/typescript/lib/_tsc.js"
+    child_stat, parent_stat = implementation.stat(), parent.stat()
+    assert (child_stat.st_dev, child_stat.st_ino) != (parent_stat.st_dev, parent_stat.st_ino), "Compiler inode is shared with parent"
+    return {"workspaceSources": sources, "compilerBin": str(compiler.relative_to(worker)),
+            "compilerBinSha256": sha(compiler), "compilerImplementationSha256": sha(implementation),
+            "compilerPrivateInode": {"dev": child_stat.st_dev, "ino": child_stat.st_ino}}
+
+
 def candidate(original, variant, smoke):
     text = original
     if smoke:
@@ -73,20 +109,38 @@ def candidate(original, variant, smoke):
         text = text.replace(start, 'const packages = listPublishablePackages(root)' +
                             ('.filter(pkg => pkg.dir === "common")' if smoke else '') + ';\n'
                             'async function buildPackage({ dir: packageName, manifest }: typeof packages[number]) {')
+        # A package failure must not exit Bun while sibling compilers still run.
+        # Keep preflight exits outside the package function unchanged.
+        method = text.index("async function buildPackage(")
+        body, replaced = re.subn(r"process\.exit\((\w+)\)", lambda match:
+            'throw Object.assign(new Error("Compilation failed for packages/" + packageName + " (exit " + '
+            + match.group(1) + ' + ")"), { compileExitCode: ' + match.group(1) + ' })', text[method:])
+        assert replaced == 5, "Unexpected package exit structure"
+        text = text[:method] + body
         width = int(variant.removeprefix("parallel"))
         text += f'''
 const known = new Set(packages.map(pkg => pkg.name));
 const placed = new Set<string>();
+async function compileLevels() {{
 while (placed.size < packages.length) {{
   const ready = packages.filter(pkg => !placed.has(pkg.name) &&
     Object.keys({{ ...pkg.manifest.dependencies, ...pkg.manifest.optionalDependencies }})
       .filter(name => known.has(name) && name !== pkg.name).every(name => placed.has(name)));
   if (!ready.length) throw new Error("Compilation measurement dependency cycle");
   let cursor = 0;
-  await Promise.all(Array.from({{length: Math.min({width}, ready.length)}}, async () => {{
+  const results = await Promise.allSettled(Array.from({{length: Math.min({width}, ready.length)}}, async () => {{
     while (cursor < ready.length) await buildPackage(ready[cursor++]!);
   }}));
+  const failures = results.filter(result => result.status === "rejected");
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), "Bounded compilation failed");
   for (const pkg of ready) placed.add(pkg.name);
+}}
+}}
+try {{ await compileLevels(); }}
+catch (error) {{
+  console.error(error);
+  const first = error instanceof AggregateError ? error.errors[0] : error;
+  process.exitCode = typeof first?.compileExitCode === "number" ? first.compileExitCode : 1;
 }}
 '''
     elif variant != "serial":
@@ -99,6 +153,32 @@ def cgroup_value(name):
         return pathlib.Path("/sys/fs/cgroup", name).read_text().strip()
     except OSError:
         return None
+
+
+def stop_owned_children(children):
+    # Popen.wait() records and reaps completed children. Never signal those
+    # numeric group IDs: their leader's PID can already have been reused.
+    # Pending parents remain unreaped throughout BOTH signal rounds, retaining
+    # their PID identity even if TERM exits the leader before its descendants.
+    pending = [child for child in children if child.returncode is None]
+    failures = []
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for child in pending:
+            try:
+                os.killpg(child.pid, sig)
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                failures.append(error)
+        if pending and sig == signal.SIGTERM:
+            time.sleep(.25)
+    for child in pending:
+        try:
+            child.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            failures.append(error)
+    if failures:
+        raise ExceptionGroup("Owned compiler cleanup failed", failures)
 
 
 def run_arm(workers, name, variant, original, report, smoke, clean):
@@ -137,24 +217,11 @@ def run_arm(workers, name, variant, original, report, smoke, clean):
         stop_sampling.set()
         if sampler.ident is not None:
             sampler.join(timeout=1)
-        # Include compiler grandchildren if a build entry exits on failure.
-        for child in children:
-            try:
-                os.killpg(child.pid, 15)
-            except ProcessLookupError:
-                pass
-        for child in children:
-            try:
-                child.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                pass
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            child.wait(timeout=5)
-        for stream in streams:
-            stream.close()
+        try:
+            stop_owned_children(children)
+        finally:
+            for stream in streams:
+                stream.close()
     outputs = [inventory([package / "dist" for package in (worker / "packages").iterdir()
                           if package.is_dir()], worker) for worker in workers]
     for index, output in enumerate(outputs):
@@ -195,6 +262,8 @@ def main():
         "sourceDirty": command(["git", "status", "--porcelain", "--untracked-files=no"]),
         "buildSha256": sha(ROOT / "scripts/build.ts"), "driverSha256": sha(pathlib.Path(__file__)), "lockSha256": sha(ROOT / "bun.lock"),
         "bun": command(["bun", "--version"]), "node": command(["node", "--version"]),
+        "bunExecutableSha256": sha(pathlib.Path(shutil.which("bun")).resolve()),
+        "nodeExecutableSha256": sha(pathlib.Path(shutil.which("node")).resolve()),
         "typescript": json.loads((ROOT / "node_modules/typescript/package.json").read_text())["version"],
         "installationDigest": digest(install), "workers": args.workers, "smoke": args.smoke,
         "offlineNamespaceRequired": args.require_offline,
@@ -219,6 +288,7 @@ def main():
                     command(["cp", "--archive", "--reflink=auto", str(dependency), str(target)])
             copied = inventory([worker / path.relative_to(ROOT) for path in dependency_paths], worker)
             assert copied == install, "Private worker install differs before measurement"
+            (report / f"worker{index + 1}-resolution.json").write_text(json.dumps(worker_resolution(worker), indent=2))
         baseline, expected = run_arm(workers, "serial-before", "serial", original, report, args.smoke, True)
         arms = [("parallel2", "parallel2", True)]
         if args.workers == 1:
