@@ -208,3 +208,43 @@ test("per-turn payload ceiling is shared across requests and a pending approval 
     expect(existsSync(pending.dir)).toBe(false);
   } finally { pending.stop(); }
 });
+
+test("turn stop synchronously records each active HTTP connection exactly once", async () => {
+  const records: EgressRecord[] = [];
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch() { entered(); await held; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy(defaults(records));
+  const pending = get(proxy.socketPath, origin.url.href).catch(() => undefined);
+  try {
+    await started;
+    expect(records).toHaveLength(0);
+    proxy.stop();
+    expect(records, "STOP_FINALIZES_HTTP_BEFORE_RETURN").toHaveLength(1);
+    expect(records[0]).toMatchObject({ outcome: "cancelled", reason: "turn_cancelled" });
+    release(); await pending;
+    expect(records).toHaveLength(1);
+  } finally { release(); proxy.stop(); await pending; origin.stop(true); }
+});
+
+test("turn stop synchronously records an active CONNECT exactly once", async () => {
+  const records: EgressRecord[] = [], peers = new Set<import("node:net").Socket>();
+  const origin = createServer(socket => { peers.add(socket); socket.once("close", () => peers.delete(socket)); });
+  await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
+  const proxy = await startEgressProxy(defaults(records));
+  const client = connect(proxy.socketPath), closed = new Promise<void>(resolve => client.once("close", resolve));
+  client.on("error", () => {});
+  try {
+    await new Promise<void>((resolve, reject) => {
+      client.once("error", reject);
+      client.once("connect", () => client.write(`CONNECT 127.0.0.1:${(origin.address() as { port: number }).port} HTTP/1.1\r\n\r\n`));
+      client.once("data", bytes => bytes.toString().includes("200") ? resolve() : reject(Error("CONNECT was refused")));
+    });
+    proxy.stop();
+    expect(records, "STOP_FINALIZES_CONNECT_BEFORE_RETURN").toHaveLength(1);
+    expect(records[0]).toMatchObject({ method: "CONNECT", outcome: "cancelled", reason: "turn_cancelled" });
+    await closed;
+    expect(records).toHaveLength(1);
+  } finally { proxy.stop(); client.destroy(); for (const peer of peers) peer.destroy(); origin.close(); await closed; }
+});
