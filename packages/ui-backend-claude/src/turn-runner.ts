@@ -710,31 +710,36 @@ export function createClaudeTurnRunner(options: {
         await emitTerminal("error", diagnostic);
       }
     } finally {
-      const failures: unknown[] = [];
-      const attempt = async (cleanup: () => unknown) => { try { await cleanup(); } catch (error) { failures.push(error); } };
-      await attempt(() => finishWorker?.());
-      await attempt(() => routeInputs?.close());
-      await attempt(() => hostRelay?.stop());
-      await attempt(() => { if (hostRelayLink) rmSync(hostRelayLink, { force: true }); });
-      await attempt(() => clearTimeout(ackGraceTimer));
-      await attempt(() => turnInput?.close());
-      await attempt(() => req.signal.removeEventListener("abort", onHostAbort));
       // A failed cleanup cannot strand the other owned resources or busy slot.
-      await attempt(() => fileVersions?.cancelPending());
-      await attempt(() => { if (!sessionId) fileVersionsBySession.delete(turnKey); });
-      await attempt(() => turnLock.close());
-      await attempt(() => activeTurns.delete(turnKey));
-      await attempt(() => req.autonomous ? undefined : archiveIdleSessions({
+      await cleanupTurn([
+        () => finishWorker?.(),
+        () => routeInputs?.close(),
+        () => hostRelay?.stop(),
+        () => { if (hostRelayLink) rmSync(hostRelayLink, { force: true }); },
+        () => clearTimeout(ackGraceTimer),
+        () => turnInput?.close(),
+        () => req.signal.removeEventListener("abort", onHostAbort),
+        () => fileVersions?.cancelPending(),
+        () => { if (!sessionId) fileVersionsBySession.delete(turnKey); },
+        () => turnLock.close(),
+        () => activeTurns.delete(turnKey),
+        () => req.autonomous ? undefined : archiveIdleSessions({
         brainPath: options.backend.brainPath, env: archiveEnv,
         listSessionsFn: options.backend.listSessionsFn,
         activeSessionIds: () => new Set(activeTurns.keys()),
         log: (message, error) => options.log("warn", message, { error: String(error) }),
-      }));
-      if (failures.length) throw new AggregateError(failures, "Claude turn cleanup did not complete");
+        }),
+      ]);
     }
   }
 
   return { startTurn, followUp };
+}
+
+async function cleanupTurn(actions: Array<() => unknown>): Promise<void> {
+  const failures: unknown[] = [];
+  for (const action of actions) { try { await action(); } catch (error) { failures.push(error); } }
+  if (failures.length) throw new AggregateError(failures, "Claude turn cleanup did not complete");
 }
 
 /** Startup settlement is bounded even if an injected/older SDK ignores abort. */

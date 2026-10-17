@@ -1,6 +1,6 @@
 /** Disposable root-side controls of actual manager checkpoints; no provider is contacted. */
 import { expect } from "bun:test";
-import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readlinkSync, readdirSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createNativeBrainManagerClient } from "../../../ui-sdk/src/server/native-brain-manager-client.js";
 import { prepareNativeWorkerStartupView, type WorkerStartupView } from "../../../ui-sdk/src/server/worker-startup-view.js";
@@ -84,7 +84,7 @@ export async function qualifyNativeCheckpointRoutes(brain: string, socketPath: s
   finally {
     await alias?.cleanup(); rmSync(settings);
     if (settingsExisted) renameSync(join(heldSettings, "settings.json"), settings);
-    if (!projectExisted) rmSync(project);
+    if (!projectExisted) rmdirSync(project);
     rmSync(heldSettings, { recursive: true });
   }
 
