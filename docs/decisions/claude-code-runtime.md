@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:500`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:350`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:351`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -456,7 +456,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:423`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:424`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -604,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:294`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:295`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1364,7 +1364,7 @@ and native flag settings, using the existing subscription credential-clearing
 policy. It does not remove other providers' CLI command environment. Only an
 ordinary subscription turn can select this input; API and autonomous turns
 retain their existing paths (`const inferenceEnv`,
-`packages/ui-backend-claude/src/sdk-options.ts:218-224`). The worker note derives
+`packages/ui-backend-claude/src/sdk-options.ts:218-225`). The worker note derives
 its active-proxy description from that same selection and retains per-use
 outward approvals.
 
@@ -1406,3 +1406,54 @@ assembly control does not claim that problem solved. Default turn-runner
 selection remains unchanged. Complete credentialed-command compatibility,
 ordinary credential cutover and remaining socket/privacy qualification stay
 separate from this explicit prepared SDK composition.
+
+### Explicit prepared transport in the ordinary turn runner
+
+The ordinary turn runner can consume the admitting host's concrete turn proxy
+through the existing sandbox input. It composes the existing first-party
+relay and host OAuth resolver with the full native SDK path, including MCP,
+permission hooks, system context, initialization and subscription checks.
+Selection remains explicit: the server does not automatically populate this
+input, and API-billed/autonomous calls retain their current path. Native
+startup uses the private Unix transport from process creation, before its
+HTTP client can cache a different endpoint. The qualified fixed Linux project/managed settings
+that select an unqualified destination refuse before a prompt or credential
+resolution. The first-party route is fixed; this slice does not select a
+custom recipient or turn project settings into host authorization.
+
+The qualified mutable settings need synchronous kernel event observation as well as bounded
+file identities: reading the same bytes again cannot exclude an edit-and-restore
+while native initialization cached a route. Lost watches, event overflow,
+aliases and unqualified source tiers refuse. Native library loading is lazy;
+an unavailable library refuses the selected prepared transport without making
+unrelated turn-runner imports fail.
+
+A manager-acquired immutable startup view has a different lifetime from a
+mutable project path. Only its existing private acquisition attestation can
+select retained-view handling. The guard retains that owner and a no-follow
+directory descriptor, matching the kernel subvolume UUID, root ID, creation
+transaction, read-only flag, parent UUID and filesystem ID to the actual
+checkpoint receipt. The lexical checkpoint must still identify the held root
+before each dispatch. The existing native output preparation independently
+binds the worker's stage to the same checkpoint UUID. Forged/closed views,
+replacement subvolumes and closed/reused descriptors refuse. The foreign-object
+reuse control preserves the unrelated descriptor when its device/inode differs
+from the retained checkpoint; it does not establish descriptor provenance for
+another handle reopened to the same inode.
+Checkpoint descendants and mutable managed inputs retain their normal alias,
+content and kernel-event checks. No inaccessible lexical ancestor receives a
+general trust exception.
+
+Cleanup attempts the worker drain, retained input, relay, socket link, timers,
+input/listener ownership and existing turn bookkeeping independently, reporting
+all failures. A native checkpoint-release failure cannot strand the relay or
+leave the session busy. This is not qualification of an orphan host child or
+global credential ownership; those boundaries remain separate.
+
+Offline controls use fictional credentials and the installed native SDK. They
+retain actual per-dispatch rotation, refresh, session history and model changes
+through the explicitly prepared consumer, including the real separate-UID
+managed fixture. Fixture SQLite observations are not a new server governance
+event contract. Automatic server selection, canonical connection events,
+approved custom-origin positives, Pi enforcement, command admission and the
+remaining socket/credential cutover stay outside this prepared selection.

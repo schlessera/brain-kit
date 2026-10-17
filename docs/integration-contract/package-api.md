@@ -3,6 +3,31 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Prepared ordinary inference transport (internal #1665)
+
+The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
+turn proxy from the SDK's internal `startEgressProxy`. It is trusted host data,
+not a wire field, backend extension callback or destination permission. The
+ordinary Claude turn runner consumes an explicitly supplied proxy for its
+stored-login profile; API-billed and autonomous paths retain their existing
+selection. Existing callers omitting it keep their current behavior.
+
+The prepared first-party composition uses the native worker's placeholder
+credential and host-held OAuth resolution on each actual dispatch. Native
+initialization, subscription/settings checks and actual model/session behavior
+remain in the ordinary SDK path. Mutable native project/managed settings are
+observed before a prompt; a retained immutable startup view instead requires
+its existing manager acquisition and matching kernel checkpoint identity.
+Cleanup attempts every owned resource and reports any failure.
+
+This member is first-party implementation sharing, with the internal-entry
+classification below; it does not add a supported public proxy extension API.
+Automatic server selection, custom-origin selection and Pi integration are
+separate from this input. Host-owned exact-origin authorization per
+credential remains mandatory for custom OAuth recipients. This input neither
+sanitizes arbitrary unrelated provider/command credentials nor completes the
+credential capability and maintenance cutover in #1666.
+
 **Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
 adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
 glyph and accessible label remain outside the truncating summary label, before

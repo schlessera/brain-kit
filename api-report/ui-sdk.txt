@@ -1088,6 +1088,7 @@ export "./internal" (./src/internal.ts)
   mib
   mountPointsUnder
   nativeFileVersion
+  nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan
   outputStagingLimit
