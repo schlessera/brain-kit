@@ -3,7 +3,7 @@ import { chmodSync, chownSync, mkdirSync, writeFileSync, existsSync, readdirSync
 import { join } from "node:path";
 import { serveNativeBrainManager } from "../../../ui-sdk/src/server/native-brain-manager.js";
 import { hostOutputStagingLimits } from "../../../ui-sdk/src/server/worker-state-limits.js";
-const store = "/brain-fixture/ordinary-identity", brain = join(store, "brain");
+const brain = "/brain-fixture/brain";
 function command(argv: string[]) {
   const child = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
   expect(child.exitCode, child.stderr.toString()).toBe(0); return child.stdout.toString();
@@ -57,11 +57,6 @@ if (process.argv[2] === "--child") {
   await import("./ordinary-identity-ws.js");
 } else {
   expect(process.getuid!()).toBe(0);
-  // The preceding manager proof owns a different brain and leaves its private
-  // worker files intact. Bootstrap this case in a fresh store with normal Git
-  // ownership checks, then transfer only this case's root to the app identity.
-  mkdirSync(store, { mode: 0o755 });
-  command(["btrfs", "subvolume", "create", brain]);
   mkdirSync("/identity-fixture", { recursive: true }); chownSync("/identity-fixture", 21001, 21001); chmodSync("/identity-fixture", 0o2775);
   for (const path of ["notes", ".brain/scratch", "node_modules/.bin"]) mkdirSync(join(brain, path), { recursive: true });
   writeFileSync(join(brain, "brain.config.ts"), 'export default {profile:{name:"Odysseus",cliTitle:"Odysseus notebook"}};\n');
@@ -79,7 +74,7 @@ if (process.argv[2] === "--child") {
   const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(command(["btrfs", "inspect-internal", "dump-super", "/dev/brain-native-proof-loop"]))![1]!;
   mkdirSync("/native-runtime", { mode: 0o755, recursive: true });
   const staging = hostOutputStagingLimits({});
-  const service = await serveNativeBrainManager({ storePath: store, devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: "/native-runtime/server-ws-manager.sock",
+  const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: "/native-runtime/server-ws-manager.sock",
     appUid: 21001, appGid: 21001, workerUid: 21002, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
     capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
   let foreignRequests = 0;

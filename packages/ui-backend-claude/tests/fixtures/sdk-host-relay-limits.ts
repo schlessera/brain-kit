@@ -1,0 +1,6 @@
+/** Whole-profile allowance composes the existing per-turn fixture limits. */
+export const SDK_RELAY_TURN_COUNT = 4;
+export const SDK_RELAY_TURN_TIMEOUT_MS = 20_000;
+export const SDK_RELAY_CANCELLATION_TIMEOUT_MS = 5_000;
+export const SDK_RELAY_SINGLE_TURN_TIMEOUT_MS = SDK_RELAY_TURN_TIMEOUT_MS + SDK_RELAY_CANCELLATION_TIMEOUT_MS;
+export const SDK_RELAY_PROFILE_TIMEOUT_MS = SDK_RELAY_TURN_COUNT * SDK_RELAY_SINGLE_TURN_TIMEOUT_MS;

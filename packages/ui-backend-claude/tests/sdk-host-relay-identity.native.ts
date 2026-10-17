@@ -1,3 +1,4 @@
+import { SDK_RELAY_PROFILE_TIMEOUT_MS } from "./fixtures/sdk-host-relay-limits.js";
 /** Full SDK with the real identity helper; copied startup fixture, not Btrfs admission. */
 import { expect } from "bun:test";
 import { existsSync } from "node:fs";
@@ -7,14 +8,15 @@ if (process.getuid?.() !== 21001 || !existsSync("/usr/local/bin/identity-helper"
 }
 for (const profile of ["governed", "strict"]) {
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
-  const child = Bun.spawn([process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", fixture, profile, "ordinary", "separate-uid"], {
+  const child = Bun.spawn([process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", fixture, profile, "ordinary", "separate-uid", "--observe-phases"], {
     env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", CLAUDE_CONFIG_DIR: "/identity-server-private/claude",
-      BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 25_000,
+      BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_PROFILE_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  console.log(JSON.stringify({ diagnosticProfile: profile, exit, signal: child.signalCode, phases: stderr.split("\n").filter(line => line.startsWith("SDK_RELAY_PHASE ")) }));
   expect(exit, stderr).toBe(0);
   expect(stderr.split("\n").filter(Boolean).every(line => line.includes("[CLAUDE_SDK_CAN_USE_TOOL_SHADOWED]")
-    || line.startsWith("(Use `bun --trace-warnings")), stderr).toBe(true);
+    || line.startsWith("SDK_RELAY_PHASE ") || line.startsWith("(Use `bun --trace-warnings")), stderr).toBe(true);
   const value = JSON.parse(stdout);
   expect(value.nativeIdentities, "FULL_SDK_ACTUAL_SEPARATE_IDENTITY").toHaveLength(4);
   for (const identity of value.nativeIdentities) {

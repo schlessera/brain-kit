@@ -1371,7 +1371,7 @@ outward approvals.
 The native qualification now constructs the full SDK turn, including its MCP
 server, system prompt, per-turn context and permission hooks, rather than
 constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:205-226`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:209-231`).
 Strict and governed controls retain history, model changes, host login
 rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
 call still reaches the existing per-use refusal: removing the assembled
@@ -1379,7 +1379,7 @@ PreToolUse hook creates the refused file. Native managed Unix-socket overrides
 and project API credentials withhold the prompt through the existing
 subscription settings check, before provider contact or host credential
 resolution (`settingsRefusal(settings`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:238-243`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:246-251`).
 The actual process state ledger is observed admitted while the worker is live
 and empty after teardown.
 

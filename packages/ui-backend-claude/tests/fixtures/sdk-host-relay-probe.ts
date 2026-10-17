@@ -1,3 +1,4 @@
+import { SDK_RELAY_TURN_COUNT, SDK_RELAY_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./sdk-host-relay-limits.js";
 /** Actual ordinary Claude spawn/state path; copied storage fixture, not Btrfs qualification. */
 import { query, type AccountInfo } from "@anthropic-ai/claude-agent-sdk";
 import { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, acquireHostCredentialExclusion, startEgressProxy, type EgressRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -159,13 +160,15 @@ function files(path: string): string {
 async function bounded<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), 5000);
+    timer = setTimeout(() => reject(new Error("Native cancellation did not reach its owned boundary.")), SDK_RELAY_CANCELLATION_TIMEOUT_MS);
   })]); } finally { clearTimeout(timer); }
 }
 let session: string | undefined, hostAfterRefresh = false;
 let cancellationRetainedHostBytes = false, cancellationReleasedLock = false;
 const copyOutRefusals: Array<{ name: string; signalAborted: boolean }> = [];
 const originalConsoleError = console.error;
+const observedStart = performance.now();
+const observePhase = (phase: string, turn: number) => { if (process.argv.includes("--observe-phases")) originalConsoleError("SDK_RELAY_PHASE " + JSON.stringify({ phase, turn, elapsedMs: Math.round(performance.now() - observedStart) })); };
 let currentAbort: AbortController | undefined;
 if (separateIdentity) console.error = (...args: unknown[]) => {
   if (args[0] === "Claude worker runtime-state copy-out refused:") {
@@ -173,14 +176,15 @@ if (separateIdentity) console.error = (...args: unknown[]) => {
   } else originalConsoleError(...args);
 };
 try {
-  for (let turn = 0; turn < (inspectProof || permissionProof || settingsProof ? 1 : 4); turn++) {
+  for (let turn = 0; turn < (inspectProof || permissionProof || settingsProof ? 1 : SDK_RELAY_TURN_COUNT); turn++) {
+    observePhase("turn-start", turn);
     if (turn === 1) save(access[1]!);
     if (turn === 2) save(access[1]!, 1);
     if (turn === 3) { save(access[1]!, 1); holdRefresh = true; }
     const before = readFileSync(join(host, ".credentials.json"));
     const abort = new AbortController();
     currentAbort = abort;
-    const timer = setTimeout(() => abort.abort(), 20_000);
+    const timer = setTimeout(() => abort.abort(), SDK_RELAY_TURN_TIMEOUT_MS);
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let live: LaunchedWorker | undefined;
@@ -212,6 +216,7 @@ try {
           return { behavior: "deny" as const, message: "The fictional user refused this command." };
         } },
         workerStarted: started => {
+          observePhase("worker-started", turn);
           live = started as LaunchedWorker; workers.push(live);
           const owned = live; void owned.exited.then(() => exitedWorkers.add(owned), () => exitedWorkers.add(owned));
           observedLedgerHeld = Math.max(observedLedgerHeld, ledger.held);
@@ -232,9 +237,12 @@ try {
       else yield* sdkTurn.prompt;
     })(), options: { ...sdkTurn.options, maxTurns: permissionProof ? 2 : 1, stderr: text => { stderr.push(text); } } });
     try {
+      observePhase("initialization-wait", turn);
       const account = (await runtime.initializationResult()).account;
+      observePhase("initialized", turn);
       accounts.push(account);
       const settings = await (runtime as unknown as { getSettings(): Promise<CliSettingsReport> }).getSettings();
+      observePhase("settings-read", turn);
       if (!subscriptionVerdict(account).ok || settingsRefusal(settings, sdkTurn.pinnedSettingsEnv)) {
         if (!settingsProof) throw new Error("Prepared SDK subscription handshake refused.");
         withheldForSettings = true;
@@ -253,9 +261,11 @@ try {
         nativeEnvironments.push(readFileSync(`/proc/${pid}/environ`, "utf8"));
       }
       if (inspectProof) continue;
-      release();
+      release(); observePhase("prompt-released", turn);
       if (turn === 3) {
+        observePhase("refresh-wait", turn);
         await bounded(refreshEntered);
+        observePhase("refresh-entered", turn);
         abort.abort(); runtime.close();
       }
       for await (const message of runtime) {
@@ -265,9 +275,12 @@ try {
     } catch (error) {
       if (turn !== 3 || !abort.signal.aborted) throw error;
     } finally {
+      observePhase("finish-start", turn);
       abort.abort(); release(); runtime.close(); clearTimeout(timer);
       try { await spawner.finish(); } finally { turnLock.close(); await startupView?.cleanup(); }
+      observePhase("finish-complete", turn);
     }
+    observePhase("turn-complete", turn);
     if (turn === 2) hostAfterRefresh = JSON.parse(readFileSync(join(host, ".credentials.json"), "utf8")).claudeAiOauth.accessToken === access[2];
     if (turn === 3) {
       try { await bounded(refreshEnded); }
