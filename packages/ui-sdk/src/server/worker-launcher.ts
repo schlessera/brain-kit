@@ -2,7 +2,7 @@ import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
-import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
+import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
@@ -1459,18 +1459,25 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
     } : undefined;
     let restricted: RestrictedEnvelope | undefined;
     if (options.restricted || identityHelper) {
-      relayDir = mkdtempSync(join(tmpdir(), "brain-inference-probe-"));
+      relayDir = mkdtempSync(join(identityHelper ? realpathSync(tmpdir()) : tmpdir(), "brain-inference-probe-"));
+      if (identityHelper) chownSync(relayDir, process.getuid!(), process.getgid!());
       chmodSync(relayDir, identityHelper ? 0o750 : 0o700);
       if (options.restricted) restricted = { readPaths: [process.execPath, ...(identitySentinel ? [identitySentinel] : [])], inferenceDir: relayDir };
       if (identityHelper) {
         const python = ["/usr/bin/python3", "/bin/python3"].find(existsSync);
         if (!python) throw new WorkerHostError("worker_identity_requires_system_python");
-        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
+        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nready=os.open(sys.argv[1]+'.ready',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);os.close(ready)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
           { env: {}, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
         const relayDeadline = Date.now() + STATE_SETUP_MS;
-        while (!existsSync(join(relayDir, "relay.sock"))) {
+        while (!existsSync(join(relayDir, "relay.sock.ready"))) {
           if (Date.now() >= relayDeadline) throw new WorkerHostError("worker_identity_relay_probe_unavailable");
           Bun.sleepSync(1);
+        }
+        const directoryInfo = lstatSync(relayDir), socketInfo = lstatSync(join(relayDir, "relay.sock"));
+        if (realpathSync(relayDir) !== relayDir || !directoryInfo.isDirectory()
+          || directoryInfo.uid !== process.getuid!() || directoryInfo.gid !== process.getgid!() || (directoryInfo.mode & 0o7777) !== 0o750
+          || !socketInfo.isSocket() || socketInfo.uid !== process.getuid!() || socketInfo.gid !== process.getgid!() || (socketInfo.mode & 0o7777) !== 0o660) {
+          throw new WorkerHostError("worker_identity_relay_probe_invalid");
         }
         if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];
       }
@@ -1520,6 +1527,15 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       let child: { exitCode: number | null };
       if (identityHelper) {
         const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[] };
+        if (!sandbox && !restricted) {
+          // Only this minted qualification channel is restored over private /tmp.
+          // Do not route it through installed-package closure discovery or change
+          // the no-profile ordinary worker into a governed/strict envelope.
+          const bwrapIndex = payload.argv.indexOf(Bun.which("bwrap")!);
+          const separator = bwrapIndex < 0 ? -1 : payload.argv.indexOf("--", bwrapIndex);
+          if (separator < 0 || !relayDir) throw new WorkerHostError("worker_identity_relay_probe_invalid");
+          payload.argv.splice(separator, 0, "--ro-bind", relayDir, relayDir);
+        }
         if (gated(options)) payload.argv.splice(payload.argv.length - probeCommand.length - STATE_GATE.length, STATE_GATE.length);
         broker = prepareWorkerIdentity(identityHelper, payload.argv, [
           ...(options.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: options.stateBytes }]),
