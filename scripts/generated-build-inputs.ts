@@ -7,10 +7,10 @@ import { isAbsolute, relative, resolve } from "node:path";
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
   "scripts/ci-build-files.ts": "29c2ca0fa5640ae98ab7860a8289d9b48e533ccbf150333f3555fa9593a088ac",
-  "scripts/ci-build-lifetime.ts": "ff717d82e99cbeb52472bfb37e5b628ef11d470610dd583be371207f164878d2",
+  "scripts/ci-build-lifetime.ts": "54acc253aba0f432bf4a204d34c6da902aaffc508131d02dd046927c6925af5d",
   "scripts/ci-build-qualification.json": "31044cc0055d43353ae235daf56f88b4d24f40fef9ea5aac96f69421f5c20fc6",
   "scripts/ci-build-entry.ts": "e7d2891c6b0737066f0f6818ed2f774b55d59549e81610ac2db264cb71dd6809",
-  "scripts/ci-build-operation.ts": "ce844becca2991fed45cd9feb69d3bd2394689364cdb2ba778c73e1da7ccc949",
+  "scripts/ci-build-operation.ts": "8fb5c0c8424be481c2476bf178365237ba67580e9b9e8d8b7b4e63ea223be143",
   "scripts/ci-build-boundary.ts": "4f8c6fc11d838adff3dc91f4df75042f6d22bf76819c3519579c82b22d0e9e5e",
   "scripts/build-execution.ts": "17ee42de1b37aa8034c6b0719b32ec432ac8fde321fb9c2c3a426799ea996a5e",
   "scripts/build.ts": "30c1ecc7272921efe4e437b23e3d088e03d38869a9f5b2365fc08592e248d8d8",

@@ -69,7 +69,9 @@ The fixed operation requires non-root UID and GID. Each local daemon control
 has a ten-second limit; the image-owned entry has a 300-second TERM deadline
 with five-second KILL grace, and its host client has a 330-second limit. These
 operation bounds require real qualification on all nineteen packages before
-activation. They do not alter ordinary builds or test deadlines. Session-owned
-container removal and confirmed absence precede output publication and reuse
+activation. They do not alter ordinary builds or test deadlines. A session label and immutable container ID are verified before any stop, wait
+or removal, including interruption handling. Subsequent mutations and the
+absence check address that ID, so replacement of a name grants no authority.
+Session-owned container removal and confirmed absence precede output publication and reuse
 stamps. Unconfirmed cleanup fails, records the incomplete cleanup and retains
 owned state; it never grants successful reuse authority.

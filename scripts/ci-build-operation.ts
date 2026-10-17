@@ -1,5 +1,5 @@
 /** One dormant, fixed isolated build operation. CI intent is not authority. */
-import { dockerControl as docker, removeOwnedBuildContainer } from "./ci-build-lifetime";
+import { dockerControl as docker, inspectOwnedBuildContainer, removeOwnedBuildContainer } from "./ci-build-lifetime";
 import { buildRead } from "./ci-build-files";
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -142,11 +142,16 @@ async function execute(root: string, options: Options, policy: Qualification, qu
     return;
   }
   let preserve = qualificationOnly, containerKnown = false, drained = false, removed = false, interrupted = false;
-  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let child: ReturnType<typeof Bun.spawn> | undefined, containerID: string | undefined;
   const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
   const interrupt = () => {
     interrupted = true;
-    try { if (containerKnown && !removed) docker(dockerConfig, "stop", "--time", "5", name); }
+    try {
+      if (containerKnown && !removed) {
+        const owned = inspectOwnedBuildContainer(dockerConfig, containerID ?? name, session); containerID = owned.id;
+        docker(dockerConfig, "stop", "--time", "5", owned.id);
+      }
+    }
     catch { preserve = true; }
     finally { try { child?.kill("SIGTERM"); } catch { preserve = true; } }
   };
@@ -154,7 +159,7 @@ async function execute(root: string, options: Options, policy: Qualification, qu
   for (const signal of signals) process.on(signal, interrupt);
   const cleanup = () => {
     try {
-      removeOwnedBuildContainer(dockerConfig, name, session);
+      removeOwnedBuildContainer(dockerConfig, containerID ?? name, session);
       drained = true; removed = true;
     } catch (error) {
       preserve = true;
@@ -237,12 +242,10 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       containerKnown = true;
       const code = await child.exited;
       phases.producerMs = performance.now() - compileStart;
-      const status = JSON.parse(docker(dockerConfig, "inspect", name)) as Array<{ State: { Running: boolean }; Config: { Image: string; Labels: Record<string, string> };
-        HostConfig: { ReadonlyRootfs: boolean; NetworkMode: string; Privileged: boolean; CapDrop: string[]; SecurityOpt: string[]; Tmpfs: Record<string, string> };
-        Mounts: Array<{ Type: string; Source: string; Destination: string; RW: boolean }> }>;
-      if (status.length !== 1 || status[0]!.Config.Labels["brain-ci-build-session"] !== session || status[0]!.State.Running) throw new Error("Build container did not drain");
+      const owned = inspectOwnedBuildContainer(dockerConfig, containerID ?? name, session); containerID = owned.id;
+      if (owned.running) throw new Error("Build container did not drain");
       drained = true;
-      const actual = status[0]!, host = actual.HostConfig;
+      const actual = owned.record, host = actual.HostConfig;
       if (actual.Config.Image !== policy.image || host.ReadonlyRootfs !== true || host.NetworkMode !== "none" || host.Privileged !== false ||
         !host.CapDrop?.includes("ALL") || !host.SecurityOpt?.some(value => value === "no-new-privileges" || value === "no-new-privileges=true") ||
         identity(Object.keys(host.Tmpfs ?? {}).sort()) !== identity(["/repo", "/tmp"])) throw new Error("Actual build container boundary changed");
