@@ -50,6 +50,11 @@ test("refuses foreign roots, aliased attributes/hooks/config and invalid UTF-8 e
     if (kind === "utf8") writeFileSync(join(root, ".gitattributes"), Buffer.from([0xff]));
     const result = collect(root, home, 1024 ** 2, kind === "root" ? "0:0" : undefined);
     expect(result.code, kind).not.toBe(0); expect(result.output, kind).toBe(""); expect(result.error, kind).toContain("Concrete Git source collection refused");
+    if (kind === "utf8") {
+      const info = lstatSync(join(root, ".gitattributes"));
+      expect(parseMaintenanceGitFailure(result.error)).toEqual({ phase: "attrs", errorClass: "Error", errno: "unknown",
+        attrs: { rootClass: "other", depth: 1, uid: info.uid, gid: info.gid, mode: info.mode & 0o7777, type: "file" } });
+    }
   });
 });
 test("serialized receipt and depth bounds refuse rather than omit attribute policy", () => {
@@ -92,4 +97,17 @@ test("fixed Git failure diagnostics never forward malicious stderr properties or
     expect(result.error).not.toContain("Odysseus hidden worker stderr"); expect(result.error).not.toContain(root);
     expect(parseMaintenanceGitFailure(result.error)).toEqual({ phase: "config", errorClass: "Error", errno: "unknown" });
   });
+});
+
+test("attribute refusal metadata accepts only bounded fixed topology fields", () => {
+  const attrs = { rootClass: ".brain", depth: 2, uid: 21001, gid: 21001, mode: 0o700, type: "directory" };
+  const encode = (value: unknown) => JSON.stringify({ phase: "attrs", errorClass: "Error", errno: "EACCES", attrs: value }) + "\nConcrete Git source collection refused\n";
+  expect(parseMaintenanceGitFailure(encode(attrs))).toEqual({ phase: "attrs", errorClass: "Error", errno: "EACCES", attrs });
+  for (const invalid of [{ ...attrs, path: "Odysseus hidden worker stderr" }, { ...attrs, rootClass: "Odysseus hidden worker stderr" },
+    { ...attrs, depth: 258 }, { ...attrs, depth: 1.5 }, { ...attrs, uid: -1 }, { ...attrs, gid: 0x100000000 },
+    { ...attrs, mode: 0o10000 }, { ...attrs, type: "Odysseus hidden worker stderr" }, null]) {
+    const actual = parseMaintenanceGitFailure(encode(invalid));
+    expect(actual, "ATTR_FAILURE_TOPOLOGY_NEVER_FORWARDS_UNBOUNDED_OR_ARBITRARY_FIELDS").toEqual({ phase: "unknown", errorClass: "unknown", errno: "unknown" });
+    expect(JSON.stringify(actual)).not.toContain("Odysseus hidden worker stderr");
+  }
 });

@@ -1708,7 +1708,7 @@ actual configuration query keeps the same host-resolved runtime and cleared
 worker environment; the existing adapter supplies the immutable hooks and
 attributes to later Git consumers. Credentialed and no-helper preparation keep
 their existing paths (`collectMaintenanceGitSources`,
-`packages/ui-server/src/brain/maintenance-git-source.ts:49-151`).
+`packages/ui-server/src/brain/maintenance-git-source.ts:59-173`).
 
 
 **Verification from inside a real worker.** The probe checks:

@@ -11,14 +11,18 @@ export interface MaintenanceGitSources {
 const phases = ["metadata", "config", "hooks", "attrs", "receipt"] as const;
 const errorClasses = ["Error", "TypeError", "RangeError", "SyntaxError", "SystemError"] as const;
 const errnos = ["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP", "ESTALE", "EIO", "EMFILE", "ENFILE", "ENOMEM", "E2BIG"] as const;
+const rootClasses = [".brain", "private", "private-hooks", "notes", "other"] as const;
+const entryTypes = ["directory", "file", "symlink", "other"] as const;
+type AttrContext = { rootClass: string; depth: number; uid: number; gid: number; mode: number; type: string };
+const uint = (value: unknown, maximum: number) => Number.isInteger(value) && typeof value === "number" && value >= 0 && value <= maximum;
 const unknownFailure = () => ({ phase: "unknown", errorClass: "unknown", errno: "unknown" });
 class CollectionFailure extends Error {
   readonly diagnostic;
-  constructor(phase: string, error: unknown) {
+  constructor(phase: string, error: unknown, attrs?: AttrContext) {
     super("Concrete Git source collection refused");
     const kind = error instanceof Error ? error.name : "unknown", code = (error as NodeJS.ErrnoException | null)?.code;
     this.diagnostic = { phase: phases.includes(phase as any) ? phase : "unknown",
-      errorClass: errorClasses.includes(kind as any) ? kind : "unknown", errno: errnos.includes(code as any) ? code! : "unknown" };
+      errorClass: errorClasses.includes(kind as any) ? kind : "unknown", errno: errnos.includes(code as any) ? code! : "unknown", ...(phase === "attrs" && attrs ? { attrs } : {}) };
   }
 }
 /** Decode only the fixed refusal receipt; never forward worker stderr. */
@@ -28,10 +32,16 @@ export function parseMaintenanceGitFailure(stderr: string) {
     const lines = stderr.trim().split("\n");
     if (lines.length !== 2 || lines[1] !== "Concrete Git source collection refused") return unknownFailure();
     const value = JSON.parse(lines[0]!);
-    if (!value || Object.keys(value).sort().join(",") !== "errno,errorClass,phase"
+    if (!value || !["errno,errorClass,phase", "attrs,errno,errorClass,phase"].includes(Object.keys(value).sort().join(","))
       || ![...phases, "unknown"].includes(value.phase) || ![...errorClasses, "unknown"].includes(value.errorClass)
       || ![...errnos, "unknown"].includes(value.errno)) return unknownFailure();
-    return { phase: value.phase as string, errorClass: value.errorClass as string, errno: value.errno as string };
+    const attrs = value.attrs;
+    if (attrs !== undefined && (value.phase !== "attrs" || !attrs || Object.keys(attrs).sort().join(",") !== "depth,gid,mode,rootClass,type,uid"
+      || !rootClasses.includes(attrs.rootClass) || !entryTypes.includes(attrs.type) || !uint(attrs.depth, 257)
+      || !uint(attrs.uid, 0xffffffff) || !uint(attrs.gid, 0xffffffff) || !uint(attrs.mode, 0o7777))) return unknownFailure();
+    return { phase: value.phase as string, errorClass: value.errorClass as string, errno: value.errno as string,
+      ...(attrs ? { attrs: { rootClass: attrs.rootClass as string, depth: attrs.depth as number, uid: attrs.uid as number,
+        gid: attrs.gid as number, mode: attrs.mode as number, type: attrs.type as string } } : {}) };
   } catch { return unknownFailure(); }
 }
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
@@ -52,6 +62,13 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
   const at = (directory: number, child = "") => `/proc/self/fd/${directory}/${child || "."}`;
   const answer: MaintenanceGitSources = { rootIdentity: identity(rootInfo), repository: false, config: [], hookNames: [], attributes: [] };
   let entries = 0, bytes = 0, phase = "metadata";
+  let attrs: AttrContext | undefined;
+  const heldMetadata = new Map<number, ReturnType<typeof fstatSync>>([[fd, rootInfo]]);
+  const attrContext = (path: string, depth: number, info: ReturnType<typeof fstatSync>) => {
+    const first = path.split("/")[0]!;
+    attrs = { rootClass: rootClasses.includes(first as any) ? first : "other", depth, uid: info.uid, gid: info.gid,
+      mode: info.mode & 0o7777, type: info.isDirectory() ? "directory" : info.isFile() ? "file" : info.isSymbolicLink() ? "symlink" : "other" };
+  };
   function charge(value: string) { bytes += Buffer.byteLength(value); if (bytes > maximum) throw Error("Concrete Git inputs exceed their bound"); }
   function members(directory: number): string[] {
     return readdirSync(at(directory), { encoding: "buffer" }).map(raw => {
@@ -64,6 +81,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
     if (!info.isDirectory()) throw Error("Concrete Git directory must not be an alias or special node");
     const opened = openSync(at(parent, child), DIRECTORY), held = fstatSync(opened);
     if (stamp(held) !== stamp(info) || held.dev !== rootInfo.dev) { closeSync(opened); throw Error("Changed concrete Git directory"); }
+    heldMetadata.set(opened, held);
     return opened;
   }
   try {
@@ -123,9 +141,13 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
     }
     function walk(directoryFd: number, prefix: string, depth: number) {
       if (depth > 256) throw Error("Concrete Git inputs exceed their depth bound");
+      attrContext(prefix, depth, heldMetadata.get(directoryFd)!);
       for (const child of members(directoryFd)) {
         if (child === ".git" || child === "node_modules") continue;
-        const info = lstatSync(at(directoryFd, child)), path = prefix ? `${prefix}/${child}` : child;
+        const path = prefix ? `${prefix}/${child}` : child;
+        attrContext(prefix, depth, heldMetadata.get(directoryFd)!);
+        const info = lstatSync(at(directoryFd, child));
+        attrContext(path, depth + 1, info);
         if (child === ".gitattributes") {
           if (!info.isFile() || info.nlink !== 1 || info.size > maximum - bytes) throw Error("Unsupported retained attributes input");
           const file = openSync(at(directoryFd, child), FILE);
@@ -146,7 +168,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
     phase = "receipt";
     if (identity(fstatSync(fd)) !== expectedRoot || Buffer.byteLength(JSON.stringify(answer)) > maximum) throw Error("Changed or oversized concrete Git source receipt");
     return answer;
-  } catch (error) { throw new CollectionFailure(phase, error); }
+  } catch (error) { throw new CollectionFailure(phase, error, attrs); }
   finally { closeSync(fd); }
 }
 export function parseMaintenanceGitSources(text: string, maximum: number, expectedRoot: string): MaintenanceGitSources {
