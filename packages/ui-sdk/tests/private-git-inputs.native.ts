@@ -33,12 +33,18 @@ open(r+"/private-hooks/odysseus-private","w").write("Odysseus private hook input
 os.chmod(r+"/private-hooks/odysseus-private",0o600)
 open(r+"/private-hooks/pre-commit","w").write('#!/bin/sh\numask 0002\nprintf "Odysseus private hook" > "$BRAIN_ROOT/.brain-private-hook-ran"\n')
 os.chmod(r+"/private-hooks/pre-commit",0o700)
-print(json.dumps({"uid":os.getuid(),"gid":os.getgid()}))`);
-expect(JSON.parse(creation).uid, "PRIVATE_GIT_INPUT_ACTUAL_WORKER_UID").toBe(21002);
-for (const path of ["private", "private/.gitattributes", "private/result.md", "private-hooks", "private-hooks/odysseus-private"]) {
+paths=["private/.gitattributes","private/result.md","private-hooks/odysseus-private","private-hooks/pre-commit"]
+print(json.dumps({"uid":os.getuid(),"gid":os.getgid(),"files":{p:{"uid":os.lstat(r+"/"+p).st_uid,"mode":os.lstat(r+"/"+p).st_mode & 0o777} for p in paths}}))`);
+const created = JSON.parse(creation);
+expect(created.uid, "PRIVATE_GIT_INPUT_ACTUAL_WORKER_UID").toBe(21002);
+for (const path of ["private/.gitattributes", "private/result.md", "private-hooks/odysseus-private", "private-hooks/pre-commit"]) {
+  expect(created.files[path].uid, "PRIVATE_GIT_INPUT_WORKER_FILE_OWNED").toBe(21002);
+  expect(created.files[path].mode, "PRIVATE_GIT_INPUT_WORKER_FILE_MODE_PRESERVED").toBe(path.endsWith("pre-commit") ? 0o700 : 0o600);
+}
+for (const path of ["private", "private-hooks"]) {
   const info = lstatSync(`${brain}/${path}`);
   expect(info.uid, "PRIVATE_GIT_INPUT_WORKER_OWNED").toBe(21002);
-  expect(info.mode & 0o777, "PRIVATE_GIT_INPUT_MODE_PRESERVED").toBe(path === "private" || path === "private-hooks" ? 0o700 : 0o600);
+  expect(info.mode & 0o777, "PRIVATE_GIT_INPUT_MODE_PRESERVED").toBe(0o700);
 }
 expect(() => readFileSync(`${brain}/private/.gitattributes`), "SERVER_CANNOT_READ_PRIVATE_ATTRIBUTES").toThrow();
 expect(() => readFileSync(`${brain}/private-hooks/odysseus-private`), "SERVER_CANNOT_READ_PRIVATE_HOOK_INPUT").toThrow();
