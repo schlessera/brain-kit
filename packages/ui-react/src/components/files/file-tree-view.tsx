@@ -114,7 +114,7 @@ export function FileTreeView(p: FileTreeViewProps) {
   }
   if (p.state === "loading") {
     return (
-      <div className="px-3 py-2" aria-label="Loading files">
+      <div className="px-3 py-2" role="group" aria-label="Loading files">
         <Placeholder variant="loading" lines={4} bordered={false} pad={4} />
       </div>
     );
