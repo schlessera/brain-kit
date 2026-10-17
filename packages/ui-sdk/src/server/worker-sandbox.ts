@@ -73,6 +73,8 @@ export interface WorkerSandbox {
   readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
   readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
+  /** @internal Concrete host-prepared turn transport; never selected by client/project input. */
+  readonly egress?: Awaited<ReturnType<typeof import("./egress-proxy.js").startEgressProxy>>;
   /** @internal Advisory facts resolved by the admitting host, never a model grant. */
   readonly noteFacts?: WorkerNoteFacts;
   /** Canonical brain path the layout was resolved for. */

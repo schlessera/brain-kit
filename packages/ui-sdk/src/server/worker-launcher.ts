@@ -2,7 +2,7 @@ import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
-import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
+import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
@@ -233,10 +233,19 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     seen.add(path);
     argv.push("--ro-bind", path, path);
   }
-  const inference = realpathSync(envelope.inferenceDir);
-  if (!lstatSync(inference).isDirectory() || (statSync(inference).mode & 0o077) !== 0) {
-    throw new WorkerHostError("the inference relay directory must be a private directory");
-  }
+  const separateIdentity = Boolean(workerIdentityHelper());
+  let inference = "", valid = false;
+  try {
+    inference = realpathSync(envelope.inferenceDir);
+    const directory = lstatSync(inference), socket = lstatSync(join(inference, "relay.sock"));
+    valid = inference === normalize(envelope.inferenceDir) && directory.isDirectory() && socket.isSocket()
+      && directory.uid === process.getuid?.() && socket.uid === process.getuid?.()
+      && (directory.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+      && (socket.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+      && (!separateIdentity || directory.gid === process.getgid?.() && socket.gid === process.getgid?.())
+      && !within(brain, inference) && !within(inference, brain);
+  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+  if (!valid) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
   return argv;
 }
@@ -326,6 +335,29 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
+  const separateIdentity = Boolean(workerIdentityHelper());
+  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
+  const coverageRoot = (path: string): string => {
+    if (!separateIdentity) return path;
+    let covered = path;
+    for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
+      const info = lstatSync(parent);
+      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+        throw new WorkerHostError("a private mask ancestor changed or is linked");
+      }
+      // The verified helper keeps only the server's primary shared group.
+      // Cover an inaccessible parent with empty tmpfs, never its real contents.
+      const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
+      if (searchable) continue;
+      if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
+      covered = parent;
+    }
+    if (covered !== path && (within(covered, brain) || within(brain, covered) || envelope.readPaths.some(requested => {
+      const runtime = realpathSync(requested);
+      return within(covered, runtime) || within(runtime, covered);
+    }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
+    return covered;
+  };
   for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
@@ -338,11 +370,15 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // Host /tmp is already absent behind the worker's private tmpfs. A
     // second operational mask would replace its capacity and writable mode.
     if (within(TURN_TEMP_ROOT, path)) continue;
-    if (info.isFile()) { fileMasks.add(path); continue; }
-    resolved.push(path);
+    if (info.isFile()) fileMasks.add(path);
+    else resolved.push(path);
     if (masks.some(mask => within(mask, path))) continue;
-    for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
-    masks.push(path);
+    const covered = coverageRoot(path);
+    if (info.isFile() && covered === path) continue;
+    if (covered !== path) resolved.push(covered);
+    if (masks.some(mask => within(mask, covered))) continue;
+    for (let i = masks.length - 1; i >= 0; i--) if (within(covered, masks[i]!)) masks.splice(i, 1);
+    masks.push(covered);
   }
   const masked = (path: string) => within(TURN_TEMP_ROOT, path) || masks.some(mask => within(mask, path));
   const argv = masks.flatMap(mask => ["--tmpfs", mask]);
@@ -1434,6 +1470,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   let identitySentinel: string | undefined;
   let verifiedWorkerUid: number | undefined;
   let identityRelay: ReturnType<typeof Bun.spawn> | undefined;
+  let privateRelay: ReturnType<typeof Bun.serve> | undefined;
   try {
     if (process.platform !== "linux") throw new Error("Linux namespaces are required");
     brainPath = realpathSync(brainPath);
@@ -1459,20 +1496,30 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
     } : undefined;
     let restricted: RestrictedEnvelope | undefined;
     if (options.restricted || identityHelper) {
-      relayDir = mkdtempSync(join(tmpdir(), "brain-inference-probe-"));
+      relayDir = mkdtempSync(join(identityHelper ? realpathSync(tmpdir()) : tmpdir(), "brain-inference-probe-"));
+      if (identityHelper) chownSync(relayDir, process.getuid!(), process.getgid!());
       chmodSync(relayDir, identityHelper ? 0o750 : 0o700);
       if (options.restricted) restricted = { readPaths: [process.execPath, ...(identitySentinel ? [identitySentinel] : [])], inferenceDir: relayDir };
       if (identityHelper) {
         const python = ["/usr/bin/python3", "/bin/python3"].find(existsSync);
         if (!python) throw new WorkerHostError("worker_identity_requires_system_python");
-        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
+        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nready=os.open(sys.argv[1]+'.ready',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);os.close(ready)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
           { env: {}, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
         const relayDeadline = Date.now() + STATE_SETUP_MS;
-        while (!existsSync(join(relayDir, "relay.sock"))) {
+        while (!existsSync(join(relayDir, "relay.sock.ready"))) {
           if (Date.now() >= relayDeadline) throw new WorkerHostError("worker_identity_relay_probe_unavailable");
           Bun.sleepSync(1);
         }
+        const directoryInfo = lstatSync(relayDir), socketInfo = lstatSync(join(relayDir, "relay.sock"));
+        if (realpathSync(relayDir) !== relayDir || !directoryInfo.isDirectory()
+          || directoryInfo.uid !== process.getuid!() || directoryInfo.gid !== process.getgid!() || (directoryInfo.mode & 0o7777) !== 0o750
+          || !socketInfo.isSocket() || socketInfo.uid !== process.getuid!() || socketInfo.gid !== process.getgid!() || (socketInfo.mode & 0o7777) !== 0o660) {
+          throw new WorkerHostError("worker_identity_relay_probe_invalid");
+        }
         if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];
+      } else {
+        privateRelay = Bun.serve({ unix: join(relayDir, "relay.sock"), fetch: () => new Response("ithaca") });
+        chmodSync(join(relayDir, "relay.sock"), 0o600);
       }
     }
     // The worker must see each rlimit the plan sets, as its hard limit (#1660).
@@ -1520,6 +1567,15 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       let child: { exitCode: number | null };
       if (identityHelper) {
         const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[] };
+        if (!sandbox && !restricted) {
+          // Only this minted qualification channel is restored over private /tmp.
+          // Do not route it through installed-package closure discovery or change
+          // the no-profile ordinary worker into a governed/strict envelope.
+          const bwrapIndex = payload.argv.indexOf(Bun.which("bwrap")!);
+          const separator = bwrapIndex < 0 ? -1 : payload.argv.indexOf("--", bwrapIndex);
+          if (separator < 0 || !relayDir) throw new WorkerHostError("worker_identity_relay_probe_invalid");
+          payload.argv.splice(separator, 0, "--ro-bind", relayDir, relayDir);
+        }
         if (gated(options)) payload.argv.splice(payload.argv.length - probeCommand.length - STATE_GATE.length, STATE_GATE.length);
         broker = prepareWorkerIdentity(identityHelper, payload.argv, [
           ...(options.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: options.stateBytes }]),
@@ -1577,6 +1633,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   } finally {
     if (fixture) rmSync(fixture, { recursive: true, force: true });
     identityRelay?.kill("SIGKILL");
+    privateRelay?.stop(true);
     if (relayDir) rmSync(relayDir, { recursive: true, force: true });
     if (identitySentinel) rmSync(identitySentinel, { recursive: true, force: true });
   }

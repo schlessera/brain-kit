@@ -1,3 +1,4 @@
+import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -15,12 +16,14 @@ import {
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS,
-  type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+  type WorkerLimitReport, startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, linkSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolveClaudeHostOAuth } from "./host-oauth.js";
+import { join, resolve } from "node:path";
 import { createClaudeSdkTurn, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime, installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
@@ -229,6 +232,10 @@ export function createClaudeTurnRunner(options: {
     let turnInput: TurnInput | undefined;
     let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
+    let hostRelay: InferenceRelay | undefined;
+    let hostRelayLink: string | undefined;
+    let hostRelayAuthorized = false;
+    let routeInputs: Awaited<ReturnType<typeof retainNativeRouteInputs>> | undefined;
     let workerFailure: (() => TurnFailure | undefined) | undefined;
     /**
      * A worker whose runtime state refused or stopped the turn (#1625) ends it
@@ -364,7 +371,21 @@ export function createClaudeTurnRunner(options: {
         req.autonomous?.allowedTools ??
         (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+      const preparedEgress = !req.autonomous && profile.billing !== "api" ? req.workerSandbox?.egress : undefined;
+      const configDirectory = resolve(turnEnvironment?.CLAUDE_CONFIG_DIR || join(turnEnvironment?.HOME || homedir(), ".claude"));
+      if (preparedEgress) {
+        hostRelay = startInferenceRelay({ upstream: "https://api.anthropic.com", routes: ANTHROPIC_INFERENCE_ROUTES, egress: preparedEgress,
+          credentials: async (signal, target) => {
+            if (!hostRelayAuthorized) throw new Error("Native inference has not passed its prompt gate");
+            routeInputs?.assertUnchanged();
+            return { authorization: (await resolveClaudeHostOAuth(configDirectory, turnEnvironment ?? {}, { origin: target.origin }, signal)).authorization };
+          },
+        });
+        hostRelayLink = join(preparedEgress.dir, "inference.sock");
+        linkSync(hostRelay.socketPath, hostRelayLink);
+      }
       const sdkTurn = createClaudeSdkTurn({
+        ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir } } : {}),
         backend: options.backend,
         ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
         turnEnvironment,
@@ -469,9 +490,32 @@ export function createClaudeTurnRunner(options: {
               reportRuntime(undefined, account?.apiKeySource, account);
               return refuse(verdict.ok ? conflict! : verdict.reason);
             }
+            if (preparedEgress) {
+              // First-party draft composition. Configured-origin and stable
+              // startup-source qualification must complete before activation.
+              try { routeInputs?.assertUnchanged(); }
+              catch { return refuse("native inference settings changed during startup"); }
+              if (!Array.isArray(settings?.sources) || settings.sources.some(source => !["projectSettings", "flagSettings", "policySettings"].includes(source.source ?? ""))) {
+                return refuse("the native inference settings sources are not qualified for this prepared transport");
+              }
+              const selected = turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+              if (selected.replace(/\/$/, "") !== "https://api.anthropic.com") return refuse("the native inference destination is not qualified for this prepared transport");
+              for (const source of settings?.sources ?? []) {
+                const value = source.settings?.env?.ANTHROPIC_BASE_URL;
+                if (value !== undefined && value !== "" && !(source.source === "flagSettings" && value === "http://localhost") && value !== "https://api.anthropic.com") {
+                  return refuse("the native inference source selects a destination not qualified for this prepared transport");
+                }
+              }
+              if (settings?.effective?.env?.ANTHROPIC_BASE_URL !== "http://localhost") {
+                return refuse("native settings refused the prepared inference transport");
+              }
+              hostRelayAuthorized = true;
+            }
             return true;
           })
         : input.messages;
+      routeInputs = preparedEgress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
+        ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
       const result = queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
       resolveQuery(result);
       // The account the CLI selected, for the per-turn report below. The SDK
@@ -666,28 +710,36 @@ export function createClaudeTurnRunner(options: {
         await emitTerminal("error", diagnostic);
       }
     } finally {
-      try { await finishWorker?.(); }
-      finally {
-      clearTimeout(ackGraceTimer);
-      turnInput?.close();
-      req.signal.removeEventListener("abort", onHostAbort);
-      // Backstop: release any write lock still held (a mutating tool whose
-      // result never streamed, e.g. an aborted turn) and free the busy slot.
-      fileVersions?.cancelPending();
-      if (!sessionId) fileVersionsBySession.delete(turnKey);
-      turnLock.close();
-      activeTurns.delete(turnKey);
-      if (!req.autonomous) await archiveIdleSessions({
+      // A failed cleanup cannot strand the other owned resources or busy slot.
+      await cleanupTurn([
+        () => finishWorker?.(),
+        () => routeInputs?.close(),
+        () => hostRelay?.stop(),
+        () => { if (hostRelayLink) rmSync(hostRelayLink, { force: true }); },
+        () => clearTimeout(ackGraceTimer),
+        () => turnInput?.close(),
+        () => req.signal.removeEventListener("abort", onHostAbort),
+        () => fileVersions?.cancelPending(),
+        () => { if (!sessionId) fileVersionsBySession.delete(turnKey); },
+        () => turnLock.close(),
+        () => activeTurns.delete(turnKey),
+        () => req.autonomous ? undefined : archiveIdleSessions({
         brainPath: options.backend.brainPath, env: archiveEnv,
         listSessionsFn: options.backend.listSessionsFn,
         activeSessionIds: () => new Set(activeTurns.keys()),
         log: (message, error) => options.log("warn", message, { error: String(error) }),
-      });
-      }
+        }),
+      ]);
     }
   }
 
   return { startTurn, followUp };
+}
+
+async function cleanupTurn(actions: Array<() => unknown>): Promise<void> {
+  const failures: unknown[] = [];
+  for (const action of actions) { try { await action(); } catch (error) { failures.push(error); } }
+  if (failures.length) throw new AggregateError(failures, "Claude turn cleanup did not complete");
 }
 
 /** Startup settlement is bounded even if an injected/older SDK ignores abort. */

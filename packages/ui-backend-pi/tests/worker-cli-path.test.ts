@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
 import { createWorkerSpawn } from "../../ui-backend-claude/src/worker-spawn.js";
@@ -28,7 +28,12 @@ for (const backend of ["Claude", "Pi"] as const) for (const profile of ["governe
     let session: Awaited<ReturnType<typeof openPiWorkerSession>>["session"] | undefined;
     let launch: ReturnType<typeof spyOn> | undefined;
     let child: worker.LaunchedWorker | undefined;
+    let relay: ReturnType<typeof Bun.serve> | undefined;
     try {
+      if (backend === "Claude" && profile === "restricted") {
+        relay = Bun.serve({ unix: join(inferenceDir, "relay.sock"), fetch: () => new Response("ithaca") });
+        chmodSync(join(inferenceDir, "relay.sock"), 0o600);
+      }
       const shell = 'found=$(command -v brain || true); printf "%s\\n" "$found"; if [ -n "$found" ]; then brain; fi; printf "\\n%s" "$PATH"';
       let actual: string;
       if (backend === "Claude") {
@@ -61,12 +66,16 @@ for (const backend of ["Claude", "Pi"] as const) for (const profile of ["governe
       expect(actual, `${backend.toUpperCase()}_NATIVE_LOCAL_CLI_FIRST`).toBe(`${expectedCommand}\n${expectedPath}`);
       expect(process.env.PATH, "HOST_PATH_UNCHANGED").toBe(previousPath);
     } finally {
-      session?.dispose(); child?.kill("SIGKILL"); await child?.exited.catch(() => {});
-      await spawner?.finish().catch(() => {}); launch?.mockRestore(); probe.mockRestore();
-      if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
-      if (oldKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = oldKey;
-      if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-      await view?.cleanup(); rmSync(root, { recursive: true, force: true });
+      try {
+        session?.dispose(); child?.kill("SIGKILL"); await child?.exited.catch(() => {});
+        await spawner?.finish().catch(() => {}); launch?.mockRestore(); probe.mockRestore();
+        if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+        if (oldKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = oldKey;
+        if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
+        await view?.cleanup();
+      } finally {
+        try { relay?.stop(true); } finally { rmSync(root, { recursive: true, force: true }); }
+      }
     }
   });
 }

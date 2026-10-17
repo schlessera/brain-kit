@@ -29,11 +29,13 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/.storybook/preview-head.html":"66da7597557f1418096239edcd74f7a8decfc70dfc8f1d820de0cf365df41ed7"
   }
 },{
+  // Reviewed against #2295: bounded capture tracing and split relay cases keep
+  // the exact source-owned HTML/CSS sink, four callers and offline producers.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
-  "ownerHash": "f82b6f8f77d63e000ec2916539201bbda2a29756a734339aa631aa10294fcb64",
+  "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
   "caller": "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx",
-  "callerHash": "1a6c47fb9309628f27294b91b18e014ec1f8e4683849788a40ff88ce04a20278",
+  "callerHash": "dbac044e90a3b7b84e308a96cca8396874afb9b96d8cc23b2fddb4293d85706c",
   "calls": 2,
   "additionalCallers": {
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {

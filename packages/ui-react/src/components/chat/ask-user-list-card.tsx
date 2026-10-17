@@ -63,6 +63,7 @@ export function AskUserListExchangeCard({
   answered,
   notes,
   cancelled,
+  lapsedNote,
   answeredAt,
   onSubmit,
   onCancel,
@@ -75,6 +76,7 @@ export function AskUserListExchangeCard({
   answered?: Record<string, string>;
   notes?: Record<string, string>;
   cancelled?: boolean;
+  lapsedNote?: string;
   answeredAt?: number;
   onSubmit: (requestId: string, answers: Record<string, string>, notes?: Record<string, string>) => void;
   onCancel: (requestId: string) => void;
@@ -113,7 +115,7 @@ export function AskUserListExchangeCard({
       <KitAskUserListCard
         {...base}
         state="dismissed"
-        lapsedNote={DISMISSED_NOTE}
+        lapsedNote={lapsedNote ?? DISMISSED_NOTE}
         onAskAgain={onReask ? () => setReopened(true) : undefined}
       />
     );
