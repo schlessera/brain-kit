@@ -86,6 +86,7 @@ if (process.argv[2] === "--index-child") {
     await import("../restricted-relay-qualification.native.js");
   }
   childStage("identity-probe:done");
+  if (!sharedGit) await import("../private-publication-transition.native.js");
   if (privateGitInputs && (!sharedPhase || sharedPhase === "private" || sharedPhase === "private-positive")) {
     childStage("private-inputs:start");
     await import("../private-git-inputs.native.js" + (sharedPhase === "private-positive" ? "?positive-only=1" : ""));
