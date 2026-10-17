@@ -2,14 +2,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-// These sources establish: tracked source entry, a cleaned package dist (or one
-// verified byte-identical to a build from identical inputs, #2319), locked
+// These sources establish: tracked source entry, a cleaned package dist, locked
 // Tailwind CLI, build-before-browser order, checked exits and post-success receipt.
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
-  "scripts/build.ts": "132f4d8a530db23bfe3724424186e4edd6de94dff11853026b9b5617a55320f4",
-  "scripts/build-stamp.ts": "5c7c7b72d0d7ba383600dbc16c0d6d1cc544104b480823b90955be6d8566d220",
-  "scripts/build-receipt.ts": "a2505dd297ae214befb455a0e86ba698ab6312c22d5d8ce0f97e102c3f665a0b",
+  "scripts/build.ts": "95c40d174c0dfa8d2f8f317a3c2236fecbba600faaaf3ebecb7a96dbd94c392d",
+  "scripts/build-receipt.ts": "567c3d13b5e3e1295f597e4f57a9d0d9912685f2669cf3872daa26c2931bd1e6",
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
   "scripts/workspace-lease.mjs": "dc6dc975e6abdb3fb193b368b79544bc98c60c624f0fd9c9985358284bb07df0",

@@ -32,6 +32,8 @@ const outcome = (p: Promise<unknown>) => p.then((value) => ({ ok: true as const,
 Object.assign(window, {
   __local: {
     phase:()=>root.authLock.state.getState().phase,
+    snapshotFailed:()=>root.authLock.state.getState().snapshotFailed,
+    hasSnapshot:()=>root.authLock.hasSnapshot(),
     held:()=>updateHeld(root),
     recording:()=>root.recordings!.list(root.stores.connection.getState().accountKey ? `account:${root.stores.connection.getState().accountKey}` : "unassigned"),
     ended:()=>microphone.streams.flatMap((s)=>s.getTracks().map((t)=>t.readyState === "ended")),
