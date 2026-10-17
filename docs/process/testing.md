@@ -293,8 +293,11 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   Inclusion fingerprints recompute each immutable tree's complete supported
   import/declaration closure and tracked path/blob/mode, build/discovery/partition
   and runner identities. Unknown generated/runtime inputs execute fresh; a
-  graph-structure hash or unchanged imported files alone cannot authorize reuse. Read
-  the current retention ledger and aggregate; original run/job/checkout
+  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  Before naming a source run as passing proof, verify its workflow name/path,
+  event, head, conclusion and complete job inventory. Repository synchronization
+  jobs do not provide CI proof. Read the current retention ledger and aggregate;
+  original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
   agents still require passing candidate proof and must re-read head/base before
