@@ -62,7 +62,13 @@ export const piWorkerEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("auto_retry_start"), attempt: id, maxAttempts: id, delayMs: usageNumber, errorMessage: text }),
 ]);
 export const piWorkerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("ready"), sessionId: z.string().uuid(), model: input.optional(),
+  z.object({ type: z.literal("prompt_prefix"), prefix: z.object({
+    tools: z.string().regex(/^[a-f0-9]{64}$/).nullable(), system: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    model: z.string().regex(/^[a-f0-9]{64}$/).nullable(), thinking: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    gitStatusIncluded: z.boolean().nullable(), coverage: z.literal("assembled_inputs"),
+  }).strict() }).strict(),
+  z.object({ type: z.literal("startup_timing"), phase: z.enum(["worker_started", "resources", "session", "initialize"]), durationMs: usageNumber }).strict(),
+  z.object({ type: z.literal("ready"), sessionId: z.string().uuid(), append: z.string().optional(), model: input.optional(),
     thinkingLevel: text.optional(), levels: z.array(text), cost: usageNumber }).strict(),
   z.object({ type: z.literal("event"), event: piWorkerEvent }).strict(),
   z.object({ type: z.literal("rpc"), id, method: z.enum(["permission", "bridge", "apply", "readBase", "syncAuth", "lock", "unlock", "fileObservation"]),

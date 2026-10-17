@@ -370,9 +370,9 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
         checkActive();
         // Clamp BOTH axes in device pixels: deviceScaleFactor 2 doubles the
         // captured bitmap, and a `width: 50000px` body would otherwise drive
-        // a multi-hundred-MB allocation inside Chrome. A degenerate box (a
-        // page of only fixed-position elements) falls back to fullPage —
-        // Chrome rejects a zero-sized clip outright.
+        // a multi-hundred-MB allocation inside Chrome. Degenerate/null body
+        // boxes use document/viewport geometry at the origin, still bounded:
+        // positioned overflow can exceed both caps even with a zero body.
         const maxW = MAX_VIEWPORT_WIDTH / DEVICE_SCALE_FACTOR;
         const maxH = MAX_CAPTURE_HEIGHT / DEVICE_SCALE_FACTOR;
         const clip =
@@ -383,10 +383,24 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
                 width: Math.min(maxW, Math.ceil(box.width)),
                 height: Math.min(maxH, Math.ceil(box.height)),
               }
-            : undefined;
+            : await page.evaluate((widthCap, heightCap) => ({
+                x: 0,
+                y: 0,
+                width: Math.min(widthCap, Math.max(1, Math.ceil(Math.max(
+                  document.documentElement?.scrollWidth ?? 0,
+                  document.body?.scrollWidth ?? 0,
+                  window.innerWidth,
+                )))),
+                height: Math.min(heightCap, Math.max(1, Math.ceil(Math.max(
+                  document.documentElement?.scrollHeight ?? 0,
+                  document.body?.scrollHeight ?? 0,
+                  window.innerHeight,
+                )))),
+              }), maxW, maxH);
+        checkActive();
         const shot = await page.screenshot({
           type: "png",
-          fullPage: !clip,
+          fullPage: false,
           clip,
           omitBackground: false,
         });

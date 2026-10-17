@@ -43,9 +43,11 @@ export const GovernancePolicySchema = z.strictObject({
   egress: z.strictObject({ mode: z.enum(["record", "allowlist"]).optional(), allow: strings.optional(), deny: strings.optional(), max_bytes_per_turn: count.optional() }).optional(),
   outward: z.strictObject({ allow: outwardRules.optional(), hosts: strings.optional() }).optional(),
   taint: z.strictObject({ egress: z.strictObject({ allow: strings }).optional() }).optional(),
-  providers: z.array(z.strictObject({ paths: strings, allow: strings })).optional(),
+  providers: z.array(z.strictObject({ paths: z.array(relativePath).optional(), types: strings.optional(), allow: strings })
+    .refine(rule => rule.paths !== undefined || rule.types !== undefined, "A provider rule needs paths or types")
+    .transform(rule => ({ ...rule, paths: rule.paths ?? [] }))).optional(),
 });
-export type GovernancePolicyInput = z.infer<typeof GovernancePolicySchema>;
+export type GovernancePolicyInput = z.input<typeof GovernancePolicySchema>;
 
 /** Approved 2026-10-12 defaults; file/byte scope caps are explicitly provisional. */
 export const BUILTIN_GOVERNANCE_POLICY = {
@@ -61,12 +63,13 @@ export const BUILTIN_GOVERNANCE_POLICY = {
   commands: { deny: [] as Array<{ pattern: string; reason?: string }>, confirm: [] as Array<{ pattern: string; reason?: string }> },
   egress: { mode: "record" as "record" | "allowlist", allow: [] as string[], deny: [] as string[] },
   outward: { allow: [] as Array<{ command: string; remotes: string[] }>, hosts: [] as string[] },
-  taint: { egress: { allow: [] as string[] } }, providers: [] as Array<{ paths: string[]; allow: string[] }>,
+  taint: { egress: { allow: [] as string[] } }, providers: [] as Array<{ paths: string[]; types?: string[]; allow: string[] }>,
 };
 
 export function resolveGovernancePolicy(policy: GovernancePolicyInput) {
   const defaults = structuredClone(BUILTIN_GOVERNANCE_POLICY);
   return { ...defaults, ...policy,
+    providers: (policy.providers ?? defaults.providers).map(rule => ({ ...rule, paths: rule.paths ?? [] })),
     profiles: { ...defaults.profiles, ...policy.profiles },
     budgets: { turn: { ...defaults.budgets.turn, ...policy.budgets?.turn }, session: { ...defaults.budgets.session, ...policy.budgets?.session }, day: { ...defaults.budgets.day, ...policy.budgets?.day } },
     scope: { ...defaults.scope, ...policy.scope }, commands: { ...defaults.commands, ...policy.commands },
@@ -90,7 +93,7 @@ export function parseGovernancePolicy(bytes: Uint8Array): GovernancePolicyCheck 
   try {
     if (bytes.byteLength > GOVERNANCE_POLICY_MAX_BYTES) throw new Error("Policy exceeds the 1 MiB input bound");
     const input = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const data = parseFrontmatter(input).data;
+    const data = parseFrontmatter(input, { dataOnly: true }).data;
     const warnings: string[] = [];
     const commandRuleIndices: GovernanceCommandRuleIndices = { deny: [], confirm: [] };
     for (const list of ["deny", "confirm"] as const) {
@@ -109,6 +112,7 @@ export function parseGovernancePolicy(bytes: Uint8Array): GovernancePolicyCheck 
     }
     const parsed = GovernancePolicySchema.safeParse(data);
     if (!parsed.success) throw new Error(z.prettifyError(parsed.error));
+    if (parsed.data.providers?.length) warnings.push("Applying provider restrictions to a turn requires masking its git history.");
     const result: GovernancePolicyCheck = { schema_version: 1, ok: true, status: "valid", content_hash, errors: [], warnings, effective: resolveGovernancePolicy(parsed.data) };
     Object.defineProperty(result, "commandRuleIndices", { value: commandRuleIndices, enumerable: false });
     Object.defineProperty(result, "outwardRuleIndices", { value: outwardRuleIndices, enumerable: false });
@@ -155,4 +159,12 @@ export function checkGovernancePolicy(brainPath: string): GovernancePolicyCheck 
     return { schema_version: 1, ok: missing, status: missing ? "missing" : "invalid", content_hash: null,
       errors: missing ? [] : [error instanceof Error ? error.message : String(error)], warnings: [], effective: resolveGovernancePolicy({ schema_version: 1 }) };
   } finally { for (const fd of fds.reverse()) closeSync(fd); }
+}
+
+/** Matching rules intersect their allowlists; unknown recipients never authorize a match. */
+export function providerAllows(rules: EffectiveGovernancePolicy["providers"], path: string, type: string, recipient: string | undefined): boolean {
+  return rules.every(rule => {
+    const matches = rule.types?.includes(type) || rule.paths?.some(pattern => new Bun.Glob(pattern).match(path));
+    return !matches || (recipient !== undefined && rule.allow.includes(recipient));
+  });
 }

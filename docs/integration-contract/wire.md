@@ -21,8 +21,8 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-16`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1029-1043`).
+`packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1031-1046`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -30,6 +30,18 @@ usage record. The REST operation receipt uses the same synthetic journal for
 Undo; it does not revive the original turn.
 The optional budget and scope receipts below supply enforced inference facts.
 Missing facts remain unknown; neither receipt implies network enforcement.
+
+**Configuration coverage (additive, #1846).** The optional
+`configurationCoverage` is `incomplete` when the retained configuration-input
+inventory is nonempty, regardless of journal state; it is `complete` only for
+a complete observation with an empty inventory. Empty recording, partial or
+expired observations report `unknown`. An absent turn omits the field. Ordinary
+missing retained versions and capacity errors do not independently make
+configuration identification incomplete. Expiration retains the inventory and
+its coverage evidence. The existing summary frame/history/HTTP responses carry
+this field without eager detail requests or changed-path accounting changes.
+Older summaries may omit it; clients may use detailed configuration inventory
+entries after expansion, and must never treat omission as complete coverage.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -65,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3618-3624`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1783-1785`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3705-3711`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1814-1816`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -95,7 +107,11 @@ frame, authenticated history and HTTP journal summary. Its facts are
 `policySource`, `limits` (`files_changed`, `minutes`, `tool_calls`, `turn_bytes`),
 `hardTimeoutMs`, `calls`, `minutes`, nullable `changedPaths`/`observedBytes`,
 `coverage` (`observed_versions` or `partial`), `observedAt` and `receipts`.
-The byte count is a sum of captured changed regular-file versions, not a
+The byte count sums captured changed hashed regular-file versions. Ignored
+regular files have no content hash and contribute their largest observed after-size
+once per turn per path, rather than their full size on every observation (#2027).
+This corrects repeated metadata observations inflating the existing observed-write
+counter; field shapes and scope decisions are unchanged. The counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.
@@ -429,6 +445,61 @@ coverage are unchanged.
 
 <a id="activity-stream-rev-3-additive"></a>
 
+### Host turn lifecycle (additive)
+
+`ActivityTurnLifecycle` is a persisted host envelope, independent of the existing
+backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `turnId` is the host turn identity; `sessionId`
+is null until observed, and `backendRunId` is null until a backend root is
+actually recorded. It never owns tokens, costs, spans or rollups. Inference
+aggregation continues to read backend rollups exactly once.
+
+`acceptedAt` is the observed host acceptance time, before routing/admission.
+Queued requests retain their observed queue acceptance and `dequeuedAt`;
+`queueWaitMs` is null when no queue interval was observed. Milestones are
+`governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
+`journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
+All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+governed/budget/journal phases not configured for this turn. Other null
+milestones mean not reached or unavailable; they never claim zero-duration
+success. A started phase whose completion is null is pending, or incomplete
+when the enclosing record is terminal.
+
+`totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
+acceptance to the first observed backend frame/Activity event or backend bridge
+operation that opens its root. Host cancellation/revocation/follow-up decisions
+do not count as backend observations. Governed, budget and journal
+phase durations measure their paired milestones; an incomplete terminal phase
+measures its observed start to `failureObservedAt` (the caught failure
+boundary), or terminal time after interruption when no failure was observed. `backendStartupMs` measures
+backend invocation to the first frame, or the observed failure boundary
+when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
+values do not redefine backend-run `startedAt` or `durationMs`.
+
+The envelope terminates once with the existing outcome vocabulary: `success`,
+`error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
+in nullable `reason`. Admission refusal, cancellation/revocation and failures
+before any frame persist an envelope without fabricating a backend run or
+first frame. Pre-backend cancellation actors, kinds and observed times remain
+in `hostEvents` (also pre-root revocation and follow-up actors); after a
+backend root exists the existing cancellation
+events remain on that root. Terminal time follows host cleanup. The existing boot recovery
+owner interrupts unfinished session envelopes, including admission-only
+records; late observations cannot reopen a terminal record. Recording/fanout
+failures never fail the observed turn. Existing historical runs have no
+envelope and their outer timing remains unknown; no timestamps are backfilled.
+
+Activity snapshots add optional `lifecycles`; deltas add optional `lifecycle`,
+using the same global change cursor, with independent per-lifecycle sequence
+numbers under `lifecycleId` (the delta `runId`). Backend-run sequences remain
+unchanged.
+Snapshot high-water entries cover envelope-only identities too. Index/session
+snapshots include recent envelopes; run snapshots may contain an envelope
+without spans. Old clients may ignore these additions. Envelopes survive
+backend detail pruning alongside rollups. Retained evidence consumers must
+include the envelope as separate host evidence when present, report absence
+as unknown, and preserve its backend link without treating it as inference
+usage. The retained export planned in #1767 is not a shipped surface here.
+
 ### Activity stream (rev 3, additive)
 
 Hosts that record agent activity advertise `capabilities.activity` on
@@ -441,7 +512,11 @@ deltas at or below the snapshot's high-water for that run. Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,
-never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
+never zero). Claude main-turn usage/cost uses completed root and child
+responses, including resumed turns. Newly observed session-cumulative usage
+outside those receipts is retained separately as unattributed Activity work;
+unknown/imported coverage never becomes a zero-cost claim. `tool_use_start`
+additionally carries an optional `parentToolUseId` marking tool
 calls that ran inside a subagent. Activity spans may carry the additive
 `principalId` of the actor responsible for them; absence means unattributed.
 Each human tool response also appends an `approval_decision` event whose payload
@@ -1192,9 +1267,38 @@ is `{ outcome: "completed" | "error", facts, delivery: "quiet" | "when-idle" }`.
 Every event carries its scope and is validated by `parseLiveConversationEvent`
 before the host reads it; an event for another scope is ignored and an
 invalid one closes the epoch. `assertLiveConversationProvider` and
-`assertLiveConversationSession` are the registration checks. No shipped
-adapter, client capture/playback or provider network call is part of this
-contract.
+`assertLiveConversationSession` are the registration checks. Client
+capture/playback and live qualification remain separate from this host contract.
+
+**Gemini adapter (additive, #958).**
+`createGeminiConversationProvider(apiKey: string): LiveConversationProvider`
+is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
+`CreateAppOptions.conversationProvider`; no environment auto-selection or new
+credential discovery is added. The fixed configuration is Gemini Developer API
+v1beta BidiGenerateContent, `gemini-3.8-live`, Kore, mono PCM16 input at 16 kHz
+and output at 24 kHz. It waits for `setupComplete`, uses manual activity and
+one `NON_BLOCKING` advisory `host_task`; it never executes vendor tools.
+Host results preserve native IDs, use top-level `SILENT` or `WHEN_IDLE` and
+`willContinue: false`. Pending work does not block input or the ordinary chat
+bridge's progress, questions and permission controls. A native handle is never
+bound to the most recently captured utterance just because it arrived then.
+
+A transcription `finished` marker closes input attribution; model
+`turnComplete` does not. Without that marker, the adapter refuses a second
+utterance and ends the epoch visibly rather than attributing delayed input to
+it. This marker is not calibrated certainty or a semantic commit: input origin
+and certainty remain unknown, requiring review. Native cancellation withdraws
+publication, not completed host effects. Aborted/replaced epochs and consumed
+or withdrawn handles cannot publish later results. Reconnection opens a new
+session and sends bounded historical host outcomes as context only.
+
+Exact permission speech, acoustic echo isolation, word alignment, calibrated
+certainty and remote cancellation acknowledgement remain unproven. The local
+transport tests do not certify a live handshake or audible/device behavior;
+#961 gates activation. Provider errors and setup failures use fixed diagnostics
+that never echo credential-bearing URLs or remote error text. Events, frame
+sizes, outbound buffering and native handle ledgers are bounded; malformed
+frames, backpressure and disconnect end capture/admission visibly.
 
 <a id="interactive-answer-receipts-breaking-910"></a>
 
@@ -1623,3 +1727,14 @@ stays in the original turn. The states, exact hashes/diffs and authenticated
 same-request read are specified in the [HTTP reference](../http-api.md#policy-proposal-receipts-additive-1662).
 No client field grants authority or activates policy. Approval writes only the
 reviewed server-held bytes; changed input requires a new proposal.
+
+### Claude title-helper accounting (#2052)
+
+No WebSocket field changes. Root result/live usage remains completed main/child
+response usage and excludes title-helper calls. Supported title-helper
+receipts become separate `Claude session title` Activity runs within the
+existing cumulative reconciliation transaction; overall/session totals retain
+helper spend once, and unmatched auxiliary usage remains unattributed. Export
+loss or unavailable attribution does not assign a helper to a model by guess
+or imply zero cost. The additive server-only evidence event is documented in
+[the package API contract](package-api.md#claude-title-helper-evidence-additive-2052).

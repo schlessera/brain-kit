@@ -184,6 +184,8 @@ const TABLES = [
   "inbox_scheduler_heartbeats",
   "inbox_budget_reservations",
   "inbox_intake_receipts",
+  "inbox_interactive_shares",
+  "inbox_share_applications",
   "inbox_completed_tool_calls",
   "inbox_action_contexts",
   "inbox_notice_clients",

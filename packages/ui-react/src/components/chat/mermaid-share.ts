@@ -1,12 +1,13 @@
 import type { BrainUiRoot } from "../../root.js";
 import { renderMermaidSvg, sizeSvgForExport } from "../../lib/mermaid.js";
+import { staticMermaidSvg } from "../../lib/mermaid-svg.js";
 import { renderAndShare, shareFile, shareText } from "../../lib/share.js";
 import type { ShareOption } from "../share/share-menu.js";
 
 /**
  * Share options for a single diagram.
  *
- * Exports are rendered in the LIGHT theme, not the dark one on screen: a share
+ * Exports are rendered in the PRINT theme, not the scheme on screen: a share
  * lands in WhatsApp, a mail client or a printer, all of which assume paper.
  * PNG and PDF go through the same /api/render path as every other share, so a
  * diagram in a shared message and a diagram shared on its own are the same
@@ -27,9 +28,9 @@ function figureHtml(svg: string, tight: boolean): string {
 }
 
 async function exportSvg(source: string): Promise<string> {
-  const svg = await renderMermaidSvg(source, "light");
+  const svg = await renderMermaidSvg(source, "print");
   if (!svg) throw new Error("This diagram can't be rendered yet");
-  return sizeSvgForExport(svg);
+  return sizeSvgForExport(staticMermaidSvg(svg, "print"));
 }
 
 async function exportHtml(source: string, tight: boolean): Promise<string> {

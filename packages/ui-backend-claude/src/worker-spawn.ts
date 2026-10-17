@@ -1,10 +1,12 @@
 /** Unconditional isolated Claude child; project MCP, tools and descendants inherit it. */
+import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
+import { rewriteWorkerRtk, workerCleanupUnconfirmed } from "@schlessera/brain-ui-sdk/internal";
 import { EventEmitter } from "node:events";
 import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
+import { prepareRecoveredWorkerFiles, createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -85,7 +87,10 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
-  startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView) {
+  startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
+  persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
+  /** Host-prepared ordinary transport; selecting it keeps native credentials on the host. */
+  egress?: { proxyDir: string }) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -93,6 +98,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   // Every worker's /tmp is a private tmpfs of exactly this allowance (#1703).
   const turnTempLimits: WorkerStateLimits = stateOptions.turnTempLimits ?? resolveTurnTempLimits({});
   /** The running worker's turn temp, for the `turn_temp` tool and the pressure warnings. */
+  let liveWorker: LaunchedWorker | undefined;
   let liveTurnTemp: WorkerStateHandle | undefined;
   let liveConfigurationRoot: string | undefined;
   let liveFileObserver: import("@schlessera/brain-ui-sdk/internal").LaunchedWorker["observeFile"];
@@ -119,12 +125,13 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
         state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, limits: stateLimits, turnTempLimits,
-          ephemeral: Boolean(restricted) });
+          ephemeral: Boolean(restricted), hostInference: Boolean(egress) });
       } catch (error) { record(error); throw error; }
       const emitter = new EventEmitter();
       let worker: LaunchedWorker;
       try {
         const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+        if (!restricted) childEnv.PATH = brainWorkerPath(brainPath, childEnv.PATH);
         childEnv.CLAUDE_CONFIG_DIR = WORKER_STATE;
         const populateState = (root: string) => { state.populate(root); observation = state.observation; };
         if (restricted) {
@@ -141,13 +148,14 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
-      } catch (error) { record(error); state.release(); throw error; }
+      } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }
       let startFailure: unknown;
       reports.push(worker.limitReport);
       const handle = worker.state!;
+      liveWorker = worker;
       const turnTemp = worker.turnTemp;
       liveTurnTemp = turnTemp;
       liveConfigurationRoot = worker.configurationRoot;
@@ -195,7 +203,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         const promoter = turnTemp && promotion && sandbox && !restricted ? createTurnTempPromoter({ brain: sandbox.brain, tmp: turnTemp.root,
           turnId: promotion.turnId, scratch: WORKER_SCRATCH, exclude: [WORKER_STATE],
           scratchWritable: sandbox.areas.some(area => area.name === "scratch" && area.mount.writable) }) : undefined;
-        try { state.persist(handle.root, promoter?.rewrite); } catch (error) {
+        let persistenceAttempted = false;
+        try {
+          const recovered = await prepareRecoveredWorkerFiles(handle.root, signal);
+          if (promoter && recovered) await state.prepareCopyOut?.(handle.root, text => promoter.prepareRecovery(text, signal), signal);
+          if (recovered) signal.throwIfAborted();
+          persistenceAttempted = true;
+          state.persist(handle.root, promoter?.rewrite, persistMemory);
+        } catch (error) {
+          if (!persistenceAttempted) persistMemory?.(null, () => {});
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
           else if (!failure) failure = workerStateSaveFailure(error);
@@ -210,8 +226,13 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       })
         .finally(() => {
           checks.delete(check);
+          if (liveWorker === worker) liveWorker = undefined;
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
-          try { handle.close(); turnTemp?.close(); } finally { state.release(); }
+          const failures: unknown[] = [];
+          try { handle.close(); } catch (error) { failures.push(error); }
+          try { turnTemp?.close(); } catch (error) { failures.push(error); }
+          if (failures.length) throw failures[0];
+          state.release();
         });
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
       void done.catch(() => {});
@@ -230,6 +251,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
     /** A server-side path to the running worker's `/tmp`, while one runs (#1703). */
     turnTempRoot: (): string | undefined => liveTurnTemp?.root,
     configurationRoot: (): string | undefined => liveConfigurationRoot,
+    // An opaque wrapper may alter PATH/identity below the observed process.
+    rewriteRtk: (command: string) => config.wrapper ? Promise.resolve(command) : rewriteWorkerRtk(liveWorker, command),
     observeFile: (path: string) => liveFileObserver?.(path),
     stateRoom: (): StateRoomObservation | undefined => observation,
     /** The same, once the workers have exited or `waitMs` has passed. */
@@ -249,7 +272,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       const deferred = deferredWorkerSpawn(async signal => {
         if (!startupView) throw new Error("Strict writable workers require a prepared native startup view.");
         let output: PreparedWorkerOutput;
-        try { output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, signal }); }
+        try { output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, folderPaths: sandbox?.retainedFolders, signal }); }
         catch (error) { record(error); throw error; }
         try {
           signal.throwIfAborted();

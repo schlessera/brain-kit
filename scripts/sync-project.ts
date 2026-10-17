@@ -65,7 +65,7 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
   ],
   Hardening: [{ epics: [1343, 1636, 1642, 1643, 1644, 1645, 1646, 1647], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347, 2045],
     also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598, 1392],
     repo: "schlessera/brain-kit",
   }],
@@ -75,7 +75,7 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     repo: "schlessera/brain-kit",
   }],
   "Answer quality": [{ epics: [363, 364, 365, 838, 1603], also: [50], repo: "schlessera/brain-kit" }],
-  Modules: [{ epics: [32, 524, 731, 732, 733, 1100], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
+  Modules: [{ epics: [32, 524, 731, 732, 733, 1100, 2079], also: [59, 60, 1393], repo: "schlessera/brain-kit" }],
   "Async collaboration": [{ epics: [51], also: [], repo: "schlessera/brain-kit" }],
   Voice: [{ epics: [54], also: [91], repo: "schlessera/brain-kit" }],
   "Contract and 1.0": [{ epics: [56, 1341, 1345], also: [57, 62], repo: "schlessera/brain-kit" }],

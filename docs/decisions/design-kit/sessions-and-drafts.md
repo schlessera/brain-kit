@@ -297,7 +297,7 @@ acknowledges nothing.
 
 **The stored record holds identifiers only**, under the root's own prefix:
 `${storagePrefix}:trackers:v1`, through the root's `storageKey`
-(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:180-186`).
+(`const prefix = options.storagePrefix`, `packages/ui-react/src/root.ts:182-188`).
 There is no global key.
 
 ```ts
@@ -341,7 +341,7 @@ event deletes the whole set. Draft content never enters this record (§5).
   null, no time is printed.
 - **`lastActiveAt` and `lastTouched` are never read.** A newer
   `lastActiveAt` can mean that a new turn started
-  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1563-1593`),
+  (`export interface ChatSession`, `packages/ui-sdk/src/protocol.ts:1567-1597`),
   and `lastTouched` is LRU bookkeeping for buffer eviction.
 
 **Merging snapshots and live frames.**

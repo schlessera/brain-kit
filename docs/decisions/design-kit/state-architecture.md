@@ -151,7 +151,7 @@ inside, and `request_image_mask` returns a human-readable sentence with the
 structure in `details`. Worse: **the Pi adapter sends text content only and drops
 `details`** (`type: "tool_result"`, `event-adapter.ts:34`; `toolResultText`,
 `:46`), and Claude uses MCP `content` arrays via a different path
-(`const output =`, `stream-adapter.ts:181`). So "JSON payload in the output
+(`const output =`, `stream-adapter.ts:203`). So "JSON payload in the output
 string" is a *convention we would be establishing*, not one we are following.
 The no-bump conclusion still holds — `Additions never bump it`,
 `packages/ui-sdk/src/protocol.ts:54` states additions do not bump the rev, only semantics changes

@@ -43,3 +43,6 @@ export { GEMINI_FLASH_MODEL } from "./lib/llm-defaults.js";
 export { checkGovernancePolicy, parseGovernancePolicy, resolveGovernancePolicy, GovernancePolicySchema, GOVERNANCE_POLICY_PATH, BUILTIN_GOVERNANCE_POLICY } from "./lib/governance-policy.js";
 export type { GovernancePolicyInput, EffectiveGovernancePolicy, GovernancePolicyCheck } from "./lib/governance-policy.js";
 export { geminiCompletions } from "./providers/completions/gemini.js";
+
+export { collectModuleRenderers } from "./lib/module-renderers.js";
+export type { ResolvedModuleRenderer } from "./lib/module-renderers.js";

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "type": "layer-stack",
+  "title": "Homecoming foundations",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "purpose",
+      "label": "Reach Ithaca",
+      "role": "focal"
+    },
+    {
+      "id": "plan",
+      "label": "Voyage plan"
+    },
+    {
+      "id": "crew",
+      "label": "Crew practice"
+    },
+    {
+      "id": "raft",
+      "label": "Raft build"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "stack": {
+      "direction": "up",
+      "directionLabel": "PURPOSE"
+    }
+  }
+}

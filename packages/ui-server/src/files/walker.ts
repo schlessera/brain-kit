@@ -336,7 +336,7 @@ const KNOWN_TEXT_EXT = new Set([
 // Binary by definition, whatever their first bytes look like. A PDF written
 // uncompressed is plain ASCII, and sniffing it as text would show its source
 // instead of its pages.
-const KNOWN_BINARY_EXT = new Set([".pdf", ".mp3", ".wav", ".mp4", ".webm"]);
+const KNOWN_BINARY_EXT = new Set([".svg", ".pdf", ".mp3", ".wav", ".mp4", ".webm"]);
 
 function extOf(name: string): string {
   const i = name.lastIndexOf(".");

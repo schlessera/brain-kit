@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -106,20 +107,22 @@ async function stopHost(h: Host | undefined) {
   await h.app.close();
 }
 
+const hook = runtimeHookPhases("auth-expiry-runtime");
+
 beforeAll(async () => {
   if (!executablePath) return;
   if (!process.env.BRAIN_AUTH_FIXTURE_BUILT) {
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
   }
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-auth-expiry-"));
   brain = resolve(scratch, "brain");
-  await createFixtureBrain(repo, brain);
+  await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
   assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/auth-expiry-client.ts"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
+  const [bundleOut, bundleErr, bundleCode] = await hook.child("client-build", bundle);
   if (bundleCode !== 0) throw new Error(`Local work client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
@@ -129,8 +132,8 @@ beforeAll(async () => {
   await writeFile(resolve(scratch, "ithaca.gpx"), '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Approaching Ithaca</name><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>');
   await writeFile(resolve(scratch, "microphone.wav"), generateWav(AUDIO_FIXTURES.note10s));
   passwordHash = await Bun.password.hash(PASSWORD);
-  host = await startHost("ithaca.db");
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${resolve(scratch!, "microphone.wav")}`, "--autoplay-policy=no-user-gesture-required"], timeout: 120_000 });
+  host = await hook.phase("host-start", () => startHost("ithaca.db"));
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${resolve(scratch!, "microphone.wav")}`, "--autoplay-policy=no-user-gesture-required"], timeout: 120_000 }));
 }, 180_000);
 
 afterAll(async () => {

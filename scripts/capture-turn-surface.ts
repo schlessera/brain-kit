@@ -64,7 +64,7 @@ export async function captureSurface(control?: {
   testSubscriptionRefusal?: boolean;
   testPolicyModelRefusal?: boolean;
   finalOutputTokens?: number;
-}) {
+}, installedCliPath?: string) {
   const home = mkdtempSync(join(tmpdir(), "turn-surface-home-"));
   mkdirSync(join(home, ".claude"));
   const fixture = createFixture({ corpus: control?.corpus });
@@ -103,6 +103,7 @@ export async function captureSurface(control?: {
     const { query } = await import(sdkEntry) as typeof import("@anthropic-ai/claude-agent-sdk");
     const options: Options = {
       ...prepared.turn.options, model: SURFACE_MODEL, maxTurns: calls.length + 1, persistSession: false,
+      ...(installedCliPath ? { pathToClaudeCodeExecutable: installedCliPath } : {}),
       abortController,
       mcpServers: { brain: core, ...prepared.turn.options.mcpServers, ...(bridge ? { "brain-ui": bridge } : {}) },
       // Capture uses bogus API auth on loopback, not the subscription gate.

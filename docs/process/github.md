@@ -266,10 +266,12 @@ sit in the Ready view as traps.
 2. **Triage.** `type:`, `area:`, a priority if it is sorted, and a milestone if
    it is committed. Add it to the board.
 3. **Ready.** Context is complete and nothing blocks it. Add `agent-ready` if a
-   stranger could implement it from the body alone. Task templates do not add
-   it automatically; triage establishes readiness.
+   stranger could implement it from the body alone. The narrow blocked upper-layer
+   selection exception below retains real dependency labels and board Status. Task
+   templates do not add it automatically; triage establishes readiness.
 4. **In progress.** Assign yourself, move the card. One issue at a time per
-   branch: `<type>/<issue-number>-<slug>`.
+   branch: `<type>/<issue-number>-<slug>`. A dependent slice may use a separate
+   branch under the [stack rules](#stacked-pull-requests).
 5. **In review.** Open the PR with `Closes #<n>` in the body when merging meets
    every acceptance criterion and verification step. If a required human step
    will remain, use `Refs #<n>` instead and name the step under "Anything left
@@ -296,6 +298,76 @@ body, a ruling is recorded where it unblocks the work, `blocked` comes off when
 its last blocker closes (the `project-sync` workflow does it for a readable
 `Blocked by` line), and a duplicate is closed into one survivor. The `github`
 skill's "Keeping an issue true" has the procedure.
+
+## Stacked pull requests
+
+Use a stack when independently reviewable slices depend on each other. A single
+concern stays in one PR; unrelated work uses separate branches or stacks. Load
+the [gh-stack skill](../../.agents/skills/gh-stack/SKILL.md) for commands and
+non-interactive operation. These project rules apply alongside it:
+
+- Plan layers before implementation. Each branch owns one reviewable slice,
+  including its tests and required docs/changeset; every merged prefix must be
+  usable and satisfy the existing merge bar. Keep the issue branch naming
+  convention, adding a slice suffix when several layers advance one issue.
+- A scoped upper-layer issue may be selected while `blocked` only when every
+  remaining open blocker is an open issue represented by an open, non-draft
+  lower-layer PR in the epic's declared stack, with complete passing selected
+  proof for its current parent/head candidate. Verify actual membership,
+  head/base and the declared immediate parent before claiming and again before
+  checkout creation; start from that verified parent head. Any genuine `needs:`
+  label, assignment, non-stack blocker, missing/ambiguous/draft parent or
+  unavailable/failed/cancelled/unexpectedly skipped selected proof rejects the
+  exception. All-closed dependencies use ordinary reconciliation and a merged
+  parent permits starting at `main`. Keep `Blocked by` and `blocked` while the
+  lower layer remains open; board Status and `project-sync` are unchanged. The
+  [work-issue selection review](../../.agents/skills/work-issue/SKILL.md#stack-selection-exception)
+  gives passing/rejecting examples and the evidence to record.
+- The bottom PR targets `main`; each upper PR targets its immediate parent.
+  Run `bun run check:pr --base origin/main` at the bottom and
+  `bun run check:pr --base <parent-ref>` above it, after fetching or verifying
+  that parent. CI and contract gates already use the PR's declared base.
+  Recheck the diff and affected proof after rebasing or retargeting.
+- Each PR uses the repository template and carries its own title, labels,
+  release milestone and proof. Replace generated titles/bodies after
+  `gh stack submit --auto`; inspect each layer's contract diff and changeset
+  requirement against its parent. Do not copy a lower layer's proof as an
+  upper layer's receipt.
+- A partial slice uses `Refs #N` and states what remains. Only the layer that
+  completes all criteria and required verification uses `Closes #N`.
+  [GitHub interprets closing keywords only for PRs targeting the default branch](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
+  The actor merging the stack verifies and reconciles each actually included
+  layer's issue closure against delivered commits/tree, acceptance and required
+  verification evidence. If automatic closure did not happen, close manually
+  only after those criteria are satisfied and record delivery evidence. Partial
+  deliveries and remaining human/verification work stay open with exact next
+  actions. Every merge
+  includes milestone readback for all included PRs and the issues each
+  completes or advances.
+- Parent or ancestor review changes invalidate affected candidate proof and
+  readiness. Communicate changed identities; each owner refreshes their own
+  layer in dependency order, verifies the current immediate parent and its
+  qualification, rebases, inspects the diff/conflicts, and runs parent-relative
+  preflight plus required hosted confirmation. Retain older receipts with their
+  actual identities. An absent owner requires a documented dependency or an
+  explicit ownership handoff, never silent cross-owner edits/pushes. Respect
+  clean dedicated worktrees and never push to a merged branch. Scope-ready
+  labels alone do not establish current candidate qualification. A #2111
+  reservation never waives per-layer checks or covers several candidates.
+- Merge stacked PRs with `gh stack merge <target> --yes --squash`. A target
+  includes its unmerged ancestors; a bare number resolves as a stack number
+  before a PR number. Confirm the resolved membership and inspect all included
+  PRs' current heads, bases, reviews, milestones and selected checks immediately
+  before merging. The installed command has no `--match-head-commit` flag;
+  do not describe that readback as an atomic head lock or bypass branch rules.
+  If native stacks are unavailable, report the CLI error and use ordinary PRs
+  only after deliberately reconciling their ancestry and bases.
+- Upper-layer CI proves a merge with its parent branch, not with live `main`.
+  Record that actual parent/head/checkout tree. After merging, verify every
+  included PR's merge result on `main`, the integrated commits/trees, issue
+  states and milestones, and automatic main-push proof. A queued stack is not
+  yet merged. Use the stack-specific guidance in
+  [CI and merge](../../.agents/skills/work-issue/references/ci-and-merge.md#stacked-pr-evidence).
 
 ## What an agent does before writing code
 

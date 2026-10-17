@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { basename, dirname, extname, join, relative } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import {
@@ -7,9 +7,10 @@ import {
   lintDocument,
   type RenderContentType,
 } from "@schlessera/brain-render-template";
-import { documentTitle, isFullDocument } from "@schlessera/brain-render-template/internal";
+import { documentTitle, isFullDocument, prepareStaticDocument } from "@schlessera/brain-render-template/internal";
 import { DOCUMENT_KINDS, readSkeleton, resolveKind } from "@schlessera/brain-render-template/kinds";
 
+import { collectModuleRenderers } from "../../lib/module-renderers.js";
 import { resolveWritable, writeFileSafely } from "../../lib/safe-path.js";
 import {
   assertScratchWritable,
@@ -31,6 +32,8 @@ import type { CoreCommand } from "../types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
 
 const HELP = `brain render <path|-> — render a document to PDF, PNG, or standalone HTML
+
+The input path must be inside the brain; use - for stdin.
 
   --format <fmt>        pdf (default), png, or html
   --out <path>          Output path, inside the brain. Default: the input path
@@ -185,6 +188,21 @@ function runReference(pos: string[], flags: Record<string, string | boolean>, js
   process.stdout.write(readSkeleton(kind));
 }
 
+/** Validate only render's source before the CLI's read-only write refusal.
+ * Reference forms have no source, and stdin must not be consumed by this check.
+ * The handler repeats it immediately before reading, since the path can change.
+ */
+export function validateRenderInput(args: string[], root: string): void {
+  const { args: pos, flags } = parseArgs(args);
+  if (flags.kind !== undefined || flags.blocks === true) return;
+  const input = pos[0];
+  if (!input) throw new UsageError("Usage: brain render <path|-> [--format pdf|png|html] [--out <path>]");
+  if (input === "-") return;
+  const abs = resolveWritable(root, input);
+  if (!abs) throw new UsageError(`Path is not inside the brain: ${input}`);
+  if (!existsSync(abs)) throw new UsageError(`No such file: ${input}`);
+}
+
 export const renderCommand: CoreCommand = {
   summary: "Render a document to PDF, PNG, or standalone HTML",
   helpBlock: HELP,
@@ -229,7 +247,7 @@ export const renderCommand: CoreCommand = {
 
     // Frontmatter is metadata; rendering it verbatim would put a wall of YAML
     // at the top of every brain document.
-    const parsed = parseFrontmatter(raw);
+    const parsed = parseFrontmatter(raw, { dataOnly: true });
     const content = parsed.content.trimStart();
     const frontmatterTitle =
       typeof parsed.data.title === "string" && parsed.data.title ? parsed.data.title : undefined;
@@ -283,8 +301,34 @@ export const renderCommand: CoreCommand = {
     const ownTitle = contentType === "html" && isFullDocument(content) ? documentTitle(content) : undefined;
     const runningTitle = flags["no-running-title"] === true ? false : undefined;
 
-    const html = buildHtmlDocument({ content, contentType, title, allowHosts, runningTitle });
-    const warnings = lintDocument(html).map((w) => w.message);
+    const declarations = collectModuleRenderers(cli.brain.modules);
+    const entries = new Map<string, Promise<{ toStatic?: unknown; needsBrowser?: unknown }>>();
+    const prepared = await prepareStaticDocument({ content, contentType, title, allowHosts, runningTitle }, {
+      path: fromStdin ? undefined : sourceLabel,
+      rendererFor: async (language) => {
+        const declaration = declarations.find((entry) => entry.static && entry.fences?.includes(language));
+        if (!declaration?.static) return null;
+        const mod = cli.brain.modules.find((mod) => mod.manifest.name === declaration.module)!;
+        let entry = entries.get(declaration.static);
+        if (!entry) { entry = import(Bun.resolveSync(declaration.static, mod.dir)); entries.set(declaration.static, entry); }
+        const loaded = await entry;
+        if (typeof loaded.toStatic !== "function") throw new Error("missing named export toStatic");
+        return { needsBrowser: loaded.needsBrowser === true, toStatic: loaded.toStatic as (source: string, options: { theme: "print"; path?: string }) => Promise<string> };
+      },
+      localSvg: async (source) => {
+        if (!/\.svg$/i.test(source) || /^(?:[a-z][a-z0-9+.-]*:|[/\\])/i.test(source)) return null;
+        let decoded: string;
+        try { decoded = decodeURIComponent(source); } catch { return null; }
+        const image = resolveWritable(root, join(fromStdin ? "." : dirname(input), decoded));
+        if (!image) return null;
+        let svg: string;
+        try { if (!statSync(image).isFile()) return null; svg = readFileSync(image, "utf8"); } catch { return null; }
+        if (lintDocument(buildHtmlDocument({ content: svg, contentType: "html" })).some((warning) => ["script", "network-resource", "remote-image"].includes(warning.code))) return null;
+        return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+      },
+    });
+    const { html } = prepared;
+    const warnings = prepared.warnings.map((w) => w.message);
 
     // --- write. The destination is classified again now, from its name and
     // its freshly resolved directory: the renderer ran in between, and a

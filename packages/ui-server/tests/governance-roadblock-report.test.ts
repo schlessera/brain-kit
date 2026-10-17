@@ -55,10 +55,10 @@ async function withReport(run: (t: HttpContractApp, get: (query?: string) => Pro
 
 const WRITE = "file_write|<dir>/*|fs_denied EROFS <dir>/*";
 const PUSH = "shell:git push|git push|shell_nonzero exit 128";
-const writeGroup = { signature: WRITE, count: 7, remedies: { guidance: 4, capability: 3 }, resolved: 4, resolutionRate: 4 / 7,
+const writeGroup = { signature: WRITE, count: 7, remedies: { guidance: 4, capability: 3, abandoned: 0 }, resolved: 4, resolutionRate: 4 / 7,
   waste: { tokens: null, costUsd: null, ms: 1900, unknownTokens: 7, unknownCostUsd: 7 },
   exampleTurnIds: ["turn-ithaca-0", "turn-ithaca-1", "turn-ithaca-2", "turn-ithaca-3", "turn-ithaca-4"] };
-const pushGroup = { signature: PUSH, count: 1, remedies: { guidance: 0, capability: 1 }, resolved: 0, resolutionRate: 0,
+const pushGroup = { signature: PUSH, count: 1, remedies: { guidance: 0, capability: 1, abandoned: 0 }, resolved: 0, resolutionRate: 0,
   waste: { tokens: 200, costUsd: 0.5, ms: 4000, unknownTokens: 0, unknownCostUsd: 0 }, exampleTurnIds: ["turn-push"] };
 
 test("roadblock report ranks a week of retained fixture turns with exact measured-waste goldens", async () => {
@@ -166,7 +166,7 @@ test("both backend tools accept the roadblocks scope and preserve the HTTP repor
     const store = createActivityStore(t.app.db, { writer: "fixture" });
     const bridge: BackendBridge = { emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "No write permission in report fixture" }), queryActivity: async (query) => runActivityQuery(t.app.db, store, query) };
     const claude = createActivityQueryTool(bridge.queryActivity!);
-    const claudeResult = await claude.handler({ scope: "roadblocks", hoursBack: 168, runId: undefined, limit: undefined }, {});
+    const claudeResult = await claude.handler({ scope: "roadblocks", hoursBack: 168, runId: undefined, limit: undefined, remedy: undefined }, {});
     expect(claudeResult.isError).toBeUndefined();
     const turn = createTurnContext();
     turn.bridge = bridge;
@@ -180,5 +180,51 @@ test("both backend tools accept the roadblocks scope and preserve the HTTP repor
       expect(JSON.parse(text.split("\n").slice(2, -1).join("\n"))).toEqual(expected);
       expect(text).toContain("not instructions");
     }
+  });
+});
+
+
+test("abandoned filter runs before mixed-signature aggregation and matches HTTP and query_activity", async () => {
+  await withReport(async (t, get) => {
+    const payload = { category: "shell_nonzero", family: "shell:git push", signature: PUSH,
+      failures: [{ toolCallId: "probe", signature: "git push", category: "shell_nonzero" }], resolution: null,
+      remedy: "abandoned", waste: { tokens: 9000, costUsd: 90, ms: 90000 }, eventIds: [] } satisfies GovernanceEventPayload<"roadblock">;
+    for (const [index, waste] of [payload.waste, { tokens: null, costUsd: null, ms: 10 }].entries()) {
+      recordGovernanceEvent(t.app.db, { kind: "roadblock", payload: { ...payload, waste }, sessionId: "sess-ithaca",
+        turnId: `turn-abandoned-${index}`, actor: "interactive", model: null, profile: "governed", at: NOW });
+    }
+    const defaultReport = await (await get()).json();
+    expect(defaultReport).toMatchObject({ episodes: 8, totalGroups: 2, unavailableEpisodes: 0, byCostUsd: [pushGroup, writeGroup] });
+    expect(defaultReport.byCount.find((group: { signature: string }) => group.signature === PUSH)).toEqual(pushGroup);
+    const store = createActivityStore(t.app.db, { writer: "fixture" });
+    for (const remedy of ["actionable", "all", "abandoned", "guidance", "capability"] as const) {
+      const http = await (await get(`hoursBack=168&remedy=${remedy}`)).json();
+      const wrapped = await handleQueryActivity({ scope: "roadblocks", hoursBack: 168, remedy }, {
+        emit: () => {}, requestPermission: async () => ({ behavior: "deny", message: "read only" }),
+        queryActivity: async (query) => runActivityQuery(t.app.db, store, query),
+      });
+      expect(JSON.parse(wrapped.split("\n").slice(2, -1).join("\n"))).toEqual(http);
+      if (remedy === "all") {
+        expect(http.episodes).toBe(10);
+        expect(http.byCostUsd[0]).toMatchObject({ signature: PUSH, count: 3,
+        remedies: { guidance: 0, capability: 1, abandoned: 2 }, resolved: 0,
+        waste: { tokens: 9200, costUsd: 90.5, ms: 94010, unknownTokens: 1, unknownCostUsd: 1 },
+        exampleTurnIds: ["turn-push", "turn-abandoned-0", "turn-abandoned-1"] });
+      }
+      if (remedy === "abandoned") expect(http).toMatchObject({ episodes: 2, totalGroups: 1, byCount: [{ count: 2,
+        remedies: { guidance: 0, capability: 0, abandoned: 2 }, waste: { tokens: 9000, unknownTokens: 1, unknownCostUsd: 1 },
+        exampleTurnIds: ["turn-abandoned-0", "turn-abandoned-1"] }] });
+      if (remedy === "guidance") expect(http).toMatchObject({ episodes: 4, totalGroups: 1 });
+      if (remedy === "capability") expect(http).toMatchObject({ episodes: 4, totalGroups: 2 });
+    }
+    // Reading with any filter preserves historical version-1 rows byte for byte.
+    const historical = t.app.db.query("SELECT payload FROM governance_events WHERE turn_id = 'turn-push'").get();
+    await get("remedy=all");
+    expect(t.app.db.query("SELECT payload FROM governance_events WHERE turn_id = 'turn-push'").get()).toEqual(historical);
+    for (const query of ["remedy=", "remedy=other", "remedy=all&remedy=abandoned", "remedy=all,abandoned"]) {
+      expect((await get(query)).status).toBe(400);
+    }
+    expect(QUERY_ACTIVITY_INPUT_SCHEMA.safeParse({ scope: "roadblocks", remedy: "other" }).success).toBe(false);
+    expect(() => runActivityQuery(t.app.db, store, { scope: "roadblocks", remedy: "other" } as never)).toThrow();
   });
 });

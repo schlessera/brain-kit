@@ -187,7 +187,7 @@ but add the Actions-aware aggregate and durable constituent/destination records.
 This decision authorizes no new channel, extension seam or daemon.
 
 The client already reads a zone for client environment
-(`const zone`, `packages/ui-react/src/lib/client-environment.ts:107-108`).
+(`const zone`, `packages/ui-react/src/lib/client-environment.ts:109-110`).
 Push rebind sends the subscription and label
 (`rebindPushSubscriptionAfterLogin`, `packages/ui-react/src/lib/push-registration.ts:62-76`);
 the server subscribe path does not persist that client's delivery zone

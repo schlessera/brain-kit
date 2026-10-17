@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { Glob } from "bun";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, closeSync, constants, fstatSync, openSync } from "fs";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import { join, posix } from "path";
 
@@ -9,7 +9,8 @@ import { hasDocumentsColumn } from "./db.js";
 import { topLevelBlocks } from "./document-parts.js";
 import { planRegistry } from "./index-registry.js";
 import { createUnresolvedLinkDescriber } from "./indexer/links.js";
-import { codeRanges, inRanges } from "./markdown-code.js";
+import { markdownFences, codeRanges, inRanges } from "./markdown-code.js";
+import { safeResolve } from "./safe-path.js";
 import type { LoadedModule } from "./module-types.js";
 import { bindContentIndexQueries } from "../queries/bound.js";
 import type { AuditIssue } from "./types.js";
@@ -388,7 +389,7 @@ function sameFact(a: string, b: string): boolean {
  */
 function frontmatterOf(root: string, path: string, onReadFailed: () => void): Record<string, unknown> {
   try {
-    return parseFrontmatter(readFileSync(join(root, path), "utf8")).data as Record<string, unknown>;
+    return parseFrontmatter(readFileSync(join(root, path), "utf8"), { dataOnly: true }).data as Record<string, unknown>;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") onReadFailed();
     return {};
@@ -1054,6 +1055,32 @@ export async function auditWithModules(
   opts: AuditOptions = {}
 ): Promise<AuditIssue[]> {
   const issues = audit(db, brain.taxonomy, { root: brain.root, ...opts });
+  // Missing modules cannot contribute their own hygiene checks. This concrete
+  // built-in diagnostic reads data only and never imports an absent pack.
+  if (!brain.modules.some(mod => mod.state !== "dormant" && mod.manifest.name === "diagrams")) {
+    for (const doc of loadAuditDocs(db)) {
+      if (opts.exclude?.(doc.path) || doc.status === "archived") continue;
+      const root = opts.root ?? brain.root, absolute = safeResolve(root, doc.path);
+      try {
+        if (!absolute) throw Error("source is outside the brain");
+        const fd = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        let source: string;
+        try {
+          const info = fstatSync(fd);
+          if (!info.isFile()) throw Error("Diagram inspection requires a regular file");
+          if (info.size > 1024 * 1024) throw Error("Markdown exceeds the 1 MiB diagram inspection bound");
+          source = readFileSync(fd, "utf8");
+        } finally { closeSync(fd); }
+        if (markdownFences(source).some(fence => fence.language === "diagram")) issues.push({path:doc.path,severity:"warning",category:"diagram-module",message:"Diagram fences need the configured diagrams module",suggestion:"Enable @schlessera/brain-module-diagrams, or keep the fence as source code"});
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        // Indexed text attributes a read failure only; readable source remains authoritative.
+        if (!markdownFences(doc.content).some(fence => fence.language === "diagram")) continue;
+        opts.onCheckFailed?.("diagram-module");
+        issues.push({path:doc.path,severity:"warning",category:"diagram-source",message:"Cannot inspect Markdown for unconfigured diagram fences"});
+      }
+    }
+  }
   const queries = bindContentIndexQueries(brain.root);
   for (const mod of brain.modules) {
     if (mod.state === "dormant") continue;

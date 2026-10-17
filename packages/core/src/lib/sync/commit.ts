@@ -69,7 +69,7 @@ function headText(root: string, path: string): string | null {
 
 function frontmatterData(text: string): Record<string, unknown> | null {
   try {
-    return parseFrontmatter(text).data as Record<string, unknown>;
+    return parseFrontmatter(text, { dataOnly: true }).data as Record<string, unknown>;
   } catch {
     return null;
   }

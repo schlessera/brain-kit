@@ -1,0 +1,603 @@
+{
+  "sdkVersion": "0.3.293",
+  "cliVersion": "2.1.293",
+  "origin": "scripted loopback in offline namespace; not first-party/provider evidence",
+  "requests": [
+    {
+      "turn": 1,
+      "path": "/v1/messages",
+      "responseId": "msg_odysseus_1",
+      "model": "claude-sonnet-4-6",
+      "stream": true,
+      "bodyFields": [
+        "context_management",
+        "max_tokens",
+        "messages",
+        "metadata",
+        "model",
+        "output_config",
+        "stream",
+        "system",
+        "thinking",
+        "tools"
+      ],
+      "toolNames": [
+        "Agent",
+        "Bash",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "Edit",
+        "EnterPlanMode",
+        "EnterWorktree",
+        "ExitPlanMode",
+        "ExitWorktree",
+        "ListAgents",
+        "NotebookEdit",
+        "Read",
+        "ReportFindings",
+        "ScheduleWakeup",
+        "SendMessage",
+        "Skill",
+        "TaskCreate",
+        "TaskGet",
+        "TaskList",
+        "TaskStop",
+        "TaskUpdate",
+        "WebFetch",
+        "WebSearch",
+        "Workflow",
+        "Write",
+        "mcp__brain-ui__show_block",
+        "mcp__brain-ui__turn_temp"
+      ],
+      "outputConfig": false,
+      "querySource": null,
+      "requestSource": null,
+      "provenanceHeaders": {}
+    },
+    {
+      "turn": 2,
+      "path": "/v1/messages",
+      "responseId": "msg_odysseus_2",
+      "model": "claude-sonnet-4-6",
+      "stream": true,
+      "bodyFields": [
+        "context_management",
+        "max_tokens",
+        "messages",
+        "metadata",
+        "model",
+        "output_config",
+        "stream",
+        "system",
+        "thinking",
+        "tools"
+      ],
+      "toolNames": [
+        "Agent",
+        "Bash",
+        "CronCreate",
+        "CronDelete",
+        "CronList",
+        "Edit",
+        "EnterPlanMode",
+        "EnterWorktree",
+        "ExitPlanMode",
+        "ExitWorktree",
+        "ListAgents",
+        "NotebookEdit",
+        "Read",
+        "ReportFindings",
+        "ScheduleWakeup",
+        "SendMessage",
+        "Skill",
+        "TaskCreate",
+        "TaskGet",
+        "TaskList",
+        "TaskStop",
+        "TaskUpdate",
+        "WebFetch",
+        "WebSearch",
+        "Workflow",
+        "Write",
+        "mcp__brain-ui__show_block",
+        "mcp__brain-ui__turn_temp"
+      ],
+      "outputConfig": false,
+      "querySource": null,
+      "requestSource": null,
+      "provenanceHeaders": {}
+    }
+  ],
+  "turns": [
+    {
+      "turn": 1,
+      "resumed": false,
+      "sameSession": true,
+      "titleUsage": {
+        "receipts": [],
+        "coverage": "unknown"
+      },
+      "titleOptionPresent": false,
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "fields": [
+            "agents",
+            "analytics_disabled",
+            "apiKeySource",
+            "capabilities",
+            "claude_code_version",
+            "cwd",
+            "fast_mode_disabled_reason",
+            "fast_mode_state",
+            "mcp_servers",
+            "memory_paths",
+            "messaging_socket_path",
+            "model",
+            "output_style",
+            "per_turn_effort_active",
+            "permissionMode",
+            "plugins",
+            "product_feedback_disabled",
+            "session_id",
+            "skills",
+            "slash_commands",
+            "subtype",
+            "terminal_slash_commands",
+            "tools",
+            "type",
+            "uuid",
+            "view_mode"
+          ],
+          "parentToolUseId": null
+        },
+        {
+          "type": "system",
+          "subtype": "status",
+          "fields": [
+            "session_id",
+            "status",
+            "subtype",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "thinking_display",
+            "ttft_ms",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "message_start",
+          "response": {
+            "id": "msg_odysseus_1",
+            "model": "claude-sonnet-4-6",
+            "usage": {
+              "input_tokens": 3,
+              "output_tokens": 0,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0
+            }
+          }
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "content_block_start",
+          "response": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "content_block_delta",
+          "response": null
+        },
+        {
+          "type": "assistant",
+          "subtype": null,
+          "fields": [
+            "message",
+            "parent_tool_use_id",
+            "request_id",
+            "session_id",
+            "timestamp",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "content_block_stop",
+          "response": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "message_delta",
+          "response": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "message_stop",
+          "response": null
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "fields": [
+            "api_error_status",
+            "duration_api_ms",
+            "duration_ms",
+            "fast_mode_disabled_reason",
+            "fast_mode_state",
+            "first_content_frame_ms",
+            "is_error",
+            "modelUsage",
+            "num_turns",
+            "permission_denials",
+            "queued_turn_count",
+            "result",
+            "result_index",
+            "safety_stops",
+            "session_id",
+            "stop_reason",
+            "subagent_stats",
+            "subtype",
+            "terminal_reason",
+            "time_to_request_ms",
+            "total_cost_usd",
+            "ttft_ms",
+            "ttft_stream_ms",
+            "type",
+            "usage",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "server_tool_use": {
+              "web_search_requests": 0,
+              "web_fetch_requests": 0
+            },
+            "service_tier": "standard",
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "inference_geo": "",
+            "iterations": [],
+            "speed": "standard",
+            "fallback_credit": null
+          },
+          "modelUsage": {
+            "claude-sonnet-4-6": {
+              "inputTokens": 3,
+              "outputTokens": 5,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0,
+              "webSearchRequests": 0,
+              "costUSD": 0.00008400000000000001,
+              "contextWindow": 200000,
+              "maxOutputTokens": 32000,
+              "thinkingTokens": 0,
+              "canonicalModel": "claude-sonnet-4-6",
+              "provider": "firstParty",
+              "costBasis": "list"
+            }
+          },
+          "totalCostUsd": 0.00008400000000000001
+        }
+      ]
+    },
+    {
+      "turn": 2,
+      "resumed": true,
+      "sameSession": true,
+      "titleUsage": {
+        "receipts": [],
+        "coverage": "unknown"
+      },
+      "titleOptionPresent": false,
+      "messages": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "fields": [
+            "agents",
+            "analytics_disabled",
+            "apiKeySource",
+            "capabilities",
+            "claude_code_version",
+            "cwd",
+            "fast_mode_disabled_reason",
+            "fast_mode_state",
+            "mcp_servers",
+            "memory_paths",
+            "messaging_socket_path",
+            "model",
+            "output_style",
+            "per_turn_effort_active",
+            "permissionMode",
+            "plugins",
+            "product_feedback_disabled",
+            "session_id",
+            "skills",
+            "slash_commands",
+            "subtype",
+            "terminal_slash_commands",
+            "tools",
+            "type",
+            "uuid",
+            "view_mode"
+          ],
+          "parentToolUseId": null
+        },
+        {
+          "type": "system",
+          "subtype": "status",
+          "fields": [
+            "session_id",
+            "status",
+            "subtype",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "thinking_display",
+            "ttft_ms",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "message_start",
+          "response": {
+            "id": "msg_odysseus_2",
+            "model": "claude-sonnet-4-6",
+            "usage": {
+              "input_tokens": 3,
+              "output_tokens": 0,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0
+            }
+          }
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "content_block_start",
+          "response": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "content_block_delta",
+          "response": null
+        },
+        {
+          "type": "assistant",
+          "subtype": null,
+          "fields": [
+            "message",
+            "parent_tool_use_id",
+            "request_id",
+            "session_id",
+            "timestamp",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "content_block_stop",
+          "response": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "message_delta",
+          "response": null
+        },
+        {
+          "type": "stream_event",
+          "subtype": null,
+          "fields": [
+            "event",
+            "parent_tool_use_id",
+            "session_id",
+            "type",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "event": "message_stop",
+          "response": null
+        },
+        {
+          "type": "result",
+          "subtype": "success",
+          "fields": [
+            "api_error_status",
+            "duration_api_ms",
+            "duration_ms",
+            "fast_mode_disabled_reason",
+            "fast_mode_state",
+            "first_content_frame_ms",
+            "is_error",
+            "modelUsage",
+            "num_turns",
+            "permission_denials",
+            "queued_turn_count",
+            "result",
+            "result_index",
+            "safety_stops",
+            "session_id",
+            "stop_reason",
+            "subagent_stats",
+            "subtype",
+            "terminal_reason",
+            "time_to_request_ms",
+            "total_cost_usd",
+            "ttft_ms",
+            "ttft_stream_ms",
+            "type",
+            "usage",
+            "uuid"
+          ],
+          "parentToolUseId": null,
+          "usage": {
+            "input_tokens": 3,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 5,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "server_tool_use": {
+              "web_search_requests": 0,
+              "web_fetch_requests": 0
+            },
+            "service_tier": "standard",
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "inference_geo": "",
+            "iterations": [],
+            "speed": "standard",
+            "fallback_credit": null
+          },
+          "modelUsage": {
+            "claude-sonnet-4-6": {
+              "inputTokens": 6,
+              "outputTokens": 10,
+              "thinkingTokens": 0,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0,
+              "webSearchRequests": 0,
+              "costUSD": 0.00016800000000000002,
+              "contextWindow": 200000,
+              "maxOutputTokens": 32000,
+              "canonicalModel": "claude-sonnet-4-6",
+              "provider": "firstParty",
+              "costBasis": "list"
+            }
+          },
+          "totalCostUsd": 0.00016800000000000002
+        }
+      ]
+    }
+  ],
+  "transcriptTypes": {
+    "queue-operation": 4,
+    "user": 2,
+    "attachment": 12,
+    "atis-latch": 2,
+    "assistant": 2,
+    "last-prompt": 2,
+    "cost-state": 2,
+    "mode": 1
+  },
+  "productionAccounting": "collector proven; host ledger integration is not implemented by this measurement",
+  "nonessentialTrafficDisabled": true
+}

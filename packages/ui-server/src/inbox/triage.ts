@@ -232,6 +232,7 @@ export function createInboxTriage(db: Database, deps: {
       const item = store.getItem(id);
       if (!item || item.queue !== "queue" || item.type !== "triage" || item.status !== "ready" || item.expiresAt <= now() ||
         (item.waitUntil ?? 0) > now() || item.attempts >= item.maxAttempts) continue;
+      if (db.query("SELECT 1 FROM inbox_interactive_shares WHERE item_id = ?").get(item.id)) continue;
       let value: InboxEvidence;
       try { value = await inboxEvidence(db, deps.brainRoot, item as TriageItem); }
       catch {

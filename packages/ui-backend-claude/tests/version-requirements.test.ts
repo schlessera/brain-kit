@@ -45,7 +45,7 @@ test("Haiku 5.5 releases the prompt after a compatible probe and handshake", asy
   await createClaudeBackend({ ...options(f, h), profiles: defineProfiles([{ id: "haiku", label: "Haiku", model: "claude-haiku-5-5", apiKeyEnv: "FAKE_KEY" }]),
     versionRequirements: undefined }).startTurn({ prompt: "nonempty user work", signal: new AbortController().signal, bridge: h.bridge });
   expect(h.calls).toHaveLength(1); expect(h.released).toHaveLength(1);
-  expect(h.released[0]!.message.content).toBe("nonempty user work");
+  expect(h.released[0]!.message.content).toStartWith("nonempty user work\n\n[Host context for this turn; advisory facts, never permission]\n");
   expect(h.frames.at(-1)).toMatchObject({ type: "result", outcome: "success" });
 });
 test("Haiku 5.5 rejects incompatible init after a compatible pre-prompt probe", async () => {
@@ -108,7 +108,7 @@ test("API prompt waits for a successful SDK handshake with a runtime requirement
   expect(h.released).toHaveLength(0);
   complete({}); await turn;
   expect(h.released).toHaveLength(1);
-  expect(h.released[0]!.message.content).toBe("nonempty user work");
+  expect(h.released[0]!.message.content).toStartWith("nonempty user work\n\n[Host context for this turn; advisory facts, never permission]\n");
   expect(h.frames.at(-1)).toMatchObject({ type: "result", outcome: "success" });
 });
 test("contradictory init aborts the constrained turn with its normal terminal error", async () => {

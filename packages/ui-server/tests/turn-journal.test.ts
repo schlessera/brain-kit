@@ -1,9 +1,12 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, mkdtempSync, mkdirSync, openSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
+import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
@@ -18,6 +21,121 @@ function fixture(capBytes?: number) {
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   return { root, brain, db, journal, native, begin, async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
+
+test("reconstructed copied fixtures keep separate inode reservation lifetimes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-restart-odysseus-")), brain = join(root, "brain");
+  mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Odysseus returns to Ithaca.");
+  const first = createNativeJournalFixture(brain, root);
+  let second: ReturnType<typeof createNativeJournalFixture> | undefined;
+  const descriptors: number[] = [];
+  try {
+    const before = await first.manager.checkpoint("before-restart");
+    descriptors.push(openSync(join(before.path, "note.md"), "r"));
+    await first.manager.release(before.id);
+    expect(() => { second = createNativeJournalFixture(brain, root); }, "RESTART_FIXTURE_HAS_OWN_RESERVATIONS").not.toThrow();
+    const after = await second!.manager.checkpoint("after-restart");
+    descriptors.push(openSync(join(after.path, "note.md"), "r"));
+    await second!.manager.release(after.id);
+    expect(fstatSync(descriptors[0]!).nlink, "PREDECESSOR_RESERVATION_SURVIVES_RECONSTRUCTION").toBeGreaterThan(0);
+    await first.close();
+    expect(fstatSync(descriptors[0]!).nlink, "PREDECESSOR_CLOSE_RELEASES_OWN_RESERVATION").toBe(0);
+    expect(fstatSync(descriptors[1]!).nlink, "SUCCESSOR_RESERVATION_SURVIVES_PREDECESSOR_CLOSE").toBeGreaterThan(0);
+    await second!.close();
+    expect(fstatSync(descriptors[1]!).nlink, "SUCCESSOR_CLOSE_RELEASES_OWN_RESERVATION").toBe(0);
+  } finally {
+    await first.close(); await second?.close();
+    for (const descriptor of descriptors) closeSync(descriptor);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("copied checkpoint release reserves file inodes until fixture cleanup", async () => {
+  const root = mkdtempSync(join(tmpdir(), "journal-inodes-odysseus-")), brain = join(root, "brain");
+  mkdirSync(brain); writeFileSync(join(brain, "note.md"), "Odysseus returns to Ithaca.");
+  const native = createNativeJournalFixture(brain, root);
+  let descriptor: number | undefined;
+  try {
+    const checkpoint = await native.manager.checkpoint("inode-lifetime");
+    descriptor = openSync(join(checkpoint.path, "note.md"), "r");
+    await native.manager.release(checkpoint.id);
+    expect(existsSync(checkpoint.path), "CHECKPOINT_NAME_IS_RELEASED").toBe(false);
+    expect(fstatSync(descriptor).nlink, "RELEASED_COPY_INODE_REMAINS_RESERVED").toBeGreaterThan(0);
+    await native.close();
+    expect(fstatSync(descriptor).nlink, "FIXTURE_CLOSE_RELEASES_INODE_RESERVATION").toBe(0);
+    expect(readFileSync(join(brain, "note.md"), "utf8")).toBe("Odysseus returns to Ithaca.");
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    await native.close(); rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("configuration coverage summary follows retained inventory, independently of missing versions", async () => {
+  const f = fixture();
+  try {
+    expect(f.journal.summary("absent")).not.toHaveProperty("configurationCoverage");
+    await f.begin("coverage");
+    expect(f.journal.summary("coverage"), "RECORDING_COVERAGE_IS_UNKNOWN").toHaveProperty("configurationCoverage", "unknown");
+    await f.journal.finish("coverage");
+    for (const state of ["complete", "recording", "partial", "expired"] as const) {
+      for (const incomplete of [false, true]) {
+        f.db.query("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'")
+          .run(state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }]));
+        expect(f.journal.summary("coverage"), "COVERAGE_COMES_FROM_CONFIGURATION_INVENTORY")
+          .toHaveProperty("configurationCoverage", incomplete ? "incomplete" : state === "complete" ? "complete" : "unknown");
+        expect(f.journal.summary("coverage").changedFiles, "COVERAGE_NEVER_CHANGES_PATH_ACCOUNTING").toBe(state === "partial" ? null : 0);
+      }
+    }
+  } finally { await f.close(); }
+});
+
+test("identified SQLite sidecars and large coverage retain exact accounting without hiding similarly named content", async () => {
+  // Concrete observer/CAS/SQLite with the explicitly synthetic native-record
+  // helper: this is capture/accounting proof, not Btrfs-manager qualification.
+  const f = fixture(), path = join(f.brain, "ledger.sqlite"), sqlite = new Database(path);
+  try {
+    writeFileSync(join(f.brain, ".gitignore"), "/ledger.sqlite*\n");
+    sqlite.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE cargo (id INTEGER PRIMARY KEY,value TEXT); INSERT INTO cargo VALUES (1,'Ithaca');");
+    for (let i = 0; i < 733; i++) {
+      const dir = join(f.brain, "scripts/config", String(i)); mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "brain.config.ts"), "export default {modules: [import(process.env.ODYSSEUS_MODULE)]};\n");
+    }
+    // Current consumed-input discovery correctly ignores unrelated nested
+    // configs. Make every opaque input part of the actual root import graph.
+    writeFileSync(join(f.brain, "brain.config.ts"), Array.from({ length: 733 }, (_, i) => `import "./scripts/config/${i}/brain.config.ts";`).join("\n") + "\nexport default {};\n");
+    const samples = () => ["", "-wal", "-shm"].filter(suffix => existsSync(path + suffix)).map(suffix => {
+      const info = statSync(path + suffix), bytes = readFileSync(path + suffix);
+      return { path: `ledger.sqlite${suffix}`, hash: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length, inode: info.ino, mtime: info.mtimeMs, ctime: info.ctimeMs };
+    });
+    await f.begin("small"); const before = samples();
+    const note = "Odysseus returns home.\r\n"; expect(Buffer.byteLength(note)).toBe(24);
+    writeFileSync(join(f.brain, "notes/small.md"), note);
+    sqlite.query("UPDATE cargo SET value=? WHERE id=1").run("Athena"); const after = samples();
+    await f.journal.finish("small");
+    const first = f.journal.details("ithaca", "small")!;
+    expect(first.summary.changedFiles).toBe(new Set(first.changes.map(change => change.path)).size);
+    expect(first.changes.find(change => change.path === "notes/small.md")?.after?.hash).toBe(createHash("sha256").update(note).digest("hex"));
+    expect(first.changes.filter(change => change.path.startsWith("ledger.sqlite")).length).toBeGreaterThan(0);
+    expect(first.changes.filter(change => change.path.startsWith("ledger.sqlite")).every(change => change.after?.ignored && !change.after?.hash)).toBe(true);
+    const coverage = first.missing.filter(item => item.reason === "configuration_inputs_not_fully_identified");
+    expect(coverage.filter(item => item.path.startsWith("scripts/config/"))).toHaveLength(733);
+    expect(coverage).toHaveLength(734); // Root interpretation is also conservatively unproven.
+    expect(first.summary).toHaveProperty("configurationCoverage", "incomplete");
+    expect(before.some(old => after.some(current => current.path === old.path && current.hash !== old.hash))).toBe(true);
+    await f.begin("host-only"); sqlite.query("UPDATE cargo SET value=? WHERE id=1").run("Penelope"); await f.journal.finish("host-only");
+    const second = f.journal.details("ithaca", "host-only")!;
+    expect(second.changes.some(change => change.path === "notes/small.md")).toBe(false);
+    expect(second.changes.length).toBeGreaterThan(0);
+    expect(second.changes.every(change => change.path.startsWith("ledger.sqlite") && change.after?.ignored)).toBe(true);
+    await f.begin("deliberate");
+    writeFileSync(join(f.brain,"notes/ledger.sqlite-shm"), "Athena deliberately keeps this note.\n");
+    writeFileSync(join(f.brain,"scripts/config/0/brain.config.ts"), "export default {modules: []};\n");
+    await f.journal.finish("deliberate");
+    const deliberate = f.journal.details("ithaca", "deliberate")!;
+    expect(deliberate.changes.find(change => change.path === "notes/ledger.sqlite-shm"), "SIMILAR_OPERATIONAL_NAME_REMAINS_CONTENT").toMatchObject({ class: "content", after: { ignored: false } });
+    expect(deliberate.changes.find(change => change.path === "scripts/config/0/brain.config.ts"), "GENUINE_CONFIGURATION_CHANGE_REMAINS_STEERING").toMatchObject({ class: "steering" });
+    console.log(`JOURNAL_REVIEW_SQLITE_RECEIPT ${JSON.stringify({ writer: "one identified fixture-owned SQLite connection; no agent tools", before, after, changedPaths: first.changes.map(change => change.path), noToolPaths: second.changes.map(change => change.path), coverage: coverage.length })}`);
+  } finally { sqlite.close(); await f.close(); }
+});
 
 test("the retained journal reads exact before/after versions and ignored listings after the turn ends", async () => {
   const f = fixture();
@@ -275,4 +393,132 @@ test("opaque configuration input limitations survive replay without executing co
       expect(details.changes.find(change => change.path === "notes/a.md")?.class).toBe("content");
     } finally { await replay.close(); }
   } finally { await f.close(); }
+});
+
+
+test("runtime main-model binding only updates the correlated active journal", async () => {
+  const f = fixture();
+  try {
+    await f.begin("odysseus");
+    await f.journal.begin("athena", { sessionId: "troy", actor: "voice", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+    expect(f.journal.bindModel("odysseus", "troy", "main-model"), "MODEL_WRONG_SESSION_REJECTED").toBe(false);
+    expect(f.journal.bindModel("odysseus", "ithaca", "main-model"), "MODEL_ACTIVE_BINDING").toBe(true);
+    expect(f.journal.summary("odysseus").model, "MODEL_ACTIVE_SUMMARY").toBe("main-model");
+    expect(f.journal.summary("athena").model, "MODEL_CONCURRENT_ISOLATION").toBeNull();
+    expect(f.journal.bindModel("athena", "ithaca", "wrong-model"), "MODEL_TWO_SESSIONS_CROSS_BIND_REJECTED").toBe(false);
+    expect(f.journal.bindModel("athena", "troy", "voice-model")).toBe(true);
+    expect(f.journal.summary("athena").model).toBe("voice-model");
+    await f.journal.finish("odysseus");
+    expect(f.journal.bindModel("odysseus", "ithaca", "late-model"), "MODEL_FINISHED_REJECTED").toBe(false);
+    expect(f.journal.summary("odysseus").model).toBe("main-model");
+  } finally { await f.close(); }
+});
+
+test("native capture journals consumed nested configuration and ordinary excluded project edits", async () => {
+  const f = fixture();
+  try {
+    const inputs = {
+      "bunfig.toml": 'preload = ["./config/navigator/start.ts"]\n',
+      "package.json": '{"name":"ithaca"}\n',
+      "config/navigator/start.ts": 'export const route = "Ithaca";\n',
+      "config/navigator/package.json": '{"type":"module","scripts":{"unused":"bun ./unused.ts"}}\n',
+      "config/navigator/unused.ts": 'throw new Error("unused");\n',
+      "node_modules/a/package.json": '{"name":"incidental"}\n',
+      "workspaces/odyssey-tools/package.json": '{"scripts":{"start":"bun ./start.ts"}}\n',
+      "workspaces/odyssey-tools/start.ts": 'throw new Error("unused clone");\n',
+    };
+    writeFileSync(join(f.brain, ".gitignore"), "node_modules/\n");
+    for (const [path, text] of Object.entries(inputs)) { mkdirSync(join(f.brain, path, ".."), {recursive:true}); writeFileSync(join(f.brain, path), text); }
+    await f.begin("consumer-seeds");
+    for (const [path, text] of Object.entries(inputs)) writeFileSync(join(f.brain, path), text + "\n");
+    await f.journal.finish("consumer-seeds");
+    const details = f.journal.details("ithaca", "consumer-seeds")!;
+    for (const path of ["bunfig.toml", "package.json", "config/navigator/start.ts", "config/navigator/package.json"]) expect(details.changes.find(change => change.path === path)?.class, `NATIVE_CONSUMED_CONFIGURATION_${path}`).toBe("steering");
+    for (const path of ["config/navigator/unused.ts", "workspaces/odyssey-tools/package.json", "workspaces/odyssey-tools/start.ts"]) expect(details.changes.find(change => change.path === path)?.class, `NATIVE_UNUSED_CONFIGURATION_${path}`).toBe("content");
+    expect(details.missing.filter(item => item.path.startsWith("node_modules/") || item.path.startsWith("workspaces/")), "NATIVE_INCIDENTAL_CONFIG_NOT_COVERAGE_NOISE").toEqual([]);
+    expect(details.changes.find(change => change.path === "node_modules/a/package.json")?.after?.ignored).toBe(true);
+  } finally { await f.close(); }
+});
+test("native journal excludes the resolved index and sidecars while preserving input-role events", async () => {
+  const index = "brain.db", f = fixture();
+  try {
+    // A copied checkpoint is not native inode lineage. Keep a probe link to an
+    // initial input inode and simulate allocator reuse only if releasing its
+    // checkpoint leaves this probe as the sole owner. Fixture reservations must
+    // prevent that reuse without suppressing the genuine later input edit.
+    const { linkSync, unlinkSync } = await import("node:fs");
+    const checkpoint = f.native.manager.checkpoint.bind(f.native.manager);
+    const release = f.native.manager.release.bind(f.native.manager);
+    const pin = join(f.root, "released-copied-input-inode");
+    let pinnedId = "", released = false, reused = false;
+    f.native.manager.release = async (id, signal) => {
+      await release(id, signal);
+      if (id === pinnedId) released = true;
+    };
+    f.native.manager.checkpoint = async (id, signal) => {
+      const result = await checkpoint(id, signal);
+      const nested = join(result.path, "resources/brain.db");
+      const indexCopy = join(result.path, "brain.db");
+      if (!pinnedId && existsSync(nested)) { linkSync(nested, pin); pinnedId = id; }
+      if (released && !reused && statSync(pin).nlink === 1 && existsSync(indexCopy) && readFileSync(indexCopy, "utf8") === "index changed") {
+        unlinkSync(indexCopy); linkSync(pin, indexCopy); writeFileSync(indexCopy, "index changed"); reused = true;
+      }
+      return result;
+    };
+
+    mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude"));
+    const ignored = [index, ...["-wal","-shm","-journal"].map(suffix=>`${index}${suffix}`)];
+    writeFileSync(join(f.brain,".gitignore"), ignored.join("\n"));
+    writeFileSync(join(f.brain,"brain.config.ts"), `export default { db: "${index}", output: "./ordinary" };`);
+    writeFileSync(join(f.brain,"bunfig.toml"), `preload = ["./startup.ts", ${ignored.map(path=>JSON.stringify(`./${path}`)).join(", ")}]`);
+    writeFileSync(join(f.brain,"startup.ts"), 'import "./instructions" with {type:"text"}; import "./resources/brain.db" with {type:"text"};');
+    writeFileSync(join(f.brain,".claude/settings.json"), JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]}}));
+    const genuine = ["startup.ts","instructions","resources/brain.db","hook.ts",".claude/settings.json"];
+    for (const path of [...ignored,"instructions","resources/brain.db","hook.ts","ordinary"]) writeFileSync(join(f.brain,path), "initial");
+    await f.begin("index-only");
+    for (const path of ignored) writeFileSync(join(f.brain,path), "index changed");
+    await f.journal.finish("index-only");
+    const details = f.journal.details("ithaca","index-only")!;
+    expect(readFileSync(join(f.brain, "resources/brain.db"), "utf8"), "UNCHANGED_IMPORTED_INPUT_BYTES").toBe("initial");
+    expect(details.changes.map(change=>change.path).sort(), "COPIED_INODE_CANNOT_ALIAS_UNCHANGED_INPUT").toEqual(ignored.sort());
+    expect(released, "CONTROL_OBSERVED_CHECKPOINT_RELEASE").toBe(true);
+    expect(reused, "COPIED_INPUT_INODE_REMAINS_RESERVED").toBe(false);
+    expect(details.changes.every(change=>change.class === "content"), "NATIVE_INDEX_HAS_NO_STEERING_CLASS").toBe(true);
+    expect(queryGovernanceEvents(f.db,{turnId:"index-only",kinds:["steering_change"],limit:100}), "NATIVE_INDEX_HAS_NO_STEERING_EVENTS").toEqual([]);
+    expect(details.summary.steeringFiles).toBe(0);
+    await f.begin("inputs");
+    writeFileSync(join(f.brain,"startup.ts"), 'import "./instructions" with {type:"text"}; import "./resources/brain.db" with {type:"text"}; // edited');
+    writeFileSync(join(f.brain,"hook.ts"), 'export {}; // edited');
+    writeFileSync(join(f.brain,"instructions"), "Athena guides the return.");
+    writeFileSync(join(f.brain,"resources/brain.db"), "A genuine text input, despite its basename.");
+    writeFileSync(join(f.brain,"ordinary"), "data changed");
+    writeFileSync(join(f.brain,".claude/settings.json"), JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:"bun ./hook.ts ./ordinary"}]}]},model:"voyage"}));
+    await f.journal.finish("inputs");
+    const controls = f.journal.details("ithaca","inputs")!;
+    expect(controls.changes.filter(change=>change.class === "steering").map(change=>change.path).sort(), "NATIVE_GENUINE_INPUT_ROLE_CONTROLS").toEqual(genuine.sort());
+    expect(controls.changes.find(change=>change.path === "ordinary")?.class, "NATIVE_ORDINARY_ARGUMENT_IS_DATA").toBe("content");
+    expect(queryGovernanceEvents(f.db,{turnId:"inputs",kinds:["steering_change"],limit:100}).map(event=>event.payload.path).sort()).toEqual(genuine.sort());
+  } finally { await f.close(); }
+});
+
+
+test("native capture excludes an alternate trusted index identity without a public configuration option", async () => {
+  const f = fixture();
+  const capture = createNativeJournalCapture(f.native.manager, async () => { throw Error("ignored versions must not be retained"); }, {resolvedIndexPaths:["cache/voyage.sqlite"]});
+  try {
+    mkdirSync(join(f.brain,"cache")); mkdirSync(join(f.brain,"resources"));
+    const indexes = ["", "-wal", "-shm", "-journal"].map(suffix=>`cache/voyage.sqlite${suffix}`);
+    writeFileSync(join(f.brain,".gitignore"),indexes.join("\n"));
+    writeFileSync(join(f.brain,"bunfig.toml"),`preload = [${[...indexes,"resources/brain.db"].map(path=>JSON.stringify(`./${path}`)).join(",")}]`);
+    for (const path of [...indexes,"resources/brain.db"]) writeFileSync(join(f.brain,path),"initial");
+    await capture.initialize(); const policy = await capture.policy();
+    for (const path of indexes) writeFileSync(join(f.brain,path),"changed");
+    const observed = await capture.observe(new Map([["alternate",policy]]));
+    try {
+      expect(observed.changes.get("alternate")!.map(change=>change.path).sort()).toEqual(indexes.sort());
+      for (const path of indexes) expect(observed.steering.paths.has(path),"NATIVE_ALTERNATE_INDEX_IDENTITY_EXCLUDED").toBe(false);
+      expect(observed.steering.paths.has("resources/brain.db"),"NATIVE_UNRELATED_BASENAME_REMAINS_INPUT").toBe(true);
+      await observed.commit();
+    } catch (error) { await observed.abort(); throw error; }
+  } finally { await capture.close(); await f.close(); }
 });

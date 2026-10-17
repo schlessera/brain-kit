@@ -146,39 +146,38 @@ export function createWsHandlers(host: WsHost, principal: Principal) {
         // Snapshot-on-connect owns a lease separate from the socket: a close
         // while history loads must not make this work invisible to revocation.
         const releaseAuthorization = connection.authorization.retain();
+        const finishSnapshot = () => {
+          const current = coordinator.bySession.get(sid);
+          host.sendMessage(ws, {
+            type: "status",
+            sessionId: sid,
+            ...(current && current.lastResult === null
+              ? { status: "thinking", detail: "Session in progress", turnId: current.turnId }
+              : { status: "idle", detail: "Session loaded" }),
+          });
+          resendPendingInteractive(host, ws);
+        };
         try {
           const backend = await host.registry.getBackendForSession(
             catalog.getStoredBackendId(sid) ?? turn.backend.id
           );
-          await host.failureReplay.wait(sid);
-          const history = await backend.getHistory(sid);
-          await host.failureReplay.wait(sid);
-          if (connection.authorization.valid && history.length > 0) {
-            sendSessionHistory(ws, sid, host.prepareHistory(sid, history), host.catalog.readStateRoom?.(sid));
-          }
+          await host.publishHistory(sid, backend, () => connection.authorization.valid, (history) => {
+            if (history.length > 0) sendSessionHistory(ws, sid, host.prepareHistory(sid, history), host.catalog.readStateRoom?.(sid));
+            finishSnapshot();
+          });
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           host.log.emit({
             severityText: "ERROR",
             body: "snapshot-on-connect failed",
-            attributes: { error: err instanceof Error ? err.message : String(err) },
+            attributes: { error: message },
           });
+          if (connection.authorization.valid) {
+            host.sendMessage(ws, { type: "error", code: "SESSION_LOAD_ERROR", message, sessionId: sid });
+            finishSnapshot();
+          }
         } finally {
           releaseAuthorization();
-          if (connection.authorization.valid) {
-            host.sendMessage(
-              ws,
-              withTurnScope(
-                {
-                  type: "status",
-                  status: "thinking",
-                  detail: "Session in progress",
-                  sessionId: sid,
-                },
-                turn
-              )
-            );
-            resendPendingInteractive(host, ws);
-          }
         }
         return;
       }

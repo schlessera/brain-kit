@@ -24,10 +24,13 @@ remain unchanged. Approval is not production containment evidence.
 ## Why a tool hook or child-only wrapper is insufficient
 
 Claude assembles the ordinary SDK turn, project settings and in-process bridge
-tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:85-256`).
-The installed SDK exposes `spawnClaudeCodeProcess`; the existing adapter wraps
-the child with piped stdio (`createWrappedSpawn`,
-`packages/ui-backend-claude/src/spawn-wrapper.ts:36-65`). Parent-side MCP/bridge
+tools (`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:96-472`).
+The installed SDK exposes `spawnClaudeCodeProcess`; at the investigation baseline,
+the adapter wrapped the child with piped stdio
+([historical `createWrappedSpawn`](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts)).
+#1037 subsequently made worker execution unconditional, and #1808 retired the
+unused adapter. This paragraph preserves the earlier child-only boundary analysis.
+Parent-side MCP/bridge
 handlers are outside a boundary around that child. Their effects must be audited
 and validated separately; this report does not claim they currently write policies.
 
@@ -35,9 +38,9 @@ At the investigation baseline, pi created sessions directly in the server.
 The same SDK construction is now worker-local (`async newSession`,
 `packages/ui-backend-pi/src/native-session-runtime.ts:41-72`). Its resource loader
 initializes extensions (`createSessionResources`,
-`packages/ui-backend-pi/src/session-resources.ts:28-103`). The permission extension
+`packages/ui-backend-pi/src/session-resources.ts:29-111`). The permission extension
 registers a tool-call handler (`createPermissionGate`,
-`packages/ui-backend-pi/src/permission-gate.ts:77-99`); it cannot interpose arbitrary
+`packages/ui-backend-pi/src/permission-gate.ts:95-119`); it cannot interpose arbitrary
 filesystem calls during extension initialization or execution. The experiment
 loads a real pi inline extension and observes its parent-side initialization
 changing the policy. Sandboxing only its spawned shell cannot repair that.

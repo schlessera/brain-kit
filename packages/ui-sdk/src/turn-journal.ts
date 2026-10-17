@@ -1,5 +1,7 @@
 /** Host-recorded facts for one turn; absent counts and prices are never zero. */
 export interface TurnJournalSummary {
+  /** Retained configuration-identification coverage; absent legacy data is not complete. */
+  configurationCoverage?: "incomplete" | "complete" | "unknown";
   scope?: TurnScopeSummary;
   state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
   changedFiles: number | null;
@@ -51,6 +53,7 @@ export interface TurnRevertRequest {
 export interface TurnJournalChange {
   sequence: number;
   path: string;
+  /** `claude_memory` identifies external persisted notes; their path is a logical `claude-memory://<note.md>` identity, never a host pathname. */
   scope: string;
   class: "content" | "steering" | "policy";
   actor: "agent" | "user";

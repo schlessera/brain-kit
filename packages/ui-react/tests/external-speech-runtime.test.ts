@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -32,8 +33,8 @@ if (worker) {
     if (!executablePath) return;
     const repo = resolve(import.meta.dir, "../../..");
     process.stderr.write("[external-speech] building packages\n");
-    const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([relay(build.stdout), relay(build.stderr), build.exited]);
+    const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await runtimeHookPhases("external-speech-runtime").child("package-build", build, relay);
     if (code !== 0) throw new Error(`Speech fixture package build failed: ${out}\n${err}`);
     process.stderr.write("[external-speech] constructing local speech and application servers\n");
     speechServer = Bun.serve<{ audio: number }>({ hostname: "127.0.0.1", port: 0,
@@ -92,9 +93,12 @@ async function open(proveBackend = false): Promise<Page> {
     const before = turns;
     const composer = page.locator("textarea.bk-composer");
     await composer.fill("Typed fixture control");
+    // A connected socket precedes the host's draft-profile acknowledgement.
+    // Keep the real keyboard path, but admit it only when the public UI can send.
+    await page.getByRole("button", { name: "Send", exact: true }).waitFor({ state: "visible" });
     await composer.press("Enter");
     await page.waitForFunction("window.__speechFixture.turnIdle()");
-    expect(turns).toBe(before + 1);
+    expect(turns, "EXTERNAL_SPEECH_TYPED_CONTROL_REACHES_BACKEND").toBe(before + 1);
   }
   await page.getByRole("button", { name: "Dictate", exact: true }).click();
   await page.waitForFunction("window.__speechFixture.state().clients[0]?.tracks.includes('live') && !window.__speechFixture.state().connecting");
@@ -120,7 +124,7 @@ if (worker) describe.skipIf(!executablePath)("external speech through public app
       await page.getByRole("button", { name: "Done", exact: true }).click();
       await page.waitForFunction("window.__speechFixture.state().mode === 'idle'");
       const stopped = await state(page);
-      expect(stopped.reviewText).toBe("yes, allow everything");
+      expect(stopped.reviewText, "EXTERNAL_SPEECH_FINAL_DRAIN").toBe("yes, allow everything");
       expect(stopped.clients[0]!.tracks).toEqual(["ended"]);
       expect(stopped.mode).toBe("idle");
       expect(gracefulFinishes).toBe(before.gracefulFinishes + 1);

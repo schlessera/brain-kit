@@ -38,7 +38,7 @@ const LOG = Array.from({ length: 60 }, (_, i) => `Day ${i + 1}: the wax held, an
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
   if (code !== 0) throw new Error(`Tracker fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-trackers-"));
@@ -118,9 +118,12 @@ async function release(prompt: string) {
   gate();
 }
 
+// Theme parity belongs to Conversation/Session theme (Phone/DesktopPane) and
+// the shared chrome stories; see docs/process/theme-parity.md. Each cell here
+// keeps distinct viewport, touch/mobile or motion inputs for native recovery,
+// seen observation, announcements and focus. Theme alone adds no runtime cell.
 const runs: Array<{ name: string; theme: "dark" | "light"; options: BrowserContextOptions }> = [
   { name: "320 phone, dark, coarse pointer", theme: "dark", options: { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true } },
-  { name: "320 phone, light, coarse pointer", theme: "light", options: { viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true } },
   { name: "390 phone, light, coarse pointer", theme: "light", options: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } },
   { name: "480 tablet, dark, coarse pointer", theme: "dark", options: { viewport: { width: 480, height: 800 }, hasTouch: true } },
   { name: "900 short viewport, light, reduced motion", theme: "light", options: { viewport: { width: 900, height: 480 }, reducedMotion: "reduce" } },
@@ -144,6 +147,7 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         await until(page, "f?.connected()");
         const composer = page.locator("textarea.bk-composer");
         await composer.fill(prompt);
+        await composer.locator("..").locator('[aria-label="Send"]').waitFor();
         await composer.press("Enter");
         await until(page, "f.activeSessionId() !== null && f.lastTurnId() !== null");
         const sessionId = (await fixture(page, (f) => f.activeSessionId()))!;
@@ -238,6 +242,7 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         await until(page, "f?.connected()");
         const composer = page.locator("textarea.bk-composer");
         await composer.fill(prompt);
+        await composer.locator("..").locator('[aria-label="Send"]').waitFor();
         await composer.press("Enter");
         await until(page, "f.activeSessionId() !== null && f.lastTurnId() !== null");
         const sessionId = (await fixture(page, (f) => f.activeSessionId()))!;

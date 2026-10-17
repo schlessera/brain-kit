@@ -783,8 +783,9 @@
   --bk-diagram-node: light-dark(#fffefa, #1e2128);
   --bk-diagram-cluster: light-dark(#ece7dc, #0c0e12);
   --bk-diagram-line: light-dark(#5f584c, #9a96a1);
-  --bk-diagram-cluster-border: light-dark(#847c6f, #2a2d35);
+  --bk-diagram-cluster-border: light-dark(#847c6f, #6b6873);
   --bk-diagram-text: light-dark(#231f1a, #e8e4df);
+  --bk-diagram-focal-tint: light-dark(#fbf1e0, #3d352c);
 
   /* ── Light theme ──────────────────────────────────────────────────────
    * Is the first argument of every `light-dark()` above; see the block after
@@ -1224,10 +1225,11 @@
   --bk-canvas-lens-stale: #8a6a10;
   --bk-diagram-bg: #ffffff;
   --bk-diagram-node: #ffffff;
-  --bk-diagram-cluster: #ece7dc;
+  --bk-diagram-cluster: #ffffff;
   --bk-diagram-line: #5f584c;
   --bk-diagram-cluster-border: #847c6f;
   --bk-diagram-text: #231f1a;
+  --bk-diagram-focal-tint: #ffffff;
 }
 /* @print-theme:end */
 
@@ -1398,6 +1400,10 @@
   }
 }
 
+/* Decorative action loading; the shared reduced-motion policy stops it. */
+@keyframes bk-action-spin { to { transform: rotate(360deg); } }
+.bk-action-spinner { display: inline-flex; animation: bk-action-spin 1s linear infinite; }
+
 /* ── Reduced motion ───────────────────────────────────────────────────────
  *
  * One of the design's five non-negotiable rules: `prefers-reduced-motion`
@@ -1428,6 +1434,7 @@
  * the finger does, and it is a pressed state rather than a movement.
  */
 @media (prefers-reduced-motion: reduce) {
+  .bk-action-spinner { animation: none; }
   .bk-ghost-track, .bk-ghost-track.bk-ghost-out, .bk-ghost-track * { animation: none; }
   .bk-ghost-track { display: none; }
   @keyframes breathe {
@@ -1652,6 +1659,23 @@
   outline-offset: -2px;
 }
 
+/* Controls in an unpadded clipping strip keep their own rounded identity,
+ * with the same inside offset as rows rather than an invisible outside ring. */
+.bk-control-inset:focus-visible { outline-offset: -2px; }
+
+/* Focus-only geometry preserves the resting row dividers in a flush stack.
+ * Inherit the containing surface's corners on focused edge rows; inset alone
+ * cannot make a rectangular outline follow an ancestor's clipping curve.
+ * :first/last-of-type allow a status span beside a stack of button rows. */
+.bk-focus-clip > .bk-row:first-of-type:focus-visible {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+.bk-focus-clip > .bk-row:last-of-type:focus-visible {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
 /* ── Native icon and text actions (D55, #1379) ─────────────────────────── */
 .bk-icon-btn, .bk-text-btn {
   appearance: none;
@@ -1797,6 +1821,8 @@
   outline: 2px solid var(--bk-focus-ring);
   outline-offset: 2px;
 }
+/* Disabled wrapped suggestions retain the same inside ring as enabled ones. */
+.bk-suggestion.bk-control-inset:focus-visible { outline-offset: -2px; }
 @media (any-pointer: coarse) {
   .bk-suggestion { min-height: 44px; }
 }
@@ -2415,7 +2441,9 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
   border-left: 1px solid var(--bk-color-edge);
   border-radius: 0;
 }
-.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; }
+/* Destination paint belongs to the content region, including surface shadows
+ * and entry transforms; the live bar and rail must never inherit its veil. */
+.bk-overlay[data-destination] { bottom: calc(60px + env(safe-area-inset-bottom)); height: auto; overflow: clip; }
 .bk-overlay[data-bk-overlay="dialog"][data-placement="top"] .bk-overlay-surface {
   bottom: auto;
   top: 110px;
@@ -2492,3 +2520,12 @@ html:has(dialog.bk-overlay[open]:modal) { overflow: hidden; }
 
 /* The profile picker keeps its Limits disclosure reachable at every pointer size. */
 .bk-model-chat-limits > div > [role="button"] { min-height: 44px; }
+
+/* D36: printed keys follow any fine pointer, never viewport width. CSS keeps
+ * kit-generated fallbacks live without browser state in presentational components.
+ * Display:none removes their flex slots; keyboard handlers are independent. */
+.bk-touch-command { display: none; }
+@media not (any-pointer: fine) {
+  .bk-keyboard-hint { display: none !important; }
+  .bk-touch-command { display: inline-flex; }
+}

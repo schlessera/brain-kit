@@ -49,6 +49,10 @@ on, links to or describes them.
 
 - **No personal data anywhere in the tree.** No real names, client names, or
   personal infrastructure (IPs, domains, tailnets, deploy identifiers).
+  Two scoped exceptions: a file named `LICENSE` may carry the copyright
+  lines its licence requires, including a third party's notice reproduced
+  verbatim, and a link to a public open-source project may contain its
+  owner's handle ([ruling 8](docs/decisions/module-renderers.md#8-upstream-attribution-lives-in-the-modules-licence)).
   Odysseus is the sole fictional example world for fixtures, CLI/MCP
   demonstrations, renderer examples, docs, skills, onboarding, UI stories,
   screenshots and website assets: ancient problems with modern organisational
@@ -68,6 +72,14 @@ on, links to or describes them.
 - **Markdown is the source of truth; `brain.db` is disposable.** `brain index
   --force` regenerates everything. Never design anything that writes `brain.db`
   as authoritative state.
+- **Provider history is append-only.** Within a session, the tools, the system
+  prompt and every earlier message sent to a model provider stay byte-identical
+  from turn to turn; brain-kit only adds new content at the end. Budgets,
+  journals, receipts, labels and display data stay in internal storage and
+  never enter the provider-facing conversation. Adding to the history costs
+  input tokens on every later turn; changing it disables the provider's cache
+  and multiplies the cost. Anything on a turn's path runs the keyless guard
+  ([the rule and the guard](docs/decisions/provider-history.md)).
 - **Planned work lives in the issue tracker, not in a markdown file.** Do not
   add a status field, a unit checklist or a progress log to a document in this
   repo ([why](docs/plans/README.md#what-does-not-live-here)).
@@ -109,7 +121,7 @@ on, links to or describes them.
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
-  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:182-205`),
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`),
   starting on the anchor's line. **A PR that moves lines under a citation owns
   that citation**, wherever it is recorded; find them with
   `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
@@ -141,8 +153,10 @@ on, links to or describes them.
 - A review finding is one instance of a bug class: grep the diff and its file
   for every other instance before calling it closed.
 - Before opening or marking a PR ready, run `bun run check:pr --base
-  origin/main` and keep focused failing-first/mutation receipts. Ready-PR CI
-  supplies the complete affected proof; every selected job must pass, and
+  origin/main` (use the immediate parent ref for an upper stack layer;
+  [stack rules](docs/process/github.md#stacked-pull-requests)) and keep focused
+  failing-first/mutation receipts. Explicit ready-candidate CI supplies complete
+  affected proof; subsequent pushes need a new confirmation request; every selected job must pass, and
   missing, cancelled or unexpectedly skipped jobs are not green. Policy:
   [the CI decision](docs/decisions/ci-utility.md) and
   [the PR proof rules](docs/process/testing.md#required-proof-for-a-pr).
@@ -192,6 +206,7 @@ In `.agents/skills/`, symlinked into `.claude/skills/`.
 | --- | --- |
 | `release` | Versioning, publishing, or changing what a release ships. |
 | `github` | Filing, triaging, picking up or closing work in either tracker. |
+| `gh-stack` | Creating or working in stacked branches/PRs, including rebasing, submitting and merging a stack. Apply the [project stack rules](docs/process/github.md#stacked-pull-requests) alongside it. |
 | `work-issue` | Taking one unassigned, highest-priority ready brain-kit issue through implementation and merge, or a blocked handoff. |
 | `triage-issues` | Preparing open brain-kit issues without `agent-ready`: resolve factual gaps, maintain prompts, and reconcile labels and epic membership. |
 

@@ -1,0 +1,275 @@
+{
+  "label": "dark-320-Files-150",
+  "same": false,
+  "stable": true,
+  "navigation": "nav[aria-label=\"Primary\"]:visible",
+  "panel": "[data-panel=\"Files\"]",
+  "paintedBytes": 4829,
+  "clearBytes": 4827,
+  "afterComparison": {
+    "now": 28768.600000023842,
+    "viewport": {
+      "width": 320,
+      "height": 800,
+      "dpr": 1
+    },
+    "navigation": {
+      "tag": "NAV",
+      "class": "tablet:hidden fixed bottom-0 inset-x-0 z-nav pb-[env(safe-area-inset-bottom)]",
+      "text": "ChatSessionsActionsFilesMore",
+      "rect": {
+        "x": 0,
+        "y": 706,
+        "width": 320,
+        "height": 94,
+        "top": 706,
+        "right": 320,
+        "bottom": 800,
+        "left": 0
+      },
+      "transform": "none",
+      "opacity": "1",
+      "visibility": "visible",
+      "color": "rgb(232, 228, 223)",
+      "background": "rgb(20, 22, 25)",
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "hovered": true,
+      "focused": false
+    },
+    "panel": {
+      "tag": "SECTION",
+      "class": "bk-overlay",
+      "text": "Files",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 706,
+        "top": 0,
+        "right": 320,
+        "bottom": 706,
+        "left": 0
+      },
+      "transform": "none",
+      "opacity": "1",
+      "visibility": "hidden",
+      "color": "rgb(232, 228, 223)",
+      "background": "rgba(0, 0, 0, 0)",
+      "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+      "hovered": false,
+      "focused": false
+    },
+    "tabs": [
+      {
+        "tag": "SPAN",
+        "class": "bk-row bk-row-fg",
+        "text": "Chat",
+        "rect": {
+          "x": 3.796875,
+          "y": 707.25,
+          "width": 50,
+          "height": 50.5,
+          "top": 707.25,
+          "right": 53.796875,
+          "bottom": 757.75,
+          "left": 3.796875
+        },
+        "transform": "none",
+        "opacity": "1",
+        "visibility": "visible",
+        "color": "rgb(154, 150, 161)",
+        "background": "rgba(0, 0, 0, 0)",
+        "font": "500 9.5px / 9.5px \"Plus Jakarta Sans\", sans-serif",
+        "hovered": false,
+        "focused": false
+      },
+      {
+        "tag": "SPAN",
+        "class": "bk-row bk-row-fg",
+        "text": "Sessions",
+        "rect": {
+          "x": 61.390625,
+          "y": 707.25,
+          "width": 69,
+          "height": 50.5,
+          "top": 707.25,
+          "right": 130.390625,
+          "bottom": 757.75,
+          "left": 61.390625
+        },
+        "transform": "none",
+        "opacity": "1",
+        "visibility": "visible",
+        "color": "rgb(154, 150, 161)",
+        "background": "rgba(0, 0, 0, 0)",
+        "font": "500 9.5px / 9.5px \"Plus Jakarta Sans\", sans-serif",
+        "hovered": false,
+        "focused": false
+      },
+      {
+        "tag": "SPAN",
+        "class": "bk-row bk-row-fg",
+        "text": "Actions",
+        "rect": {
+          "x": 138,
+          "y": 707.25,
+          "width": 63,
+          "height": 50.5,
+          "top": 707.25,
+          "right": 201,
+          "bottom": 757.75,
+          "left": 138
+        },
+        "transform": "none",
+        "opacity": "1",
+        "visibility": "visible",
+        "color": "rgb(154, 150, 161)",
+        "background": "rgba(0, 0, 0, 0)",
+        "font": "500 9.5px / 9.5px \"Plus Jakarta Sans\", sans-serif",
+        "hovered": false,
+        "focused": false
+      },
+      {
+        "tag": "SPAN",
+        "class": "bk-row bk-row-fg",
+        "text": "Files",
+        "rect": {
+          "x": 208.59375,
+          "y": 707.25,
+          "width": 49,
+          "height": 50.5,
+          "top": 707.25,
+          "right": 257.59375,
+          "bottom": 757.75,
+          "left": 208.59375
+        },
+        "transform": "none",
+        "opacity": "1",
+        "visibility": "visible",
+        "color": "rgb(224, 159, 62)",
+        "background": "rgba(0, 0, 0, 0)",
+        "font": "500 9.5px / 9.5px \"Plus Jakarta Sans\", sans-serif",
+        "hovered": true,
+        "focused": false
+      },
+      {
+        "tag": "SPAN",
+        "class": "bk-row bk-row-fg",
+        "text": "More",
+        "rect": {
+          "x": 265.203125,
+          "y": 707.25,
+          "width": 51,
+          "height": 50.5,
+          "top": 707.25,
+          "right": 316.203125,
+          "bottom": 757.75,
+          "left": 265.203125
+        },
+        "transform": "none",
+        "opacity": "1",
+        "visibility": "visible",
+        "color": "rgb(154, 150, 161)",
+        "background": "rgba(0, 0, 0, 0)",
+        "font": "500 9.5px / 9.5px \"Plus Jakarta Sans\", sans-serif",
+        "hovered": false,
+        "focused": false
+      }
+    ],
+    "active": "<body>\n  \n\n<div style=\"position: fixed; inset: 0px;\"><div class=\"flex h-[100dvh] bg-background text-foreground\"><nav data-bk-keep-live=\"\" aria-label=\"Primary\" class=\"hidden tablet:flex shrink-0\"><div class=\"bk-side-rail\" data-expanded=\"false\" style=\"width: 60px; flex: 0 0 auto; align-self: stretch; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; padding-block: 16px; background: var(--bk-rail-bg); border-right: 1px solid var(--bk-color-line);\"><div style=\"display: flex; align-items: center; gap: 10px; padding: 0px; justify-content: center;\"><span style=\"width: 30px; height: 30px; border-radius: 10px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; background: var(--bk-color-surface); border: 1px solid var(--bk-color-edge);\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\" height=\"20\" width=\"20\" focusable=\"false\" data-brand-mark=\"small\" aria-hidden=\"true\" style=\"display: block; flex: 0 0 auto;\"><path data-part=\"ink\" d=\"M29",
+    "fonts": {
+      "status": "loaded",
+      "faces": [
+        {
+          "family": "DM Serif Text",
+          "weight": "400",
+          "status": "unloaded"
+        },
+        {
+          "family": "DM Serif Text",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "JetBrains Mono",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "JetBrains Mono",
+          "weight": "500",
+          "status": "loaded"
+        },
+        {
+          "family": "JetBrains Mono",
+          "weight": "600",
+          "status": "loaded"
+        },
+        {
+          "family": "Plus Jakarta Sans",
+          "weight": "400",
+          "status": "loaded"
+        },
+        {
+          "family": "Plus Jakarta Sans",
+          "weight": "500",
+          "status": "loaded"
+        },
+        {
+          "family": "Plus Jakarta Sans",
+          "weight": "600",
+          "status": "loaded"
+        },
+        {
+          "family": "Plus Jakarta Sans",
+          "weight": "700",
+          "status": "unloaded"
+        }
+      ]
+    },
+    "animations": [
+      {
+        "time": 150,
+        "state": "paused",
+        "target": {
+          "tag": "DIV",
+          "class": "bk-overlay-surface",
+          "text": "Files",
+          "rect": {
+            "x": 100.91415405273438,
+            "y": 0,
+            "width": 320,
+            "height": 706,
+            "top": 0,
+            "right": 420.9141540527344,
+            "bottom": 706,
+            "left": 100.91415405273438
+          },
+          "transform": "matrix(1, 0, 0, 1, 100.914, 0)",
+          "opacity": "1",
+          "visibility": "hidden",
+          "color": "rgb(232, 228, 223)",
+          "background": "rgb(20, 22, 25)",
+          "font": "16px / 24px -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\"",
+          "hovered": false,
+          "focused": false
+        },
+        "timing": {
+          "delay": 0,
+          "direction": "normal",
+          "duration": 300,
+          "easing": "linear",
+          "endDelay": 0,
+          "fill": "none",
+          "iterationStart": 0,
+          "iterations": 1,
+          "activeDuration": 300,
+          "currentIteration": 0,
+          "endTime": 300,
+          "localTime": 150,
+          "progress": 0.5
+        }
+      }
+    ]
+  }
+}

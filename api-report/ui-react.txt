@@ -66,6 +66,7 @@ export "." (./src/index.ts)
   hasPendingShare
   hasUnsentText
   inlineMermaidDiagrams
+  registerContentRendererPack
   registerUpdateHold
   renderBlockHtml
   runStats
@@ -83,6 +84,12 @@ export "." (./src/index.ts)
   useUIStore
   useVoiceStore
   useWebSocket
+
+export "./content-figures" (./src/content-figures.ts)
+  StaticDiagramShareMenu
+  ZoomViewer
+  type ZoomViewerProps
+  useWikiLinkNavigation
 
 export "./package.json" (./package.json) [asset]
 
@@ -319,8 +326,6 @@ signatures (every public export and the types it is made of)
         toleranceM: number;
         attribution: string;
     }
-  ColorScheme (packages/ui-react/src/lib/light-dark.ts)
-    export type ColorScheme = "light" | "dark";
   ConnectionGate (packages/ui-react/src/components/connectivity/connection-gate.tsx)
     export function ConnectionGate({ children }: {
         children: ReactNode;
@@ -518,7 +523,7 @@ signatures (every public export and the types it is made of)
         turnId?: string;
     }
   MermaidTheme (packages/ui-react/src/lib/mermaid-theme.ts)
-    export type MermaidTheme = ColorScheme;
+    export type MermaidTheme = ContentRendererTheme;
   MessageAttachment (packages/ui-react/src/stores/chat-state.ts)
     export interface MessageAttachment {
         previewUrl: string;
@@ -732,6 +737,11 @@ signatures (every public export and the types it is made of)
         onAudioLevel?: (level: number) => void;
         signal?: AbortSignal;
     }
+  StaticDiagramShareMenu (packages/ui-react/src/components/chat/static-diagram-share.tsx)
+    export function StaticDiagramShareMenu({ svg, filename = "diagram" }: {
+        svg: () => Promise<string>;
+        filename?: string;
+    }): import("react").JSX.Element;
   StatsSection (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type StatsSection = {
         kind: "software";
@@ -865,6 +875,18 @@ signatures (every public export and the types it is made of)
         costNote: string;
         blurb: string;
     }
+  ZoomViewer (packages/ui-react/src/components/viewer/zoom-viewer.tsx)
+    export function ZoomViewer({ children, onClose, actions, refitKey, maxFitScale = 2.5, minScale = MIN_SCALE, label = "Zoomed view", }: ZoomViewerProps): import("react").ReactPortal;
+  ZoomViewerProps (packages/ui-react/src/components/viewer/zoom-viewer.tsx)
+    export interface ZoomViewerProps {
+        children: React.ReactNode;
+        onClose: () => void;
+        actions?: React.ReactNode;
+        refitKey?: unknown;
+        maxFitScale?: number;
+        minScale?: number;
+        label?: string;
+    }
   activeChat (packages/ui-react/src/stores/chat-state.ts)
     export function activeChat(state: ChatShellState): SessionChat;
   anyStreaming (packages/ui-react/src/stores/chat-state.ts)
@@ -917,6 +939,7 @@ signatures (every public export and the types it is made of)
             status?: string;
         }) => Promise<{
             history: ActivityRunSummary[];
+            lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[];
             live: ActivityRunSummary[];
         }>;
         activityStats: (days?: number) => Promise<ActivityRuntimeStats>;
@@ -1131,6 +1154,7 @@ signatures (every public export and the types it is made of)
         }>;
         status: () => Promise<{
             activeSession: boolean;
+            contentRenderers?: ContentRendererDeclaration[];
             cronJobs: Array<{
                 lastRunAt: null | number;
                 lastStatus: null | string;
@@ -1247,13 +1271,18 @@ signatures (every public export and the types it is made of)
   hasUnsentText (packages/ui-react/src/hooks/use-service-worker-updates.ts)
     export function hasUnsentText(): boolean;
   inlineMermaidDiagrams (packages/ui-react/src/lib/mermaid.ts)
-    export function inlineMermaidDiagrams(md: string, theme?: MermaidTheme): Promise<string>;
+    export function inlineMermaidDiagrams(markdown: string, theme?: MermaidTheme): Promise<string>;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function receipt(frame: ServerAskAnswerReceipt): void;
   reconnectWebSocketNow (packages/ui-react/src/connection.ts)
     function reconnectWebSocketNow(): void;
+  registerContentRendererPack (packages/ui-react/src/content-renderers/register.ts)
+    export function registerContentRendererPack(pack: ContentRendererPack, module: {
+        name: string;
+        version: string;
+    }): void;
   registerUpdateHold (packages/ui-react/src/lib/update-holds.ts)
     export function registerUpdateHold(root: BrainUiServices, hold: UpdateHold): () => void;
   renderBlockHtml (packages/ui-react/src/components/chat/share-document.tsx)
@@ -1322,6 +1351,7 @@ signatures (every public export and the types it is made of)
             status?: string;
         }) => Promise<{
             history: import("@schlessera/brain-ui-sdk").ActivityRunSummary[];
+            lifecycles?: import("@schlessera/brain-ui-sdk").ActivityTurnLifecycle[];
             live: import("@schlessera/brain-ui-sdk").ActivityRunSummary[];
         }>;
         activityStats: (days?: number) => Promise<import("@schlessera/brain-ui-sdk").ActivityRuntimeStats>;
@@ -1536,6 +1566,7 @@ signatures (every public export and the types it is made of)
         }>;
         status: () => Promise<{
             activeSession: boolean;
+            contentRenderers?: import("@schlessera/brain-ui-sdk").ContentRendererDeclaration[];
             cronJobs: Array<{
                 lastRunAt: null | number;
                 lastStatus: null | string;
@@ -1610,4 +1641,9 @@ signatures (every public export and the types it is made of)
   useWebSocket (packages/ui-react/src/hooks/use-websocket.ts)
     export function useWebSocket(): {
         send: (message: ClientMessage) => boolean;
+    };
+  useWikiLinkNavigation (packages/ui-react/src/components/chat/brain-markdown-links.tsx)
+    export function useWikiLinkNavigation(): {
+        resolve(target: string): string | null;
+        open(target: string, opener: HTMLElement | SVGElement, keyboard: boolean): boolean;
     };

@@ -14,7 +14,7 @@ Claude Code 2.1.280 / `@anthropic-ai/claude-agent-sdk` 0.3.278, and the
 permission design in #124, #141, #154, #162 and
 [voice-permission.md](voice-permission.md) rests on those measurements. They
 describe a live `query()` against an installed binary. The suites are keyless
-and offline by rule (`keyless, deterministic`, `AGENTS.md:125-126`), so no test
+and offline by rule (`keyless, deterministic`, `AGENTS.md:137-138`), so no test
 re-measures them, and nothing in the tree knew which binary a deployment
 actually runs. If the binary moved and a measured behaviour stopped holding,
 nothing would notice.
@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:497`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:263`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:351`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -55,14 +55,16 @@ next to it.
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
-  (`Route the Claude Code subprocess`,
-  `packages/ui-backend-claude/src/spawn-wrapper.ts:2-18`); without one the SDK
-  spawns it directly.
+  ([historical wrapper header](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts)); without one the SDK
+  spawned it directly at this baseline. #1037 subsequently made worker execution
+  unconditional; #1808 retired this unused adapter. The optional exec wrapper
+  now runs inside the worker (`createWorkerSpawn`,
+  `packages/ui-backend-claude/src/worker-spawn.ts:86-291`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:111-177`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:381`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:383`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -71,7 +73,7 @@ next to it.
   `@schlessera/brain-backend-claude` at `^0.3.241`
   (`"@anthropic-ai/claude-agent-sdk"`,
   `packages/ui-backend-claude/package.json:49`), resolved by this repo's
-  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:474`): 0.3.278 when
+  lockfile (`"@anthropic-ai/claude-agent-sdk": [`, `bun.lock:503`): 0.3.278 when
   this record was written, 0.3.280 from 0.37.0, 0.3.283 from 0.38.0.
   The binary at `CLAUDE_CODE_PATH` is whatever the host put there.
 
@@ -85,11 +87,11 @@ than recalled:
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts:1887-1889`).
 - The built-in executable is a real Claude Code release, shipped as per-platform
   optional dependencies pinned to the SDK's exact version
-  (`optionalDependencies`, `bun.lock:474`, eight
+  (`optionalDependencies`, `bun.lock:503`, eight
   `claude-agent-sdk-<os>-<arch>[-musl]@0.3.278` entries), each with an integrity
   hash in the lockfile
   (`"@anthropic-ai/claude-agent-sdk/@anthropic-ai/claude-agent-sdk-linux-x64": [`,
-  `bun.lock:2556`). The public SDK's platform package is nested because the
+  `bun.lock:2587`). The public SDK's platform package is nested because the
   private development-only hygiene research alias retains its original292 pair;
   the public backend still resolves293. The SDK carries a manifest naming the release and a checksum
   per platform (`node_modules/@anthropic-ai/claude-agent-sdk/manifest.json`:
@@ -109,7 +111,7 @@ than recalled:
   carries `claude_code_version` (`sdk.d.ts:5590`). The Claude backend already
   receives that message and keeps only a status line from it
   (`msg.subtype === "init"`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:261-266`).
+  `packages/ui-backend-claude/src/stream-adapter.ts:289-294`).
 
 So the pair the measurements name — 2.1.280 with SDK 0.3.278 — is one the SDK
 never ships together. It can only arise when the binary is chosen separately
@@ -210,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:326-331`).
+  `packages/ui-server/src/app.ts:328-333`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -246,7 +248,8 @@ than refuses on a mismatch.**
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
   `{ command, args }` to `spawnClaudeCodeProcess` instead of spawning
-  (`sdk.mjs:127`), the seam `spawn-wrapper.ts` already uses. A probe can
+  (`sdk.mjs:127`), the seam the [retired spawn wrapper](https://github.com/schlessera/brain-kit/blob/ca1facc1e7086bd2119c260150e9f091e16817f1/packages/ui-backend-claude/src/spawn-wrapper.ts) used
+  at this baseline (worker execution replaced it in #1037; #1808 removed it). A probe can
   supply a callback that records what it was handed and throws a sentinel
   error, so no process starts, and must tell that sentinel apart from a
   resolution error. For the native binary `command` is the binary itself. For
@@ -262,9 +265,9 @@ than refuses on a mismatch.**
   first proof of that.
 - **Where it shows.** `/api/status`, which is behind the auth guard and already
   reports the source commit (`Operational status`,
-  `packages/ui-server/src/routes/health.ts:54-70`), and the run record. Not
+  `packages/ui-server/src/routes/health.ts:57-75`), and the run record. Not
   `/api/health`: it is public and deliberately carries no version
-  (`Public liveness probe`, `health.ts:13-15`). Not `brain doctor`: it runs on
+  (`Public liveness probe`, `health.ts:14-16`). Not `brain doctor`: it runs on
   the user's machine against a different binary.
 
 Why warn rather than refuse an unmeasured pair, given that what was measured is
@@ -273,7 +276,7 @@ a permission boundary:
 - **A refusal would not buy what it appears to.** The measured version is not
   known-safe either: the list of mechanisms that skip `canUseTool` is what has
   been measured, not a closed set (`AT LEAST three`,
-  `permission-hooks.ts:150-153`). A version gate would separate "probed" from "not
+  `permission-hooks.ts:168-171`). A version gate would separate "probed" from "not
   probed", not "safe" from "unsafe", and it would say the second thing to
   whoever reads it.
 - **It would block the path a CLI fix takes.** The built-in binary moves only
@@ -315,12 +318,12 @@ name instead of repeating the numbers. Two mechanisms hang off it:
   fails in both. A path hard-coded to the root `node_modules` could read a
   different copy from the one the backend loads. CI installs with
   `--frozen-lockfile` (`bun install --frozen-lockfile`,
-  `.github/workflows/ci.yml:47`), so the guard compares the lockfile-installed pair.
+  `.github/workflows/ci.yml:52`), so the guard compares the lockfile-installed pair.
   This fast version guard remains an affected automatic check under
   [the current CI policy](ci-utility.md); changing the SDK requires fresh local
   runtime measurements before updating the constant. It needs no key and no
   network, so it is allowed
-  (`keyless, deterministic`, `AGENTS.md:125-126`). It is the only automatic check
+  (`keyless, deterministic`, `AGENTS.md:137-138`). It is the only automatic check
   this has.
 - **A committed probe**, run by hand with credentials, replays the measurements
   with real `query()` calls and writes the SDK version, the `init`-reported CLI
@@ -353,7 +356,7 @@ so it holds itself to these rules:
   about another.
 - **Composition, not only parts.** The enforcement hook's `ask` must leave
   another hook's `updatedInput` intact (`An explicit "ask" beats all three`,
-  `permission-hooks.ts:177-179`; `(e) a hook's`,
+  `permission-hooks.ts:195-197`; `(e) a hook's`,
   `allowlist-enforcement.test.ts:18-21`). That is its own case: a rewrite, an
   `ask` and a `canUseTool` decision in one call, asserting the input the
   callback saw and the input that executed.
@@ -380,13 +383,14 @@ until re-measured.
 
 | Site | What it asserts | Re-checked by |
 | --- | --- | --- |
-| `DO NOT WEAKEN THIS INTO A FALLTHROUGH`, `packages/ui-backend-claude/src/permission-hooks.ts:149-180` | Three things admit a tool before `canUseTool` — the safe-command classifier (`echo hi` with an empty allowlist), a built-in tool's own check (`ToolSearch`), a project-settings `PreToolUse` hook returning `allow` — and an explicit `ask` beats all three. `permissions.allow` rules and `defaultMode: "bypassPermissions"` do not bypass. | Probe cases for each of the three, each with and without the `ask`, plus the two negative controls. |
-| `Both hooks exist to rewrite`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:8-15` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
+| `DO NOT WEAKEN THIS INTO A FALLTHROUGH`, `packages/ui-backend-claude/src/permission-hooks.ts:167-198` | Three things admit a tool before `canUseTool` — the safe-command classifier (`echo hi` with an empty allowlist), a built-in tool's own check (`ToolSearch`), a project-settings `PreToolUse` hook returning `allow` — and an explicit `ask` beats all three. `permissions.allow` rules and `defaultMode: "bypassPermissions"` do not bypass. | Probe cases for each of the three, each with and without the `ask`, plus the two negative controls. |
+| `Both hooks exist to rewrite`, `packages/ui-backend-claude/src/input-rewrite-hooks.ts:7-14` | A hook's `updatedInput` applies with no decision, and the permission path sees the rewritten input. | Probe case: rewrite with no decision; assert the executed input and the `canUseTool` input. |
 | `The runtime precedence modelled by`, `packages/ui-backend-claude/tests/allowlist-enforcement.test.ts:11-20` | The precedence `runToolCall` models, (a)–(e). The test cannot re-measure it. | The cases above plus the composition case. A changed result changes the model in the test in the same PR. |
 | `the one answer that beats`, `packages/ui-backend-claude/tests/no-grant-surface.test.ts:13-18` | The same three opinions, and that `ask` is what forces the decision. | Same probe cases. |
-| `That third vector is stated here`, `docs/decisions/voice-permission.md:629-655` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
-| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:280-293` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
-| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:814,832`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
+| `That third vector is stated here`, `docs/decisions/voice-permission.md:645-671` | An in-process `deny` beats a project-settings `allow`. | Probe case: settings `allow` against in-process `deny`, with the positive control of the settings hook alone running the tool. |
+| `Three measured examples from the Claude SDK`, `docs/extending/agent-backends.md:302-315` | The same three mechanisms and the `ask`, restated for backend authors with no version attached. | Updated in the same PR as the constant whenever a probe result changes. |
+
+| `createSdkMcpServer({ alwaysLoad: true })`, `docs/decisions/design-kit/tool-loading.md:21-44` (D44) | Two different kinds of claim. That `createSdkMcpServer({ alwaysLoad })` stamps `_meta["anthropic/alwaysLoad"]` is SDK behaviour, asserted keylessly by `"anthropic/alwaysLoad"`, `packages/ui-backend-claude/tests/sdk-options-mcp.test.ts:82` and `"anthropic/alwaysLoad"`, `tests/bridge-tools.test.ts:816,834`. That the CLI honours the stamp, and that first-frame latency did not move, is CLI behaviour. | The SDK half by the existing tests. The CLI half needs a live run of both arms — stamp set and unset — on the new pair, recording the pair from `init` and observing whether the bridge tools reached the model undeferred. `scripts/measure-show-block.ts` can run either arm (with and without `--always-load`; `ALWAYS_LOAD`, `scripts/measure-show-block.ts:304,369`), but it records no version and nothing in it compares the two arms or checks deferral, so it does not re-check this as it stands. Extending it is part of #209. `--tokens` prices schemas through the API and never runs the CLI, so it re-checks nothing here. |
 
 > **2026-09-30 — Implementation context (D44's harness gap in the sites table).**
 > The [old harness](https://github.com/schlessera/brain-kit/blob/af2affb2e939cc39446abeaccc704b617d9e6fd7/scripts/measure-show-block.ts#L304-L369)
@@ -405,7 +409,7 @@ brain-hosting-template.
 
 None of the live sites is accepted as unverifiable. What stays unverifiable is
 the absence of a *fourth* mechanism — `AT LEAST three`,
-`permission-hooks.ts:150-153` already says three is what has been measured, not a
+`permission-hooks.ts:168-171` already says three is what has been measured, not a
 closed set — and no probe can close that.
 
 ## Where the work goes
@@ -450,9 +454,9 @@ into them.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:65-71`,
+  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:332`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:424`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -464,7 +468,7 @@ into them.
   billing now stays unknown for every origin; server credentials and an
   observed runtime version cannot establish a child's billing. The recorded
   root-span attribute is the source of truth
-  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:526-527`);
+  (`const attrBilling`, `packages/ui-server/src/activity/store.ts:537-538`);
   [cost-tracking.md](cost-tracking.md#recorded-billing-is-the-rollup-source-of-truth-293)
   records the 2026-09-30 ruling and frozen-history semantics.
 - **Model discovery prefers the API key** and describes that as "mirroring the
@@ -537,7 +541,7 @@ subscription authenticates.
   successful turn with no text. That was #191's failure, and an auth failure is
   one of its cases. Since #575 the adapter reads `is_error` on either subtype
   (`msg.subtype === "success" && !msg.is_error`,
-  `packages/ui-backend-claude/src/stream-adapter.ts:221`) and ends the turn on a
+  `packages/ui-backend-claude/src/stream-adapter.ts:247`) and ends the turn on a
   `failure` carrying the class, the status and this text.
 - **`claude auth status` cannot detect it.** It reported `loggedIn: true`,
   `authMethod: "oauth_token"` for a bogus token, so it checks for presence, not
@@ -600,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:210`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:295`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1080,3 +1084,378 @@ a network namespace. It observes actual Read, allowlisted Bash and Write, and
 an operator-denied Write. Scripted responses establish runtime permission
 behavior; they are not provider results, subscription eligibility, model
 quality, billing evidence or a benchmark adoption decision.
+
+## Resumed usage accounting measurement (2026-10-16, #2025)
+
+`bun scripts/measure-claude-usage.ts --out report.json` exercised the installed
+Agent SDK **0.3.293** and its bundled CLI **2.1.293**, with isolated configuration,
+synthetic credentials and a scripted loopback Messages origin. Two serial
+`query()` calls shared a session through `resume`; each completed exactly one
+response with one input and one output token and no cache tokens.
+
+| Measurement | First turn | Resumed turn |
+| --- | ---: | ---: |
+| Completed response input/output | 1 / 1 | 1 / 1 |
+| Raw result `usage` input/output | 1 / 1 | 1 / 1 |
+| Result `modelUsage` input/output | 1 / 1 | 2 / 2 |
+| Result `total_cost_usd` | 0.000018 | 0.000036 |
+
+The model was `claude-sonnet-4-6` in both requests. This reproduces CLI
+session-cumulative cost/modelUsage without a provider call. It makes no claim
+about first-party invoices, cache eligibility or title-request occurrence:
+this run captured two streaming main requests and no additional request.
+
+An interactive/voice main result therefore uses completed response receipts,
+including child channels once and same-process follow-up continuations. The
+host prices those counts through the selected route. Neither the raw terminal
+cost nor subtracting consecutive terminal totals is a main-turn receipt:
+cancellation can roll cumulative counters backwards. Missing completed counts
+remain unknown. Autonomous Queue accounting retains its existing
+fresh-runtime semantics, as do fresh nonpersistent handoff helpers.
+
+The host separately reconciles source-qualified cumulative token evidence with
+retained completed-response counts for that session/backend. A positive
+unobserved remainder becomes an **Unstreamed Claude usage** Activity run, with
+unattributed request provenance. Its per-model/token-class high-water mark,
+completed counts and turn identity persist transactionally with the auxiliary
+run and session-cost addition. A repeated resumed total cannot book that
+remainder again, including when it shares the main/subagent model. Main-run
+cache/token metrics exclude it; overall Activity/session sums include measured
+auxiliary spend once. The reported SDK cost is audit evidence, not a pricing
+rate or an amount added to the ledger.
+
+An imported session establishes an unknown opening baseline; historical usage
+is not charged as new helper work. Missing totals, unmatched model ids and
+counter rollback make coverage partial, never negative main usage. Partial
+coverage is retained on the auxiliary run; a missing auxiliary measurement
+creates an unpriced run rather than a claim of free work. These conservative
+limits also apply after lost response coverage or changed runtime accounting.
+Existing frozen Activity rows are not migrated or repaired. #2052 owns the
+separate request/channel classifier for title-helper attribution; this
+reconciliation does not identify a helper by model name or suppress titles.
+
+## 2026-10-16 — Interactive presets omit changing Git context (#2046)
+
+Both API and subscription interactive turns set the documented flag setting
+`includeGitInstructions: false`, after their billing settings are assembled.
+This keeps a resumed request's prefix stable across repository commits and
+working-tree changes. It also removes the CLI's built-in commit and PR
+instructions; a brain may retain its own guidance in its project `CLAUDE.md`.
+Restricted turns already use a custom prompt and keep their existing settings.
+
+The keyless real-CLI guard uses SDK 0.3.293 / bundled CLI 2.1.293, a local
+Messages endpoint and an offline network namespace. Each billing profile runs
+two turns of one session with a new commit and dirty Odysseus note between
+them. Tools and system bytes remain identical, and Git branch/commit text is
+absent from system and message bytes. Removing the setting exposes the branch
+in message context. The environment switch also suppresses Git context, but
+the documented setting avoids relying on that undocumented switch.
+`excludeDynamicSections` alone leaves Git context in the first user message
+and does not meet the absence requirement. These receipts establish assembly
+at a local origin, not first-party request bytes, subscription eligibility or
+provider cache hits. No live-provider measurement is implied.
+
+
+### Host-owned stored-login refresh (2026-10-16 amendment)
+
+The maintainer approved host-held Claude OAuth resolution, including ownership
+of stored-login refresh, in #1665 (comment 6222696632) and #1666 (comment
+6222698058). This supersedes the earlier placement of all refresh inside the
+native worker. Login acquisition and account selection remain native; the host
+resolver uses the selected stored record without creating a replacement account
+or changing billing mode. Pi keeps its supported native authentication runtime.
+Command-sourced credentials still execute only inside credentialed maintenance,
+never through host shell evaluation.
+
+The bounded server-only implementation reads the trusted host config directory,
+not a public request path (`resolveClaudeHostOAuth`,
+`packages/ui-backend-claude/src/host-oauth.ts:100-221`). It rereads the record for
+every resolution, respects an explicitly supplied setup token, and refreshes
+stored OAuth within five minutes of expiry. The measured production protocol is
+JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
+`client_id`, and the record's scopes. The record's client ID wins over the
+per-request environment override and the native production default. An alternate
+OAuth authority is refused rather than sending its refresh token to production.
+The returned access token and optional rotated refresh token are saved atomically
+in the host-owned record, preserving unrelated data and existing subscription
+and rate-limit metadata. These retained fields are not a newly fetched account
+profile or evidence that a subscription is valid.
+
+The source qualification resolves the executable relative to the SDK entry,
+matching the SDK's own module resolution. SDK `0.3.293` resolves its nested
+Linux x64 platform package `0.3.293`, whose executable reports `2.1.293` and
+matches the bundled download manifest SHA-256
+`8968405e26db478af44eabc4635ab5ca557057b702a54460a59c13e1b253e978`.
+A separate hoisted platform package `0.3.292` also exists in the frozen install;
+it is not this SDK's selected executable. The refresh shape, expiry margin and
+client ID were inspected in the selected executable; the offline test pins its
+actual bytes and makes the native CLI read a fictional refreshed store inside
+a fresh private network namespace. This qualifies record compatibility and
+the bounded refresh HTTP exchange, not paid inference, a real subscription,
+or a different runtime's behavior. Earlier runtime measurements keep their
+recorded executable identities.
+
+Credential files must be private, owner-held, regular, unaliased and bounded;
+links and permissive files refuse. Refresh has a bounded response and timeout,
+never follows redirects, and exposes fixed error messages instead of provider
+responses, credentials or filesystem paths. Cancellation leaves the prior record
+intact and releases owned staging. Host resolution and credentialed maintenance
+share a kernel-backed exclusive lock. The lock belongs to the server's open
+file description; a short trusted `flock` helper acquires it without a shell,
+repository program, credential or inherited host environment. Process exit
+releases the descriptor automatically. A contender refuses busy or waits for
+its configured admission bound; it never removes an alleged stale owner's file.
+The default private per-UID domain is independent of `TMPDIR`, so server and
+cron agree. A trusted private test domain isolates concurrent proof; repository
+input cannot select it. Hosts must provide the trusted system `flock` helper;
+missing or unsafe lock state refuses before credential access.
+
+Credentialed asynchronous maintenance takes writer admission before credential
+exclusion and existing output admission. Host OAuth reads take only credential
+exclusion and never reacquire an exclusive writer, avoiding inversion with an
+active turn. Streaming maintenance retains exclusion until both process exit
+and native stdout/stderr EOF, including a descendant retaining inherited
+output. A non-streaming output failure kills the command and settles its exit
+and other output before releasing exclusion. Cancelling an output reader drains
+the native stream. Synchronous
+credentialed execution refuses; fixed isolated Git mirror transport uses its
+separate credential path. Independently launched native CLI commands do not
+participate: the server's command gateway is the serialization boundary.
+Atomic publication still compares current bytes before replacing the record
+and holds its directory descriptor. The comparison detects observed changes;
+it is not an atomic compare-and-swap against an independent native command.
+
+The existing inference relay can resolve host headers anew for each authorized
+dispatch after discarding inbound credential headers. Resolver failures expose
+a fixed message, cancellation stops resolution, and invalid routes never ask
+for a credential. This capability does not select an OAuth destination or
+activate ordinary workers. A project-selected endpoint and native account
+observation are not permission to disclose a host-held OAuth token.
+
+This internal resolver does not activate the ordinary worker relay. Before that
+activation, offline native inference must preserve new/resumed/changed/expired
+login, per-request endpoint and model selection, account and observed billing,
+concurrent refresh and cancellation, and prove that worker environment, files,
+logs and reachable sockets contain no provider credential. The broader network,
+policy, socket masking and first-party tool qualification in #1665 also remains
+required. No acceptance criterion is waived by delivering this resolver first.
+
+
+### First-party host-relay native protocol qualification (2026-10-16)
+
+The installed SDK `0.3.293` / selected CLI `2.1.293` can use the existing Unix
+relay with a placeholder in its environment while the host resolves stored OAuth
+for each dispatch. The offline control composes the existing resolver and relay
+directly; it adds no production factory or ordinary-worker activation
+(`const relay = startInferenceRelay`,
+`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:79-80`).
+The test verifies the selected binary's checksum and every actual native
+process's executable, and runs the entire fixture with an empty ambient
+environment in fresh network and PID namespaces. Native inference and refresh
+reach real loopback HTTP through the Unix relay. Only the host's lowest fetch
+method maps the asserted production inference/token authorities to that
+fictional server; no live-provider or TLS interception claim is involved.
+
+Three new/resumed native turns preserve prior message counts of one, three
+and five and select Haiku, Sonnet and Haiku respectively. Their upstream
+requests receive the initial, changed and refreshed host login, with no API-key
+header (`expect(result.requests,`,
+`packages/ui-backend-claude/tests/host-relay-native.test.ts:29-33`). A fourth
+native query is cancelled while its host refresh is pending: the real upstream
+request closes, exact host bytes remain and credential exclusion becomes
+available again. Native process environments, worker-owned files and stderr
+contain no fictional host access/refresh token; the native environments contain
+the placeholder. Mutations which cache the first credential, forward the
+placeholder upstream, or discard the native request's cancellation signal each
+fail their corresponding native control.
+
+The unaugmented native initialize observations report
+`tokenSource: CLAUDE_CODE_OAUTH_TOKEN` and `apiProvider: firstParty`. They do not
+report the stored account's email, organization or subscription tier under this
+Unix transport. The proof does not invent those fields, validate a real
+subscription, establish live billing or show provider cache hits. It qualifies
+this protocol composition, not the ordinary launcher, credential-free startup
+projection, managed/project endpoint precedence, host-file or socket isolation,
+or command-sourced credential compatibility. Those remain prerequisites for
+ordinary activation and completion of #1665/#1666.
+
+### Host authority for OAuth inference recipients (2026-10-16)
+
+The maintainer approved explicit host-owned origin authorization in #1665
+(comment 6224536886) and #1666 (comment 6224537286). The production first-party
+inference origin, `https://api.anthropic.com`, remains implicit. A custom origin
+must have explicit authorization in trusted host configuration for this
+credential. Native project or managed endpoint settings select a route; they
+cannot authorize disclosure of a host-held bearer. An unauthorized selected
+origin refuses before reading the credential or attempting refresh. The host
+must preserve the selected route rather than silently substitute first-party
+inference. Matching uses a canonical scheme, hostname and port, with no suffix
+or wildcard match, userinfo, path, query or fragment. Redirects remain refused.
+The refresh token still goes only to the qualified production token authority.
+
+The internal resolver requires the actual dispatch origin. The relay supplies
+its immutable configured target to the existing credential resolver for each
+request. The callback receives a copy: it cannot change that request's route.
+Only trusted host configuration may supply the explicit authorized-origin list;
+no request, worker state, native account label, model or cost hint supplies it.
+This amendment changes recipient authority and leaves native endpoint
+precedence as a routing fact. It does not authorize TLS interception, live calls,
+or fabrication of native billing or account observations.
+
+The relay can also consume the concrete turn proxy's existing admission,
+shared byte counter and redacted recorder. Inference records carry an internal
+`inference: true` tag so later taint enforcement can distinguish that transport;
+the tag grants no destination permission. Request bodies are bounded while
+reading, before provider contact. Response bodies are charged while streaming,
+remain open until EOF, and cancel on limit or client/turn cancellation. Parallel
+inference and generic proxy traffic share the same turn counter. The inference
+counter bounds HTTP application bytes and framing before provider TLS. It does
+not measure TLS ciphertext, handshakes or DNS traffic. Generic CONNECT continues
+to count opaque tunneled bytes. Records exclude headers, credentials, bodies
+and query strings.
+
+Offline native controls compose these internal components and preserve the
+three-turn login/model/history observations above, with a fourth-query refresh
+cancellation. This is qualified composition, not ordinary default activation.
+Credential-free projection of existing native stores, managed/project dispatch
+binding in ordinary consumers, all first-party tool paths, reachable-socket
+inventory and retained governance events remain required by #1665/#1666.
+
+### Ordinary spawn consumes a host-prepared inference transport
+
+The existing ordinary spawn adapter can explicitly consume the turn proxy's
+private directory. It passes that transport to the actual worker launcher and
+selects state projection without `.credentials.json` (`const settings =`,
+`packages/ui-backend-claude/src/worker-state.ts:181`). It retains exact native
+settings, account metadata, shared auto-memory and the resumed transcript;
+copy-out still publishes only the existing transcript/memory domains. The host
+resolver reads and refreshes the original credential store instead of placing
+it in the worker. Default ordinary callers do not select this input yet.
+
+The offline qualification calls the production spawn adapter directly in both
+strict and governed profiles, with the installed SDK/CLI and the real proxy,
+relay and host resolver (`const spawner = createWorkerSpawn`,
+`packages/ui-backend-claude/tests/fixtures/ordinary-host-relay-probe.ts:132-138`).
+It checks actual native executable/environment,
+three-turn history/model/current-login continuity, a fourth-query refresh
+cancellation, shared charged destination records, native-store absence and
+reservation cleanup. Removing the adapter's projection selection fails the
+named native credential-file assertion (`expect(result.workerCredentialFile`,
+`packages/ui-backend-claude/tests/ordinary-host-relay.test.ts:51`). Its strict startup input is the
+explicit copied-storage test fixture; this is not native managed/Btrfs storage
+qualification.
+
+This explicit composition is an inference prerequisite for the ordinary
+cutover. It does not remove other CLI provider credentials, sanitize every
+native settings file, establish command-sourced auth admission, activate the
+ordinary SDK/turn lifecycle, or complete first-party transport/socket/privacy
+qualification. Those limits remain open and do not create a dependency on
+closing every other acceptance criterion of #1665 before #1666 can consume
+this concrete delivered prerequisite.
+
+
+### Prepared transport through ordinary SDK assembly
+
+The existing SDK turn builder accepts the same concrete host-prepared proxy
+directory as the ordinary spawn adapter (`hostInference?:`,
+`packages/ui-backend-claude/src/sdk-options.ts:85`). The explicit selection pins
+the inference OAuth placeholder and Unix socket in both the child environment
+and native flag settings, using the existing subscription credential-clearing
+policy. It does not remove other providers' CLI command environment. Only an
+ordinary subscription turn can select this input; API and autonomous turns
+retain their existing paths (`const inferenceEnv`,
+`packages/ui-backend-claude/src/sdk-options.ts:218-225`). The worker note derives
+its active-proxy description from that same selection and retains per-use
+outward approvals.
+
+The native qualification now constructs the full SDK turn, including its MCP
+server, system prompt, per-turn context and permission hooks, rather than
+constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:205-226`).
+Strict and governed controls retain history, model changes, host login
+rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
+call still reaches the existing per-use refusal: removing the assembled
+PreToolUse hook creates the refused file. Native managed Unix-socket overrides
+and project API credentials withhold the prompt through the existing
+subscription settings check, before provider contact or host credential
+resolution (`settingsRefusal(settings`,
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:238-243`).
+The actual process state ledger is observed admitted while the worker is live
+and empty after teardown.
+
+The disposable identity qualification also composes these full SDK paths with
+the configured identity helper: server UID 21001 launches native inference as
+worker UID 21002 in both governed and strict profiles. A fixed fixture wrapper
+records kernel identity and credential-presence booleans in held worker state,
+then replaces itself with the selected installed native executable. The actual
+requests retain model/history, host refresh, account observations and shared
+proxy accounting. The worker cannot read the server-private sentinel and has
+neither the host credential file nor its tokens. Cancelled recovery keeps its
+explicit AbortError copy-out refusal; cleanup still releases the held ledger,
+helper records and workers. Strict input here is an explicitly shared copied
+fixture, not managed Btrfs admission or ordinary server dispatch enablement.
+
+This input supplies transport, not destination authority or automatic ordinary
+selection. Its trusted caller must bind the actual native-selected upstream,
+its host authorization and the relay lifetime before releasing a prompt. A
+fresh native settings report is not evidence of the client's cached startup
+endpoint: the qualified runtime can report changed project settings while
+still dispatching to its earlier endpoint. Project/managed endpoint precedence
+and live changes therefore require dispatch binding before activation; the
+assembly control does not claim that problem solved. Default turn-runner
+selection remains unchanged. Complete credentialed-command compatibility,
+ordinary credential cutover and remaining socket/privacy qualification stay
+separate from this explicit prepared SDK composition.
+
+### Explicit prepared transport in the ordinary turn runner
+
+The ordinary turn runner can consume the admitting host's concrete turn proxy
+through the existing sandbox input. It composes the existing first-party
+relay and host OAuth resolver with the full native SDK path, including MCP,
+permission hooks, system context, initialization and subscription checks.
+Selection remains explicit: the server does not automatically populate this
+input, and API-billed/autonomous calls retain their current path. Native
+startup uses the private Unix transport from process creation, before its
+HTTP client can cache a different endpoint. The qualified fixed Linux project/managed settings
+that select an unqualified destination refuse before a prompt or credential
+resolution. The first-party route is fixed; this slice does not select a
+custom recipient or turn project settings into host authorization.
+
+The qualified mutable settings need synchronous kernel event observation as well as bounded
+file identities: reading the same bytes again cannot exclude an edit-and-restore
+while native initialization cached a route. Lost watches, event overflow,
+aliases and unqualified source tiers refuse. Native library loading is lazy;
+both the Bun FFI module and native library are loaded only when the prepared
+transport selects the guard. An unavailable module/library refuses that
+selection without making unrelated turn-runner or declared Node package imports
+fail. Concurrent first selections share a load; a failed load can be retried.
+
+A manager-acquired immutable startup view has a different lifetime from a
+mutable project path. Only its existing private acquisition attestation can
+select retained-view handling. The guard retains that owner and a no-follow
+directory descriptor, matching the kernel subvolume UUID, root ID, creation
+transaction, read-only flag, parent UUID and filesystem ID to the actual
+checkpoint receipt. The lexical checkpoint must still identify the held root
+before each dispatch. The existing native output preparation independently
+binds the worker's stage to the same checkpoint UUID. Forged/closed views,
+replacement subvolumes and closed/reused descriptors refuse. The foreign-object
+reuse control preserves the unrelated descriptor when its device/inode differs
+from the retained checkpoint; it does not establish descriptor provenance for
+another handle reopened to the same inode.
+Checkpoint descendants and mutable managed inputs retain their normal alias,
+content and kernel-event checks. No inaccessible lexical ancestor receives a
+general trust exception.
+
+Cleanup attempts the worker drain, retained input, relay, socket link, timers,
+input/listener ownership and existing turn bookkeeping independently, reporting
+all failures. A native checkpoint-release failure cannot strand the relay or
+leave the session busy. This is not qualification of an orphan host child or
+global credential ownership; those boundaries remain separate.
+
+Offline controls use fictional credentials and the installed native SDK. They
+retain actual per-dispatch rotation, refresh, session history and model changes
+through the explicitly prepared consumer, including the real separate-UID
+managed fixture. Fixture SQLite observations are not a new server governance
+event contract. Automatic server selection, canonical connection events,
+approved custom-origin positives, Pi enforcement, command admission and the
+remaining socket/credential cutover stay outside this prepared selection.

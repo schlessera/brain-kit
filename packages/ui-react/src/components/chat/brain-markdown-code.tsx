@@ -1,7 +1,7 @@
 import React from "react";
 import { CodeBlock } from "@schlessera/brain-ui-kit";
 import { CopyButton } from "./copy-button.js";
-import { MermaidBlock } from "./mermaid-block.js";
+import { ContentRendererView } from "../content-renderer.js";
 
 /** Concatenate all text descendants of a React node tree. */
 function extractText(node: React.ReactNode): string {
@@ -14,25 +14,13 @@ function extractText(node: React.ReactNode): string {
   return "";
 }
 
-/**
- * If a <pre>'s children are a ```mermaid / ```mmd fence, recover the raw
- * diagram source. Text is extracted recursively because rehype-highlight
- * and the linkify pass may have wrapped parts of it in elements.
- */
-function mermaidSourceFrom(children: React.ReactNode): string | null {
+export function MarkdownPre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
   for (const child of React.Children.toArray(children)) {
     if (!React.isValidElement(child)) continue;
-    const props = child.props as { className?: string; children?: React.ReactNode };
-    if (typeof props.className === "string" && /\blanguage-(?:mermaid|mmd)\b/.test(props.className)) {
-      return extractText(props.children).replace(/\n$/, "");
-    }
+    const code = child.props as { className?: string; children?: React.ReactNode };
+    const language = code.className?.match(/(?:^|\s)language-([^\s]+)/)?.[1];
+    if (language) return <ContentRendererView language={language} source={extractText(code.children).replace(/\n$/, "")} fallback={<CodePre {...props}>{children}</CodePre>} />;
   }
-  return null;
-}
-
-export function MarkdownPre({ children, ...props }: React.ComponentPropsWithoutRef<"pre">) {
-  const mermaid = mermaidSourceFrom(children);
-  if (mermaid !== null) return <MermaidBlock source={mermaid} />;
   return <CodePre {...props}>{children}</CodePre>;
 }
 

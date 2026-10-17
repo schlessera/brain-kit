@@ -57,6 +57,48 @@ runtime compatibility checks. Endpoint routing does not enable autonomous
 dispatch or replace its containment gate. The binding policy and verification
 boundaries are in the [endpoint-routing decision](../../docs/decisions/pi-endpoint-routing.md).
 
+## Host-held native authentication qualification
+
+The offline native-auth qualification tests exercise the installed public
+`ModelRuntime.getAuth` and `createAgentSession` APIs. They check current stored
+keys, one locked OAuth refresh for concurrent callers, cancellation without
+credential writeback, and sanitized relay failures. Native Codex SSE and
+WebSocket fixtures preserve account, model, usage and fresh/resident/disk-resume
+history. Through the existing HTTP relay, a WebSocket upgrade receives HTTP 405
+and native transport falls back successfully to SSE. Usage and calculated cost
+come from synthetic responses, not a billed provider observation.
+
+These are native SDK compatibility controls, not an ordinary credential-free
+Pi worker integration. The relay fixture retains fictional native OAuth tokens
+for native request construction and checks that host headers replace worker
+credentials. A plain placeholder cannot construct a Codex request because its
+native adapter extracts an account claim first. Native authentication can also
+supply a per-request endpoint, as the Copilot fixture demonstrates. Request
+shape metadata must retain native truth; model or account labels grant no
+recipient authority.
+
+The maintenance fixture runs native command-bearing keys and headers in a real
+restricted worker with read-only host HOME. Refresh writes to private scratch;
+existing compare-and-swap writeback occurs while the host credential exclusion
+is still held. Its startup view is an explicit copied test fixture, not managed
+Btrfs admission proof. It does not solve exclusive credential-command admission
+during a shared inference turn. There is no supported upstream command-executor
+callback to replace with a host shell.
+
+Ordinary host-held Pi routing remains incomplete under
+[#1665](https://github.com/schlessera/brain-kit/issues/1665). Custom-origin
+OAuth forwarding follows the approved
+[per-credential origin rule](../../docs/decisions/pi-endpoint-routing.md#stored-oauth-recipient-authorization):
+a non-first-party recipient requires explicit host-owned authorization for that
+credential's exact canonical origin. Native `models.json`, including an alias
+into writable project content, selects a route and grants no bearer recipient
+authority. Validate the actual native destination on each dispatch; refuse an
+unapproved recipient without endpoint substitution or credential transfer on
+redirect. The existing custom-origin negative control captures an HTTP 400
+fixture request; it grants no permission and makes no live account claim.
+These tests add no runtime option or default activation, and do not establish
+that the required ordinary host-side recipient check is implemented.
+
 ## GPT-6 profiles
 
 The pinned catalog supports `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and
@@ -192,6 +234,10 @@ policy mirrors the Claude backend:
 - **Allowlisted tools run with no round-trip** (`DEFAULT_PI_ALLOWED_TOOLS`:
   every curated tool except `brain_archive`, plus `pi-web-access`'s
   `web_search`/`fetch_content`).
+  This includes `brain_read_base`, which reads the authoritative content and
+  base hash before an edit. An explicit `allowedTools` list still replaces
+  the default; native base reads still require an admitted grant for the exact
+  path and a live turn.
 - **Destructive `bash` shapes confirm first** (shared
   `DEFAULT_CONFIRM_BASH_PATTERNS`: recursive delete, `git push --force`,
   `git reset --hard`, `brain archive`, …). Each pattern carries its effect
@@ -221,6 +267,8 @@ the tool arguments in place before execution. `bash` commands are additionally r
 [rtk](https://github.com/rtk-ai/rtk) when the binary is on PATH — a
 token-optimizing proxy rewrite (`git status` → `rtk git status`) applied AFTER
 the gate, so confirm patterns always see the command as the model wrote it.
+Bash results contain combined command output without echoing the command. Empty
+output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marker.
 
 | Tool | Risk | Gate | Containment |
 |---|---|---|---|
@@ -293,8 +341,12 @@ ecosystem, loaded by default (`loadExtensions: true`):
   through this backend's gate — delegation itself is the reviewed act.
 
 Install them into the pi agent dir (`pi install npm:pi-web-access
-npm:pi-mcp-adapter npm:pi-subagents`); a container deployment can do this on
-boot.
+npm:pi-mcp-adapter npm:pi-subagents`) before starting turns. Ordinary workers
+reuse the prepared global `npm/node_modules` tree read-only. SDK settings,
+models and login writes stay in bounded private per-turn state. A missing or
+mismatched configured package reports a setup error before loading. Keep the
+prepared package tree stable while turns initialize; it is trusted installed
+code, not a transactional snapshot of concurrent setup changes.
 
 ## Event mapping (pi → wire protocol)
 
@@ -322,6 +374,19 @@ normalizer threads each result back onto its assistant tool call. `bashExecution
 `custom`, and compaction/branch-summary entries are flattened out (the `parts`
 field is additive). Session cost/turn aggregates are left to the host's `sessions`
 metadata table.
+
+Promoted answer links and authoritative server receipts live in host-owned
+`session-replay/` metadata below `sessionDir`, outside the provider transcript.
+Replay applies each display mapping to its native message and exact original
+text. Receipts overlay the matching call on the active branch; a direct server
+application with no runtime call gets a display-only row at its original turn.
+A direct effect committed before any native message retains a session-root
+position and remains visible even when no runtime transcript file exists.
+Neither path manufactures a model message in the session file. After a worker
+exits, the host may append the missing result for an actual runtime-written
+call whose committed server application has no runtime result; existing results
+are never replaced. The installed Pi adapter otherwise repairs such orphaned
+calls with its own error result.
 
 ## Testing
 
@@ -409,6 +474,46 @@ SDK's supported permission toolkit and their runtime's own policy. The
 these names separately from the supported input formats and turn posture.
 Runtime defaults and permission behavior are unchanged.
 
+
+## Measuring isolated startup
+
+From a development checkout, run `bun packages/ui-backend-pi/scripts/measure-startup.ts` (three runs
+by default; `--runs=1` runs one). It uses the installed Pi SDK, a real extension
+and fresh isolated workers, with deterministic Anthropic SSE on loopback inside
+a network namespace. Missing namespace prerequisites fail the command. It uses
+explicit copied fixture inputs to measure the backend; it does not qualify
+native Btrfs admission, journal work or remote provider latency.
+
+Each receipt contains a new turn and a resumed turn with about 300 KiB of
+selected transcript plus 128 unrelated conversations. Timings are milliseconds:
+`preparation` includes transcript loading and sandbox preparation; `spawn` is
+the synchronous launcher; `worker_started.elapsedMs` includes bootstrap and
+static imports; `resources` covers resource/extension loading; `session` covers
+the complete in-worker session open **including resources**; `initialize` also
+includes private settings preparation. `firstFrameMs` is the first backend
+frame, and `providerRequestMs` records arrival of the first request at the
+loopback provider. Elapsed values are measured in the parent; worker durations
+use the worker's monotonic clock. Do not add overlapping durations together.
+
+The 2026-10-16 three-run baseline and direct-transcript optimisation measured:
+
+| Median | Before | After |
+| --- | ---: | ---: |
+| New first frame | 644.6 ms | 640.3 ms |
+| Resumed first frame | 736.0 ms | 649.3 ms |
+| Resumed preparation | 154.0 ms | 43.1 ms |
+| Resumed first provider request | 772.5 ms | 689.4 ms |
+
+Worker bootstrap/imports dominate this fixture (roughly half a second after
+spawn). Direct UUID transcript lookup removes archive parsing from resumed
+turns; legacy SDK filenames retain discovery on their first resume. The
+measurement does not reproduce the reported multi-second hosted delay or
+attribute that whole delay to the archive scan. Absolute times vary by host;
+the regression guard asserts that canonical resume never lists the archive.
+The runtime proof checks fresh worker PIDs, a fresh private scratch marker and
+the read-only host HOME on consecutive turns. It retains no worker or session
+across turns. The existing backend logger receives `Pi startup phase` and
+`Pi startup ready` debug observations without transcript or credential content.
 
 ## SDK requirements
 

@@ -152,10 +152,30 @@ export async function handleClientMessage(
         return;
       }
       if (!connection.authorization.valid) return;
+      let shareSessionId = msg.sessionId;
+      if (msg.shareId) {
+        try {
+          if (!host.inboxTools?.shares) throw new Error("This host does not support bound share filing");
+          shareSessionId = host.inboxTools.shares.resolveSession(connection.authorization.principalId, msg.shareId, msg.sessionId,
+            () => !connection.closed && connection.authorization.valid);
+          // A repeated intake without an explicit continuation only recovers
+          // the binding. Admission may have succeeded before its reply was lost.
+          if (shareSessionId && !msg.sessionId) {
+            host.sendMessage(ws, { type: "session_info", sessionId: shareSessionId, isNew: false,
+              ...(msg.requestId ? { requestId: msg.requestId } : {}) });
+            return;
+          }
+        } catch (error) {
+          host.sendMessage(ws, { type: "error", code: "SESSION_BUSY", message: error instanceof Error ? error.message : "Share binding refused",
+            ...(msg.requestId ? { requestId: msg.requestId } : {}) });
+          return;
+        }
+      }
       await handleChatMessage(host, ws, {
         authorization: connection.authorization,
         text: msg.text,
-        sessionId: msg.sessionId,
+        ...(msg.shareId ? { shareId: msg.shareId } : {}),
+        sessionId: shareSessionId,
         attachments: attachmentResult.attachments,
         ...(files.length ? { files } : {}),
         providerId: msg.providerId,
@@ -610,43 +630,37 @@ export async function handleClientMessage(
       let resumeReported = false;
       try {
         const backend = await host.registry.getBackendForSession(catalog.getStoredBackendId(msg.sessionId));
-        await host.failureReplay.wait(msg.sessionId);
-        const messages = await backend.getHistory(msg.sessionId);
-        await host.failureReplay.wait(msg.sessionId);
+        const published = await host.publishHistory(msg.sessionId, backend, () => connection.authorization.valid, (messages) => {
+          sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages), host.catalog.readStateRoom?.(msg.sessionId));
+          host.reportSessionResume(msg.sessionId, "loaded", { messages: messages.length });
+          resumeReported = true;
+          // Replacing history may remove live cards: restore pending requests
+          // after all chunks, then the whole waiting follow-up queue.
+          resendPendingApprovals(host, ws, msg.sessionId);
+          resendPendingAsks(host, ws, msg.sessionId);
+          if (connection.capabilities?.[FOLLOW_UP_QUEUE_CAPABILITY] === true) {
+            host.sendMessage(ws, host.followUpQueueFrame(msg.sessionId));
+          }
+          // Read the current turn after history, including any queued turn
+          // that replaced the one running when the asynchronous read began.
+          const runningTurn = coordinator.bySession.get(msg.sessionId);
+          host.sendMessage(ws, {
+            type: "status",
+            ...(runningTurn && runningTurn.lastResult === null
+              ? { status: "thinking" as const, detail: "Session in progress", turnId: runningTurn.turnId }
+              : { status: "idle" as const, detail: "Session loaded" }),
+            sessionId: msg.sessionId,
+          });
+        });
+        if (!published) {
+          host.reportSessionResume(msg.sessionId, "unauthorized");
+          return;
+        }
+      } catch (err) {
         if (!connection.authorization.valid) {
           host.reportSessionResume(msg.sessionId, "unauthorized");
           return;
         }
-        sendSessionHistory(ws, msg.sessionId, host.prepareHistory(msg.sessionId, messages), host.catalog.readStateRoom?.(msg.sessionId));
-        host.reportSessionResume(msg.sessionId, "loaded", { messages: messages.length });
-        resumeReported = true;
-        // The history just REPLACED this client's transcript, and with it any
-        // live card for a question still waiting in this session. Hand those
-        // questions over again, after the history, as a reconnect would
-        // (#910). The client keys cards by request id, so a card the history
-        // already rebuilt is updated rather than drawn twice. Approvals go
-        // the same way, first, as a reconnect sends them (#964).
-        resendPendingApprovals(host, ws, msg.sessionId);
-        resendPendingAsks(host, ws, msg.sessionId);
-        // The history holds no follow-up that is still waiting: it enters
-        // the transcript only when its turn starts. Hand the waiting ones
-        // over whole, even none, so stale pills clear (#1002).
-        if (connection.capabilities?.[FOLLOW_UP_QUEUE_CAPABILITY] === true) {
-          host.sendMessage(ws, host.followUpQueueFrame(msg.sessionId));
-        }
-        // A resume of a RUNNING session (reattach) must not report idle: idle
-        // would clear the client's running badge and finish its streaming
-        // message mid-turn. Mirror the snapshot-on-connect status instead.
-        const runningTurn = coordinator.bySession.get(msg.sessionId);
-        host.sendMessage(ws, {
-          type: "status",
-          ...(runningTurn
-            ? { status: "thinking" as const, detail: "Session in progress" }
-            : { status: "idle" as const, detail: "Session loaded" }),
-          sessionId: msg.sessionId,
-          ...(runningTurn ? { turnId: runningTurn.turnId } : {}),
-        });
-      } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to load session";
         if (!resumeReported) host.reportSessionResume(msg.sessionId, "error", { error: message });
         host.reportTurnFailed("SESSION_LOAD_ERROR", { sessionId: msg.sessionId }, message);

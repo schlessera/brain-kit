@@ -221,7 +221,7 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     signature: z.string().min(1).max(1000),
     failures: z.array(roadblockCall.extend({ category: z.enum(ROADBLOCK_CATEGORIES) })).min(1).max(200),
     resolution: roadblockCall.nullable(),
-    remedy: z.enum(["guidance", "capability"]),
+    remedy: z.enum(["guidance", "capability", "abandoned"]),
     // Unknown tokens or cost stay null: the cost-tracking rules forbid zero.
     waste: z.strictObject({ tokens: count.nullable(), costUsd: amount.nullable(), ms: count }),
     eventIds: z.array(z.number().int().positive()).max(200),

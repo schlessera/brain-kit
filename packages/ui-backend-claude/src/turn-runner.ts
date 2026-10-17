@@ -1,3 +1,4 @@
+import { retainNativeRouteInputs } from "./native-route-inputs.js";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AccountInfo, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -15,11 +16,15 @@ import {
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
 import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS,
-  type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
+  type WorkerLimitReport, startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
-import { createClaudeSdkTurn } from "./sdk-options.js";
+import { existsSync, linkSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolveClaudeHostOAuth } from "./host-oauth.js";
+import { join, resolve } from "node:path";
+import { createClaudeSdkTurn, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime, installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
 import {
@@ -40,7 +45,7 @@ import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
 import { SessionTooLargeError } from "./worker-state.js";
 import { workerStateClass } from "./worker-spawn.js";
-import { archiveIdleSessions } from "./transcript-archive.js";
+import { archiveIdleSessions, transcriptPaths } from "./transcript-archive.js";
 
 const BACKEND_ID = "claude";
 
@@ -98,7 +103,7 @@ export function createClaudeTurnRunner(options: {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
     assertTurnPosture(req, true, true);
-    requireWorkerHost(options.backend.brainPath);
+    const workerHost = requireWorkerHost(options.backend.brainPath);
     const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
@@ -128,7 +133,12 @@ export function createClaudeTurnRunner(options: {
     // Placeholder key for a new session; the real id (a resume's requested id,
     // or the SDK-minted id for a new session) replaces it below.
     let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
-    const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey) ?? new NativeFileVersions();
+    const turnEnvironment = req.autonomous ? undefined : turnEnv(profile);
+    const observationStorage = !req.autonomous && existsSync(options.backend.brainPath)
+      ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
+      : undefined;
+    const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
+      ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
     if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
     activeTurns.set(turnKey, turn);
 
@@ -141,6 +151,7 @@ export function createClaudeTurnRunner(options: {
     const adapter = new StreamAdapter(req.bridge.activity, {
       subscriptionAuth: profile.billing !== "api",
       autonomousUsage: req.autonomous?.containment === "restricted",
+      freshRuntimeUsage: req.autonomous?.persistence === "none" && req.sessionId === undefined,
     });
     const reportActivity = (event: BackendActivityEvent): void => {
       try {
@@ -221,6 +232,10 @@ export function createClaudeTurnRunner(options: {
     let turnInput: TurnInput | undefined;
     let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
+    let hostRelay: InferenceRelay | undefined;
+    let hostRelayLink: string | undefined;
+    let hostRelayAuthorized = false;
+    let routeInputs: Awaited<ReturnType<typeof retainNativeRouteInputs>> | undefined;
     let workerFailure: (() => TurnFailure | undefined) | undefined;
     /**
      * A worker whose runtime state refused or stopped the turn (#1625) ends it
@@ -252,7 +267,14 @@ export function createClaudeTurnRunner(options: {
       terminalSent = true;
       // The worker's exit and copy-out must settle before the terminal frame.
       await finishWorker?.().catch(() => {});
-      emit(unsaved(terminal));
+      // Cancellation can arrive after the SDK result, including while exit or
+      // copy-out is pending. Keep its accounting, but discard error-only fields.
+      // A startup refusal's own internal abort must remain a refusal.
+      if (wasCancelled()) {
+        const { failure: _failure, outcomeDetail: _detail, ...retained } = terminal;
+        emit({ type: "status", status: "cancelled" });
+        emit({ ...retained, outcome: "cancelled", isError: false });
+      } else emit(unsaved(terminal));
     };
     const workerRefusal = (): boolean => {
       const failure = refused ? undefined : workerFailure?.();
@@ -292,6 +314,7 @@ export function createClaudeTurnRunner(options: {
      * set, nothing the stream says afterwards can turn the turn into a success.
      */
     let withheld = false;
+    const wasCancelled = (): boolean => req.signal.aborted || (!refused && abortController.signal.aborted);
     const phase = req.sessionId === undefined ? "start before prompt release" : "resume before prompt release";
     const runtimeRequirements = claudeRuntimeRequirements(options.backend.versionRequirements, phase, profile.model);
     let probedVersion: string | undefined;
@@ -301,13 +324,18 @@ export function createClaudeTurnRunner(options: {
      * the SDK reported a session) the contract's terminal is a bare `error`,
      * so a client keying on result/error is never left hanging.
      */
-    const emitTerminal = (outcome: "error" | "cancelled"): void => {
+    const emitTerminal = async (outcome: "error" | "cancelled", diagnostic?: { code: string; message: string }): Promise<void> => {
       if (sawResult) return;
       sawResult = true;
+      // Generated terminals obey the same cleanup boundary as SDK results.
+      await finishWorker?.().catch(() => {});
+      if (wasCancelled()) outcome = "cancelled";
+      if (outcome === "cancelled") emit({ type: "status", status: "cancelled" });
+      const reason = refused ?? diagnostic;
       if (sessionId === null) {
         emit(
-          refused
-            ? { type: "error", ...refused }
+          reason && outcome === "error"
+            ? { type: "error", ...reason }
             : {
                 type: "error",
                 code: outcome === "cancelled" ? "CANCELLED" : "CLAUDE_ERROR",
@@ -322,7 +350,7 @@ export function createClaudeTurnRunner(options: {
       // The failure rides the terminal frame only, so a client never reports
       // it twice: here that is the result, not the diagnostic error.
       const failure = refused?.failure ?? adapter.pendingFailure() ?? undefined;
-      if (refused) emit({ type: "error", code: refused.code, message: refused.message });
+      if (reason && outcome === "error") emit({ type: "error", code: reason.code, message: reason.message });
       // costUsd deliberately absent (unknown); duration is real, numTurns 0 =
       // "no completed turns" for a turn that never finished.
       emit({
@@ -343,8 +371,24 @@ export function createClaudeTurnRunner(options: {
         req.autonomous?.allowedTools ??
         (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+      const preparedEgress = !req.autonomous && profile.billing !== "api" ? req.workerSandbox?.egress : undefined;
+      const configDirectory = resolve(turnEnvironment?.CLAUDE_CONFIG_DIR || join(turnEnvironment?.HOME || homedir(), ".claude"));
+      if (preparedEgress) {
+        hostRelay = startInferenceRelay({ upstream: "https://api.anthropic.com", routes: ANTHROPIC_INFERENCE_ROUTES, egress: preparedEgress,
+          credentials: async (signal, target) => {
+            if (!hostRelayAuthorized) throw new Error("Native inference has not passed its prompt gate");
+            routeInputs?.assertUnchanged();
+            return { authorization: (await resolveClaudeHostOAuth(configDirectory, turnEnvironment ?? {}, { origin: target.origin }, signal)).authorization };
+          },
+        });
+        hostRelayLink = join(preparedEgress.dir, "inference.sock");
+        linkSync(hostRelay.socketPath, hostRelayLink);
+      }
       const sdkTurn = createClaudeSdkTurn({
+        ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir } } : {}),
         backend: options.backend,
+        ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
+        turnEnvironment,
         fileVersions,
         req: { ...req, signal: abortController.signal },
         profile,
@@ -446,9 +490,32 @@ export function createClaudeTurnRunner(options: {
               reportRuntime(undefined, account?.apiKeySource, account);
               return refuse(verdict.ok ? conflict! : verdict.reason);
             }
+            if (preparedEgress) {
+              // First-party draft composition. Configured-origin and stable
+              // startup-source qualification must complete before activation.
+              try { routeInputs?.assertUnchanged(); }
+              catch { return refuse("native inference settings changed during startup"); }
+              if (!Array.isArray(settings?.sources) || settings.sources.some(source => !["projectSettings", "flagSettings", "policySettings"].includes(source.source ?? ""))) {
+                return refuse("the native inference settings sources are not qualified for this prepared transport");
+              }
+              const selected = turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+              if (selected.replace(/\/$/, "") !== "https://api.anthropic.com") return refuse("the native inference destination is not qualified for this prepared transport");
+              for (const source of settings?.sources ?? []) {
+                const value = source.settings?.env?.ANTHROPIC_BASE_URL;
+                if (value !== undefined && value !== "" && !(source.source === "flagSettings" && value === "http://localhost") && value !== "https://api.anthropic.com") {
+                  return refuse("the native inference source selects a destination not qualified for this prepared transport");
+                }
+              }
+              if (settings?.effective?.env?.ANTHROPIC_BASE_URL !== "http://localhost") {
+                return refuse("native settings refused the prepared inference transport");
+              }
+              hostRelayAuthorized = true;
+            }
             return true;
           })
         : input.messages;
+      routeInputs = preparedEgress ? await retainNativeRouteInputs(req.workerSandbox?.profile === "governed"
+        ? options.backend.brainPath : req.workerStartupView ?? options.backend.brainPath) : undefined;
       const result = queryFn({ prompt, options: { ...sdkTurn.options, ...(req.maxBudgetUsd !== undefined ? { maxBudgetUsd: req.maxBudgetUsd } : {}) } });
       resolveQuery(result);
       // The account the CLI selected, for the per-turn report below. The SDK
@@ -465,8 +532,8 @@ export function createClaudeTurnRunner(options: {
        * A `result` that follow-ups outlived (#1003): the CLI runs them as
        * continuation turns of the same process, so the one frame the client
        * gets is built from the LAST result, with the per-run counts of the
-       * earlier ones added. Cost and model usage are already cumulative over
-       * the process, so the last result carries them for the whole turn.
+       * earlier ones added. The adapter tracks completed-response receipts across
+       * these continuations; session-cumulative SDK totals are evidence only.
        */
       let carried: {
         numTurns: number;
@@ -502,6 +569,7 @@ export function createClaudeTurnRunner(options: {
             // busy slot from its placeholder, so a resume of this session while
             // it still runs is detected as busy.
             sessionId = msg.session_id;
+            if (fileVersions && observationStorage) fileVersions.retain({ ...observationStorage, sessionId });
             if (fileVersions) { fileVersionsBySession.delete(turnKey); fileVersionsBySession.set(sessionId, fileVersions); }
             activeTurns.delete(turnKey);
             activeTurns.set(sessionId, turn);
@@ -598,19 +666,16 @@ export function createClaudeTurnRunner(options: {
       if (!sawResult) {
         // A host cancellation keeps outranking a state failure found meanwhile.
         if (refused) {
-          emitTerminal("error");
+          await emitTerminal("error");
         } else if (abortController.signal.aborted) {
-          emit({ type: "status", status: "cancelled" });
-          emitTerminal("cancelled");
+          await emitTerminal("cancelled");
         } else if (workerRefusal()) {
-          emitTerminal("error");
+          await emitTerminal("error");
         } else {
-          emit({
-            type: "error",
+          await emitTerminal("error", {
             code: "CLAUDE_NO_RESULT",
             message: "Backend stream ended without a result",
           });
-          emitTerminal("error");
         }
       }
     } catch (err) {
@@ -627,46 +692,54 @@ export function createClaudeTurnRunner(options: {
         // Terminal frame already decided — swallow the late failure.
         await releaseTerminal();
       } else if (refused) {
-        emitTerminal("error");
+        await emitTerminal("error");
       } else if (abortController.signal.aborted) {
-        emit({ type: "status", status: "cancelled" });
-        emitTerminal("cancelled");
+        await emitTerminal("cancelled");
       } else if (workerRefusal()) {
-        emitTerminal("error");
+        await emitTerminal("error");
       } else {
+        let diagnostic: { code: string; message: string } | undefined;
         const stateClass = workerStateClass(err);
         if (err instanceof WorkerHostError || err instanceof SessionTooLargeError || stateClass) {
           const { message } = err as Error;
           refused = { code: "CLAUDE_ERROR", message,
             failure: { errorClass: stateClass ?? (err as WorkerHostError | SessionTooLargeError).errorClass, message } };
         } else {
-          emit({ type: "error", code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) });
+          diagnostic = { code: "CLAUDE_ERROR", message: err instanceof Error ? err.message : String(err) };
         }
-        emitTerminal("error");
+        await emitTerminal("error", diagnostic);
       }
     } finally {
-      try { await finishWorker?.(); }
-      finally {
-      clearTimeout(ackGraceTimer);
-      turnInput?.close();
-      req.signal.removeEventListener("abort", onHostAbort);
-      // Backstop: release any write lock still held (a mutating tool whose
-      // result never streamed, e.g. an aborted turn) and free the busy slot.
-      fileVersions?.cancelPending();
-      if (!sessionId) fileVersionsBySession.delete(turnKey);
-      turnLock.close();
-      activeTurns.delete(turnKey);
-      if (!req.autonomous) await archiveIdleSessions({
+      // A failed cleanup cannot strand the other owned resources or busy slot.
+      await cleanupTurn([
+        () => finishWorker?.(),
+        () => routeInputs?.close(),
+        () => hostRelay?.stop(),
+        () => { if (hostRelayLink) rmSync(hostRelayLink, { force: true }); },
+        () => clearTimeout(ackGraceTimer),
+        () => turnInput?.close(),
+        () => req.signal.removeEventListener("abort", onHostAbort),
+        () => fileVersions?.cancelPending(),
+        () => { if (!sessionId) fileVersionsBySession.delete(turnKey); },
+        () => turnLock.close(),
+        () => activeTurns.delete(turnKey),
+        () => req.autonomous ? undefined : archiveIdleSessions({
         brainPath: options.backend.brainPath, env: archiveEnv,
         listSessionsFn: options.backend.listSessionsFn,
         activeSessionIds: () => new Set(activeTurns.keys()),
         log: (message, error) => options.log("warn", message, { error: String(error) }),
-      });
-      }
+        }),
+      ]);
     }
   }
 
   return { startTurn, followUp };
+}
+
+async function cleanupTurn(actions: Array<() => unknown>): Promise<void> {
+  const failures: unknown[] = [];
+  for (const action of actions) { try { await action(); } catch (error) { failures.push(error); } }
+  if (failures.length) throw new AggregateError(failures, "Claude turn cleanup did not complete");
 }
 
 /** Startup settlement is bounded even if an injected/older SDK ignores abort. */

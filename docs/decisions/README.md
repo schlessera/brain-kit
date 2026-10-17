@@ -33,6 +33,7 @@ somebody already learn the hard way?*
 | [policy-write-boundary.md](policy-write-boundary.md) | Why every agent writer enters an isolated worker before initialization, authoritative edits use bounded server validation with existing approvals, and initial backend hosting requires verified Linux or qualifying WSL2 profiles. |
 | [worker-writable-areas.md](worker-writable-areas.md) | Why hosted workers get `.brain/scratch/`, an existing `workspaces/` and a per-turn `$HOME` overlay as their only writable areas, how pre-existing hard links and redirects are refused, and why the agent's note is generated from the same layout as the mounts. |
 | [container-fresh-proc.md](container-fresh-proc.md) | Why the agent worker keeps a fresh `/proc` in a container rather than binding the container's or dropping its PID namespace, what Docker must allow at each launcher step, and what `systempaths=unconfined` costs. |
+| [storage-guidance.md](storage-guidance.md) | Layered bounded capacity history, qualified exhaustion scenarios, warning recovery and owner-only Critical notifications. |
 | [native-brain-storage.md](native-brain-storage.md) | Why hosted governed mode requires short-lived native Btrfs checkpoints, changed-only retained undo and a separately bounded managed store. |
 | [governed-writable-workers.md](governed-writable-workers.md) | Why interactive and voice turns write the brain directly again inside the worker: the four guardrail classes, in-brain policy read-only to agents, protected paths with self-bound ancestors, the per-turn journal with revert, budgets, scope caps, egress, the three write areas and roadblock tracking. Supersedes parts of policy-write-boundary.md. |
 | [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
@@ -48,6 +49,7 @@ somebody already learn the hard way?*
 | [public-export-boundary.md](public-export-boundary.md) | Why public exports were reduced before 1.0 instead of frozen, what ordinary and `/internal` entry points promise, how signature-reachable types are checked, and the migration for every removed or moved import. |
 | [backend-authoring-toolkit.md](backend-authoring-toolkit.md) | The supported permission toolkit, reachable types, internal policy inventory and migration under the Q1/Q2 rulings. |
 | [confirm-patterns.md](confirm-patterns.md) | Why a nonempty confirmation-pattern list with no valid regex rejects backend initialization, while explicit empty lists and mixed valid/invalid lists retain their meaning. |
+| [provider-history.md](provider-history.md) | Why the tools, system prompt and earlier messages sent to a model provider stay byte-identical across a session's turns, why internal data never enters that history, and the keyless guard that checks it. |
 | [claude-code-runtime.md](claude-code-runtime.md) | Which Claude Code binary the Claude backend runs (the one the Agent SDK ships, pinned by the lockfile), why the server records the version that ran, and how the behaviours measured against one version are re-checked when it moves. |
 | [turn-surface-routing.md](turn-surface-routing.md) | Why the fresh four-arm Sonnet 5.5/Jev comparison retains the shipped tool and skill surface, including actual token/cache counts, repeated tool misses, latency spread and bounded scoring limits. |
 | [triage-classifier.md](triage-classifier.md) | Why Jev's four-way route Choice at a 0.4 floor is the T1 triage classifier, why the decomposed Noul arm is rejected, and how the floor was calibrated against a Sonnet 5.5 baseline that lost a batch. |
@@ -66,6 +68,7 @@ somebody already learn the hard way?*
 | [experiment-tier.md](experiment-tier.md) | Why measurement-harness tests live under `experiments/`, outside product discovery, and run as a receipt-checked gate before each release, with the file- and assertion-level inventory behind #1386. |
 | [runtime-requirements.md](runtime-requirements.md) | Why package ranges and package/host runtime minimums compose, which loaded/executed identities are checked, how unknown versions and overrides behave, and why compatibility stays separate from measurement. |
 | [codex-subscription-auth.md](codex-subscription-auth.md) | Why pi and the Codex CLI use separate ChatGPT OAuth grants, the source-based no-sharing ruling, and the observed separate-login limits. |
+| [session-prompt-context.md](session-prompt-context.md) | Why the exact session append is retained, changed facts use owned new-tail context, and replay preserves the actual user text. |
 | [pi-endpoint-routing.md](pi-endpoint-routing.md) | Why declared built-in pi models use the configured inference runtime, native per-request authentication endpoints take precedence, and the routing migration requires real adapter destination proof. |
 | [reranker-activation.md](reranker-activation.md) | Why model judgment requires persistent opt-in across search entry points, why credentials and modes cannot enable it, and why the measured Jev provider and seam remain available. |
 | [gemini-agent-contract.md](gemini-agent-contract.md) | Why Gemini embeds the single installed contract, how migration preserves user text and refuses ambiguous markers, and why sync leaves exact root/nested instruction conflicts for judgment. |
@@ -81,6 +84,7 @@ somebody already learn the hard way?*
 | [backend-conformance.md](backend-conformance.md) | Why restricted-turn handling is mandatory for conforming backends, when safe rejection is valid, and how shared permission and descriptor tests prove it. |
 | [exclusion-rules.md](exclusion-rules.md) | Why trailing-slash exact-file exclusions are rejected, and why directory checks apply only directory and segment rules even for programmatic callers. |
 | [module-mcp-tools.md](module-mcp-tools.md) | Why a module may contribute namespaced MCP tools under the same compatibility policy as core's: how they are declared, named, validated and registered, why the tool set is fixed per server process (and what that means for a dormant module), who owes what compatibility, and why `jobs_review` is the first. |
+| [module-renderers.md](module-renderers.md) | Why a module may contribute build-time-bundled content renderers for fences and file types, why diagrams are a versioned fence spec with computed geometry painted in brain-kit tokens, why every renderer meets one light/dark/print theme contract with print for every export, and the measurements that ruled out `<img>`-embedded SVG. |
 | [module-instruction-ownership.md](module-instruction-ownership.md) | Why module instructions come from validated contributions with explicit region ownership, and why legacy mixed sections require migration before a toggle changes files. |
 | [site-adapter-adoption.md](site-adapter-adoption.md) | Why all ten job boards use the evolved shared SiteAdapter and runner, with evidence-derived outcomes and domain metadata kept in jobs. |
 | [scraping-politeness.md](scraping-politeness.md) | What a scraper does when a site's robots.txt and its API's capabilities disagree: robots.txt wins by intent as well as by letter, and only a written yes from the site overrides it. |
@@ -168,7 +172,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:182-205`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it

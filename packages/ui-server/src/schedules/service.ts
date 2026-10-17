@@ -148,9 +148,10 @@ export function gitCheckIgnored(root: string, boundary: HostBoundary = createHos
   return async (relativePath) => {
     try {
       const args = ["check-ignore", "-q", "--no-index", "--", relativePath];
+      // Project-selected Git runs in a writable stage and can publish output.
       const result = await boundary.run({ argv: ["git", "-c", `safe.directory=${root}`, ...args],
         env: { ...subprocessEnv("brainCli"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" }, credentials: false,
-        gate: "none", purpose: "git check-ignore", timeoutMs: 10_000 });
+        gate: "shared", purpose: "git check-ignore", timeoutMs: 10_000 });
       if (result.timedOut) throw new ScheduleError("server_unavailable", "Git ignore qualification timed out.");
       return result.exitCode === 0;
     } catch (error) {

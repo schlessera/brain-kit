@@ -23,7 +23,7 @@ through its owners. Offer selected canonical attachment removal only after a
 dedicated, stale-safe, journaled application operation exists. The current
 file routes read files; they have no deletion endpoint. The curated application
 route accepts ordinary Markdown, not arbitrary binaries
-(`function validatePath`, `packages/ui-server/src/brain/application.ts:34-45`).
+(`function validatePath`, `packages/ui-server/src/brain/application.ts:34-52`).
 Document archive changes visibility/relevance and may move Markdown; it does
 not remove an attachment or reclaim its history. Do not present it as Delete.
 
@@ -84,13 +84,13 @@ Source foundations for the matrix:
 - Claude publishes and verifies cold copies before deleting the live source
   (`export async function archiveIdleSessions`, `packages/ui-backend-claude/src/transcript-archive.ts:188-242`).
 - Journal collection requires no refs/reservations and only expires ended
-  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:115-139`).
+  turns (`function collectObjects`, `packages/ui-server/src/brain/turn-journal.ts:138-163`).
   Retention is applied at admission
-  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:236-264`).
+  (`begin(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:279-308`).
   Object copies reserve temporary bytes before writing
-  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:66-118`).
+  (`async putFileAsync`, `packages/ui-server/src/brain/journal-objects.ts:92-144`).
 - Turn-temp purge has its own scope and measured result
-  (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-494`),
+  (`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-533`),
   and tool validation/recording
   (`export function handleTurnTemp`, `packages/ui-sdk/src/server/bridge-tools/turn-temp.ts:19-41`).
   [Operational recovery](../inbox-recovery.md) specifies backup consistency and
@@ -200,7 +200,7 @@ read the original receipt. Undo is a fresh stale-safe operation, not a blind cop
 over a newer file. Such a receipt protocol is proposed, not implemented here.
 
 The writer gate is cross-process and tracks process identity, not age
-(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:67-118`).
+(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:103-219`).
 Use that primitive alongside lifecycle ownership; do not interpret stale leases
 as proof an actually running backend is dead. Locks, retained readers and backups
 can deliberately prevent immediate reclamation.

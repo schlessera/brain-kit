@@ -194,6 +194,7 @@ export interface SurfaceTools {
   inboxGet?: string | false;
   inboxAdd?: string | false;
   resolveAction?: string | false;
+  completeShare?: string | false;
   /** Name of the inline answer-block tool, or false when absent. */
   block?: string | false;
   /** Name of the turn-temp tool (#1703), or false when the turn has no turn temp. */
@@ -207,7 +208,7 @@ export interface SurfaceTools {
  */
 const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   propose_policy_change: "policyChange",
-  inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
+  inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare",
   [ASK_USER_CONTRACT.name]: "askUser",
   [ASK_USER_LIST_CONTRACT.name]: "askUserList",
   [ASK_USER_RANK_CONTRACT.name]: "askUserRank",
@@ -265,7 +266,7 @@ function webSearchLine(brief: WebSearchBrief): string {
 }
 
 /** Fallback line when the client never reported its environment. */
-const UNKNOWN_DEVICE = `The reader's device is unknown — assume a phone held one-handed, and don't
+const UNKNOWN_DEVICE = `When the reader's device is unknown, assume a phone held one-handed, and don't
 promise a capability you can't confirm.`;
 
 /**
@@ -276,7 +277,7 @@ promise a capability you can't confirm.`;
  * answers "can you take a photo", "can I share this to WhatsApp" and "where
  * am I" differently. Everything here is feature detection, not a UA guess.
  */
-function describeClient(env: ClientEnvironment): string {
+export function describeClient(env: ClientEnvironment): string {
   const lines: string[] = [];
 
   const form =
@@ -294,8 +295,8 @@ function describeClient(env: ClientEnvironment): string {
   // location tool works", which is worse than saying nothing at all.
   const has: string[] = [];
   const lacks: string[] = [];
-  (env.camera ? has : lacks).push("a camera");
-  (env.microphone ? has : lacks).push("a microphone");
+  if (env.camera !== undefined) (env.camera ? has : lacks).push("a camera");
+  if (env.microphone !== undefined) (env.microphone ? has : lacks).push("a microphone");
   if (env.geolocation) has.push("geolocation, so the location tool works");
   else lacks.push("geolocation — the location tool will fail here");
   if (env.share) {

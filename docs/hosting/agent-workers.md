@@ -37,6 +37,108 @@ While it says the host is unavailable, the app shows a notice above the
 composer with the requirement and a link here. The status never admits or
 refuses a turn; only that turn's own probe does.
 
+## Separate worker identity
+
+`BRAIN_UI_WORKER_IDENTITY_HELPER` optionally names one absolute, root-owned
+executable that is not group/world writable. The server remains non-root;
+the host supplies a different nonzero worker UID and a shared group. The
+public hosting template owns production helper binaries and installation,
+fixed numeric identities, ownership and migration. The kit ships a protocol
+and test fixtures, not a production setuid executable. A missing or invalid
+configured helper refuses execution; there is no same-UID fallback.
+
+The unchanged descriptor-filtering bootstrap starts one unprivileged external
+coordinator before the filesystem filter or bubblewrap. Its control socket is
+server-private and authenticates the server identity and a launch secret.
+Short-lived helpers receive bounded version-1 JSON packets over a private
+`AF_UNIX/SOCK_SEQPACKET` descriptor and authenticate the original launch,
+server/supervisor PID start identities and operation. Helper argv is exactly
+`<helper> --brain-worker-identity-v1 <operation> <control-fd>`; no shell prefix
+or repository-selected executable is accepted. Operations cover launch,
+authorized mount acquisition, verified-tree signalling, fixed worker-UID raw
+reading and owned cleanup. SCM_RIGHTS transfers only explicitly expected
+descriptors; unexpected handles, substituted roots, wrong filesystem/size,
+malformed status, stale identities and unrelated targets refuse.
+
+Before releasing bubblewrap's private start gate, the coordinator retains
+verified runtime-state and turn-temp directory handles. Their tmpfs
+superblocks must represent both outside UIDs: creating them in a user
+namespace that maps only the worker UID prevents server-side population.
+The qualified helper creates the exact bounded mounts in its private mount
+namespace before dropping identity, binds them into the final sandbox and
+masks the helper-side source paths. Runtime directories use group access
+`0770` (setgid where needed), populated files `0660`, relay directories
+`0750` and relay/proxy sockets `0660`. Shared brain/scratch/workspace
+directories require the host's setgid ownership arrangement.
+
+The explicitly prepared ordinary egress proxy follows that same helper
+selection. Its directory and socket remain owned by the server and use its
+shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
+cannot choose another IPC group (`const separateIdentity`,
+`packages/ui-sdk/src/server/egress-proxy.ts:57-63`). Without a helper they retain
+owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
+canonical paths, server ownership, the expected helper group, exact modes and
+socket type. Missing entries, symlinks and widened permissions refuse before
+the payload starts (`if (input.egress)`,
+`packages/ui-sdk/src/server/worker-launcher.ts:515-530`). This does not select
+the ordinary inference route or enable the proxy by default.
+
+Native output stages use the existing manager's active stage identity. The
+manager transfers a root-owned sealed metadata descriptor containing the
+keeper PID/start identity, mount namespace identity, authorized merged and
+checkpoint roots, and allowance. The broker accepts exactly that descriptor,
+rechecks live identities, and joins only the mount namespace before dropping
+to the worker UID. A same-UID keeper PID or arbitrary host path alone grants
+no stage authority. The ticket is closed before the payload executes.
+The native manager's fixed `workerUid` configuration must match the UID from
+the successful host probe. Its checkpoint and active-stage readers authorize
+an owned ID and relative path, then transfer a bounded output pipe from fixed
+worker-UID code. Privileged parents exchange control and descriptors only;
+they never stream file bytes. Private strict-area outputs use this reader for
+hashing and publication, with the existing stale-target checks and copy
+reservations. Missing permission or an unverifiable live destination remains
+an explicit publication refusal. Journal capture preserves unreadable file
+metadata without inventing a hash, and unreadable directory inventory remains
+incomplete and retryable.
+Trusted interpreter-based helpers restore catchable signal dispositions after
+the interpreter and immediately before the filter/bubblewrap chain.
+
+The actual probe verifies a nonzero distinct outside worker UID, denial of a
+server-owned `0600` sentinel under `0700` outside the masks, scratch/temp and
+runtime-state writes, relay connection, and the selected brain-write profile.
+The host status and capability note report a separate UID only after that
+qualification succeeds. Without a helper they disclose shared UID and mask-only
+server-state protection, including the configured database mask.
+
+TERM/KILL/INT retain their meaning; STOP/CONT operate on the verified worker
+tree, including nested PID namespaces, with completion receipts. Supervisor
+death has an independent kernel-bound termination path established after UID
+transition. Control loss, server death, cancellation and setup failure also
+terminate owned workers. Recovery never begins while a known owned writer
+survives. Retained storage keeps its existing allowance reserved until final
+handles and bounded recovery close; cleanup is idempotent and launch-scoped.
+Known fixed-reader operations must also finish before cleanup is confirmed.
+Recovery copies reserve the existing aggregate output-staging budget in
+addition to retained source storage. Closing a handle aborts its pending copy;
+the copy reservation remains until that work drains and owned cleanup is
+confirmed. An unconfirmed cleanup retains ownership and reservations for
+reconciliation rather than reporting successful reclamation.
+
+Files made private are read by fixed, uncredentialed worker-UID code through
+authorized retained roots: no repository imports/evaluation, path escapes,
+symlink aliases, special files or unbounded reads. Runtime copy-out and linked
+temp preparation use cancellable bounded packets before publication. A still
+unreadable file remains an explicit recovery/governance failure, rather than
+fabricated contents or a successful turn.
+
+Recovery is best effort over observed bytes, not an atomic snapshot of mutable
+tmpfs. Handles, mappings or operations held outside the supervised tree can
+outlive it, mutate source bytes or delay physical reclamation. Closed owned
+handles and an empty verified tree do not prove global quiescence or reclaimed
+host memory. Configured bounds and known retained/recovery reservations remain
+accounted for; external references have the explicit accounting limitation
+selected in option E of the [worker identity decision](../decisions/governed-writable-workers.md#external-worker-broker-and-best-effort-recovery--2026-10-15).
+
 ## Process and filesystem coverage
 
 `launchAgentWorker` (first-party internal SDK sharing) starts a trusted bootstrap
@@ -57,6 +159,12 @@ This option changes dispositions only; it adds no signal-mask policy. The
 requested runtime remains free to install its own handlers. A host needs
 GNU `env` with this option; a missing or unsupported binary fails the real
 worker probe and refuses agent turns.
+
+On Btrfs, the trusted Python filesystem filter runs after that bootstrap
+reset. After installing its seccomp rules it restores every catchable signal
+disposition again, preserving the signal mask, before executing the worker.
+This removes Python's own SIGPIPE and SIGXFSZ ignores without weakening the
+Btrfs management ioctl denial (#2066).
 
 Bubblewrap establishes user, PID, IPC, UTS and mount namespaces, drops all
 capabilities, mounts the host root read-only, and replaces `/proc` and `/dev`.
@@ -259,7 +367,7 @@ write verified scratch/workspace copies through the aliases below.
 
 | Place | Paths | Lifetime | Link it for the reader? |
 | --- | --- | --- | --- |
-| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and the saved link rewritten. |
+| Turn temp | `$BRAIN_WORKER_SCRATCH`, `/tmp` and the XDG directories in it | Deleted when the turn ends | Never: the reader cannot open it. A file the answer links there anyway is copied into `.brain/scratch/turns/<turnId>/` and a host-owned display mapping makes history show the promoted link; runtime transcript bytes stay unchanged. |
 | Persistent scratch/workspaces | Governed: `.brain/scratch/` and `workspaces/`; strict: `/tmp/brain-worker-areas/scratch` and `/tmp/brain-worker-areas/workspaces` | Governed writes persist directly; strict writes persist after validated publication. Scratch is pruned after 7 days, oldest first past 1 GB | Yes: link the canonical brain destinations, not the strict aliases |
 | The brain | Everything else | Canonical | Yes, as documents |
 
@@ -387,10 +495,29 @@ while the host execution boundary holds, the server evaluates none of them
 itself. It runs that work in a **maintenance worker**: the same bubblewrap
 launcher, with the brain bound read-write, the host root read-only, and
 `/run`, `/var/run`, `/var/lib`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
-and the UI database's directory masked by empty private tmpfs mounts. No host
+and the UI database's directory masked by empty private tmpfs mounts. Required
+private regular files, including the native loop backing file, are covered by
+read-only `/dev/null` binds after permitted runtime and HOME binds. Their
+original bytes remain inaccessible even when the backing file is outside a
+masked directory. No host
 Unix socket below them is reachable. The server's Bun and its own
 installation are bound back read-only, so a runtime installed under a home
 keeps working; nothing the brain names is.
+
+An owned installed runtime may also live beneath `/tmp` (#1844/#1901).
+Private temp is mounted first; only its resolved executable/package/dependency
+closure is then retained read-only, including required installation aliases.
+Unrelated host-temp files stay hidden, and explicit private files/directories
+inside the closure stay masked through those aliases. The temp allowance,
+other workers' isolation and the profile's brain permissions stay intact.
+
+Use a location separate from reserved worker scratch, runtime state,
+writable-area aliases, XDG directories, maintenance HOME/state/output, relays,
+proxies, `/proc` and `/dev`. A runtime path or alias overlapping one of these,
+including an ancestor or descendant, is refused before dispatch with the
+offending path. Install the owned runtime in a noncolliding directory; this
+restriction does not reject ordinary `/tmp` installations. It never falls back
+to running outside the worker or exposing the host's entire temp directory.
 
 What runs there, and how it meets the brain's **writer gate**:
 
@@ -434,9 +561,12 @@ refuses rather than run git on the host.
   validated output workspace. Local outputs publish before the next credentialed
   transport phase. They fetch and push over the local file transport; only
   mirror objects and refs are writable, while its configuration, hooks and
-  root remain read-only. After that worker and all its descendants have
-  exited, the host rejects linked storage and object alternates and runs
-  `git fsck --full --strict` before pushing. The transport has an explicit
+  root remain read-only. Maintenance completion awaits both the outer
+  bubblewrap monitor and EOF on the output pipes retained by namespace init.
+  A descendant can leave files between CLI exit and namespace teardown;
+  file presence alone does not show a surviving process. Before admitting
+  another transport, the host rejects linked storage and object alternates
+  and runs `git fsck --full --strict` before pushing. The transport has an explicit
   system/mirror mount list and never mounts the brain or its `.git`.
   It uses the literal protected `remote.origin.url`, without loading includes;
   writable Git includes cannot choose the credential's destination.
@@ -452,7 +582,12 @@ refuses rather than run git on the host.
   exclusively. A holder whose process died is cleared by the next request.
 - **The brain's CLI must be installed in the brain** (`bun install`, so
   `node_modules/.bin/brain` is a real package inside it). A CLI linked to a
-  path below a masked directory is not visible in the worker.
+  path below a masked directory is not visible in the worker. Governed and
+  strict interactive workers prepend the brain's `node_modules/.bin` to the
+  inherited `PATH`, as maintenance workers do. Other entries keep their order;
+  restricted autonomous workers retain `/usr/bin:/bin`. If the packaged `brain`
+  is absent, the sandbox note asks for `@schlessera/brain` to be installed in
+  the brain repository with `bun install`. This adds no host-directory access.
 - **Cron** lines now start with `cd /`, outside the brain: the runner is a Bun
   process and must not load the brain's `bunfig.toml` or `.env`. The runner
   starts each repository job in the brain itself, in a maintenance worker,
@@ -582,7 +717,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:60-132`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:64-243`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -772,7 +907,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:60-81`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:67-92`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1001,9 +1136,13 @@ index refresh after its workers exit, serialized on the server lock.
 
 `runtime.workerHost.governed` states the selected default, resolved protected
 paths, configuration view and shared-uid protection. Per-turn capabilities name
-the actual mounts, fallback cause and limits. Without an identity helper,
-protection is mask-only. Maintenance credentials and egress retain the interim
-limits stated in the capabilities note. The journal keeps observed canonical
+the actual mounts, fallback cause and limits. Both governed and strict notes
+state that the worker shares the server's uid and server-state protection is
+mask-only. A read-only brain does not prevent reads of other host paths
+available to that uid. The separate-uid broker in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) is not implemented
+yet. Maintenance credentials and egress retain the interim limits stated in
+the capabilities note. The journal keeps observed canonical
 brain/workspace versions, not every write between observations; external
 persisted Claude auto-memory remains outside that review/revert coverage.
 Native read observations survive ordinary turns on the running backend but
@@ -1011,3 +1150,86 @@ not a host restart. Those remaining scopes do not change the shipped profiles.
 Governed peers may see one another's configuration immediately; snapshot
 consumers retain their startup inputs until the next launch. See the
 [governed-worker decision](../decisions/governed-writable-workers.md).
+
+### Worker startup status
+
+The live launcher reads bubblewrap's `--json-status-fd` through a dedicated,
+unlinked pipe. Before releasing its `--block-fd` start gate, it checks that
+the reported child descends from this launch and runs in a different PID
+namespace. Runtime-state and turn-temp mounts are verified and initial state
+is populated while that gate is closed. The trusted bootstrap still rejects
+unexpected inherited descriptors; a fixed host shell opens only the status
+and gate channels afterwards, and bubblewrap closes both before the payload
+runs. Setup refusal ends the unstarted worker.
+
+This startup qualification does not provide a separate worker UID or the
+external descriptor broker. The separate-UID implementation remains tracked
+in [#1677](https://github.com/schlessera/brain-kit/issues/1677).
+
+
+## Egress transport qualification
+
+The first-party internal transport offers HTTP forwarding and opaque CONNECT
+through a private Unix socket. An explicitly selected governed or strict worker
+has a private network namespace and a trusted loopback forwarder. Its existing
+host masks, private sized temp, protected brain paths and dropped capabilities
+remain in force. The host transport checks destination rules before opening an
+upstream, charges a conservative HTTP wire bound (target, headers, bodies and framing)
+and exact opaque CONNECT stream bytes against one turn counter, and
+requires explicit host approval for outward destinations and cleartext writes.
+Records contain host, port, method, cleartext path where observable, payload
+bytes, accounting coverage, elapsed time and outcome; they omit headers, bodies
+and query strings. HTTP accounting includes conservative framing allowances,
+so it is an enforced upper bound rather than an exact network-byte measurement.
+A CONNECT record never invents a cleartext path or method inside TLS.
+
+Offline qualification on 2026-10-16 used Bun 1.4.2 and real bubblewrap workers
+in both profiles. All upstreams were fixture loopback listeners. The same
+controls preserve zero effective capabilities and refuse direct TCP access
+and a host home-directory Unix socket.
+
+| Measured path | Result |
+| --- | --- |
+| Bun fetch with explicit HTTP proxy | Fixture response through the Unix transport |
+| Bun fetch with proxy environment only | Fixture response; this installed Bun honors HTTP_PROXY |
+| curl over HTTP | Fixture response and cleartext path and conservative wire accounting |
+| curl over HTTPS with a fixture CA | Verified TLS through CONNECT; only opaque bytes recorded |
+| Destination omitted from allowlist | Refused before upstream contact |
+| Byte budget exhausted across requests | Refused with max_bytes_per_turn |
+| Turn cancelled during outward approval | Pending connection closed and private proxy storage removed |
+
+These controls qualify the transport primitive, not default backend activation
+or credential-free ordinary inference. The remaining inference, authentication,
+Git/SSH, Chromium and complete socket-inventory qualification belongs to #1665.
+Ordinary backend defaults and their existing unrecorded-egress disclosure remain
+unchanged. In particular, this transport does not replace native account login
+with a setup token or grant a network connection from a tool-classification
+observation alone.
+
+## Paid CLI provider qualification
+
+The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
+qualifies existing first-party request shapes. It does not activate CLI relaying
+or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+
+| CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
+| --- | --- | --- | --- |
+| `index --embeddings`, hybrid `search` / Gemini embeddings | `apiKeyEnv`, default `GEMINI_API_KEY`; SDK client initialized lazily | Installed Google SDK; `GOOGLE_GEMINI_BASE_URL` override; POST model embed/batchEmbed; text/query and inline image/PDF | Vectors only; raw HTTP usage is lost by the installed SDK converter |
+| `process`, enrichment, asset descriptions / Gemini completions | `apiKeyEnv`, default `GEMINI_API_KEY`; lazy SDK client | Same SDK endpoint resolution; POST generateContent; image/PDF inline; video uses Files upload, polling and deletion | Completion text only |
+| Completion consumers / Anthropic | `apiKeyEnv`, default `ANTHROPIC_API_KEY`; lookup per call | Fixed `https://api.anthropic.com/v1/messages`; POST JSON with `x-api-key` | Completion text only; raw response usage is discarded |
+| `image <prompt>` / OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL`, default `https://api.openai.com/v1`; JSON generations or multipart edits with references/mask | Internal raw usage; estimated cost when the current model table supports it |
+| `image <prompt>` / Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL`, default `https://generativelanguage.googleapis.com/v1beta`; POST Interactions | Internal raw usage; model/resolution estimate, not a provider invoice |
+| Reranked search / JeV (unqualified by this audit) | Configured `apiKeyEnv`, default `TYPESAFE_API_KEY` | Configured `baseUrl`, default `https://api.typesafe.ai/v1/systemone`; POST JSON | Separate usage-bearing direct request; no CLI relay coverage inferred |
+
+The factories and concrete recipient provenance are implemented at
+(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:58-221`),
+(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:55-133`),
+(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:62-146`)
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-346`).
+Configured model labels, endpoint overrides and key-variable names select native
+routing; none grants permission to release a host-held credential.
+
+The [qualification and proposed integration contract](paid-cli-provider-qualification.md)
+records actual offline controls, SDK accounting loss, media lifecycle constraints
+and the host-side admission/receipt design needed before activation. Existing
+CLI JSON envelopes and ordinary backend defaults remain unchanged.

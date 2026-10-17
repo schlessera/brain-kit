@@ -11,6 +11,7 @@ import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMes
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
+import { expectRejectedValue } from "./fixtures/expect-rejected-value.js";
 
 // Parallel sessions end to end (#953, the #929 epic's integrated proof): the
 // whole app as a hosting shell composes it (AppShell, Chat, Actions, Graph)
@@ -219,7 +220,7 @@ async function restartHost() {
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
   if (code !== 0) throw new Error(`Parallel-sessions fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-parallel-"));
@@ -468,6 +469,12 @@ async function newChat(run: Run, page: Page) {
 /** Sends what the composer holds, with the keyboard's Enter (or the send button on a phone). */
 async function send(run: Run, page: Page, text: string) {
   await composer(page).fill(text);
+  await page.waitForFunction(() => {
+    const send = document.querySelector('[role="button"][aria-label="Send"]');
+    // An admitted streaming session still accepts Enter while showing Stop.
+    return (send !== null && send.getAttribute("aria-disabled") !== "true")
+      || document.querySelector('[role="button"][aria-label="Stop generating"]') !== null;
+  });
   if (phone(run)) await press(run, button(page, "Send"));
   else await composer(page).press("Enter");
 }
@@ -548,10 +555,10 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
     const failure = new Error("the fixture deliberately stops before upload");
     try {
       await a.page.evaluate(() => Object.defineProperty(navigator, "onLine", { configurable: true, enumerable: true, get: () => false }));
-      await expect(withTrackOnline(a.page, async () => {
+      await expectRejectedValue(withTrackOnline(a.page, async () => {
         expect(await a.page.evaluate(() => navigator.onLine)).toBe(true);
         throw failure;
-      })).rejects.toBe(failure);
+      }), failure);
       expect(await a.page.evaluate(() => navigator.onLine), "the following offline sentinel").toBe(false);
     } finally {
       await a.context.close();

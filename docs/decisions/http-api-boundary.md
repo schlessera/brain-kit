@@ -46,11 +46,11 @@ explicit supported rows, not silently excluded by this distinction.
 
 The source audit on 2026-09-30 used
 `e0875269b21b707482545be9e94901acb897893b`. The public health mount precedes auth
-(`createHealthRoutes`, `packages/ui-server/src/app.ts:726`), the API guard follows
-public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:746`), and the
-WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:872`).
+(`createHealthRoutes`, `packages/ui-server/src/app.ts:728`), the API guard follows
+public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:748`), and the
+WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:875`).
 Static serving is conditional (`if (options.staticRoot)`,
-`packages/ui-server/src/app.ts:892-913`). That order establishes access;
+`packages/ui-server/src/app.ts:895-916`). That order establishes access;
 it does not select compatibility status.
 
 A hermetic real-app launch, with temporary brain root, in-memory database,
@@ -67,9 +67,18 @@ The SDK worker itself fetches its configured subscription endpoint
 (`subscribeUrl`, `packages/ui-sdk/src/client/push-handlers.ts:72`), and the
 share handler's default is explicit (`DEFAULT_SHARE_TARGET_PATH`,
 `packages/ui-sdk/src/client/share-target-handler.ts:45`). The published React entry
-exports its REST adapter (`createBrainApi`, `packages/ui-react/src/index.ts:81`).
+exports its REST adapter (`createBrainApi`, `packages/ui-react/src/index.ts:82`).
 Tracing those consumers prevented a supported feature's dependency being
 mistaken for an unpromised private route.
+
+Server shutdown owns admitted HTTP dispatch until the handler returns its response.
+An asynchronous status lookup can resume into SQLite after awaiting the module
+CLI, so closing operational state first leaves a request using a disposed owner.
+The app refuses new dispatch while closing, interrupts unfinished request-body
+reads, and joins admitted handlers before disposing of state. This boundary ends
+at response creation: existing SSE and journal owners still govern streaming
+response producers. A stalled client or producer cancellation cannot make
+shutdown wait for unbounded additional request bytes.
 
 ## Versioning and changes
 

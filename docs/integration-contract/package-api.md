@@ -3,6 +3,54 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Prepared ordinary inference transport (internal #1665)
+
+The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
+turn proxy from the SDK's internal `startEgressProxy`. It is trusted host data,
+not a wire field, backend extension callback or destination permission. The
+ordinary Claude turn runner consumes an explicitly supplied proxy for its
+stored-login profile; API-billed and autonomous paths retain their existing
+selection. Existing callers omitting it keep their current behavior.
+
+The prepared first-party composition uses the native worker's placeholder
+credential and host-held OAuth resolution on each actual dispatch. Native
+initialization, subscription/settings checks and actual model/session behavior
+remain in the ordinary SDK path. Mutable native project/managed settings are
+observed before a prompt; a retained immutable startup view instead requires
+its existing manager acquisition and matching kernel checkpoint identity.
+Cleanup attempts every owned resource and reports any failure.
+
+This member is first-party implementation sharing, with the internal-entry
+classification below; it does not add a supported public proxy extension API.
+Automatic server selection, custom-origin selection and Pi integration are
+separate from this input. Host-owned exact-origin authorization per
+credential remains mandatory for custom OAuth recipients. This input neither
+sanitizes arbitrary unrelated provider/command credentials nor completes the
+credential capability and maintenance cutover in #1666.
+
+**Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
+adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
+glyph and accessible label remain outside the truncating summary label, before
+the chevron. Existing controlled, seeded and uncontrolled behavior is unchanged.
+
+## UI-kit action accessibility and loading (additive #1756)
+
+`ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
+`aria-describedby` on the button's existing role-bearing element.
+`ContactAction` adds optional `disabled`, `ariaDisabled`, `ariaLabel`,
+`ariaDescribedBy` and `loading` fields. Accessibility and disabled fields pass
+through to the existing Button behavior. `ariaDisabled` keeps the action
+focusable; callers must guard activation while work is pending. `disabled`
+removes it from the tab order. `loading` displays a decorative spinner while
+preserving the action element and its focus; it does not implicitly disable an
+action or announce progress. The semantic `IconKey` adds `loading`.
+Spinner rotation respects reduced motion.
+
+Discovery expansion is documented [in the ui-react guide](../../packages/ui-react/README.md#discovery-placement).
+Its store state remains behind `BrainUiServices.stores`, which is explicitly
+`@internal`; no new public graph-store signature, wire endpoint or query limit
+is introduced.
+
 ## Maintenance temporary-storage host configuration (additive #1708)
 
 `BRAIN_UI_MAINTENANCE_TEMP_BYTES` and `BRAIN_UI_MAINTENANCE_TEMP_BUDGET_BYTES`
@@ -222,6 +270,28 @@ paths, are listed in [the boundary decision](../decisions/public-export-boundary
 
 Lineage: this is the public successor of the `INTEGRATION.md` that lived in
 the private brain's `scripts` directory; shapes are unchanged unless marked.
+
+<a id="interactive-main-model-identity-additive-2037"></a>
+
+## Interactive main-model identity (additive, #2037)
+
+`ProviderInfo.model?: string` carries only the explicitly configured main-model
+id. An absent value means the runtime chooses it; a profile id is not a model.
+The additive server-only `BackendActivityEvent` variant
+`{ kind: "main_model", model: string, sessionId: string }` reports the executing
+main model through the current `startTurn` bridge. Claude uses root initialization
+identity, excluding helper/subagent initialization; Pi uses the runtime session's
+model. Per-model usage never selects the interactive or voice main model.
+
+The host admits the journal before executing the backend. Known configured
+identity populates admission metadata; runtime identity binds only the correlated
+active turn's summary. Cancelled/finished turns and stale bridges from resumed
+turns cannot bind. Concurrent sessions retain independent identity. Subsequent
+governance events use the identity known at emission. Earlier null snapshots stay
+null in storage and all reads/exports; binding does not amend or enrich them, and
+historical turns are never backfilled. Pre-runtime refusals remain unknown unless
+the resolved profile explicitly supplies a model. Nullable governance field shapes
+are unchanged. This additive public interface requires a minor release.
 
 <a id="explicit-autonomous-backend-turns-675"></a>
 
@@ -859,6 +929,7 @@ optional parameter does not change the server-owned `applyImageMask` route.
 | `LiveConversationProvider` | `@schlessera/brain-ui-sdk/server` |
 | `AsrClient` | `@schlessera/brain-ui-sdk/client` |
 | `ToolRenderer` | `@schlessera/brain-ui-sdk/client` |
+| `ContentRenderer` | `@schlessera/brain-ui-sdk/client` |
 | `SiteAdapter` | `@schlessera/brain-scrape` |
 
 `tests/seam-list.test.ts` fails when this table, the one in
@@ -1344,7 +1415,7 @@ are `text`, `number`, `toggle`, `choice`, `multichoice`, `tags` and `weights`;
 `record`, `list` and `variant` compose them. Unlisted representable schema
 fields appear through the generic renderer. Unsupported fields show their
 complete JSON value read-only; unchanged JSON subtrees retain their bytes.
-Modules do not contribute React implementations. A module using settings has
+Modules do not contribute React settings implementations. Content renderers use the separately declared, build-time-bundled renderer seam. A module using settings has
 a lowercase name matching `^[a-z][a-z0-9-]{0,30}$`.
 
 Core reads `settings/<module-name>.json`, a JSON object without the reserved
@@ -3023,6 +3094,25 @@ changed-file versions, journal metadata and object-write reservations retain
 the existing 10 GiB journal cap. No numeric total-volume default is supplied.
 See the [storage decision](../decisions/native-brain-storage.md).
 
+### Qualified worker identity (additive, #1677)
+
+`WorkerHostCheck` and `GovernedStatus` gain the optional verified identity and
+UID fields described in the [HTTP contract](http.md#verified-worker-identity-additive-1677).
+`WorkerNoteFacts.identity` optionally carries `{ kind: "separate_uid",
+workerUid }` from a successful host probe, so capability notes name the actual
+worker identity. Existing callers may omit these facts.
+
+For separate-UID native recovery, the fixed root-owned `brain-native-store`
+configuration optionally sets `workerUid` to a positive UID different from
+`appUid`. It must match the qualified helper's UID. Native journal manager
+adapters may supply optional `readCheckpoint`, `statCheckpoint` and
+`listCheckpoint` operations; the server validates the fixed reader's UID
+before consuming private bytes. Existing adapters remain valid, with explicit
+unreadable results when they cannot recover a private input. These operations
+retain existing owned checkpoint authority and storage caps; they do not
+authorize arbitrary host paths. See the [host boundary](../hosting/agent-workers.md#separate-worker-identity)
+for descriptor transfer, supervision, cleanup and best-effort limits.
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.
@@ -3087,3 +3177,251 @@ independent hard deadline. Kit `AskUserOption`/`ChoiceOptionProps.disabled`
 make pending/offline scope options inert with a readable reason supplied by
 the surrounding card. These additions ship in a minor; the wire behavior is
 [specified separately](wire.md#turn-scope-additive-1670).
+
+## Optional transcript diagnostics and recovery (additive, #1806)
+
+`@schlessera/brain-ui-sdk/server` exports `createTranscriptStore`, the existing
+`TranscriptStore` interface, and the additive `RecoverableTranscriptStore`,
+`TranscriptDiagnostic`, `TranscriptRecord`, `TranscriptMetaRecord`,
+`TranscriptMessageRecord`, `TranscriptFailure`, `TranscriptRecoveryProvenance`,
+`TranscriptCorruptionError` and `TranscriptRecoveryError`. The factory returns
+`RecoverableTranscriptStore`; existing third-party `TranscriptStore`
+implementations gain no required members. Healthy `create`, `append`, `list`
+and `history` signatures and results retain their existing shapes.
+
+A malformed JSON/UTF-8 line or unsupported record quarantines that file in
+place. Required metadata is the first nonblank record: `kind: "meta"`, an
+`id` matching the filename, nullable string `title` and finite nonnegative
+`createdAt`. Later records have `kind: "message"`, finite nonnegative `ts`, a
+supported `SessionHistoryMessage` and optional finite nonnegative `costUsd`.
+Unknown additive properties remain intact. Empty files, missing/wrong metadata
+and repeated metadata are corrupt. Blank lines are allowed. Valid final JSON
+without a newline is healthy; append supplies a separating newline.
+Admission also refuses malformed optional fields that the wire reader would
+normalize or discard: a verified raw prefix must remain valid without alteration.
+
+`list()` excludes quarantined files, without aborting healthy enumeration.
+`history()` and `append()` on a quarantined file throw
+`TranscriptCorruptionError` (`code: "TRANSCRIPT_CORRUPT"`, `diagnostic`). Unknown
+history remains empty; unknown append still refuses. Filesystem errors other
+than absence propagate rather than being classified as transcript corruption.
+No operation silently repairs, truncates, relocates or logs original content.
+
+- `diagnose(sessionId)` returns `{ sessionId, status: "missing" }` for absence.
+  Otherwise it returns `sessionId`, `sourceVersion` (SHA-256 of all source
+  bytes), `prefixBytes` (exclusive verified byte boundary), and `records`
+  (the contiguous admitted records, with original objects). Healthy results
+  have `status: "healthy", complete: true`; quarantined results have
+  `status: "quarantined", complete: false, failure`. The failure carries
+  one-based `line`, zero-based `byteOffset`, `position: "final" | "interior"`
+  and `reason: "invalid-json" | "invalid-record" | "invalid-utf8" | "missing-meta"`.
+  Position describes whether nonblank bytes follow the failed line, not a
+  guessed crash cause. No records after the first failure are admitted.
+- `quarantined()` explicitly enumerates only quarantined diagnostics, including
+  their qualified prefixes. Ordinary history never presents these as complete.
+- `recover(sessionId, { sourceVersion })` is explicit authorization for the
+  inspected version. It returns a **new** session id, with metadata title
+  `Recovered: <original title or source id>` and `recovery` provenance containing
+  `sourceSessionId`, `sourceVersion`, `prefixBytes`, `prefixRecords`, and the
+  original `failure`. The original identity/bytes remain unchanged. Message
+  lines, timestamps, costs and unknown properties are copied byte for byte;
+  only metadata is replaced, with a trailing separator added if needed.
+  Provenance persists in metadata and is accessible through diagnostics;
+  normal `ChatSession` and history shapes gain no required fields.
+
+Recovery refuses missing/changed source with `TranscriptRecoveryError`
+(`code: "SOURCE_CHANGED"`), healthy source or missing valid metadata with
+`"NOT_RECOVERABLE"`, and incompatible existing recovery content with
+`"RECOVERY_CONFLICT"` (corrupt existing recovery raises `TranscriptCorruptionError`).
+It hashes the full source at admission and again around publication, refusing
+observed concurrent edits. Callers must serialize external transcript edits
+with recovery: this is optimistic filesystem validation, not an OS lock against
+arbitrary writers. The store itself never appends to the quarantined source.
+
+Recovery validates its complete output, writes and fsyncs a hidden `.pending`
+file, atomically links it without replacing an existing target, then fsyncs the
+directory. The target identity is deterministic for source identity/version;
+concurrent attempts and retries converge on that identity, including after
+subsequent valid appends. Interrupted staging cannot appear in `list()`;
+a process crash can leave hidden staging evidence. A failure after publication
+may leave a complete labelled recovery, and retry validates it and syncs the
+directory instead of creating a duplicate. A different source version requires
+a new inspection/authorization and represents a distinct recovery.
+
+Only optional plain API-loop backends use this helper. No shipped backend
+currently calls it; Claude/pi keep native persistence. Adopting backends keep
+normal `listSessions`/`getHistory` delegation, catch the typed per-session
+corruption outcome, and invoke diagnostics/recovery only through deliberate
+host-owned actions. They expose the returned title unchanged and resume the
+new returned identity. No wire frame, HTTP route, UI destination or native
+backend recovery interface is added by this SDK change. These supported
+additions ship in a minor under the recorded #1806 rulings.
+
+## Custom Other drafts (additive, #1887)
+
+`AskUserCardProps` in `@schlessera/brain-ui-kit` gains optional `otherText?:
+string` and `onOtherChange?: (text: string) => void` for a controlled custom
+answer draft. Without them the card keeps a local draft. While Other is open,
+the persistent Submit action invokes the existing `onOtherSubmit` callback
+with current nonblank text, as Enter does. Blank text disables Submit with an
+explanation. `showActions={false}` and closed exchanges still omit actions.
+The client preserves selected predefined answers beside custom text in a
+multi-select and the existing grouped-question submission path. No wire,
+CLI/MCP or answer-delivery contract changes.
+
+### Claude cumulative usage evidence (additive, #2025)
+
+The server-only `BackendActivityEvent` variant `claude_session_usage` carries
+optional `completed: TurnUsage`, `cumulative: TurnUsage` and
+`reportedCostUsd: number`. `completed` is this host turn's completed root/child
+response usage; `cumulative` and `reportedCostUsd` are source-qualified runtime
+session totals, never turn receipts. Repeated events refine one host turn;
+they do not represent additional spend. An absent cumulative total or completed
+receipt stays unknown. The host persists a conservative auxiliary high-water
+reconciliation separately from main usage, without assigning title-helper
+provenance or relying on a model name. Direct backend consumers receive own
+completed token counts on `result`; its absent cost remains unknown until a
+host prices those counts. Autonomous Queue semantics are unchanged.
+
+## Content-renderer entries (additive #2081)
+
+The experimental `@schlessera/brain-ui-sdk/client` content seam exports
+`ContentRenderer`, `ContentRendererProps`, `ContentRendererPack`,
+`ContentRendererRegistry`, `ContentRendererTheme`, `createContentRendererRegistry`,
+`defaultContentRendererRegistry` and `registerContentRenderers`.
+Components receive source, optional path, mode (`chat | file | share`) and
+theme (`light | dark | print`). Exact, case-sensitive language and extension
+claims resolve first-registration-wins. Extensions include the leading dot.
+Pack object identity dedupes registration; reset clears claims and identities.
+A missing lookup returns null.
+
+The React/DOM-independent `@schlessera/brain-ui-sdk/render` exports
+`StaticRenderer`, `StaticRendererPack`, `StaticRendererRegistry`,
+`ContentRendererTheme`, `createStaticRendererRegistry`, `registerStaticRenderers`
+and `staticRendererFor`. Static entries carry claims, `needsBrowser`, and
+`toStatic(source, { theme, path? }): Promise<string>`. The default lookup checks
+language before extension on ambiguity. Client and static builds register
+independently; neither loads code named by content/runtime configuration.
+
+The experimental `@schlessera/brain-ui-sdk/testing` exports
+`contentRendererConformance(pack, fixtures)`, `ContentRendererFixture` and
+`ContentRendererFixtures`. A real-browser mount harness lets the suite exercise
+client components in every mode/theme and static output in every theme.
+The [authoring guide](../extending/content-renderers.md) specifies the token
+block/root ground convention. Conformance tests trusted bundled code; it is
+not a sanitizer. Dispatch, manifests and concrete packs are separate epic work.
+
+### Stable hosted application roster (#2048)
+
+The additive, trusted `StartTurnRequest.applicationAuthority?: "server"` field
+identifies a deployment whose authoritative mutations use the server route.
+The UI server supplies it on every interactive turn, independent of posture,
+strict fallback or temporary bridge handler availability. It is session-stable
+host configuration, never client/model input or a grant. Claude uses it to keep
+legacy project MCP writers shadowed even when `applyBrain` is temporarily absent;
+its fixed in-process application tools then refuse unavailable routes at call
+time. Direct unhosted consumers omitting it retain their legacy project MCP
+roster. Existing custom bridges without the field retain the prior `applyBrain`
+presence fallback. Autonomous authority/rosters are unchanged.
+
+### Prompt-cache diagnostic events (additive, #2050)
+
+`BackendActivityEvent` adds `prompt_prefix` (`prefix: PromptPrefixFingerprint`,
+`resumed: boolean`) once before the first request, and `first_request_cache`
+(`usage: FirstRequestCacheUsage`) once for the first main request's receipt.
+Both use the existing `BackendBridge.activity` channel and are observational,
+never permission grants or provider-cache promises. Raw assembly text must be
+hashed within the backend. Missing input components/counters stay `null`.
+The host validates digest/counter shapes, copies only documented fields and
+retains the first receipt; invalid or duplicate evidence cannot overwrite it.
+Title helpers and child channels must never be reported as the first main
+request. Their separately retained accounting remains independent.
+
+`PromptPrefixFingerprint`, `FirstRequestCacheUsage` and `ActivityCacheDiagnostics`
+are additive protocol types; their HTTP meaning and retention limits are in
+[cache diagnostics](http.md#prompt-cache-diagnostics-additive-2050).
+
+## Module content renderer declarations
+
+`ModuleContribution.renderers?: Record<string, ModuleRenderer>` is an additive
+module input. `ModuleRenderer` has optional `fences: string[]` and
+`extensions: string[]`, required `client: string` and optional `static: string`.
+Declarations are strict: unknown fields fail loading. Fence names match
+`^[a-z][a-z0-9-]*$`; extensions start with `.`. Both entry specifiers
+name export subpaths of the declaring module's own package, verified against
+its `package.json` name.
+
+Duplicate active fence/extension claims fail load naming both module owners.
+Dormant declarations do not claim dispatch names. Built-in Mermaid reserves
+`mermaid`, `mmd`, `.mermaid` and `.mmd`. Module lint resolves entries and
+requires the static entry's named `toStatic` export to be a function. Ordinary
+loading does not execute renderer entries. No runtime browser loading is added.
+See [modules](../modules.md#content-renderers) and the
+[renderer decision](../decisions/module-renderers.md).
+
+## Claude title-helper evidence (additive, #2052)
+
+The server-only `BackendActivityEvent` gains `claude_title_usage` with
+`coverage: "observed" | "partial" | "unknown"` and `receipts`, an array of
+`{ receiptId: string; source: "generate_session_title"; usage: TurnUsage;
+costUsd?: number }`. It follows worker/exporter shutdown and precedes release
+of the held terminal result. It does not replace or add to the existing
+`claude_session_usage.completed` root/child receipt.
+
+Purpose comes from the installed runtime's supported OTLP API-request event,
+not a model name. Receipt identity deduplicates exports/replays; measured
+helper usage is allocated only against the matching newly reconciled auxiliary
+delta in the session transaction. A separate `Claude session title` Activity
+run retains that usage/cost, while unmatched usage remains unattributed and
+main/cache usage retains its existing completed-response semantics. Missing
+or unjoinable evidence stays unknown/partial, not a free helper or an inferred
+main-model charge. Operator telemetry destinations and opt-outs are preserved;
+without a local receipt, ordinary unattributed accounting still applies.
+
+### Built-in Mermaid content renderer
+
+The built-in browser pack claims `mermaid` / `mmd` fences and `.mermaid` /
+`.mmd` source files through the content-renderer registry. Its static entry
+requires a browser and produces self-contained vector SVG without HTML
+`foreignObject` labels. Shared PNG/PDF output and browser print use the kit's
+opaque white `print` palette. Light and dark screen palettes remain unchanged.
+
+`inlineMermaidDiagrams(markdown, theme?)` remains a compatibility entry point;
+it now dispatches all bundled browser-only content renderers and defaults to
+`print`. An explicit `light` or `dark` argument still selects that palette,
+and `print` is an additive accepted theme. `shareMarkdown` retains its
+`inlineMermaid` dependency name for existing callers. Failed or oversized
+static rendering preserves the source fence and reports a lint warning.
+
+### Deployment renderer registration (additive, #2087)
+
+`@schlessera/brain-ui-react` exports experimental
+`registerContentRendererPack(pack, { name, version })`, accepting the SDK's
+`ContentRendererPack` plus the bundled module manifest name and package version.
+Call it before mounting. Registration is build-time trusted code, identity
+idempotent, with first-claim dispatch. It never imports server-named code.
+`@schlessera/brain-ui-sdk` exports `ContentRendererDeclaration` for the
+[authenticated bootstrap metadata](http.md#content-renderer-bootstrap-declarations-additive-2087).
+
+
+### Native persisted Claude memory observation (additive, #1658)
+
+`StartTurnRequest.persistClaudeMemory` is an optional host-only callback for
+validated native Claude memory copy-out. The backend supplies a direct note,
+its host-owned external directory, exact before/after bytes and before mode,
+and a synchronous save closure. A null observation explicitly reports copy-out
+that could not be inspected before a note callback. It is never serialized into a worker or
+accepted from a client. The first-party server retains/pins versions and a
+private pending receipt before invoking the closure, then publishes a steering
+change only after the save succeeds. Failed or interrupted finalization remains
+partial/unconfirmed. Other backends need not implement Claude native-memory
+persistence; this adds no agent history authority or new public request route.
+
+### Late Activity session association
+
+`ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed
+active span when the backend reports its session after the first frame. Repeating
+the same identity is allowed; changing an established identity or patching a
+terminal span returns false without modifying the row. The recorder persists
+this identity in both the queryable session column and the existing attributes.
+This additive API ships in a minor release.

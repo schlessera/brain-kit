@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { buildHtmlDocument } from "@schlessera/brain-render-template";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -14,6 +15,8 @@ const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-
 if (!executablePath) throw new Error("Artifact recovery proof requires real Chrome");
 const repo = resolve(import.meta.dir, "../../..");
 const target = ".brain/scratch/raft/overview.pdf";
+const svgPath = ".brain/scratch/raft/palette.svg";
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><style>rect{fill:rgb(240,200,40)}@media(prefers-color-scheme:dark){rect{fill:rgb(30,50,70)}}@media print{rect{fill:rgb(220,40,120)}}</style><rect width="240" height="160"/><title>Odysseus studies the crossing</title></svg>`;
 const password = "the bow only Odysseus can string";
 let fixture = "", brain = "", origin = "";
 let app: Awaited<ReturnType<typeof createApp>>;
@@ -46,13 +49,14 @@ async function child(args: string[]) {
 beforeAll(async () => {
   // A focused source mutation still bundles the client below from its fresh
   // source; only already-built, unchanged workspace dependencies may be reused.
-  if (process.env.BRAIN_ARTIFACT_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts"]);
+  if (process.env.BRAIN_ARTIFACT_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-artifact-recovery-"));
   brain = resolve(fixture, "brain");
   await createFixtureBrain(repo, brain);
   await mkdir(resolve(brain, ".brain/scratch/raft"), { recursive: true });
   await writeFile(resolve(brain, ".gitignore"), ".brain/scratch/\n");
   await writeFile(resolve(brain, target), pdf());
+  await writeFile(resolve(brain, svgPath), svg);
   await writeFile(resolve(brain, ".brain/scratch/raft/other.pdf"), pdf());
   await writeFile(resolve(brain, ".brain/scratch/raft/overview.html"), "<!doctype html><h1>The raft of Odysseus</h1>");
   await writeFile(resolve(brain, ".brain/scratch/raft/hull.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZkAAAAASUVORK5CYII=", "base64"));
@@ -61,6 +65,8 @@ beforeAll(async () => {
   await child([process.execPath, "-e", 'const r=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!r.success){console.error(r.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/artifact-recovery-client.tsx"), assets]);
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus artifact recovery</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px}article{margin:24px 0}textarea{display:block;max-width:100%}[data-bk-nav]{height:44px}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
+  await writeFile(resolve(assets, "svg-print.html"), `<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="/app.css"></head><body><img width="240" height="160" src="/api/files/content?path=${encodeURIComponent(svgPath)}&raw=1"></body></html>`);
+  await writeFile(resolve(assets, "svg-share.html"), buildHtmlDocument({ content: `<img width="240" height="160" src="data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}">`, contentType: "html" }));
   const backend = makeFakeBackend({ id: "artifact-fixture" });
   passwordHash = await Bun.password.hash(password);
   app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(fixture, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test",
@@ -429,5 +435,138 @@ test("artifact actual HTML route confirms a successful native preview without re
     expect(await page.evaluate(() => (window as any).__artifactFixture.state().kind)).toBe("html");
     expect(await page.evaluate(() => (window as any).__artifactFixture.state().failure)).toBeUndefined();
     expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test("SVG opens as an image and Raw shows escaped source, then Preview restores the image", async () => {
+  const { page, context, outside } = await scene(320, "dark", svgPath);
+  try {
+    await activate(page);
+    const image = page.locator(`img[alt="${svgPath}"]`);
+    expect(await page.evaluate(() => (window as any).__artifactFixture.state().kind), "SVG_METADATA_KIND").toBe("binary");
+    await image.waitFor({ timeout: 5000 });
+    expect(await image.count(), "SVG_IMAGE_PREVIEW").toBe(1);
+    await image.evaluate((img: HTMLImageElement) => img.decode());
+    const raw = await page.evaluate(async path => {
+      const response = await fetch(`/api/files/content?path=${encodeURIComponent(path)}&raw=1`);
+      return { status: response.status, csp: response.headers.get("content-security-policy"), text: await response.text() };
+    }, svgPath);
+    expect(raw.status).toBe(200);
+    expect(raw.csp).toContain("default-src 'none'");
+    expect(raw.text).toBe(svg);
+    await page.getByRole("tab", { name: "Raw", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes("Odysseus studies the crossing"));
+    expect(await page.locator("pre").textContent(), "SVG_RAW_SOURCE").toContain(svg);
+    expect(await page.locator("svg title").getByText("Odysseus studies the crossing").count()).toBe(0);
+    expect(await image.count()).toBe(0);
+    await page.getByRole("tab", { name: "Preview", exact: true }).click();
+    expect(await image.count()).toBe(1);
+    expect(outside).toEqual([]);
+  } finally { await context.close(); }
+});
+
+for (const filename of ["svg-print.html", "svg-share.html"]) {
+  test(`${filename}: dark screen SVG prints light in an actual PDF raster`, async () => {
+    const { page, context, outside } = await scene();
+    try {
+      await page.goto(`${origin}/${filename}`);
+      await page.locator("img").evaluate((img: HTMLImageElement) => img.decode());
+      // Establish the app case is dark before asking Chrome to print. The share
+      // document already selects light for every export, including screen PNGs.
+      expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(filename === "svg-print.html" ? "dark" : "light");
+      const bytes = await page.pdf({ width: "400px", height: "300px", printBackground: true, margin: { top: "0", right: "0", bottom: "0", left: "0" } });
+      const output = `.brain/scratch/raft/${filename}.pdf`;
+      await writeFile(resolve(brain, output), bytes);
+      await mkdir(resolve(repo, "tmp/svg-proof"), { recursive: true });
+      await writeFile(resolve(repo, `tmp/svg-proof/${filename}.pdf`), bytes);
+      await page.goto(`${origin}/?${new URLSearchParams({ path: output })}`);
+      await page.getByRole("link", { name: "the raft overview", exact: true }).waitFor();
+      await activate(page);
+      await page.waitForFunction(() => [...document.querySelectorAll<HTMLCanvasElement>("canvas")].some(canvas => {
+        if (!canvas.width || !canvas.height) return false;
+        return canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data.some((v, i, a) =>
+          i % 4 === 0 && ((v === 240 && a[i + 1] === 200 && a[i + 2] === 40)
+            || (v === 30 && a[i + 1] === 50 && a[i + 2] === 70)
+            || (v === 220 && a[i + 1] === 40 && a[i + 2] === 120)));
+      }), null, { timeout: 5000 });
+      const colors = await page.locator("canvas").first().evaluate((canvas: HTMLCanvasElement) => {
+        const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+        const counts = { light: 0, dark: 0, internalPrint: 0 };
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] === 240 && data[i+1] === 200 && data[i+2] === 40) counts.light++;
+          if (data[i] === 30 && data[i+1] === 50 && data[i+2] === 70) counts.dark++;
+          if (data[i] === 220 && data[i+1] === 40 && data[i+2] === 120) counts.internalPrint++;
+        }
+        return counts;
+      });
+      await page.locator("canvas").first().screenshot({ path: resolve(repo, `tmp/svg-proof/${filename}.png`) });
+      expect(colors.light, "SVG_PDF_RASTER_LIGHT_PALETTE").toBeGreaterThan(1000);
+      expect(colors.dark).toBe(0);
+      // img subdocuments do not receive @media print; the host chooses light.
+      expect(colors.internalPrint).toBe(0);
+      expect(outside).toEqual([]);
+    } finally { await context.close(); }
+  });
+}
+
+test("SVG Raw abandons a late source response when Preview replaces it", async () => {
+  const { page, context } = await scene(320, "dark", svgPath);
+  try {
+    await activate(page);
+    let release: (() => Promise<void>) | undefined;
+    let requested: () => void = () => {};
+    const pending = new Promise<void>(resolve => { requested = resolve; });
+    await page.route("**/api/files/content?*", route => {
+      const url = new URL(route.request().url());
+      if (route.request().method() === "GET" && url.searchParams.has("raw")) {
+        return new Promise<void>(resolve => { release = async () => { await route.fulfill({ contentType: "image/svg+xml", body: svg }); resolve(); }; requested(); });
+      }
+      return route.fallback();
+    });
+    await page.getByRole("tab", { name: "Raw", exact: true }).click();
+    await pending;
+    await page.getByRole("tab", { name: "Preview", exact: true }).click();
+    await release!();
+    expect(await page.locator(`img[alt="${svgPath}"]`).count()).toBe(1);
+    expect(await page.locator("pre").count()).toBe(0);
+  } finally { await context.close(); }
+});
+
+test("SVG Raw authentication loss removes protected source and closes the viewer", async () => {
+  const { page, context } = await scene(320, "dark", svgPath);
+  try {
+    await activate(page);
+    await context.clearCookies();
+    await page.getByRole("tab", { name: "Raw", exact: true }).click();
+    await page.locator('input[type="password"]').waitFor();
+    expect(await page.locator("pre").count()).toBe(0);
+    expect(await page.locator("[data-file-title]").count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).__artifactFixture.state().path)).toBeNull();
+  } finally { await context.close(); }
+});
+
+test("SVG Raw read failure offers manual retry and a successful retry restores source", async () => {
+  const { page, context } = await scene(320, "dark", svgPath);
+  try {
+    await activate(page);
+    await page.locator(`img[alt="${svgPath}"]`).evaluate((image: HTMLImageElement) => image.decode());
+    let failing = true;
+    let reads = 0;
+    await page.route("**/api/files/content?*", route => {
+      const url = new URL(route.request().url());
+      if (route.request().method() === "GET" && url.searchParams.has("raw")) {
+        reads++;
+        if (failing) return route.fulfill({ status: 500, body: "unavailable" });
+      }
+      return route.fallback();
+    });
+    await page.getByRole("tab", { name: "Raw", exact: true }).click();
+    await page.getByRole("heading", { name: "Couldn't open this file.", exact: true }).waitFor();
+    expect(await page.locator("pre").count()).toBe(0);
+    failing = false;
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes("Odysseus studies the crossing"));
+    expect(await page.locator("pre").textContent()).toContain(svg);
+    expect(reads).toBeGreaterThanOrEqual(2);
   } finally { await context.close(); }
 });

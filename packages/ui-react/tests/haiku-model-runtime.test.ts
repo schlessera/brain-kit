@@ -13,7 +13,7 @@ const scratch = mkdtempSync(join(tmpdir(), "haiku-browser-"));
 beforeAll(async () => {
   // Browser consumers follow the published default exports, which resolve to
   // dist. Build those outputs; never force a Bun condition in the consumer.
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: join(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react"], { cwd: join(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
   if (code !== 0) throw new Error(`Haiku fixture build failed (${code}): ${out}\n${err}`);
   const built = await Bun.build({ entrypoints: [join(import.meta.dir, "fixtures/haiku-model-browser.tsx")], target: "browser", outdir: scratch, naming: "client.js" });

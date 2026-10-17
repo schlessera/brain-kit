@@ -172,6 +172,11 @@ export interface BuildHtmlDocumentOptions {
  * opts into its visible-destination policy; the CLI keeps the default.
  */
 export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string {
+  return buildDocument(opts);
+}
+
+/** Internal preparation preserves markdown document-shell semantics after async parsing. */
+export function buildDocument(opts: BuildHtmlDocumentOptions, renderedMarkdown?: string): string {
   const allowHosts = opts.allowHosts ?? [];
   if (opts.contentType === "html" && isFullDocument(opts.content)) {
     const document = injectShell(placeholderRemoteImages(opts.content, allowHosts, true), opts.title, opts.runningTitle);
@@ -179,7 +184,7 @@ export function buildHtmlDocument(opts: BuildHtmlDocumentOptions): string {
   }
   const rendered =
     opts.contentType === "markdown"
-      ? ((opts.linkPolicy ? exportMarkdown : marked).parse(opts.content, { async: false }) as string)
+      ? (renderedMarkdown ?? ((opts.linkPolicy ? exportMarkdown : marked).parse(opts.content, { async: false }) as string))
       : opts.content;
   const inner = placeholderRemoteImages(rendered, allowHosts, false);
   const title = opts.title ?? DEFAULT_TITLE;

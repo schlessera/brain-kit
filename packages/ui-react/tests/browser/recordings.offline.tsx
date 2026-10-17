@@ -1,29 +1,17 @@
 /// <reference types="@vitest/browser-playwright" />
-import { expect, test, vi, type TestContext } from "vitest";
-import { createBrainUiRoot } from "../../src/root.js";
-import { createLocalPartitions, type PartitionId } from "../../src/lib/local-partitions.js";
-import { createRecordingStore, type RecordingRecovery, type RecordingEvent } from "../../src/lib/recordings.js";
+import { expect, test, vi } from "vitest";
+import type { PartitionId } from "../../src/lib/local-partitions.js";
+import { createRecordingStore, type RecordingRecovery } from "../../src/lib/recordings.js";
 import { startLocalCapture } from "../../src/voice/local-capture.js";
 import { updateHeld } from "../../src/lib/update-holds.js";
 import { failIndexedDbWrites, holdIndexedDbWrite } from "./offline/indexeddb-faults.ts";
 import { openScene } from "./offline/scene.ts";
-import { AUDIO_FIXTURES, generateWav } from "./offline/audio-fixtures.ts";
-import { installWavMicrophone, watchMicrophone } from "./offline/fake-microphone.ts";
+import { watchMicrophone } from "./offline/fake-microphone.ts";
+
+import { recordingCell as cell } from "./offline/recording-cell.ts";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const sceneUrl = new URL("./offline/scenes/recordings.scene.ts", import.meta.url);
-function cell(ctx: TestContext) {
-  let held: string | null = "odysseus";
-  const name = `odysseus-recordings-${crypto.randomUUID()}`;
-  const partitions = createLocalPartitions({ name, heldAccountKey: () => held });
-  const root = createBrainUiRoot({ storage: null });
-  const store = createRecordingStore({ root, partitions, heldAccountKey: () => held });
-  const events: RecordingEvent[] = [];
-  const cleanup: Array<() => void> = [];
-  store.onEvent((event) => events.push(event));
-  ctx.onTestFinished(async () => { for (const fn of cleanup.reverse()) fn(); await store.stop("interrupted"); store.dispose(); root.dispose(); });
-  return { root, partitions, store, events, cleanup, account: (key: string | null) => { held = key; root.stores.connection.getState().setVpnStatus(key ? "connected" : "unauthorized", key); } };
-}
 function chunk(index: number, endMs: number, bytes = 4) {
   return { index, startMs: index * 1000, endMs, data: new Blob([new Uint8Array(bytes)]) };
 }
@@ -230,28 +218,6 @@ test("a second real tab cannot open the microphone while another tab records", a
   await sibling.call("stop");
 });
 
-test("the 10-minute-5-second fixture stops at the hard duration cap with warning, copy and playable audio", async (ctx) => {
-  const c = cell(ctx);
-  const mic = installWavMicrophone(generateWav(AUDIO_FIXTURES.note10m05s));
-  ctx.onTestFinished(() => mic.restore());
-  const started = performance.now();
-  const capture = await c.store.start();
-  await capture.ended;
-  expect(performance.now() - started).toBeLessThan(605_000);
-  const row = (await c.store.list("account:odysseus"))[0]!;
-  expect(row.savedThroughMs, "capture reaches the ten-minute boundary").toBeGreaterThan(598_000);
-  expect(row.savedThroughMs).toBeLessThanOrEqual(600_000);
-  expect(c.events.filter((e) => e.kind === "warning")).toHaveLength(1);
-  expect(c.events.at(-1)?.message).toBe("Stopped at the 10-minute limit. Your recording is saved.");
-  const play = await c.store.playback(row.partition, row.id);
-  ctx.onTestFinished(() => play.revoke());
-  const context = new AudioContext();
-  ctx.onTestFinished(() => context.close());
-  const decoded = await context.decodeAudioData(await (await fetch(play.url)).arrayBuffer());
-  expect(decoded.duration).toBeGreaterThan(598);
-  expect(decoded.duration).toBeLessThanOrEqual(600.1);
-}, 650_000);
-
 
 test("caller-owned capture stops the microphone before releasing recording and update holds", async (ctx) => {
   const c = cell(ctx);
@@ -370,20 +336,6 @@ test("a running recording stops at its byte budget without evicting older audio"
 });
 
 
-test("the nine-minute warning fires once at the tuning boundary", async (ctx) => {
-  const c = cell(ctx);
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  c.cleanup.push(() => vi.useRealTimers());
-  const sink = c.store.sink();
-  await sink.begin!({ mimeType: "audio/webm;codecs=opus" });
-  await vi.advanceTimersByTimeAsync(539_999);
-  expect(c.events.filter((e) => e.kind === "warning")).toHaveLength(0);
-  await vi.advanceTimersByTimeAsync(1);
-  expect(c.events.filter((e) => e.kind === "warning")).toEqual([{ kind: "warning", message: "1 minute left in this recording", savedThroughMs: 0 }]);
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(c.events.filter((e) => e.kind === "warning")).toHaveLength(1);
-  await sink.end!("user");
-});
 
 test("completed recovery relinquishes its lock before an immediate next recovery", async (ctx) => {
   const c = cell(ctx);

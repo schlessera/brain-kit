@@ -392,6 +392,7 @@ export const draftRefSchema = z.looseObject({
 export const clientChatMessageSchema = z
   .looseObject({
     type: z.literal("chat_message"),
+    shareId: z.string().uuid().optional(),
   profileDraftId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).optional(),
     text: z.string().max(MAX_PROMPT_CHARS),
     sessionId: id.optional(),
@@ -412,7 +413,8 @@ export const clientChatMessageSchema = z
       (m.attachments ?? []).reduce((sum, a) => sum + decodedBase64Bytes(a.data), 0) <=
       MAX_TOTAL_IMAGE_BYTES,
     { message: `attachments exceed ${MAX_TOTAL_IMAGE_BYTES} total decoded bytes` }
-  ) satisfies z.ZodType<ClientChatMessage>;
+  )
+  .refine(m => !(m.shareId && m.handoff), { message: "A share start cannot also create a handoff" }) satisfies z.ZodType<ClientChatMessage>;
 
 const approvalChannelSchema = z.enum(["card", "voice"]) satisfies z.ZodType<ApprovalChannel>;
 
@@ -1027,6 +1029,7 @@ export const turnScopeSummarySchema = z.looseObject({
     state: z.enum(["paused", "continued", "stopped", "voice_stopped", "ended_before_answer"]), submissionId: id.optional(), reason: z.string().optional() })),
 }) satisfies z.ZodType<import("./protocol.js").TurnScopeSummary>;
 export const turnJournalSummarySchema = z.looseObject({
+  configurationCoverage: z.enum(["incomplete", "complete", "unknown"]).optional(),
   scope: turnScopeSummarySchema.optional(),
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
   changedFiles: z.number().int().nonnegative().nullable(),
@@ -1441,8 +1444,35 @@ const activitySpanEventSchema = z.looseObject({
   truncated: z.boolean().optional(),
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
+const activityTurnLifecycleSchema = z.looseObject({
+  hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
+  skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
+  lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
+  acceptedAt: z.number(),
+  dequeuedAt: z.number().nullable(),
+  governedStartedAt: z.number().nullable(),
+  governedAcquiredAt: z.number().nullable(),
+  budgetStartedAt: z.number().nullable(),
+  budgetAdmittedAt: z.number().nullable(),
+  journalStartedAt: z.number().nullable(),
+  journalBeganAt: z.number().nullable(),
+  backendInvokedAt: z.number().nullable(),
+  firstFrameAt: z.number().nullable(),
+  failureObservedAt: z.number().nullable(),
+  endedAt: z.number().nullable(),
+  totalElapsedMs: z.number().nullable(),
+  timeToFirstFrameMs: z.number().nullable(),
+  queueWaitMs: z.number().nullable(),
+  governedAdmissionMs: z.number().nullable(),
+  budgetAdmissionMs: z.number().nullable(),
+  journalBeginMs: z.number().nullable(),
+  backendStartupMs: z.number().nullable(),
+  outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
+});
+
 export const serverActivitySnapshotSchema = z.looseObject({
   type: z.literal("activity_snapshot"),
+  lifecycles: z.array(activityTurnLifecycleSchema).optional(),
   view: activityView,
   sessionId: id.optional(),
   runId: id.optional(),
@@ -1454,6 +1484,7 @@ export const serverActivitySnapshotSchema = z.looseObject({
 
 export const serverActivityDeltaSchema = z.looseObject({
   type: z.literal("activity_delta"),
+  lifecycle: activityTurnLifecycleSchema.optional(),
   runId: id,
   seq: z.number(),
   span: activitySpanSchema.optional(),

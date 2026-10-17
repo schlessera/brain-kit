@@ -1,3 +1,4 @@
+import { toolAvailabilityRefusal } from "./tool-availability.js";
 import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { createWorkerFileObserver, NativeFileVersions, WORKER_AREA_ROOT, type ObservedWorkerFile } from "@schlessera/brain-ui-sdk/internal";
@@ -40,12 +41,16 @@ function toPermissionResult(
 
 export function createPermissionWiring(options: {
   req: StartTurnRequest;
+  /** Hosted strict/voice natives stay registered but cannot gain execution authority. */
+  denyNativeWrites?: boolean;
   allowedTools: readonly string[];
   confirmPatterns: readonly RegExp[];
   brainPath: string;
   turnLock: TurnLockBinding;
   /** The filtered environment this turn's subprocesses run with. */
   childEnv: NodeJS.ProcessEnv;
+  /** Optional rewrite proven against this live worker, never the host PATH. */
+  rewriteRtk?: (command: string) => Promise<string>;
   /** Where a withheld re-admission is recorded. */
   log: BackendLogFn;
   /** Host-held actual startup view, never worker-supplied authority. */
@@ -56,6 +61,10 @@ export function createPermissionWiring(options: {
   observeFile?: (path: string) => ObservedWorkerFile | undefined;
 }): Pick<Options, "canUseTool" | "hooks"> {
   const { req, allowedTools, brainPath, turnLock, childEnv, log } = options;
+  const nativeAuthorityRefusal = (name: string): string | undefined =>
+    options.denyNativeWrites && ["Write", "Edit", "NotebookEdit"].includes(name)
+      ? "Native file writes are unavailable in this turn's profile or voice posture. Use the permitted server application tools instead."
+      : undefined;
   const fileVersions = options.fileVersions ?? new NativeFileVersions();
   const legacyObserve = req.workerSandbox?.profile === "governed" ? createWorkerFileObserver({ brain: brainPath, configurationRoot: brainPath, areas: [], maskPaths: req.workerSandbox.maskPaths }) : undefined;
   const filePath = (toolName: string, input: unknown): string | undefined => {
@@ -78,12 +87,21 @@ export function createPermissionWiring(options: {
   const nativeRefusal = (toolName: string, input: unknown): string | null => {
     if (req.autonomous || !["Write", "Edit", "NotebookEdit"].includes(toolName)) return null;
     const path = filePath(toolName, input), current = path ? observation(path) : undefined;
-    return current ? fileVersions.check(current.key, current.version) : null;
+    if (!current) return null;
+    const refusal = fileVersions.check(current.key, current.version);
+    if (refusal) return refusal;
+    try { fileVersions.beginWrite(current.key); }
+    catch { return "The host could not retain this write observation. Nothing was written; retry when host storage is available."; }
+    return null;
   };
   const beginNativeRead: HookCallback = async hookInput => {
     if (req.autonomous || req.signal.aborted || hookInput.hook_event_name !== "PreToolUse" || hookInput.tool_name !== "Read") return { continue: true };
     const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
-    if (current) fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version);
+    if (current) {
+      try { fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version); }
+      catch { return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+        permissionDecisionReason: "The host could not retain this read observation. Nothing was read; retry when host storage is available." } }; }
+    }
     return { continue: true };
   };
   const finishNativeFile: HookCallback = async hookInput => {
@@ -118,7 +136,7 @@ export function createPermissionWiring(options: {
   // separate tool grant. Never borrowed across turns, retries or edited input.
   const shownOutward = new Map<string, string>();
   const denyCommand = (toolName: string, input: unknown, toolUseId: string) => {
-    const refusal = denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
+    const refusal = backgroundBashRefusal(toolName, input) ?? denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
     if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
     return refusal;
   };
@@ -177,9 +195,15 @@ export function createPermissionWiring(options: {
   // An explicit "ask" beats all three — measured for each, and for the
   // settings hook with a canUseTool deny then holding — and it leaves another
   // hook's updatedInput intact, so the rewrites still reach the decision.
-  // Registered only under the declaration, so nothing moves for a turn that
-  // declares nothing.
+  // Allowlist escalation remains declaration-scoped. Interactive calls also
+  // receive unconditional availability refusals, including auto-allowed tools.
   const enforcementHook: HookCallback = async (hookInput) => {
+    if (hookInput.hook_event_name === "PreToolUse") {
+      const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
+      if (unavailable) return { continue: true, hookSpecificOutput: {
+        hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: unavailable,
+      } };
+    }
     if (hookInput.hook_event_name === "PreToolUse" &&
       (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, hookInput.tool_name, hookInput.tool_input))) {
       return { continue: true, hookSpecificOutput: {
@@ -190,7 +214,7 @@ export function createPermissionWiring(options: {
     }
     if (
       hookInput.hook_event_name !== "PreToolUse" ||
-      allowed.has(hookInput.tool_name)
+      !enforced || allowed.has(hookInput.tool_name)
     ) {
       return { continue: true };
     }
@@ -254,6 +278,10 @@ export function createPermissionWiring(options: {
   ) => {
     if (req.signal.aborted || isCompletedAutonomousToolCall(req.autonomous, toolName, input))
       return { behavior: "deny", message: "Cancelled or already completed autonomous call; no replay." };
+    const nativeDenied = nativeAuthorityRefusal(toolName);
+    if (nativeDenied) return { behavior: "deny", message: nativeDenied };
+    const unavailable = toolAvailabilityRefusal(req, toolName);
+    if (unavailable) return { behavior: "deny", message: unavailable };
     const denied = denyCommand(toolName, input, opts.toolUseID);
     if (denied) return { behavior: "deny", message: denied };
     if (routed(toolName)) return { behavior: "allow" };
@@ -343,6 +371,12 @@ export function createPermissionWiring(options: {
       return { continue: true };
     }
     if (req.signal.aborted) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "Turn cancelled before tool admission." } };
+    const nativeDenied = nativeAuthorityRefusal(hookInput.tool_name);
+    if (nativeDenied) return { continue: true, hookSpecificOutput: {
+      hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: nativeDenied,
+    } };
+    const unavailable = toolAvailabilityRefusal(req, hookInput.tool_name);
+    if (unavailable) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: unavailable } };
     const denied = denyCommand(hookInput.tool_name, hookInput.tool_input, hookInput.tool_use_id);
     if (denied) return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denied } };
     if (routed(hookInput.tool_name)) return { continue: true };
@@ -357,7 +391,7 @@ export function createPermissionWiring(options: {
     // one; this is just its runtime binding.
     //
     // Allowlisting is not the only reason it belongs here. This backend loads
-    // the brain repo's project settings (`settingSources`, sdk-options.ts:207),
+    // the brain repo's project settings (`settingSources`, `sdk-options.ts:294`),
     // and a hook
     // declared in those can answer a call before canUseTool is reached at all
     // — #124 has the measurements. This hook fires either way. None of that
@@ -499,6 +533,7 @@ export function createPermissionWiring(options: {
     onGrantWithheld: withheld,
   }), "Agent");
   const rtkHook = restrictRewrite(createRtkHook(childEnv, {
+    rewriteCommand: options.rewriteRtk,
     mayGrant: !outsideEnforcedAllowlist("Bash"),
     onGrantWithheld: withheld,
     // A confirmed command belongs to mutatingHook, which may apply an edit
@@ -531,6 +566,7 @@ export function createPermissionWiring(options: {
         { matcher: "^Agent$", hooks: [agentHook] },
         { matcher: "^Bash$", hooks: [rtkHook] },
         ...(!req.autonomous ? [{ matcher: "^Read$", hooks: [beginNativeRead] }] : []),
+        ...(!enforced && !req.autonomous ? [{ hooks: [enforcementHook] }] : []),
       ],
       ...(!req.autonomous ? {
         PostToolUse: [{ matcher: "^(Read|Write|Edit|NotebookEdit)$", hooks: [finishNativeFile] }],
@@ -551,4 +587,13 @@ export function createPermissionWiring(options: {
       ],
     },
   };
+}
+
+/** A deny composes with parallel RTK rewrites, allowlists and approval edits. */
+function backgroundBashRefusal(toolName: string, input: unknown): string | null {
+  // A query's worker dies at turn end. Rewriting in another parallel hook
+  // could overwrite a command edit or itself be overwritten by RTK.
+  return toolName === "Bash" && (input as { run_in_background?: unknown } | null)?.run_in_background === true
+    ? "Background shell tasks cannot survive this turn's worker teardown. Re-run this Bash call with run_in_background: false and collect its result within the turn."
+    : null;
 }

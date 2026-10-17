@@ -126,7 +126,7 @@ What a turn can do is the intersection of the two.
 | Writable areas | The brain, plus #1626's named areas | #1626's named areas only (scratch, workspaces, turn temp, `$HOME` overlay) | Turn temp only |
 | Host root | Read-only, with runtime and home directories masked | Same as `governed` | An explicit read envelope |
 | Network | Host namespace until the egress monitor lands, then a private namespace with the egress proxy | Same as `governed` | Loopback plus the inference relay |
-| Claude native `Write`/`Edit`/`NotebookEdit` | Available | Disallowed. The server tools are used instead. | Not in the roster |
+| Claude native `Write`/`Edit`/`NotebookEdit` | Auto-allowed on typed turns; voice calls refuse | Registered but refused at call time. The server tools are used instead. | Not in the roster |
 | Server application tools | Available | Available | Proposal route only |
 | Journal | Yes | Yes. It only ever sees named-area and server-route changes. | No authoritative changes are possible |
 
@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-112`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-115`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,10 +163,22 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:552-556`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:577-581`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
+
+**2026-10-16 native-tool registration amendment (#2022, #2048 A).**
+Hosted interactive Claude keeps native file-tool definitions registered across
+`governed`, `strict` and voice turns to preserve provider prompt caching.
+Governed typed `Write`/`Edit` (and configured `NotebookEdit`) retain their
+SDK auto-allow, alongside existing server writers. Strict and voice natives
+refuse in the mandatory PreToolUse hook and permission callback before any
+handler, approval card or lock acquisition; settings and remembered grants
+cannot override that refusal. Native stale-read checks, write locks, journals
+and protected mounts still apply to governed typed execution. The autonomous
+roster and authority do not change. This amends native availability language
+above; #2048 owns the broader bridge-roster amendment.
 
 ## The policy file
 
@@ -258,8 +270,8 @@ An activation click would add friction and no protection.
 
 **Reader and admission identity (#1650).** The schema and data-only reader live
 in the shared internal common helper, consumed by core and the server
-(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-48`;
-`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:88-120`).
+(`GovernancePolicySchema`, `packages/common/src/governance-policy.ts:35-50`;
+`parseGovernancePolicy`, `packages/common/src/governance-policy.ts:91-124`).
 This preserves the server's optional core peer (#1744).
 The hash identifies the complete UTF-8 file bytes, including prose and
 line endings; the body still has no policy semantics. This preserves a simple
@@ -271,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-112`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-115`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -339,6 +351,24 @@ one command needs. It covers:
   and hygiene;
 - cron's `brain sync` and `brain index`;
 - every git invocation.
+
+Declared writer admission also applies to asynchronous host fallback before
+the first governed turn. Both complete and streaming commands acquire their
+existing shared/exclusive gate before selecting host or worker execution;
+required missing admission refuses before process creation. A streaming host
+command retains admission through process exit and both output EOFs, including
+inherited descendant output. Credential exclusion follows writer admission.
+Optional missing gates and trusted `gate: none` readers retain their existing
+behavior. Before spawning, a concrete host holder records negative provenance
+alongside its advisory folder roots. Such a holder has no physical folder pins,
+even if every requested root is named. Protected governed admission refuses an
+active unpinned host peer; the inverse ordering refuses a new host before spawn
+beside an active peer that may depend on retained folders. Those checks and the
+negative record use the same cross-process gate transaction. Known host peers
+remain concurrent, as do native shared holders; an unknown legacy peer refuses
+protected admission. No existing writer is killed or made exclusive. This
+negative accounting does not qualify a native plan as mounted-writer attestation
+or complete the all-writer proof for provider exclusions.
 
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
@@ -579,6 +609,10 @@ module settings and sync state are validated and published by the server after
 the whole worker exits. Worker output cannot change tier A inputs or escape
 through a link, and a stale authoritative base refuses publication. Strict-area publication holds the server native-write path locks through commit, rechecks the base after copying, and installs absent output names atomically without clobbering a concurrent creator. Directory
 versus file replacements are refused during preflight, before any deletion.
+Publication also refuses deletion of a tier A ancestor directory, including an
+empty `context` or `.git` whose protected descendants are currently absent.
+This host-side check applies before any changed output is installed; worker
+namespace mount points alone do not constrain the host publisher.
 Within one server process, maintenance clients serialize preparation through
 publication per canonical brain. Even readers produce SQLite projections or
 Git attribute objects in their private outputs; concurrent copies of that
@@ -688,7 +722,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:840-868`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:998-1026`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -696,14 +730,14 @@ is gone as well, and never enters another mount, so runtime state below
 against its own budget, and a turn that cannot reserve it is refused as
 `worker_state_busy` (docs/hosting/agent-workers.md). The `turn_temp` tool
 reports usage and purges paths through the same descriptor
-(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:412-420`).
+(`export function purgeTurnTemp`, `packages/ui-sdk/src/server/worker-turn-temp.ts:450-458`).
 The restricted envelope gets the same sized `/tmp` and promotes nothing.
 After the worker exits, the backend
 rewrites the answer text the turn appended to its saved transcript, and only
 that text. It looks at Markdown link and image destinations and reference
 definitions outside code. A file is promoted once per turn however often it
 is linked, up to 128 MiB per file, 256 MiB and 64 files per turn
-(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:123-134`).
+(`export function createTurnTempPromoter`, `packages/ui-sdk/src/server/worker-turn-temp.ts:124-135`).
 The copy goes to `.brain/scratch/turns/<turnId>/` under a name the reader's
 file links accept, so the rewritten link is brain-relative and is pinned like
 any other scratch link. Each result reaches the server as a `promotion` or
@@ -786,11 +820,24 @@ automatic revert or claim of recovering writes between observations is made.
 
 Every retained turn has one initially collapsed receipt. Known no-change is
 zero; legacy/unknown detail and unknown cost/limits remain explicitly unknown.
+The live receipt's polite accessibility status follows authoritative cost and
+completion-state updates for its own session and turn. Repeated equal text and
+unrelated updates do not mutate the live region; expired or inactive-session
+receipts clear it. Known subscription zero remains distinct from unknown cost.
 The existing reader dialog shows bounded raw text diffs (combined 256 KiB or
 5,000 lines), with authenticated raw downloads for retained larger/binary
 versions. The journal's policy-write seam requires a live original observation
 window and records an approved server write as user/policy; approval and
-principal authority remain the caller's responsibility. Steering classification
+principal authority remain the caller's responsibility. The policy publisher
+creates, writes, fsyncs and removes its operation-owned staging name entirely
+inside that synchronous callback, between the two serialized observations
+(`await options.observeUserPolicy`,
+`packages/ui-server/src/brain/policy-proposal.ts:183-210`). First publication
+also removes the temporary hardlink before the final observation. No filename
+prefix is ignored; a similarly named real agent change is still retained.
+Failed staging preserves the original policy, while failed recording after
+publication retains partial/unknown receipts rather than claiming completion.
+Steering classification
 and effective budget/scope enforcement belong to their own programme work.
 
 **Delivered user revert (#1653).** The existing reader has a single-file history
@@ -958,7 +1005,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:107`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:118`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -970,9 +1017,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:226`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:312`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:540`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -991,18 +1038,40 @@ canonical bytes for a frozen view (`createWorkerFileObserver`,
 read cannot establish a new version. Claude's native `file_unchanged` response
 also preserves the previous observation: it supplied no new bytes
 (`const finishNativeFile`,
-`packages/ui-backend-claude/src/permission-hooks.ts:89`).
+`packages/ui-backend-claude/src/permission-hooks.ts:107`).
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:83`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:88`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
 observation phases for the actual granted native operation, not a supplied hash
-or authority. Both preserve ordinary next turns on the running host. Neither
-restores the observations after a backend restart; resuming a saved transcript
-after restart does not establish restart-safe stale-write protection.
+or authority. Both also retain observations in host-private records and restore them before
+resumed native tools run. Claude keeps these records beside its transcript
+archive; Pi keeps them under its host-owned session directory. Neither worker
+receives them as writable state or serialized authority. The record is bound to
+the canonical brain root and native session identity; filenames contain only a
+SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
+regular-file validation and a 16 MiB per-session metadata bound protect the
+record (`saveNativeObservations`,
+`packages/ui-sdk/src/server/native-observation-storage.ts:56-69`).
+
+Read and write admission first retain an unavailable observation. A crash after the
+worker was shown or wrote bytes but before the completion callback therefore requires
+a genuine reread; it cannot turn an observed path into a never-read path.
+Successful stable reads and completed writes retain their versions at each
+observation, rather than waiting for turn end. Corrupt, aliased or unreadable
+records refuse resume before tools run; failed retention refuses subsequent
+writes until storage recovers.
+
+A retained session from before observation persistence, or one whose record
+is missing, has incomplete read history. It requires a genuine read before a
+native write to an unrecorded path. Rereading establishes that path's current
+version. This conservative recovery cannot infer that an unrecorded path was
+never read. Sessions with complete retained observations preserve the approved
+never-read behavior across restarts. There is no reconstruction of authority
+from worker transcripts, and no extension of the observed-shell guarantee.
 
 ## Monitoring
 
@@ -1029,7 +1098,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:284`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:364`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1042,7 +1111,7 @@ The brain's git history stays the durable record of its content.
   block limit.
 - **In Claude, as a backstop.** `maxBudgetUsd` is passed as well. The SDK maps
   it to `error_max_budget_usd` (`case "error_max_budget_usd"`,
-  `stream-adapter.ts:432`).
+  `stream-adapter.ts:464`).
 - **Unpriced models.** The unknown portion has no invented USD price. A
   known priced lower bound may still reach a USD stop; otherwise token
   fallback is the enforceable alternative. Unknown is never treated as zero,
@@ -1097,9 +1166,16 @@ second time. The concrete ledger is (`createTurnBudgets`,
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
-The same receipt drives (`inferenceBudgetNote`,
-`packages/ui-server/src/brain/turn-budgets.ts:196-198`), next-turn warning and
-single disclosure. Crossing keys retain once-only warning events by scope,
+The same receipt drives next-turn warning and single disclosure.
+
+> **2026-10-16 — Implementation context.** The former routine
+> [`inferenceBudgetNote`](https://github.com/schlessera/brain-kit/blob/53258a203d37ab32ae211c5f645cb32e2b3898d1/packages/ui-server/src/brain/turn-budgets.ts#L196-L198)
+> appended running totals to every governed prompt. #2051 removes that suffix
+> and strips its exact legacy shape only during UI replay, before local-command
+> and message-metadata joins; saved provider transcripts remain unchanged.
+> #2047 owns session-stable limits and actionable notices in new tail context.
+
+Crossing keys retain once-only warning events by scope,
 identity, unit and threshold. Conversation blocks offer the existing reviewed
 handoff; a new conversation does not reset the day. Day stops display the
 server's next UTC midnight. Neither stopped inference nor unavailable
@@ -1190,7 +1266,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:271`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:287`).
 
 **What changes:**
 
@@ -1210,7 +1286,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:33`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:37`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -1227,9 +1303,12 @@ Inside the worker, a small loopback listener forwards to the socket, and
 **Measured facts and gaps:**
 
 - **Claude CLI.** The bundled CLI (0.3.292) reads `HTTPS_PROXY`.
-- **Bun.** Bun's `fetch` ignores proxy variables, as an existing comment in the
-  scrape package records. Pi's inference must therefore use the relay socket,
-  as restricted turns already do.
+- **Bun.** The earlier source observation that fetch ignored proxy variables
+  is historical. Offline 2026-10-16 qualification with installed Bun 1.4.2
+  captures automatic HTTP_PROXY forwarding through the Unix transport in real
+  governed and strict workers, alongside explicit-proxy and curl controls.
+  This does not supply ordinary inference authentication, endpoint or billing
+  qualification; those still require their native relay proof.
 - **SSH remotes.** They need a `ProxyCommand` helper that tunnels through
   `CONNECT`.
 
@@ -1250,7 +1329,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:186`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:196`).
 Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
@@ -1262,7 +1341,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1257`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1622`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1270,6 +1349,50 @@ and file by file, with the same resolution the restricted envelope uses
 
 This keeps a Bun or package install under a home directory or `/srv` working,
 without exposing that whole directory again.
+
+### Owned runtime placement beneath `/tmp` — 2026-10-14
+
+The maintainer's ruling on #1844 selects support for a host-installed owned
+runtime beneath `/tmp`. The launcher installs private turn temp first, then
+retains only the existing concrete runtime closure read-only: the executable,
+its owning package, dependency directories and resolved workspace packages.
+Canonical locations and the installation aliases needed to execute them remain
+available. Internal callers without a named profile use the same closure;
+profiled, restricted, maintenance and mirror-transport callers keep their
+existing authority and explicit read envelopes.
+
+A runtime location cannot overlap reserved scratch, runtime state, writable
+areas, XDG, maintenance HOME/state/output, relay/proxy, fresh procfs or device
+mounts. Names, canonical targets and ancestors/descendants are checked before
+dispatch, including unresolved final entries beneath an aliased parent. A
+collision names the offending location and asks for a separate installation
+directory. Runtime retention also reapplies explicitly masked private files
+and subdirectories through retained aliases. It does not restore unrelated
+host-temp siblings or make runtime bytes writable.
+
+The concrete checks and mounts are in (`validateRuntimePlacement`,
+`packages/ui-sdk/src/server/worker-launcher.ts:660-666`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:667-706`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:707-725`).
+Alias restoration recognizes names already supplied by a read-only bind or an
+explicit system-view symlink. It does not mount a canonical executable over an
+existing alias such as `/bin/sh`; missing owned temporary paths still receive
+only their narrow read-only binds.
+
+Broad host-temp binding would reveal other workers and operator state; blanket
+relocation would reject the selected supported placement. Neither is the
+chosen correction. Private temp sizing, namespace/capability restrictions,
+brain permissions, active host masks and cleanup retain their original rules.
+
+The original report at `5dc2595ca07042f2e2024c95bbc361f31637559f`
+recorded 285 passing experiment tests and two pre-request exit-127 failures;
+moving the same bytes outside `/tmp` passed eight tests / 76 assertions. Those
+historical controls identify the placement boundary, rather than qualifying
+the eventual correction. The retained regression additionally executes equal
+native bytes inside, outside and through an installation alias in every
+applicable launcher mode, and captures actual installed Claude requests in a
+loopback-only network namespace. No inference service or production store is
+used. #1901 records this support amendment alongside #1844's implementation.
 
 The mounts go on in a fixed order:
 
@@ -1332,6 +1455,42 @@ providers:
     allow: [anthropic]
 ```
 
+**Whole-folder sequencing (maintainer, 2026-10-16).** Whole-folder exclusions
+are qualified first, preserving the live brain and existing shared-writer
+concurrency. Literal `folder/**` selectors need stable roots and ancestors in
+every writer view: a private tmpfs attached to an old directory does not hide a
+replacement directory created by a peer. Newly admitted governed workers retain
+these directories with read-write self-binds; shared gate plans inherit active
+peers' roots across policy removal. Host publication independently refuses root
+or ancestor removal/replacement, since worker mount points cannot constrain host
+syscalls. Contents and permitted siblings remain writable. Missing or aliased
+folder topology is not invented through placeholder creation or overlays.
+Resolver-owned folder qualification is private and tied to the exact brain
+identity; public layout facts or copied layouts cannot mint folder mounts.
+The governed live launcher verifies the actual retained mount points and inode
+identities through its authenticated, still-gated worker view. A host-path check
+before spawning does not prove what bubblewrap subsequently mounted. Unknown
+views refuse before payload start; the existing separate-UID broker does not
+attest these folder mounts, and its state/temp authority is not repurposed into
+generic process inspection. This closes a launch-time check/mount gap without
+claiming complete active-peer or protected-reader admission.
+
+Known-unsafe active peers refuse new governed folder admission: legacy or
+missing-root plans cannot retain the requested topology. A retained descendant
+also pins its ancestors, while an ancestor alone does not pin arbitrary children.
+Unknown checking capability refuses. Existing peers continue, nested shared
+maintenance stays admissible, and strict consumers keep their existing path.
+Successful plan checks remain nonattestation and cannot authorize a protected
+reader; complete active-writer provenance remains required.
+
+These are topology primitives, not complete privacy admission or recipient
+proof. Gate root sets are plans rather than attested mounted identities; legacy
+writers, races with unqualified peers, policy changes, copies in history/indexes
+and server tools all need qualification before worker routing can activate.
+Actual recipients cannot be inferred from cost routes or model/vendor labels.
+Arbitrary type/glob exclusion criteria remain required; this sequencing does not
+waive them or approve different writer concurrency or filtered content overlays.
+
 **Agent turns.** Paths not allowed for the turn's provider are masked in its
 worker. A directory is masked with an empty read-only tmpfs, and a single file
 with a read-only bind of `/dev/null`. Permitted siblings stay visible. The
@@ -1362,6 +1521,13 @@ search and gets no vectors.
 
 ### Worker identity (G2)
 
+> **2026-10-15 — Architecture and recovery amendment.** The argv-only helper,
+> direct mount access and maintenance-reader descriptions below are the earlier
+> design, not delivered cross-uid behavior. The [external broker amendment](#external-worker-broker-and-best-effort-recovery--2026-10-15)
+> records the selected October 14 architecture and October 15 E ruling. It
+> supersedes those mechanisms and absolute recovery/reclamation implications,
+> while retaining the identity controls, optional-host behavior and budgets.
+
 The maintainer [ruled on #1638](https://github.com/schlessera/brain-kit/issues/1638)
 on 2026-10-11 that a worker uid separate from the server's uid is the
 `governed` profile's identity model, under G2.
@@ -1382,7 +1548,7 @@ list.
 
 **Where the switch happens.** Neither the worker nor the exec wrapper can make
 it. The exec wrapper runs inside the worker
-(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:84`).
+(`export function createWorkerSpawn`, `packages/ui-backend-claude/src/worker-spawn.ts:86`).
 An unprivileged user namespace cannot change its outside uid, and bubblewrap
 cannot either. The uid therefore changes *before* `bwrap` starts, through a
 helper the host provides:
@@ -1427,14 +1593,14 @@ helper the host provides:
 workspaces, turn temp, runtime state and the relay sockets through a common
 group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
-(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:120`)
+(`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:60`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:64`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
 - runtime state and turn temp: `0770` directories and `0660` files;
-- the relay directory: `0750`;
+- relay and ordinary egress proxy directories: `0750`;
 - relay and proxy sockets: `0660`.
 
 The launcher's FIFOs stay as they are: already-open, unlinked descriptors with
@@ -1480,6 +1646,138 @@ group-shared tree, so a separate uid does not hide them; the mask stays
 (#1666). With a helper configured, a root-run server's worker is never uid 0,
 which removes the root read and socket authority that #1638 describes for
 those hosts.
+
+### External worker broker and best-effort recovery — 2026-10-15
+
+The maintainer selected this architecture in
+[#1677](https://github.com/schlessera/brain-kit/issues/1677) on October 14 and
+qualified its guarantees with **option E, practical safeguards with explicit
+limits**, on October 15. [#1894](https://github.com/schlessera/brain-kit/issues/1894)
+records these amendments. These are approved design requirements; recording
+this decision does not implement the broker or establish integrated proof.
+
+**Why an argv-only switch is insufficient.** The cross-uid control in #1677
+used a non-root server uid, a different nonzero worker uid and a shared group.
+An ordinary group-shared directory was accessible, but the worker's private
+mount and namespace links through `/proc/<pid>` were denied. Changing the
+private directory to `0770` did not remove that process-access barrier. The
+current launcher opens mounts directly (`function openPrivateState`,
+`packages/ui-sdk/src/server/worker-launcher.ts:965-993`;
+`function openPrivateTurnTemp`,
+`packages/ui-sdk/src/server/worker-launcher.ts:998-1024`) before population and
+start-gate release (`export function launchAgentWorker`,
+`packages/ui-sdk/src/server/worker-launcher.ts:1157-1216`). Group modes and a uid
+switch alone therefore cannot implement the selected cross-uid lifecycle.
+
+**Authority and launch.** One trusted external supervisor owns each worker
+launch and stays outside the agent sandbox. It is long-lived and unprivileged;
+short-lived privileged helpers perform only that launch's authorized uid
+switch, private-mount acquisition, identity/ancestry/namespace verification and
+worker-tree signalling. The server remains non-root and neither it nor the
+supervisor retains broad process-inspection authority.
+
+Each helper operation authenticates the original server-owned launch, protects
+against PID reuse and uses trusted bootstrap/status evidence. Caller uid alone
+is insufficient. Reject unrelated or reused pids, arbitrary host paths,
+repository-selected helper executables, shell prefixes and general privileged
+commands. Missing, malformed or spoofed status, wrong uid/namespace and
+substituted mounts fail closed; no same-uid fallback is permitted when the
+helper is configured.
+
+Before the start gate opens, verify each required mount's identity, type and
+exact allowance, retain only its authorized directory handles, and populate
+bounded starting state. Setup failure terminates the unstarted worker and
+cleans up partial handles and reservations. The server retains mount access
+for space observation, post-exit persistence and promotion. Existing private
+kernel-bounded tmpfs mounts, per-worker allowances and aggregate admission
+budgets remain; this ruling approves neither a storage redesign nor new quota
+modes or capacity. Native-stage authority and output validation remain binding
+under [native brain storage](native-brain-storage.md).
+
+Trusted control channels, transferred mount handles, launch authorization and
+helper privileges never reach the agent payload or its descendants. Descriptor
+transfer in the trusted broker must preserve the payload's existing descriptor
+filter (`// Close every non-protocol descriptor explicitly.`,
+`packages/ui-sdk/src/server/worker-entry.ts:38-40`). Shared brain/scratch/workspace
+ownership and the specified group modes remain required, but do not substitute
+for verified mount access or private-file recovery.
+
+**Private files.** A retained mount handle does not bypass a worker-created
+`0600` file or `0700` directory. A fixed trusted raw-byte reader runs under the
+worker uid, without provider credentials, repository imports or evaluation.
+The supervisor supplies only authorized retained handles, including after the
+original worker exits. Reads remain descriptor-anchored, path/alias constrained,
+regular-file checked and byte bounded. An unreadable file remains name/size-only,
+not revertible, with the governance event and roadblock. Privileged helpers do
+not open arbitrary individual private files or stream their bytes as root.
+
+**Termination and recovery.** Supervisor death or loss of authenticated control
+terminates the verified worker tree and reports a named supervision failure.
+The termination mechanism must remain authorized and effective after the
+supervisor has died. Cancellation and server death cover owned descendants,
+including nested PID namespaces. Keep TERM/KILL/INT semantics and the verified
+worker-tree STOP/CONT extension; incomplete signalling cannot yield a false
+stopped, resumed or terminated receipt. No replacement supervisor, automatic
+replay or continued unsupervised execution is selected.
+
+Recovery begins only after verified owned-tree termination and completion of
+the implemented owned-I/O cleanup. It is **best-effort recovery of observed
+bytes**, not an atomic snapshot of mutable runtime state or temporary output.
+Never persist or promote while a known owned-tree writer survives. Lost handles,
+unreadable files, incomplete recovery and uncertain cleanup remain explicit;
+recovery cannot turn supervision failure into a successful turn.
+
+The #1677 counterexample transferred a writable private-tmpfs descriptor through
+an abstract Unix socket to a cooperating process outside the origin tree. That
+recipient could still write after origin exit and an empty origin cgroup. It
+was a narrow disposable-kernel/bubblewrap experiment, not integrated broker
+qualification or proof of a journal exploit. External handles, mappings or
+outstanding operations can outlive the supervised tree, mutate a source or
+delay physical reclamation. A stable completed copy need not represent an
+atomic source capture; empty cgroups and closed server handles do not prove
+global object quiescence or reclaimed memory.
+
+Keep configured bounds and account for known retained/recovery resources until
+owned handles and storage are released, exactly once on every exit. State the
+remaining external-reference accounting limitation explicitly; do not claim
+strict host-wide reclamation. Address the demonstrated handoff path and obvious
+reachable defects with proportionate implementation review and targeted runtime
+controls. Option E does not require universal capability confinement, full tenant
+isolation, a new UID/IPC/LSM policy or exhaustive proof of every OS channel. It
+does not waive a detected failure or an existing guard.
+
+**Ownership and proof.** brain-kit owns protocol framing, launcher/status and
+budget integration, the fixed reader integration and fixture-based qualification.
+[brain-hosting-template #18](https://github.com/schlessera/brain-hosting-template/issues/18)
+owns production helper binaries/build/install, supervisor packaging, fixed
+users/groups, ownership, migration and container proof. No production setuid
+binary is built or shipped in brain-kit. Template packaging is downstream of
+#1677, not a reverse implementation prerequisite.
+
+Integrated qualification must run actual launch/populate/space/persist/promote
+with a genuinely non-root server and a different real nonzero worker uid.
+Retain the unmasked private-server sentinel and original positive controls,
+strict/governed brain behavior, no-helper database mask/disclosure and no-cgroup
+nested-PID freeze/resume proof. Exercise post-exit private-file reads with byte
+limits, malformed authorization/status/descriptor/mount controls, supervisor
+kill/control disconnect, server death, cancellation during setup/copy-out and
+cleanup/accounting. Keep focused failing-first/restored mutations for the uid,
+sentinel, database mask, authorization, descriptor filtering, owned-writer
+recovery and supervision-loss controls. Test each guard at the boundary it
+protects, accounting for redundant defenses. Do not claim universal confinement
+from those receipts or substitute predicate-only tests for the runtime.
+
+**Why not the alternatives.** A host-wide privileged daemon would introduce
+shared authority and lifetime beyond one launch. A privileged long-lived
+supervisor or broad server ptrace/root access would retain authority that the
+short-lived helpers are intended to contain. An in-sandbox keeper shares the
+agent's attack surface and cannot supply independent supervision. Privileged
+private-file recovery conflicts with the selected uncredentialed worker-uid
+reader. Freeze-and-replacement recovery could continue a turn after its trusted
+supervision was lost; the selected policy instead fails and terminates it.
+Unbounded shared storage, Btrfs/qgroup redesign and universal cross-worker
+confinement do not follow from this ruling. The existing optional no-helper,
+same-uid mask-only mode remains available with truthful host-status disclosure.
 
 ### Outward actions (G5)
 
@@ -1596,13 +1894,82 @@ the turn may send out and how its writes are labelled.
 
 Steering artifacts include `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Pi context
 files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
-`context/scheduled-tasks/`. The #1649 consumer inventory also covers core/Bun
-configuration, dependency manifests and retained local import/resource inputs.
-The journal follows retained literal local references as data. It never imports
-or evaluates configuration to classify it. Ignored, oversized or opaque inputs
-are named as classification limitations; this does not assert arbitrary
-runtime-consumption coverage (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:81-90`).
+`context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
+
+- The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
+  Host commands bind that cwd to the selected brain (`function hostSpawn`,
+  `packages/ui-server/src/brain/host-boundary.ts:410-421`).
+- Bun startup uses root `bunfig.toml` and `package.json`; retained literal
+  preload/module inputs can identify a nested module's nearest package scope.
+  The inventory walks parent directories only within the originating journal
+  scope and includes that `package.json` as module-resolution metadata, without
+  activating its scripts. This follows Bun's
+  [module resolution](https://bun.sh/docs/runtime/module-resolution) and
+  [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
+- Claude's project MCP location is root `.mcp.json`; its cwd is the selected
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:279-296`).
+  Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
+  surfaces remain unchanged. Their retained module references can likewise
+  identify package metadata within that same scope.
+
+A manifest or lockfile in a dependency tree or cloned workspace does not itself
+identify a consumer. Declared projects/scripts do not establish execution.
+Root-only discovery was rejected because genuine nested module consumers need
+package metadata; any-depth basename discovery was rejected because incidental
+clones and dependencies became false seeds. No repository configuration is
+executed during discovery. Conditional package maps, computed configuration,
+unsupported commands and unobserved working directories remain coverage
+limitations; this finite mapping never claims arbitrary shell/runtime coverage.
+Ignored, oversized, unreadable and opaque genuine inputs remain named as
+classification limitations (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`).
+
+The journal follows only data-only references with a supported input role;
+quoted strings and file extensions do not establish consumption. Seed selection
+is now consumer-qualified independently of reference classification (#2028). The finite mapping is in
+(`steeringReferences`, `packages/ui-server/src/brain/journal-reference-roles.ts:20-123`):
+
+| Consumer | Followed input role | Resolution and limits |
+| --- | --- | --- |
+| Claude instruction imports | Standalone unquoted `@path` lines outside code, recursively to four hops | File-relative literal input, including extensionless text. Inline/escaped/ambiguous forms remain unknown. See the [consumer documentation](https://code.claude.com/docs/en/memory#import-additional-files). |
+| Bun [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig#preload) | Root and `[test]` `preload` arrays | Local module references relative to the config file; other properties such as install caches are not inputs. |
+| `package.json` | `scripts` executable, known interpreter entry point and preload flags | A single literal command/argv relative to the manifest directory. Bun/Node entries and `--preload`, `--require`, `-r`, `--import` inputs are followed; ordinary arguments/output paths are not. Shell programs, aliases, substitutions, compound commands and unsupported flags stay unknown. |
+| Claude settings | `hooks.<event>[].hooks[]` with `type: command`, `command` and optional `args` | Executable roles relative to the scope root; the installed SDK settings schema supplies these fields. Prompt-hook text and arbitrary properties are not file references. Plugins remain unknown. |
+| `.mcp.json` | `mcpServers.<name>.command` and `args` | Same literal executable/interpreter roles; network server URLs and ordinary arguments are not local steering dependencies. |
+| Pi settings | `extensions`, `skills`, `prompts`, `themes` arrays | Relative to the settings directory, matching the installed `DefaultPackageManager.resolve` consumer. Computed/glob/package/directory discovery stays unknown. |
+| Core JSON config | Local `modules` keys | `<key>/module.ts`, then `module.js`, relative to the config, as the core loader selects. Package modules and TypeScript config evaluation stay unknown. |
+| Local JS/TS inputs | Literal module imports/exports/requires identified by Bun's parser | File-relative bounded resolution, including genuine text/extensionless resources. Runtime resource reads, computed imports and package resolution remain unknown. |
+
+This mapping was checked against core's (`loadModules`,
+`packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
+`packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
+`packages/ui-backend-pi/src/session-resources.ts:85-129`) and the installed
+Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
+schema. Nothing imports or evaluates repository configuration on the host.
+Followed JSON resources do not acquire configuration-consumer semantics merely
+from a basename; configuration roles belong to known seeds. Both retained-object
+and sealed-root readers share classification and the
+1 MiB input bound (`nativeJournalSteeringInputs`,
+`packages/ui-server/src/brain/journal-steering.ts:121-130`). Ignored, unreadable,
+oversized, unsupported or ambiguous inputs are named as coverage limitations;
+unknown never fabricates a consumed path or a claim of complete runtime coverage.
+
+The resolved disposable index and its `-wal`, `-shm`, `-journal` sidecars are
+excluded by exact journal-relative identity before reference lookup. Core's
+current identity is `<root>/brain.db`, established by (`initContext`,
+`packages/core/src/lib/context.ts:36-52`); core has no configurable index-location
+field. Internal callers may supply an already resolved identity without
+executing configuration. This excludes no unrelated same-basename resource.
+The inventory preserves scope boundaries, policy exclusions and bounded
+readers (`steeringInventory`,
+`packages/ui-server/src/brain/journal-steering.ts:20-107`).
+
+The maintainer selected role classification over an index-only exception,
+script-extension whitelist or their combination (#2026): none of those
+alternatives distinguishes a genuine extensionless instruction input from an
+ordinary output or data argument. This changes classification only; operational
+file presentation and observed-path accounting remain separate.
 
 Changes are allowed and journaled with class `steering`. The single initially
 collapsed turn disclosure includes the steering count; expanded steering comes
@@ -1611,18 +1978,52 @@ revert controls. No extra collapsed banner or steering-group action is added.
 Policy is separate, class `policy`, excluded from the steering count, and only
 the approved user route writes it.
 
+The [approved review hierarchy](https://github.com/schlessera/brain-kit/issues/1846#issuecomment-6197338526)
+keeps retained changes ahead of configuration-identification inventory. Stored
+class, scope, ignored flags and kind group each change once; filenames never
+suppress observations or infer a writer. Ignored paths retain their metadata
+explanation separately from other nonregular entries, and genuine missing
+versions retain their own reasons. The optional authoritative configuration
+coverage summary supplies a compact incomplete glyph outside label truncation;
+omitted and unknown evidence never claims completeness. Turn facts collapse
+without hiding retention, shared-writer, partial or budget warnings. Every
+configuration path remains in the filterable, bounded-height list; filtering
+announces once 500 ms after the last input. Same-turn reads retain the prior
+details, filter, scroll, focus and open disclosures until replacement, including
+read errors. Session/turn changes and unavailable retained states cannot reuse
+another window's details. This changes review hierarchy, not capture, changed
+path counts, retention, budgets, attribution or recovery authority.
+
 Each steering observation retains a governance event and shared-window
 attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:161-229`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
 
-Claude auto-memory currently persists outside the authoritative brain through
-its backend state service. That service supplies no journal version receipt;
-the canonical brain/workspace journal does not invent a memory path or user
-restore authority. Its external memory integration remains a separate source
-limitation, not a claim of delivered raw-memory review/revert.
+Claude auto-memory persists outside the authoritative brain. Its validated
+native copy-out wraps each changed direct `.md` note in host journal retention:
+exact before/after objects and the private destination are staged and pinned
+before saving; only a successful save publishes the attributed steering change.
+The logical `claude-memory://<note.md>` path and `claude_memory` scope cannot
+collide with a canonical brain-relative path. Host directories, credentials,
+transcripts and settings never become journal change entries. Taint is captured
+from existing session/turn evidence at save time, not inferred on replay.
+
+The existing reader and authenticated per-file/whole-turn recovery use the
+private saved destination. Current bytes and saved-directory identity must match
+before restoration, preserving later memory. Revert is user-attributed and
+journaled for Undo; voice/agent/autonomous actors gain no recovery authority.
+Ordinary persistence never deletes notes. Refused or interrupted saves retain
+truthful partial/unconfirmed history, including the window between file commit
+and receipt finalization. Staged raw versions remain under the same aggregate
+cap, active pins and completed-turn retention/collection. This is the external
+memory completion of the earlier 0.42.0 steering slice, not a widening of memory
+providers or a claim of capturing intervening external writes. The copy-out
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
+retention/finalization is `persistClaudeMemory`,
+`packages/ui-server/src/brain/turn-journal.ts:352-387`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
 
@@ -1655,7 +2056,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:48-71`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:49-72`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name
@@ -1693,7 +2094,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:471-515`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:479-529`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
@@ -1737,6 +2138,24 @@ model and the profile. An event whose turn never named a session, such as a
 new conversation refused at admission, has no catalog row to live with and is
 kept for 90 days.
 
+### Main-model attribution timing
+
+The maintainer's 2026-10-16 ruling (#2037) chooses additive runtime main-model
+identity propagation and guarded active-turn journal binding. Admission remains
+before worker execution: explicitly configured identity is usable immediately;
+runtime defaults remain unknown until the backend reports its executing main
+model. Helper/subagent usage and mixed-model totals cannot choose that identity.
+Runtime reports are scoped to the current turn and session; cancellation,
+completion and a reused bridge cannot revive or change a finished turn.
+
+Governance records are snapshots of identity known at emission. Earlier nulls
+remain null in stored, live, replayed and exported evidence. Only the correlated
+active journal summary gains the reported identity; there is no backfill,
+amendment stream or read-time enrichment. This deliberately accepts incomplete
+early attribution rather than rewriting emitted evidence or introducing an
+unselected provenance representation. An admission refusal cannot acquire an
+invented runtime identity. See the [interface contract](../integration-contract/package-api.md#interactive-main-model-identity-additive-2037).
+
 ### Roadblocks
 
 A roadblock is a failed step inside a turn. The kinds are:
@@ -1753,28 +2172,50 @@ A roadblock is a failed step inside a turn. The kinds are:
 frames it already relays, and from the governance events, with deterministic
 rules and no model call:
 
-- An **episode** opens at a failed step and closes at the next successful
-  step of the same tool family, or at turn end.
+- An **episode** opens at a failed step and resolves at the next successful
+  step of the same tool family. Without that path it remains unresolved.
 - The episode records the failing calls, the **resolving path** if there was
   one, and the **waste**: the tokens, cost and time spent between failure and
   resolution.
-- **The remedy class.** An episode that was resolved with a capability the
-  turn already had is classed as **guidance**. An episode that was never
-  resolved, or was resolved only through a workaround such as writing to turn
-  temp, is classed as **capability**.
+- **The remedy class.** A resolving capability the turn already had means
+  **guidance**; a turn-temp workaround means **capability**. An unresolved
+  episode with exactly one failure, no retry and a later eligible success is
+  **abandoned**. Repeated unresolved failures remain **capability**.
+- **Unresolved waste has an accounting boundary.** After the last failure is
+  known, the first successful call of any family that starts strictly later
+  bounds waste at its start. A success already in flight does not qualify.
+  Without one, waste runs through turn end. Usage is sampled at the boundary;
+  final turn usage is used only for a turn-end bound. Unknown evidence stays
+  unknown. Actual same-family resolution retains its original bound/remedy.
+
+**Superseding the original rule (#2034, maintainer decision 2026-10-16).**
+Originally every unresolved episode meant capability and waste through turn
+end. This exaggerated isolated missing-path probes even after successful work
+on another path. The selected boundary and abandoned inference are deterministic
+accounting/diagnostics: an unrelated success can underestimate causal waste,
+and neither proves the missing capability became available or intent was
+satisfied. Semantic `resolution` remains null without a same-family resolving
+path. Keeping the old upper bound preserves noisy rankings; bounding alone
+still labels isolated probes capability; direct-only attribution misses recovery
+effort; cross-family intent inference would require unselected heuristics or a
+model. Historical stored events are retained without reclassification.
 
 **How #1671 built it.** The turn recorder already sees every relayed frame for
 both backends. It keeps each call's tool, input, result and denial, and at
 turn end it classifies them together with the turn's other governance events
 (`export function classifyRoadblocks`,
-`packages/ui-server/src/governance/roadblocks.ts:423`). Each episode is stored
+`packages/ui-server/src/governance/roadblocks.ts:462`). Each episode is stored
 as one `roadblock` event; the
 [HTTP specification](../http-api.md#governance-event-kinds) gives its fields.
 The choices that shape the report:
 
 - **Families are narrow enough to mean "the same intent".** A shell call's
   family is its program, plus the subcommand for multi-command programs such
-  as `git push`. Otherwise any later `ls` would resolve a failed `git push`.
+  as `git push`. Compound-command headers and reserved words are structure:
+  `for …; do git push …; done` shares the plain `git push` family. Conditions,
+  iteration lists and case patterns do not become the body program. This
+  remains a segment-based heuristic rather than a full shell parser.
+  Otherwise any later `ls` would resolve a failed `git push`.
   File tools from both backends share `file_write` and `file_read`, so Claude's
   `Write` and pi's `write_file` group together.
 - **Failure causes are read from what each backend reports.** Claude Code
@@ -1800,9 +2241,10 @@ The choices that shape the report:
   when its result arrived, so a parallel call that started earlier never
   counts as the way around it.
 - **Waste is measured, never estimated.** Tokens and cost come from cumulative
-  usage reported during the turn. Today only autonomous turns report it, so
-  interactive and voice episodes record `null` until the general usage frame
-  of #1669 feeds the same samples. Time is always recorded.
+  usage reported during the turn, including source-qualified completed inference
+  from interactive, voice and autonomous turns. Missing token or cost samples
+  remain `null`; a final result total cannot fill an earlier boundary. Time is
+  always recorded.
 
 **The report.** Session history and Activity live only in the host's
 `brain-ui.db`. The `brain` CLI never opens that database, and workers cannot
@@ -1814,8 +2256,12 @@ The endpoint ranks roadblock signatures across sessions by frequency and by
 waste, each with its suggested remedy class and example turns. #1672 implements
 four separate rankings (count, measured tokens, measured cost, time) through
 one retained-event aggregation (`export function queryRoadblockReport`,
-`packages/ui-server/src/governance/roadblock-report.ts:23-76`). Mixed remedies are
-reported as guidance/capability counts; no remedy is discarded. Unknown-cost
+`packages/ui-server/src/governance/roadblock-report.ts:24-79`). Mixed remedies are
+reported as guidance/capability/abandoned counts. The default actionable view
+excludes abandoned episodes before grouping, ranking, totals and example turns;
+`remedy=all` includes them and a named remedy selects only that class. This
+filter is identical over HTTP and `query_activity`; retained event reads still
+expose the original evidence. Unknown-cost
 and unknown-token counts accompany sums of known values, which remain null
 when no measurement exists. [The tool contract](../integration-contract/mcp.md#chat-ui-in-process-tools-mcp__brain-ui__)
 specifies limits and deterministic ties. Everything stays
@@ -1874,3 +2320,41 @@ interim maintenance-worker credential exposure, which host status states until
 the relays and mirror land. `strict` remains opt-in. `governed` also remains
 available without a separate-uid helper, with mask-only protection stated in
 host status; the hosting template always ships the helper.
+
+## Host-owned web-search direction — 2026-10-15
+
+The [maintainer's C ruling on #1863](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6187551558)
+settles provider configuration, credentials and authenticated web-search execution
+on the host. Ordinary Pi workers request the capability through a constrained,
+authenticated bridge. This supersedes the earlier worker configuration-snapshot
+direction; it does not authorize provider credentials in worker files or
+environment, host HOME exposure, repository code in a credentialed executor,
+cross-session result sharing or expanded restricted autonomous authority.
+
+This is policy for the pending integration, **not a statement that the relay is
+shipped**. Existing egress, credential and spend-coverage limitations above
+remain true until their implementation is qualified. The bridge must preserve
+per-turn permission, data-routing, taint, attribution and budget admission,
+including extraction fallbacks and nested model calls. Unknown external spend
+remains unknown; host-owned execution alone does not measure every paid call.
+
+[#1969's comparison](../plans/host-owned-web-search.md) examines pinned upstream
+MCP and a real full-extension executor, their feature/auth losses, trusted
+adapters and bounded offline worker evidence. The
+[maintainer's timing ruling](https://github.com/schlessera/brain-kit/issues/1863#issuecomment-6188083290)
+reserves the executor choice until that comparison is reviewed. Neither this
+amendment nor a successful plain-search prototype selects an executor or grants
+additional host model, UI, browser, shell or credential-command authority.
+
+
+#### Approved host OAuth refresh placement (2026-10-16)
+
+The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to
+the host, replacing the earlier native-worker ownership of that operation.
+The [runtime amendment](claude-code-runtime.md#host-owned-stored-login-refresh-2026-10-16-amendment)
+binds the bounded protocol, credential-maintenance serialization, offline
+qualification and activation gate. Native login acquisition, Pi's supported
+native auth runtime, per-request provider identity and billing, and the ban on
+provider credentials in governed worker files/environment remain binding.
+Delivering the internal resolver does not activate the ordinary worker relay or
+qualify the remaining egress paths and socket isolation.

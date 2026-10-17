@@ -47,15 +47,20 @@ work spanning both goes through a brain-kit issue that links each. When one side
 issue links: a public issue never names, labels or links a private one, and
 never restates a private deployment detail to save the reader a click.
 
-Before creating or editing an issue in any public repository, run its body
+Before creating or editing an issue or posting a comment in any public repository, run its body
 through the same gate the tree is held to:
 
 ```sh
 bun -e 'import {scanText} from "./scripts/check-leakage.ts";
   const t = await Bun.file(process.argv[1]).text();
-  const f = scanText("body", t);
+  const f = scanText("body", t, { allowUploadImages: true });
   console.log(f.length ? f : "clean");' /tmp/issue-body.md
 ```
+
+The upload-image exception applies only to issue and comment bodies: full
+HTTPS image URLs on the approved uploads host under `/gh/` may pass. Text
+outside those URLs is still scanned. Never enable it for repository files;
+`scanTree`, the CLI gate and CI retain the strict tree rule.
 
 A hit means the text names a person, a client or a piece of personal
 infrastructure. Rewrite it; do not weaken the gate.
@@ -377,14 +382,23 @@ below exists because the tracker drifted without it.
 
 ## Closing it
 
+For stacked work, load `gh-stack` and follow
+[the project stack rules](../../../docs/process/github.md#stacked-pull-requests).
+Upper layers use their immediate parent ref for local `--base`. Submit with
+`gh stack submit --auto`, then edit every PR to the repository template and
+assign its labels/milestone. Partial slices use `Refs`; the completing layer
+uses `Closes`. Inspect proof and release assignments for every PR included in
+`gh stack merge`, and verify each result after landing.
+
 Before opening or marking ready, run `bun run check:pr --base origin/main`
-for focused local preflight and record actual behavioral/mutation receipts.
+(`--base <parent-ref>` for an upper stack layer) for focused local preflight
+and record actual behavioral/mutation receipts.
 Complete repeatable proof is authoritative in affected hosted jobs under #1326;
 `--full`/`--all` retain local fallback/release commands. Missing tools, failed or
 cancelled checks and unexpected skips cannot pass. Keep drafts cheap and batch
 pushes. Independent selected jobs run after metadata, with per-PR cancellation.
 Assess new base commits before refreshing: revalidate affected inputs, preserve
-the actual tested head/base and do not restart long suites for unrelated merges.
+the actual tested head/base. Any base advance needs a new candidate-confirmation event; equivalent browser/layout domains may retain verified receipts.
 Inspect selected job checkouts and the proof aggregate before matching-head
 merge; verify the actual squash and automatic main push afterward.
 

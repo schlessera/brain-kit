@@ -17,8 +17,8 @@
  *
  * Because those drift, and a visual suite that drifts from what CI runs is
  * worse than none: it fails locally for reasons nobody can reproduce. Locally
- * this script starts the container; in CI the job already runs inside the same
- * image and calls this script with `--inside`. Both paths reach the identical
+ * this script starts the container; hosted proof uses this same launcher. The
+ * inner process calls this script with `--inside`. Both paths reach the identical
  * vitest invocation, which is the point.
  *
  * ## Why `.mjs` when every other script in this repo is TypeScript run by bun
@@ -32,18 +32,20 @@
  *   node scripts/visual.mjs                    # all ten kit projects, in the container
  *   node scripts/visual.mjs --project=visual --project=subjects # curated kit baselines
  *   node scripts/visual.mjs --project=ui-react-layout # offline consumer measurements
+ *   node scripts/visual.mjs --filter=Composer.stories --project=storybook # focused file
  *   node scripts/visual.mjs --update           # rewrite the baselines
  *   node scripts/visual.mjs --shard=1/2        # half the files of every project (CI)
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
  *   node scripts/visual.mjs --browser.fileParallelism=true  # diagnostic override
  */
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
+import { prepareDiagramExportSource } from "./prepare-diagram-export-source.mjs";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
  * pinned offline browser image used by local proof, and D10. */
@@ -56,6 +58,11 @@ const argv = process.argv.slice(2);
 const inside = argv.includes("--inside");
 const update = argv.includes("--update");
 const projectArgs = argv.filter((a) => a.startsWith("--project="));
+const filters = argv.filter((arg) => arg.startsWith("--filter=")).map((arg) => arg.slice("--filter=".length));
+if (argv.includes("--filter") || filters.some((filter) => !filter.trim() || filter.startsWith("-"))) {
+  console.error("use --filter=<nonempty file path fragment>; repeat for multiple files");
+  process.exit(1);
+}
 const shardArg = argv.find((a) => a.startsWith("--shard="));
 const schedulingArgs = argv.filter((a) => a.startsWith("--browser.fileParallelism"));
 if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.fileParallelism=(true|false)$/.test(a))) {
@@ -63,11 +70,15 @@ if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.filePa
   process.exit(1);
 }
 const schedulingArg = schedulingArgs[0] ?? "--browser.fileParallelism=false";
+const gitCheckout = () => {
+  const [sha, tree, ...parents] = execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim().split(" ");
+  return JSON.stringify({ sha, tree, parents });
+};
 // Stories on dark and paper (D32), curated visual baselines, and the footer's
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live", "diagrams-chromium", "diagrams-webkit"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -90,8 +101,13 @@ if (inside) {
   // `--shard` still splits the combined file list, keeping both CI shards busy.
   const vitest = resolve(REPO, "node_modules/vitest/vitest.mjs");
   const args = ["run", ...projects.map((project) => `--project=${project}`), schedulingArg];
+  if (argv.includes("--proof-report")) {
+    rmSync(resolve(REPO, "tmp/proof-cases.json"), { force: true });
+    args.push("--reporter=default", `--reporter=${resolve(REPO, "scripts/proof-case-report.mjs")}`);
+  }
   if (update) args.push("--update");
   if (shardArg) args.push(shardArg);
+  args.push(...filters);
   process.exit(run(process.execPath, [vitest, ...args], { cwd: resolve(REPO, KIT) }));
 }
 
@@ -119,12 +135,18 @@ const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resol
 });
 if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
 const scratch = tmpdir();
+// Each native invocation materializes these tracked inputs in its own state.
+if (projects.some(project => project.startsWith("diagrams-")))
+  prepareDiagramExportSource(REPO, argv.includes("--proof-report"));
+// Worktree .git indirection points outside the container mount. Capture on the
+// host and check again after exit; the reporter must not guess an identity.
+const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
 const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
   // The consumer layout project needs only the in-container Vite server.
-  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
+  ...(projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project)) ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",
@@ -141,6 +163,8 @@ const status = run("docker", [
   "/repo",
   "-e",
   "HOME=/tmp",
+  ...(proofCheckout ? ["-e", `BRAIN_PROOF_CASE_CHECKOUT=${proofCheckout}`,
+    "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
   IMAGE,
   "node",
   "scripts/visual.mjs",
@@ -148,4 +172,5 @@ const status = run("docker", [
   ...argv.filter((a) => a !== "--inside"),
 ]);
 
+if (proofCheckout && gitCheckout() !== proofCheckout) throw new Error("Checkout changed during browser case reporting");
 process.exit(status);

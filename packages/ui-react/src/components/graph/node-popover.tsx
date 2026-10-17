@@ -37,9 +37,17 @@ export function NodePopover({
       canOpen={actions.canOpen}
       canFocus={actions.canFocus}
       canExpand={actions.canExpand}
+      expandLoading={actions.expandLoading}
+      expandDisabled={actions.expandDisabled}
+      expandLabel={actions.expandLabel}
+      expandName={actions.expandName}
+      expandReason={actions.expandReason}
+      expandError={actions.expandError}
+      expandNeedsRefresh={actions.expandNeedsRefresh}
       onOpen={actions.open}
       onFocus={actions.focus}
       onExpand={actions.expand}
+      onRetry={actions.retry}
       onClose={actions.close}
     />
   );

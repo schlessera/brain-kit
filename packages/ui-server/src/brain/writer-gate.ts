@@ -22,6 +22,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { createGovernancePolicyReader, providerFolderRoots } from "./governance-policy.js";
 
 export type GateMode = "shared" | "exclusive";
 
@@ -51,6 +52,12 @@ export const SELF = { pid: process.pid, start: processStart(process.pid) ?? "" }
 export interface GateHold {
   readonly id: string;
   readonly mode: GateMode;
+  /** Planned retained folders, including active peers. Not evidence that a worker mounted them. */
+  readonly folderPaths?: readonly string[];
+  /** Extend this held plan to the exact admitted policy; never removes active peer roots. */
+  retainFolders?(paths: readonly string[]): readonly string[];
+  /** Refuse known missing/unaccounted peer plans. Success is not mounted-worker attestation. */
+  assertPeerFolderPlans?(paths: readonly string[]): void;
   release(): void;
 }
 
@@ -64,17 +71,47 @@ export interface WriterGate {
 /** How often a waiting acquisition looks again. */
 export const GATE_POLL_MS = 200;
 
+// Only a concrete, still-owned hold can record negative host provenance.
+// This never attests mounts or upgrades a plan into qualified authority.
+const hostWriterMarkers = new WeakMap<GateHold, () => void>();
+export function markUnpinnedHostWriter(hold: GateHold): void {
+  const mark = hostWriterMarkers.get(hold);
+  if (!mark) throw new Error("Host writer folder provenance cannot be recorded with this gate");
+  mark();
+}
+
+function folderPlan(raw: string): { roots: readonly string[]; unpinnedHost: boolean } {
+  const parsed: unknown = JSON.parse(raw);
+  const unpinnedHost = parsed !== null && !Array.isArray(parsed) && typeof parsed === "object"
+    && Object.keys(parsed).length === 2 && Object.hasOwn(parsed, "roots")
+    && (parsed as { kind?: unknown }).kind === "unpinned_host";
+  const roots = unpinnedHost ? (parsed as { roots: unknown }).roots : parsed;
+  if (!Array.isArray(roots) || roots.some(root => typeof root !== "string" || !root || root.startsWith("/") || root.startsWith("~") || /^[A-Za-z]:/.test(root) || root.includes("\\")
+    || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(root) || root.split("/").some(part => !part || part === "." || part === "..")))
+    throw new Error("Active writer folder topology is invalid; reconcile its admission before starting another writer");
+  return { roots, unpinnedHost };
+}
+
+/** Derived folder plans only. NULL legacy rows are not mounted-topology proof. */
+function mergeFolderPlans(rows: { folder_topology: string | null }[], additions: readonly string[]): readonly string[] {
+  const roots = new Set<string>();
+  for (const root of folderPlan(JSON.stringify(additions)).roots) roots.add(root);
+  for (const row of rows) if (row.folder_topology !== null) for (const root of folderPlan(row.folder_topology).roots) roots.add(root);
+  return Object.freeze([...roots].sort());
+}
+
 export function createWriterGate(db: Database, brainPath: string, options: { pollMs?: number } = {}): WriterGate {
   let brain: string;
   try { brain = realpathSync(brainPath); } catch { brain = brainPath; }
   const pollMs = options.pollMs ?? GATE_POLL_MS;
+  const policyReader = createGovernancePolicyReader(brain);
   const prune = () => {
     const rows = db.query("SELECT id, pid, pid_start FROM writer_gate WHERE brain = ?").all(brain) as { id: string; pid: number; pid_start: string }[];
     for (const row of rows) if (!processAlive(row.pid, row.pid_start)) db.query("DELETE FROM writer_gate WHERE id = ?").run(row.id);
   };
-  const tryAcquire = (mode: GateMode, purpose: string, turn: boolean, waiter: string | null): string | null => db.transaction(() => {
+  const tryAcquire = (mode: GateMode, purpose: string, turn: boolean, waiter: string | null): { id: string; folderPaths: readonly string[] } | null => db.transaction(() => {
     prune();
-    const held = db.query("SELECT mode FROM writer_gate WHERE brain = ?").all(brain) as { mode: GateMode }[];
+    const held = db.query("SELECT mode, folder_topology FROM writer_gate WHERE brain = ?").all(brain) as { mode: GateMode; folder_topology: string | null }[];
     const waiters = db.query("SELECT id, pid, pid_start FROM writer_gate_turn_waiters WHERE brain = ? ORDER BY queued_at, rowid").all(brain) as { id: string; pid: number; pid_start: string }[];
     for (const row of waiters) if (!processAlive(row.pid, row.pid_start)) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(row.id);
     const first = waiters.find(row => processAlive(row.pid, row.pid_start));
@@ -82,9 +119,10 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
     if (blocked) return null;
     const id = randomUUID();
     if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
-    db.query("INSERT INTO writer_gate (id, brain, mode, purpose, pid, pid_start, acquired_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(id, brain, mode, purpose, SELF.pid, SELF.start, Date.now());
-    return id;
+    const folderPaths = mergeFolderPlans(held, providerFolderRoots(policyReader.load().policy));
+    db.query("INSERT INTO writer_gate (id, brain, mode, purpose, pid, pid_start, acquired_at, folder_topology) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, brain, mode, purpose, SELF.pid, SELF.start, Date.now(), JSON.stringify(folderPaths));
+    return { id, folderPaths };
   }).immediate();
   return {
     async acquire(mode, purpose, { signal, turn = false, queueTurns = false } = {}) {
@@ -93,14 +131,74 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
       if (waiter) db.query("INSERT INTO writer_gate_turn_waiters (id, brain, pid, pid_start, queued_at) VALUES (?, ?, ?, ?, ?)").run(waiter, brain, SELF.pid, SELF.start, Date.now());
       try { for (;;) {
         signal?.throwIfAborted();
-        const id = tryAcquire(mode, purpose, turn, waiter);
-        if (id) {
-          let released = false;
-          return { id, mode, release() {
+        const acquired = tryAcquire(mode, purpose, turn, waiter);
+        if (acquired) {
+          const { id } = acquired;
+          let folderPaths = acquired.folderPaths;
+          let released = false, unpinnedHost = false;
+          const hold: GateHold = { id, mode, get folderPaths() { return folderPaths; }, retainFolders(paths) {
+            if (released) throw new Error("Writer folder plan was already released");
+            if (unpinnedHost) throw new Error("An unpinned host writer cannot upgrade its folder plan");
+            folderPaths = db.transaction(() => {
+              prune();
+              const own = db.query("SELECT id FROM writer_gate WHERE id = ? AND brain = ? AND pid = ? AND pid_start = ?").get(id, brain, SELF.pid, SELF.start);
+              if (!own) throw new Error("Writer folder plan no longer has its admitted owner");
+              const rows = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ?").all(brain) as { folder_topology: string | null }[];
+              const next = mergeFolderPlans(rows, [...folderPaths, ...paths]);
+              db.query("UPDATE writer_gate SET folder_topology = ? WHERE id = ?").run(JSON.stringify(next), id);
+              return next;
+            }).immediate();
+            return folderPaths;
+          }, assertPeerFolderPlans(paths) {
+            if (released) throw new Error("Writer folder plan was already released");
+            const requested = mergeFolderPlans([], paths);
+            if (!requested.length) return;
+            if (unpinnedHost) throw new Error("An unpinned host writer cannot qualify provider folder admission");
+            if (requested.some(root => !folderPaths.includes(root))) throw new Error("Requested writer folder plan is not held");
+            db.transaction(() => {
+              prune();
+              const own = db.query("SELECT id FROM writer_gate WHERE id = ? AND brain = ? AND pid = ? AND pid_start = ?").get(id, brain, SELF.pid, SELF.start);
+              if (!own) throw new Error("Writer folder plan no longer has its admitted owner");
+              const peers = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ? AND id <> ?").all(brain, id) as { folder_topology: string | null }[];
+              for (const peer of peers) {
+                if (peer.folder_topology === null) throw new Error("An active peer has an unaccounted provider folder plan; finish that peer and retry admission");
+                let plan: ReturnType<typeof folderPlan>;
+                try { plan = folderPlan(peer.folder_topology); }
+                catch { throw new Error("An active peer has an unverified provider folder plan; finish that peer and retry admission"); }
+                if (plan.unpinnedHost) throw new Error("An active peer is an unpinned host writer; finish that peer and retry admission");
+                // A descendant root also pins each ancestor. An ancestor root
+                // alone does not retain an arbitrary child inside its subtree.
+                if (requested.some(path => !plan.roots.some(root => root === path || root.startsWith(`${path}/`))))
+                  throw new Error("An active peer did not retain the requested provider folders; finish that peer and retry admission");
+              }
+            }).immediate();
+          }, release() {
             if (released) return;
             released = true;
+            hostWriterMarkers.delete(hold);
             db.query("DELETE FROM writer_gate WHERE id = ?").run(id);
           } };
+          hostWriterMarkers.set(hold, () => {
+            if (released) throw new Error("Writer folder plan was already released");
+            if (unpinnedHost) return;
+            db.transaction(() => {
+              prune();
+              const own = db.query("SELECT id FROM writer_gate WHERE id = ? AND brain = ? AND pid = ? AND pid_start = ?").get(id, brain, SELF.pid, SELF.start);
+              if (!own) throw new Error("Host writer folder plan no longer has its admitted owner");
+              const peers = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ? AND id <> ?").all(brain, id) as { folder_topology: string | null }[];
+              for (const peer of peers) {
+                if (peer.folder_topology === null) throw new Error("Host fallback cannot enter beside an active peer with unknown folder provenance");
+                const plan = folderPlan(peer.folder_topology);
+                if (!plan.unpinnedHost && (folderPaths.length || plan.roots.length))
+                  throw new Error("Host fallback cannot enter beside an active peer that may depend on retained provider folders");
+              }
+              // Serialize this downgrade against governed admission, before
+              // the host process exists. Non-null roots remain advisory.
+              db.query("UPDATE writer_gate SET folder_topology = ? WHERE id = ?").run(JSON.stringify({ kind: "unpinned_host", roots: folderPaths }), id);
+            }).immediate();
+            unpinnedHost = true;
+          });
+          return hold;
         }
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, pollMs);

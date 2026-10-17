@@ -26,6 +26,7 @@ export "./internal/governance-policy" (./src/governance-policy.ts)
   GovernancePolicySchema
   checkGovernancePolicy
   parseGovernancePolicy
+  providerAllows
   resolveGovernancePolicy
 
 export "./internal/protected-paths" (./src/protected-paths.ts)
@@ -41,6 +42,7 @@ export "./internal/worker-areas" (./src/worker-areas.ts)
   READ_ONLY_BRAIN_RULE
   TURN_TEMP_PLACES
   TURN_TEMP_RULE
+  brainWorkerPath
   linkRule
   turnTempRule
 

@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import { readCatalogue, type Viewport } from "./captures/catalogue.ts";
-import { prepareFontCache, readFontLock, verifyFontCache } from "./captures/fonts.ts";
+import { readFontLock, verifyFontCache } from "./captures/fonts.ts";
+import { prepareFontCache } from "./captures/prepare-fonts.ts";
 import { hashTree, outputDirectory, resolveBrowserPin, sha256, sourceProvenance } from "./captures/provenance.ts";
 import type { CaptureJob } from "./captures/inside.ts";
 

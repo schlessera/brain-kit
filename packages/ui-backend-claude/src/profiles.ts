@@ -163,6 +163,7 @@ export function listProfiles(profiles: InferenceProfile[]): ProviderInfo[] {
       return {
         ...(levels.length ? { thinkingLevel: claudeEffort(profile), supportedThinkingLevels: levels } : {}),
         id: profile.id,
+        ...(profile.model ? { model: profile.model } : {}),
         label: profile.label,
         ...(profile.vendor !== undefined ? { vendor: profile.vendor } : {}),
         ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "title": "The raft handoff",
+  "desc": "Calypso prepares the tools and Odysseus builds the raft on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "tools",
+      "label": "Prepare tools"
+    },
+    {
+      "id": "raft",
+      "label": "Build raft"
+    },
+    {
+      "id": "sail",
+      "label": "Set sail"
+    }
+  ],
+  "edges": [
+    {
+      "from": "tools",
+      "to": "raft",
+      "label": "HANDOFF",
+      "kind": "primary"
+    },
+    {
+      "from": "raft",
+      "to": "sail",
+      "label": "READY"
+    }
+  ],
+  "type": "swimlane",
+  "axis": {
+    "kind": "swimlane",
+    "lanes": [
+      {
+        "id": "calypso",
+        "label": "CALYPSO"
+      },
+      {
+        "id": "odysseus",
+        "label": "ODYSSEUS"
+      }
+    ],
+    "steps": [
+      {
+        "node": "tools",
+        "lane": "calypso"
+      },
+      {
+        "node": "raft",
+        "lane": "odysseus"
+      },
+      {
+        "node": "sail",
+        "lane": "odysseus"
+      }
+    ]
+  }
+}

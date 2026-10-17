@@ -107,7 +107,7 @@ function suggestedNote(brain: BrainContext, target: string): string | null {
   const matches = files.filter(path => {
     if (!documentPath(brain, path, files)) return false;
     let data: Record<string, unknown> = {};
-    try { data = parseFrontmatter(readFileSync(join(brain.root, path), "utf8")).data; } catch { /* Only a literal slug can match malformed metadata. */ }
+    try { data = parseFrontmatter(readFileSync(join(brain.root, path), "utf8"), { dataOnly: true }).data; } catch { /* Only a literal slug can match malformed metadata. */ }
     return basename(path, ".md") === slug || data.title === name ||
       (Array.isArray(data.aliases) && data.aliases.some(a => typeof a === "string" && a.toLowerCase().trim() === name.toLowerCase()));
   });

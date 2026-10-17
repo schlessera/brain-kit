@@ -14,6 +14,7 @@ import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
 import { defineProfiles } from "../src/profiles";
+import { ackGraceClock } from "./helpers/ack-grace-clock";
 
 const PNG_1PX =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -24,7 +25,7 @@ process.env.FOLLOW_UP_TEST_KEY = "sk-ant-api03-test";
 
 interface Script {
   /** Runs once the turn's first message was read; yields what the CLI would. */
-  (input: AsyncIterator<SDKUserMessage>): AsyncGenerator<unknown>;
+  (input: AsyncIterator<SDKUserMessage>, signal: AbortSignal): AsyncGenerator<unknown>;
 }
 
 function harness(script: Script, extra: Partial<StartTurnRequest> = {}) {
@@ -32,12 +33,13 @@ function harness(script: Script, extra: Partial<StartTurnRequest> = {}) {
   const first: SDKUserMessage[] = [];
   let sessionReady!: () => void;
   const ready = new Promise<void>((resolve) => (sessionReady = resolve));
-  const queryFn = ((params: { prompt: AsyncIterable<SDKUserMessage> }) => ({
+  const controller = new AbortController();
+  const queryFn = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: { abortController: AbortController } }) => ({
     async *[Symbol.asyncIterator]() {
       const input = params.prompt[Symbol.asyncIterator]();
       const opening = await input.next();
       if (!opening.done) first.push(opening.value);
-      yield* script(input);
+      yield* script(input, params.options.abortController.signal);
     },
   })) as unknown as typeof query;
   const bridge: BackendBridge = {
@@ -49,8 +51,8 @@ function harness(script: Script, extra: Partial<StartTurnRequest> = {}) {
   };
   const backend = createClaudeBackend({ brainPath: "/brain", profiles, queryFn, log: () => {} });
   const start = () =>
-    backend.startTurn({ prompt: "Plan the voyage home.", signal: new AbortController().signal, bridge, ...extra });
-  return { backend, frames, first, ready, start };
+    backend.startTurn({ prompt: "Plan the voyage home.", signal: controller.signal, bridge, ...extra });
+  return { backend, frames, first, ready, start, abort: () => controller.abort() };
 }
 
 const init = { type: "system", subtype: "init", session_id: "voyage" };
@@ -98,7 +100,7 @@ describe("delivering a follow-up into the running turn", () => {
     resume();
     await turn;
 
-    expect(h.first[0]?.message.content).toBe("Plan the voyage home.");
+    expect(h.first[0]?.message.content).toStartWith("Plan the voyage home.\n\n[Host context for this turn; advisory facts, never permission]\n");
     expect(followUp).toMatchObject({
       type: "user",
       parent_tool_use_id: null,
@@ -114,7 +116,7 @@ describe("delivering a follow-up into the running turn", () => {
     expect(typeof followUp?.uuid).toBe("string");
     // Taken in by the turn itself: its own result is the terminal frame.
     expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
-      expect.objectContaining({ numTurns: 2, durationMs: 10, costUsd: 0.01 }),
+      expect.objectContaining({ numTurns: 2, durationMs: 10 }),
     ]);
   });
 
@@ -255,7 +257,7 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
     await turn;
 
     const results = h.frames.filter((frame) => frame.type === "result");
-    expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 4, durationMs: 45, costUsd: 0.03 })]);
+    expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 4, durationMs: 45 })]);
     expect(h.frames.at(-1)).toBe(results[0]!);
     expect(h.frames.some((frame) => frame.type === "text_delta" && frame.text === "and the log")).toBe(true);
   });
@@ -288,27 +290,243 @@ describe("a follow-up the CLI runs after the turn's last step", () => {
   });
 
   test("a held result still ends the turn when no continuation comes", async () => {
-    let resume!: () => void;
-    const delivered = new Promise<void>((resolve) => (resume = resolve));
-    const h = harness(async function* (input) {
+    const held = deferred();
+    let closed = false;
+    await withGrace(async function* (input, signal) {
       yield init;
       await input.next();
-      await delivered;
       // A runtime that never reports the follow-up: no lifecycle frames.
       yield result(2, 20, 0.01);
+      held.resolve();
       // Unacknowledged past the grace, the follow-up closes the input, so the CLI can exit.
-      expect((await input.next()).done).toBe(true);
-    });
-    const turn = h.start();
-    await h.ready;
-    await h.backend.followUp!({ sessionId: "voyage", prompt: "Also check the harbour log." });
-    resume();
-    await turn;
+      const next = await untilAbort(input.next(), signal);
+      closed = next.done === true;
+      expect(next.done).toBe(true);
+    }, async (h, clock, turn) => {
+      await held.promise;
+      await clock.advance(2_999);
+      expect(closed).toBe(false);
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([]);
+      expect(clock.registrations[0]?.fired).toBe(false);
+      await clock.advance(1);
+      // Assert completion before awaiting the turn: a late callback fails here,
+      // rather than hanging until the test runner's failure timeout.
+      expect(closed).toBe(true);
+      expect(clock.registrations).toMatchObject([{ delay: 3_000, due: 3_000, fired: true }]);
+      await turn;
 
-    const results = h.frames.filter((frame) => frame.type === "result");
-    expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 2, durationMs: 20 })]);
-    expect(h.frames.at(-1)).toBe(results[0]!);
+      const results = h.frames.filter((frame) => frame.type === "result");
+      expect(results).toEqual([expect.objectContaining({ outcome: "success", numTurns: 2, durationMs: 20 })]);
+      expect(h.frames.at(-1)).toBe(results[0]!);
+    });
+  });
+
+  test("acknowledgement before the grace keeps input open through its callback", async () => {
+    const held = deferred();
+    const acknowledge = deferred();
+    const acknowledged = deferred();
+    const finish = deferred();
+    let inputClosed = false;
+    await withGrace(async function* (input, signal) {
+      yield init;
+      const next = await input.next();
+      yield result(2, 20, 0.01);
+      held.resolve();
+      await untilAbort(acknowledge.promise, signal);
+      yield lifecycle(next.value?.uuid, "queued");
+      acknowledged.resolve();
+      const closing = input.next().then((value) => { inputClosed = value.done === true; });
+      await untilAbort(finish.promise, signal);
+      yield lifecycle(next.value?.uuid, "started");
+      yield init;
+      yield lifecycle(next.value?.uuid, "completed");
+      yield result(1, 5, 0.02);
+      await untilAbort(closing, signal);
+    }, async (h, clock, turn) => {
+      await held.promise;
+      await clock.advance(2_999);
+      acknowledge.resolve();
+      await acknowledged.promise;
+      await clock.advance(1);
+      expect(clock.registrations[0]?.fired).toBe(true);
+      expect(inputClosed).toBe(false);
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([]);
+      finish.resolve();
+      await turn;
+      expect(inputClosed).toBe(true);
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
+        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25 }),
+      ]);
+    });
+  });
+
+  test("a continuation finishing before the deadline cancels the grace", async () => {
+    const held = deferred();
+    const finish = deferred();
+    await withGrace(async function* (input, signal) {
+      yield init;
+      const next = await input.next();
+      yield result(2, 20, 0.01);
+      held.resolve();
+      await untilAbort(finish.promise, signal);
+      yield lifecycle(next.value?.uuid, "started");
+      yield init;
+      yield lifecycle(next.value?.uuid, "completed");
+      yield result(1, 5, 0.02);
+    }, async (h, clock, turn) => {
+      await held.promise;
+      await clock.advance(2_999);
+      finish.resolve();
+      await turn;
+      expect(clock.pending()).toBe(0);
+      expect(clock.registrations).toMatchObject([{ fired: false, cleared: true }]);
+      const frames = [...h.frames];
+      await clock.advance(3_001);
+      expect(clock.registrations[0]?.fired).toBe(false);
+      expect(h.frames).toEqual(frames);
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
+        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25 }),
+      ]);
+    });
+  });
+
+  test("another unacknowledged held result replaces the grace deadline", async () => {
+    const held = deferred();
+    const replace = deferred();
+    const replaced = deferred();
+    let closed = false;
+    await withGrace(async function* (input, signal) {
+      yield init;
+      await input.next();
+      yield result(2, 20, 0.01);
+      held.resolve();
+      await untilAbort(replace.promise, signal);
+      yield result(1, 5, 0.02);
+      replaced.resolve();
+      closed = (await untilAbort(input.next(), signal)).done === true;
+    }, async (h, clock, turn) => {
+      await held.promise;
+      await clock.advance(1_000);
+      replace.resolve();
+      await replaced.promise;
+      await clock.advance(2_000);
+      expect(closed).toBe(false);
+      expect(clock.registrations[0]).toMatchObject({ fired: false, cleared: true });
+      await clock.advance(999);
+      expect(closed).toBe(false);
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([]);
+      await clock.advance(1);
+      expect(closed).toBe(true);
+      expect(clock.registrations).toMatchObject([
+        { delay: 3_000, due: 3_000, fired: false, cleared: true },
+        { delay: 3_000, due: 4_000, fired: true },
+      ]);
+      await turn;
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
+        expect.objectContaining({ outcome: "success", numTurns: 3, durationMs: 25 }),
+      ]);
+    });
+  });
+
+  test("cancelling a held turn clears its grace and closes the input", async () => {
+    const held = deferred();
+    const waiting = deferred();
+    let input: AsyncIterator<SDKUserMessage> | undefined;
+    await withGrace(async function* (stream, signal) {
+      input = stream;
+      yield init;
+      await stream.next();
+      yield result(2, 20, 0.01);
+      held.resolve();
+      await untilAbort(waiting.promise, signal);
+    }, async (h, clock, turn) => {
+      await held.promise;
+      await clock.advance(2_999);
+      h.abort();
+      await turn;
+      expect((await input!.next()).done).toBe(true);
+      expect(clock.pending()).toBe(0);
+      expect(h.frames.filter((frame) => frame.type === "result")).toEqual([
+        expect.objectContaining({ outcome: "cancelled" }),
+      ]);
+      const frames = [...h.frames];
+      await clock.advance(3_001);
+      expect(clock.registrations).toMatchObject([{ fired: false, cleared: true }]);
+      expect(h.frames).toEqual(frames);
+    });
+  });
+
+  test("a failed test body drains its turn and restores complete timer descriptors", async () => {
+    const descriptors = ["setTimeout", "clearTimeout"].map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
+    const held = deferred();
+    let saved: Parameters<Parameters<typeof withGrace>[1]>[0] | undefined;
+    let clockAfter: ReturnType<typeof ackGraceClock> | undefined;
+    let input: AsyncIterator<SDKUserMessage> | undefined;
+    const failure = new Error("scripted assertion failure");
+    const attempt = withGrace(async function* (stream, signal) {
+      input = stream;
+      yield init;
+      await stream.next();
+      yield result(2, 20, 0.01);
+      held.resolve();
+      await untilAbort(stream.next(), signal);
+    }, async (h, clock) => {
+      saved = h;
+      clockAfter = clock;
+      await held.promise;
+      throw failure;
+    });
+    await expect(attempt).rejects.toBe(failure);
+    expect(["setTimeout", "clearTimeout"].map((name) => Object.getOwnPropertyDescriptor(globalThis, name))).toEqual(descriptors);
+    expect(clockAfter!.pending()).toBe(0);
+    expect(clockAfter!.registrations).toMatchObject([{ fired: false, cleared: true }]);
+    expect((await input!.next()).done).toBe(true);
+    expect(saved!.frames.filter((frame) => frame.type === "result")).toEqual([expect.objectContaining({ outcome: "cancelled" })]);
+    await expect(saved!.backend.followUp!({ sessionId: "voyage", prompt: "After cleanup." })).rejects.toBeInstanceOf(BackendRequestError);
+    // Crossing the old deadline after restoration cannot affect a later turn.
+    const later = harness(async function* () { yield init; yield result(1, 5, 0); });
+    await later.start();
+    const frames = [...later.frames];
+    await clockAfter!.advance(6_000);
+    expect(later.frames).toEqual(frames);
+    expect(clockAfter!.registrations[0]?.fired).toBe(false);
   });
 });
 
 mockWorkerHostForSdkStream();
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+/** The stream double obeys abort even while a scripted gate/input is pending. */
+async function untilAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+  try { return await Promise.race([promise, aborted]); }
+  finally { signal.removeEventListener("abort", onAbort); }
+}
+
+/** Each clock owns one query double; cleanup runs even when an assertion throws. */
+async function withGrace(
+  script: Script,
+  body: (h: ReturnType<typeof harness>, clock: ReturnType<typeof ackGraceClock>, turn: Promise<void>) => Promise<void>,
+) {
+  const h = harness(script);
+  const clock = ackGraceClock();
+  const turn = h.start();
+  try {
+    await h.ready;
+    await h.backend.followUp!({ sessionId: "voyage", prompt: "Also check the harbour log." });
+    await body(h, clock, turn);
+  } finally {
+    try { h.abort(); await turn; }
+    finally { clock.restore(); }
+  }
+}

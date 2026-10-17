@@ -10,6 +10,26 @@ prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
+`bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
+the host identity protocol. It compiles the test-only helper on the host without
+setuid permissions, then installs it as root-owned setuid only inside its owned,
+network-disabled disposable container. The server runs as UID 21001 and the
+worker as UID 21002. This cell uses the pinned native seccomp profile and narrow
+listed capabilities without `SYS_PTRACE`. `SYS_CHROOT` accompanies `SYS_ADMIN`
+for the short helper's entry into the authenticated manager stage mount
+namespace; dropping it makes the actual managed-stage launch refuse. The same
+cell reuses the owned 4 GiB Btrfs fixture for sealed stage authority and private
+checkpoint capture, and runs the fixed reader's descriptor/bounds/cancellation
+controls. Its outer container permits the
+fixture helper's UID transition; the actual worker must still prove
+`NoNewPrivs=1` and zero effective capabilities. The other native cells retain
+their existing outer `no-new-privileges` setting. No helper is installed on the
+host. Missing prerequisites and failed controls fail the runtime job; source,
+binary and filter hashes, image identity, logs and owned-container cleanup
+receipts are retained under `tmp/worker-identity-proof/`. The fixture is protocol
+qualification, not a production helper distribution; production packaging and
+installation belong to the hosting template.
+
 Claude uses its actual backend adapter and production worker launcher with a
 deterministic SDK-query fixture that launches a scripted shell and emits SDK
 messages; this native check does not execute the Claude CLI or its HTTP transport.
@@ -36,6 +56,22 @@ The operator-owned artifact directory permits both fixed app UIDs to traverse it
 without DAC override. Source and Bun mounts are read-only. Receipts include
 app phases, worker authority, native operations and
 exact owned-resource cleanup under `tmp/native-host-proof/`.
+
+The hosted runtime job also records a root-only btrfs kernel trace around the
+proof (`dead-root-trace.sh start <file>` / `stop`). Btrfs queues a deleted
+checkpoint for its cleaner only when the last in-memory reference goes away.
+If that happens after `subvolume delete --commit-after` has woken the cleaner,
+reclamation waits for the next commit-interval pass, about 30 s later. A
+reference that outlives the delete by even 1 ms therefore exhausts the
+manager's release deadline. `dead-root-trace.ts` matches each delete to its
+root and writes `dead-root-summary.json`, which records whether the delete
+itself queued the root or another task did, before or after the commit, with
+that task's kernel stack. The deliberate descriptor, cwd, transient
+descriptor and namespace controls appear as `after-commit`. The manager wakes
+the transaction thread while a deleted root awaits reclamation, so the
+transient control is dropped within about a second. The held controls still
+reach the release deadline. The trace is diagnostic evidence, not a
+proof gate. Locally it needs root, tracefs, kprobes and kernel BTF.
 
 `seccomp.json` derives from Moby's Apache-2.0 profile at the revision recorded in
 `seccomp-source.json`; `LICENSE.seccomp` preserves its license. The derivation
@@ -66,3 +102,114 @@ not a passing governed qualification. It does
 not replace the daemon default. The same Moby license applies. A host without
 AppArmor records that absence explicitly and provides no enforced AppArmor
 qualification.
+
+## Event observation
+
+The child app appends JSONL events; the newline commits a record for proof
+observers. A concurrent filesystem read can return an exact prefix ending
+inside the writer's valid JSON. Live observers validate every complete record
+and withhold the unterminated tail, including a valid JSON object whose newline
+has not arrived. They never trim or parse that tail as a committed event.
+After child exit, any remaining tail fails the proof. Malformed complete JSON,
+invalid UTF-8 and records without an object/string kind fail immediately.
+All live event counts and matching predicates share this rule. Final provider-entry
+and whole-brain-scan counts are checked again after shutdown, so a pending live
+tail cannot hide a forbidden event that commits later.
+
+The first pending observation is retained as `event-observation-pending.bin`
+and `.json`; the first malformed complete or incomplete final evidence is retained as
+`event-observation-failure.bin` and `.json`. These are exact read snapshots,
+separate from the later shutdown `events.jsonl`. Metadata records phase,
+live/final state, reader PID, byte boundaries, snapshot SHA-256 and file identity,
+size and modification time before/after the read. Pending captures are bounded
+to the first observation per fixture; an error capture remains mandatory and
+shutdown cannot overwrite the first failing read.
+These artifacts diagnose observations; they do not establish successful native
+admission, cancellation, refresh or cleanup on their own.
+
+`bun run test tests/native-event-log.test.ts` covers framing, a real child
+append barrier, exact retained evidence, malformed complete records and strict
+shutdown. The full native runtime still supplies the backend/UID qualification.
+
+## Native release observations
+
+When a checkpoint's real `btrfs subvolume sync` exits unsuccessfully, the
+fixture retains `run/native-release/<checkpoint-id>.json` beside its native
+operation log. The observer records the pre-delete root identity, command
+exit, termination signal and synchronous abort context when available. Bun
+can omit caller frames across native abort callbacks; an absent frame does
+not identify or exclude a cancellation source.
+
+Samples at 1, 5 and 15 seconds, plus failure completion, inspect only the
+isolated fixture container's `/proc`. They report matching checkpoint paths
+or device identities in open descriptors and cwd/root references, matching
+mount rows, a bounded cwd/root/process census, mount-namespace descriptors,
+sync process state and observation errors. Limits are 256 processes, 256 descriptors per
+process, 64 references, 64 mount-namespace descriptors and 16 mount groups per sample;
+truncation is explicit, including truncated error samples.
+Path matching can miss references renamed or aliased in another namespace,
+and device metadata can be unavailable after deletion. Missing references
+therefore do not prove that no reader remains. Successful sync commands leave
+no diagnostic file. The observer preserves command arguments, signals and
+existing transport deadlines and restores its wrapped globals after the test.
+
+The Pi UID-0 cell holds both a real checkpoint file descriptor and, in a
+separate case, a child process cwd through the
+unchanged 30-second client deadline. It verifies the unknown release outcome,
+recorded connection abort and killed sync, and observation of that exact
+reader. Closing the reader must allow the same checkpoint identity to reconcile
+to deleted. This control demonstrates a retained-reader failure class; it does
+not establish the cause of the historical automatic-index failure in #1967.
+All four original backend/UID admission and automatic-index checks still run.
+
+The Pi UID-0 automatic index also starts a marked detached descendant inside
+its actual maintenance worker. The child uses the immutable configuration
+view as cwd and remains in that worker's PID namespace. A bounded 50 ms host
+witness records up to 16 identities (PID plus kernel start time), their cwd,
+mount namespace, ancestry and observed death. The normal case requires two
+actual descendants to have exited before queued refresh completion. This is
+sampled evidence for these marked children, not an exhaustive process trace.
+
+A separate, explicit fault-injection command reproduces the automatic-index
+release failure while preserving the original completion guard:
+
+```sh
+bun scripts/prove-native-host.ts --backend=pi --app-uid=0 --retain-index-namespace
+```
+
+**Expected exit: 1.** This is an intentionally failing reproduction, not a
+healthy native qualification. The fixed offline fixture opens a handle to the
+first witnessed index worker's mount namespace, retaining its mounts after
+its processes exit. The unchanged client deadline interrupts checkpoint sync,
+records unknown outcome and `automatic_index_failed`, and the original
+`NATIVE_AUTOMATIC_INDEX_COMPLETED` assertion fails. The fixture closes that
+exact namespace handle when the real sync exits unsuccessfully; same-identity
+recovery and owned outer cleanup remain in force. A failure for a different
+reason does not reproduce this case. The descriptor and cwd controls still run.
+The flag requires explicit Pi UID 0 and never applies to the default matrix.
+
+Inspect `run/index-descendant-lifetime.json` for the witnessed namespace and
+its retained descriptor/close time, then correlate it with the failing root's
+`run/native-release/<checkpoint-id>.json`, native operations and ordinal-1
+failure event. The descriptor's `mnt:[...]` identity must match the witnessed
+worker namespace after the marked child exits. Root-path descriptor/cwd and
+mount lists can all be empty while that namespace handle retains the mounts.
+The observer reports such namespace handles separately; they are not asserted
+to reference a particular checkpoint without that correlation. Linux documents
+this lifetime in [namespaces(7)](https://man7.org/linux/man-pages/man7/namespaces.7.html).
+
+This constructed full-index failure distinguishes process exit from namespace
+lifetime. It does not establish that the historical #1967 run retained a
+namespace handle, and selects no production correction or deadline change.
+
+The full command without selectors first qualifies all four healthy cells,
+then runs this separate negative control. It returns success only when the
+negative control fails on the exact original assertion and its complete
+artifacts prove the retained namespace outlived the child, the matching handle
+closed, the same root subsequently synchronized, ordinal 1 stayed failed,
+ordinal 2 completed, and owned cleanup and both quota checks passed. A missing
+prerequisite, unrelated failure, absent observation or unexpected passing index
+fails that verification. `index-release-reproduction.json` records this as an
+expected failure with `qualification: false`; it does not turn the failing
+invocation into a healthy fifth matrix cell. The selected hosted runtime job
+therefore exercises the reproduction under its enforced AppArmor profile too.

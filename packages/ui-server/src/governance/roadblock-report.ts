@@ -3,6 +3,7 @@ import { z } from "zod";
 import { GOVERNANCE_EVENT_SCHEMAS } from "./events.js";
 
 export const ROADBLOCK_REPORT_QUERY = z.object({
+  remedy: z.enum(["actionable", "all", "guidance", "capability", "abandoned"]).default("actionable"),
   hoursBack: z.number().int().min(1).max(24 * 90).default(24),
   limit: z.number().int().min(1).max(100).default(20),
 });
@@ -10,8 +11,8 @@ export const ROADBLOCK_REPORT_QUERY = z.object({
 interface RoadblockGroup {
   signature: string;
   count: number;
-  /** Preserve both remedies: one signature may need guidance in some turns and capability in others. */
-  remedies: { guidance: number; capability: number };
+  /** Preserve all remedies: one signature may need guidance in some turns and capability in others. */
+  remedies: { guidance: number; capability: number; abandoned: number };
   resolved: number;
   resolutionRate: number;
   /** Sums of measured values only; null when none were measured. Unknown counts expose partial coverage. */
@@ -20,8 +21,8 @@ interface RoadblockGroup {
 }
 
 /** The same retained, host-local report serves HTTP and the agent activity bridge. */
-export function queryRoadblockReport(db: Database, input: { hoursBack?: number; limit?: number }, now = Date.now()) {
-  const { hoursBack, limit } = ROADBLOCK_REPORT_QUERY.parse(input);
+export function queryRoadblockReport(db: Database, input: z.input<typeof ROADBLOCK_REPORT_QUERY>, now = Date.now()) {
+  const { hoursBack, limit, remedy } = ROADBLOCK_REPORT_QUERY.parse(input);
   const since = now - hoursBack * 3_600_000;
   const groups = new Map<string, RoadblockGroup>();
   let episodes = 0;
@@ -40,10 +41,12 @@ export function queryRoadblockReport(db: Database, input: { hoursBack?: number; 
     const parsed = GOVERNANCE_EVENT_SCHEMAS.roadblock.payload.safeParse(payload);
     if (!parsed.success) { unavailableEpisodes++; continue; }
     const episode = parsed.data;
+    if (remedy === "actionable" ? episode.remedy === "abandoned"
+      : remedy !== "all" && episode.remedy !== remedy) continue;
     episodes++;
     let group = groups.get(episode.signature);
     if (!group) {
-      group = { signature: episode.signature, count: 0, remedies: { guidance: 0, capability: 0 }, resolved: 0,
+      group = { signature: episode.signature, count: 0, remedies: { guidance: 0, capability: 0, abandoned: 0 }, resolved: 0,
         resolutionRate: 0, waste: { tokens: null, costUsd: null, ms: 0, unknownTokens: 0, unknownCostUsd: 0 }, exampleTurnIds: [] };
       groups.set(episode.signature, group);
     }
