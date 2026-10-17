@@ -50,6 +50,7 @@ for (const backendId of ["claude", "pi"] as const) test(`apps pass their host wr
     },
   }));
   const apps: Awaited<ReturnType<typeof createFixtureApp>>[] = [];
+  const failures: unknown[] = [];
   try {
     for (const [index, exec] of [{ wrapper: a.path }, { wrapper: c.path }, {}, undefined].entries()) {
       const brain = join(root, "brain-" + index);
@@ -79,12 +80,17 @@ for (const backendId of ["claude", "pi"] as const) test(`apps pass their host wr
         expect(lines.filter(line => line === "echo Ithaca"), "APP_PI_BASH_WRAPPER").toHaveLength(1);
       }
     }
+  } catch (error) {
+    failures.push(error);
   } finally {
-    const cleanupErrors: unknown[] = [];
-    for (const app of apps.reverse()) { try { await app.close(); } catch (error) { cleanupErrors.push(error); } }
-    claudeFactory.mockRestore(); piFactory.mockRestore();
-    if (old === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER; else process.env.BRAIN_UI_EXEC_WRAPPER = old;
-    rmSync(root, { recursive: true, force: true });
-    if (cleanupErrors.length) throw new AggregateError(cleanupErrors, "App fixture cleanup failed");
+    const cleanup = [
+      ...apps.reverse().map(app => () => app.close()),
+      () => claudeFactory.mockRestore(),
+      () => piFactory.mockRestore(),
+      () => { if (old === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER; else process.env.BRAIN_UI_EXEC_WRAPPER = old; },
+      () => rmSync(root, { recursive: true, force: true }),
+    ];
+    for (const action of cleanup) { try { await action(); } catch (error) { failures.push(error); } }
   }
+  if (failures.length) throw new AggregateError(failures, "App fixture or cleanup failed");
 });
