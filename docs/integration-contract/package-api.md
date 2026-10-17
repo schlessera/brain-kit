@@ -3,6 +3,11 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+**Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
+adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
+glyph and accessible label remain outside the truncating summary label, before
+the chevron. Existing controlled, seeded and uncontrolled behavior is unchanged.
+
 ## UI-kit action accessibility and loading (additive #1756)
 
 `ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
@@ -3372,3 +3377,26 @@ Call it before mounting. Registration is build-time trusted code, identity
 idempotent, with first-claim dispatch. It never imports server-named code.
 `@schlessera/brain-ui-sdk` exports `ContentRendererDeclaration` for the
 [authenticated bootstrap metadata](http.md#content-renderer-bootstrap-declarations-additive-2087).
+
+
+### Native persisted Claude memory observation (additive, #1658)
+
+`StartTurnRequest.persistClaudeMemory` is an optional host-only callback for
+validated native Claude memory copy-out. The backend supplies a direct note,
+its host-owned external directory, exact before/after bytes and before mode,
+and a synchronous save closure. A null observation explicitly reports copy-out
+that could not be inspected before a note callback. It is never serialized into a worker or
+accepted from a client. The first-party server retains/pins versions and a
+private pending receipt before invoking the closure, then publishes a steering
+change only after the save succeeds. Failed or interrupted finalization remains
+partial/unconfirmed. Other backends need not implement Claude native-memory
+persistence; this adds no agent history authority or new public request route.
+
+### Late Activity session association
+
+`ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed
+active span when the backend reports its session after the first frame. Repeating
+the same identity is allowed; changing an established identity or patching a
+terminal span returns false without modifying the row. The recorder persists
+this identity in both the queryable session column and the existing attributes.
+This additive API ships in a minor release.

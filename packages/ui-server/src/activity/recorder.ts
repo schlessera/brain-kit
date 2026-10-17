@@ -241,11 +241,12 @@ export function createTurnRecorder(
         turn.lifecycle?.firstFrame(rootStarted ? runId : null);
         switch (msg.type) {
           case "session_info": {
+            if (sessionId && sessionId !== msg.sessionId) return;
             sessionId = msg.sessionId;
             turn.lifecycle?.bindSession(msg.sessionId);
             ensureRoot();
             // The root may have been opened before the session had a name.
-            store.patchSpan(rootSpanId, { attrs: { "session.id": msg.sessionId } });
+            store.patchSpan(rootSpanId, { sessionId: msg.sessionId, attrs: { "session.id": msg.sessionId } });
             onWrite?.();
             break;
           }

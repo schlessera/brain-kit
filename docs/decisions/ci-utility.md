@@ -186,16 +186,41 @@ The observed longest step is 989 seconds versus the earlier 1,402 seconds,
 about 29% shorter. The sources differ only in the owned worker harness and
 fixture corrections, and runner variation is uncontrolled: this is a measured
 comparison, not literal same-SHA count proof or a qualified throughput claim.
-N=2 remains the bounded candidate. The missing serial arms at the exact same
-`9e7a178f` source are isolated in
-[run 38933790923](https://github.com/schlessera/brain-kit/actions/runs/38933790923);
-its workflow is a measurement vehicle, not production confirmation. Actual
-checkout, inventory, count and resource reconciliation plus two consecutive
-exhaustive/main passes remain obligations in
-[#2121](https://github.com/schlessera/brain-kit/issues/2121). An earlier source's
-serial pass is never relabeled as a different source's full pass. Dependency
-copies and private builds count in proof time and sampled VM resources; job
-setup/install and queue cost remain separate step measurements.
+N=2 remains the bounded candidate. That earlier comparison retains its original
+source limitation.
+
+The four serial arms in
+[run 38933790923, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38933790923)
+now supply the literal same-source comparison at `9e7a178f` and the same tree.
+All four actual checkout logs agree with their checkout/resource artifacts.
+Independent reconciliation of both arms' selected files, top-level JUnit
+file suites, individual cases, report summaries and timings proves identical
+961-file inventories and counts: 13,512 cases, 13,484 pass, 28 skip, zero
+TODO/failures. Each partition retains 231 / 242 / 243 / 245 files. The four
+serial complete measured steps took 1,014 / 1,169 / 1,177 / 1,200 seconds,
+versus 852 / 962 / 989 / 987 seconds for N=2: the longest selected step is
+about 18% shorter at this source. VM-receipt elapsed time is separately
+1,007.80 / 1,161.67 / 1,175.03 / 1,193.28 seconds for serial and
+845.24 / 955.70 / 980.70 / 984.59 for N=2; step time also includes cold
+Chrome/startup around those measured phases.
+
+Serial receipts record 1.18 / 1.61 / 1.49 / 1.58 average busy cores and
+4.83 / 3.31 / 6.23 / 3.30 GB sampled VM peaks; the tightest headroom is
+10.53 GB. The same-source N=2 peaks and cores above remain within the
+same 4-vCPU, 16.77-GB envelope. These are sequential experiments on separate
+runner instances, with uncontrolled queue/cold-start/host variation, not a
+randomized estimate or production-main qualification. Serial jobs waited
+2,950–3,005 seconds from dispatch to start; their 4,209-second event-to-final
+completion includes those queues, while simultaneous queues are not added
+as elapsed critical path. No arm was cancelled or retried for this comparison.
+
+Both measurement workflows are evidence vehicles, not production confirmation;
+the N=2 experiment's independent lint failure is unchanged. Two consecutive
+qualifying exhaustive/main passes remain obligations in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121), independently of
+this now-completed same-source count comparison. Dependency copies and private
+builds count in proof time and sampled VM resources; setup/install and queues
+remain separate step measurements. No deadline, shard count or N changed here.
 
 Unit weights have the same explicit reviewed path:
 `bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
@@ -228,8 +253,31 @@ serial runtime category: 13.522/9.719/4.571 seconds for the probes, 424.345 seco
 for hosted admission and 250.566 seconds for shared-process cleanup. Its four-CPU
 VM sampled 2.540 GB used of 16.766 GB and 884.56 active CPU-seconds. These are
 attributed historical observations, not a controlled current-source speedup.
-Current two-job phase and full-job/setup measurements are required to qualify the
-split against the longest single phase plus 90-second wall-time criterion.
+The split's [runtime-only experiment 38920698136, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38920698136)
+ran source `e7fea8b1ecb4a9f89f8651eca37e0bca797c20ad`, tree
+`4c3f9f786a6838b02f43ae8753253c927956b2f8`. Actual checkout logs and
+immutable checkout/resource artifacts agree. All five phases succeeded:
+15.75 / 12.01 / 5.38 seconds for the probes, 265.72 seconds for shared-process
+Chrome/cleanup and 427.17 seconds for separate hosted admission. Ordinary
+runtime totaled 298.86 seconds (299-second proof step, 352-second whole job);
+hosted admission took a 427-second step and 480-second whole job. The longest
+whole job, including setup, satisfies the longest phase plus 90-second ceiling
+(480 <= 517.17 seconds). This measurement workflow is an experiment, not a
+production confirmation event.
+
+[Automatic main run 38920963140, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/38920963140)
+independently executed merged source `80e028d84b7686d6cf864d8166029b1142de8756`,
+tree `5f75530d5f191f6615f78736a7c67577b0cdbf84`, in both successful runtime
+jobs. Its five phases succeeded in 11.90 / 8.85 / 3.93 / 194.25 / 424.80 seconds.
+Ordinary runtime totaled 218.93 seconds; hosted admission's 425-second proof
+step and 478-second whole job satisfy the same ceiling (478 <= 514.80 seconds).
+The ordinary/hosted VM receipts record sampled peaks of 2.53 / 1.93 GB and
+445.21 / 328.54 active CPU-seconds on separate 4-vCPU, 16.77-GB runners.
+These source-bound main jobs establish phase coverage and the wall-time bound;
+they do not establish a whole-workflow pass or a controlled speedup. The
+experiment retains its own source and event identity. The separate
+confirmation-event requirement remains tracked in
+[#2128](https://github.com/schlessera/brain-kit/issues/2128).
 
 A complete unit selection already includes cheap invariants, so CI does not run
 that subset twice. No independent test/type job waits for packaging. The final
@@ -263,20 +311,185 @@ independent domain. Main pushes and scheduled/manual runs execute fresh proof.
 There are no chains through previously retained/skipped jobs.
 
 Vitest's installed `list --filesOnly --json=<path>` discovers actual project/file
-ownership without collecting suites. Shared files remain inputs to both
-domains; `recordings-tray.offline.tsx`, for example, belongs to layout and rail
-projects. The complete two-shard spec inventory/order and measured partition,
-runner image/version, and every tracked Git blob/path/mode are fingerprinted.
-Only the content of unreferenced, unexported opposite-domain test leaves is
-excluded. Their paths/modes stay hashed. Reference closure includes strings,
-helpers, fixtures and symlink targets; all unknown files, shared fixtures,
-source, dependency manifests/lockfiles, configuration and runtime/image pins
-stay hashed. New discovery and changed ownership expand conservatively.
-The installed TypeScript compiler's expanded build inventory and the explicit
-CSS scan roots must also exclude those foreign leaves; unknown build/scan
-configuration retains fresh execution.
-Unknown dynamic spec imports, Git-dependent spec inputs, alternate runtime
-contexts or unavailable discovery do not qualify for retention.
+ownership without collecting suites. Browser and layout each fingerprint their
+complete applicable static-import and validated indirect-input closure from
+#2125, including CSS scan roots and assets. Unknown runtime/computed inputs,
+unavailable discovery and invalid declarations require fresh execution.
+Directory ownership includes added descendants; missing and symbolic inputs
+remain conservative failures until fully supported.
+
+Identical indirect expressions can name exact lexical function scopes; stale,
+ambiguous or shadowed bindings remain unresolved. A narrow runner observation
+class admits literal Linux boot identity, self status and self PID-namespace
+queries through unshadowed imported filesystem readers. It rejects descriptor
+paths, dynamic PID/path expressions, arbitrary files and non-reader constructs.
+Those values are runner observations, never Git blobs or provider/repository
+payloads. Other process/filesystem inputs still need supported ownership.
+
+Generated fixture roots additionally require the root-redirect environment
+variables `BRAIN_ROOT`, `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT`
+to be absent, including empty overrides. The versioned runner condition is
+checked when making fresh receipts and revalidating current/source evidence.
+A verified literal producer in an owned temporary root alone does not bind a
+consumer reached through CLI arguments, cwd or configuration redirection.
+
+A bounded command-activation audit covers seven dormant server, Mermaid and scene
+callbacks. Registration in a selected project is allowed only when the complete
+selected call inventory proves the callback is never invoked. It checks the
+complete selected spec inventory, inherited setup/global hooks and their static
+imports; actual invocation, callback escapes, dynamic loaders and aliased
+command invocation retain fresh execution. Admission additionally requires exact
+audited runner, configuration, callback and imported-helper source identities.
+An edit requires a new audit rather than general TypeScript partial evaluation.
+Only a proven inactive arrow body defers its runtime inputs. Its module and
+static imports still execute and retain ordinary input checks, including any
+top-level initializer or side effect. Dormant declared targets and their static
+imports remain fingerprinted source bytes. This bounded support does not close
+unrelated generated assets or provenance inputs.
+The audited configuration, selected specs and inherited setup/global hooks are
+also ordinary runtime closure roots; inspecting their command calls cannot
+substitute for hashing their sources and resolving their executed input reads.
+
+Generated consumer stylesheet imports bind the exact `ui-kit`/`ui-react`
+`dist/styles.css` output and byte-copied theme/token exports to their source stylesheets, recursive CSS inputs and
+tracked producer. The audited build cleans package output, uses the frozen
+Tailwind dependency and completes successfully before browser execution and its
+fresh receipt. Three audited command readers additionally bind the runner's
+`packages/ui-kit` cwd. Producer, command or execution-path drift makes that
+binding unavailable. Current `dist` bytes never substitute for source inputs.
+Other generated artifacts, external assets and temporary readers remain unknown
+until their own bindings are validated.
+
+Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
+asset. Its explicit resource identity records package name/version, relative
+asset name, SHA-256 and mode in addition to the matching manifest/lockfile and
+frozen-install conditions. Missing, symbolic, escaped or changed reader inputs
+remain fresh. This is exact-file validation, not a scan of `node_modules` or a
+claim that arbitrary installed files belong to a domain.
+
+Two exact source-owned literal payloads—the rectangle SVG fixture and the
+black/white pixel probe—have no resource loads or executable content. Their
+complete owner and call identities validate the actual Playwright sink and
+lexical binding. Interpolated HTML and other payloads remain unresolved; this
+support cannot certify arbitrary generated documents.
+
+The complete activation-audited import inventory also seals two bounded reader
+flows. The exact browser sequencer calls the cost reader without an override,
+so its default is the module-relative cost JSON. The exact font command fixes
+the repository and lock-hash cache roots, verifies every length/checksum before
+use and replaces the pinned stylesheet URLs with those verified bytes. Reader,
+caller and font JSON/CSS/head identities must match their audit; additional
+imports, reexports or loaders into either reader require fresh execution. These
+bindings name only the exact consumed repository bytes. They do not bless
+arbitrary file parameters, changed font data or unverified cached content.
+
+Two finite private dispatch registries admit their exact indexed calls while
+every handler and imported helper retains normal runtime input traversal. The
+source audit verifies literal function entries, copied handler maps and private
+non-escaping registries. The complete importer inventory rejects additional
+map consumers; two exact consumers of a different chat helper are separately
+audited. Changed source, escaping maps or new consumers require fresh execution.
+
+The dictation theme command has a separate temporary-output producer binding.
+Its exact source owns a new temporary directory, invokes the locked Tailwind
+CLI with constant input/output arguments, awaits successful completion, reads
+only that output and removes the directory. The binding includes the compiler
+asset identity, checked build producer and recursively resolved CSS entry,
+theme, tokens and explicit source scan. Its precise `promisify` and
+`createRequire` uses do not permit other aliases. The runner registration and
+complete importer inventory seal the command's caller; source or input drift
+requires a new audit. This support does not admit arbitrary subprocess outputs.
+
+One interpolated HTML fixture is separately bound to its exact producer and
+complete selected command-call inventory. The destination-press spec supplies
+only the source-owned paragraph document plus an explicit reporting/scroll
+script; its other call removes the route. Exact configuration, command owner
+and caller bytes seal the argument origins. Additional direct, renamed or
+await-import command callers, escaping command aliases or direct owner imports
+require fresh execution. This is a producer binding, not an assertion that
+HTML containing a script is inert.
+
+The argument-free ghost replay has a distinct self-contained-document binding.
+Its sole exact caller first renders the literal Performance story, then copies
+that scene's DOM and the loaded CSS rules. The preview, inherited font setup,
+checksum-verifying font producer, lock/CSS/head inputs and replay guard are
+source-audited; all imported component and CSS dependencies retain their normal
+closure traversal. Verified font bytes are inline data URLs. The replay page
+aborts and records every HTTP/websocket attempt, also records request events
+that could bypass routing, and asserts no attempts after document/font loading
+and before/after tracing. Loopback resources receive no exemption. A resource
+attempt fails the actual proof; source, caller, guard or producer drift requires
+a new audit. The scene, visual assertions and trace remain unchanged.
+
+Diagram capture binds all four exact renderer, axis, positional and node-link callers and their complete call-site inventories,
+closed SVG primitive producers,
+literal adopted fixture, generated consumer CSS and locked inline-font inputs.
+Its additional replay page contains that source-owned document, aborts and records
+HTTP/websocket requests, and checks the zero-request invariant after document and
+font loading and after capture. Unknown DOM or resource origins remain unresolved;
+source or producer drift requires fresh execution and a new audit.
+
+The selected browser capability additionally requires a complete audited
+input-domain identity and an enforced zero-Worker boundary. The native,
+forwarding diagnostic established no intended Worker execution in that
+selection; its observation ended at `afterAll`, so it does not claim returned
+cleanup coverage. Enforcement installs before product imports, records and
+refuses every construction attempt, checks after test hooks and checks again
+in the earliest outer `aroundAll` finally after returned/file-fixture cleanup.
+Catching a construction error in the product cannot make its proof pass. The
+original descriptor is restored completely after checking. Real PDF-worker
+runtime categories and the layout/endurance projects retain fresh unrestricted
+execution; no product constructor or configuration default changes.
+
+Admission validates exact known enforcement/configuration sources independently
+of the audit manifest, then joins every selected source/data path, blob/mode,
+directory membership, resource identity and inventory entry to that bounded
+audit. Any relevant source, caller, realm, hook, guard or data edit executes
+fresh until re-audited. A constructor hidden by a new alias cannot bypass this
+mandatory browser capability check merely by disappearing from syntax
+discovery. Unknown external resources still prevent admission. The manifest's
+own bytes are ordinary shared fingerprint inputs; it is never self-hashed.
+Version 2 separates current source-audit admission from historical diagnostic
+observations. Historical case counts and their cleanup gap remain attributed to
+the old selection; adding projects does not fabricate a whole-domain observation.
+Old or missing admission metadata stays fresh. Its metadata cannot replace
+complete successful guarded fresh jobs or the
+independent retained-proof validator. This bounds the existing PDF constructor
+to no consumed Worker resource; it does not authorize an arbitrary worker URL.
+
+Vitest screenshot references are inputs too. The pinned installed resolver's
+verified defaults locate them under each selected spec's own
+`__screenshots__/<spec basename>` directory. Eligible immutable tracked paths,
+bytes and modes join the closure and capability identity, including added,
+deleted and renamed baselines. A tracked file/symlink at a baseline directory
+cannot hide an external reference. Custom screenshot directories/resolvers,
+matcher aliases and unresolved option objects stay fresh; only closed literal
+comparison settings are supported. The framework asset identity joins the
+locked installed resources. No current output or untracked image enters this
+snapshot, and baseline changes cannot inherit old passing comparisons.
+
+The inclusion fingerprint binds relevant immutable Git paths, blob identities
+and modes, selected discovery ownership/order, the two measured partitions and
+runner identity. It also includes every proof/tooling script and workflow,
+root/package manifests and lockfiles, compiler configuration and expanded build
+source inventories. These conservative shared harness inputs can invalidate
+retention even when only one domain executes them. Unrelated prose is not an
+input merely because it is tracked; imported or declared prose remains included.
+
+Source/current closure discovery uses separate raw-Git-blob snapshots. Workspace
+package links resolve inside their own snapshot, while external dependency
+resolution uses the frozen install only after source/current algorithm,
+configuration, manifests and lockfiles match. Current generated/dist artifacts,
+working-tree bytes and Git archive substitutions cannot stand in for immutable
+source content. A helper or dependency identity mismatch executes fresh.
+
+The implemented fingerprint is only a necessary condition for retention. A
+bounded browser admission still needs the complete guarded fresh baseline and
+real retained-proof validation; unsupported layout/runtime inputs continue
+fresh execution. Neither a synthetic closed fixture nor a graph
+structure hash establishes a real hosted retention hit. #2126 remains open until
+its controlled same-PR hosted demonstration and independent aggregate evidence
+are complete.
 
 Each source shard must have an actual successful fresh execution step, a
 matching GitHub Actions check, one post-success receipt, and a checkout log

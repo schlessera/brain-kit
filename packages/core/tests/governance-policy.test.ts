@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseGovernancePolicy } from "../src/lib/governance-policy";
+import { parseGovernancePolicy, providerAllows } from "../src/lib/governance-policy";
 
 const parse = (yaml: string, body = "Odysseus keeps policy prose separate.\n") => parseGovernancePolicy(Buffer.from(`---\nschema_version: 1\n${yaml}\n---\n${body}`));
 
@@ -37,4 +37,16 @@ test("approved defaults and individual explicit overrides resolve without siblin
     session: { warn_usd: 2000, block_usd: 4000, block_tokens: 8_000_000_000 }, day: { warn_usd: 2000, block_usd: 4000, block_tokens: 8_000_000_000 } });
   expect(parsed.effective.scope).toEqual({ max_tool_calls: 700, max_minutes: 120, max_files_changed: 1000, max_bytes_written: 4 * 1024 ** 3 });
   expect(parsed.effective.profiles).toEqual({ interactive: "governed", voice: "governed" });
+});
+
+test("provider selectors intersect their allowlists and unknown recipients do not inherit direct-cost authority", () => {
+  const parsed = parse("providers: [{ paths: [me/**], allow: [anthropic, google] }, { types: [private], allow: [anthropic] }]");
+  expect(parsed.ok).toBe(true);
+  expect(parsed.warnings.join(" ")).toContain("git history");
+  expect(providerAllows(parsed.effective.providers, "me/identity.md", "private", "anthropic")).toBe(true);
+  expect(providerAllows(parsed.effective.providers, "me/identity.md", "private", "google")).toBe(false);
+  expect(providerAllows(parsed.effective.providers, "me/identity.md", "note", "google")).toBe(true);
+  expect(providerAllows(parsed.effective.providers, "me/identity.md", "note", "direct")).toBe(false);
+  expect(providerAllows(parsed.effective.providers, "me/identity.md", "note", undefined)).toBe(false);
+  expect(providerAllows(parsed.effective.providers, "notes/voyage.md", "note", undefined)).toBe(true);
 });

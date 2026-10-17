@@ -147,6 +147,7 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         await until(page, "f?.connected()");
         const composer = page.locator("textarea.bk-composer");
         await composer.fill(prompt);
+        await composer.locator("..").locator('[aria-label="Send"]').waitFor();
         await composer.press("Enter");
         await until(page, "f.activeSessionId() !== null && f.lastTurnId() !== null");
         const sessionId = (await fixture(page, (f) => f.activeSessionId()))!;
@@ -241,6 +242,7 @@ describe.skipIf(!executablePath)("mounted trackers", () => {
         await until(page, "f?.connected()");
         const composer = page.locator("textarea.bk-composer");
         await composer.fill(prompt);
+        await composer.locator("..").locator('[aria-label="Send"]').waitFor();
         await composer.press("Enter");
         await until(page, "f.activeSessionId() !== null && f.lastTurnId() !== null");
         const sessionId = (await fixture(page, (f) => f.activeSessionId()))!;

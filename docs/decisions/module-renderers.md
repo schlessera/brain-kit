@@ -171,14 +171,14 @@ Rejected:
 
 Diagrams paint only with `--bk-*` tokens:
 
-- `--bk-diagram-*` for grounds, nodes, clusters, lines and text (`--bk-diagram-bg: light-dark`, `packages/ui-kit/src/tokens.css:782-787`)
+- `--bk-diagram-*` for grounds, nodes, clusters, lines and text (`--bk-diagram-bg: light-dark`, `packages/ui-kit/src/tokens.css:782-788`)
 - the CVD-ordered canvas slots for series
 - the accent `ink` / `fill` / `mark` triples, with `--bk-on-fill` for text on fills
 
 They switch with `color-scheme` and `[data-theme]` like the rest of the app
-(`[data-theme="dark"] {`, `packages/ui-kit/src/tokens.css:848`). They take
+(`[data-theme="dark"] {`, `packages/ui-kit/src/tokens.css:849`). They take
 white grounds from the generated print theme (`[data-theme="print"] {`,
-`packages/ui-kit/src/tokens.css:869`). The token block a static export embeds
+`packages/ui-kit/src/tokens.css:870`). The token block a static export embeds
 is generated from `tokens.css` and pinned to it by a test. It is never written
 by hand.
 
@@ -204,8 +204,16 @@ Upstream's method carries over:
 - the accessible-figure contract
 - the type grammars
 
-How the fusion looks is a design question, settled by design briefs before
-the skin is built.
+The maintainer adopted the [revised eight-node composition, authored 320px
+layout and absent-layout fallback](https://github.com/schlessera/brain-kit/blob/ce92ea1d4142481fadf6cef08bfef7eecf02543b/docs/assets/diagrams-2091/README.md)
+on [#2091](https://github.com/schlessera/brain-kit/issues/2091#issuecomment-6222708390).
+The shared dark cluster border is `#6b6873`; print cluster grounds are white;
+focal grounds use the solid named tint. Focal sublabels use diagram-text,
+fixing the dark muted pair's 4.16:1 contrast to 9.51:1. Async lines are dotted
+`1.5 3.5` with round caps; returns are dashed `6 4`. Named narrow placement
+is authored explicitly and preserves semantic nodes, groups and edges.
+Absent placement selects a caption/summary and Open diagram control, with
+readable dedicated viewing; it never requests automatic reflow or shrinking.
 
 ### 5. Every surface prints white
 
@@ -231,7 +239,7 @@ The seam defines three themes, and a pack must implement all three.
 
 The kit already says this of its print theme: "Paper that is printed rather than
 looked at: what a shared PNG or PDF is drawn in"
-(`Paper that is printed rather than looked at`, `packages/ui-kit/src/tokens.css:862`).
+(`Paper that is printed rather than looked at`, `packages/ui-kit/src/tokens.css:863`).
 `light` and `dark` reach an export only when a CLI caller asks for them by name.
 
 In the print theme a pack draws:

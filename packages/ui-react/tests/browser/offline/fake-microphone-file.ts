@@ -7,7 +7,7 @@
  * so a stale file from another generator version is never reused.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AUDIO_FIXTURES, generateWav, type AudioFixtureSpec } from "./audio-fixtures.ts";
@@ -20,12 +20,11 @@ export function fakeMicrophoneFile(spec: AudioFixtureSpec = FAKE_MICROPHONE_FIXT
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   const dir = join(tmpdir(), "brain-kit-audio-fixtures");
   const file = join(dir, `${spec.name}-${hash}.wav`);
-  if (!existsSync(file)) {
-    mkdirSync(dir, { recursive: true });
-    // Write then rename: two configs loading at once never see a half file.
-    const partial = `${file}.${process.pid}.partial`;
-    writeFileSync(partial, bytes);
-    renameSync(partial, file);
-  }
+  mkdirSync(dir, { recursive: true });
+  // A hash-based name cannot attest existing bytes. Always publish the current
+  // generator's bytes atomically, including when another config wrote first.
+  const partial = `${file}.${process.pid}.partial`;
+  writeFileSync(partial, bytes);
+  renameSync(partial, file);
   return file;
 }

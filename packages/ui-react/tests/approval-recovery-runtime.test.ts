@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -30,18 +31,20 @@ let sequence = 0;
 const transcripts = new Map<string, SessionHistoryMessage[]>();
 const decisions = new Map<string, string>();
 
+const hook = runtimeHookPhases("approval-recovery-runtime");
+
 beforeAll(async () => {
   if (!executablePath) return;
   const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Recovery fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-approval-recovery-"));
   const brain = resolve(scratch, "brain");
-  await createFixtureBrain(repo, brain);
+  await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
   const assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/approval-recovery-client.ts"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
+  const [bundleOut, bundleErr, bundleCode] = await hook.child("client-build", bundle);
   if (bundleCode !== 0) throw new Error(`Recovery client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html class="dark" data-theme="dark"><head><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
@@ -70,10 +73,10 @@ beforeAll(async () => {
       bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
     },
   };
-  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(), turnTimeoutMs: 20_000 });
+  app = await hook.phase("host-start", () => createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch!, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), staticRoot: assets, registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(), turnTimeoutMs: 20_000 }));
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
 }, 180_000);
 
 afterAll(async () => {
@@ -107,6 +110,7 @@ describe.skipIf(!executablePath)("mounted approval recovery", () => {
       await connected(page);
       const composer = page.locator("textarea.bk-composer");
       await composer.fill("Row past the Sirens");
+      await composer.locator("..").locator('[aria-label="Send"]').waitFor();
       await composer.press("Enter");
       await page.locator("[data-approval-card]").waitFor();
       // Raised while this page watched the turn: not restored.
@@ -148,6 +152,7 @@ describe.skipIf(!executablePath)("mounted approval recovery", () => {
       await connected(first);
       const composer = first.locator("textarea.bk-composer");
       await composer.fill("Steer clear of Scylla");
+      await composer.locator("..").locator('[aria-label="Send"]').waitFor();
       await composer.press("Enter");
       await first.locator("[data-approval-card]").waitFor();
       await first.reload();

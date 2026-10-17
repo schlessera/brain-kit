@@ -72,15 +72,15 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:682-722`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:793-834`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:475-514`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:477-519`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:631-661`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:740-770`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -92,13 +92,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:354-373`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:356-375`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:382-393`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:384-395`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -113,7 +113,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:208-218`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:210-220`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -142,7 +142,7 @@ its private, size-limited turn-temp tmpfs. Real HOME stays read-only: a tool
 that writes it directly receives `EROFS`, recorded through the roadblock
 path. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:682-722`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:793-834`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -276,3 +276,21 @@ Measured 2026-10-11.
   200 000 entries per area, one `git` call and one overlay probe per turn.
 - **Overlay size.** The overlay's upper layer is an unbounded tmpfs, like
   `/tmp`. Per-turn tmpfs budgets are #1625's.
+
+## Owned runtimes beneath private temp — 2026-10-14
+
+The #1844/#1901 support amendment permits a noncolliding host-installed owned
+runtime below `/tmp`. Its narrowly resolved package/dependency closure is
+retained read-only after the private temp mount. This supports the original
+installation location while unrelated host temp remains absent; it does not
+bind all of `/tmp` or provide writable runtime storage.
+
+Reserved scratch, state, writable-area aliases, XDG, maintenance HOME/state and
+output, relays/proxies, procfs and devices cannot be replaced by runtime
+retention. The check covers canonical and aliased names, including their
+ancestors and descendants, and refuses with the path and an actionable
+installation explanation before dispatch. Explicit private masks remain
+effective through runtime aliases. Existing private-temp allowances, writable
+area/profile boundaries, dropped capabilities and cleanup are unchanged. See
+the [binding runtime amendment](governed-writable-workers.md#owned-runtime-placement-beneath-tmp--2026-10-14)
+for the selected policy and separately attributed original controls.

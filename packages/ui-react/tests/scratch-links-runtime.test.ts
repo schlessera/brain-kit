@@ -1,5 +1,6 @@
 // #544: the actual scanner -> clicked FileLink -> store -> served app ->
 // PDF/image viewer chain. Regex/classifier controls alone missed this failure.
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
@@ -29,9 +30,11 @@ const bytes: Record<string, Buffer> = {};
 
 async function child(args: string[], cwd = repo): Promise<void> {
   const process = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+  const [out, err, code] = await hook.child(args[1] === "scripts/build.ts" ? "package-build" : "client-build", process);
   if (code !== 0) throw new Error(`Scratch fixture preparation failed (${code}): ${out}\n${err}`);
 }
+
+const hook = runtimeHookPhases("scratch-links-runtime");
 
 beforeAll(async () => {
   if (!executablePath) return;
@@ -40,7 +43,7 @@ beforeAll(async () => {
   await child([process.execPath, "scripts/build.ts"]);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-scratch-links-"));
   brain = resolve(fixture, "brain");
-  await createFixtureBrain(repo, brain);
+  await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
   // Chrome's Linux launcher uses these utilities. Keep PATH test-owned and
   // restricted rather than exposing ambient agent/provider executables.
   const renderBin = resolve(fixture, "render-bin");
@@ -52,12 +55,12 @@ beforeAll(async () => {
   }
   await writeFile(resolve(brain, ".gitignore"), ".brain/scratch/\n");
   for (const format of ["pdf", "png"]) {
-    const result = await runCli(brain, ["render", "notes/raft-reference.md", "--format", format, "--scratch", "--json"], {
+    const result = await hook.phase("scratch-render", () => runCli(brain, ["render", "notes/raft-reference.md", "--format", format, "--scratch", "--json"], {
       PATH: renderBin,
       PUPPETEER_EXECUTABLE_PATH: executablePath,
       BRAIN_UI_CHROME_PATH: executablePath,
       BRAIN_UI_CHROME_NO_SANDBOX: "1",
-    });
+    }));
     if (result.code !== 0) throw new Error(`Real scratch render failed: ${result.stderr}`);
     const rendered = JSON.parse(result.stdout) as { output: string; bytes: number; warnings: unknown[] };
     expect(rendered.output).toStartWith(".brain/scratch/");
@@ -75,12 +78,12 @@ beforeAll(async () => {
     await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   }
   const backend = makeFakeBackend({ id: "scratch-fixture" });
-  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(fixture, "ui.db"),
+  app = await hook.phase("host-start", () => createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(fixture!, "ui.db"),
     AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }),
-    registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability: createRecordingObservability() });
+    registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability: createRecordingObservability() }));
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
 }, 180_000);
 
 afterAll(async () => {

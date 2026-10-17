@@ -70,13 +70,13 @@ test("allowlist omission refuses before any upstream request", async () => {
     expect(records[0]).toMatchObject({ outcome: "denied", reason: "destination_not_allowed" });
   } finally { proxy.stop(); origin.stop(true); }
 });
-test("cleartext writes require approval and an oversized response is cut off", async () => {
+test("cleartext writes to outward hosts require approval and an oversized response is cut off", async () => {
   const records: EgressRecord[] = []; let calls = 0;
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Odysseus repairs the raft".repeat(100)); } });
-  const refused = await startEgressProxy(defaults(records));
+  const refused = await startEgressProxy({ ...defaults(records), outwardHosts: ["127.0.0.1"] });
   try {
-    expect((await get(refused.socketPath, origin.url.href, "POST", "voyage")).status).toBe(403);
-    expect(calls).toBe(0);
+    expect((await get(refused.socketPath, origin.url.href, "POST", "voyage")).status, "EGRESS_OUTWARD_POST_REQUIRES_APPROVAL").toBe(403);
+    expect(calls, "EGRESS_OUTWARD_POST_REFUSED_BEFORE_CONTACT").toBe(0);
     expect(records[0]).toMatchObject({ method: "POST", outcome: "denied", reason: "outward_not_approved" });
   } finally { refused.stop(); }
   const bounded = await startEgressProxy({ ...defaults(records), maxBytes: 1024 });
@@ -86,6 +86,88 @@ test("cleartext writes require approval and an oversized response is cut off", a
     expect(bounded.usedBytes(), "EGRESS_PAYLOAD_NEVER_EXCEEDS_CAP").toBeLessThanOrEqual(1024);
     expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "max_bytes_per_turn" });
   } finally { bounded.stop(); origin.stop(true); }
+});
+test("POST outside outward hosts reaches the origin without approval and records charged bytes only", async () => {
+  const records: EgressRecord[] = []; let calls = 0, approvals = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    calls++;
+    expect(request.method).toBe("POST");
+    expect(await request.text()).toBe("Odysseus payload");
+    expect(request.headers.get("authorization")).toBe("Bearer odysseus-fictional-secret");
+    return new Response("Ithaca");
+  } });
+  const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 4096,
+    approveOutward: async () => { approvals++; return false; } });
+  try {
+    expect(await get(proxy.socketPath, `${origin.url}voyage?private=odysseus-query`, "POST", "Odysseus payload",
+      { authorization: "Bearer odysseus-fictional-secret" }), "EGRESS_OUTSIDE_OUTWARD_POST_FORWARDED").toEqual({ status: 200, body: "Ithaca" });
+    await Bun.sleep(1);
+    expect(calls).toBe(1); expect(approvals).toBe(0);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ method: "POST", host: "127.0.0.1", port: origin.port, path: "/voyage", outcome: "completed", accounting: "http_wire_bound" });
+    expect(records[0]!.bytes).toBeGreaterThan(Buffer.byteLength("Odysseus payloadIthaca"));
+    expect(proxy.usedBytes()).toBe(records[0]!.bytes);
+    for (const secret of ["Odysseus payload", "odysseus-fictional-secret", "odysseus-query", "authorization"]) expect(JSON.stringify(records)).not.toContain(secret);
+  } finally { proxy.stop(); origin.stop(true); }
+});
+test("outside-list POST still obeys destination denial and the shared turn byte ceiling", async () => {
+  let calls = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("raft"); } });
+  try {
+    for (const restrictions of [{ deny: ["127.0.0.1"] }, { mode: "allowlist" as const, allow: ["example.org"] }]) {
+      const records: EgressRecord[] = [];
+      const proxy = await startEgressProxy({ ...defaults(records), ...restrictions });
+      try {
+        expect((await get(proxy.socketPath, origin.url.href, "POST", "voyage")).status).toBe(403);
+        expect(calls).toBe(0);
+        expect(records[0]).toMatchObject({ method: "POST", outcome: "denied", reason: "destination_not_allowed", bytes: 0 });
+      } finally { proxy.stop(); }
+    }
+    const records: EgressRecord[] = [];
+    const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 512 });
+    try {
+      expect((await get(proxy.socketPath, origin.url.href, "POST", "voyage")).status).toBe(200);
+      const charged = proxy.usedBytes();
+      expect(charged).toBeGreaterThan(0);
+      const refused = await get(proxy.socketPath, origin.url.href, "POST", "voyage").catch(error => {
+        // A body that exhausts the cap closes its already-started stream.
+        expect(error.code).toBe("ECONNRESET");
+        return { status: 0 };
+      });
+      expect([0, 403], "EGRESS_OUTSIDE_POST_SHARED_CAP").toContain(refused.status);
+      expect(proxy.usedBytes()).toBeGreaterThanOrEqual(charged);
+      expect(proxy.usedBytes()).toBeLessThanOrEqual(512);
+      expect(records.at(-1)).toMatchObject({ method: "POST", outcome: "denied", reason: "max_bytes_per_turn" });
+    } finally { proxy.stop(); }
+  } finally { origin.stop(true); }
+});
+test("outward POST waits for approval and pending HTTP approval cancels before origin contact", async () => {
+  let calls = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
+  try {
+    for (const cancelled of [false, true]) {
+      const records: EgressRecord[] = [], controller = new AbortController();
+      let allow: ((value: boolean) => void) | undefined, approvalSignal: AbortSignal | undefined;
+      const proxy = await startEgressProxy({ ...defaults(records), signal: controller.signal, outwardHosts: ["127.0.0.1"],
+        approveOutward: async (_destination, signal) => { approvalSignal = signal; return new Promise<boolean>(resolve => { allow = resolve; }); } });
+      const before = calls;
+      const pending = get(proxy.socketPath, origin.url.href, "POST", "voyage").catch(() => ({ status: 0, body: "closed" }));
+      try {
+        for (let index = 0; index < 100 && !allow; index++) await Bun.sleep(1);
+        expect(allow).toBeDefined(); expect(calls).toBe(before);
+        if (cancelled) {
+          controller.abort();
+          expect((await pending).status).not.toBe(200);
+          expect(approvalSignal!.aborted).toBe(true);
+          expect(calls).toBe(before);
+        } else {
+          allow!(true);
+          expect(await pending).toEqual({ status: 200, body: "Ithaca" });
+          expect(calls).toBe(before + 1);
+        }
+      } finally { controller.abort(); proxy.stop(); await pending; }
+    }
+  } finally { origin.stop(true); }
 });
 test("CONNECT opaque bytes require outward approval and retain bidirectional accounting", async () => {
   const records: EgressRecord[] = []; let approved = false, calls = 0;
@@ -125,4 +207,44 @@ test("per-turn payload ceiling is shared across requests and a pending approval 
     expect(approvalSignal!.aborted).toBe(true);
     expect(existsSync(pending.dir)).toBe(false);
   } finally { pending.stop(); }
+});
+
+test("turn stop synchronously records each active HTTP connection exactly once", async () => {
+  const records: EgressRecord[] = [];
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch() { entered(); await held; return new Response("Ithaca"); } });
+  const proxy = await startEgressProxy(defaults(records));
+  const pending = get(proxy.socketPath, origin.url.href).catch(() => undefined);
+  try {
+    await started;
+    expect(records).toHaveLength(0);
+    proxy.stop();
+    expect(records, "STOP_FINALIZES_HTTP_BEFORE_RETURN").toHaveLength(1);
+    expect(records[0]).toMatchObject({ outcome: "cancelled", reason: "turn_cancelled" });
+    release(); await pending;
+    expect(records).toHaveLength(1);
+  } finally { release(); proxy.stop(); await pending; origin.stop(true); }
+});
+
+test("turn stop synchronously records an active CONNECT exactly once", async () => {
+  const records: EgressRecord[] = [], peers = new Set<import("node:net").Socket>();
+  const origin = createServer(socket => { peers.add(socket); socket.once("close", () => peers.delete(socket)); });
+  await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
+  const proxy = await startEgressProxy(defaults(records));
+  const client = connect(proxy.socketPath), closed = new Promise<void>(resolve => client.once("close", resolve));
+  client.on("error", () => {});
+  try {
+    await new Promise<void>((resolve, reject) => {
+      client.once("error", reject);
+      client.once("connect", () => client.write(`CONNECT 127.0.0.1:${(origin.address() as { port: number }).port} HTTP/1.1\r\n\r\n`));
+      client.once("data", bytes => bytes.toString().includes("200") ? resolve() : reject(Error("CONNECT was refused")));
+    });
+    proxy.stop();
+    expect(records, "STOP_FINALIZES_CONNECT_BEFORE_RETURN").toHaveLength(1);
+    expect(records[0]).toMatchObject({ method: "CONNECT", outcome: "cancelled", reason: "turn_cancelled" });
+    await closed;
+    expect(records).toHaveLength(1);
+  } finally { proxy.stop(); client.destroy(); for (const peer of peers) peer.destroy(); origin.close(); await closed; }
 });

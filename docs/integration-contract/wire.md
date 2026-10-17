@@ -21,8 +21,8 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-16`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1031-1045`).
+`packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1031-1046`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -30,6 +30,18 @@ usage record. The REST operation receipt uses the same synthetic journal for
 Undo; it does not revive the original turn.
 The optional budget and scope receipts below supply enforced inference facts.
 Missing facts remain unknown; neither receipt implies network enforcement.
+
+**Configuration coverage (additive, #1846).** The optional
+`configurationCoverage` is `incomplete` when the retained configuration-input
+inventory is nonempty, regardless of journal state; it is `complete` only for
+a complete observation with an empty inventory. Empty recording, partial or
+expired observations report `unknown`. An absent turn omits the field. Ordinary
+missing retained versions and capacity errors do not independently make
+configuration identification incomplete. Expiration retains the inventory and
+its coverage evidence. The existing summary frame/history/HTTP responses carry
+this field without eager detail requests or changed-path accounting changes.
+Older summaries may omit it; clients may use detailed configuration inventory
+entries after expansion, and must never treat omission as complete coverage.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -66,7 +78,7 @@ reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
 (`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3705-3711`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1813-1815`).
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1814-1816`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
