@@ -314,6 +314,29 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   navigation; see [the assertion/domain mapping](proof-domains.md). Dynamic test
   counts and passing assertions come from actual suite reports, not AST counts.
 
+## Stable Docker proof inputs
+
+Docker Desktop on WSL2 retains a host mount for each distinct bind source, even
+when a container exits. Local proofs bind stable checkout directories and select
+fresh run directories inside the container. The first use of a checkout can add
+mounts; repeating a proof must not add sources solely because its run ID changed.
+Restarting Docker Desktop or `wsl --shutdown` clears older leaked mounts.
+
+| Caller | Stable host source | Run selection |
+| --- | --- | --- |
+| Native hosted admission | `tmp/native-host-proof/` | Container-only bind of the selected run to `/proof` |
+| Worker identity | `tmp/worker-identity-proof/` | Same `/proof` projection, with read-only helper and variant projections inside the container |
+| Editorial capture | `tmp/capture-share/` | A staging directory name selects outputs; verified files are copied to destination-local staging before atomic publication |
+| Native diagram export | Private tar-filled named volumes and copied captured Bun bytes | Only source and filtered installation volumes are mounted read-only; output is copied out and owned containers/volumes are removed |
+| Pinned workspace lease test | `tmp/workspace-lease-container/` | Container working directory selects the fresh fixture |
+
+The stable source checkout, installed Bun binary, font cache and lease directory
+retain their existing mounts. Browser, raster and audio callers already use stable source paths. Images, isolation flags and proof assertions remain the
+same. Container-only projections create no new Docker host bind source. The private
+diagram copy transport additionally requires host `tar` for its input archives. A new
+checkout still introduces its own stable sources; this does not clear old mounts
+or promise zero growth across distinct checkouts.
+
 ## GitHub Actions CI
 
 CI and contract checks run from `.github/workflows/ci.yml` and `contract.yml`.
