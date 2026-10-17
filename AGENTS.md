@@ -191,6 +191,12 @@ the board, lifecycle and issue routing.
 - **Every merge needs a release milestone** on the PR and each issue it
   completes or advances, read back before merge and after closure
   ([the milestone agreement](docs/process/github.md#milestones)).
+- **A blocker must have at least the priority of every issue it blocks.**
+  Raise a lower-priority or unsorted blocker to the highest priority among
+  those issues; never lower the blocked issue to make them match. For example,
+  a `priority: p3` issue blocking a `priority: p1` issue becomes `priority: p1`.
+  Apply this through the full dependency chain whenever dependencies or
+  priorities change.
 - brain-kit owns behaviour; the templates own what a user generates;
   anything describing a real deployment goes to `brain-ui`. Run an issue body
   through the same gate as the tree before filing it.

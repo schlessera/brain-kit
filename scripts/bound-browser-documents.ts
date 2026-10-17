@@ -29,10 +29,8 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/.storybook/preview-head.html":"66da7597557f1418096239edcd74f7a8decfc70dfc8f1d820de0cf365df41ed7"
   }
 },{
-  // Reviewed against #2295: bounded capture tracing and split relay cases keep
-  // the exact source-owned HTML/CSS sink, its callers and offline producers.
-  // #2348 admits the callouts caller and pins the callout/legend modules that
-  // the drawing pipeline imports.
+  // Reviewed against #2295 and #2346: bounded capture tracing, split relay and
+  // callout cases keep the exact HTML/CSS sink, five callers and offline producers.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
@@ -40,6 +38,10 @@ const declarations:DocumentDeclaration[]=[{
   "callerHash": "dbac044e90a3b7b84e308a96cca8396874afb9b96d8cc23b2fddb4293d85706c",
   "calls": 2,
   "additionalCallers": {
+    "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
+      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
+      "calls": 8
+    },
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {
       "hash": "6512cb4660834ef7b15a52258d51f694c4e34fd530754bdc51580137db22b75c",
       "calls": 3
@@ -51,10 +53,6 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-react/tests/browser/diagrams-node-link.layout.tsx": {
       "hash": "ee5282269f48ed482fc9f3b3316c88b538c7b29772e78f5f87ff27915fa4090f",
       "calls": 2
-    },
-    "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
-      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
-      "calls": 8
     }
   },
   "sink": "page.setContent(`<html data-theme=\"${drawing.theme}\"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`)",
@@ -68,8 +66,12 @@ const declarations:DocumentDeclaration[]=[{
     "scripts/captures/font-lock.json": "3ec58a552059527131bda0277703425243a63aa311d58b67201a7b2c9fe136ad",
     "scripts/captures/fonts.css": "1a6035cc96ef6b928378a04b1f81c13b52362f18fa00e087f4a5f15155482a4d",
     "packages/ui-kit/.storybook/preview-head.html": "66da7597557f1418096239edcd74f7a8decfc70dfc8f1d820de0cf365df41ed7",
+    "packages/module-diagrams/tests/fixtures/callouts.ts": "efbef5b4db026fe2e1d2fe93261a883aab95c6b533ae1d2c68d92cb1b649fd7e",
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
+    "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
+    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
+    "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
     "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
     "packages/module-diagrams/src/axis-layout.ts": "75e78e607a91d3b5684eaf3b071f56e41c317a1b336a9c06b80608121a41c34d",
     "packages/module-diagrams/src/axis-spec.ts": "55bce9fad9e94af099a55fb1f7d282247c4b5f0dbdd9b33679e2903acfc28b93",
@@ -79,9 +81,6 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
     "packages/module-diagrams/src/check.ts": "67e6497e3e66c91ae0a5c86cd99800f684141f2a56e4b9ccefc79a1c8277f7a9",
     "packages/module-diagrams/src/svg-model.ts": "9656ef62a39fafabe4fd14d936efa51372e7758583140303ac73a5e92f0d60b0",
-    "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
-    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
-    "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
     "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
     "packages/module-diagrams/src/drawing-style.ts": "cf1205bce1ab55197b70801bda46f915419ff174d5a1374a1c87df1f796bb36b",
     "packages/module-diagrams/src/ui.tsx": "45bdd82c0cc724a2528297511f55e41f5f7bfe3b72d2a8c2c893873614d444db",
@@ -114,7 +113,7 @@ const declarations:DocumentDeclaration[]=[{
 {
   "command": "diagramRasterComparison",
   "owner": "packages/ui-react/tests/browser/diagram-export-command.ts",
-  "ownerHash": "a1533cf6b257b92344c4f388d570f74b38e221e7c1e7517756a742f0d5060164",
+  "ownerHash": "f7c3d14ccf96438bf4e28ecc1929b1208fb99520d21a9947086bb43bca933328",
   "caller": "packages/ui-react/tests/browser/diagrams-export.layout.tsx",
   "callerHash": "2730c38d2b808280c8798cc33adceee54f3c3b7e0a6beff2d2066552d8fceb9f",
   "calls": 3,
@@ -131,6 +130,9 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/.storybook/preview-head.html": "66da7597557f1418096239edcd74f7a8decfc70dfc8f1d820de0cf365df41ed7",
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
+    "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
+    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
+    "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
     "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
     "packages/module-diagrams/src/axis-layout.ts": "75e78e607a91d3b5684eaf3b071f56e41c317a1b336a9c06b80608121a41c34d",
     "packages/module-diagrams/src/axis-spec.ts": "55bce9fad9e94af099a55fb1f7d282247c4b5f0dbdd9b33679e2903acfc28b93",
@@ -140,9 +142,6 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
     "packages/module-diagrams/src/check.ts": "67e6497e3e66c91ae0a5c86cd99800f684141f2a56e4b9ccefc79a1c8277f7a9",
     "packages/module-diagrams/src/svg-model.ts": "9656ef62a39fafabe4fd14d936efa51372e7758583140303ac73a5e92f0d60b0",
-    "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
-    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
-    "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
     "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
     "packages/module-diagrams/src/drawing-style.ts": "cf1205bce1ab55197b70801bda46f915419ff174d5a1374a1c87df1f796bb36b",
     "packages/module-diagrams/src/ui.tsx": "45bdd82c0cc724a2528297511f55e41f5f7bfe3b72d2a8c2c893873614d444db",

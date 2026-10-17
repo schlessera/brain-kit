@@ -11,8 +11,8 @@ const roots: string[] = [];
 // qualification. Keep real immutable fingerprint/source recomputation while
 // modeling an admitted capability. Actual capability/refusal/native controls
 // live in the worker-audit, inclusion and real browser proof tests.
-let capability:ReturnType<typeof spyOn<typeof workerAudit,"hasAuditedWorkerBoundary">>;
-beforeEach(()=>{capability=spyOn(workerAudit,"hasAuditedWorkerBoundary").mockReturnValue(true);});
+let capability:ReturnType<typeof spyOn<typeof workerAudit,"inspectWorkerAudit">>;
+beforeEach(()=>{capability=spyOn(workerAudit,"inspectWorkerAudit").mockReturnValue({qualified:true,diagnostic:{version:1,expectedIdentity:undefined,actualIdentity:undefined,reason:"isolated fingerprint fixture"}});});
 afterEach(()=>capability.mockRestore());
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const runner = "ubuntu-24.04/fixed/Linux/X64/bun-1.4.2";

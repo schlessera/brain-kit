@@ -93,6 +93,14 @@ Four namespaces and a flat meta set. The full list with descriptions is
 - **Meta** — `epic`, `agent-ready`, `blocked`, `contract`, `breaking`,
   `security`, `upstream: …`, plus GitHub's triage set.
 
+**Blockers inherit priority.** An issue must have at least the priority of
+every issue it blocks. Whenever dependencies or priorities change, raise any
+lower-priority or unsorted blocker to the highest priority among the issues
+it blocks, continuing through the full dependency chain. For example, a
+`priority: p3` blocker of a `priority: p1` issue becomes `priority: p1`;
+an existing `priority: p0` stays `priority: p0`. Never lower the blocked
+issue's priority to satisfy this rule.
+
 **Workflow state has no labels.** Backlog, ready, in progress and done live in
 the project board's Status field. A label and a board column tracking the same
 fact drift inside a week, and then neither can be trusted.
