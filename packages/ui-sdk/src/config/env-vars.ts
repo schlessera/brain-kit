@@ -23,6 +23,10 @@ export const ENV_VARS = [{
   default: "processes=4096, data and memory=half the server's memory (physical, or a lower cgroup cap above it), file_size=16GiB, open_files=65536, pids=4096, cpu=all CPUs but one, cgroup=on",
   required: false,
 }, {
+  name: "BRAIN_ROOT",
+  description: "Internal maintenance output root supplied in the launcher-cleared environment. It identifies the existing attested writable output target, never an operator input or additional host path authority.",
+  required: "trusted maintenance worker only",
+}, {
   name: "BRAIN_MAINTENANCE_GIT",
   description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.",
   required: "trusted maintenance Git adapter only",
