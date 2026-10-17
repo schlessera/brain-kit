@@ -63,6 +63,11 @@ inspecting CI on a PR live in the `work-issue` skill's
   `Object.defineProperty`, and delete only when the original was absent.
   Saving values or unconditionally deleting `navigator` leaks state between
   suites (#1158). Keep ordered native/absent/readonly restoration controls.
+- Persistence fault fixtures retain their storage failure through the original
+  failure and persisted-state assertions. Track and drain the actual native
+  transactions, then restore complete storage method descriptors in cleanup.
+  A queued autosave can legitimately clear a failure after successful recovery;
+  include a real queued writer to prove its position in the fault window (#2355).
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
@@ -293,8 +298,11 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   Inclusion fingerprints recompute each immutable tree's complete supported
   import/declaration closure and tracked path/blob/mode, build/discovery/partition
   and runner identities. Unknown generated/runtime inputs execute fresh; a
-  graph-structure hash or unchanged imported files alone cannot authorize reuse. Read
-  the current retention ledger and aggregate; original run/job/checkout
+  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  Before naming a source run as passing proof, verify its workflow name/path,
+  event, head, conclusion and complete job inventory. Repository synchronization
+  jobs do not provide CI proof. Read the current retention ledger and aggregate;
+  original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
   agents still require passing candidate proof and must re-read head/base before
