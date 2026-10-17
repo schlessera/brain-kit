@@ -25,7 +25,7 @@ test("audited imports of a different chat helper cannot gain the handler map thr
   expect(sourceBrowserDispatch(root,selected,browserImporters(root,selected)).has(owner)).toBe(false);
 });
 test("registry escape, owner drift and changed imported handler definitions remain unknown",()=>{
-  for(const file of [owner,stats,base+"provider.ts"]){const {root,write}=fixture();write(file,readFileSync(join(root,file),"utf8")+"\n// source drift\n");expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(file===stats?stats:owner)).toBe(false);}
+  for(const file of [owner,stats,base+"provider.ts",base+"connection.ts"]){const {root,write}=fixture();write(file,readFileSync(join(root,file),"utf8")+"\n// source drift\n");expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(file===stats?stats:owner)).toBe(false);}
   const {root,write}=fixture();write(owner,readFileSync(join(root,owner),"utf8")+"\nexport const escaped=serverMessageHandlers;\n");expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(owner)).toBe(false);
 });
 test("unreviewed terminal chat handling cannot gain a trusted dispatch binding",()=>{
