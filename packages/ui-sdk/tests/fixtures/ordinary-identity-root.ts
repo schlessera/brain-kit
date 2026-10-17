@@ -73,7 +73,8 @@ if (process.argv[2] === "--index-child") {
   for (const owned of [brain, join(brain, "notes"), join(brain, ".brain"), join(brain, ".brain/scratch"),
     join(brain, "node_modules"), join(brain, "node_modules/.bin"), join(brain, "brain.config.ts"),
     join(brain, ".gitignore"), join(brain, "notes/voyage.md"), cli]) chownSync(owned, 21001, 21001);
-  const git = ["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--clear-groups", "/usr/bin/env", "HOME=/identity-server-private", "/usr/bin/git"];
+  const git = ["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--clear-groups", "/usr/bin/env", "HOME=/identity-server-private",
+    ...(sharedGit ? ["/bin/sh", "-c", 'umask 0002; exec "$@"', "shared-git-command"] : []), "/usr/bin/git"];
   if (sharedGit) {
     expect(existsSync(join(brain, ".git")), "SHARED_GIT_CREATED_FRESH_WITHOUT_PRIVATE_METADATA_REWRITE").toBe(false);
     // Hosting owns this creation envelope; setgid precedes Git creation.
@@ -87,7 +88,7 @@ if (process.argv[2] === "--index-child") {
   if (staged.exitCode === 1) command([...git, "-C", brain, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Prepare the Ithaca voyage"]);
   chmodSync(brain, 0o2775); chmodSync(join(brain, "notes"), 0o2775); chmodSync(join(brain, ".brain"), 0o2775); chmodSync(join(brain, ".brain/scratch"), 0o2775);
   if (sharedGit) {
-    const nodes = [".git", ".git/objects", ".git/refs", ".git/config", ".git/HEAD", ".git/index"].map(path => {
+    const nodes = [".git", ".git/objects", ".git/refs", ".git/config", ".git/HEAD", ".git/index", ".git/COMMIT_EDITMSG"].map(path => {
       const info = lstatSync(join(brain, path));
       expect(info.uid, "INITIAL_SHARED_GIT_SERVER_OWNER").toBe(21001);
       expect(info.gid, "INITIAL_SHARED_GIT_COMMON_GROUP").toBe(21001);
