@@ -14,9 +14,9 @@ import { Database } from "bun:sqlite";
 
 const root = mkdtempSync(join(tmpdir(), "odysseus-server-inference-"));
 const managed = process.argv.includes("--managed");
-const brain = managed ? "/brain-fixture/brain" : join(root, "brain");
+const brainPath = managed ? "/brain-fixture/brain" : join(root, "brain");
 const home = join(root, "home"), config = join(home, ".claude");
-for (const path of [...(managed ? [] : [brain]), home, config]) mkdirSync(path, { mode: 0o700 });
+for (const path of [...(managed ? [] : [brainPath]), home, config]) mkdirSync(path, { mode: 0o700 });
 const tokens = ["odysseus-first", "odysseus-changed", "odysseus-refreshed"];
 function save(index: number, expired = false) {
   writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: {
@@ -31,8 +31,8 @@ if (mode === "managed-custom") {
   writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
 }
 if (mode === "project-custom") {
-  mkdirSync(join(brain, ".claude"));
-  writeFileSync(join(brain, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
+  mkdirSync(join(brainPath, ".claude"));
+  writeFileSync(join(brainPath, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
 }
 
 const requests: Array<{ credential: number; model: string; history: number }> = [];
@@ -69,7 +69,7 @@ const manager = actualManager ? { ...actualManager, async release(...args: Param
   if (mode === "cleanup-failure" && releaseFailures++ === 0) throw Error("ODYSSEUS_NATIVE_RELEASE_REPLY_UNAVAILABLE");
   return result;
 } } : undefined;
-const runner = createClaudeTurnRunner({ backend: { brainPath: brain, queryFn: input => {
+const runner = createClaudeTurnRunner({ backend: { brainPath, queryFn: input => {
   const native = query(input);
   if (mode === "project-aba" || mode === "managed-aba" || mode === "cleanup-failure") {
     const control = native as typeof native & { getSettings(): Promise<unknown> };
@@ -77,7 +77,7 @@ const runner = createClaudeTurnRunner({ backend: { brainPath: brain, queryFn: in
     control.getSettings = async () => {
       const report = await getSettings();
       if (mode === "cleanup-failure") { await activeView?.cleanup(); return report; }
-      const directory = mode === "managed-aba" ? "/etc/claude-code" : join(brain, ".claude");
+      const directory = mode === "managed-aba" ? "/etc/claude-code" : join(brainPath, ".claude");
       mkdirSync(directory);
       writeFileSync(join(directory, mode === "managed-aba" ? "managed-settings.json" : "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
       rmSync(directory, { recursive: true });
@@ -115,14 +115,14 @@ try {
         } catch { recordingFailure = true; controller.abort(Error("Fixture observation persistence unavailable")); }
       },
     });
-    const view = activeView = manager ? await prepareNativeWorkerStartupView(brain, manager) : undefined;
+    const view = activeView = manager ? await prepareNativeWorkerStartupView(brainPath, manager) : undefined;
     const beforeRunnerListeners = new Set(tracked);
     const relayDirectories = readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-"));
     try {
       await runner.startTurn({ prompt: turn ? "Continue the Ithaca plan." : "Plan the return to Ithaca.",
         sessionId, profileId: "claude", signal: controller.signal, bridge,
         ...(view ? { workerStartupView: view } : {}),
-        workerSandbox: { brain, restricted: false, profile: managed ? "strict" : "governed", areas: [], scratchAliasesRemoved: [], protection: { paths: [], ancestors: [] }, egress: proxy },
+        workerSandbox: { brain: brainPath, restricted: false, profile: managed ? "strict" : "governed", areas: [], scratchAliasesRemoved: [], protection: { paths: [], ancestors: [] }, egress: proxy },
         workerStarted: worker => { const state = worker as { state?: { root: string } };
           if (state.state && !managed) { try { readFileSync(join(state.state.root, ".credentials.json")); projectedCredentials = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
         },
