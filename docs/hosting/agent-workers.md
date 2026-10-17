@@ -1205,3 +1205,31 @@ Ordinary backend defaults and their existing unrecorded-egress disclosure remain
 unchanged. In particular, this transport does not replace native account login
 with a setup token or grant a network connection from a tool-classification
 observation alone.
+
+## Paid CLI provider qualification
+
+The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
+qualifies existing first-party request shapes. It does not activate CLI relaying
+or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+
+| CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
+| --- | --- | --- | --- |
+| `index --embeddings`, hybrid `search` / Gemini embeddings | `apiKeyEnv`, default `GEMINI_API_KEY`; SDK client initialized lazily | Installed Google SDK; `GOOGLE_GEMINI_BASE_URL` override; POST model embed/batchEmbed; text/query and inline image/PDF | Vectors only; raw HTTP usage is lost by the installed SDK converter |
+| `process`, enrichment, asset descriptions / Gemini completions | `apiKeyEnv`, default `GEMINI_API_KEY`; lazy SDK client | Same SDK endpoint resolution; POST generateContent; image/PDF inline; video uses Files upload, polling and deletion | Completion text only |
+| Completion consumers / Anthropic | `apiKeyEnv`, default `ANTHROPIC_API_KEY`; lookup per call | Fixed `https://api.anthropic.com/v1/messages`; POST JSON with `x-api-key` | Completion text only; raw response usage is discarded |
+| `image <prompt>` / OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL`, default `https://api.openai.com/v1`; JSON generations or multipart edits with references/mask | Internal raw usage; estimated cost when the current model table supports it |
+| `image <prompt>` / Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL`, default `https://generativelanguage.googleapis.com/v1beta`; POST Interactions | Internal raw usage; model/resolution estimate, not a provider invoice |
+| Reranked search / JeV (unqualified by this audit) | Configured `apiKeyEnv`, default `TYPESAFE_API_KEY` | Configured `baseUrl`, default `https://api.typesafe.ai/v1/systemone`; POST JSON | Separate usage-bearing direct request; no CLI relay coverage inferred |
+
+The factories and concrete recipient provenance are implemented at
+(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:58-221`),
+(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:55-133`),
+(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:62-146`)
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-346`).
+Configured model labels, endpoint overrides and key-variable names select native
+routing; none grants permission to release a host-held credential.
+
+The [qualification and proposed integration contract](paid-cli-provider-qualification.md)
+records actual offline controls, SDK accounting loss, media lifecycle constraints
+and the host-side admission/receipt design needed before activation. Existing
+CLI JSON envelopes and ordinary backend defaults remain unchanged.
