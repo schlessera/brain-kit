@@ -11,6 +11,7 @@ const sharedPhase = sharedGit ? process.argv.find(arg => arg.startsWith("--share
 if (sharedPhase && !["private-positive", "fresh-git", "probe-state", "private", "fresh", "fresh-controls", "fresh-app", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
 const applicationQualification = process.argv.includes("--application-qualification");
 const bootPruneCapture = process.argv.includes("--boot-prune-capture");
+const dbRepeat = process.argv.includes("--db-repeat-index");
 const applicationScenario = applicationQualificationScenario(process.argv, applicationQualification);
 const probeStatePlacement = process.argv.includes("--probe-state-placement");
 const omitProbeStatePlacement = process.argv.includes("--omit-probe-state-placement");
@@ -102,7 +103,7 @@ if (process.argv[2] === "--index-child") {
   }
   if (sharedPhase === "fresh-app") await import("./ordinary-identity-ws.js" + "?shared-git=1&app-only=1");
   if (!sharedPhase || sharedPhase === "fresh") await import("./ordinary-identity-ws.js" + (sharedGit ? "?shared-git=1" : ""));
-  if (!sharedPhase || sharedPhase === "warm") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=governed&warm=1&shared-git=1" : "?profile=governed&warm=1"));
+  if (!sharedPhase || sharedPhase === "warm") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=governed&warm=1&shared-git=1" + (dbRepeat ? "&app-only=1" : "") : "?profile=governed&warm=1"));
   if (!sharedPhase || sharedPhase === "strict") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=strict&shared-git=1" : "?profile=strict"));
   }
 } else {
@@ -185,7 +186,7 @@ if (process.argv[2] === "--index-child") {
     for (const phase of phases) {
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
-        process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
+        process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(applicationScenario === "db-repeat" && phase === "warm" ? ["--db-repeat-index"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
         env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
       const [capturedOutput, capturedErrors, code] = await Promise.all([
         sharedGit && phase ? retainFixtureStream(child.stdout, `/proof/shared-git-${phase}-server.stdout`) : new Response(child.stdout).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })),

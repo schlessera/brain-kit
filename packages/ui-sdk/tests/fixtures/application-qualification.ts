@@ -12,11 +12,12 @@ export function applicationQualificationSelected(options: readonly string[]): bo
 export const APPLICATION_SCENARIOS = {
   governed: ["private-positive", "fresh-git", "fresh-app", "warm"],
   strict: ["private-positive", "fresh-git", "strict"],
+  "db-repeat": ["private-positive", "fresh-app", "warm"],
 } as const;
 export function applicationQualificationScenario(options: readonly string[], selected: boolean): keyof typeof APPLICATION_SCENARIOS | undefined {
   const value = options.find(option => option.startsWith("--application-scenario="))?.slice("--application-scenario=".length);
   if (value === undefined) return undefined;
-  if (!selected || !options.includes("--boot-prune-capture") || (value !== "governed" && value !== "strict"))
+  if (!selected || !options.includes("--boot-prune-capture") || (value !== "governed" && value !== "strict" && value !== "db-repeat"))
     throw Error("Application scenario requires named boot-capture application qualification");
   return value;
 }

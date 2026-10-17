@@ -78,12 +78,12 @@ test("fixed capture and explicit scenarios cannot silently alter original five-p
   expect(() => bootPruneCaptureSelected(["--boot-prune-capture"], false)).toThrow();
   expect(bootPruneCaptureSelected(["--boot-prune-capture"], true)).toBe(true);
   expect(applicationQualificationScenario([], true)).toBeUndefined();
-  for (const name of ["governed", "strict"] as const) {
+  for (const name of ["governed", "strict", "db-repeat"] as const) {
     const selected = [`--application-scenario=${name}`, "--boot-prune-capture"];
     expect(applicationQualificationScenario(selected, true)).toBe(name);
     expect(() => applicationQualificationScenario(selected, false)).toThrow();
     expect(() => applicationQualificationScenario(selected.slice(0, 1), true)).toThrow();
   }
   expect(() => applicationQualificationScenario(["--application-scenario=unknown", "--boot-prune-capture"], true)).toThrow();
-  expect(APPLICATION_SCENARIOS).toEqual({ governed: ["private-positive", "fresh-git", "fresh-app", "warm"], strict: ["private-positive", "fresh-git", "strict"] });
+  expect(APPLICATION_SCENARIOS).toEqual({ governed: ["private-positive", "fresh-git", "fresh-app", "warm"], strict: ["private-positive", "fresh-git", "strict"], "db-repeat": ["private-positive", "fresh-app", "warm"] });
 });

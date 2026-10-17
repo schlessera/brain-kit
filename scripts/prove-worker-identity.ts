@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { applicationQualificationSelected, applicationQualificationScenario, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
 import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVariant, bootPruneCaptureSelected } from "./native-proof/owned-prune-variant.js";
+import { dbRepeatStageVariant } from "./native-proof/db-repeat-variant.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
 
@@ -66,11 +67,12 @@ if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--application-qualification" && arg !== "--owned-prune-diagnostic" && arg !== "--boot-prune-capture" && !/^--application-scenario=(governed|strict)$/.test(arg)) || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification] [--owned-prune-diagnostic] [--boot-prune-capture] [--application-scenario=governed|strict]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--application-qualification" && arg !== "--owned-prune-diagnostic" && arg !== "--boot-prune-capture" && !/^--application-scenario=(governed|strict|db-repeat)$/.test(arg)) || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification] [--owned-prune-diagnostic] [--boot-prune-capture] [--application-scenario=governed|strict|db-repeat]");
     const applicationQualification = applicationQualificationSelected(options);
     const ownedPruneDiagnostic = ownedPruneDiagnosticSelected(options, applicationQualification);
     const bootPruneCapture = bootPruneCaptureSelected(options, applicationQualification);
     const applicationScenario = applicationQualificationScenario(options, applicationQualification);
+    if (applicationScenario === "db-repeat" && ownedPruneDiagnostic) throw Error("DB repeat qualification forbids extra diagnostic variants");
     const image = options.find(arg=>arg.startsWith("--image="))?.slice("--image=".length) ?? NATIVE_PROOF_IMAGE;
     const sharedGit = options.includes("--shared-git");
     const privateGitInputs = options.includes("--private-git-inputs");
@@ -108,6 +110,11 @@ if (import.meta.main) {
     if (bootVariant) {
       writeFileSync(join(artifact, "boot-scratch-prune.fixture.ts"), bootVariant.cron);
       writeFileSync(join(artifact, "boot-prune-substitution.json"), JSON.stringify(bootVariant.substitution, null, 2));
+    }
+    const dbVariant = applicationScenario === "db-repeat" ? dbRepeatStageVariant(readFileSync(join(source, "packages/ui-sdk/src/server/worker-native-output.ts"), "utf8")) : undefined;
+    if (dbVariant) {
+      writeFileSync(join(artifact, "db-repeat-output.fixture.ts"), dbVariant.source);
+      writeFileSync(join(artifact, "db-repeat-stage-substitution.json"), JSON.stringify(dbVariant.substitution, null, 2));
     }
     const helperSource = join(source, "packages/ui-sdk/tests/fixtures/identity-helper.c");
     const helper = join(artifact, "identity-helper");
@@ -279,9 +286,10 @@ exit "$case_code"
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
-      proofScope: applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
-      collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null, bootPruneHashes: bootVariant?.hashes ?? null,
+    const metadata = { image, applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" || applicationScenario === "db-repeat" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
+      skippedGitPhases: applicationScenario === "db-repeat" ? ["fresh-standalone", "warm-standalone"] : [],
+      proofScope: applicationScenario === "db-repeat" ? "application-scenario-db-repeat-boot-prune-capture-stage-observation-variant" : applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+      collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null, bootPruneHashes: bootVariant?.hashes ?? null, dbRepeatStageHashes: dbVariant?.hashes ?? null,
       skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls", ...(applicationQualification ? APPLICATION_SKIPPED_CONTROLS : []), ...(probeStatePlacement ? ["private-git-inputs", "fresh-controls", "fresh-app", "warm-app", "strict-app"] : [])] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
       helperSourceSha256: hash(readFileSync(helperSource)), helperSha256: hash(readFileSync(helper)),
@@ -294,6 +302,7 @@ exit "$case_code"
       ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
       "--mount", `type=bind,source=${artifact},target=/proof`,
       "--mount", `type=bind,source=${source},target=/repo,readonly`,
+      ...(dbVariant ? ["--mount", `type=bind,source=${join(artifact, "db-repeat-output.fixture.ts")},target=/repo/packages/ui-sdk/src/server/worker-native-output.ts,readonly`] : []),
       ...(bootVariant ? ["--mount", `type=bind,source=${join(artifact, "boot-scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`] : []),
       ...(pruneVariant ? [...(!bootVariant ? ["--mount", `type=bind,source=${join(artifact, "scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`] : []),
         "--mount", `type=bind,source=${join(artifact, "host-boundary.fixture.ts")},target=/repo/packages/ui-server/src/brain/host-boundary.ts,readonly`] : []),

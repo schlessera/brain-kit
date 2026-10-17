@@ -1,3 +1,4 @@
+import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observation.js";
 import { installBootPruneCapture } from "./boot-prune-capture.js";
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
@@ -18,6 +19,8 @@ let ownedBootPrune: ReturnType<typeof installBootPruneCapture> | undefined;
 const appOnly = sharedGit && new URL(import.meta.url).searchParams.has("app-only");
 const warm = new URL(import.meta.url).searchParams.has("warm");
 const profile = new URL(import.meta.url).searchParams.get("profile") === "strict" ? "strict" : "governed";
+const dbRepeat = sharedGit && warm && process.argv.includes("--db-repeat-index");
+let dbObservation: ReturnType<typeof installDbRepeatObservation> | undefined;
 const stageStarted = performance.now();
 const stage = (stage: string) => { if (sharedGit) console.log(JSON.stringify({ sharedAppStage: { profile, warm, stage, elapsedMs: performance.now() - stageStarted } })); };
 stage("module-loaded");
@@ -51,6 +54,7 @@ Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]
   const launch = options?.env?.BRAIN_WORKER_LAUNCH;
   if (launch) {
     const outer = JSON.parse(launch);
+    dbObservation?.observe(outer);
     const source = outer.maintenance?.git?.source;
     if (source && !observedAdapters.has(source)) {
       observedAdapters.add(source);
@@ -96,6 +100,7 @@ try {
     stage("stage-controls:done");
   }
   recordFixtureRootMetadata("before-app");
+  if (dbRepeat) dbObservation = installDbRepeatObservation();
   if (bootPruneCapture) ownedBootPrune = installBootPruneCapture();
   stage("app-create:start");
   app = await createApp({ workerProfile: profile, config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: secret,
@@ -113,6 +118,7 @@ try {
     await captureWarmMaintenanceDatabase(brain);
     stage("warm-db:done");
   }
+  dbObservation?.begin(1);
   stage("index:start");
   const index = await fetch(`http://127.0.0.1:${server.port}/api/brain/index`, { method: "POST",
     headers: { cookie, origin: `http://127.0.0.1:${server.port}`, "content-type": "application/json" }, body: "{}" });
@@ -122,6 +128,16 @@ try {
     diagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   expect(index.status, warm ? "ACTUAL_MANAGED_WARM_AUTHENTICATED_INDEX" : "ACTUAL_MANAGED_AUTHENTICATED_INDEX").toBe(200);
   expect(JSON.parse(indexed), "ACTUAL_MANAGED_AUTHENTICATED_INDEX_PUBLISHED").toEqual({ success: true });
+  if (dbObservation) {
+    dbObservation.published(1, index.status, JSON.parse(indexed));
+    stage("repeat-index:start");
+    const repeated = await repeatWarmIndex(dbObservation, server.port!, cookie);
+    expect(repeated.status, "ACTUAL_MANAGED_REPEATED_WARM_AUTHENTICATED_INDEX").toBe(200);
+    expect(repeated.body, "ACTUAL_MANAGED_REPEATED_WARM_INDEX_PUBLISHED").toEqual({ success: true });
+    console.log(JSON.stringify({ actualRepeatedWarmIndex: { firstStatus: index.status, secondStatus: repeated.status,
+      physicalStages: repeated.physicalStages, continuousBrainAndUiDatabase: true } }));
+    stage("repeat-index:done");
+  }
   const NativeWebSocket = WebSocket as unknown as { new(url: string, options: { headers: Record<string, string> }): WebSocket };
   stage("ws:start");
   socket = new NativeWebSocket(`ws://127.0.0.1:${server.port}/ws`, { headers: { cookie, origin: `http://127.0.0.1:${server.port}` } });
@@ -164,4 +180,4 @@ try {
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),
     "SHARED_GIT_FRESH_WARM_CLI_SCRATCH_DIAGNOSTICS_CLEAN").toEqual([]);
-  } finally { try { ownedBootPrune?.restore(); } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } } }
+  } finally { try { dbObservation?.restore(); } finally { try { ownedBootPrune?.restore(); } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } } } }
