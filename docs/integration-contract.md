@@ -547,3 +547,5 @@ authenticated recovery routes with an explicit logical scope, described in
 [the HTTP contract](integration-contract/http.md#persisted-claude-auto-memory-history-additive-1658).
 The host-only copy-out callback is described in
 [the package API](integration-contract/package-api.md#native-persisted-claude-memory-observation-additive-1658).
+
+<!-- Native CI qualification fixture for #2141; this branch is not a release candidate. -->
