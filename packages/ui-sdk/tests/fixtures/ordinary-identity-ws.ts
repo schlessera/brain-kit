@@ -122,10 +122,14 @@ try {
   expect(frames.some(frame => frame.type === "error"), "ACTUAL_MANAGED_WS_ADMISSION_NO_ERROR").toBe(false);
   const unavailable = observability.logs.records().filter(log => String(log.body).includes("the governed profile is unavailable"));
   expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
-} finally { try { socket?.close(); server?.stop(true); await app?.close();
+} finally { try {
+  try { socket?.close(); } finally {
+    try { server?.stop(true); } finally {
+      try { await app?.close(); } finally { provider.stop(true); }
+    }
+  }
   recordFixtureRootMetadata("after-app");
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
-  provider.stop(true);
   if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),
     "SHARED_GIT_FRESH_WARM_CLI_SCRATCH_DIAGNOSTICS_CLEAN").toEqual([]);
   } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } }
