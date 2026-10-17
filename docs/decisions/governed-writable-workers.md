@@ -1690,6 +1690,27 @@ holds.
 A file that stays unreadable is journaled by name and size only and is not
 revertible. It is recorded as a governance event and as a roadblock.
 
+Concrete Git input preparation follows the same identity boundary. Its fixed
+first-party collector runs against the retained read-only startup checkpoint,
+not the writable output. It collects only Git configuration, repository hook
+names and nested `.gitattributes` bytes. Private modes remain private to the
+server; a worker-owned `0700` directory or `0600` file needs no permission
+rewrite. The collector imports no brain code, gains no network, and cannot
+select a new input root. The host binds its root receipt to the retained
+checkpoint and revalidates the original view, command and output identity
+before consuming it (`privateGitSources`,
+`packages/ui-server/src/brain/maintenance-git.ts:14-38`).
+
+Attribute bytes round-trip UTF-8 exactly; aliases, unsupported types, unreadable
+inputs and bound/depth/entry overflow refuse instead of inventing absent
+policy. A configured hook path outside the brain is never enumerated. Git's
+actual configuration query keeps the same host-resolved runtime and cleared
+worker environment; the existing adapter supplies the immutable hooks and
+attributes to later Git consumers. Credentialed and no-helper preparation keep
+their existing paths (`collectMaintenanceGitSources`,
+`packages/ui-server/src/brain/maintenance-git-source.ts:23-120`).
+
+
 **Verification from inside a real worker.** The probe checks:
 
 - the outside uid is not the server's and is not 0;

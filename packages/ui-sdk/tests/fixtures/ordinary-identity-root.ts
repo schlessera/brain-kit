@@ -7,6 +7,7 @@ const brain = "/brain-fixture/brain";
 const sharedGit = process.argv.includes("--shared-git");
 const sharedPhase = sharedGit ? process.argv.find(arg => arg.startsWith("--shared-phase="))?.slice("--shared-phase=".length) : undefined;
 if (sharedPhase && !["fresh", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
+const privateGitInputs = process.argv.includes("--private-git-inputs");
 function command(argv: string[]) {
   const child = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
   expect(child.exitCode, child.stderr.toString()).toBe(0); return child.stdout.toString();
@@ -67,6 +68,7 @@ if (process.argv[2] === "--index-child") {
     console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
     await import("../restricted-relay-qualification.native.js");
   }
+  if (privateGitInputs && (!sharedPhase || sharedPhase === "fresh")) await import("../private-git-inputs.native.js");
   if (!sharedPhase || sharedPhase === "fresh") await import("./ordinary-identity-ws.js" + (sharedGit ? "?shared-git=1" : ""));
   if (!sharedPhase || sharedPhase === "warm") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=governed&warm=1&shared-git=1" : "?profile=governed&warm=1"));
   if (!sharedPhase || sharedPhase === "strict") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=strict&shared-git=1" : "?profile=strict"));
@@ -96,6 +98,7 @@ if (process.argv[2] === "--index-child") {
   expect([0, 1], staged.stderr.toString()).toContain(staged.exitCode);
   if (staged.exitCode === 1) command([...git, "-C", brain, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Prepare the Ithaca voyage"]);
   chmodSync(brain, 0o2775); chmodSync(join(brain, "notes"), 0o2775); chmodSync(join(brain, ".brain"), 0o2775); chmodSync(join(brain, ".brain/scratch"), 0o2775);
+  if (privateGitInputs) command([...git, "-C", brain, "config", "core.hooksPath", "private-hooks"]);
   if (sharedGit) {
     const nodes = [".git", ".git/objects", ".git/refs", ".git/config", ".git/HEAD", ".git/index", ".git/COMMIT_EDITMSG"].map(path => {
       const info = lstatSync(join(brain, path));
@@ -149,7 +152,7 @@ if (process.argv[2] === "--index-child") {
     for (const phase of phases) {
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
-        process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
+        process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
         env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
       const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       aggregateOutput += output; aggregateErrors += errors;
