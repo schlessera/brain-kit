@@ -102,6 +102,7 @@ export "." (./src/index.ts)
   type ClientToolDenial
   type ConfiguredModule
   type ConflictVersionSelection
+  type ContentRendererDeclaration
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -861,8 +862,12 @@ export "./internal" (./src/internal.ts)
   DEFAULT_OUTPUT_STAGING_BYTES
   DEFAULT_TURN_TEMP_BYTES
   DEFAULT_WORKER_STATE_BYTES
+  type EgressProxyOptions
+  type EgressRecord
   GIT_LOCK_KEY
   HOST_MASKS
+  type HostCredentialDomain
+  HostCredentialExclusionError
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
@@ -926,6 +931,8 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_PROVIDER_KEYS
   WORKER_AREAS
   WORKER_AREA_ROOT
+  WORKER_EGRESS_DIR
+  WORKER_EGRESS_SOCKET
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
@@ -962,6 +969,7 @@ export "./internal" (./src/internal.ts)
   type WorkerStateErrorClass
   type WorkerStateHandle
   type WorkerStateLimits
+  acquireHostCredentialExclusion
   applyClassification
   archivesDocument
   assertScratchMask
@@ -1036,10 +1044,12 @@ export "./internal" (./src/internal.ts)
   resolveWorkerStateLimits
   restrictedReadPaths
   retainWorkerStartupView
+  rewriteWorkerRtk
   runMaintenanceWorker
   runMaintenanceWorkerSync
   sessionPromptContext
   sessionReplay
+  startEgressProxy
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit
@@ -5559,6 +5569,7 @@ signatures (every public export and the types it is made of)
     }
   ConfiguredModule (packages/ui-sdk/src/module-settings.ts)
     export interface ConfiguredModule {
+        version?: string | null;
         renderers?: Record<string, {
             fences?: string[];
             extensions?: string[];
@@ -5594,6 +5605,14 @@ signatures (every public export and the types it is made of)
   ContentRenderer (packages/ui-sdk/src/client/content-renderers.ts)
     export interface ContentRenderer extends StaticRenderer {
         Component: ComponentType<ContentRendererProps>;
+    }
+  ContentRendererDeclaration (packages/ui-sdk/src/module-settings.ts)
+    export interface ContentRendererDeclaration {
+        module: string;
+        version: string | null;
+        name: string;
+        fences: readonly string[];
+        extensions: readonly string[];
     }
   ContentRendererFixture (packages/ui-sdk/src/testing/content-renderers.ts)
     export interface ContentRendererFixture {
@@ -9726,6 +9745,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalSummary {
+        configurationCoverage?: "incomplete" | "complete" | "unknown";
         scope?: TurnScopeSummary;
         state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
         changedFiles: number | null;
@@ -14528,6 +14548,11 @@ signatures (every public export and the types it is made of)
                 tokens: z.ZodNullable<z.ZodNumber>;
             }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
+            configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -15293,6 +15318,11 @@ signatures (every public export and the types it is made of)
                     tokens: z.ZodNullable<z.ZodNumber>;
                 }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
+                configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -17577,6 +17607,11 @@ signatures (every public export and the types it is made of)
                     tokens: z.ZodNullable<z.ZodNumber>;
                 }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
+                configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -17966,6 +18001,11 @@ signatures (every public export and the types it is made of)
                 tokens: z.ZodNullable<z.ZodNumber>;
             }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
+            configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -18243,6 +18283,11 @@ signatures (every public export and the types it is made of)
             tokens: z.ZodNullable<z.ZodNumber>;
         }, z.core.$loose>>>;
         changedFiles: z.ZodNullable<z.ZodNumber>;
+        configurationCoverage: z.ZodOptional<z.ZodEnum<{
+            complete: "complete";
+            incomplete: "incomplete";
+            unknown: "unknown";
+        }>>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
         kind: z.ZodOptional<z.ZodEnum<{

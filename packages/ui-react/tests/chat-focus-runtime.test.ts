@@ -101,6 +101,7 @@ async function open(prompt: string): Promise<Page> {
   const composer = page.locator("textarea.bk-composer");
   expect(await composer.count()).toBe(1);
   await composer.fill(prompt);
+  await composer.locator("..").locator('[aria-label="Send"]').waitFor();
   await composer.press("Enter");
   return page;
 }

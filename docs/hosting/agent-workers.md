@@ -71,6 +71,18 @@ masks the helper-side source paths. Runtime directories use group access
 `0750` and relay/proxy sockets `0660`. Shared brain/scratch/workspace
 directories require the host's setgid ownership arrangement.
 
+The explicitly prepared ordinary egress proxy follows that same helper
+selection. Its directory and socket remain owned by the server and use its
+shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
+cannot choose another IPC group (`const separateIdentity`,
+`packages/ui-sdk/src/server/egress-proxy.ts:57-63`). Without a helper they retain
+owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
+canonical paths, server ownership, the expected helper group, exact modes and
+socket type. Missing entries, symlinks and widened permissions refuse before
+the payload starts (`if (input.egress)`,
+`packages/ui-sdk/src/server/worker-launcher.ts:515-530`). This does not select
+the ordinary inference route or enable the proxy by default.
+
 Native output stages use the existing manager's active stage identity. The
 manager transfers a root-owned sealed metadata descriptor containing the
 keeper PID/start identity, mount namespace identity, authorized merged and
@@ -492,6 +504,21 @@ Unix socket below them is reachable. The server's Bun and its own
 installation are bound back read-only, so a runtime installed under a home
 keeps working; nothing the brain names is.
 
+An owned installed runtime may also live beneath `/tmp` (#1844/#1901).
+Private temp is mounted first; only its resolved executable/package/dependency
+closure is then retained read-only, including required installation aliases.
+Unrelated host-temp files stay hidden, and explicit private files/directories
+inside the closure stay masked through those aliases. The temp allowance,
+other workers' isolation and the profile's brain permissions stay intact.
+
+Use a location separate from reserved worker scratch, runtime state,
+writable-area aliases, XDG directories, maintenance HOME/state/output, relays,
+proxies, `/proc` and `/dev`. A runtime path or alias overlapping one of these,
+including an ancestor or descendant, is refused before dispatch with the
+offending path. Install the owned runtime in a noncolliding directory; this
+restriction does not reject ordinary `/tmp` installations. It never falls back
+to running outside the worker or exposing the host's entire temp directory.
+
 What runs there, and how it meets the brain's **writer gate**:
 
 | Work | Credentials and network | Writer gate |
@@ -690,7 +717,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:61-134`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:64-243`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -880,7 +907,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:66-91`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:67-92`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1138,3 +1165,71 @@ runs. Setup refusal ends the unstarted worker.
 This startup qualification does not provide a separate worker UID or the
 external descriptor broker. The separate-UID implementation remains tracked
 in [#1677](https://github.com/schlessera/brain-kit/issues/1677).
+
+
+## Egress transport qualification
+
+The first-party internal transport offers HTTP forwarding and opaque CONNECT
+through a private Unix socket. An explicitly selected governed or strict worker
+has a private network namespace and a trusted loopback forwarder. Its existing
+host masks, private sized temp, protected brain paths and dropped capabilities
+remain in force. The host transport checks destination rules before opening an
+upstream, charges a conservative HTTP wire bound (target, headers, bodies and framing)
+and exact opaque CONNECT stream bytes against one turn counter, and
+requires explicit host approval for outward destinations and cleartext writes.
+Records contain host, port, method, cleartext path where observable, payload
+bytes, accounting coverage, elapsed time and outcome; they omit headers, bodies
+and query strings. HTTP accounting includes conservative framing allowances,
+so it is an enforced upper bound rather than an exact network-byte measurement.
+A CONNECT record never invents a cleartext path or method inside TLS.
+
+Offline qualification on 2026-10-16 used Bun 1.4.2 and real bubblewrap workers
+in both profiles. All upstreams were fixture loopback listeners. The same
+controls preserve zero effective capabilities and refuse direct TCP access
+and a host home-directory Unix socket.
+
+| Measured path | Result |
+| --- | --- |
+| Bun fetch with explicit HTTP proxy | Fixture response through the Unix transport |
+| Bun fetch with proxy environment only | Fixture response; this installed Bun honors HTTP_PROXY |
+| curl over HTTP | Fixture response and cleartext path and conservative wire accounting |
+| curl over HTTPS with a fixture CA | Verified TLS through CONNECT; only opaque bytes recorded |
+| Destination omitted from allowlist | Refused before upstream contact |
+| Byte budget exhausted across requests | Refused with max_bytes_per_turn |
+| Turn cancelled during outward approval | Pending connection closed and private proxy storage removed |
+
+These controls qualify the transport primitive, not default backend activation
+or credential-free ordinary inference. The remaining inference, authentication,
+Git/SSH, Chromium and complete socket-inventory qualification belongs to #1665.
+Ordinary backend defaults and their existing unrecorded-egress disclosure remain
+unchanged. In particular, this transport does not replace native account login
+with a setup token or grant a network connection from a tool-classification
+observation alone.
+
+## Paid CLI provider qualification
+
+The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
+qualifies existing first-party request shapes. It does not activate CLI relaying
+or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+
+| CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
+| --- | --- | --- | --- |
+| `index --embeddings`, hybrid `search` / Gemini embeddings | `apiKeyEnv`, default `GEMINI_API_KEY`; SDK client initialized lazily | Installed Google SDK; `GOOGLE_GEMINI_BASE_URL` override; POST model embed/batchEmbed; text/query and inline image/PDF | Vectors only; raw HTTP usage is lost by the installed SDK converter |
+| `process`, enrichment, asset descriptions / Gemini completions | `apiKeyEnv`, default `GEMINI_API_KEY`; lazy SDK client | Same SDK endpoint resolution; POST generateContent; image/PDF inline; video uses Files upload, polling and deletion | Completion text only |
+| Completion consumers / Anthropic | `apiKeyEnv`, default `ANTHROPIC_API_KEY`; lookup per call | Fixed `https://api.anthropic.com/v1/messages`; POST JSON with `x-api-key` | Completion text only; raw response usage is discarded |
+| `image <prompt>` / OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL`, default `https://api.openai.com/v1`; JSON generations or multipart edits with references/mask | Internal raw usage; estimated cost when the current model table supports it |
+| `image <prompt>` / Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL`, default `https://generativelanguage.googleapis.com/v1beta`; POST Interactions | Internal raw usage; model/resolution estimate, not a provider invoice |
+| Reranked search / JeV (unqualified by this audit) | Configured `apiKeyEnv`, default `TYPESAFE_API_KEY` | Configured `baseUrl`, default `https://api.typesafe.ai/v1/systemone`; POST JSON | Separate usage-bearing direct request; no CLI relay coverage inferred |
+
+The factories and concrete recipient provenance are implemented at
+(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:58-221`),
+(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:55-133`),
+(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:62-146`)
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-346`).
+Configured model labels, endpoint overrides and key-variable names select native
+routing; none grants permission to release a host-held credential.
+
+The [qualification and proposed integration contract](paid-cli-provider-qualification.md)
+records actual offline controls, SDK accounting loss, media lifecycle constraints
+and the host-side admission/receipt design needed before activation. Existing
+CLI JSON envelopes and ordinary backend defaults remain unchanged.

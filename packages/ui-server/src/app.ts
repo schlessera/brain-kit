@@ -6,6 +6,7 @@ import { createTurnBudgets } from "./brain/turn-budgets.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
@@ -18,6 +19,7 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
@@ -230,8 +232,8 @@ export interface BrainUiApp {
   /** Cancel every running turn (used on shutdown). Returns true if any was. */
   cancelActiveTurns(): boolean;
   /**
-   * Release process-held resources (the SQLite handle). Resolves once the
-   * scratch prune pass in flight, if any, has been killed and has exited.
+   * Refuse new HTTP requests and drain admitted handlers before disposing of
+   * their operational state. Stalled request bodies are cancelled on close.
    */
   close(): Promise<void>;
 }
@@ -769,6 +771,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createStatusRoutes({
       sourceCommit: config.sourceCommit,
+      getContentRenderers: async () => brain.modules ? declaredContentRenderers((await brain.modules()).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
       // Undefined when the injected consumer cannot be read back (a real OTel
@@ -912,9 +915,64 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     });
   }
 
+  const httpRequests = new Map<Promise<void>, () => void>();
+  const fetch: Hono["fetch"] = (request, env, executionCtx) => {
+    if (host.closing) return Response.json({ error: "Server shutting down" }, { status: 503,
+      headers: { "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" } });
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    let cancelBody = (_reason: unknown) => {};
+    let removeAbort = () => {};
+    // Hono's JSON, multipart and bounded raw readers otherwise can wait on an
+    // unfinished client body forever. Own the reader only when it is pulled;
+    // shutdown errors its consumer immediately and does not await an arbitrary
+    // producer's cancel promise. Normal bytes, metadata and route caps remain.
+    if (request.body && !request.bodyUsed && !request.body.locked) {
+      const original = request, body = request.body;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      let ended = false;
+      let interruptCancel!: () => void;
+      const interrupted = new Promise<void>(resolve => { interruptCancel = resolve; });
+      const cancelSource = (reason: unknown) => reader ? reader.cancel(reason) : body.cancel(reason);
+      cancelBody = reason => {
+        // A route may already be awaiting producer cancellation after its own
+        // byte cap. Shutdown must release that wait as well as active reads.
+        interruptCancel();
+        if (ended) return;
+        ended = true;
+        controller.error(reason);
+        void cancelSource(reason).catch(() => {});
+      };
+      const readable = new ReadableStream<Uint8Array>({
+        start(value) { controller = value; },
+        async pull() {
+          try {
+            reader ??= body.getReader();
+            const chunk = await reader.read();
+            if (ended) return;
+            if (chunk.done) { ended = true; controller.close(); reader.releaseLock(); }
+            else controller.enqueue(chunk.value);
+          } catch (error) { cancelBody(error); }
+        },
+        cancel(reason) {
+          if (!ended) { ended = true; return Promise.race([cancelSource(reason), interrupted]); }
+        },
+      }, { highWaterMark: 0 });
+      request = new Request(original, { method: original.method, body: readable });
+      const disconnected = () => cancelBody(original.signal.reason);
+      original.signal.addEventListener("abort", disconnected, { once: true });
+      removeAbort = () => original.signal.removeEventListener("abort", disconnected);
+      if (original.signal.aborted) disconnected();
+    }
+    const complete = () => { removeAbort(); httpRequests.delete(pending); finish(); };
+    httpRequests.set(pending, () => cancelBody(new HTTPException(503, { message: "Server shutting down" })));
+    try { return Promise.resolve(app.fetch(request, env, executionCtx)).finally(complete); }
+    catch (error) { complete(); throw error; }
+  };
   let closing: Promise<void> | undefined;
   return {
-    fetch: app.fetch,
+    fetch,
     websocket,
     config,
     authMode,
@@ -929,7 +987,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       host.closing = true;
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      for (const cancelBody of httpRequests.values()) cancelBody();
+      // Cancel turn work before joining HTTP handlers that may be waiting for
+      // its locks. Keep operational state alive until admitted dispatch ends.
+      await attempt(() => { host.coordinator.cancelAll("Server shutting down"); });
       await attempt(() => inbox.close());
+      await Promise.allSettled([...httpRequests.keys()]);
       await attempt(() => host.close());
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
       await attempt(() => subscription.close());

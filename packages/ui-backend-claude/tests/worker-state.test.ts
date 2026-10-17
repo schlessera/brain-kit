@@ -221,3 +221,22 @@ test("a transcript whose saved prefix changed is not rewritten", () => {
   expect(rewriteAppendedAnswers(Buffer.concat([before, Buffer.from(`${record("c")}\n`)]), prefix, () => "rewritten").toString())
     .toBe(`${record("a")}\n${record("rewritten")}\n`);
 });
+
+test("host inference state omits the native credential store while retaining exact settings, account metadata, memory and resumed history", () => {
+  const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "odysseus-host-access", refreshToken: "odysseus-host-refresh" } });
+  fs.writeFileSync(join(saved, ".credentials.json"), credentials);
+  const account = JSON.stringify({ oauthAccount: { accountUuid: "ithaca-account", organizationUuid: "ithaca-organization" } });
+  fs.writeFileSync(join(saved, ".claude.json"), account);
+  const settings = JSON.stringify({ model: "claude-haiku-4-5" }); fs.writeFileSync(join(saved, "settings.json"), settings);
+  put(ID, "Odysseus returns to Ithaca.\n");
+  fs.mkdirSync(join(saved, project, "memory")); fs.writeFileSync(join(saved, project, "memory", "voyage.md"), "Athena's counsel.\n");
+  const snapshot = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { resume: ID, ledger, limits: DEFAULT, hostInference: true });
+  states.push(snapshot); const path = tmpfs(); snapshot.populate(path);
+  expect(fs.existsSync(join(path, ".credentials.json")), "HOST_INFERENCE_NEVER_COPIES_NATIVE_CREDENTIAL_STORE").toBe(false);
+  expect(fs.readFileSync(join(path, "settings.json"), "utf8")).toBe(settings);
+  expect(fs.readFileSync(join(path, ".claude.json"), "utf8")).toBe(account);
+  expect(fs.readFileSync(join(path, project, `${ID}.jsonl`), "utf8")).toBe("Odysseus returns to Ithaca.\n");
+  expect(fs.readFileSync(join(path, project, "memory", "voyage.md"), "utf8")).toBe("Athena's counsel.\n");
+  snapshot.persist(path);
+  expect(fs.readFileSync(join(saved, ".credentials.json"), "utf8"), "HOST_CREDENTIAL_STORE_UNCHANGED_BY_COPY_OUT").toBe(credentials);
+});

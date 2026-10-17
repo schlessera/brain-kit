@@ -1,13 +1,28 @@
-import { createContext, Suspense, useContext, type ReactNode } from "react";
+import { createContext, Suspense, useContext, useEffect, type ReactNode } from "react";
 import { defaultContentRendererRegistry, type ContentRenderer, type ContentRendererProps } from "@schlessera/brain-ui-sdk/client";
 import { useColorScheme } from "../hooks/use-color-scheme.js";
 import { ErrorBoundary } from "./layout/error-boundary.js";
 import { registerBuiltinContentRenderers } from "../content-renderers/index.js";
 
+import { useBrainUiRoot, useRootStore } from "../root-context.js";
+import { warnContentRendererVersions } from "../content-renderers/register.js";
+
 /** Surface context also reaches nested markdown fences without changing the parser. */
 export const ContentRendererSurface = createContext<{ mode: ContentRendererProps["mode"]; path?: string }>({ mode: "chat" });
 /** Server declarations are connected by the host's bundling integration. */
-export const ContentRendererDeclarations = createContext<readonly { fences?: readonly string[]; extensions?: readonly string[] }[]>([]);
+export const ContentRendererDeclarations = createContext<readonly { fences?: readonly string[]; extensions?: readonly string[] }[] | null>(null);
+
+/** Server metadata is scoped to the current UI root and authenticated account. */
+export function useContentRendererDeclarations() {
+  const override = useContext(ContentRendererDeclarations);
+  const root = useBrainUiRoot();
+  const declarations = useRootStore("contentRenderers", state => state.declarations);
+  const warned = useRootStore("contentRenderers", state => state.warned);
+  const socketOpens = useRootStore("connection", state => state.socketOpens);
+  useEffect(() => { if (!override) void root.stores.contentRenderers.getState().load(); }, [root, override, socketOpens]);
+  useEffect(() => { warnContentRendererVersions(declarations, root.config.devTools, warned); }, [declarations, root, warned]);
+  return override ?? declarations;
+}
 
 /** Longest exact suffix wins, so .diagram.yaml precedes .yaml. */
 export function rendererForPath(path: string): ContentRenderer | null {
@@ -24,10 +39,10 @@ export function rendererForPath(path: string): ContentRenderer | null {
 export function ContentRendererView({ source, language, path, fallback }: { source: string; language?: string; path?: string; fallback: ReactNode }) {
   registerBuiltinContentRenderers();
   const surface = useContext(ContentRendererSurface);
-  const declarations = useContext(ContentRendererDeclarations);
+  const declarations = useContentRendererDeclarations();
   const effectivePath = path ?? surface.path;
   const renderer = language ? defaultContentRendererRegistry.forLanguage(language) : path ? rendererForPath(path) : null;
-  const declared = declarations.some(entry => language ? entry.fences?.includes(language) : path && entry.extensions?.some(extension => path.endsWith(extension)));
+  const declared = declarations.some(entry => language ? entry.fences?.includes(language) : path && entry.extensions?.some(extension => path.toLowerCase().endsWith(extension.toLowerCase())));
   if (!renderer) return <>{fallback}{declared && <p role="status">Renderer not bundled.</p>}</>;
   return <RenderedContent key={`${language ?? path}`} renderer={renderer} source={source} path={effectivePath} mode={surface.mode} fallback={fallback} />;
 }

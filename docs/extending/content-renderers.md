@@ -21,7 +21,11 @@ without one must retain the code block. Keep client imports out of this entry.
 
 ## Register at build time
 
-Call `registerContentRenderers(pack)` from the client build entry.
+Call `registerContentRendererPack(pack, { name, version })` from
+`@schlessera/brain-ui-react` in the client build entry. The name is the module
+manifest name and version is the bundled module package version. This registers
+the SDK pack and lets development roots compare server metadata.
+The lower-level SDK `registerContentRenderers(pack)` remains available.
 `defaultContentRendererRegistry.forLanguage(language)` and
 `.forExtension(extension)` perform exact, case-sensitive lookups; extensions
 include the leading dot, including compound extensions like `.odyssey.yaml`.

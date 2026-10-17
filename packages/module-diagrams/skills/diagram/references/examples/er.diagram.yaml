@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "type": "er",
+  "title": "Voyages and provisions",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "voyage",
+      "label": "Voyage",
+      "at": [
+        48,
+        64
+      ],
+      "size": [
+        216,
+        112
+      ],
+      "fields": [
+        {
+          "name": "voyage_id",
+          "key": "PK"
+        },
+        {
+          "name": "destination",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "provision",
+      "label": "Provision",
+      "at": [
+        480,
+        64
+      ],
+      "size": [
+        216,
+        128
+      ],
+      "fields": [
+        {
+          "name": "provision_id",
+          "key": "PK"
+        },
+        {
+          "name": "voyage_id",
+          "key": "FK"
+        },
+        {
+          "name": "quantity",
+          "type": "count"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "to": "provision",
+      "fromCardinality": "1",
+      "toCardinality": "1..*",
+      "label": "CARRIES",
+      "from": "voyage"
+    }
+  ],
+  "layouts": {
+    "narrow": {
+      "width": 320,
+      "height": 600,
+      "nodes": [
+        {
+          "id": "voyage",
+          "at": [
+            48,
+            64
+          ],
+          "size": [
+            216,
+            112
+          ]
+        },
+        {
+          "id": "provision",
+          "at": [
+            48,
+            336
+          ],
+          "size": [
+            216,
+            128
+          ]
+        }
+      ]
+    }
+  }
+}
