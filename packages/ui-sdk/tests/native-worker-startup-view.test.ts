@@ -174,7 +174,7 @@ test("no-helper production publisher copies real readable output without requiri
     expect(stageReleases, "NO_HELPER_OWNED_STAGE_RELEASED").toBe(1);
     expect(processStateLedger().outputStagingHeld).toBe(held);
   } finally {
-    try { await output?.cleanup(); await view?.cleanup(); }
+    try { try { await output?.cleanup(); } finally { await view?.cleanup(); } }
     finally { if (previousHelper === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER; else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = previousHelper; f.cleanup(); }
   }
 });
