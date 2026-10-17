@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, test as browserTest } from "vitest";
 import { commands } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,8 +16,38 @@ import { buildDiagramLayout } from "../../../module-diagrams/src/layout.js";
 let host: HTMLDivElement, render: Root, root: BrainUiRoot, styles: HTMLStyleElement;
 const originalTheme = document.documentElement.dataset.theme;
 beforeAll(async () => { styles = document.createElement("style"); styles.dataset.diagramCaptureConsumer = ""; styles.textContent = await commands.formConsumerStyles(); document.head.append(styles); });
-afterAll(() => styles.remove());
-afterEach(() => { if (render) flushSync(() => render.unmount()); root?.dispose(); host?.remove(); document.documentElement.dataset.theme = originalTheme; });
+// A Vitest deadline rejects its wrapper without cancelling the async body.
+// Retain the whole body, including captures it may schedule after that deadline.
+let ownedCase: Promise<void> | undefined, ownedTeardown: Promise<void> | undefined;
+function test(name: string, run: () => Promise<void>) {
+  browserTest(name, () => {
+    if (ownedCase || ownedTeardown) throw Error("PREVIOUS_CALLOUT_CASE_NOT_DRAINED");
+    ownedCase = Promise.resolve().then(run);
+    return ownedCase;
+  });
+}
+async function teardownCase() {
+  const work = ownedCase;
+  const teardown = ownedTeardown ??= (async () => {
+    // The test still receives its original rejected promise. Teardown observes
+    // settlement so a failure cannot leave later work using another case's DOM.
+    if (work) await Promise.allSettled([work]);
+    const failures: unknown[] = [];
+    for (const cleanup of [() => { if (render) flushSync(() => render.unmount()); },
+      () => root?.dispose(), () => host?.remove(), () => { document.documentElement.dataset.theme = originalTheme; }]) {
+      try { cleanup(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length) throw new AggregateError(failures, "CALLOUT_CASE_TEARDOWN_FAILED");
+    if (ownedCase !== work) throw Error("CALLOUT_CASE_OWNERSHIP_CHANGED");
+    ownedCase = undefined;
+  })();
+  // A failed or still-pending teardown retains ownership. Another case refuses
+  // before its body runs, and styles remain while unknown work could use them.
+  await teardown;
+  if (ownedTeardown === teardown) ownedTeardown = undefined;
+}
+afterAll(async () => { if (ownedCase || ownedTeardown) await teardownCase(); styles?.remove(); });
+afterEach(teardownCase);
 function mount(source: string, width: number, theme: "light" | "dark" | "print" = "light") {
   if (!host?.isConnected) { host = document.createElement("div"); document.body.append(host); render = createRoot(host); root = createBrainUiRoot({ storage: null, request: async () => Response.json({ renderers: [], enabled: [] }) }); }
   document.documentElement.dataset.theme = theme; host.style.width = `${width}px`;
@@ -104,17 +134,32 @@ async function assertParity(svg: SVGSVGElement, source: string, theme: "light" |
   const xml = new DOMParser().parseFromString(await toStatic(source, { theme }), "image/svg+xml");
   expect(annotation(svg), "SHARED_CLIENT_STATIC_ALL_ANNOTATION_GEOMETRY").toEqual(annotation(xml.documentElement));
 }
-for (const theme of ["light", "dark", "print"] as const) test(`literal and grouped full notes client/static ${theme}`, async () => {
-  let source = JSON.stringify(calloutsSpec); mount(source, 800, theme); let svg = await svgReady(); assertAnnotations(svg, source, 1); await assertParity(svg, source, theme);
+for (const theme of ["light", "dark", "print"] as const) {
+ test(`literal full notes client/static capture ${theme}`, async () => {
+  const source = JSON.stringify(calloutsSpec); mount(source, 800, theme); const svg = await svgReady(); assertAnnotations(svg, source, 1); await assertParity(svg, source, theme);
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-literal-${theme}`);
+ });
+ test(`literal to grouped full notes live client/static ${theme}`, async () => {
+  let source = JSON.stringify(calloutsSpec); mount(source, 800, theme); let svg = await svgReady(); assertAnnotations(svg, source, 1); await assertParity(svg, source, theme);
+  const previousHost = host;
   const spec = { ...calloutsSpec, callouts: Array.from({ length: 1024 }, (_, i) => ({ target: "odysseus", text: `Prepare provisions ${i + 1}` })) };
-  source = JSON.stringify(spec); mount(source, 800, theme); svg = await svgReady(); assertAnnotations(svg, source, 1024); await assertParity(svg, source, theme);
+  source = JSON.stringify(spec); mount(source, 800, theme); svg = await svgReady(); expect(host, "GROUPED_UPDATE_RETAINS_CLIENT_ROOT").toBe(previousHost); assertAnnotations(svg, source, 1024); await assertParity(svg, source, theme);
   expect(svg.querySelectorAll("[data-diagram-callout-key]")).toHaveLength(1); expect(svg.querySelector("[data-diagram-callout-key]")!.textContent).toBe("1");
   expect(svg.querySelector("[data-diagram-notes-band]")!.getAttribute("data-columns")).toBe("2");
   const rows = [...svg.querySelectorAll<SVGGElement>("[data-diagram-callout]")];
   for (const column of [0, 1]) { const selected = rows.filter(row => row.dataset.column === String(column)); expect(selected).toHaveLength(512); expect(new Set(selected.map(row => row.querySelector("[data-callout-index]")!.getAttribute("x"))).size).toBe(1); }
+ });
+ test(`literal to grouped full notes capture ${theme}`, async () => {
+  mount(JSON.stringify(calloutsSpec), 800, theme); const literal = await svgReady(); expect(literal.querySelectorAll("[data-diagram-callout]")).toHaveLength(1);
+  const previousHost = host;
+  const source = JSON.stringify({ ...calloutsSpec, callouts: Array.from({ length: 1024 }, (_, i) => ({ target: "odysseus", text: `Prepare provisions ${i + 1}` })) });
+  mount(source, 800, theme); const svg = await svgReady(); expect(host, "CAPTURE_UPDATE_RETAINS_CLIENT_ROOT").toBe(previousHost);
+  expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_SOURCE_NOTES").toHaveLength(1024);
+  expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-${theme}`);
-});
+ });
+}
+
 for (const theme of ["light", "dark", "print"] as const) test(`authored narrow grouped notes ${theme}`, async () => {
   const spec = { ...narrowCallouts(), callouts: Array.from({ length: 1024 }, (_, i) => ({ target: "odysseus", text: `Prepare provisions ${i + 1}` })) }, source = JSON.stringify(spec);
   mount(source, 320, theme); const svg = await svgReady(); assertAnnotations(svg, source, 1024);
