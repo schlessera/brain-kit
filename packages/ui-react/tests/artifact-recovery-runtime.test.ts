@@ -49,7 +49,7 @@ async function child(args: string[]) {
 beforeAll(async () => {
   // A focused source mutation still bundles the client below from its fresh
   // source; only already-built, unchanged workspace dependencies may be reused.
-  if (process.env.BRAIN_ARTIFACT_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts"]);
+  if (process.env.BRAIN_ARTIFACT_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-artifact-recovery-"));
   brain = resolve(fixture, "brain");
   await createFixtureBrain(repo, brain);
