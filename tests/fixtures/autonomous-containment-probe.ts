@@ -1,6 +1,7 @@
 import { spyOn } from "bun:test";
 import * as startup from "../../packages/ui-sdk/src/server/worker-startup-view.js";
 import { createFixtureWorkerStartupView } from "../../packages/ui-sdk/tests/helpers/worker-startup-view-fixture.js";
+import { belowEphemeral } from "../../packages/ui-sdk/tests/helpers/below-ephemeral-port.js";
 import { createFixtureTurnHost } from "./turn-host-fixture.js";
 /**
  * Autonomous containment proof (#676), run behind the caller's offline
@@ -65,9 +66,10 @@ async function outer(): Promise<void> {
   writeFileSync(join(root, "pi/settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" }));
 
   // Egress listeners outside the worker. Any connection or datagram is an escape.
+  // TCP ones sit below the worker's ephemeral range; the attack reports it.
   const counts = { tcp: 0, udp: 0, unixHost: 0, unixHome: 0, unixGit: 0, abstract: 0 };
   const quiet = { data() {}, error() {} };
-  const tcp = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { ...quiet, open() { counts.tcp++; } } });
+  const tcp = belowEphemeral(port => Bun.listen({ hostname: "127.0.0.1", port, socket: { ...quiet, open() { counts.tcp++; } } }));
   const udp = await Bun.udpSocket({ hostname: "127.0.0.1", socket: { data() { counts.udp++; } } });
   mkdirSync(join(home, "run"), { recursive: true });
   const unixHost = Bun.listen({ unix: join(root, "host-agent.sock"), socket: { ...quiet, open() { counts.unixHost++; } } });
@@ -132,7 +134,7 @@ async function server(): Promise<void> {
   let subStep = 0, calls = 0;
   const requests: Array<{ path: string; apiKey: string | null; authorization: string | null; body: string; system: string; tools: string[] }> = [];
   let step = 0;
-  const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  const upstream = belowEphemeral(port => Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
     const url = new URL(request.url);
     const body = await request.text();
     let system = "", tools: string[] = [];
@@ -168,7 +170,7 @@ async function server(): Promise<void> {
       { type: "content_block_stop", index: 0 });
     events.push({ type: "message_delta", delta: { stop_reason: chosen.length ? "tool_use" : "end_turn", stop_sequence: null }, usage: { output_tokens: 5 } }, { type: "message_stop" });
     return new Response(events.map((e: any) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
-  } });
+  } }));
   const url = `http://127.0.0.1:${upstream.port}`;
   writeFileSync(join(root, "pi/models.json"), JSON.stringify({ providers: { anthropic: { baseUrl: url } } }));
   const backend = adapter === "claude"
@@ -270,6 +272,8 @@ def tcp(name, port):
     except OSError as e: res["net"][name] = code(e)
     finally: s.close()
 tcp("tcp-host", cfg["ports"]["tcp"]); tcp("tcp-upstream", cfg["upstreamPort"])
+res["tcpPorts"] = {"tcp-host": cfg["ports"]["tcp"], "tcp-upstream": cfg["upstreamPort"]}
+res["ephemeralRange"] = [int(n) for n in open("/proc/sys/net/ipv4/ip_local_port_range").read().split()]
 try:
     u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     u.sendto(b"\\x12\\x34\\x01\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x07odysseus\\x07example\\x00\\x00\\x01\\x00\\x01", ("127.0.0.1", cfg["ports"]["udp"]))
