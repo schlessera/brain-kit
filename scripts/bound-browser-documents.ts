@@ -29,8 +29,9 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/.storybook/preview-head.html":"66da7597557f1418096239edcd74f7a8decfc70dfc8f1d820de0cf365df41ed7"
   }
 },{
-  // Reviewed against #2295 and #2346: bounded capture tracing, split relay and
-  // callout cases keep the exact HTML/CSS sink, five callers and offline producers.
+  // Reviewed against #2295, #2346 and #2228: the origin-group caller renders
+  // only its literal fixture and literal annotations through closed primitives.
+  // All six callers retain the exact HTML/CSS sink and zero-request replay.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
@@ -38,6 +39,10 @@ const declarations:DocumentDeclaration[]=[{
   "callerHash": "dbac044e90a3b7b84e308a96cca8396874afb9b96d8cc23b2fddb4293d85706c",
   "calls": 2,
   "additionalCallers": {
+    "packages/ui-react/tests/browser/diagrams-scene-bounds.layout.tsx": {
+      "hash": "923869d4212954ce0df2104e4cc47e40eb4e0ab95d32e5bfa19039196e262f65",
+      "calls": 1
+    },
     "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
       "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
       "calls": 8
@@ -57,6 +62,8 @@ const declarations:DocumentDeclaration[]=[{
   },
   "sink": "page.setContent(`<html data-theme=\"${drawing.theme}\"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`)",
   "producers": {
+    "packages/module-diagrams/tests/fixtures/origin-group.ts": "90d66bdeb55421e7896152c2f5069cefacbbb4b6271c70859a17644dad344dd4",
+    "packages/module-diagrams/src/flatten.ts": "0afc5a8fa2caa2adedf83fb3d3d323698a06d7a61243350a699e39457dfb70ab",
     "packages/ui-kit/tests/visual/zero-request-replay.ts": "694080b66abfd6235d1873e63c908f4284b8804e5f3ff2ac98ca89169c59290e",
     "packages/ui-kit/tests/visual/form-browser.ts": "3ccf67a71fa64af195bbf8cf6d173064dc9d2d4fc6abc699fa0a638c352ca62e",
     "packages/ui-kit/tests/visual/design-font-setup.ts": "ef812cb97c62da898dc0050cdfc09762163dfdb2cac1e3b813d586fd0fa95fb2",
@@ -70,7 +77,7 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
     "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
-    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
+    "packages/module-diagrams/src/callouts.ts": "6da78e9cc418771268298034896fd39976ab823d843c5874ef8ca15fe5f96e2c",
     "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
     "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
     "packages/module-diagrams/src/axis-layout.ts": "75e78e607a91d3b5684eaf3b071f56e41c317a1b336a9c06b80608121a41c34d",
@@ -80,13 +87,13 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/tests/fixtures/axis-examples.ts": "3925e82b8bc2ced444d8d6019fa13a93396315438e6e1c426fd338cc42685d2e",
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
     "packages/module-diagrams/src/check.ts": "67e6497e3e66c91ae0a5c86cd99800f684141f2a56e4b9ccefc79a1c8277f7a9",
-    "packages/module-diagrams/src/svg-model.ts": "9656ef62a39fafabe4fd14d936efa51372e7758583140303ac73a5e92f0d60b0",
-    "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
+    "packages/module-diagrams/src/svg-model.ts": "a72bc6967654882691527cb394c46325cb12f4b98c23855aeff68b9c36108b2e",
+    "packages/module-diagrams/src/geometry.ts": "f8620fe7c216e92e325e775e0f7448a104bba6da0c149d7d01fce80a4b173191",
     "packages/module-diagrams/src/drawing-style.ts": "cf1205bce1ab55197b70801bda46f915419ff174d5a1374a1c87df1f796bb36b",
-    "packages/module-diagrams/src/ui.tsx": "45bdd82c0cc724a2528297511f55e41f5f7bfe3b72d2a8c2c893873614d444db",
-    "packages/module-diagrams/src/layout.ts": "89ae43c33902768a71541b917bfda9e3e89c246a7757ee7b1a151b619272c896",
+    "packages/module-diagrams/src/ui.tsx": "e1931a9c6e069d4f90b5d9ca9db25417db73c5c18d2d7d02114b6cf71183640e",
+    "packages/module-diagrams/src/layout.ts": "a07ec439599855bbfea587e68eeafbb151fcc52b0b8999ef3f9145e4b2d70622",
     "packages/module-diagrams/src/skin.ts": "b49834b6119b5bfa7b51d538b4896d2422d469216ffd517bf1ca401fc351f05a",
-    "packages/module-diagrams/src/render.ts": "cca2cac8310060a9be4aa5f5fba72b1a16bc58fdc6158b71c7b2d854d07c2d71",
+    "packages/module-diagrams/src/render.ts": "e1567e2fe9158049b92b0706a4af54ba06beee4d2022cf4538705ef27251c581",
     "packages/module-diagrams/src/spec.ts": "32cfea76ec701e80a2bb06b0c892d95f888d92921f75dcf873c6a071962e7fd8",
     "packages/module-diagrams/src/positional-check.ts": "50736c5283fdefbe9c0b501fb385445e3092867ad93cf6e3aa744f4aedae1e4e",
     "packages/module-diagrams/src/positional-layout.ts": "47759c55dbd58bbec1cf25868f0f07270c1cec4d1a70c8f67ed29498ce8ad6ff",
@@ -131,7 +138,7 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
     "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
-    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
+    "packages/module-diagrams/src/callouts.ts": "6da78e9cc418771268298034896fd39976ab823d843c5874ef8ca15fe5f96e2c",
     "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
     "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
     "packages/module-diagrams/src/axis-layout.ts": "75e78e607a91d3b5684eaf3b071f56e41c317a1b336a9c06b80608121a41c34d",
@@ -141,13 +148,13 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/tests/fixtures/axis-examples.ts": "3925e82b8bc2ced444d8d6019fa13a93396315438e6e1c426fd338cc42685d2e",
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
     "packages/module-diagrams/src/check.ts": "67e6497e3e66c91ae0a5c86cd99800f684141f2a56e4b9ccefc79a1c8277f7a9",
-    "packages/module-diagrams/src/svg-model.ts": "9656ef62a39fafabe4fd14d936efa51372e7758583140303ac73a5e92f0d60b0",
-    "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
+    "packages/module-diagrams/src/svg-model.ts": "a72bc6967654882691527cb394c46325cb12f4b98c23855aeff68b9c36108b2e",
+    "packages/module-diagrams/src/geometry.ts": "f8620fe7c216e92e325e775e0f7448a104bba6da0c149d7d01fce80a4b173191",
     "packages/module-diagrams/src/drawing-style.ts": "cf1205bce1ab55197b70801bda46f915419ff174d5a1374a1c87df1f796bb36b",
-    "packages/module-diagrams/src/ui.tsx": "45bdd82c0cc724a2528297511f55e41f5f7bfe3b72d2a8c2c893873614d444db",
-    "packages/module-diagrams/src/layout.ts": "89ae43c33902768a71541b917bfda9e3e89c246a7757ee7b1a151b619272c896",
+    "packages/module-diagrams/src/ui.tsx": "e1931a9c6e069d4f90b5d9ca9db25417db73c5c18d2d7d02114b6cf71183640e",
+    "packages/module-diagrams/src/layout.ts": "a07ec439599855bbfea587e68eeafbb151fcc52b0b8999ef3f9145e4b2d70622",
     "packages/module-diagrams/src/skin.ts": "b49834b6119b5bfa7b51d538b4896d2422d469216ffd517bf1ca401fc351f05a",
-    "packages/module-diagrams/src/render.ts": "cca2cac8310060a9be4aa5f5fba72b1a16bc58fdc6158b71c7b2d854d07c2d71",
+    "packages/module-diagrams/src/render.ts": "e1567e2fe9158049b92b0706a4af54ba06beee4d2022cf4538705ef27251c581",
     "packages/module-diagrams/src/spec.ts": "32cfea76ec701e80a2bb06b0c892d95f888d92921f75dcf873c6a071962e7fd8",
     "packages/module-diagrams/src/positional-check.ts": "50736c5283fdefbe9c0b501fb385445e3092867ad93cf6e3aa744f4aedae1e4e",
     "packages/module-diagrams/src/positional-layout.ts": "47759c55dbd58bbec1cf25868f0f07270c1cec4d1a70c8f67ed29498ce8ad6ff",
@@ -169,7 +176,7 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/skills/diagram/references/examples/er.diagram.yaml": "c28b51b3aa3f177c90e4df088edca9da918034a16721d1afde6373495771bd4a",
     "packages/module-diagrams/skills/diagram/references/examples/dependency.diagram.yaml": "d5474b1abf5b11ad5826c099f4fbf2d33ca0e44b2b10eca287056da73f0102ad",
     "packages/module-diagrams/skills/diagram/references/examples/architecture-containment.diagram.yaml": "8efc225957ba0fa6a51802448098895de838fa75087f3b4202df8196d0c622fc",
-    "packages/module-diagrams/src/flatten.ts": "5ac2803560443bb98eb4284146209c09cbd328d57e83ddaa1807f4c3b34138da",
+    "packages/module-diagrams/src/flatten.ts": "0afc5a8fa2caa2adedf83fb3d3d323698a06d7a61243350a699e39457dfb70ab",
     "packages/module-diagrams/src/fonts.ts": "e575dbabbaa452f22389e61770b02200e78b965018f61662573f985024801419",
     "packages/module-diagrams/assets/fonts/2.ttf": "44ce4a84f20d60f24539bd0cef11f79c29e38609e0f8adf18551c9794a5d9dc3",
     "packages/module-diagrams/assets/fonts/4.ttf": "df54dbfafba61d4911eb3dab9bba2d20531fb009f01d64dd42fa96ab862584d8",
