@@ -221,10 +221,12 @@ Run local preflight against the immediate parent ref for each upper layer.
 For every PR in the intended merge prefix, record its head and declared base
 branch, independently query that base's live Git ref, and inspect its own
 selected jobs/checkouts. Ordinary dependency PRs require that recorded parent
-tip and PR head as synthetic parents. Native requests instead require every
-ordered immutable synthetic first parent through the exact frozen trunk, each
-second parent equal to its contributing frozen head, and each independently
-reconstructed merge tree. Run the read-only prefix verification immediately
+tip and PR head as synthetic parents. Native requests instead require the
+supported exact checkout shape: either ordered immutable synthetic first
+parents through the frozen trunk with each second parent equal to its frozen
+member head, or exact own-parent/candidate parents with independently verified
+frozen-trunk/member ancestry and immutable member evidence. Every actual merge
+tree must be independently reconstructed. Run the read-only prefix verification immediately
 before native merge. Keep own-parent contract head-only receipts separate;
 neither parent-relative preflight nor final-tree equality replaces native
 prefix proof. Actual integrated-tree/main reconciliation remains required.

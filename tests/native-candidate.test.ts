@@ -46,7 +46,7 @@ function fixture() {
     "pulls/2": { number: 2, state: "open", draft: false, body, head: { ref: "upper", sha: upper, repo: { full_name: env.GITHUB_REPOSITORY } }, base: { ref: "lower", sha: lower, repo: { full_name: env.GITHUB_REPOSITORY } }, stack: structuredClone(stack) },
     "git/ref/heads/main": { object: { sha: trunk } }, "git/ref/heads/lower": { object: { sha: lower } }, "git/ref/heads/upper": { object: { sha: upper } },
   };
-  for (const id of [sha, synthetic]) {
+  for (const id of [sha, synthetic, trunk, lower, upper]) {
     const [commit, tree, ...parents] = git("show", "-s", "--format=%H %T %P", id).split(" ");
     replies[`git/commits/${id}`] = { sha: commit, tree: { sha: tree }, parents: parents.map(sha => ({ sha })) };
   }
@@ -57,6 +57,76 @@ function fixture() {
 test("native candidate accepts the verified ordered synthetic chain rather than the declared branch tip", async () => {
   const f = fixture();
   await validateCandidate(f.root, f.event, f.env, f.api, f.actual);
+});
+
+function ownParentFixture() {
+  const f = fixture();
+  const parents = [ownNativeParent(f.prefix), f.prefix.members.at(-1)!.head];
+  const sha = f.git("commit-tree", f.actual.tree, "-p", parents[0]!, "-p", parents[1]!, "-m", "own-parent candidate");
+  f.actual = { ...f.actual, sha, parents }; f.env.GITHUB_SHA = sha;
+  f.git("update-ref", "HEAD", sha);
+  f.replies[`git/commits/${sha}`] = { sha, tree: { sha: f.actual.tree }, parents: parents.map(sha => ({ sha })) };
+  f.event.pull_request.base = { ref: "lower", sha: parents[0]! };
+  return f;
+}
+
+test("native own-parent checkout accepts an independently verified complete frozen prefix", async () => {
+  const f = ownParentFixture();
+  let error: unknown;
+  try { await validateCandidate(f.root, f.event, f.env, f.api, f.actual); } catch (caught) { error = caught; }
+  expect(error, "NATIVE_OWN_PARENT_VERIFIED_PREFIX_ACCEPTED").toBeUndefined();
+});
+
+test("native own-parent checkout rejects stale authority and contradictory immutable evidence", async () => {
+  const changes: Array<(f: ReturnType<typeof ownParentFixture>) => void> = [
+    f => { f.replies["git/ref/heads/main"].object.sha = "a".repeat(40); },
+    f => { f.replies["git/ref/heads/lower"].object.sha = "a".repeat(40); },
+    f => { f.replies["git/ref/heads/upper"].object.sha = "a".repeat(40); },
+    f => { f.replies["stacks/7"].pull_requests.reverse(); },
+    f => { f.replies["pulls/1"].draft = true; },
+    f => { f.replies[`git/commits/${f.actual.sha}`].parents.reverse(); },
+    f => { f.replies[`git/commits/${f.prefix.members[0]!.head}`].tree.sha = "a".repeat(40); },
+    f => { delete f.replies[`git/commits/${f.prefix.members[1]!.head}`]; },
+    f => { f.env.GITHUB_SHA = "a".repeat(40); },
+    f => { f.actual.parents.reverse(); },
+  ];
+  for (const change of changes) {
+    const f = ownParentFixture(); change(f);
+    await expect(validateCandidate(f.root, f.event, f.env, f.api, f.actual), "NATIVE_OWN_PARENT_REJECTS_CONTRADICTION").rejects.toThrow();
+  }
+});
+
+test("native own-parent checkout rejects an exact-parent merge with an unreconstructed tree", async () => {
+  const f = ownParentFixture();
+  const tree = f.git("rev-parse", `${f.prefix.trunk.sha}^{tree}`);
+  const sha = f.git("commit-tree", tree, "-p", f.actual.parents[0]!, "-p", f.actual.parents[1]!, "-m", "wrong tree");
+  f.env.GITHUB_SHA = sha;
+  f.replies[`git/commits/${sha}`] = { sha, tree: { sha: tree }, parents: f.actual.parents.map(sha => ({ sha })) };
+  await expect(validateCandidate(f.root, f.event, f.env, f.api, { ...f.actual, sha, tree }), "NATIVE_OWN_PARENT_RECONSTRUCTS_TREE").rejects.toThrow();
+});
+
+test.each([0, 1])("native own-parent checkout requires ancestry edge %s from the exact frozen trunk", async breakAt => {
+  const f = ownParentFixture();
+  // Keep content, live APIs and exact actual parents consistent while removing one ancestry edge.
+  for (let i = breakAt; i < f.prefix.members.length; i++) {
+    const member = f.prefix.members[i]!, old = member.head;
+    const parent = i === breakAt ? (i ? ["-p", f.prefix.trunk.sha] : []) : ["-p", f.prefix.members[i - 1]!.head];
+    member.head = f.git("commit-tree", f.git("rev-parse", `${old}^{tree}`), ...parent, "-m", `disconnected member ${i}`);
+    f.replies[`pulls/${member.number}`].head.sha = member.head;
+    f.replies[`git/ref/heads/${member.ref}`].object.sha = member.head;
+    if (i) f.replies[`pulls/${member.number}`].base.sha = f.prefix.members[i - 1]!.head;
+    const [, tree, ...parents] = f.git("show", "-s", "--format=%H %T %P", member.head).split(" ");
+    f.replies[`git/commits/${member.head}`] = { sha: member.head, tree: { sha: tree }, parents: parents.map(sha => ({ sha })) };
+  }
+  f.event.pull_request.head.sha = f.prefix.members[1]!.head;
+  f.event.pull_request.base.sha = ownNativeParent(f.prefix);
+  f.event.pull_request.body = nativeRequestBody("", f.prefix);
+  f.replies["pulls/2"].body = f.event.pull_request.body;
+  const parents = [ownNativeParent(f.prefix), f.prefix.members[1]!.head];
+  const sha = f.git("commit-tree", f.actual.tree, "-p", parents[0]!, "-p", parents[1]!, "-m", "disconnected candidate");
+  f.env.GITHUB_SHA = sha;
+  f.replies[`git/commits/${sha}`] = { sha, tree: { sha: f.actual.tree }, parents: parents.map(sha => ({ sha })) };
+  await expect(validateCandidate(f.root, f.event, f.env, f.api, { ...f.actual, sha, parents }), "NATIVE_OWN_PARENT_REQUIRES_EVERY_ANCESTRY_EDGE").rejects.toThrow();
 });
 
 test("strictly higher-layer changes do not change the frozen contributing prefix", async () => {

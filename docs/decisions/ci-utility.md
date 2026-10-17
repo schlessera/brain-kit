@@ -583,16 +583,28 @@ substituted. Ordinary PR requests keep their existing workflow.
 
 Final candidate validation and the contract gate independently compare the
 descriptor with read-only stack/PR APIs and live refs. Candidate proof also
-binds the actual run SHA and every immutable synthetic commit's ordered parents
-and tree. The supported shape has one to six open contributing members, linear
-member heads, and a two-parent synthetic chain ending exactly at the frozen
-trunk. Each synthetic tree must equal a locally reconstructed
-`git merge-tree --write-tree` result. Conflicts, unavailable inputs, unsupported
-shapes and contradictory evidence reject; matching final trees alone never
-qualify a candidate. The six-member limit preserves the existing bounded API
-lookup. Git's [merge-tree documentation](https://git-scm.com/docs/git-merge-tree)
-defines the independent merge operation; this check does not claim that every
-possible native checkout uses that model.
+binds the actual run SHA and immutable checkout's ordered parents and tree.
+The supported prefix contains one to six open contributing members. The
+2026-10-17 maintainer ruling extends support to two exact checkout shapes:
+
+- A two-parent synthetic chain ending exactly at the frozen trunk. Each
+  synthetic commit's second parent is its ordered frozen member head, member
+  heads contain their predecessors, and every synthetic tree equals a locally
+  reconstructed `git merge-tree --write-tree` result.
+- For an upper candidate, a two-parent merge whose parents are exactly
+  `[frozen own parent, frozen candidate head]`. Independently compare each
+  contributing member's immutable commit with local Git, prove ancestry from
+  the exact frozen trunk through every ordered member head, and reconstruct
+  the actual merge tree with `git merge-tree --write-tree`.
+
+The second shape is observed in real upper fixture #2286; it does not encode
+lower synthetic commits in its first-parent history. Both shapes require the
+same frozen/live prefix authority and exact actual checkout identity. Conflicts,
+unavailable inputs, unsupported shapes and contradictory evidence reject;
+matching final trees alone never qualify a candidate. The six-member limit
+preserves the existing bounded API lookup. Git's
+[merge-tree documentation](https://git-scm.com/docs/git-merge-tree) defines the
+independent merge operation; support is limited to these verified shapes.
 
 The contract gate compares the frozen head with its verified own parent;
 proof selection always compares the frozen trunk to the requested head, even
