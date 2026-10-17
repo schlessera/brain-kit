@@ -12,6 +12,7 @@ import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/nativ
 import { serializeSigned } from "hono/utils/cookie";
 
 const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
+const appOnly = sharedGit && new URL(import.meta.url).searchParams.has("app-only");
 const warm = new URL(import.meta.url).searchParams.has("warm");
 const profile = new URL(import.meta.url).searchParams.get("profile") === "strict" ? "strict" : "governed";
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
@@ -62,11 +63,11 @@ async function until(check: () => boolean, label: string) {
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
 }
 try {
-  if (sharedGit) {
+  if (sharedGit && !appOnly) {
     const { captureSharedGitMaintenance } = await import("../shared-git-maintenance.native.js");
     await captureSharedGitMaintenance(brain, profile === "strict" ? "strict" : warm ? "warm" : "fresh");
   }
-  if (profile === "governed" && !warm) {
+  if (profile === "governed" && !warm && !appOnly) {
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);
   }
