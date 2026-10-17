@@ -5,6 +5,7 @@ import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
+import { nativeDiagramInputs, type NativeDiagramIdentity } from "./native-diagram-inputs";
 import { generatedThemeInputs } from "./generated-theme-inputs";
 import { sourceBrowserDispatch } from "./source-browser-dispatch";
 import { boundBrowserDocuments, type BrowserDocumentInputs } from "./bound-browser-documents";
@@ -26,7 +27,7 @@ export interface IndirectInput {
   observation?: "linux-proc-self-identity";
 }
 export interface InputDeclaration { owner: string; inputs: IndirectInput[]; }
-export interface InputClosure { files: string[]; directories?: string[]; external?: LockedBrowserAsset[]; unresolved: string[]; }
+export interface InputClosure { files: string[]; directories?: string[]; external?: LockedBrowserAsset[]; nativeDiagram?:NativeDiagramIdentity; unresolved: string[]; }
 const builtins = new Set(builtinModules.flatMap(name => [name, `node:${name}`]));
 const sourceExtension = /\.[cm]?[jt]sx?$/;
 const readOperations = new Set(["readFile", "readFileSync", "readdir", "readdirSync", "readlink", "readlinkSync", "createReadStream", "open", "openSync", "opendir", "opendirSync", "access", "accessSync", "existsSync", "stat", "statSync", "lstat", "lstatSync", "watch", "watchFile", "spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]);
@@ -46,6 +47,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   let runtimeBindings: BrowserRuntimeBindings = new Map();
   let dispatchBindings = new Map<string, Set<string>>();
   let documentBindings = new Map<string, Map<string,BrowserDocumentInputs>>();
+  let nativeBinding:ReturnType<typeof nativeDiagramInputs>;
   let themeBinding: ReturnType<typeof generatedThemeInputs>;
   if (activation) {
     const audit = auditCommandActivation(root, activation.config, activation.selected, activation.candidates);
@@ -57,6 +59,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       dispatchBindings = sourceBrowserDispatch(root, audit.files, importers);
       documentBindings = boundBrowserDocuments(root, audit.files, importers);
       themeBinding = generatedThemeInputs(root, audit.files, importers);
+      nativeBinding = nativeDiagramInputs(root, audit.files, importers);
     }
     if (!audit.unresolved.length) for (const candidate of audit.candidates) {
       const names = inactive.get(candidate.owner) ?? new Set<string>();
@@ -272,6 +275,8 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           const literalPayload = /\.(?:fulfill|setContent)$/.test(originalCallee) && sourceBrowserPayload(root, normalized, expression);
           const boundRuntime = runtimeBindings.get(normalized)?.get(expression);
           const boundDispatch = dispatchBindings.get(normalized)?.has(expression) === true;
+          const boundNative = nativeBinding?.sites.get(normalized)?.has(expression)===true;
+          if(boundNative)for(const target of nativeBinding!.files)visit(target,true);
           const boundDocument = documentBindings.get(normalized)?.get(expression);
           if(boundDocument){for(const target of boundDocument.runtime)visit(target);for(const target of boundDocument.bytes)visit(target,true);}
           const generatedTheme = themeBinding?.owner===normalized && themeBinding.read===expression ? themeBinding : undefined;
@@ -287,7 +292,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
           }
           const matching = inputDeclarations(node);
           if (matching.some(declaration => declaration.observation && !kernelObservation(node, declaration))) unresolved.add(`Invalid runner observation ${normalized}: ${expression}`);
-          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime && !boundDispatch && !generatedTheme && !boundDocument) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
+          if (!matching.length && !generated && !locked && !literalPayload && !boundRuntime && !boundDispatch && !generatedTheme && !boundDocument && !boundNative) unresolved.add(`Undeclared input ${normalized}: ${expression}`);
           else for (const declaration of matching) { uses.add(inputKey(declaration)); for (const target of declaration.targets) visit(target); }
         }
       }
@@ -304,7 +309,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   };
   for (const file of [...entrypoints,...executionRoots]) visit(file);
   for (const owner of declared.keys()) if (!files.has(owner)) unresolved.add(`Unused declaration owner: ${owner}`);
-  return { files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
+  return { ...(nativeBinding?{nativeDiagram:nativeBinding.identity}:{}), files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
 }
 export function closureSelects(changed: readonly string[], closure: InputClosure, broad: boolean): boolean {
   const inputs = new Set(closure.files);

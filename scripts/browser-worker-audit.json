@@ -1,14 +1,21 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "f8a497c017892732a3eeb17c85045081505a070a8b0df8afa84d2d3348954dc2",
+  "identity": "2d2e170d38c692701c89646ad0cc065fe5dfe1ce50f8136f9101b1bb39819d95",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "4ba792473152c89eb74c286fc914e54ca1dae8fc",
-    "selected": 305,
-    "files": 1727,
-    "scope": "Complete 305-pair selected source/import/configuration/command inventory audited, including ordered-axis, positional and node-link geometry and closed SVG shapes. All four exact capture callers and every renderer, finite fixture, CSS and inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical. Actual complete 305 guarded fresh hosted shards remain mandatory; native/PDF-worker layout/endurance categories stay fresh. The renderer viewport restoration was corrected by #2253 without changing references or assertions."
+    "base": "da32703b519df3c04e535640bed85772746a31c6",
+    "selected": 307,
+    "files": 2276,
+    "scope": "Complete 307-pair selected source/import/configuration/command inventory, including the fixed native SVG/PNG/PDF producer. All six source families, actual installed package bytes/modes/alias origins, native entry/configuration/core-dispatch guards and exact generated SVG/reference consumers join current identity. Imported initialization and shared helpers remain active. Exact source or installation drift makes the native binding unavailable. All resource/Worker guards and complete fresh same-PR two-shard plus whole-workflow success remain mandatory; metadata is not passing proof. Historical observations retain their own scope and source.",
+    "native": {
+      "source": "44f113e83e053361071d2bd10aff6b340c88c126f685c200ce27b57969e1e947",
+      "installation": "2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05",
+      "trackedInputs": 849,
+      "packages": 843,
+      "installedBytes": 1833832361
+    }
   },
   "historicalDiagnostic": {
     "base": "b0b4340cd",

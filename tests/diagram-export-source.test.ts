@@ -2,7 +2,7 @@ import {afterEach,expect,test} from "bun:test";
 import {chmodSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname,join,resolve} from "node:path";
-import {diagramSourceDomains,diagramSourceSetup,materializeDiagramExportSource} from "../scripts/diagram-export-source.mjs";
+import {diagramSourceDomains,diagramSourceSetup,diagramSourceIdentity,materializeDiagramExportSource} from "../scripts/diagram-export-source.mjs";
 import {prepareDiagramExportSource} from "../scripts/prepare-diagram-export-source.mjs";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
@@ -33,10 +33,18 @@ test("archive checkout, input bytes, file modes, aliases and missing enforcement
   else if(kind==="bytes"){write("packages/core/src/specimen.ts","changed source");expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
   else if(kind==="mode"){chmodSync(join(root,"packages/core/src/specimen.ts"),0o755);expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
   else if(kind==="alias"){const file=join(root,"packages/core/src/specimen.ts");rmSync(file);symlinkSync(join(root,"packages/common/src/specimen.ts"),file);expect(()=>materializeDiagramExportSource(root,view())).toThrow("bytes, modes or aliases changed");}
-  else{record.inputs=record.inputs.filter(entry=>entry.path!=="scripts/test-network-guard.ts");writeFileSync(archive,JSON.stringify(record));expect(()=>materializeDiagramExportSource(root,view())).toThrow("Incomplete native diagram source archive");}
+  else{record.inputs=record.inputs.filter(entry=>entry.path!=="scripts/test-network-guard.ts");record.sourceIdentity=diagramSourceIdentity(record.inputs);writeFileSync(archive,JSON.stringify(record));expect(()=>materializeDiagramExportSource(root,view())).toThrow("Incomplete native diagram source archive");}
  }
 });
 
 test("missing installed workspace aliases cannot be silently supplied by source copying",()=>{
  const{root,view}=fixture();prepareDiagramExportSource(root);rmSync(join(root,"node_modules/@schlessera/brain"));expect(()=>materializeDiagramExportSource(root,view())).toThrow("Missing or redirected installed native workspace dependency");
+});
+
+test("unused source omission and mismatched actual fresh identities refuse before materialization",()=>{
+ const{root,view}=fixture(),record=prepareDiagramExportSource(root),archive=join(root,"tmp/diagram-export-source.json");
+ expect(()=>materializeDiagramExportSource(root,view(),undefined,{source:"0".repeat(64),installation:record.installation.sha256})).toThrow("NATIVE_EXPORT_FRESH_RECEIPT_INPUT_MISMATCH");
+ expect(()=>prepareDiagramExportSource(root,false,{source:record.sourceIdentity,installation:"0".repeat(64)})).toThrow("NATIVE_EXPORT_FRESH_RECEIPT_INPUT_MISMATCH");
+ record.inputs=record.inputs.filter(entry=>entry.path!=="packages/core/src/specimen.ts");writeFileSync(archive,JSON.stringify(record));
+ expect(()=>materializeDiagramExportSource(root,view())).toThrow("NATIVE_EXPORT_SOURCE_INVENTORY_CHANGED");
 });

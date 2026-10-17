@@ -18,7 +18,7 @@ export const diagramArtifact:BrowserCommand<[],unknown>=async(ctx)=>{
  try{
  const checkout=process.env.BRAIN_PROOF_CASE_CHECKOUT?JSON.parse(process.env.BRAIN_PROOF_CASE_CHECKOUT).sha:undefined;
  if(process.env.BRAIN_PROOF_CASE_CHECKOUT!==undefined)assert(typeof checkout==="string"&&/^[0-9a-f]{40}$/.test(checkout),"NATIVE_EXPORT_ACTUAL_CHECKOUT");
- const producer=materializeDiagramExportSource(repo,state,checkout);
+ const producer=materializeDiagramExportSource(repo,state,checkout,process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS?JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS):undefined);
  // The pinned browser launcher mounts this exact Bun executable. No ambient
  // BUN_OPTIONS, credentials, configuration roots or executable override enter.
  const child=spawn("/usr/local/bin/bun",["--preload",resolve(producer,"scripts/test-network-child-preload.ts"),"--preload",resolve(producer,"packages/module-diagrams/tests/fixtures/export-native-boundary.ts"),resolve(producer,"packages/module-diagrams/tests/fixtures/export-artifact-probe.ts"),directory],{cwd:producer,env:{PATH:"/usr/local/bin:/usr/bin:/bin",LANG:"C.UTF-8",TZ:"UTC",HOME:home,TMPDIR:temp,PUPPETEER_EXECUTABLE_PATH:chromium.executablePath()},stdio:["ignore","pipe","pipe"]});

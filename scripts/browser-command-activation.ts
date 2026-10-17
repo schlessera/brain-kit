@@ -213,7 +213,7 @@ const auditedSources: Record<string,string> = {
   "packages/ui-react/tests/browser/offline/scene-commands.ts": "ad76a69e553d1d0208a5a92c8270876403930788964bd75f3887d06a426c17d2",
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
   "packages/ui-kit/vite.config.ts": "ffdb82cbcf2fd0106799690580ca7af612a0bcceeacf198ef0e8a77313b4cb91",
-  "scripts/visual.mjs": "2576ce91c63843b6d9b2018c477e64734ea8343124170d4fca5cfd8257c3d1c8",
+  "scripts/visual.mjs": "29edc1fcacde2137adf025183b3b5dc2c336310f1b9d2276fe88c0802bf5cbc2",
   "packages/ui-react/tests/browser/hygiene-loop-command.ts": "fd9c5e18f1e374be3657fefd6c7aac76f16794f1ca59f0f038761c75130da35a",
   "packages/ui-react/tests/browser/hygiene-server-command.ts": "13706860dac40cab354554cadbd809143a0f32ee0314d8fcec8f1d6d1d70b1bb",
   "packages/ui-react/tests/browser/policy-server-command.ts": "9cd4bfe73ea42e200f795c42a4ce1d2eb014daf9e117275d171b95314db1f148",

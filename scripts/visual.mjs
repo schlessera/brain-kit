@@ -137,7 +137,7 @@ if (!bunExecutable) throw new Error("Bun is required for offline server fixtures
 const scratch = tmpdir();
 // Each native invocation materializes these tracked inputs in its own state.
 if (projects.some(project => project.startsWith("diagrams-")))
-  prepareDiagramExportSource(REPO, argv.includes("--proof-report"));
+  prepareDiagramExportSource(REPO, argv.includes("--proof-report"), process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS ? JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS) : undefined);
 // Worktree .git indirection points outside the container mount. Capture on the
 // host and check again after exit; the reporter must not guess an identity.
 const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
@@ -164,7 +164,7 @@ const status = run("docker", [
   "-e",
   "HOME=/tmp",
   ...(proofCheckout ? ["-e", `BRAIN_PROOF_CASE_CHECKOUT=${proofCheckout}`,
-    "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
+    "-e", "BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS", "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
   IMAGE,
   "node",
   "scripts/visual.mjs",

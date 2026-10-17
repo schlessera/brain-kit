@@ -360,6 +360,36 @@ binding unavailable. Current `dist` bytes never substitute for source inputs.
 Other generated artifacts, external assets and temporary readers remain unknown
 until their own bindings are validated.
 
+The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
+It runs the three fixed CLI vectors with a literal diagrams-only configuration,
+fresh canonical brain/HOME/temp roots, exact workspace resolution, no inherited
+root or executable redirects, and an immutable refusal for core-command dispatch.
+Shared library functions and imported initialization execute normally; registration
+alone never proves them inactive. Completed output is read only after the child
+has exited and both output streams close. The SVG/reference document keeps the
+zero-request replay and original raster/font/PDF assertions.
+
+This binding owns the complete tracked contents, paths and modes of six workspace
+families plus the exact preparation/entry files. It additionally fingerprints every
+regular installed file and internal file-link target exposed to that private source
+view. Hidden root caches and other workspace aliases are omitted only because the
+materializer omits them. External aliases must share the same canonical flat
+installation origin; nested aliases cannot escape their package. Package aliases,
+manifest identities, directory membership, file modes and bytes join the digest.
+This broad finite installation identity avoids assuming that a lockfile alone
+identifies bytes consumed by a previous successful job.
+
+The qualification is tied to exact source and installation identities, rather than
+a general permission for arbitrary native commands or filesystem readers. Drift,
+unknown aliases, missing inputs or an unqualified installation require fresh proof.
+The actual fresh shard passes its independently computed native identity through
+the existing runner to preparation and materialization. They check the complete
+source archive and installed bytes before the native entry can execute; the shard
+checks installed bytes again before emitting its existing fresh receipt. Both
+shards and independent immutable source/current validation still use the same
+complete-domain protocol. These identities and successful local controls are not
+a hosted baseline, a retention hit or permission to use a failed workflow.
+
 Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative
 asset name, SHA-256 and mode in addition to the matching manifest/lockfile and

@@ -40,6 +40,7 @@ async function invoke(args: string[], exit = 0) {
   if (!flock) throw new Error("visual runner tests require flock");
   await symlink(flock, resolve(root, "commands/flock"));
   await writeFile(resolve(root, "scripts/captures/font-lock.json"), "{}\n");
+  await writeFile(resolve(root, "node_modules/vitest/package.json"), JSON.stringify({name:"vitest",version:"1.0.0"}));
   const log = resolve(root, "calls.jsonl");
   const record = `import { appendFileSync } from "node:fs";
     appendFileSync(process.env.RUNNER_LOG, JSON.stringify({command: COMMAND,

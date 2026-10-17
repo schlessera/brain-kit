@@ -24,7 +24,7 @@ export function workerAuditIdentity(root:string,closure:InputClosure,selected:re
       return [file,stat.mode&0o777,createHash("sha256").update(readFileSync(absolute)).digest("hex")];
     }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
     const inventory=selected.map(({file,project})=>({file,project})).sort((a,b)=>a.project.localeCompare(b.project)||a.file.localeCompare(b.file));
-    return createHash("sha256").update(JSON.stringify({version:1,files,directories:[...(closure.directories??[])].sort(),external:closure.external??[],inventory})).digest("hex");
+    return createHash("sha256").update(JSON.stringify({version:1,files,directories:[...(closure.directories??[])].sort(),external:closure.external??[],...(closure.nativeDiagram?{nativeDiagram:closure.nativeDiagram}:{}),inventory})).digest("hex");
   }catch{return;}
 }
 export function hasAuditedWorkerBoundary(root:string,closure:InputClosure,selected:readonly Spec[]):boolean{
