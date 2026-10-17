@@ -136,11 +136,11 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${resolve(scratch!, "microphone.wav")}`, "--autoplay-policy=no-user-gesture-required"], timeout: 120_000 }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   await stopHost(host);
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 type Fixture = {

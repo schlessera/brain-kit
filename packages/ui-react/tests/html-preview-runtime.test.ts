@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 // #1084: an HTML file's script runs in the file viewer and in a new tab, but in
 // an opaque origin that cannot reach the app. Proven in real Chrome, against
 // the served app, because the guarantee is the browser's enforcement of the
@@ -41,7 +42,7 @@ let sessionCookie = "";
 
 async function child(args: string[]): Promise<void> {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+  const [out, err, code] = await hook.child(args[1] === "scripts/build.ts" ? "package-build" : "fixture-child", process);
   if (code !== 0) throw new Error(`HTML preview fixture preparation failed (${code}): ${out}\n${err}`);
 }
 
@@ -141,7 +142,8 @@ async function serve(mode: "password" | "none", brain: string, assets: string): 
   return { origin: `http://127.0.0.1:${server.port}`, arrivals, stop: async () => { server.stop(true); await app.close(); } };
 }
 
-beforeAll(async () => {
+const hook = runtimeHookPhases("html-preview-runtime.test.ts");
+beforeAll(() => hook.phase("setup", async () => {
   if (!executablePath) return;
   // The client bundle uses fresh source plus ordinary package resolution.
   await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
@@ -153,21 +155,25 @@ beforeAll(async () => {
   } });
   attackerOrigin = `http://127.0.0.1:${attacker.port}`;
   const brain = resolve(fixture, "brain");
+  await hook.phase("fixture-files", async () => {
   await mkdir(resolve(brain, "voyage"), { recursive: true });
   for (const [path, html] of Object.entries(PAGES)) await writeFile(resolve(brain, path), html.replaceAll("ATTACKER", attackerOrigin));
+  });
   const assets = resolve(fixture, "assets");
   await mkdir(assets);
   await child([process.execPath, "-e", 'const r=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!r.success){console.error(r.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/html-preview-client.tsx"), assets]);
+  await hook.phase("fixture-assets", async () => {
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width"><title>Odysseus file viewer</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}section[aria-label="File viewer"]{height:700px;min-width:0}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   for (const [name, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
     await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   }
-  served.password = await serve("password", brain, assets);
-  served.none = await serve("none", brain, assets);
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-}, 240_000);
+  });
+  served.password = await hook.phase("password-host-start", () => serve("password", brain, assets));
+  served.none = await hook.phase("anonymous-host-start", () => serve("none", brain, assets));
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
+}), 240_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   try { await Promise.all([...activeDownloadTraces].map(stop => stop())); } finally {
     console.log("[measure] HTML native observation", JSON.stringify(observationMetrics));
     await browser?.close();
@@ -176,7 +182,7 @@ afterAll(async () => {
     attacker?.stop(true);
     if (fixture) await rm(fixture, { recursive: true, force: true });
   }
-});
+}));
 
 type Opened = { page: Page; context: BrowserContext; app: Served; outside: string[]; downloads: string[] };
 

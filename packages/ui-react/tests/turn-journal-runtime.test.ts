@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -25,25 +26,29 @@ const observability = createRecordingObservability();
 let root = "", origin = "", browser: Browser, app: Awaited<ReturnType<typeof createApp>>, server: ReturnType<typeof Bun.serve>;
 async function child(args: string[]) {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+  const [out, err, code] = await hook.child(args[1] === "scripts/build.ts" ? "package-build" : "fixture-child", process);
   if (code !== 0) throw new Error(`Journal fixture build failed (${code})\n${out}${err}`);
 }
-beforeAll(async () => {
+const hook = runtimeHookPhases("turn-journal-runtime.test.ts");
+beforeAll(() => hook.phase("setup", async () => {
   if (process.env.BRAIN_JOURNAL_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   root = await mkdtemp(resolve(tmpdir(), "odysseus-journal-browser-"));
   const brain = resolve(root, "brain"), assets = resolve(root, "assets");
-  await createFixtureBrain(repo, brain); await mkdir(assets);
+  await hook.phase("fixture-files", () => createFixtureBrain(repo, brain)); await mkdir(assets);
+  await hook.phase("fixture-seed-files", async () => {
   await mkdir(resolve(brain,"scripts"));
   await writeFile(resolve(brain,"scripts/brain-cli.ts"),`// Fixture-only startup version; real commands execute the release-candidate CLI source.\nif(process.argv.includes("--version"))console.log("0.42.0");else await import(${JSON.stringify(pathToFileURL(resolve(repo,"packages/core/src/cli/brain.ts")).href)});\n`);
   await writeFile(resolve(brain, "notes/voyage.md"), "Ithaca\r\n");
   await mkdir(resolve(brain, ".claude/skills/voyage-log"), { recursive: true });
   await writeFile(resolve(brain, skillPath), "# Voyage log\nOdysseus records the crossing.\n");
+  });
   await child([process.execPath, "-e", 'const result=await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"});if(!result.success){console.error(result.logs);process.exit(1)}', resolve(import.meta.dir, "fixtures/turn-journal-client.tsx"), assets]);
   // Seed the excluded-path receipt explicitly; background cache writes are not test inputs.
   await writeFile(resolve(brain, ".gitignore"), "journal-ignored.tmp\n");
   await writeFile(resolve(brain, "journal-ignored.tmp"), "Odysseus prepares a temporary draft.\n");
   const backend = makeFakeBackend({ id: "journal-fixture" });
-  app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability });
+  app = await hook.phase("host-start", async () => createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), AUTH_MODE: "password", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PASSWORD_HASH: await Bun.password.hash(password), COOKIE_SECRET: "odysseus-journal-cookie-secret-0123456789", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), staticRoot: assets, observability }));
+  await hook.phase("journal-and-assets", async () => {
   await app.wsHost.journal!.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
   await writeFile(resolve(brain, "notes/voyage.md"), "Athena charts the return.\r\n");
   await writeFile(resolve(brain, "journal-ignored.tmp"), "Athena revises the temporary draft.\n");
@@ -72,10 +77,11 @@ beforeAll(async () => {
   const conflictSeed=JSON.stringify({turnId:conflictId,summary:app.wsHost.journal!.summary(conflictId)});
   await writeFile(resolve(assets, "index.html"), `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Odysseus journal</title><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body{margin:0;background:var(--bk-color-canvas);color:var(--bk-color-ink)}main{padding:16px;max-width:900px}textarea{max-width:100%}</style></head><body><div id="app"></div><script>window.__journalSeed=${seed};window.__conflictSeed=${conflictSeed};window.__memorySeed=${memorySeed}</script><script type="module" src="/client.js"></script></body></html>`);
   for (const [name, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) await writeFile(resolve(assets, name!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
+  });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket }); origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-}, 180_000);
-afterAll(async () => { await browser?.close(); server?.stop(true); await app?.close(); if (root) await rm(root, { recursive: true, force: true }); });
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
+}), 180_000);
+afterAll(() => hook.phase("cleanup", async () => { await browser?.close(); server?.stop(true); await app?.close(); if (root) await rm(root, { recursive: true, force: true }); }));
 async function scene(width = 1280, theme = "dark", replay = false, conflict = false, memory = false) {
   const context = await browser.newContext({ viewport: { width, height: 800 }, reducedMotion: "reduce" }), outside: string[] = [];
   await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : (outside.push(route.request().url()), route.abort()));

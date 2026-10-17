@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -75,21 +76,23 @@ async function stopHost(h: Host | undefined) {
   await h.app.close();
 }
 
-beforeAll(async () => {
+const hook = runtimeHookPhases("association-signout-runtime.test.ts");
+beforeAll(() => hook.phase("setup", async () => {
   if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM) return;
   if (!process.env.BRAIN_AUTH_FIXTURE_BUILT) {
   const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
   }
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-association-signout-"));
   brain = resolve(scratch, "brain");
-  await createFixtureBrain(repo, brain);
+  await hook.phase("fixture-files", () => createFixtureBrain(repo, brain));
   assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/association-signout-client.tsx"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
+  const [bundleOut, bundleErr, bundleCode] = await hook.child("client-build", bundle);
   if (bundleCode !== 0) throw new Error(`Local work client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
+  await hook.phase("fixture-assets", async () => {
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   await writeFile(resolve(assets, "signout-worker.js"), 'self.addEventListener("install",event=>event.waitUntil(caches.open("odysseus-signout-shell").then(cache=>cache.addAll(["/","/client.js","/kit.css","/app.css"]))));self.addEventListener("activate",event=>event.waitUntil(self.clients.claim()));self.addEventListener("fetch",event=>{if(new URL(event.request.url).pathname.startsWith("/api/"))return;event.respondWith(fetch(event.request).catch(()=>caches.match(event.request)));});');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
@@ -99,15 +102,16 @@ beforeAll(async () => {
   await writeFile(resolve(scratch, "ithaca.gpx"), '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Approaching Ithaca</name><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>');
   await writeFile(resolve(scratch, "microphone.wav"), generateWav(AUDIO_FIXTURES.note10s));
   passwordHash = await Bun.password.hash(PASSWORD);
-  host = await startHost("ithaca.db");
-  browser = await chromium.launch({ ...(process.env.BRAIN_PINNED_CHROMIUM ? {} : { executablePath }), headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${resolve(scratch!, "microphone.wav")}`, "--autoplay-policy=no-user-gesture-required"], timeout: 120_000 });
-}, 180_000);
+  });
+  host = await hook.phase("host-start", () => startHost("ithaca.db"));
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ ...(process.env.BRAIN_PINNED_CHROMIUM ? {} : { executablePath }), headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${resolve(scratch!, "microphone.wav")}`, "--autoplay-policy=no-user-gesture-required"], timeout: 120_000 }));
+}), 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   await stopHost(host);
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 
 type Work = {
