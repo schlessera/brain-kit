@@ -28,3 +28,10 @@ test("registry escape, owner drift and changed imported handler definitions rema
   for(const file of [owner,stats,base+"provider.ts"]){const {root,write}=fixture();write(file,readFileSync(join(root,file),"utf8")+"\n// source drift\n");expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(file===stats?stats:owner)).toBe(false);}
   const {root,write}=fixture();write(owner,readFileSync(join(root,owner),"utf8")+"\nexport const escaped=serverMessageHandlers;\n");expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(owner)).toBe(false);
 });
+test("unreviewed terminal chat handling cannot gain a trusted dispatch binding",()=>{
+  const {root,write}=fixture(),chat=base+"chat.ts",text=readFileSync(join(root,chat),"utf8");
+  const reviewed="context.state.endTurnQuestions(context.key, context.frameTurnId);";
+  expect(text).toContain(reviewed);
+  write(chat,text.replace(reviewed,"unreviewed(msg, context);"));
+  expect(sourceBrowserDispatch(root,files,browserImporters(root,files)).has(owner),"UNREVIEWED_CHAT_HANDLER_REFUSED").toBe(false);
+});

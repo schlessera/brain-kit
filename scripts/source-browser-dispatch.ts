@@ -7,7 +7,7 @@ import type {BrowserImporters} from "./bound-browser-runtime-inputs";
 // These two consumers import/re-export runStateForFrame only. They never
 // acquire the mutable chat handler map. Any consumer edit requires re-audit.
 const helperConsumers:Record<string,string>={
-  "packages/ui-react/src/connection.ts":"30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+  "packages/ui-react/src/connection.ts":"3f05b0deda673ab6cfa9c5199fd34e710fbf144534fd8681dbf6d9f754228c79",
   "packages/ui-react/src/hooks/use-websocket.ts":"ab5208f9edeccee5d30fd3c9c81962d1cba3339222bd3f86b7ea143e0596ffcc"
 };
 const declarations=[
@@ -20,7 +20,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
         "name": "chatFrameHandlers",
-        "source": "b0632f545a57a1a40bd3c7953bcbb4d424b267c7b53998adafc5e4d5b5ad294a"
+        "source": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/activity.ts",
