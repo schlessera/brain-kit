@@ -1,3 +1,4 @@
+import { ambientExecConfig } from "./config/env.js";
 /**
  * @schlessera/brain-backend-pi — the OSS-default AgentBackend, built on the upstream
  * pi coding-agent SDK (@earendil-works/pi-coding-agent).
@@ -73,7 +74,7 @@ const CAPABILITIES: BackendCapabilities = {
 };
 
 export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
-  options = { ...options, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}) };
+  options = { ...options, exec: { ...(options.exec ?? ambientExecConfig()) }, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}) };
   assertPiSdks(options.versionRequirements, "backend construction");
   const brainPath = options.brainPath;
   const sessionDir = options.sessionFactory

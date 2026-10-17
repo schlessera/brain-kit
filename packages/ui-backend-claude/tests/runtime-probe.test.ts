@@ -190,3 +190,31 @@ describe("isMeasuredRuntime", () => {
     expect(isMeasuredRuntime(undefined, MEASURED_RUNTIME.agentSdk)).toBe(false);
   });
 });
+
+test("module probe selects host A/C and explicit empty over ambient B (#1429)", async () => {
+  const dir = tempDir("host-exec-probe-");
+  const binary = fakeBinary(dir, "claude", "9.9.9 (Claude Code)");
+  const previous = process.env.BRAIN_UI_EXEC_WRAPPER;
+  const wrap = (name: string) => {
+    const path = join(dir, name), log = join(dir, name + ".log");
+    writeFileSync(path, `#!/bin/sh\nprintf '%s\n' "$@" >> '${log}'\nexec "$@"\n`, { mode: 0o755 });
+    return { path, log };
+  };
+  const a = wrap("a"), b = wrap("b"), c = wrap("c");
+  process.env.BRAIN_UI_EXEC_WRAPPER = b.path;
+  try {
+    for (const exec of [{ wrapper: a.path }, { wrapper: c.path }, {}]) {
+      await backendModule.probeRuntime!({ brainPath: dir, config: { claudeCodePath: binary.path },
+        profiles: [], confirmBashPatterns: null, settings: {}, exec });
+    }
+    expect(invocations(a.log), "HOST_PROBE_A").toEqual([binary.path, "--version"]);
+    expect(invocations(c.log), "HOST_PROBE_C").toEqual([binary.path, "--version"]);
+    expect(invocations(b.log), "EXPLICIT_EMPTY_NOT_AMBIENT").toEqual([]);
+    await backendModule.probeRuntime!({ brainPath: dir, config: { claudeCodePath: binary.path },
+      profiles: [], confirmBashPatterns: null, settings: {} });
+    expect(invocations(b.log), "ABSENT_RETAINS_AMBIENT").toEqual([binary.path, "--version"]);
+  } finally {
+    if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
+    else process.env.BRAIN_UI_EXEC_WRAPPER = previous;
+  }
+});

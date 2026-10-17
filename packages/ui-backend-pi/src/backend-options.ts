@@ -94,6 +94,8 @@ export interface PiProfile {
 }
 
 export interface CreatePiBackendOptions {
+  /** Resolved host wrapper. Explicit {} disables wrapping; omission retains ambient compatibility. */
+  exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig;
   /** Host-only admission for short startup Git queries; absent standalone callers retain private defaults. */
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** Full SemVer minimum for the primary SDK; composed with all three manifest constraints. Pi has no separate runtime identity. */

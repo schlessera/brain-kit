@@ -39,7 +39,7 @@ import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
 import { createTurnInput, type TurnInput } from "./turn-input.js";
 import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
-import { resolveExecConfig } from "./config/env.js";
+import { ambientExecConfig } from "./config/env.js";
 import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
@@ -413,7 +413,7 @@ export function createClaudeTurnRunner(options: {
         const report = await probeClaudeRuntime({
           brainPath: options.backend.brainPath,
           ...(options.backend.claudeCodePath !== undefined ? { claudeCodePath: options.backend.claudeCodePath } : {}),
-          env: sdkTurn.options.env ?? {}, exec: resolveExecConfig(),
+          env: sdkTurn.options.env ?? {}, exec: options.backend.exec ?? ambientExecConfig(),
           versionRequirements: options.backend.versionRequirements, phase,
           signal: abortController.signal, log: options.log,
         });

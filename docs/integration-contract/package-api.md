@@ -3425,3 +3425,17 @@ the same identity is allowed; changing an established identity or patching a
 terminal span returns false without modifying the row. The recorder persists
 this identity in both the queryable session column and the existing attributes.
 This additive API ships in a minor release.
+
+## Backend host exec configuration (additive, #1429)
+
+`BackendModuleContext`, `ClaudeBackendOptions`, `CreatePiBackendOptions` and
+`BackendRegistryOptions` accept optional `exec: ExecWrapperConfig`.
+`probeBackendRuntimes` accepts the same optional configuration as its sixth
+argument. The app passes its resolved `ServerConfig.exec` to startup probes
+and backend construction. Both first-party backends use that host configuration
+for runtime probes, Claude SDK workers and Pi grep/bash tools, including tools
+inside Pi workers. An explicit empty object disables the optional wrapper;
+an absent field preserves ambient-wrapper compatibility. Standalone backend
+factories resolve that fallback once at construction and retain both wrapper
+and killer. Existing validation, argv, environment and permission semantics
+remain unchanged; the optional wrapper never replaces worker isolation.

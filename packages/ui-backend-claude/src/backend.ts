@@ -1,3 +1,4 @@
+import { ambientExecConfig } from "./config/env.js";
 import {
   getSessionMessages as sdkGetSessionMessages,
   listSessions as sdkListSessions,
@@ -55,7 +56,7 @@ export { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
  * routes permission / ask-user / location round-trips through the host bridge.
  */
 export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend {
-  options = { ...options, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}),
+  options = { ...options, exec: { ...(options.exec ?? ambientExecConfig()) }, ...(options.versionRequirements ? { versionRequirements: { ...options.versionRequirements } } : {}),
     // One resolved allowance and budget for the backend's lifetime (#1625).
     workerState: resolveWorkerStateLimits({ ...options.workerState,
       names: { allowance: "workerState.allowanceBytes", budget: "workerState.budgetBytes" } }),

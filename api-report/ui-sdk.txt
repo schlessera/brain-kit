@@ -4938,6 +4938,7 @@ signatures (every public export and the types it is made of)
     }
   BackendModuleContext (packages/ui-sdk/src/server/backend-module.ts)
     export interface BackendModuleContext {
+        exec?: import("./exec-wrapper.js").ExecWrapperConfig;
         maintenance?: import("./maintenance-worker.js").MaintenanceHost;
         brainPath: string;
         config: Readonly<Record<string, unknown>>;

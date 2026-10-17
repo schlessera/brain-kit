@@ -131,7 +131,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:748`) follows public routes;
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:749`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:281-375`). Timeout unwind is
@@ -143,7 +143,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and
   (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:96-472`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
-- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-144`) and
+- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-145`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:95-124`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
 - **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:651`) settles after execution;
