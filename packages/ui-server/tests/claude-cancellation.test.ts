@@ -39,6 +39,10 @@ for await (const line of createInterface({ input: process.stdin })) {
    send({ type: "assistant", session_id: session, uuid: "odysseus-command", parent_tool_use_id: null,
     message: { role: "assistant", content: [{ type: "tool_use", id: "loom", name: "Bash", input: { command: "sleep 90", run_in_background: false } }] } });
   } else {
+   const stream = event => send({ type: "stream_event", session_id: session, uuid: "odysseus-usage", parent_tool_use_id: null, event });
+   stream({ type: "message_start", message: { id: "odysseus-response", model: "claude-sonnet-5-5", role: "assistant", content: [], usage: { input_tokens: 17, output_tokens: 0, cache_creation_input_tokens: 2, cache_read_input_tokens: 3 } } });
+   stream({ type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 9 } });
+   stream({ type: "message_stop" });
    send({ type: "result", subtype: "success", session_id: session,
     uuid: "odysseus-result", is_error: mode === "error-before-cancel", duration_ms: 123, duration_api_ms: 1, num_turns: 1,
     result: mode === "error-before-cancel" ? "The model call failed." : "", errors: [], total_cost_usd: 0.25, usage: { input_tokens: 17, output_tokens: 9, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, modelUsage: { "claude-sonnet-5-5": { inputTokens: 17, outputTokens: 9, cacheReadInputTokens: 3, cacheCreationInputTokens: 2, costUSD: 0.25 } }, permission_denials: [] });
@@ -107,7 +111,9 @@ for (const mode of ["success-before-cancel", "error-before-cancel", "no-result",
       expect(result.outcome, "HOST_CANCEL_OUTRANKS_DELAYED_SDK_TERMINAL").toBe(expected);
       expect(result.isError).toBe(false);
       expect(result.failure).toBeUndefined(); expect(result.outcomeDetail).toBeUndefined();
-      if (mode !== "no-result") expect(result, "CANCELLATION_RETAINS_REPORTED_USAGE").toMatchObject({ costUsd: 0.25, durationMs: 123, numTurns: 1, usage: { inputTokens: 17, outputTokens: 9, cacheReadTokens: 3, cacheCreationTokens: 2, perModel: { "claude-sonnet-5-5": { costUsd: 0.25 } } } });
+      if (mode !== "no-result") expect(result, "CANCELLATION_RETAINS_REPORTED_USAGE").toMatchObject({ durationMs: 123, numTurns: 1, usage: { inputTokens: 17, outputTokens: 9, cacheReadTokens: 3, cacheCreationTokens: 2, perModel: { "claude-sonnet-5-5": { inputTokens: 17, outputTokens: 9, cacheReadTokens: 3, cacheCreationTokens: 2 } } } });
+      expect(result.costUsd, "CUMULATIVE_COST_IS_NOT_TURN_USAGE").toBeUndefined();
+      expect(result.usage?.perModel?.["claude-sonnet-5-5"]?.costUsd, "CUMULATIVE_MODEL_COST_IS_NOT_TURN_USAGE").toBeUndefined();
       expect(host.activity!.store.snapshotRun(result.turnId!)!.spans.find(span => span.kind === "turn")?.outcome, "ACTIVITY_MATCHES_WIRE").toBe(expected);
       const journal = host.journal!.details(SESSION, result.turnId!);
       expect(journal?.summary.state, "FINAL_JOURNAL_RETAINED").toBe("complete");

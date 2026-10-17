@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { commands } from "vitest/browser";
-import { loadDesignFonts, verifyDesignFonts } from "./design-font-checks.js";
+import { loadDesignFonts, verifyDesignFonts, verifyWebkitDesignFonts } from "./design-font-checks.js";
 
 let requiredFaces: string[];
 let fontStyle: HTMLStyleElement;
@@ -16,7 +16,8 @@ beforeAll(async () => {
   document.head.append(fontStyle);
   await loadDesignFonts();
   requiredFaces = faceManifest();
-  await verifyDesignFonts();
+  if (/AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium/.test(navigator.userAgent)) await verifyWebkitDesignFonts();
+  else await verifyDesignFonts();
 });
 
 function stableFontInputs() {

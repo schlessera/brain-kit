@@ -21,7 +21,7 @@ Core corpus history is intentionally different (`snapshotOf`,
 health fields; thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`) retains
 recent days and older weekly observations. Neither contract supplies server
 capacity identity or a lifetime byte bound. Caller availability alone
-(`freeSpaceBytes`, `packages/core/src/lib/stats.ts:213-224`) is not quota headroom.
+(`freeSpaceBytes`, `packages/core/src/lib/stats.ts:216-227`) is not quota headroom.
 [Accounting discovery](storage-accounting.md) and
 [native brain storage](../decisions/native-brain-storage.md) bind all quantities.
 

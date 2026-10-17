@@ -47,8 +47,7 @@ mock.module("../../src/components/graph/graph-canvas.js", () => ({
 
 afterEach(cleanup);
 afterAll(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  unregisterDom();
+  await unregisterDom();
 });
 
 async function flushPromises(): Promise<void> {

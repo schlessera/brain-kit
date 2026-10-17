@@ -12,6 +12,7 @@ import { nativeCheckpointId, nativeManagerRequest, nativeManagerFrame, NativeBra
 import { startNativeStage } from "./native-brain-stage.js";
 import { randomUUID } from "node:crypto";
 import { nativeCheckpointReaderPath, startNativeCheckpointRead } from "./native-checkpoint-reader.js";
+import { NativeRecoveryIndex } from "./native-recovery-index.js";
 
 const BTRFS = "/usr/bin/btrfs", PYTHON = "/usr/bin/python3", FALLOCATE = "/usr/bin/fallocate";
 const ENV = Object.freeze({ PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" });
@@ -287,6 +288,10 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       reserveConsumed = true; await command([BTRFS, "filesystem", "sync", fixed.storePath]);
       try { write(); } catch (again) { throw plainError(again); }
     }
+    // The durable intent remains authoritative if indexing is interrupted.
+    // An index failure refuses later pages until a restart rebuilds it.
+    try { recoveryIndex.remember(intent.id); }
+    catch { throw new NativeBrainManagerError("unknown", "Native intent is durable but recovery indexing failed; restart the manager to rebuild it."); }
     rememberStage(intent);
   }
   function rememberStage(intent: Intent): void {
@@ -303,11 +308,19 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
   }
   // Recover bounded stage accounting once at service startup; warm admission
   // never rescans all checkpoint tombstones or any live-brain bytes.
+  const recoveredIds: string[] = [];
   for (const name of readdirSync(state).filter(name => name.endsWith(".json"))) {
     const id = name.slice(0, -5);
     if (!nativeCheckpointId.safeParse(id).success) throw new NativeBrainManagerError("unknown", "Native state contains an unrecognized identity.");
     rememberStage(readIntent(id)!);
+    recoveredIds.push(id);
   }
+  // This one-time rebuild remains O(history). The private in-memory B-tree
+  // is disposable; neither its loss nor a lost reply retires an identity.
+  const recoveryIndex = (() => {
+    try { return new NativeRecoveryIndex(recoveredIds); }
+    catch (error) { closeSync(stateFd); throw error; }
+  })();
   const rootPath = (id: string) => join(roots, id);
   async function verifyOwned(intent: Intent, signal?: AbortSignal): Promise<NativeCheckpoint> {
     if (intent.kind === "stage") throw new NativeBrainManagerError("invalid", "A staged namespace is not a native checkpoint identity.");
@@ -416,9 +429,8 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         } finally { closeSync(rootFd); }
       }
       if (request.operation === "listRecovery") {
-        const ids = readdirSync(state).filter(name => name.endsWith(".json")).map(name => name.slice(0, -5)).sort();
-        if (ids.some(id => !nativeCheckpointId.safeParse(id).success)) throw new NativeBrainManagerError("unknown", "Native state contains an unrecognized identity.");
-        const page = ids.filter(id => request.after === null || id > request.after).slice(0, 64), records: NativeRecoveryRecord[] = [];
+        const ids = recoveryIndex.page(request.after);
+        const page = ids.slice(0, 64), records: NativeRecoveryRecord[] = [];
         let last: string | null = request.after;
         for (const id of page) {
           const record = await reconcile(readIntent(id)!, signal);
@@ -588,8 +600,10 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     /** Only an already authenticated Unix endpoint invokes this fixed operation set. */
     run,
     async close() { closed = true; for (const controller of active) controller.abort(); await pending;
-      for (const reader of checkpointReaders.values()) await reader.close(); checkpointReaders.clear();
-      for (const stage of activeStages.values()) await stage.close(); activeStages.clear(); closeSync(stateFd); },
+      try {
+        for (const reader of checkpointReaders.values()) await reader.close(); checkpointReaders.clear();
+        for (const stage of activeStages.values()) await stage.close(); activeStages.clear();
+      } finally { recoveryIndex.close(); closeSync(stateFd); } },
   };
 }
 

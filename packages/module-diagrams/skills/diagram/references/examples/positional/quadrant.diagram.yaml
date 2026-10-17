@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "type": "quadrant",
+  "title": "Raft priorities",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "sail",
+      "label": "Repair sail",
+      "role": "focal"
+    },
+    {
+      "id": "water",
+      "label": "Store water"
+    },
+    {
+      "id": "route",
+      "label": "Mark route"
+    },
+    {
+      "id": "crew",
+      "label": "Brief crew"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "quadrant": {
+      "xAxis": {
+        "negative": "EFFORT",
+        "positive": "EASE"
+      },
+      "yAxis": {
+        "negative": "LATER",
+        "positive": "IMPACT"
+      },
+      "points": [
+        {
+          "node": "sail",
+          "x": 0.6,
+          "y": 0.6
+        },
+        {
+          "node": "water",
+          "x": -0.55,
+          "y": 0.5
+        },
+        {
+          "node": "route",
+          "x": 0.55,
+          "y": -0.55
+        },
+        {
+          "node": "crew",
+          "x": -0.55,
+          "y": -0.5
+        }
+      ]
+    }
+  }
+}

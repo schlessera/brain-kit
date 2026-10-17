@@ -306,6 +306,7 @@ export "./brand/*" (./assets/brand/*) [asset]
 
 export "./internal" (./src/internal.ts)
   LIGHT_TOKENS
+  PRINT_TOKENS
   TOKENS
   type TokenName
   canvas
@@ -970,6 +971,10 @@ signatures (every public export and the types it is made of)
         label?: string;
         meta?: string;
         icon?: IconName;
+        badge?: {
+            icon: IconName;
+            label: string;
+        };
         open?: boolean;
         onOpenChange?: (open: boolean) => void;
         children?: ReactNode;

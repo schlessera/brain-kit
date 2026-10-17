@@ -120,7 +120,7 @@ export interface ClaudeWorkerState {
    * Copies validated results out of the private tmpfs, after the worker's
    * namespace is gone; `rewrite` promotes newly appended answer links for display.
    */
-  persist(root: string, rewrite?: (text: string) => string): void;
+  persist(root: string, rewrite?: (text: string) => string, memory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"]): void;
   /** Prepare only newly appended answer links before synchronous publication. */
   prepareCopyOut?(root: string, prepare: (text: string) => Promise<void>, signal?: AbortSignal): Promise<void>;
   /** Releases the admission reservation; idempotent, called on every exit path. */
@@ -135,6 +135,8 @@ export interface ClaudeWorkerState {
  */
 export function createClaudeWorkerState(brainPath: string, env: Record<string, string | undefined>,
   options: { ephemeral?: boolean; resume?: string;
+    /** Host-held inference never projects the native credential store into its worker. */
+    hostInference?: boolean;
     /** The resolved allowance and budget; defaults to 64 MiB and three workers. */
     limits?: WorkerStateLimits;
     /** Defaults to the server process's one ledger. */
@@ -151,7 +153,7 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
 }
 
 function plan(brainPath: string, env: Record<string, string | undefined>,
-  options: { ephemeral?: boolean; resume?: string }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
+  options: { ephemeral?: boolean; resume?: string; hostInference?: boolean }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
   if (!options.ephemeral && options.resume !== undefined) validateSessionId(options.resume);
   const allowance = held.bytes;
   const brain = realpathSync(brainPath);
@@ -176,7 +178,7 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   // Capture membership, not bytes, for other sessions. A worker may create
   // a session but must never export files into an unrelated existing one.
   const existing = new Set(existsSync(projectRoot) ? readdirSync(projectRoot).map(name => name.replace(/\.jsonl$/, "")) : []);
-  const settings = ["settings.json", ".credentials.json", ".claude.json"].filter(name => existsSync(join(saved, name)));
+  const settings = ["settings.json", ...(options.hostInference ? [] : [".credentials.json"]), ".claude.json"].filter(name => existsSync(join(saved, name)));
   // Every session of the brain reads the project's auto-memory, so every turn copies it (#1626).
   settings.push(...files(join(projectRoot, MEMORY)).map(name => `${project}/${MEMORY}/${name}`));
   const transcripts: string[] = [];
@@ -198,13 +200,19 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   if (settingsSize + transcriptSize > allowance) throw new SessionTooLargeError(settingsSize + transcriptSize, allowance);
   const initial = new Map<string, string>(), initialLength = new Map<string, number>();
   /** Write one changed file back, refusing to overwrite a saved file that changed meanwhile. */
-  const write = (name: string, bytes: Buffer, what: "transcript" | "memory"): void => {
+  const write = (name: string, bytes: Buffer, what: "transcript" | "memory", memory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"]): void => {
     const target = join(saved, name); directory(dirname(target));
-    const present = existsSync(target) ? hash(regular(target, allowance)) : undefined;
-    if (present !== initial.get(name)) throw new WorkerHostError(`saved ${what} changed concurrently; refusing overwrite`);
-    const temp = `${target}.${crypto.randomUUID()}.tmp`;
-    try { writeFileSync(temp, bytes, { flag: "wx", mode: 0o600 }); directory(dirname(target)); renameSync(temp, target); }
-    finally { rmSync(temp, { force: true }); }
+    const before = existsSync(target) ? regular(target, allowance) : null;
+    const present = before ? hash(before) : undefined;
+    const commit = () => {
+      const current = existsSync(target) ? hash(regular(target, allowance)) : undefined;
+      if (present !== initial.get(name) || current !== present) throw new WorkerHostError(`saved ${what} changed concurrently; refusing overwrite`);
+      const temp = `${target}.${crypto.randomUUID()}.tmp`;
+      try { writeFileSync(temp, bytes, { flag: "wx", mode: 0o600 }); directory(dirname(target)); renameSync(temp, target); }
+      finally { rmSync(temp, { force: true }); }
+    };
+    if (what === "memory" && memory) memory({ directory: dirname(target), note: name.slice(name.lastIndexOf("/") + 1), before, beforeMode: before ? lstatSync(target).mode & 0o7777 : 0o600, after: bytes }, commit);
+    else commit();
   };
   let observation: StateRoomObservation | undefined;
   return {
@@ -252,13 +260,14 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         for (const text of texts) { signal?.throwIfAborted(); await prepare(text); }
       }
     },
-    persist(root, rewrite) {
+    persist(root, rewrite, memory) {
       // Only this brain's native transcript files and its memory notes, never
       // worker-supplied commands, settings, destinations or deletion requests.
       // The worker's PID namespace is already gone, so no runtime writer can
       // race this copy.
       let total = 0;
       const notes: [string, Buffer][] = [];
+      try {
       for (const file of files(join(root, project), "", { resolved: false })) {
         if (file.startsWith(`${MEMORY}/`)) {
           // Agent memory (#1626): only a `.md` note directly in the folder.
@@ -290,12 +299,13 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
         if (initial.get(name) === hash(bytes)) continue;
         write(name, bytes, "transcript");
       }
+      } catch (error) { memory?.(null, () => {}); throw error; }
       // Every session of the brain shares its memory. A note another turn
       // changed meanwhile is refused alone and named; the other notes still
       // persist, and nothing is ever deleted.
       const refused: string[] = [];
       for (const [name, bytes] of notes) {
-        try { write(name, bytes, "memory"); } catch (error) {
+        try { write(name, bytes, "memory", memory); } catch (error) {
           if (!(error instanceof WorkerHostError && error.message.includes("changed concurrently"))) throw error;
           refused.push(name.slice(project.length + 1));
         }

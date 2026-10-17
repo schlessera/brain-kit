@@ -83,9 +83,9 @@ export function observeOutwardPlan(plan: OutwardPlan, options: { bridge?: Pick<B
 }
 export const OUTWARD_VOICE_REFUSAL = "Voice cannot approve an outward action. Nothing ran; use an interactive turn to review it.";
 /** Actual syntax coverage; no opaque-script or third-party descriptor promise. */
-export function workerOutwardNote(): string {
+export function workerOutwardNote(egressActive = false): string {
   return ["# Outward actions", "Visible git pushes, GitHub writes and curl/wget non-GET or data requests require the existing per-use approval unless the admitted outward.allow rule matches the command and its known destination.",
     "Remote force pushes, ref deletion and mirror/prune writes always require approval. Voice cannot approve outward actions.",
     "Unknown or configuration-sourced segments cannot borrow a policy allow for a visible outward command.",
-    "Opaque scripts making HTTPS requests are not covered by this classification. Egress proxy enforcement is not active here. The shipped backend inventories contain no built-in outward mail, calendar, booking or payment MCP descriptors; third-party tools are not assigned invented effects."].join("\n");
+    `Opaque scripts making HTTPS requests are not covered by this classification. ${egressActive ? "The host-prepared egress proxy enforces this turn's destination and shared byte policy; it does not grant an outward action." : "Egress proxy enforcement is not active here."} The shipped backend inventories contain no built-in outward mail, calendar, booking or payment MCP descriptors; third-party tools are not assigned invented effects.`].join("\n");
 }

@@ -82,12 +82,11 @@ entry points:
 
 A pack also declares whether its static step needs a browser. Mermaid does,
 because it needs a DOM. The diagrams module does not, because it builds a
-string. The first-party Mermaid support moves onto the same seam. Today it is
-special-cased in three places:
-
-- the markdown fence (`function mermaidSourceFrom`, `packages/ui-react/src/components/chat/brain-markdown-code.tsx:23-32`)
-- the file viewer (`Standalone mermaid source files`, `packages/ui-react/src/components/files/file-viewer.tsx:91-98`)
-- the share pre-render (`export async function inlineMermaidDiagrams`, `packages/ui-react/src/lib/mermaid.ts:242-250`)
+string. The first-party Mermaid support uses the same seam. Its former markdown,
+file-preview and sharing special cases now dispatch through the built-in pack
+(`mermaidContentPack`, `packages/ui-react/src/content-renderers/mermaid.tsx:10-22`).
+The browser preflight runs each bundled browser-only static entry before
+sharing (`export async function preRenderBrowserFences`, `packages/ui-react/src/lib/content-renderer-share.ts:10-39`).
 
 A seam needs a second implementation plausible within a year. This one has
 four: Mermaid, diagrams, the geo and travel map views
@@ -172,14 +171,14 @@ Rejected:
 
 Diagrams paint only with `--bk-*` tokens:
 
-- `--bk-diagram-*` for grounds, nodes, clusters, lines and text (`--bk-diagram-bg: light-dark`, `packages/ui-kit/src/tokens.css:782-787`)
+- `--bk-diagram-*` for grounds, nodes, clusters, lines and text (`--bk-diagram-bg: light-dark`, `packages/ui-kit/src/tokens.css:782-788`)
 - the CVD-ordered canvas slots for series
 - the accent `ink` / `fill` / `mark` triples, with `--bk-on-fill` for text on fills
 
 They switch with `color-scheme` and `[data-theme]` like the rest of the app
-(`[data-theme="dark"] {`, `packages/ui-kit/src/tokens.css:848`). They take
+(`[data-theme="dark"] {`, `packages/ui-kit/src/tokens.css:849`). They take
 white grounds from the generated print theme (`[data-theme="print"] {`,
-`packages/ui-kit/src/tokens.css:869`). The token block a static export embeds
+`packages/ui-kit/src/tokens.css:870`). The token block a static export embeds
 is generated from `tokens.css` and pinned to it by a test. It is never written
 by hand.
 
@@ -205,8 +204,16 @@ Upstream's method carries over:
 - the accessible-figure contract
 - the type grammars
 
-How the fusion looks is a design question, settled by design briefs before
-the skin is built.
+The maintainer adopted the [revised eight-node composition, authored 320px
+layout and absent-layout fallback](https://github.com/schlessera/brain-kit/blob/ce92ea1d4142481fadf6cef08bfef7eecf02543b/docs/assets/diagrams-2091/README.md)
+on [#2091](https://github.com/schlessera/brain-kit/issues/2091#issuecomment-6222708390).
+The shared dark cluster border is `#6b6873`; print cluster grounds are white;
+focal grounds use the solid named tint. Focal sublabels use diagram-text,
+fixing the dark muted pair's 4.16:1 contrast to 9.51:1. Async lines are dotted
+`1.5 3.5` with round caps; returns are dashed `6 4`. Named narrow placement
+is authored explicitly and preserves semantic nodes, groups and edges.
+Absent placement selects a caption/summary and Open diagram control, with
+readable dedicated viewing; it never requests automatic reflow or shrinking.
 
 ### 5. Every surface prints white
 
@@ -232,7 +239,7 @@ The seam defines three themes, and a pack must implement all three.
 
 The kit already says this of its print theme: "Paper that is printed rather than
 looked at: what a shared PNG or PDF is drawn in"
-(`Paper that is printed rather than looked at`, `packages/ui-kit/src/tokens.css:862`).
+(`Paper that is printed rather than looked at`, `packages/ui-kit/src/tokens.css:863`).
 `light` and `dark` reach an export only when a CLI caller asks for them by name.
 
 In the print theme a pack draws:
@@ -248,12 +255,11 @@ A shared conformance suite in the SDK renders every registered pack in all
 three themes and asserts these properties, as
 [backend conformance](backend-conformance.md) does for agent backends.
 
-Measured reason: the Mermaid share pipeline renders in `light`
-(`The share pipeline renders in`, `packages/ui-react/src/lib/mermaid-theme.ts:25`),
-which puts `--bk-diagram-bg`'s light value `#f8f5ef` on the document shell's
-`#ffffff` paper. A PDF holding a Mermaid chart and a diagram would show two
-different grounds. Mermaid moves to `print` for exports as part of its
-migration onto the seam.
+Measured reason: the former Mermaid share pipeline used the light ground
+`#f8f5ef` against the document shell's `#ffffff` paper. A PDF holding a
+Mermaid chart and a diagram would show two different grounds. Mermaid now
+uses the kit's generated print values and white paper for exports
+(`Every export uses`, `packages/ui-react/src/lib/mermaid-theme.ts:25`).
 
 Rejected:
 - **Leave each pack to choose its export palette.** That is exactly how the
@@ -309,3 +315,47 @@ Rejected:
   `schema_version` only grows additively without a maintainer ruling.
 - Mermaid stops being a special case, and its export path becomes the generic
   one.
+
+## Common callout compatibility
+
+The maintainer's [#2242 rulings](https://github.com/schlessera/brain-kit/issues/2242#issuecomment-6231827101)
+choose the dedicated sans note role (N1=A), validation-time `callout_room` for
+fixed named canvases without readable annotation space (N2=A), and optional
+preferred-side data (N3=B). The N2 rejection is an explicit compatibility
+change; it applies only to fixed named canvases. Other accepted v1 annotations
+retain their text and target association. A side hint never overrides collision
+protections, and content must never disappear, shrink or truncate to fit.
+
+### Repeated targets and compatible fallback
+
+The maintainer's [revision 2 ruling](https://github.com/schlessera/brain-kit/issues/2242#issuecomment-6234681174)
+retains N1=A, N2=A and N3=B and chooses R1=A with R2=B. Repeated-target notes
+stay together in a target-named band with at most one safe key cue. Per-note
+r8 markers cannot represent the accepted 1024-note repeated-target case
+readably without overlap. Shared keys associate the drawing with the group;
+original source indices outside the pills identify individual notes. A
+painted target without a safe cue spot uses the explicit unmarked explanation.
+A declared target that its family does not paint uses the explicit not-drawn
+explanation, preserving its notes without inventing geometry.
+
+At frame widths of at least 640px, the band flows into two columns of at least
+280px, reading down the first column and then the second within the target
+grouping. Narrow frames keep one column. This chosen alternative supersedes
+the revision 2 drawings' single-column wide band; every note and its full text
+remain rendered, and `fit` grows to the resulting height. Splitting a first
+note inline from the remainder was rejected because it separates one target's
+notes across two places.
+
+The fixed named canvas exception preserves all repeated-target notes inline
+when readable collision-free inline placement fits but the revised band does
+not. It prevents R1's grouping rule from silently expanding N2's compatibility
+break. `callout_room` remains limited to fixed named canvases where neither
+readable inline placement nor the band fits; accepted `fit` sources remain
+valid. Preferred-side ordering applies to the preserved inline treatment.
+
+The drawings permit a key cue to contact its own target geometry. That
+exception does not waive 4px clearance from unrelated geometry, all
+label/heading masks, the legend or other cues, and does not permit covering
+target text. Shared client/static primitives, summary notes and print preserve
+full content and explicit target association. The detailed compatibility
+surface is [the diagram integration contract](../integration-contract/diagrams.md#common-annotation-placement-2242).

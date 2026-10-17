@@ -102,6 +102,7 @@ export "." (./src/index.ts)
   type ClientToolDenial
   type ConfiguredModule
   type ConflictVersionSelection
+  type ContentRendererDeclaration
   type ConversationAudioFormat
   type ConversationCapabilities
   type ConversationCloseReason
@@ -861,8 +862,12 @@ export "./internal" (./src/internal.ts)
   DEFAULT_OUTPUT_STAGING_BYTES
   DEFAULT_TURN_TEMP_BYTES
   DEFAULT_WORKER_STATE_BYTES
+  type EgressProxyOptions
+  type EgressRecord
   GIT_LOCK_KEY
   HOST_MASKS
+  type HostCredentialDomain
+  HostCredentialExclusionError
   INFERENCE_PLACEHOLDER
   type InferenceRelay
   type InferenceRelayEvent
@@ -926,6 +931,8 @@ export "./internal" (./src/internal.ts)
   WEB_SEARCH_PROVIDER_KEYS
   WORKER_AREAS
   WORKER_AREA_ROOT
+  WORKER_EGRESS_DIR
+  WORKER_EGRESS_SOCKET
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
@@ -962,6 +969,7 @@ export "./internal" (./src/internal.ts)
   type WorkerStateErrorClass
   type WorkerStateHandle
   type WorkerStateLimits
+  acquireHostCredentialExclusion
   applyClassification
   archivesDocument
   assertScratchMask
@@ -1000,6 +1008,7 @@ export "./internal" (./src/internal.ts)
   mib
   mountPointsUnder
   nativeFileVersion
+  nativeWorkerStartupInput
   observeClassification
   observeOutwardPlan
   outputStagingLimit
@@ -1036,10 +1045,12 @@ export "./internal" (./src/internal.ts)
   resolveWorkerStateLimits
   restrictedReadPaths
   retainWorkerStartupView
+  rewriteWorkerRtk
   runMaintenanceWorker
   runMaintenanceWorkerSync
   sessionPromptContext
   sessionReplay
+  startEgressProxy
   startInferenceRelay
   turnTempFullMessage
   turnTempLimit
@@ -5379,6 +5390,8 @@ signatures (every public export and the types it is made of)
   ClientConversationStart (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationStart {
         type: "conversation_start";
+        requestId?: string;
+        agentProviderId?: string;
         conversationId?: string;
         sessionId?: string;
     }
@@ -5386,6 +5399,7 @@ signatures (every public export and the types it is made of)
     export interface ClientConversationStop {
         type: "conversation_stop";
         conversationId: string;
+        resumable?: boolean;
     }
   ClientEnvironment (packages/ui-sdk/src/protocol.ts)
     export interface ClientEnvironment {
@@ -5559,6 +5573,13 @@ signatures (every public export and the types it is made of)
     }
   ConfiguredModule (packages/ui-sdk/src/module-settings.ts)
     export interface ConfiguredModule {
+        version?: string | null;
+        renderers?: Record<string, {
+            fences?: string[];
+            extensions?: string[];
+            client: string;
+            static?: string;
+        }>;
         name: string;
         key: string;
         description: string | null;
@@ -5588,6 +5609,14 @@ signatures (every public export and the types it is made of)
   ContentRenderer (packages/ui-sdk/src/client/content-renderers.ts)
     export interface ContentRenderer extends StaticRenderer {
         Component: ComponentType<ContentRendererProps>;
+    }
+  ContentRendererDeclaration (packages/ui-sdk/src/module-settings.ts)
+    export interface ContentRendererDeclaration {
+        module: string;
+        version: string | null;
+        name: string;
+        fences: readonly string[];
+        extensions: readonly string[];
     }
   ContentRendererFixture (packages/ui-sdk/src/testing/content-renderers.ts)
     export interface ContentRendererFixture {
@@ -8852,6 +8881,7 @@ signatures (every public export and the types it is made of)
   ServerConversationClosed (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationClosed {
         type: "conversation_closed";
+        requestId?: string;
         conversationId: string;
         epoch: number;
         reason: ConversationCloseReason;
@@ -8867,6 +8897,8 @@ signatures (every public export and the types it is made of)
   ServerConversationOpened (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationOpened {
         type: "conversation_opened";
+        requestId?: string;
+        agentProviderId?: string;
         conversationId: string;
         epoch: number;
         sessionId?: string;
@@ -9720,6 +9752,7 @@ signatures (every public export and the types it is made of)
     }
   TurnJournalSummary (packages/ui-sdk/src/turn-journal.ts)
     export interface TurnJournalSummary {
+        configurationCoverage?: "incomplete" | "complete" | "unknown";
         scope?: TurnScopeSummary;
         state: "recording" | "complete" | "partial" | "expired" | "unknown" | "unrecorded";
         changedFiles: number | null;
@@ -10274,13 +10307,16 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   clientConversationStartSchema (packages/ui-sdk/src/schemas.ts)
     const clientConversationStartSchema: z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         conversationId: z.ZodOptional<z.ZodString>;
+        requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
     }, z.core.$loose>;
   clientConversationStopSchema (packages/ui-sdk/src/schemas.ts)
     const clientConversationStopSchema: z.ZodObject<{
         conversationId: z.ZodString;
+        resumable: z.ZodOptional<z.ZodBoolean>;
         type: z.ZodLiteral<"conversation_stop">;
     }, z.core.$loose>;
   clientEnvironmentSchema (packages/ui-sdk/src/schemas.ts)
@@ -10675,7 +10711,9 @@ signatures (every public export and the types it is made of)
             queue: "queue";
         }>;
     }, z.core.$strict>, z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         conversationId: z.ZodOptional<z.ZodString>;
+        requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
     }, z.core.$loose>, z.ZodObject<{
@@ -10714,6 +10752,7 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"conversation_playback">;
     }, z.core.$loose>, z.ZodObject<{
         conversationId: z.ZodString;
+        resumable: z.ZodOptional<z.ZodBoolean>;
         type: z.ZodLiteral<"conversation_stop">;
     }, z.core.$loose>], "type">;
   clientPingSchema (packages/ui-sdk/src/schemas.ts)
@@ -13823,6 +13862,7 @@ signatures (every public export and the types it is made of)
             replaced: "replaced";
             stopped: "stopped";
         }>;
+        requestId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_closed">;
     }, z.core.$loose>;
   serverConversationEventSchema (packages/ui-sdk/src/schemas.ts)
@@ -13894,6 +13934,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   serverConversationOpenedSchema (packages/ui-sdk/src/schemas.ts)
     const serverConversationOpenedSchema: z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
@@ -13952,6 +13993,7 @@ signatures (every public export and the types it is made of)
             maxUtterances: z.ZodNumber;
         }, z.core.$loose>;
         providerId: z.ZodString;
+        requestId: z.ZodOptional<z.ZodString>;
         resync: z.ZodObject<{
             outputs: z.ZodNumber;
             work: z.ZodNumber;
@@ -14522,6 +14564,11 @@ signatures (every public export and the types it is made of)
                 tokens: z.ZodNullable<z.ZodNumber>;
             }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
+            configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -15287,6 +15334,11 @@ signatures (every public export and the types it is made of)
                     tokens: z.ZodNullable<z.ZodNumber>;
                 }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
+                configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -16891,6 +16943,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         type: z.ZodLiteral<"session_queue">;
     }, z.core.$loose>, z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
@@ -16949,6 +17002,7 @@ signatures (every public export and the types it is made of)
             maxUtterances: z.ZodNumber;
         }, z.core.$loose>;
         providerId: z.ZodString;
+        requestId: z.ZodOptional<z.ZodString>;
         resync: z.ZodObject<{
             outputs: z.ZodNumber;
             work: z.ZodNumber;
@@ -16969,6 +17023,7 @@ signatures (every public export and the types it is made of)
             replaced: "replaced";
             stopped: "stopped";
         }>;
+        requestId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_closed">;
     }, z.core.$loose>, z.ZodObject<{
         conversationId: z.ZodString;
@@ -17571,6 +17626,11 @@ signatures (every public export and the types it is made of)
                     tokens: z.ZodNullable<z.ZodNumber>;
                 }, z.core.$loose>>>;
                 changedFiles: z.ZodNullable<z.ZodNumber>;
+                configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                    complete: "complete";
+                    incomplete: "incomplete";
+                    unknown: "unknown";
+                }>>;
                 costIsEstimate: z.ZodNullable<z.ZodBoolean>;
                 costUsd: z.ZodNullable<z.ZodNumber>;
                 kind: z.ZodOptional<z.ZodEnum<{
@@ -17960,6 +18020,11 @@ signatures (every public export and the types it is made of)
                 tokens: z.ZodNullable<z.ZodNumber>;
             }, z.core.$loose>>>;
             changedFiles: z.ZodNullable<z.ZodNumber>;
+            configurationCoverage: z.ZodOptional<z.ZodEnum<{
+                complete: "complete";
+                incomplete: "incomplete";
+                unknown: "unknown";
+            }>>;
             costIsEstimate: z.ZodNullable<z.ZodBoolean>;
             costUsd: z.ZodNullable<z.ZodNumber>;
             kind: z.ZodOptional<z.ZodEnum<{
@@ -18237,6 +18302,11 @@ signatures (every public export and the types it is made of)
             tokens: z.ZodNullable<z.ZodNumber>;
         }, z.core.$loose>>>;
         changedFiles: z.ZodNullable<z.ZodNumber>;
+        configurationCoverage: z.ZodOptional<z.ZodEnum<{
+            complete: "complete";
+            incomplete: "incomplete";
+            unknown: "unknown";
+        }>>;
         costIsEstimate: z.ZodNullable<z.ZodBoolean>;
         costUsd: z.ZodNullable<z.ZodNumber>;
         kind: z.ZodOptional<z.ZodEnum<{

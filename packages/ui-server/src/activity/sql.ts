@@ -4,7 +4,7 @@ export const ACTIVITY_SQL = {
   insertChange:
     "INSERT INTO activity_changes (run_id, seq, span_id, event_index) VALUES (?, ?, ?, ?)",
   spanById: "SELECT * FROM activity_spans WHERE span_id = ?",
-  spanStateById: "SELECT run_id, outcome, attrs FROM activity_spans WHERE span_id = ?",
+  spanStateById: "SELECT run_id, outcome, attrs, session_id FROM activity_spans WHERE span_id = ?",
   endSpan: `UPDATE activity_spans SET outcome = ?, outcome_reason = ?, ended_at = ?, attrs = ?,
          input_tokens = COALESCE(?, input_tokens),
          output_tokens = COALESCE(?, output_tokens),
@@ -52,7 +52,7 @@ export const ACTIVITY_SQL = {
              (span_id, run_id, parent_span_id, name, kind, origin, session_id, job_name, principal_id,
               attrs, started_at, writer, last_heartbeat_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  patchSpan: `UPDATE activity_spans SET principal_id = COALESCE(?, principal_id),
+  patchSpan: `UPDATE activity_spans SET session_id = COALESCE(session_id, ?), principal_id = COALESCE(?, principal_id),
              attrs = ?, wait_until = COALESCE(?, wait_until),
              input_tokens = COALESCE(?, input_tokens),
              output_tokens = COALESCE(?, output_tokens),

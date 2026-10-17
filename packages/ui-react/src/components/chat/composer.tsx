@@ -1,3 +1,5 @@
+import { useStore } from "zustand";
+import { ConversationStrip } from "../voice/conversation-strip.js";
 import { InlineToast } from "@schlessera/brain-ui-kit";
 import { useBrainUiRoot, useRootStore } from "../../root-context.js";
 import { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle, useReducer, type Ref } from "react";
@@ -81,6 +83,7 @@ export interface ComposerHandle {
 
 export function Composer({ send, handle }: { send: (msg: ClientMessage) => void | boolean; handle?: Ref<ComposerHandle> }) {
   const root = useBrainUiRoot();
+  const conversation = useStore(root.connection.conversation.state);
   const finePointer = useFinePointer();
   const sessionId = useChatStore((s) => s.activeSessionId);
   // The selected session's history has not arrived (#1328): the draft stays
@@ -726,7 +729,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
 
   return (
     <>
-      <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
+      {conversation.active ? <div className="px-2 md:px-6"><ConversationStrip backend={[displayProviderLabel, displayProvider?.backendId, displayProvider?.vendor].filter(Boolean).join(" · ")} onLeave={() => queueMicrotask(focusField)} /></div> : <div className="px-4 pt-2 pb-4 md:px-6 md:pb-6">
         {/* Says where a taken suggestion went, since focus moves with it. */}
         <div className="sr-only" aria-live="polite" data-composer-notice="">
           {insertNotice}
@@ -759,6 +762,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFilePick} />
 
         <ComposerView
+          onConversation={conversation.available && micMode !== "local" && voiceMode !== "dictate" ? () => { setAttachMenuOpen(false); root.connection.conversation.enter(); } : undefined}
           dictation={<><DictationSheet open={voiceMode === "dictate"}
             composerRef={frameRef} onStop={stopDictation} onCancel={() => dictation.cancel()} />
             {root.localCapture?.durable && <LocalRecordingSheet open={localPhase === "recording" || localPhase === "stopping"} onStop={stopLocal} onDiscard={discardLocal} />}</>}
@@ -905,7 +909,7 @@ export function Composer({ send, handle }: { send: (msg: ClientMessage) => void 
         />
         {/* What became of this draft's save, under the field (D52 §5). */}
         <DraftSaveLine draftId={draftId} />
-      </div>
+      </div>}
     </>
   );
 }
