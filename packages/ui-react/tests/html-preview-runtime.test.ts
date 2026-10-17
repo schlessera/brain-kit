@@ -144,7 +144,7 @@ async function serve(mode: "password" | "none", brain: string, assets: string): 
 beforeAll(async () => {
   if (!executablePath) return;
   // The client bundle uses fresh source plus ordinary package resolution.
-  await child([process.execPath, "scripts/build.ts"]);
+  await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-html-preview-"));
   attacker = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
     const url = new URL(request.url);

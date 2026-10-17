@@ -107,6 +107,20 @@ function bothViews(s: Awaited<ReturnType<typeof connect>>) {
   expect(s.client.send({ type: "inbox_subscribe", view: "queue" })).toBe(true);
   expect(s.client.send({ type: "inbox_subscribe", view: "actions" })).toBe(true);
 }
+// Cursors advance on thread records too; readiness must cover both view projections.
+function hasConverged(s: Awaited<ReturnType<typeof connect>>, store: ReturnType<typeof createInboxStore>) {
+  if (!["queue", "actions"].every(view => s.frames.some(frame => frame.type === "inbox_snapshot" && frame.view === view))) return false;
+  const snapshot = store.snapshot();
+  const queue = project(s.frames, "queue"), actions = project(s.frames, "actions");
+  const mergedHighWater: Record<string, number> = { ...queue.highWaterSeq };
+  for (const [id, seq] of Object.entries(actions.highWaterSeq)) mergedHighWater[id] = Math.max(seq, mergedHighWater[id] ?? 0);
+  return Bun.deepEquals(queue.threads, snapshot.threads)
+    && Bun.deepEquals(actions.threads, snapshot.threads)
+    && Bun.deepEquals(queue.items, snapshot.items.filter(item => item.queue === "queue"))
+    && Bun.deepEquals(actions.items, snapshot.items.filter(item => item.queue === "actions"))
+    && Math.max(queue.cursor, actions.cursor) === snapshot.cursor
+    && Bun.deepEquals(mergedHighWater, snapshot.highWaterSeq);
+}
 function assertConverged(s: Awaited<ReturnType<typeof connect>>, store: ReturnType<typeof createInboxStore>) {
   const snapshot = store.snapshot();
   const queue = project(s.frames, "queue"), actions = project(s.frames, "actions");
@@ -182,7 +196,7 @@ describe("durable inbox over real authenticated sockets", () => {
     expect(reconnect.frames.filter((f) => f.type === "inbox_delta")).toHaveLength(0);
     await running.close();
     const restarted = await start(path), restored = await connect(restarted); bothViews(restored);
-    await waitFor(() => project(restored.frames, "actions").cursor === foreign.snapshot().cursor);
+    expect(await waitFor(() => hasConverged(restored, foreign))).toBe(true);
     expect(project(restored.frames, "queue").items).toHaveLength(2);
     expect(project(restored.frames, "actions").items.map((i) => i.id)).toEqual(["decision-polled"]);
     assertConverged(restored, foreign);
@@ -194,7 +208,7 @@ describe("durable inbox over real authenticated sockets", () => {
     ingest(foreign, "seed");
     const revoked = await connect(running), survivor = await connect(running);
     bothViews(revoked); bothViews(survivor);
-    await waitFor(() => project(revoked.frames, "actions").cursor > 0 && project(survivor.frames, "actions").cursor > 0);
+    expect(await waitFor(() => hasConverged(revoked, foreign) && hasConverged(survivor, foreign))).toBe(true);
     expect(project(revoked.frames, "queue").items).toHaveLength(1);
     expect(revokePrincipal(foreignDb, revoked.principal.id, Date.now())).toEqual([revoked.principal.id]);
     // Polling rechecks authority even with no pending changes.
@@ -216,12 +230,11 @@ describe("durable inbox over real authenticated sockets", () => {
     ingest(foreign, "seed");
     const first = await connect(running), second = await connect(running);
     bothViews(first); bothViews(second);
-    await waitFor(() => project(first.frames, "queue").items.length === 1 && project(second.frames, "queue").items.length === 1);
+    expect(await waitFor(() => hasConverged(first, foreign) && hasConverged(second, foreign))).toBe(true);
     expect(project(first.frames, "queue").items).toHaveLength(1);
     expect(project(second.frames, "queue").items).toHaveLength(1);
-    const before = foreign.snapshot().cursor;
     ingest(foreign, "foreign");
-    await waitFor(() => project(first.frames, "queue").cursor > before && project(second.frames, "queue").cursor > before);
+    expect(await waitFor(() => hasConverged(first, foreign) && hasConverged(second, foreign))).toBe(true);
     expect(project(first.frames, "queue").items.map((i) => i.id)).toContain("item-foreign");
     expect(project(second.frames, "queue").items.map((i) => i.id)).toContain("item-foreign");
     assertConverged(first, foreign); assertConverged(second, foreign);

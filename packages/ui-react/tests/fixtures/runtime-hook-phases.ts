@@ -18,12 +18,13 @@ export function runtimeHookPhases(file: string) {
   }
   async function child(stage: string, child: {
     pid: number; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>;
-  }): Promise<[string, string, number]> {
+  }, consume: (stream: ReadableStream<Uint8Array>) => Promise<string> =
+    (stream) => new Response(stream).text()): Promise<[string, string, number]> {
     const details = { childPid: child.pid };
     report(stage, "start", details);
     async function output(stream: ReadableStream<Uint8Array>, channel: string) {
-      // Only fixed build progress labels leave captured output. Never print
-      // arbitrary child output, arguments, paths, environment or error text.
+      // Observations contain only fixed progress labels and numeric metadata.
+      // A caller with an existing relay can retain its own output semantics.
       let pending = "";
       const decoder = new TextDecoder();
       let progressEvents = 0;
@@ -42,7 +43,7 @@ export function runtimeHookPhases(file: string) {
         },
       });
       try {
-        const text = await new Response(stream.pipeThrough(progress)).text();
+        const text = await consume(stream.pipeThrough(progress));
         report(stage, `${channel}-complete`, { ...details, bytes: Buffer.byteLength(text) });
         return text;
       } catch (error) {

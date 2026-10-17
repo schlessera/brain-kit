@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -32,8 +33,8 @@ if (worker) {
     if (!executablePath) return;
     const repo = resolve(import.meta.dir, "../../..");
     process.stderr.write("[external-speech] building packages\n");
-    const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await Promise.all([relay(build.stdout), relay(build.stderr), build.exited]);
+    const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await runtimeHookPhases("external-speech-runtime").child("package-build", build, relay);
     if (code !== 0) throw new Error(`Speech fixture package build failed: ${out}\n${err}`);
     process.stderr.write("[external-speech] constructing local speech and application servers\n");
     speechServer = Bun.serve<{ audio: number }>({ hostname: "127.0.0.1", port: 0,

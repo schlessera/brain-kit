@@ -1,7 +1,7 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
 import { markBinsExecutable } from "./bin-modes.ts";
-import { listPublishablePackages } from "./publishable-packages.ts";
+import { selectBuildPackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 // Build order is not load-bearing: each package's tsconfig.build.json extends
@@ -13,21 +13,41 @@ import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 // (scripts/publishable-packages.ts), so a future resolution change fails
 // loudly instead of subtly.
 //
-//   bun scripts/build.ts --dry-run [root]
+//   bun scripts/build.ts [--for <dir>[,<dir>…]] [--jobs=1|2] [--dry-run [root]]
 //
-// prints that order without building or removing anything.
+// --for includes each named package and its forward workspace dependencies.
+// --dry-run prints that order without building or removing anything.
+// --jobs=2 opts a single CI workspace into bounded dependency-level builds.
+// The default stays serial, including two concurrent private unit workspaces.
 const args = process.argv.slice(2);
-if (args.includes("--dry-run")) {
-  const dryRoot = resolve(args.find((arg) => arg !== "--dry-run") ?? resolve(import.meta.dir, ".."));
-  for (const { dir } of listPublishablePackages(dryRoot)) console.log(`Would build packages/${dir}`);
-  process.exit(0);
-}
-if (args.length > 0) {
-  console.error(`Build failed: unexpected arguments ${args.join(" ")} (only --dry-run [root] is accepted).`);
+let dryRun = false, dryRoot: string | undefined, directories: string[] | undefined;
+let jobs = 1, jobsSeen = false;
+let packages: ReturnType<typeof selectBuildPackages>;
+let root: string;
+try {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--dry-run" && !dryRun) dryRun = true;
+    else if (/^--jobs=[12]$/.test(arg) && !jobsSeen) { jobs = Number(arg.slice(7)); jobsSeen = true; }
+    else if (arg === "--for" && directories === undefined) {
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error("--for requires comma-separated package directories");
+      directories = value.split(",");
+    } else if (!arg.startsWith("--") && dryRoot === undefined) dryRoot = arg;
+    else throw new Error(`Unexpected build argument: ${arg}`);
+  }
+  if (dryRoot !== undefined && !dryRun) throw new Error("A root argument is accepted only with --dry-run");
+  root = resolve(dryRoot ?? resolve(import.meta.dir, ".."));
+  packages = selectBuildPackages(root, directories);
+} catch (error) {
+  console.error(`Build failed: ${(error as Error).message}`);
   process.exit(1);
 }
+if (dryRun) {
+  for (const { dir } of packages) console.log(`Would build packages/${dir}`);
+  process.exit(0);
+}
 
-const root = resolve(import.meta.dir, "..");
 const coordinated = await ensureWorkspaceLease(root, "write");
 if (coordinated !== undefined) process.exit(coordinated);
 const bunx = Bun.which("bunx");
@@ -38,7 +58,15 @@ if (!bunx) {
   process.exit(1);
 }
 
-for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
+const compilerLauncher = bunx;
+
+class PackageBuildFailure extends Error {
+  constructor(readonly packageName: string, readonly code: number, detail: string) {
+    super(`Build failed: packages/${packageName}: ${detail}`);
+  }
+}
+
+async function buildPackage({ dir: packageName, manifest }: (typeof packages)[number]): Promise<void> {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");
   rmSync(distDir, { recursive: true, force: true });
@@ -46,7 +74,7 @@ for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
   console.log(`Building packages/${packageName}...`);
   let subprocess: ReturnType<typeof Bun.spawn>;
   try {
-    subprocess = Bun.spawn([bunx, "tsc", "-p", resolve(packageDir, "tsconfig.build.json")], {
+    subprocess = Bun.spawn([compilerLauncher, "tsc", "-p", resolve(packageDir, "tsconfig.build.json")], {
       cwd: root,
       stdout: "inherit",
       stderr: "inherit",
@@ -55,10 +83,10 @@ for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
     console.error(
       `Build failed: could not spawn \`bunx tsc\` for packages/${packageName}: ${(error as Error).message}`
     );
-    process.exit(1);
+    throw new PackageBuildFailure(packageName, 1, "could not spawn compiler");
   }
   const exitCode = await subprocess.exited;
-  if (exitCode !== 0) process.exit(exitCode);
+  if (exitCode !== 0) throw new PackageBuildFailure(packageName, exitCode, `compiler exited ${exitCode}`);
 
   if (packageName === "ui-react" || packageName === "ui-kit") {
     // Precompiled stylesheet for consumers without a Tailwind build. The
@@ -67,11 +95,11 @@ for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
     const cssEntry = resolve(packageDir, "src", "styles.css");
     const cssOut = resolve(distDir, "styles.css");
     const css = Bun.spawn(
-      [bunx, "-p", "@tailwindcss/cli", "tailwindcss", "-i", cssEntry, "-o", cssOut, "--minify"],
+      [compilerLauncher, "-p", "@tailwindcss/cli", "tailwindcss", "-i", cssEntry, "-o", cssOut, "--minify"],
       { cwd: packageDir, stdout: "inherit", stderr: "inherit" }
     );
     const cssExit = await css.exited;
-    if (cssExit !== 0) process.exit(cssExit);
+    if (cssExit !== 0) throw new PackageBuildFailure(packageName, cssExit, `stylesheet compiler exited ${cssExit}`);
 
     // The Tailwind-consumer theme entry ships from dist like every other
     // export target, so a dist-only tarball keeps both CSS exports working.
@@ -92,7 +120,7 @@ for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
     const hooksSource = resolve(packageDir, "src", "hooks");
     if (!existsSync(hooksSource)) {
       console.error(`Build failed: core hooks source directory is missing: ${hooksSource}`);
-      process.exit(1);
+      throw new PackageBuildFailure(packageName, 1, "hooks source directory is missing");
     }
     cpSync(hooksSource, resolve(distDir, "hooks"), {
       recursive: true,
@@ -105,6 +133,35 @@ for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
     markBinsExecutable(packageDir, manifest);
   } catch (error) {
     console.error(`Build failed: packages/${packageName} declares a bin the build did not produce: ${(error as Error).message}`);
-    process.exit(1);
+    throw new PackageBuildFailure(packageName, 1, "declared bin output is missing");
   }
+}
+
+try {
+  if (jobs === 1) {
+    for (const pkg of packages) await buildPackage(pkg);
+  } else {
+    const pending = new Set(packages.map(pkg => pkg.name));
+    const selected = new Set(pending);
+    while (pending.size) {
+      const level = packages.filter(pkg => pending.has(pkg.name) &&
+        Object.keys({ ...pkg.manifest.dependencies, ...pkg.manifest.optionalDependencies })
+          .every(name => name === pkg.name || !selected.has(name) || !pending.has(name)));
+      if (!level.length) throw new Error("Cannot schedule cyclic build dependencies");
+      for (let index = 0; index < level.length; index += jobs) {
+        const batch = level.slice(index, index + jobs);
+        // Never exit/reject while a started peer still owns output/compiler work.
+        const results = await Promise.allSettled(batch.map(buildPackage));
+        const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (errors.length) {
+          for (const error of errors.slice(1)) console.error(String(error.reason));
+          throw errors[0]!.reason;
+        }
+        for (const pkg of batch) pending.delete(pkg.name);
+      }
+    }
+  }
+} catch (error) {
+  console.error(String(error));
+  process.exitCode = error instanceof PackageBuildFailure ? error.code : 1;
 }
