@@ -372,20 +372,30 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   // Keep bounded evidence for a composer that never reaches admitted Send.
   // Successful later runs cannot explain a missing response in an earlier run.
   const profileReads: ProfileRead[] = [];
-  const rememberProfile = (read: ProfileRead) => { profileReads.push(read); if (profileReads.length > 8) profileReads.shift(); };
+  const profileRequests = new WeakMap<BrowserRequest, ProfileRead>();
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (!path.endsWith("/profile")) return;
+    const read: ProfileRead = { path };
+    profileRequests.set(request, read);
+    profileReads.push(read);
+    if (profileReads.length > 8) profileReads.shift();
+  });
   page.on("response", async response => {
-    const path = new URL(response.url()).pathname;
-    if (path.endsWith("/profile")) rememberProfile({ path, status: response.status(), body: (await response.text().catch(error => String(error))).slice(0, 4096) });
+    const read = profileRequests.get(response.request());
+    if (!read) return;
+    read.status = response.status();
+    read.body = (await response.text().catch(error => String(error))).slice(0, 4096);
   });
   page.on("requestfailed", request => {
-    const path = new URL(request.url()).pathname;
-    if (path.endsWith("/profile")) rememberProfile({ path, failure: request.failure()?.errorText });
+    const read = profileRequests.get(request);
+    if (read) read.failure = request.failure()?.errorText;
   });
   page.on("websocket", (ws) => {
     const socket = sockets.push(ws.url()) - 1;
     const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
       const frame = JSON.parse(String(payload)) as ClientMessage | ServerMessage;
-      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error", "session_history", "session_resume", "status"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
+      if (["server_hello", "chat_message", "session_info", "tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error", "session_history", "session_resume", "status"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
     };
     ws.on("framesent", ({ payload }) => record("framesent", payload));
     ws.on("framereceived", ({ payload }) => record("framereceived", payload));
@@ -1032,11 +1042,12 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             if (decision === "Always allow") expect(await readPolicy(), "only the explicit online decision wrote policy").toMatchObject({ tools: expect.arrayContaining(["Read"]) });
           } catch (error) {
             console.error("Refused approval diagnostic", JSON.stringify({ run: run.name, surface, decision, runtime: Bun.version, browser: browser!.version(), frames: a.approvals, profileReads: a.profileReads,
+              state: await probe(a.page, p => ({ connected: p.connected(), draftsSupported: p.draftsSupported(), active: p.activeSessionId(), draft: p.draft() })).catch(() => null),
               composer: await a.page.evaluate(() => ({ value: (document.querySelector("textarea[data-composer]") as HTMLTextAreaElement | null)?.value,
                 placeholder: document.querySelector("textarea[data-composer]")?.getAttribute("placeholder"),
                 visibleText: document.body.innerText.slice(-4000),
-                send: [...document.querySelectorAll('[role="button"][aria-label="Send"]')].map(node => ({ disabled: node.getAttribute("aria-disabled") })) })).catch(() => null),
-              tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), sessionId) }));
+                send: [...document.querySelectorAll('[role="button"][aria-label^="Send"]')].map(node => ({ label: node.getAttribute("aria-label"), disabled: node.getAttribute("aria-disabled") })) })).catch(() => null),
+              tools: await a.page.evaluate((id) => (window as unknown as { __parallel: { approvalTools: (id: string) => unknown } }).__parallel.approvalTools(id), sessionId).catch(() => null) }));
             throw error;
           } finally {
             await a.context.close();
