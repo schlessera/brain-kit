@@ -15,6 +15,9 @@ const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
 const appOnly = sharedGit && new URL(import.meta.url).searchParams.has("app-only");
 const warm = new URL(import.meta.url).searchParams.has("warm");
 const profile = new URL(import.meta.url).searchParams.get("profile") === "strict" ? "strict" : "governed";
+const stageStarted = performance.now();
+const stage = (stage: string) => { if (sharedGit) console.log(JSON.stringify({ sharedAppStage: { profile, warm, stage, elapsedMs: performance.now() - stageStarted } })); };
+stage("module-loaded");
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
 const home = join(root, "home"), config = join(home, ".claude"), data = root;
 mkdirSync(data, { mode: 0o700, recursive: true }); mkdirSync(config, { recursive: true, mode: 0o700 });
@@ -78,33 +81,44 @@ async function until(check: () => boolean, label: string) {
 }
 try {
   if (sharedGit && !appOnly) {
+    stage("git-consumer:start");
     const { captureSharedGitMaintenance } = await import("../shared-git-maintenance.native.js");
     await captureSharedGitMaintenance(brain, profile === "strict" ? "strict" : warm ? "warm" : "fresh");
+    stage("git-consumer:done");
   }
   if (profile === "governed" && !warm && !appOnly) {
+    stage("stage-controls:start");
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);
+    stage("stage-controls:done");
   }
   recordFixtureRootMetadata("before-app");
+  stage("app-create:start");
   app = await createApp({ workerProfile: profile, config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: secret,
     HOST: "127.0.0.1", DB_PATH: join(data, "ui.db"), BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: "claude",
     BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", BRAIN_UI_TURN_TIMEOUT_MS: "30000",
     BRAIN_UI_NATIVE_BRAIN_SOCKET: "/native-runtime/server-ws-manager.sock" }), registry: createStaticBackendRegistry([observedBackend], "claude"), observability });
+  stage("app-create:done");
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus inference", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   const cookie = await serializeSigned("brain_ui_session", principal.id, secret), frames: Array<Record<string, unknown>> = [];
   if (warm) {
+    stage("warm-db:start");
     const { captureWarmMaintenanceDatabase } = await import("../maintenance-stage-provenance.native.js");
     await captureWarmMaintenanceDatabase(brain);
+    stage("warm-db:done");
   }
+  stage("index:start");
   const index = await fetch(`http://127.0.0.1:${server.port}/api/brain/index`, { method: "POST",
     headers: { cookie, origin: `http://127.0.0.1:${server.port}`, "content-type": "application/json" }, body: "{}" });
   const indexed = await index.text();
+  stage("index:done");
   console.log(JSON.stringify({ actualManagedIndex: { profile, warm, status: index.status, body: indexed },
     diagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   expect(index.status, warm ? "ACTUAL_MANAGED_WARM_AUTHENTICATED_INDEX" : "ACTUAL_MANAGED_AUTHENTICATED_INDEX").toBe(200);
   expect(JSON.parse(indexed), "ACTUAL_MANAGED_AUTHENTICATED_INDEX_PUBLISHED").toEqual({ success: true });
   const NativeWebSocket = WebSocket as unknown as { new(url: string, options: { headers: Record<string, string> }): WebSocket };
+  stage("ws:start");
   socket = new NativeWebSocket(`ws://127.0.0.1:${server.port}/ws`, { headers: { cookie, origin: `http://127.0.0.1:${server.port}` } });
   socket.addEventListener("message", event => frames.push(JSON.parse(String(event.data))));
   await until(() => frames.some(frame => frame.type === "server_hello"), "REAL_SERVER_HELLO");
@@ -122,17 +136,22 @@ try {
   expect(frames.some(frame => frame.type === "error"), "ACTUAL_MANAGED_WS_ADMISSION_NO_ERROR").toBe(false);
   const unavailable = observability.logs.records().filter(log => String(log.body).includes("the governed profile is unavailable"));
   expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
+  stage("ws:done");
   if (sharedGit) {
+    stage("prune-join:start");
     expect(typeof app.wsHost.scratchPrune, "SHARED_GIT_OWNED_MAINTENANCE_JOIN_AVAILABLE").toBe("function");
     await app.wsHost.scratchPrune!();
+    stage("prune-join:done");
     console.log(JSON.stringify({ actualOwnedScratchPruneJoined: { profile, warm } }));
   }
 } finally { try {
+  stage("cleanup:start");
   try { socket?.close(); } finally {
     try { server?.stop(true); } finally {
       try { await app?.close(); } finally { provider.stop(true); }
     }
   }
+  stage("cleanup:done");
   recordFixtureRootMetadata("after-app");
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),

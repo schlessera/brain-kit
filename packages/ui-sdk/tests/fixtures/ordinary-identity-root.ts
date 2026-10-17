@@ -1,3 +1,5 @@
+import { APPLICATION_QUALIFICATION_PHASES } from "./application-qualification.js";
+import { retainFixtureStream } from "./retained-stream.js";
 import { expect } from "bun:test";
 import { chmodSync, chownSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +8,8 @@ import { hostOutputStagingLimits } from "../../../ui-sdk/src/server/worker-state
 const brain = "/brain-fixture/brain";
 const sharedGit = process.argv.includes("--shared-git");
 const sharedPhase = sharedGit ? process.argv.find(arg => arg.startsWith("--shared-phase="))?.slice("--shared-phase=".length) : undefined;
-if (sharedPhase && !["probe-state", "private", "fresh", "fresh-controls", "fresh-app", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
+if (sharedPhase && !["private-positive", "fresh-git", "probe-state", "private", "fresh", "fresh-controls", "fresh-app", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
+const applicationQualification = process.argv.includes("--application-qualification");
 const probeStatePlacement = process.argv.includes("--probe-state-placement");
 const omitProbeStatePlacement = process.argv.includes("--omit-probe-state-placement");
 const privateGitInputs = process.argv.includes("--private-git-inputs");
@@ -18,10 +21,16 @@ if (process.argv[2] === "--index-child") {
   await import("../maintenance-index-refusals.native.js");
 } else if (process.argv[2] === "--child") {
   expect(process.getuid!()).toBe(21001);
+  const childStarted = performance.now();
+  const childStage = (stage: string) => { if (sharedGit) console.log(JSON.stringify({ sharedChildStage: { phase: sharedPhase, stage, elapsedMs: performance.now() - childStarted } })); };
+  childStage("entry");
   if (sharedPhase === "probe-state") {
     await import("../probe-state-placement.native.js");
   } else {
+  childStage("identity-module:start");
   const { probeWorkerHost } = await import("../../../ui-sdk/src/server/worker-launcher.js");
+  childStage("identity-module:done");
+  childStage("identity-probe:start");
   if (sharedPhase && !["fresh", "fresh-controls"].includes(sharedPhase)) {
     const profile = sharedPhase === "strict" ? "strict" : "governed";
     const probe = probeWorkerHost(brain, { profile, stateBytes: 1024 ** 2, turnTempBytes: 1024 ** 2 });
@@ -73,12 +82,21 @@ if (process.argv[2] === "--index-child") {
     console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
     await import("../restricted-relay-qualification.native.js");
   }
-  if (privateGitInputs && (!sharedPhase || sharedPhase === "private")) await import("../private-git-inputs.native.js");
-  if (sharedPhase === "fresh-controls") {
+  childStage("identity-probe:done");
+  if (privateGitInputs && (!sharedPhase || sharedPhase === "private" || sharedPhase === "private-positive")) {
+    childStage("private-inputs:start");
+    await import("../private-git-inputs.native.js" + (sharedPhase === "private-positive" ? "?positive-only=1" : ""));
+    childStage("private-inputs:done");
+  }
+  if (sharedPhase === "fresh-controls" || sharedPhase === "fresh-git") {
+    childStage("fresh-git:start");
     const { captureSharedGitMaintenance } = await import("../shared-git-maintenance.native.js");
     await captureSharedGitMaintenance(brain, "fresh");
-    const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
-    await captureMaintenanceStage(brain);
+    childStage("fresh-git:done");
+    if (sharedPhase === "fresh-controls") {
+      const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
+      await captureMaintenanceStage(brain);
+    }
   }
   if (sharedPhase === "fresh-app") await import("./ordinary-identity-ws.js" + "?shared-git=1&app-only=1");
   if (!sharedPhase || sharedPhase === "fresh") await import("./ordinary-identity-ws.js" + (sharedGit ? "?shared-git=1" : ""));
@@ -160,14 +178,19 @@ if (process.argv[2] === "--index-child") {
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
   try {
-    const phases = probeStatePlacement ? ["probe-state"] : sharedGit && process.argv[2] !== "--index-controls" ? [...(privateGitInputs ? ["private", "fresh-controls", "fresh-app"] : ["fresh"]), "warm", "strict"] : [undefined];
+    const phases = applicationQualification ? APPLICATION_QUALIFICATION_PHASES : probeStatePlacement ? ["probe-state"] : sharedGit && process.argv[2] !== "--index-controls" ? [...(privateGitInputs ? ["private", "fresh-controls", "fresh-app"] : ["fresh"]), "warm", "strict"] : [undefined];
     let aggregateOutput = "", aggregateErrors = "";
     for (const phase of phases) {
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
         process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
         env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
-      const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      const [capturedOutput, capturedErrors, code] = await Promise.all([
+        sharedGit && phase ? retainFixtureStream(child.stdout, `/proof/shared-git-${phase}-server.stdout`) : new Response(child.stdout).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })),
+        sharedGit && phase ? retainFixtureStream(child.stderr, `/proof/shared-git-${phase}-server.stderr`) : new Response(child.stderr).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })), child.exited]);
+      if (capturedOutput.failure) throw capturedOutput.failure.error;
+      if (capturedErrors.failure) throw capturedErrors.failure.error;
+      const output = capturedOutput.text, errors = capturedErrors.text;
       aggregateOutput += output; aggregateErrors += errors;
       writeFileSync("/proof/server.stdout", aggregateOutput); writeFileSync("/proof/server.stderr", aggregateErrors);
       writeFileSync("/proof/ordinary-server.stdout", aggregateOutput); writeFileSync("/proof/ordinary-server.stderr", aggregateErrors);

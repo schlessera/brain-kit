@@ -9,6 +9,7 @@ import { prepareMaintenanceOutput } from "../../ui-server/src/brain/maintenance-
 import { prepareMaintenanceGit } from "../../ui-server/src/brain/maintenance-git.js";
 import { createHostBoundary } from "../../ui-server/src/brain/host-boundary.js";
 import type { MaintenanceCommand } from "../src/server/maintenance-worker.js";
+const positiveOnly = new URL(import.meta.url).searchParams.has("positive-only");
 const started = performance.now();
 const observe = (phase: string) => console.log(JSON.stringify({ privateGitPhase: phase, elapsedMs: performance.now() - started }));
 observe("module-loaded");
@@ -85,6 +86,7 @@ observe("boundary-run:done");
 expect(failure, "PRIVATE_GIT_SOURCE_COLLECTION_SUCCEEDS").toBeUndefined();
 expect(actual!.exitCode, actual!.stderr).toBe(0);
 expect(actual!.stdout, "ACTUAL_PRIVATE_GIT_CONSUMERS").toBe("PRIVATE_GIT_ATTRIBUTE_HOOK_CONSUMERS_PASS\n");
+if (!positiveOnly) {
 const base = (): MaintenanceCommand => ({ brainPath: brain, command: ["/bin/true"], credentials: false, env: { PATH: "/usr/local/bin:/usr/bin:/bin" } });
 for (const kind of ["zero-attribute", "zero-directory", "attribute-alias", "foreign-root", "closed", "changed-context"] as const) {
   if (kind === "zero-attribute") await worker(String.raw`import os;p=${JSON.stringify(brain)}+"/private/.gitattributes";os.unlink(p);open(p,"w").write("*.md odysseus=ithaca\n");os.chmod(p,0)`);
@@ -130,4 +132,6 @@ for (const kind of ["zero-attribute", "zero-directory", "attribute-alias", "fore
     if (kind === "attribute-alias") await worker(String.raw`import os;os.unlink(${JSON.stringify(brain)}+"/.gitattributes")`);
   }
 }
+}
+if (positiveOnly) console.log(JSON.stringify({ privateGitQualificationScope: "positive-setup-only", skippedRefusalControls: 6 }));
 console.log(JSON.stringify({ actualPrivateGitSources: { uid: 21002, serverReadDenied: true, attributePolicy: "ithaca", repositoryHookExecuted: true } }));

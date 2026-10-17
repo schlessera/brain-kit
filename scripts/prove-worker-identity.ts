@@ -2,6 +2,7 @@
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
+import { applicationQualificationSelected, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
 
@@ -64,7 +65,8 @@ if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--application-qualification") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification]");
+    const applicationQualification = applicationQualificationSelected(options);
     const image = options.find(arg=>arg.startsWith("--image="))?.slice("--image=".length) ?? NATIVE_PROOF_IMAGE;
     const sharedGit = options.includes("--shared-git");
     const privateGitInputs = options.includes("--private-git-inputs");
@@ -142,7 +144,7 @@ if (import.meta.main) {
       const fresh = changed(readFileSync(nativeFixturePath, "utf8"),
         '    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n', "");
       writeFileSync(nativeFixturePath, changed(fresh,
-        "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", probeStatePlacement ? "/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts" : privateGitInputs ? "/repo/packages/ui-sdk/tests/fixtures/private-git-identity-root.ts" : "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
+        "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", applicationQualification ? "/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts" : probeStatePlacement ? "/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts" : privateGitInputs ? "/repo/packages/ui-sdk/tests/fixtures/private-git-identity-root.ts" : "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
     }
     if (omitProbeStatePlacement) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
       '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts", "--omit-probe-state-placement"'));
@@ -256,9 +258,9 @@ exit "$case_code"
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, proofScope: probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+    const metadata = { image, proofScope: applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
       collectorInventoryHashes: inventoryVariant?.hashes ?? null,
-      skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls", ...(probeStatePlacement ? ["private-git-inputs", "fresh-controls", "fresh-app", "warm-app", "strict-app"] : [])] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
+      skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls", ...(applicationQualification ? APPLICATION_SKIPPED_CONTROLS : []), ...(probeStatePlacement ? ["private-git-inputs", "fresh-controls", "fresh-app", "warm-app", "strict-app"] : [])] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
       helperSourceSha256: hash(readFileSync(helperSource)), helperSha256: hash(readFileSync(helper)),
       faultHashes, helperScriptSha256: hash(helperScript), nonDroppingScriptSha256: hash(readFileSync(nonDroppingScript)), nonDroppingHelperSha256: hash(readFileSync(nonDroppingHelper)), filterSha256: hash(WORKER_FILESYSTEM_FILTER_PROGRAM) };
