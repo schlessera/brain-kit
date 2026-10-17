@@ -1,5 +1,5 @@
 import { diagramLegend } from "./legend.js";
-import { planCallouts } from "./callouts.js";
+import { calloutKeyWidth, planCallouts } from "./callouts.js";
 import { shapeSvg } from "./shape-svg.js";
 import { nodeLinkSvg } from "./node-link-svg.js";
 import { parseDocument } from "yaml";
@@ -54,7 +54,10 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
     const drawing=shapeSvg(element);
     if(node){if(drawnNodes.has(node.id))break;drawnNodes.add(node.id);const parts=nodePartsById.get(node.id)!,anchor=parts.find(part=>part.shape!=="text")??element;
      elements.push(primitive("g",{"data-diagram-node":node.id,"aria-label":[node.label,node.sub].filter(Boolean).join(", "),...(node.link?{"data-wiki-link":node.link}:{})},undefined,[...parts.map(shapeSvg),primitive("rect",{class:"bk-diagram-node-focus",x:anchor.x-4,y:anchor.y-4,width:anchor.width+8,height:anchor.height+8,rx:9,fill:"none",stroke:ink("focus-ring"),"stroke-width":2})]));}
-    else if(element.from || element.to) elements.push(primitive("g",{"data-from":element.from??"","data-to":element.to??""},undefined,[drawing]));
+    else if(element.from || element.to) {
+     const edge=spec.edges.findIndex(edge=>edge.id===element.edgeId&&edge.from===element.from&&edge.to===element.to);
+     elements.push(primitive("g",{"data-from":element.from??"","data-to":element.to??"",...(edge>=0?{"data-diagram-edge":edge}:{})},undefined,[drawing]));
+    }
     else elements.push(drawing); break;
    }
 
@@ -76,18 +79,43 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
    default: { const exhaustive:never=element; throw Error(`Unknown diagram element: ${String(exhaustive)}`); }
   }
  }
- const marker=(number:number,x:number,y:number):SvgPrimitive[]=>[primitive("circle",{cx:x,cy:y,r:8,fill:ink("diagram-node"),stroke:ink("diagram-line"),"stroke-width":1}),text(String(number),"label",x,y+3,16,ink("diagram-text"),{"text-anchor":"middle"})];
- const noteText=(lines:string[],x:number,y:number)=>lines.map((line,index)=>primitive("text",{x,y:y+11+index*14,fill:ink("diagram-text"),"font-family":DIAGRAM_TYPE.note.family,"font-size":11,"font-weight":500},line));
- for(const note of callouts.placements){
-  const children=note.placement==="marker"?marker(note.index+1,note.anchor.x,note.anchor.y):[primitive("line",{x1:note.anchor.x,y1:note.anchor.y,x2:note.end!.x,y2:note.end!.y,stroke:ink("diagram-line"),"stroke-width":1,"data-callout-leader":""}),primitive("circle",{cx:note.anchor.x,cy:note.anchor.y,r:2.5,fill:ink("diagram-text")}),...noteText(note.lines,note.box.x,note.box.y)];
-  elements.push(primitive("g",{"data-diagram-callout":note.index,"data-target":note.target,"data-placement":note.placement,"aria-label":`Note on ${note.name}: ${note.text}`},undefined,children));
+ const pill=(number:number,box:{x:number;y:number;width:number;height:number}):SvgPrimitive[]=>[
+  primitive("rect",{...box,rx:8,fill:ink("diagram-node"),stroke:ink("diagram-line"),"stroke-width":1}),
+  text(String(number),"label",box.x+box.width/2,box.y+11,box.width-10,ink("diagram-text"),{"text-anchor":"middle"}),
+ ];
+ const noteText=(lines:string[],x:number,y:number,fill=ink("diagram-text"))=>lines.map((line,index)=>primitive("text",{x,y:y+11+index*14,fill,"font-family":DIAGRAM_TYPE.note.family,"font-size":11,"font-weight":500},line));
+ for(const note of callouts.placements.filter(note=>note.placement!=="band")){
+  elements.push(primitive("g",{"data-diagram-callout":note.index,"data-target":note.target,"data-placement":note.placement,"aria-label":`Note on ${note.name}: ${note.text}`},undefined,[
+   primitive("line",{x1:note.anchor!.x,y1:note.anchor!.y,x2:note.end!.x,y2:note.end!.y,stroke:ink("diagram-line"),"stroke-width":1,"data-callout-leader":""}),
+   primitive("circle",{cx:note.anchor!.x,cy:note.anchor!.y,r:2.5,fill:ink("diagram-text")}),...noteText(note.lines,note.box.x,note.box.y),
+  ]));
+ }
+ for(const group of callouts.groups)if(group.cue&&group.key){
+  elements.push(primitive("g",{"data-diagram-callout-key":group.key,"data-target":group.target,"aria-label":`${group.name}: ${group.indices.length} ${group.indices.length===1?"note":"notes"}, listed below the diagram as group ${group.key}`},undefined,pill(group.key,group.cue)));
  }
  if(callouts.bandHeight){
-  const rows:SvgPrimitive[]=[primitive("line",{x1:8,y1:callouts.bandTop,x2:tree.viewBox.width-8,y2:callouts.bandTop,stroke:ink("color-line"),"stroke-width":1})];let y=callouts.bandTop+12;
-  for(const note of callouts.placements.filter(item=>item.placement==="marker")){rows.push(primitive("g",{"data-diagram-callout-note":note.index},undefined,[...marker(note.index+1,16,y+8),...noteText(note.lines,40,y)]));y+=Math.max(16,note.lines.length*14)+8;}
-  elements.push(primitive("g",{"data-diagram-notes-band":""},undefined,rows));
+  const rows:SvgPrimitive[]=[primitive("line",{x1:16,y1:callouts.bandTop,x2:tree.viewBox.width-16,y2:callouts.bandTop,stroke:ink("color-line"),"stroke-width":1})];
+  for(const group of callouts.groups){
+   const children:SvgPrimitive[]=[];
+   for(const header of group.headers){
+    const keyWidth=group.key?calloutKeyWidth(group.key):0;
+    if(group.key)children.push(primitive("g",{"data-callout-header-key":group.key},undefined,pill(group.key,{x:header.x,y:header.y,width:keyWidth,height:16})));
+    children.push(primitive("g",{"data-callout-group-heading":"","data-column-width":header.width,"data-heading-offset":header.offset},undefined,header.lines.map((line,index)=>text(line,"label",header.x+header.offset,header.y+11+index*14,header.width-header.offset,ink("diagram-text")))));
+    children.push(...noteText(header.explanation,header.x,header.y+header.lines.length*14+8,ink("color-ink-mute")));
+   }
+   for(const note of callouts.placements.filter(note=>note.placement==="band"&&note.target===group.target))children.push(primitive("g",{"data-diagram-callout":note.index,"data-diagram-callout-note":note.index,"data-target":note.target,"data-placement":"band","data-column":note.column!,"aria-label":`Note on ${note.name}: ${note.text}`},undefined,[
+    text(String(note.index+1),"label",note.indexX!,note.box.y+11,Math.max(24,typeWidthBudget(String(spec.callouts?.length??0),"label")),ink("color-ink-mute"),{"text-anchor":"end","data-callout-index":""}),
+    ...noteText(note.lines,note.box.x,note.box.y),
+   ]));
+   rows.push(primitive("g",{"data-diagram-callout-group":group.target,"data-key":group.key??"none","data-target-drawn":group.drawn},undefined,children));
+  }
+  elements.push(primitive("g",{"data-diagram-notes-band":"","data-columns":callouts.columns},undefined,rows));
  }
- for(const element of elements){const target=element.attrs["data-diagram-node"]??element.attrs["data-diagram-group"]??(element.attrs["data-diagram-edge"]!==undefined?spec.edges[Number(element.attrs["data-diagram-edge"])]?.id:undefined);const notes=callouts.placements.filter(note=>note.target===target);if(notes.length)element.attrs["aria-label"]=`${element.attrs["aria-label"]??callouts.placements.find(note=>note.target===target)!.name}, note: ${notes.map(note=>note.text).join("; ")}`;}
+ for(const element of elements){
+  const target=element.attrs["data-diagram-node"]??element.attrs["data-diagram-group"]??(element.attrs["data-diagram-edge"]!==undefined?spec.edges[Number(element.attrs["data-diagram-edge"])]?.id:undefined);
+  const notes=callouts.placements.filter(note=>note.target===target);
+  if(notes.length)element.attrs["aria-label"]=`${element.attrs["aria-label"]??notes[0]!.name}, ${notes.length} ${notes.length===1?"note":"notes"}`;
+ }
  if(kinds.length){
   const footerTop=tree.viewBox.height-footerHeight, cell=(tree.viewBox.width-16)/columns;
   const legend:SvgPrimitive[]=[primitive("line",{x1:8,y1:footerTop+2,x2:tree.viewBox.width-8,y2:footerTop+2,stroke:ink("color-line"),"stroke-width":1})];

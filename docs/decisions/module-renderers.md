@@ -325,3 +325,37 @@ preferred-side data (N3=B). The N2 rejection is an explicit compatibility
 change; it applies only to fixed named canvases. Other accepted v1 annotations
 retain their text and target association. A side hint never overrides collision
 protections, and content must never disappear, shrink or truncate to fit.
+
+### Repeated targets and compatible fallback
+
+The maintainer's [revision 2 ruling](https://github.com/schlessera/brain-kit/issues/2242#issuecomment-6234681174)
+retains N1=A, N2=A and N3=B and chooses R1=A with R2=B. Repeated-target notes
+stay together in a target-named band with at most one safe key cue. Per-note
+r8 markers cannot represent the accepted 1024-note repeated-target case
+readably without overlap. Shared keys associate the drawing with the group;
+original source indices outside the pills identify individual notes. A
+painted target without a safe cue spot uses the explicit unmarked explanation.
+A declared target that its family does not paint uses the explicit not-drawn
+explanation, preserving its notes without inventing geometry.
+
+At frame widths of at least 640px, the band flows into two columns of at least
+280px, reading down the first column and then the second within the target
+grouping. Narrow frames keep one column. This chosen alternative supersedes
+the revision 2 drawings' single-column wide band; every note and its full text
+remain rendered, and `fit` grows to the resulting height. Splitting a first
+note inline from the remainder was rejected because it separates one target's
+notes across two places.
+
+The fixed named canvas exception preserves all repeated-target notes inline
+when readable collision-free inline placement fits but the revised band does
+not. It prevents R1's grouping rule from silently expanding N2's compatibility
+break. `callout_room` remains limited to fixed named canvases where neither
+readable inline placement nor the band fits; accepted `fit` sources remain
+valid. Preferred-side ordering applies to the preserved inline treatment.
+
+The drawings permit a key cue to contact its own target geometry. That
+exception does not waive 4px clearance from unrelated geometry, all
+label/heading masks, the legend or other cues, and does not permit covering
+target text. Shared client/static primitives, summary notes and print preserve
+full content and explicit target association. The detailed compatibility
+surface is [the diagram integration contract](../integration-contract/diagrams.md#common-annotation-placement-2242).

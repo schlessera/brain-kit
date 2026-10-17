@@ -39,7 +39,7 @@ a 2048-character parse limit. All numbers are finite.
 | Edge | `from`, `to` (node or group IDs); optional `id`, `label`, `kind` |
 | Edge `kind` | `primary`, `link`, `default`, or `async` |
 | `focal` | Up to two element IDs; a named node, group or edge must exist |
-| Callout | `target` (an existing element ID), `text` |
+| Callout | `target` (an existing element ID), `text`; optional `side`: `below`, `above`, `right`, or `left` |
 | `link` | Internal `[[wiki-link]]` string; available on the spec or a node |
 
 IDs match `[a-z][a-z0-9-]*`, up to 80 characters, and are unique across nodes,
@@ -456,16 +456,64 @@ aliases and does not introduce a renderer registration interface.
 
 ## Common annotation placement (#2242)
 
-Callouts additionally accept optional `side: below|above|right|left`. It is a
-preference: the requested side is tried first, then the remaining sides in
-below, above, right, left order. No hint preserves that default order. Hints
-never move semantic geometry or allow an annotation to cover nodes or masks.
+Callouts accept optional `side: below|above|right|left`. For eligible inline
+notes, the requested side is tried first, then the remaining sides in below,
+above, right, left order, without trying the preferred side twice. No hint
+preserves that default order. Hints never move semantic geometry or override
+collision protections. Notes use the dedicated `note` role: Plus Jakarta Sans
+11px/500, authored capitalization and `diagram-text`, with wrapping rather
+than truncation or reduced text size.
+
+Callouts are grouped by target in order of first appearance. A painted target
+with one note uses readable collision-free inline placement when available;
+otherwise its note goes into the notes band. A target with two or more notes
+puts all its notes into the band, ignoring side hints for that placement. The
+fixed named canvas exception below preserves valid inline placement when the
+band cannot fit. Do not put a first note or another subset inline while the
+remaining notes for that target go into the band.
+
+The notes band appears above the legend. Each target group names its target
+using the node/group/scope label, edge label, or the edge's endpoint names.
+Rows retain their original one-based source indices, including skipped indices
+within a group, and every full note. At frame widths of at least 640px the band
+flows into two columns of at least 280px each, reading down the first column
+then down the second within the target grouping. Below 640px it uses one
+column. Index columns account for four-digit indices without covering note
+text. `fit` grows to accommodate the complete band; editorial-budget warnings
+never authorize dropping, collapsing, shrinking or truncating notes.
+
+A target in the band has at most one on-drawing key cue, numbered among the
+keyed targets rather than among the notes. The pill is 16px high with radius
+8px, width at least 16px and at least the numeral width plus 10px. Its numeral
+uses the mono `label` role at 9.5px/600 with `diagram-text`; its fill is
+`diagram-node` and its 1px stroke is `diagram-line`. It may contact its own
+target geometry as shown in the adopted drawings. Its box retains 4px
+clearance from unrelated node/connector geometry, all label/heading masks,
+the legend and other cues, and must not cover target text. If no safe spot
+exists, omit the cue and retain the target-named band group with the exact
+line `Not marked: no clear spot on the drawing.`
+
+An accepted declared target without drawn geometry has no invented cue or
+connector. Its target-named band group contains the exact explanation
+`Not drawn: {family} diagrams don’t draw {kind}.`, where `kind` is
+`connectors`, `groups`, `scopes` or `nodes`. The sparse quadrant edge case reads
+`Not drawn: quadrant diagrams don’t draw connectors.` It retains every note.
+Summary/Open diagram output preserves these groups, explanations and source
+indices; static output and print retain the same drawing content and geometry.
+
+### Fixed named canvas compatibility
 
 The maintainer-approved N2 compatibility change adds `callout_room` at
-`$.callouts[index]` when a fixed named canvas has neither a collision-free
-readable note placement nor enough space for a notes band. Reserve annotation
-space or migrate the source to `size: fit`; named canvases do not grow. This
-is a breaking input-validation change authorized on #2242 and ships in a
-minor before 1.0. It does not authorize rejecting previously valid `fit`
-sources. Notes use Plus Jakarta Sans 11px/500 with authored capitalization,
-wrapping rather than truncation or reduced text size.
+`$.callouts[index]` when a fixed named canvas has neither collision-free
+readable inline placement nor enough space for the notes band. Named canvases
+do not grow. Reserve annotation space or migrate the source to `size: fit`.
+This is a breaking input-validation change authorized on #2242 and ships in
+a minor before 1.0. It does not authorize rejecting previously valid `fit`
+sources or adding another error for an unpainted/unmarked target.
+
+The explicit exception to repeated-target band placement preserves all notes
+inline when a fixed named canvas can fit them inline readably without
+collisions but cannot fit the revised band. Apply the same preferred/default
+side order and collision guards to those inline notes. This does not permit
+splitting a subset inline from notes in the band or expanding `callout_room`
+to sources whose complete readable inline placement still fits.
