@@ -14,7 +14,7 @@ export function installDbRepeatObservation() {
     return owner.receipts;
   };
   let active: 1 | 2 | undefined, firstPublished = false, secondPublished = false;
-  const observed: Array<{ ordinal: 1 | 2; checkpointPhysical: string; stagePhysical: string; stageBinding: string; keeperGeneration: string }> = [];
+  const observed: Array<{ ordinal: 1 | 2; stageKey: string; checkpointPhysical: string; stagePhysical: string; stageBinding: string; keeperGeneration: string }> = [];
   return {
     begin(ordinal: 1 | 2) {
       current();
@@ -37,7 +37,7 @@ export function installDbRepeatObservation() {
       const receipt = matches[0]!;
       if (receipt.namespacePid !== storage?.namespacePid || receipt.namespaceStart !== storage?.namespaceStart) throw Error("DB_REPEAT_STAGE_OWNER_MISMATCH");
       if (![receipt.checkpointPhysical, receipt.stagePhysical, receipt.stageBinding, receipt.keeperGeneration].every(value => /^[0-9a-f]{64}$/.test(value))) throw Error("DB_REPEAT_PHYSICAL_STAGE_RECEIPT_REQUIRED");
-      observed.push({ ordinal: active, checkpointPhysical: receipt.checkpointPhysical, stagePhysical: receipt.stagePhysical, stageBinding: receipt.stageBinding, keeperGeneration: receipt.keeperGeneration });
+      observed.push({ ordinal: active, stageKey: receipt.stageKey, checkpointPhysical: receipt.checkpointPhysical, stagePhysical: receipt.stagePhysical, stageBinding: receipt.stageBinding, keeperGeneration: receipt.keeperGeneration });
     },
     published(ordinal: 1 | 2, status: number, body: unknown) {
       if (active !== ordinal || status !== 200 || !body || typeof body !== "object" || Array.isArray(body)
@@ -51,9 +51,9 @@ export function installDbRepeatObservation() {
       if (!firstPublished || !secondPublished || active || observed.length !== 2) throw Error("DB_REPEAT_TWO_PUBLISHED_INDEXES_REQUIRED");
       console.log(JSON.stringify({ dbRepeatPhysicalObservation: { physicalStages: observed.map(receipt => ({ ...receipt })),
         checkpointEqual: observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical, stageEqual: observed[0]!.stagePhysical === observed[1]!.stagePhysical,
-        stageBindingEqual: observed[0]!.stageBinding === observed[1]!.stageBinding, keeperGenerationEqual: observed[0]!.keeperGeneration === observed[1]!.keeperGeneration } }));
+        stageIdentityEqual: observed[0]!.stageKey === observed[1]!.stageKey, stageBindingEqual: observed[0]!.stageBinding === observed[1]!.stageBinding, keeperGenerationEqual: observed[0]!.keeperGeneration === observed[1]!.keeperGeneration } }));
       // Numeric tmpfs dev/ino can recur after release; each launch still proved its held-FD identity.
-      if (observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical || observed[0]!.stageBinding === observed[1]!.stageBinding
+      if (observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical || observed[0]!.stageKey === observed[1]!.stageKey
         || observed[0]!.keeperGeneration === observed[1]!.keeperGeneration) throw Error("DB_REPEAT_DISTINCT_ATTESTED_IDENTITIES_REQUIRED");
       return observed.map(receipt => ({ ...receipt }));
     },

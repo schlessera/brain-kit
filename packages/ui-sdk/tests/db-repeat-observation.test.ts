@@ -12,9 +12,9 @@ function fixture() {
   const variant = dbRepeatStageVariant(source);
   const run = new Function("info", "stage", "native", "createHash", new Bun.Transpiler({ loader: "ts" }).transformSync(variant.substitution.after));
   const fds: number[] = [];
-  const physical = (ordinal: 1 | 2, options: { omit?: boolean; sameStage?: boolean; sameCheckpoint?: boolean; sameStageBinding?: boolean; sameKeeper?: boolean } = {}) => {
+  const physical = (ordinal: 1 | 2, options: { omit?: boolean; sameStage?: boolean; sameCheckpoint?: boolean; sameStageBinding?: boolean; sameStageId?: boolean; sameKeeper?: boolean } = {}) => {
     const stageOrdinal = options.sameStage ? 1 : ordinal, checkpointOrdinal = options.sameCheckpoint ? 1 : ordinal;
-    const bindingOrdinal = options.sameStageBinding ? 1 : ordinal, keeperOrdinal = options.sameKeeper ? 1 : ordinal;
+    const bindingOrdinal = options.sameStageBinding || options.sameStageId ? 1 : ordinal, keeperOrdinal = options.sameKeeper ? 1 : ordinal;
     const directory = join(root, String(stageOrdinal)); mkdirSync(directory, { recursive: true });
     const fd = openSync(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); fds.push(fd);
     const info = fstatSync(fd, { bigint: true });
@@ -68,7 +68,7 @@ test("real second loopback HTTP request follows first publication and retains di
 });
 
 test("distinct keeper and stage bindings are both required even when numeric mount identities recycle", () => {
-  for (const reused of ["sameCheckpoint", "sameStageBinding", "sameKeeper", "samePhysicalOwnerOnly"] as const) {
+  for (const reused of ["sameCheckpoint", "sameStageBinding", "sameStageId", "sameKeeper", "samePhysicalOwnerOnly"] as const) {
     const f = fixture(), observation = installDbRepeatObservation();
     const logDescriptor = Object.getOwnPropertyDescriptor(console, "log")!, diagnostic: string[] = [];
     try {
@@ -81,6 +81,7 @@ test("distinct keeper and stage bindings are both required even when numeric mou
       expect(receipt.physicalStages).toHaveLength(2);
       expect(receipt.checkpointEqual).toBe(reused === "sameCheckpoint");
       expect(receipt.stageEqual).toBe(reused === "samePhysicalOwnerOnly");
+      expect(receipt.stageIdentityEqual).toBe(reused === "sameStageBinding" || reused === "sameStageId" || reused === "samePhysicalOwnerOnly");
       expect(receipt.stageBindingEqual).toBe(reused === "sameStageBinding" || reused === "samePhysicalOwnerOnly");
       expect(receipt.keeperGenerationEqual).toBe(reused === "sameKeeper");
       expect(JSON.stringify(receipt)).not.toContain("namespacePid"); expect(JSON.stringify(receipt)).not.toContain("/proc/");
@@ -96,6 +97,7 @@ test("released numeric stage identity can recur only with independent attested s
     const result = observation.complete();
     expect(result[0]!.stagePhysical).toBe(result[1]!.stagePhysical);
     expect(result[0]!.checkpointPhysical).not.toBe(result[1]!.checkpointPhysical);
+    expect(result[0]!.stageKey).not.toBe(result[1]!.stageKey);
     expect(result[0]!.stageBinding).not.toBe(result[1]!.stageBinding);
     expect(result[0]!.keeperGeneration).not.toBe(result[1]!.keeperGeneration);
   } finally { try { observation.restore(); } finally { f.cleanup(); } }
