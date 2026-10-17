@@ -9,7 +9,9 @@ function command(argv: string[]) {
   const child = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
   expect(child.exitCode, child.stderr.toString()).toBe(0); return child.stdout.toString();
 }
-if (process.argv[2] === "--child") {
+if (process.argv[2] === "--index-child") {
+  await import("../maintenance-index-refusals.native.js");
+} else if (process.argv[2] === "--child") {
   expect(process.getuid!()).toBe(21001);
   const { probeWorkerHost } = await import("../../../ui-sdk/src/server/worker-launcher.js");
   const governed = probeWorkerHost(brain, { profile: "governed", stateBytes: 1024 ** 2, turnTempBytes: 1024 ** 2 });
@@ -132,7 +134,7 @@ if (process.argv[2] === "--child") {
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
   try {
-    const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename, "--child", ...(sharedGit ? ["--shared-git"] : [])], {
+    const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename, process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : [])], {
       env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
     const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     writeFileSync("/proof/server.stdout", output); writeFileSync("/proof/server.stderr", errors);

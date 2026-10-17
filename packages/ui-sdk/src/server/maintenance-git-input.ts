@@ -3,6 +3,7 @@ import { constants, fstatSync, lstatSync, mkdirSync, openSync, closeSync, readdi
   rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { maintenanceOutputRoot } from "../config/env.js";
 export type MaintenanceGitFile = { path: string; data: string; executable: boolean };
 export type MaintenanceGitManifest = { relative: string; maximum: number; previous?: { inode: string; digest: string }; files: MaintenanceGitFile[] };
 const digest = (files: MaintenanceGitFile[]) => createHash("sha256").update(JSON.stringify(files)).digest("hex");
@@ -42,7 +43,7 @@ if (import.meta.main) {
     const manifest = JSON.parse(Buffer.concat(chunks).toString("utf8")) as MaintenanceGitManifest;
     if (manifest.maximum !== maximum || !/^\.brain-maintenance-git-[0-9a-f-]{36}$/.test(manifest.relative)
       || !Array.isArray(manifest.files) || manifest.files.length > 200000) throw Error("Invalid maintenance Git input envelope");
-    const root = join(process.env.BRAIN_ROOT!, manifest.relative), names = new Set<string>(); let bytes = 0;
+    const root = join(maintenanceOutputRoot()!, manifest.relative), names = new Set<string>(); let bytes = 0;
     for (const file of manifest.files) {
       if (!valid(file.path) || names.has(file.path) || typeof file.data !== "string" || typeof file.executable !== "boolean") throw Error("Invalid maintenance Git input member");
       names.add(file.path); bytes += Buffer.byteLength(file.data, "base64");

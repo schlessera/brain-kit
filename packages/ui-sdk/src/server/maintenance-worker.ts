@@ -13,7 +13,7 @@ import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { Readable } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
-import { prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
+import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorker, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
 import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
@@ -80,6 +80,7 @@ export interface MaintenanceResult {
 }
 
 const preparedMaintenanceCommands = new WeakMap<MaintenanceCommand, WorkerLaunch>();
+const maintenanceIndexWriters = new WeakMap<MaintenanceCommand, NonNullable<Awaited<ReturnType<typeof prepareNativeMaintenanceIndex>>>>();
 const maintenanceGitWriters = new WeakMap<MaintenanceCommand, NativeMaintenanceGitPreparation>();
 /** @internal Freeze only the concrete Git adapter through the existing owned writable stage. */
 export async function prepareMaintenanceGitInput(input: MaintenanceCommand, signal?: AbortSignal): Promise<NonNullable<MaintenanceCommand["git"]>> {
@@ -99,7 +100,31 @@ export async function prepareMaintenanceGitInput(input: MaintenanceCommand, sign
 /** @internal Prepare the existing attested stage's masks immediately before one synchronous launch. */
 export async function prepareMaintenanceWorker(input: MaintenanceCommand, signal?: AbortSignal): Promise<void> {
   preparedMaintenanceCommands.delete(input);
+  signal?.throwIfAborted();
   const launch = maintenanceLaunch(input);
+  const indexWriter = maintenanceIndexWriters.get(input);
+  if (indexWriter) authorizeNativeMaintenanceIndex(launch, indexWriter);
+  else if (!maintenanceGitWriters.has(input)) {
+    // The existing fixed Git installer touches no SQLite files; its private
+    // generation must survive until its own first-party command consumes it.
+    const preparation = await prepareNativeMaintenanceIndex(launch);
+    if (preparation) {
+      let succeeded = false;
+      try {
+        const entry = Bun.resolveSync("./maintenance-index-input", import.meta.dir);
+        const control = { ...input, git: undefined, command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, String(preparation.maximum)],
+          readPaths: [...(input.readPaths ?? []), entry], stdin: "", signal, timeoutMs: 30000 };
+        maintenanceIndexWriters.set(control, preparation);
+        const result = await runMaintenanceWorker(control);
+        succeeded = result.exitCode === 0 && !result.killed && result.stdout.trim() === '{"prepared":true}';
+        if (!succeeded) throw Error("Disposable index preparation command refused: " + result.stderr);
+      } catch (error) {
+        try { finishNativeMaintenanceIndex(preparation, false); } catch { /* Poisoning cannot replace the primary refusal. */ }
+        throw error;
+      }
+      finishNativeMaintenanceIndex(preparation, succeeded);
+    }
+  }
   const writer = maintenanceGitWriters.get(input);
   if (writer) authorizeNativeMaintenanceGitWriter(launch, writer);
   await prepareNativeMaintenanceMasks(launch, signal);

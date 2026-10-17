@@ -34,12 +34,32 @@ export interface PreparedWorkerOutput {
 type NativeMaintenanceOwner = {
   protected: boolean;
   generation: number;
+  index(input: WorkerLaunch): Promise<NativeMaintenanceIndexPreparation>;
+  finishIndex(preparation: NativeMaintenanceIndexPreparation, success: boolean): void;
   bindExecution(exited: Promise<unknown>): void;
   assertCurrent(input: WorkerLaunch): void;
   masks(input: WorkerLaunch, signal?: AbortSignal): Promise<string[]>;
   git(input: WorkerLaunch, spec: NonNullable<NonNullable<WorkerLaunch["maintenance"]>["git"]>, signal?: AbortSignal): Promise<NativeMaintenanceGitPreparation>;
   finishGit(preparation: NativeMaintenanceGitPreparation, receipt: { inode: string; digest: string }, signal?: AbortSignal): Promise<void>;
 };
+type NativeMaintenanceIndexPreparation = { owner: NativeMaintenanceOwner; generation: number; maximum: number; retained: WorkerLaunch; retainedContext: string; launch?: WorkerLaunch; context?: string };
+const nativeIndexPreparations = new WeakSet<NativeMaintenanceIndexPreparation>();
+const nativeIndexWriters = new WeakMap<WorkerLaunch, NativeMaintenanceIndexPreparation>();
+/** Fixed derived-index preparation, using only the existing retained stage. */
+export async function prepareNativeMaintenanceIndex(input: WorkerLaunch): Promise<NativeMaintenanceIndexPreparation | undefined> {
+  const owner = maintenanceOwner(input); if (!owner) return undefined;
+  const preparation = await owner.index(input); nativeIndexPreparations.add(preparation); return preparation;
+}
+export function authorizeNativeMaintenanceIndex(input: WorkerLaunch, preparation: NativeMaintenanceIndexPreparation): void {
+  if (!nativeIndexPreparations.has(preparation) || maintenanceOwner(input) !== preparation.owner || preparation.launch || preparation.generation !== preparation.owner.generation)
+    throw Error("Foreign disposable index preparation");
+  preparation.launch = input; preparation.context = maskContext(input); nativeIndexWriters.set(input, preparation);
+}
+export function finishNativeMaintenanceIndex(preparation: NativeMaintenanceIndexPreparation, success: boolean): void {
+  if (!nativeIndexPreparations.delete(preparation)) throw Error("Replayed disposable index preparation");
+  preparation.owner.finishIndex(preparation, success);
+  if (preparation.launch) nativeIndexWriters.delete(preparation.launch);
+}
 type GitSpec = NonNullable<NonNullable<WorkerLaunch["maintenance"]>["git"]>;
 type NativeGitLease = { owner: NativeMaintenanceOwner; relative: string; hostSource: string; spec: GitSpec; inode?: string; digest?: string; ready: boolean };
 export type NativeMaintenanceGitPreparation = { owner: NativeMaintenanceOwner; lease: NativeGitLease; manifest: MaintenanceGitManifest; generation: number };
@@ -93,6 +113,8 @@ export function transferNativeMaintenanceMasks(from: WorkerLaunch, to: WorkerLau
   const plan = nativeMaintenancePlans.get(from); nativeMaintenancePlans.delete(from);
   if (!plan) return;
   if (plan.generation !== plan.owner.generation || plan.context !== maskContext(to)) throw Error("native maintenance command changed after mask preparation");
+  const indexWriter = nativeIndexWriters.get(from); nativeIndexWriters.delete(from);
+  if (indexWriter) { indexWriter.launch = to; nativeIndexWriters.set(to, indexWriter); }
   plan.owner.assertCurrent(to); nativeMaintenancePlans.set(to, plan);
   const writer = nativeGitWriters.get(from); nativeGitWriters.delete(from);
   if (writer) nativeGitWriters.set(to, writer);
@@ -197,6 +219,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
   let identityTicket: { fd: number; close(): void } | undefined;
   const gitControls = new Map<string, NativeGitLease>();
+  let indexPreparation: NativeMaintenanceIndexPreparation | undefined, indexPoisoned = false;
   const cleanup = () => cleanupPromise ??= (async () => {
     if (prepared) await executionDrain.get(prepared)?.exited;
     identityTicket?.close(); identityTicket = undefined;
@@ -273,6 +296,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
     }
     async function publish(lock?: KeyedLock) {
+      if (indexPoisoned || indexPreparation) throw Error("Disposable index preparation is incomplete; discard stage");
       if (cleanupPromise) throw Error("Native output is closed");
       if (prepared) await executionDrain.get(prepared)?.exited;
       if (identityTicket) options.signal?.throwIfAborted();
@@ -433,8 +457,26 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup };
     const maintenanceOwner: NativeMaintenanceOwner = {
       protected: Boolean(identityTicket), generation: 0,
+      async index(input) {
+        if (prepared) await executionDrain.get(prepared)?.exited;
+        this.assertCurrent(input);
+        if (indexPreparation) throw Error("Disposable index preparation is already active");
+        const preparation = { owner: this, generation: this.generation, maximum: storage.allowanceBytes, retained: input, retainedContext: maskContext(input) };
+        indexPreparation = preparation; return preparation;
+      },
+      finishIndex(preparation, success) {
+        try {
+          if (!success || indexPreparation !== preparation || !preparation.launch || preparation.generation + 1 !== this.generation)
+            throw Error("Disposable index preparation did not complete");
+          if (maskContext(preparation.retained) !== preparation.retainedContext) throw Error("Changed disposable index owner envelope");
+          indexPreparation = undefined;
+          this.assertCurrent(preparation.retained);
+        } catch (error) { indexPoisoned = true; indexPreparation = undefined; throw error; }
+      },
       bindExecution(exited) { if (prepared) bindPreparedWorkerOutputExit(prepared, exited); },
       assertCurrent(input) {
+        if (indexPoisoned || indexPreparation && (nativeIndexWriters.get(input) !== indexPreparation
+          || indexPreparation.context !== maskContext(input))) throw Error("Disposable index stage requires complete preparation or discard");
         if (cleanupPromise || fd === undefined || !stage || input.maintenance?.output?.storage !== storage
           || input.maintenance.output.source !== output.source || workerIdentityHelper() !== retainedHelper
           || input.brainPath !== brain || storage.root !== root || storage.mount !== stage.path

@@ -5937,6 +5937,10 @@ signatures (every public export and the types it is made of)
         readonly name: "BRAIN_UI_WORKER_LIMITS";
         readonly required: false;
     }, {
+        readonly description: "Internal maintenance output root supplied in the launcher-cleared environment. It identifies the existing attested writable output target, never an operator input or additional host path authority.";
+        readonly name: "BRAIN_ROOT";
+        readonly required: "trusted maintenance worker only";
+    }, {
         readonly description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.";
         readonly name: "BRAIN_MAINTENANCE_GIT";
         readonly required: "trusted maintenance Git adapter only";

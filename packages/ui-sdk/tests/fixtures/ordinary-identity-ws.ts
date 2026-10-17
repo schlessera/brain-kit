@@ -86,7 +86,7 @@ try {
   const indexed = await index.text();
   console.log(JSON.stringify({ actualManagedIndex: { profile, warm, status: index.status, body: indexed },
     diagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
-  expect(index.status, "ACTUAL_MANAGED_AUTHENTICATED_INDEX").toBe(200);
+  expect(index.status, warm ? "ACTUAL_MANAGED_WARM_AUTHENTICATED_INDEX" : "ACTUAL_MANAGED_AUTHENTICATED_INDEX").toBe(200);
   expect(JSON.parse(indexed), "ACTUAL_MANAGED_AUTHENTICATED_INDEX_PUBLISHED").toEqual({ success: true });
   const NativeWebSocket = WebSocket as unknown as { new(url: string, options: { headers: Record<string, string> }): WebSocket };
   socket = new NativeWebSocket(`ws://127.0.0.1:${server.port}/ws`, { headers: { cookie, origin: `http://127.0.0.1:${server.port}` } });
