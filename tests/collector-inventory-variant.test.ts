@@ -7,6 +7,7 @@ test("collector inventory variant pins the original bytes and keeps the original
   const variant = collectorInventoryVariant(collector, host);
   expect(variant.hashes.originalCollector).toBe(createHash("sha256").update(collector).digest("hex"));
   expect(variant.shim).toContain(variant.hashes.originalCollector);
+  expect(variant.host, "PRIVATE_CONTEXT_MUTATION_MATCHER_PRESERVED").toContain("/fixture-variants/maintenance-git-source-inventory.ts");
   expect(variant.shim).toContain('identity !== process.argv[4]');
   expect(variant.shim).toContain('original, ...process.argv.slice(2)');
   expect(variant.shim).toContain('cwd: root, env: process.env, stdin: "inherit", stdout: "inherit", stderr: "inherit"');

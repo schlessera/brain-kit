@@ -39,7 +39,7 @@ process.exitCode = code;
     return text.replace(before, after);
   };
   let host = replace(hostSource, 'const entry = Bun.resolveSync("./maintenance-git-source", import.meta.dir), maximum = storage.allowanceBytes;',
-    'const entry = "/fixture-variants/collector-inventory.ts", maximum = storage.allowanceBytes;');
+    'const entry = "/fixture-variants/maintenance-git-source-inventory.ts", maximum = storage.allowanceBytes;');
   host = replace(host, '  if (result.exitCode !== 0 || result.killed) {', `  // Diagnostic variant only: local artifact, never product logs or a receipt contract.
   for (const line of result.stderr.split("\\n")) {
     if (!line.startsWith("LOCAL_FIXTURE_GIT_ROOT ") || Buffer.byteLength(line) > 65536 + 32) continue;
@@ -83,7 +83,7 @@ if (import.meta.main) {
       readFileSync(join(source, "packages/ui-server/src/brain/maintenance-git-source.ts"), "utf8"),
       readFileSync(join(source, "packages/ui-server/src/brain/maintenance-git.ts"), "utf8")) : undefined;
     if (inventoryVariant) {
-      writeFileSync(join(artifact, "collector-inventory.ts"), inventoryVariant.shim);
+      writeFileSync(join(artifact, "maintenance-git-source-inventory.ts"), inventoryVariant.shim);
       writeFileSync(join(artifact, "maintenance-git.fixture.ts"), inventoryVariant.host);
     }
     const helperSource = join(source, "packages/ui-sdk/tests/fixtures/identity-helper.c");
