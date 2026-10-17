@@ -1,4 +1,5 @@
 import {afterEach,expect,test} from "bun:test";
+import assert from "node:assert/strict";
 import {chmodSync,cpSync,lstatSync,mkdirSync,mkdtempSync,readFileSync,readdirSync,realpathSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname,join,resolve} from "node:path";
@@ -38,9 +39,12 @@ function fixture(current=false){
 }
 function sourceRefused(control:ReturnType<typeof fixture>,name:string){
  expect(control.bind(),name).toBeUndefined();const diagnostic=control.diagnostic();
- expect(diagnostic?.status,"UNKNOWN_NATIVE_BINDING_HAS_REASON").toBe("source-mismatch");
- expect(diagnostic?.actual?.source).not.toBe(diagnostic?.expected.source);
- expect(diagnostic?.actual?.installation).toBe(qualifiedInstallation);
+ assert(diagnostic,"UNKNOWN_NATIVE_BINDING_MUST_REPORT_DIAGNOSTIC");
+ expect(diagnostic.status,"UNKNOWN_NATIVE_BINDING_HAS_REASON").toBe("source-mismatch");
+ assert(diagnostic.actual?.source,"SOURCE_REFUSAL_MUST_REPORT_ACTUAL_IDENTITY");
+ expect(diagnostic.expected.source).toBe(qualifiedSource);
+ expect(diagnostic.actual.source).not.toBe(diagnostic.expected.source);
+ expect(diagnostic.actual.installation).toBe(qualifiedInstallation);
  expect(JSON.stringify(diagnostic)).not.toContain(control.root);
 }
 test("fixed native qualification binds the independently frozen complete source without Docker or image lookup",()=>{
@@ -60,7 +64,9 @@ test("an additional native importer requires fresh proof",()=>{
 test.each([owner,caller,"scripts/ci-proof.ts"])("changed pinned native input %s requires fresh proof",file=>{
  const control=fixture(),target=join(control.root,file);writeFileSync(target,readFileSync(target,"utf8")+"\n// changed native operation\n");
  expect(control.bind(),"NATIVE_PIN_REQUIRES_FRESH_PROOF").toBeUndefined();expect(control.diagnostic()?.status).toBe("source-pin-mismatch");
- expect(control.diagnostic()?.pins?.find(pin=>pin.path===file)?.actual).not.toBe(control.diagnostic()?.pins?.find(pin=>pin.path===file)?.expected);
+ const pin=control.diagnostic()?.pins?.find(pin=>pin.path===file);
+ assert(pin,"PIN_REFUSAL_MUST_REPORT_EXPECTED_PIN");assert(pin.actual,"PIN_REFUSAL_MUST_REPORT_ACTUAL_PIN");
+ expect(pin.actual).not.toBe(pin.expected);
 });
 test("added package source requires native requalification",()=>{
  const control=fixture();writeFileSync(join(control.root,"packages/core/src/unused-native-probe.ts"),"export const Odysseus=1;");
@@ -80,11 +86,12 @@ test("relocated installed native dependency requires fresh proof",()=>{
 });
 test("the actual current candidate qualifies only when its complete frozen source and pins match",()=>{
  const control=fixture(true),source=nativeDiagramSourceInventory(control.root),binding=control.bind(),diagnostic=control.diagnostic();
+ assert(diagnostic,"CURRENT_CANDIDATE_MUST_REPORT_DIAGNOSTIC");
  // A legitimate new file or pinned proof/caller edit is an unsupported operation,
  // not a broken positive fixture. The frozen positive above must still qualify.
- if(source.sha256===qualifiedSource&&diagnostic?.pins?.every(pin=>pin.owned&&pin.actual===pin.expected)){
+ if(source.sha256===qualifiedSource&&diagnostic.pins?.every(pin=>pin.owned&&pin.actual===pin.expected)){
   expect(binding?.identity.source).toBe(qualifiedSource);expect(diagnostic?.status).toBe("qualified");
  }else{
-  expect(binding,"CHANGED_CANDIDATE_MUST_KEEP_FRESH_NATIVE_PROOF").toBeUndefined();expect(["source-mismatch","source-pin-mismatch"]).toContain(diagnostic?.status);
+  expect(binding,"CHANGED_CANDIDATE_MUST_KEEP_FRESH_NATIVE_PROOF").toBeUndefined();expect(["source-mismatch","source-pin-mismatch"]).toContain(diagnostic.status);
  }
 });
