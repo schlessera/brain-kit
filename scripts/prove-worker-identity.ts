@@ -9,9 +9,11 @@ if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs]");
     const image = options.find(arg=>arg.startsWith("--image="))?.slice("--image=".length) ?? NATIVE_PROOF_IMAGE;
     const sharedGit = options.includes("--shared-git");
+    const privateGitInputs = options.includes("--private-git-inputs");
+    if (privateGitInputs && !sharedGit) throw Error("Private Git input proof requires the separate shared Git composition");
     const mutation = options.find(arg=>arg.startsWith("--mutation="))?.slice("--mutation=".length);
     const changed = (text: string, before: string, after: string) => { if(!text.includes(before))throw Error("Identity fixture mutation anchor changed");return text.replace(before,after); };
     const source = resolve(import.meta.dir, ".."), output = join(source, "tmp", "worker-identity-proof");
@@ -70,7 +72,7 @@ if (import.meta.main) {
       const fresh = changed(readFileSync(nativeFixturePath, "utf8"),
         '    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n', "");
       writeFileSync(nativeFixturePath, changed(fresh,
-        "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
+        "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", privateGitInputs ? "/repo/packages/ui-sdk/tests/fixtures/private-git-identity-root.ts" : "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
     }
     const setup = join(artifact, "setup.sh");
     writeFileSync(setup, `set -eu
