@@ -78,7 +78,7 @@ test("hosted global commands retain the full local inventory and real offline na
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
   const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
   const argv = cmds.map(command => command.argv.join(" ")).join("\n");
-  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts", "scripts/prove-worker-identity.ts"]) expect(argv).toContain(phase);
+  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "experiments/turn-surface-runtime-placement.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts", "scripts/prove-worker-identity.ts"]) expect(argv).toContain(phase);
   const unit = cmds.find(command => command.name === "complete affected unit and integration suite")!;
   expect(unit.env?.BRAIN_REQUIRE_CHROME).toBe("1");
   expect(unit.argv).toContain(join(ROOT, "scripts/unit-workers.ts"));
