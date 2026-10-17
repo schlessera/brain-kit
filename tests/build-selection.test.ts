@@ -18,6 +18,8 @@ test("--for ui-react prints exactly its forward closure in unchanged publish ord
     "common", "geo", "render-template", "ui-kit", "ui-sdk", "ui-react",
   ].map(dir => `Would build packages/${dir}`));
   expect(dryRun().out.trim().split("\n")).toEqual(listPublishablePackages(repo).map(pkg => `Would build packages/${pkg.dir}`));
+  expect(dryRun("--jobs=2", "--for", "ui-react").out).toBe(result.out);
+  expect(dryRun("--jobs=1").out).toBe(dryRun().out);
   expect(selectBuildPackages(repo, ["ui-react", "ui-server", "core"]).map(pkg => pkg.dir)).toEqual([
     "common", "geo", "render-template", "core", "ui-kit", "ui-render-puppeteer", "ui-sdk",
     "ui-backend-claude", "ui-backend-pi", "ui-react", "ui-server",
@@ -45,7 +47,7 @@ test("forward selection includes all four dependency fields, transitive edges an
 });
 
 test("unknown, missing, empty and duplicate selections fail before building", () => {
-  for (const args of [["--for", "missing"], ["--for"], ["--for", "ui-react,"], ["--for", "ui-react", "--for", "core"], ["--unknown"]]) {
+  for (const args of [["--for", "missing"], ["--for"], ["--for", "ui-react,"], ["--for", "ui-react", "--for", "core"], ["--unknown"], ["--jobs=0"], ["--jobs=3"], ["--jobs=2", "--jobs=2"]]) {
     const result = dryRun(...args);
     expect(result.code, JSON.stringify(args)).not.toBe(0);
     expect(result.error).toContain("Build failed:");

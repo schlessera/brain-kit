@@ -65,7 +65,10 @@ export function categoryCommands(category: ProofCategory, plan: CheckPlan, root:
   const selected = inventory.filter(command => names[category].includes(command.name));
   if (selected.length !== names[category].length) throw new Error(`${category}: incomplete command inventory`);
   if (category === "captures") selected.unshift({ name: "pinned capture fonts and original notices", argv: [process.execPath, "run", "capture:fonts"] });
-  if (category === "browser" || category === "layout" || category === "endurance") selected.at(-1)!.argv.push("--proof-report");
+  if (category === "browser" || category === "layout" || category === "endurance") {
+    selected.find(command => command.name === "workspace build for real browser checks")!.argv.push("--jobs=2");
+    selected.at(-1)!.argv.push("--proof-report");
+  }
   if (shard && (category === "browser" || category === "layout")) selected.at(-1)!.argv.push(`--shard=${shard}`);
   return selected;
 }
