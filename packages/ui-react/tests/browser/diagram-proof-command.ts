@@ -13,7 +13,7 @@ function captureTrace(engine: string, artifact: string) {
  const phases: { phase: CapturePhase; elapsedMs: number }[] = [];
  let current: CapturePhase = "source", failedPhase: CapturePhase | undefined;
  const report = (event: "start" | "pending" | "complete" | "failed") => console.log("DIAGRAM_CAPTURE_STAGE", JSON.stringify({
-  engine, artifact: artifact.slice(0, 96), event, phase: failedPhase ?? current,
+  engine, artifact: artifact.slice(0, 96), event, phase: event === "failed" ? failedPhase ?? current : current,
   elapsedMs: Math.round(performance.now() - started), phases,
  }));
  report("start");
