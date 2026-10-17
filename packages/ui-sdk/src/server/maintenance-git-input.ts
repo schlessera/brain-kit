@@ -5,7 +5,9 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { maintenanceOutputRoot } from "../config/env.js";
 export type MaintenanceGitFile = { path: string; data: string; executable: boolean };
-export type MaintenanceGitManifest = { relative: string; maximum: number; previous?: { inode: string; digest: string }; files: MaintenanceGitFile[] };
+export type MaintenanceGitScaffold = { name: "hooks" | "info" | "modules"; previous?: { inode: string; stamp: string } };
+export type MaintenanceGitScaffoldReceipt = { name: MaintenanceGitScaffold["name"]; inode: string; stamp: string; uid: number; mode: number };
+export type MaintenanceGitManifest = { scaffolds?: MaintenanceGitScaffold[]; relative: string; maximum: number; previous?: { inode: string; digest: string }; files: MaintenanceGitFile[] };
 const digest = (files: MaintenanceGitFile[]) => createHash("sha256").update(JSON.stringify(files)).digest("hex");
 export const maintenanceGitDigest = digest;
 const valid = (path: string) => /^(?:config\.json|empty-config|bin\/git|hooks\/[^/\\\u0000-\u001f\u007f]+)$/.test(path)
@@ -43,7 +45,34 @@ if (import.meta.main) {
     const manifest = JSON.parse(Buffer.concat(chunks).toString("utf8")) as MaintenanceGitManifest;
     if (manifest.maximum !== maximum || !/^\.brain-maintenance-git-[0-9a-f-]{36}$/.test(manifest.relative)
       || !Array.isArray(manifest.files) || manifest.files.length > 200000) throw Error("Invalid maintenance Git input envelope");
-    const root = join(maintenanceOutputRoot()!, manifest.relative), names = new Set<string>(); let bytes = 0;
+    const output = maintenanceOutputRoot()!;
+    const scaffolds: MaintenanceGitScaffoldReceipt[] = [];
+    let parentInode: string | undefined;
+    if (manifest.scaffolds !== undefined) {
+      if (!Array.isArray(manifest.scaffolds) || manifest.scaffolds.length > 3 || new Set(manifest.scaffolds.map(item => item.name)).size !== manifest.scaffolds.length
+        || manifest.scaffolds.some(item => !["hooks", "info", "modules"].includes(item.name))) throw Error("Invalid fixed Git mask scaffold");
+      const parent = openSync(join(output, ".git"), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try {
+        for (const item of manifest.scaffolds) {
+          const path = `/proc/self/fd/${parent}/${item.name}`;
+          if (!item.previous) mkdirSync(path, { mode: 0o700 });
+          const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+          try {
+            const info = fstatSync(fd, { bigint: true });
+            const stamp = `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+            const visible = lstatSync(path, { bigint: true });
+            if (visible.dev !== info.dev || visible.ino !== info.ino || !info.isDirectory() || info.uid !== BigInt(process.getuid!()) || (info.mode & 0o7777n) !== 0o700n
+              || readdirSync(`/proc/self/fd/${fd}`).length || item.previous && (item.previous.inode !== String(info.ino) || item.previous.stamp !== stamp))
+              throw Error("Changed fixed Git mask scaffold");
+            scaffolds.push({ name: item.name, inode: String(info.ino), stamp, uid: Number(info.uid), mode: Number(info.mode & 0o7777n) });
+          } finally { closeSync(fd); }
+        }
+        const visible = lstatSync(join(output, ".git")), held = fstatSync(parent);
+        if (!visible.isDirectory() || visible.dev !== held.dev || visible.ino !== held.ino) throw Error("Changed Git mask scaffold parent");
+        parentInode = String(held.ino);
+      } finally { closeSync(parent); }
+    }
+    const root = join(output, manifest.relative), names = new Set<string>(); let bytes = 0;
     for (const file of manifest.files) {
       if (!valid(file.path) || names.has(file.path) || typeof file.data !== "string" || typeof file.executable !== "boolean") throw Error("Invalid maintenance Git input member");
       names.add(file.path); bytes += Buffer.byteLength(file.data, "base64");
@@ -70,6 +99,6 @@ if (import.meta.main) {
       finally { closeSync(fd); }
     }
     const node = lstatSync(root);
-    console.log(JSON.stringify({ inode: String(node.ino), digest: digest(manifest.files) }));
+    console.log(JSON.stringify({ inode: String(node.ino), digest: digest(manifest.files), scaffolds, parentInode }));
   } catch { console.error("Concrete maintenance Git input preparation refused"); process.exitCode = 1; }
 }

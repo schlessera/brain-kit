@@ -1384,16 +1384,16 @@ owner prepares each concrete command; the synchronous launcher consumes its
 private plan once, bound to the stage/checkpoint, keeper identity, command and
 stage generation. Stale, foreign, closed or unprepared protected inputs refuse
 before payload (`prepareNativeMaintenanceMasks`,
-`packages/ui-sdk/src/server/worker-native-output.ts:98-110`),
+`packages/ui-sdk/src/server/worker-native-output.ts:100-112`),
 (`consumeNativeMaintenanceMasks`,
-`packages/ui-sdk/src/server/worker-native-output.ts:123-128`).
+`packages/ui-sdk/src/server/worker-native-output.ts:125-130`).
 
 Configured-helper credential-free maintenance uses the same verified launcher
 as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:221-285`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:226-290`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1401,9 +1401,17 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:86-99`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:86-104`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
+For the three fixed Git mask targets, originally absent directories are created
+only by the owned first-party installer and registered against the retained
+checkpoint and stage. Each command revalidates their identity and emptiness;
+publication also checks live absence and excludes only those exact validated
+empty directories. Protected descendants and unregistered changes still refuse.
+Partial installation poisons the disposable stage; cleanup retains the existing
+owned drain (`validateGitScaffolds`,
+`packages/ui-sdk/src/server/worker-native-output.ts:302-314`).
 
 ### Owned runtime placement beneath `/tmp` — 2026-10-14
 

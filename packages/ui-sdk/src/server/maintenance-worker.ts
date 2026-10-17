@@ -91,10 +91,15 @@ export async function prepareMaintenanceGitInput(input: MaintenanceCommand, sign
   const writer = { ...input, git: undefined, command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, String(preparation.manifest.maximum)],
     readPaths: [...(input.readPaths ?? []), entry], stdin: JSON.stringify(preparation.manifest), signal, timeoutMs: 5000 };
   maintenanceGitWriters.set(writer, preparation);
-  const result = await runMaintenanceWorker(writer);
-  if (result.exitCode !== 0 || result.killed) throw Error("Concrete maintenance Git input preparation refused");
-  let receipt: { inode: string; digest: string };
-  try { receipt = JSON.parse(result.stdout); } catch { throw Error("Concrete maintenance Git input receipt refused"); }
+  let receipt: Parameters<typeof finishNativeMaintenanceGit>[1];
+  try {
+    const result = await runMaintenanceWorker(writer);
+    if (result.exitCode !== 0 || result.killed) throw Error("Concrete maintenance Git input preparation refused");
+    try { receipt = JSON.parse(result.stdout); } catch { throw Error("Concrete maintenance Git input receipt refused"); }
+  } catch (error) {
+    await finishNativeMaintenanceGit(preparation, undefined, signal).catch(() => {});
+    throw error;
+  }
   return finishNativeMaintenanceGit(preparation, receipt, signal);
 }
 /** @internal Prepare the existing attested stage's masks immediately before one synchronous launch. */

@@ -11,7 +11,7 @@ import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import type { KeyedLock } from "./keyed-lock.js";
 import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
 import { maintenanceEnvMaskQueries, hostEnvMaskQuery, type EnvMaskQuery } from "./maintenance-env-masks.js";
-import { captureMaintenanceGitFiles, maintenanceGitDigest, type MaintenanceGitManifest } from "./maintenance-git-input.js";
+import { captureMaintenanceGitFiles, maintenanceGitDigest, type MaintenanceGitManifest, type MaintenanceGitScaffold, type MaintenanceGitScaffoldReceipt } from "./maintenance-git-input.js";
 import type { WorkerLaunch } from "./worker-launcher.js";
 import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 
@@ -31,6 +31,7 @@ export interface PreparedWorkerOutput {
   /** Await stage deletion, then release the owned checkpoint reference. Idempotent. */
   cleanup(): Promise<void>;
 }
+type GitInputReceipt = { inode: string; digest: string; scaffolds?: MaintenanceGitScaffoldReceipt[]; parentInode?: string };
 type NativeMaintenanceOwner = {
   protected: boolean;
   generation: number;
@@ -40,7 +41,7 @@ type NativeMaintenanceOwner = {
   assertCurrent(input: WorkerLaunch): void;
   masks(input: WorkerLaunch, signal?: AbortSignal): Promise<string[]>;
   git(input: WorkerLaunch, spec: NonNullable<NonNullable<WorkerLaunch["maintenance"]>["git"]>, signal?: AbortSignal): Promise<NativeMaintenanceGitPreparation>;
-  finishGit(preparation: NativeMaintenanceGitPreparation, receipt: { inode: string; digest: string }, signal?: AbortSignal): Promise<void>;
+  finishGit(preparation: NativeMaintenanceGitPreparation, receipt: GitInputReceipt | undefined, signal?: AbortSignal): Promise<void>;
 };
 type NativeMaintenanceIndexPreparation = { owner: NativeMaintenanceOwner; generation: number; maximum: number; retained: WorkerLaunch; retainedContext: string; launch?: WorkerLaunch; context?: string };
 const nativeIndexPreparations = new WeakSet<NativeMaintenanceIndexPreparation>();
@@ -88,9 +89,10 @@ export async function prepareNativeMaintenanceGit(input: WorkerLaunch, spec: Git
 export function authorizeNativeMaintenanceGitWriter(input: WorkerLaunch, preparation: NativeMaintenanceGitPreparation): void {
   if (!nativeGitPreparations.has(preparation) || maintenanceOwner(input) !== preparation.owner || preparation.generation !== preparation.owner.generation || input.maintenance?.git)
     throw Error("Foreign maintenance Git input preparation");
-  preparation.owner.assertCurrent(input); nativeGitWriters.set(input, preparation);
+  nativeGitWriters.set(input, preparation);
+  try { preparation.owner.assertCurrent(input); } catch (error) { nativeGitWriters.delete(input); throw error; }
 }
-export async function finishNativeMaintenanceGit(preparation: NativeMaintenanceGitPreparation, receipt: { inode: string; digest: string }, signal?: AbortSignal): Promise<GitSpec> {
+export async function finishNativeMaintenanceGit(preparation: NativeMaintenanceGitPreparation, receipt: GitInputReceipt | undefined, signal?: AbortSignal): Promise<GitSpec> {
   if (!nativeGitPreparations.delete(preparation)) throw Error("Replayed maintenance Git input preparation");
   await preparation.owner.finishGit(preparation, receipt, signal); return preparation.lease.spec;
 }
@@ -115,9 +117,9 @@ export function transferNativeMaintenanceMasks(from: WorkerLaunch, to: WorkerLau
   if (plan.generation !== plan.owner.generation || plan.context !== maskContext(to)) throw Error("native maintenance command changed after mask preparation");
   const indexWriter = nativeIndexWriters.get(from); nativeIndexWriters.delete(from);
   if (indexWriter) { indexWriter.launch = to; nativeIndexWriters.set(to, indexWriter); }
-  plan.owner.assertCurrent(to); nativeMaintenancePlans.set(to, plan);
   const writer = nativeGitWriters.get(from); nativeGitWriters.delete(from);
   if (writer) nativeGitWriters.set(to, writer);
+  plan.owner.assertCurrent(to); nativeMaintenancePlans.set(to, plan);
 }
 /** A protected stage never falls back to direct host traversal or a prior command's plan. */
 export function consumeNativeMaintenanceMasks(input: WorkerLaunch): string[] | undefined {
@@ -220,6 +222,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   let identityTicket: { fd: number; close(): void } | undefined;
   const gitControls = new Map<string, NativeGitLease>();
   let indexPreparation: NativeMaintenanceIndexPreparation | undefined, indexPoisoned = false;
+  const gitScaffolds = new Map<MaintenanceGitScaffold["name"], MaintenanceGitScaffoldReceipt>();
+  let gitPreparation: NativeMaintenanceGitPreparation | undefined, gitPoisoned = false, gitParentInode: string | undefined;
   const cleanup = () => cleanupPromise ??= (async () => {
     if (prepared) await executionDrain.get(prepared)?.exited;
     identityTicket?.close(); identityTicket = undefined;
@@ -295,11 +299,29 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       if ((await privateStat(stageInput, rel))?.stamp !== info.stamp) throw Error("Native private output changed while hashing");
       return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
     }
+    async function validateGitScaffolds(signal?: AbortSignal, live = false) {
+      const uid = await readerUid();
+      if (gitParentInode) {
+        const parent = await native.manager.statStage(id, ".git", uid, signal);
+        if (!parent || parent.kind !== "directory" || parent.inode !== gitParentInode) throw Error("Git mask scaffold parent changed");
+      }
+      for (const [name, expected] of gitScaffolds) {
+        const rel = `.git/${name}`;
+        if (await native.manager.statCheckpoint(native.checkpoint.id, rel, uid, signal)) throw Error("Git mask scaffold lower identity changed");
+        const item = await native.manager.statStage(id, rel, uid, signal);
+        if (!item || item.kind !== "directory" || item.inode !== expected.inode || item.stamp !== expected.stamp || item.mode !== 0o700
+          || (await native.manager.listStage(id, rel, uid, signal)).length)
+          throw Error("Git mask scaffold changed");
+        if (live && (await inspect(brain, rel)).entry) throw Error("Git mask scaffold live absence changed");
+      }
+    }
     async function publish(lock?: KeyedLock) {
+      if (gitPoisoned || gitPreparation) throw Error("Git input preparation is incomplete; discard stage");
       if (indexPoisoned || indexPreparation) throw Error("Disposable index preparation is incomplete; discard stage");
       if (cleanupPromise) throw Error("Native output is closed");
       if (prepared) await executionDrain.get(prepared)?.exited;
       if (identityTicket) options.signal?.throwIfAborted();
+      await validateGitScaffolds(options.signal, true);
       const receipt = await native.manager.inspectStage(id), candidates = new Set<string>();
       let count = 0;
       async function expand(rel: string, depth = 0) {
@@ -316,6 +338,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       for await (const change of receipt.changes) {
         const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
         if (isGitControl(rel)) continue;
+        if ([...gitScaffolds.keys()].some(name => rel === `.git/${name}`)) continue;
         // Validate components before any host path walk.
         if (rel.split("/").some(p => !p || p === "." || p === ".." || p.includes("\u0000"))) throw Error("Invalid native stage path");
         add(rel); if (change.kind === "whiteout" || change.kind === "opaque") await expand(rel);
@@ -331,7 +354,9 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       const changed = [...before.keys()].filter(rel => !equal(before.get(rel)!.entry, after.get(rel)!.entry));
       const releases: (() => void)[] = [];
       try {
-        if (lock) for (const rel of changed) releases.push(await lock.acquire(`path:${join(brain, rel)}`));
+        if (lock) for (const rel of [...new Set([...changed, ...[...gitScaffolds.keys()].map(name => `.git/${name}`)])].sort())
+          releases.push(await lock.acquire(`path:${join(brain, rel)}`));
+        await validateGitScaffolds(options.signal, true);
         const authoritative = new Map<string, Captured>();
         for (const rel of changed) {
           const previous = before.get(rel)!.entry, next = after.get(rel)!.entry;
@@ -475,6 +500,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       },
       bindExecution(exited) { if (prepared) bindPreparedWorkerOutputExit(prepared, exited); },
       assertCurrent(input) {
+        if (gitPoisoned || gitPreparation && nativeGitWriters.get(input) !== gitPreparation)
+          throw Error("Git input stage requires complete preparation or discard");
         if (indexPoisoned || indexPreparation && (nativeIndexWriters.get(input) !== indexPreparation
           || indexPreparation.context !== maskContext(input))) throw Error("Disposable index stage requires complete preparation or discard");
         if (cleanupPromise || fd === undefined || !stage || input.maintenance?.output?.storage !== storage
@@ -516,26 +543,62 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           lease.spec.source = join(output.source, lease.relative);
           gitControls.set(lease.relative, lease); nativeGitSpecs.set(lease.spec, lease);
         }
+        await validateGitScaffolds(signal);
+        const uid = await readerUid(), scaffolds: MaintenanceGitScaffold[] = [];
+        const parent = await native.manager.statStage(id, ".git", uid, signal);
+        if (!parent || parent.kind !== "directory") throw Error("Git mask scaffold parent is not a directory");
+        for (const name of ["hooks", "info", "modules"] as const) {
+          const rel = `.git/${name}`;
+          const lower = await native.manager.statCheckpoint(native.checkpoint.id, rel, uid, signal);
+          if (lower) {
+            if (lower.kind !== "directory") throw Error("Git mask input is not a directory");
+            continue;
+          }
+          const expected = gitScaffolds.get(name), item = await native.manager.statStage(id, rel, uid, signal);
+          if (item && !expected) throw Error("Unregistered Git mask scaffold");
+          if (expected && (!item || item.inode !== expected.inode || item.stamp !== expected.stamp)) throw Error("Changed Git mask scaffold");
+          scaffolds.push({ name, ...(expected ? { previous: { inode: expected.inode, stamp: expected.stamp } } : {}) });
+        }
         const files = captureMaintenanceGitFiles(hostSource, storage.allowanceBytes);
-        const manifest: MaintenanceGitManifest = { relative: lease.relative, maximum: storage.allowanceBytes, files,
+        const manifest: MaintenanceGitManifest = { scaffolds, relative: lease.relative, maximum: storage.allowanceBytes, files,
           ...(lease.inode && lease.digest ? { previous: { inode: lease.inode, digest: lease.digest } } : {}) };
         if (Buffer.byteLength(JSON.stringify(manifest)) > storage.allowanceBytes) throw Error("Maintenance Git input exceeds its existing stage allowance");
         lease.ready = false;
-        return { owner: this, lease, manifest, generation: this.generation };
+        gitPreparation = { owner: this, lease, manifest, generation: this.generation };
+        return gitPreparation;
       },
       async finishGit(preparation, receipt, commandSignal) {
-        if (cleanupPromise || preparation.owner !== this || preparation.generation + 1 !== this.generation || gitControls.get(preparation.lease.relative) !== preparation.lease)
-          throw Error("Closed or foreign maintenance Git input");
-        const item = await native.manager.statStage(id, preparation.lease.relative, await readerUid(), commandSignal ?? options.signal);
-        if (!item || item.kind !== "directory" || item.mode !== 0o700 || item.inode !== receipt.inode
-          || receipt.digest !== maintenanceGitDigest(preparation.manifest.files)) throw Error("Changed maintenance Git input receipt");
-        preparation.lease.inode = receipt.inode; preparation.lease.digest = receipt.digest; preparation.lease.ready = true;
+        try {
+          if (!receipt || gitPreparation !== preparation) throw Error("Incomplete Git input preparation");
+          if (cleanupPromise || preparation.owner !== this || preparation.generation + 1 !== this.generation || gitControls.get(preparation.lease.relative) !== preparation.lease)
+            throw Error("Closed or foreign maintenance Git input");
+          const item = await native.manager.statStage(id, preparation.lease.relative, await readerUid(), commandSignal ?? options.signal);
+          if (!item || item.kind !== "directory" || item.mode !== 0o700 || item.inode !== receipt.inode
+            || receipt.digest !== maintenanceGitDigest(preparation.manifest.files)) throw Error("Changed maintenance Git input receipt");
+          const expected = preparation.manifest.scaffolds ?? [], received = receipt.scaffolds;
+          if (!Array.isArray(received) || received.length !== expected.length || new Set(received.map(row => row.name)).size !== received.length)
+            throw Error("Changed Git mask scaffold receipt");
+          const uid = await readerUid();
+          const parent = await native.manager.statStage(id, ".git", uid, commandSignal ?? options.signal);
+          if (!parent || parent.kind !== "directory" || typeof receipt.parentInode !== "string" || parent.inode !== receipt.parentInode
+            || gitParentInode && gitParentInode !== parent.inode) throw Error("Changed Git mask scaffold parent receipt");
+          gitParentInode = parent.inode;
+          for (const row of received) {
+            if (!expected.some(item => item.name === row.name) || row.uid !== uid || row.mode !== 0o700
+              || typeof row.inode !== "string" || typeof row.stamp !== "string") throw Error("Foreign Git mask scaffold receipt");
+            gitScaffolds.set(row.name, row);
+          }
+          await validateGitScaffolds(commandSignal ?? options.signal);
+          preparation.lease.inode = receipt.inode; preparation.lease.digest = receipt.digest; preparation.lease.ready = true;
+          gitPreparation = undefined;
+        } catch (error) { gitPoisoned = true; gitPreparation = undefined; throw error; }
       },
       async masks(input, commandSignal) {
         const signal = commandSignal && options.signal ? AbortSignal.any([commandSignal, options.signal]) : commandSignal ?? options.signal;
         signal?.throwIfAborted();
         if (prepared) await executionDrain.get(prepared)?.exited;
         signal?.throwIfAborted();
+        if (!nativeGitWriters.has(input)) await validateGitScaffolds(signal);
         const uid = await readerUid(), source = output.source;
         const copies = [{ from: brain, to: input.maintenance!.output!.target }];
         const plan = maintenanceEnvMaskQueries(source, brain, copies); let step = plan.next();
@@ -555,7 +618,10 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           if (cleanupPromise) throw Error("native maintenance stage closed during metadata preparation");
         }
         const writer = nativeGitWriters.get(input);
-        return [...step.value, ...[...gitControls.values()].flatMap(control => writer?.lease === control ? []
+        return [...step.value, ...(!writer ? [...gitScaffolds.keys()].flatMap(name => {
+          const target = join(input.maintenance!.output!.target, ".git", name);
+          return ["--tmpfs", target, "--remount-ro", target];
+        }) : []), ...[...gitControls.values()].flatMap(control => writer?.lease === control ? []
           : ["--tmpfs", join(input.maintenance!.output!.target, control.relative), "--remount-ro", join(input.maintenance!.output!.target, control.relative)])];
       },
     };
