@@ -21,7 +21,7 @@ if (process.argv[2] === "--child") {
   expect(ordinary.ok, "ACTUAL_MANAGED_ORDINARY_IDENTITY_RELAY_REACHABLE").toBe(true);
   expect(ordinaryDefault.ok, "ACTUAL_DEFAULT_ORDINARY_IDENTITY_RELAY_REACHABLE").toBe(true);
   expect(strict.ok, "ACTUAL_MANAGED_STRICT_IDENTITY_PROBE").toBe(true);
-  // #2297 owns the observed restricted-helper refusal; do not lock that bug in.
+  expect(restricted, "ACTUAL_MANAGED_RESTRICTED_IDENTITY_RELAY_REACHABLE").toMatchObject({ ok: true, identity: "separate_uid", workerUid: 21002 });
   const { rmSync } = await import("node:fs");
   const spawnDescriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!, spawn = Bun.spawn;
   const prefix = "s.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)";
@@ -54,6 +54,7 @@ if (process.argv[2] === "--child") {
     } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); if (alias) rmSync(alias, { recursive: true, force: true }); }
   }
   console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
+  await import("../restricted-relay-qualification.native.js");
   await import("./ordinary-identity-ws.js");
 } else {
   expect(process.getuid!()).toBe(0);
@@ -82,6 +83,17 @@ if (process.argv[2] === "--child") {
   const service = await serveNativeBrainManager({ storePath: "/brain-fixture", devicePath: "/dev/brain-native-proof-loop", fsid, brainUuid, socketPath: "/native-runtime/server-ws-manager.sock",
     appUid: 21001, appGid: 21001, workerUid: 21002, stageAllowanceBytes: staging.allowanceBytes, stageBudgetBytes: staging.budgetBytes,
     capacityBytes: 4 * 1024 ** 3, recoveryReserveBytes: 16 * 1024 ** 2 });
+  const restrictedRelays: Array<ReturnType<typeof Bun.serve>> = [];
+  for (const [name, directoryUid, directoryGid, socketUid, socketGid] of [
+    ["directory-owner", 0, 21001, 21001, 21001], ["directory-group", 21001, 21003, 21001, 21001],
+    ["socket-owner", 21001, 21001, 0, 21001], ["socket-group", 21001, 21001, 21001, 21003],
+  ] as const) {
+    const directory = `/identity-fixture/restricted-${name}`;
+    mkdirSync(directory, { mode: 0o750 });
+    restrictedRelays.push(Bun.serve({ unix: join(directory, "relay.sock"), fetch: () => new Response("unexpected") }));
+    chownSync(directory, directoryUid, directoryGid); chmodSync(directory, 0o750);
+    chownSync(join(directory, "relay.sock"), socketUid, socketGid); chmodSync(join(directory, "relay.sock"), 0o660);
+  }
   let foreignRequests = 0;
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
@@ -93,7 +105,7 @@ if (process.argv[2] === "--child") {
     console.log(JSON.stringify({ foreignProbeRequests: foreignRequests }));
     expect(code, errors).toBe(0); expect(foreignRequests, "FOREIGN_PROBE_LISTENER_NEVER_CONTACTED").toBe(0); console.log(output);
   } finally {
-    foreign.stop(true); await service.close();
+    foreign.stop(true); for (const relay of restrictedRelays) relay.stop(true); await service.close();
     const deadline = Date.now() + 5000;
     for (;;) {
       const records = readdirSync("/run/brain-identity-fixture");
