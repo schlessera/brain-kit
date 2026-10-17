@@ -7,7 +7,7 @@ import * as worker from "@schlessera/brain-ui-sdk/internal";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
 import { createPiBackend } from "../src/backend";
 
-test("fresh Pi workers retain the same host session's native read version across ordinary resumed turns", async () => {
+for (const restart of [false, true]) test(`${restart ? "restarted backend" : "fresh Pi workers"} retain the same host session's native read version across resumed turns`, async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-pi-native-turns-")), brain = join(root, "brain");
   mkdirSync(brain); writeFileSync(join(brain, "loom.md"), "Penelope weaves.\n");
   const previous = process.env.PI_CODING_AGENT_DIR;
@@ -23,7 +23,7 @@ test("fresh Pi workers retain the same host session's native read version across
       limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   try {
-    const backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions") });
+    let backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions") });
     let sessionId: string | undefined;
     async function turn(prompt: string) {
       const frames: ServerMessage[] = [];
@@ -33,6 +33,7 @@ test("fresh Pi workers retain the same host session's native read version across
       return frames;
     }
     await turn("read");
+    if (restart) backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions") });
     writeFileSync(join(brain, "loom.md"), "Penelope sleeps.\n");
     const refused = await turn("write");
     expect(readFileSync(join(brain, "loom.md"), "utf8"), "PI_NEXT_TURN_STALE_WRITE_HAS_NO_EFFECT").toBe("Penelope sleeps.\n");

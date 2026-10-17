@@ -344,7 +344,7 @@ function ToolCallEntryView({
             </span>
           )}
           {/* A closed card's word replaces "Approval needed": it needs nothing. */}
-          {!(closed && toolCall.status === "pending_approval") && (
+          {!(closed && toolCall.status === "pending_approval") && !toolCall.voicePermission?.word && (
             <StatusIndicator status={toolCall.status} isError={toolCall.isError} />
           )}
         </span>
@@ -360,6 +360,8 @@ function ToolCallEntryView({
           {closedWord}
         </p>
       )}
+
+      {toolCall.voicePermission?.word && <p data-voice-permission-receipt="" className="px-2 text-xs text-foreground">{toolCall.voicePermission.word}{toolCall.voicePermission.heardAt && <span> · heard “brain, stop” · {new Date(toolCall.voicePermission.heardAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}</p>}
 
       {/* Live subagent state for tool fan-outs, fed by the activity stream. */}
       {renderer.subagentRows && <SubagentEntryRows agentToolUseId={toolCall.id} />}

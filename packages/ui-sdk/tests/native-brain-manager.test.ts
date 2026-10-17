@@ -25,6 +25,11 @@ test("fixed operations reject caller paths, command arguments and unsafe identit
     { operation: "delta", from: null, to: ID },
     { operation: "delta", from: ID, to: SECOND, command: ["/bin/sh"] },
     { operation: "resize", bytes: 2 ** 40 },
+    { operation: "attestStage", id: ID, namespacePid: 1 },
+    { operation: "readCheckpoint", id: ID, action: "file", path: "../private", maximum: 64 },
+    { operation: "readStage", id: ID, action: "file", path: "/private", maximum: 64 },
+    { operation: "readStage", id: ID, action: "file", path: "notes/odysseus.md", maximum: 64, workerUid: 0 },
+    { operation: "readCheckpoint", id: ID, action: "file", path: "notes/odysseus.md", maximum: 64, rootPath: "/another/brain" },
   ]) expect(nativeManagerRequest.safeParse(operation).success, "NATIVE_BROKER_NO_CALLER_PATH_OR_EXECUTION").toBe(false);
   expect(nativeManagerRequest.parse({ operation: "delta", from: ID, to: SECOND })).toEqual({ operation: "delta", from: ID, to: SECOND });
 });
@@ -36,6 +41,8 @@ test("capacity and recovery allocation are explicit finite operator values", () 
     { ...config(), recoveryReserveBytes: undefined }, { ...config(), recoveryReserveBytes: 4097 },
     { ...config(), recoveryReserveBytes: config().capacityBytes }, { ...config(), maxDeltaBytes: -1 },
     { ...config(), storePath: "/mnt/odysseus/../other" },
+    { ...config(), workerUid: 0 }, { ...config(), workerUid: 21002 },
+    { ...config(), appUid: 21001, workerUid: 21001, stageAllowanceBytes: 4096, stageBudgetBytes: 4096 },
   ]) expect(() => validateNativeBrainManagerConfig(input as never), "NATIVE_NO_IMPLICIT_OR_UNBOUNDED_CAPACITY").toThrow();
 });
 

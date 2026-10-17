@@ -6776,10 +6776,11 @@ test("code without an info string has no invented language or sample or copy gly
   expect(view.container.textContent).toBe("");
   expect(view.container.querySelectorAll("svg")).toHaveLength(0);
 });
-test("Mermaid keeps its renderer instead of a code card", () => {
+test("Mermaid keeps its renderer instead of a code card", async () => {
   const root = createBrainUiRoot({ storage: null });
   try {
     const view = render(<BrainUiProvider root={root}><RuntimeMarkdownPre><code className="language-mermaid">{"graph LR; Troy-->Ithaca\n"}</code></RuntimeMarkdownPre></BrainUiProvider>);
+    await waitFor(() => expect(view.container.querySelector('[data-content-renderer="mermaid"]'), "MERMAID_LAZY_RENDERER_SETTLED").toBeTruthy());
     expect(view.container.querySelectorAll('[data-kit-code-block]')).toHaveLength(0);
     expect(view.container.textContent).toContain("graph LR; Troy-->Ithaca");
   } finally { root.dispose(); }

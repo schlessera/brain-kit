@@ -21,8 +21,8 @@ actor, model and policy hash are nullable observed facts. `sharedAttribution`
 states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
-`packages/ui-sdk/src/turn-journal.ts:2-16`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1031-1045`).
+`packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1034-1049`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -30,6 +30,18 @@ usage record. The REST operation receipt uses the same synthetic journal for
 Undo; it does not revive the original turn.
 The optional budget and scope receipts below supply enforced inference facts.
 Missing facts remain unknown; neither receipt implies network enforcement.
+
+**Configuration coverage (additive, #1846).** The optional
+`configurationCoverage` is `incomplete` when the retained configuration-input
+inventory is nonempty, regardless of journal state; it is `complete` only for
+a complete observation with an empty inventory. Empty recording, partial or
+expired observations report `unknown`. An absent turn omits the field. Ordinary
+missing retained versions and capacity errors do not independently make
+configuration identification incomplete. Expiration retains the inventory and
+its coverage evidence. The existing summary frame/history/HTTP responses carry
+this field without eager detail requests or changed-path accounting changes.
+Older summaries may omit it; clients may use detailed configuration inventory
+entries after expansion, and must never treat omission as complete coverage.
 
 `journal_capacity` and `journal_unavailable` are additive host failure classes.
 A failed initial observation refuses the worker; a mid-turn journal stop ends
@@ -65,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3622-3628`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1785-1787`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3718-3724`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1820-1822`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -95,7 +107,11 @@ frame, authenticated history and HTTP journal summary. Its facts are
 `policySource`, `limits` (`files_changed`, `minutes`, `tool_calls`, `turn_bytes`),
 `hardTimeoutMs`, `calls`, `minutes`, nullable `changedPaths`/`observedBytes`,
 `coverage` (`observed_versions` or `partial`), `observedAt` and `receipts`.
-The byte count is a sum of captured changed regular-file versions, not a
+The byte count sums captured changed hashed regular-file versions. Ignored
+regular files have no content hash and contribute their largest observed after-size
+once per turn per path, rather than their full size on every observation (#2027).
+This corrects repeated metadata observations inflating the existing observed-write
+counter; field shapes and scope decisions are unchanged. The counter does not
 claim to capture writes overwritten between observations. Missing snapshots
 remain unknown. Shared windows may include other writers. No autonomous Queue
 counter or budget usage field changes.
@@ -429,6 +445,61 @@ coverage are unchanged.
 
 <a id="activity-stream-rev-3-additive"></a>
 
+### Host turn lifecycle (additive)
+
+`ActivityTurnLifecycle` is a persisted host envelope, independent of the existing
+backend run and span tree. Its distinct `lifecycleId` is `lifecycle:<turnId>`; `turnId` is the host turn identity; `sessionId`
+is null until observed, and `backendRunId` is null until a backend root is
+actually recorded. It never owns tokens, costs, spans or rollups. Inference
+aggregation continues to read backend rollups exactly once.
+
+`acceptedAt` is the observed host acceptance time, before routing/admission.
+Queued requests retain their observed queue acceptance and `dequeuedAt`;
+`queueWaitMs` is null when no queue interval was observed. Milestones are
+`governedStartedAt`/`governedAcquiredAt`, `budgetStartedAt`/`budgetAdmittedAt`,
+`journalStartedAt`/`journalBeganAt`, `backendInvokedAt` and `firstFrameAt`.
+All timestamps are epoch milliseconds. `skippedPhases` explicitly identifies
+governed/budget/journal phases not configured for this turn. Other null
+milestones mean not reached or unavailable; they never claim zero-duration
+success. A started phase whose completion is null is pending, or incomplete
+when the enclosing record is terminal.
+
+`totalElapsedMs` measures acceptance to `endedAt`; `timeToFirstFrameMs` measures
+acceptance to the first observed backend frame/Activity event or backend bridge
+operation that opens its root. Host cancellation/revocation/follow-up decisions
+do not count as backend observations. Governed, budget and journal
+phase durations measure their paired milestones; an incomplete terminal phase
+measures its observed start to `failureObservedAt` (the caught failure
+boundary), or terminal time after interruption when no failure was observed. `backendStartupMs` measures
+backend invocation to the first frame, or the observed failure boundary
+when startup fails before a frame (terminal time on interruption). Unobserved/in-progress boundaries remain null. These
+values do not redefine backend-run `startedAt` or `durationMs`.
+
+The envelope terminates once with the existing outcome vocabulary: `success`,
+`error`, `timeout`, `cancelled`, `denied` or `interrupted`, optional explanation
+in nullable `reason`. Admission refusal, cancellation/revocation and failures
+before any frame persist an envelope without fabricating a backend run or
+first frame. Pre-backend cancellation actors, kinds and observed times remain
+in `hostEvents` (also pre-root revocation and follow-up actors); after a
+backend root exists the existing cancellation
+events remain on that root. Terminal time follows host cleanup. The existing boot recovery
+owner interrupts unfinished session envelopes, including admission-only
+records; late observations cannot reopen a terminal record. Recording/fanout
+failures never fail the observed turn. Existing historical runs have no
+envelope and their outer timing remains unknown; no timestamps are backfilled.
+
+Activity snapshots add optional `lifecycles`; deltas add optional `lifecycle`,
+using the same global change cursor, with independent per-lifecycle sequence
+numbers under `lifecycleId` (the delta `runId`). Backend-run sequences remain
+unchanged.
+Snapshot high-water entries cover envelope-only identities too. Index/session
+snapshots include recent envelopes; run snapshots may contain an envelope
+without spans. Old clients may ignore these additions. Envelopes survive
+backend detail pruning alongside rollups. Retained evidence consumers must
+include the envelope as separate host evidence when present, report absence
+as unknown, and preserve its backend link without treating it as inference
+usage. The retained export planned in #1767 is not a shipped surface here.
+
 ### Activity stream (rev 3, additive)
 
 Hosts that record agent activity advertise `capabilities.activity` on
@@ -441,7 +512,11 @@ deltas at or below the snapshot's high-water for that run. Deltas are
 append-only increments (a small span row, or exactly one event) — they never
 grow with run length. The `result` frame additionally carries an optional
 `usage` block (token totals + per-model breakdown; absent cost means unknown,
-never zero), and `tool_use_start` an optional `parentToolUseId` marking tool
+never zero). Claude main-turn usage/cost uses completed root and child
+responses, including resumed turns. Newly observed session-cumulative usage
+outside those receipts is retained separately as unattributed Activity work;
+unknown/imported coverage never becomes a zero-cost claim. `tool_use_start`
+additionally carries an optional `parentToolUseId` marking tool
 calls that ran inside a subagent. Activity spans may carry the additive
 `principalId` of the actor responsible for them; absence means unattributed.
 Each human tool response also appends an `approval_decision` event whose payload
@@ -1024,10 +1099,10 @@ provider by value; it is validated at startup and an invalid one throws. Only
 then does `server_hello` carry `capabilities.liveConversation: true`. Without
 one, every `conversation_*` frame is answered with `error` code
 `CONVERSATION_UNAVAILABLE`. No existing frame, route or rev-3 rule changes,
-and `PROTOCOL_REV` stays 4.
+and these additions do not change `PROTOCOL_REV`.
 
 ```
-client → { type: "conversation_start", conversationId?, sessionId? }
+client → { type: "conversation_start", requestId?, conversationId?, sessionId?, agentProviderId? }
 client → { type: "conversation_audio", conversationId, epoch, utteranceId,
            sequence, rate, pcm }
 client → { type: "conversation_endpoint", conversationId, epoch, utteranceId }
@@ -1035,11 +1110,11 @@ client → { type: "conversation_commit", conversationId, epoch, utteranceId,
            requestId, text }
 client → { type: "conversation_playback", conversationId, epoch, outputId,
            playback: "played" | "discarded" | "unknown", playedSamples? }
-client → { type: "conversation_stop", conversationId }
-server → { type: "conversation_opened", conversationId, epoch, sessionId?,
-           providerId, capabilities, disclosure, limits,
+client → { type: "conversation_stop", conversationId, resumable? }
+server → { type: "conversation_opened", requestId?, conversationId, epoch, sessionId?,
+           agentProviderId?, providerId, capabilities, disclosure, limits,
            resync: { work, outputs } }
-server → { type: "conversation_closed", conversationId, epoch, reason, message? }
+server → { type: "conversation_closed", requestId?, conversationId, epoch, reason, message? }
 server → { type: "conversation_event", conversationId, epoch, event }
 server → { type: "conversation_work", ...ConversationWorkReceipt }
 server → { type: "conversation_output", conversationId, ...ConversationOutputRecord }
@@ -1053,6 +1128,17 @@ server → { type: "conversation_permission", conversationId, epoch, sessionId,
 `outputWordAlignment` — each `supported`, `unsupported` or `unproven`. Neither
 the host nor a client promotes `unproven`. `disclosure` names the voice service
 and model and one to sixteen destination statements, shown before capture.
+
+The shipped client requires both `server_hello.capabilities.liveConversation`
+and `conversationPause`. The latter advertises resumable stop and opening-request
+correlation (#960). It sends a unique `requestId` on each start; the host echoes
+it on `conversation_opened` and `conversation_closed` for that opening attempt,
+including a failed open. Existing clients may omit it. A late opening from an
+abandoned view is closed without opening its microphone, then any newer entry
+can start. An `agentProviderId` selects the independently configured agent
+profile for a new chat only; it is echoed on `conversation_opened`. Resuming a
+chat or conversation never changes its pinned backend. The voice provider's
+`providerId` remains separate.
 
 **Identities and epochs.** The host mints `conversationId`. Each
 `conversation_start` opens a new `epoch`, starting at 1; resuming an existing
@@ -1142,6 +1228,18 @@ turn that ends with only an `error` frame and no `result`. `conversation_stop` a
 that has not been submitted yet; submitted work keeps running as an ordinary
 chat turn.
 
+With `resumable: true`, stop closes and aborts only the current speech epoch,
+then detaches and retains the conversation for an explicit start/resync with
+its identity. It opens no replacement microphone or provider session. Retained
+work/output receipts and once-only permission announcement identities survive;
+old results are never narrated into the replacement epoch. Without this flag,
+stop remains final and deletes the conversation. The owning principal may
+finally stop its own detached conversation; it cannot stop another principal's
+or another connection's attached conversation. Hide and local reply cut use the
+resumable form; Leave uses final stop. These operations preserve the existing
+queued-work cancellation and running-work behavior above.
+
+
 **Permissions.** `conversation_permission` lists a request pending in the
 conversation's session. `announce` is true at most once per
 `(sessionId, turnId, toolUseId)` for the conversation's lifetime, across
@@ -1192,9 +1290,78 @@ is `{ outcome: "completed" | "error", facts, delivery: "quiet" | "when-idle" }`.
 Every event carries its scope and is validated by `parseLiveConversationEvent`
 before the host reads it; an event for another scope is ignored and an
 invalid one closes the epoch. `assertLiveConversationProvider` and
-`assertLiveConversationSession` are the registration checks. No shipped
-adapter, client capture/playback or provider network call is part of this
-contract.
+`assertLiveConversationSession` are the registration checks. Client
+capture/playback and live qualification remain separate from this host contract.
+
+**Gemini adapter (additive, #958).**
+`createGeminiConversationProvider(apiKey: string): LiveConversationProvider`
+is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
+`CreateAppOptions.conversationProvider`; no environment auto-selection or new
+credential discovery is added. The fixed configuration is Gemini Developer API
+v1beta BidiGenerateContent, `gemini-3.8-live`, Kore, mono PCM16 input at 16 kHz
+and output at 24 kHz. It waits for `setupComplete`, uses manual activity and
+one `NON_BLOCKING` advisory `host_task`; it never executes vendor tools.
+Host results preserve native IDs, use top-level `SILENT` or `WHEN_IDLE` and
+`willContinue: false`. Pending work does not block input or the ordinary chat
+bridge's progress, questions and permission controls. A native handle is never
+bound to the most recently captured utterance just because it arrived then.
+
+A transcription `finished` marker closes input attribution; model
+`turnComplete` does not. Without that marker, the adapter refuses a second
+utterance and ends the epoch visibly rather than attributing delayed input to
+it. This marker is not calibrated certainty or a semantic commit: input origin
+and certainty remain unknown, requiring review. Native cancellation withdraws
+publication, not completed host effects. Aborted/replaced epochs and consumed
+or withdrawn handles cannot publish later results. Reconnection opens a new
+session and sends bounded historical host outcomes as context only.
+
+Exact permission speech, acoustic echo isolation, word alignment, calibrated
+certainty and remote cancellation acknowledgement remain unproven. The local
+transport tests do not certify a live handshake or audible/device behavior;
+#961 gates activation. Provider errors and setup failures use fixed diagnostics
+that never echo credential-bearing URLs or remote error text. Events, frame
+sizes, outbound buffering and native handle ledgers are bounded; malformed
+frames, backpressure and disconnect end capture/admission visibly.
+
+**GPT-Live adapter (additive, #959).**
+`createGptLiveConversationProvider(apiKey: string): LiveConversationProvider`
+is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
+`CreateAppOptions.conversationProvider`. It opens the primary Live API v1
+server WebSocket with a server-owned Bearer header, starts `gpt-live-1`, mono
+PCM16/24 kHz, marin, client delegation and `store:false`, then waits for
+`session.started`. It does not substitute Realtime or Responses delegation.
+`store:false` is not a zero-retention claim.
+
+Native delegations are metadata only; the host's existing semantic commit and
+backend bridge own execution, progress, tools and interactive questions. Input
+and output remain independent of pending backend work. Audio commands carry
+opaque client event IDs. A transcript echoed with `client_event_id` keeps that
+original utterance identity even after another utterance starts. With one input
+only and no historical resync context, attribution is unambiguous; after multiple inputs, a fragment without a
+recognized client correlation closes the epoch rather than using the newest
+capture identity. Zero-duration appended text is not microphone input. Transcript fragments have no finalization event and remain
+unknown certainty/origin, so automatic semantic submission is unavailable.
+`markEndpoint` records the host's review boundary only; it sends no invented
+provider commit or done command.
+
+Host results use the original client `delegation_id` and bounded plain strings.
+Each append is limited conservatively to 500 UTF-8 bytes, below the documented
+500-token limit: preceding chunks use `session.thinking.append`, and an ordinary
+when-idle result uses one final `session.commentary.append`. Quiet results use
+only thinking appends. Commentary may paraphrase, and is never exact permission
+speech; the client owns quiet-boundary playback. Repeated, aborted, replaced or
+mismatched results reject without publication. Replay seeds only bounded
+historical host context in a new session, never effects or old native handles.
+
+Output has one stream identity per epoch, with no fabricated audio-done or
+word alignment. Local playback cut and host cancellation remain independent of
+remote acknowledgement. `session.closed` can acknowledge whole-session close;
+connection loss or the bounded close timeout reports unknown. No per-output
+cancellation acknowledgement is claimed. Error text never echoes remote
+messages, headers or credentials. Bounded event queues, wire frames, command
+and event ledgers close capture on overflow or malformed/unattributable input.
+Exact permission speech is unsupported, echo isolation and alignment remain
+unproven, and #961 still gates provider/device activation.
 
 <a id="interactive-answer-receipts-breaking-910"></a>
 
@@ -1623,3 +1790,93 @@ stays in the original turn. The states, exact hashes/diffs and authenticated
 same-request read are specified in the [HTTP reference](../http-api.md#policy-proposal-receipts-additive-1662).
 No client field grants authority or activates policy. Approval writes only the
 reviewed server-held bytes; changed input requires a new proposal.
+
+### Claude title-helper accounting (#2052)
+
+No WebSocket field changes. Root result/live usage remains completed main/child
+response usage and excludes title-helper calls. Supported title-helper
+receipts become separate `Claude session title` Activity runs within the
+existing cumulative reconciliation transaction; overall/session totals retain
+helper spend once, and unmatched auxiliary usage remains unattributed. Export
+loss or unavailable attribution does not assign a helper to a model by guess
+or imply zero cost. The additive server-only evidence event is documented in
+[the package API contract](package-api.md#claude-title-helper-evidence-additive-2052).
+
+### Shipped conversation client (#960)
+
+Explicitly registered conversation providers appear under the composer's capture
+menu. The service disclosure precedes microphone access and names the voice
+service, host relay and independently selected agent profile. Missing destination,
+retention and safety evidence reads as unknown. Phase-1 dictation remains separate.
+
+The browser owns PCM capture and one playback queue. Speech connection, actual
+microphone state and interaction state are independent. Original recognition stays
+NOT SENT until explicit review/send, or the supported finalized-input hold (700 ms
+silence, 500 ms hold). Unknown finalization, attribution or certainty requires
+manual review; a 2 s finalization timeout cannot later become an automatic send.
+The built-in service profiles remain manual-only. No provider task request is a
+commit. Single-question answers use the existing answer queue; other card kinds
+retain their own controls. Backend text, progress and tool/card events continue
+through the ordinary chat pipeline while asynchronous voice work waits.
+
+Leave, hide, disconnect and unmount stop capture and discard local audio; retained
+review text belongs to its original composer draft. Late capture, opening, input,
+output and Send callbacks cannot target a replacement scope. Reconnect/resync
+never opens a microphone without Resume. A local reply cut flushes every queued
+source before remote lifecycle resolution; it is not evidence of remote output
+cancellation. Generated words and submitted input stay distinct, and playback
+without proven alignment reads as spoken portion unknown. Host terminal state
+makes unanswered question controls inert even without a tool result; local
+playback must also drain or be discarded before voice work can appear settled.
+
+The 320 px strip retains 44 px controls and readable light/dark text. The shared
+working/pending row collapses during voice; on short screens it hides first when
+needed to retain transcript space. Cards remain in the existing scrolling Chat
+transcript. No live recognition, latency, echo or exact permission-speech
+qualification is implied; #961 owns the bounded provider/device measurements.
+
+### Conversation permission fallback (#114)
+
+The shipped SDK client declares `client_hello.capabilities.toolResolution: true`.
+The React conversation owner consumes scoped `tool_resolution` frames before
+ordinary chat dispatch. A host `permission_denied` activity event from a current,
+authorized voice-posture turn publishes one `denied` outcome with the fixed
+reason `voice_posture`; this is a posture refusal, not a user decision, and it
+raises no approval card. It uses the existing bounded host outcome ledger.
+
+Pending ordinary-turn approvals retain their visual grant controls. A refusal
+matches original, attributed user input only while approvals are pending in the
+selected session's current turn. A phrase-like `brain, stop` candidate snapshots
+that turn's pending requests and sends the existing `tool_denial` with explicit
+`turnId` and `channel: "voice"`. Partial, missing-confidence or unproven-isolation
+candidates are treated as ambiguous. Bare stop/no/cancel and affirmatives remain
+ordinary input. Assistant/output transcripts and unknown-origin input never
+invoke the detector. Both built-in adapters retain their unproven attribution
+profiles; manual review is not evidence authorizing a spoken decision.
+
+Sending a refusal locks only the affected controls and says `Refusal sent ·
+checking`. It never claims host confirmation. A correlated host outcome reports
+denied, the actual winning screen grant, expired, or unknown. Disconnect stops
+capture and retains uncertainty; it never queues an old denial for a replacement
+request. Host terminal state reconciles unanswered requests without depending on
+`tool_result`. Receipts remain readable if reconnect replaces the transcript.
+
+Neither built-in adapter has a proven deterministic exact-copy permission audio
+path. The approved fallback therefore uses a local earcon, the existing card and
+a 40px strip line. Permission scripts and confirmed outcome wording are visual
+only: they are never submitted as model commentary or to a separate TTS service.
+Labels come only from bounded static registry labels (four words at most), with
+`An action` as the generic fallback. Payloads and unproven effect descriptions
+never enter those scripts. Cues wait for quiet, survive duplicate/reconnect
+identities without repeating, and are dropped if the request resolves first.
+Earcons use the existing PCM owner; speech over an earcon keeps recognition live.
+Headphones/isolation limitations remain visible in the entry disclosure.
+
+The local permission view retains at most 128 records and 4096 once-only cue
+identities. If pending records exhaust the bound, capture closes and the screen
+remains the decision surface; a partial snapshot is never silently denied.
+At 320 × 568, shared-row summaries hide first; with review and a refusal line,
+the controls' eight pixels of empty vertical space give way while every target
+stays at least 44px and the transcript retains 264px. Real speaker/headphone
+listening, recognition, echo and latency qualification remain human/device
+verification under #114 and #961.

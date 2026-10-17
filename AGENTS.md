@@ -49,6 +49,10 @@ on, links to or describes them.
 
 - **No personal data anywhere in the tree.** No real names, client names, or
   personal infrastructure (IPs, domains, tailnets, deploy identifiers).
+  Two scoped exceptions: a file named `LICENSE` may carry the copyright
+  lines its licence requires, including a third party's notice reproduced
+  verbatim, and a link to a public open-source project may contain its
+  owner's handle ([ruling 8](docs/decisions/module-renderers.md#8-upstream-attribution-lives-in-the-modules-licence)).
   Odysseus is the sole fictional example world for fixtures, CLI/MCP
   demonstrations, renderer examples, docs, skills, onboarding, UI stories,
   screenshots and website assets: ancient problems with modern organisational
@@ -68,6 +72,14 @@ on, links to or describes them.
 - **Markdown is the source of truth; `brain.db` is disposable.** `brain index
   --force` regenerates everything. Never design anything that writes `brain.db`
   as authoritative state.
+- **Provider history is append-only.** Within a session, the tools, the system
+  prompt and every earlier message sent to a model provider stay byte-identical
+  from turn to turn; brain-kit only adds new content at the end. Budgets,
+  journals, receipts, labels and display data stay in internal storage and
+  never enter the provider-facing conversation. Adding to the history costs
+  input tokens on every later turn; changing it disables the provider's cache
+  and multiplies the cost. Anything on a turn's path runs the keyless guard
+  ([the rule and the guard](docs/decisions/provider-history.md)).
 - **Planned work lives in the issue tracker, not in a markdown file.** Do not
   add a status field, a unit checklist or a progress log to a document in this
   repo ([why](docs/plans/README.md#what-does-not-live-here)).
@@ -109,7 +121,7 @@ on, links to or describes them.
   declared with `defineModule({ name, configSchema, setup })`. Run
   `brain module lint` before submitting one.
 - Cite code from docs and source comments as an anchor followed by its range:
-  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:183-212`),
+  (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`),
   starting on the anchor's line. **A PR that moves lines under a citation owns
   that citation**, wherever it is recorded; find them with
   `git grep -n '<file>.ts:' -- docs packages`. `tests/decision-citations.test.ts`
@@ -179,6 +191,12 @@ the board, lifecycle and issue routing.
 - **Every merge needs a release milestone** on the PR and each issue it
   completes or advances, read back before merge and after closure
   ([the milestone agreement](docs/process/github.md#milestones)).
+- **A blocker must have at least the priority of every issue it blocks.**
+  Raise a lower-priority or unsorted blocker to the highest priority among
+  those issues; never lower the blocked issue to make them match. For example,
+  a `priority: p3` issue blocking a `priority: p1` issue becomes `priority: p1`.
+  Apply this through the full dependency chain whenever dependencies or
+  priorities change.
 - brain-kit owns behaviour; the templates own what a user generates;
   anything describing a real deployment goes to `brain-ui`. Run an issue body
   through the same gate as the tree before filing it.

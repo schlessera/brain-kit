@@ -632,3 +632,6 @@ export function runBackendContract(
     });
   });
 }
+
+export { contentRendererConformance } from "./content-renderers.js";
+export type { ContentRendererFixture, ContentRendererFixtures } from "./content-renderers.js";

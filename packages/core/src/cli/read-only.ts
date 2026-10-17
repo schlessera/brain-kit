@@ -22,10 +22,10 @@ export function readOnlyBrainError(command: string, error: unknown, root?: strin
   // A scratch directory missing from a read-only brain cannot be created, so it is no route either.
   const scratch = root === undefined ? undefined : join(root, SCRATCH_DIR);
   const sandbox = scratch === undefined ? undefined : !existsSync(scratch) || isReadOnlyBrainMount(scratch)
-    ? `${SCRATCH_DIR}/ is read-only in this turn as well (a restricted autonomous turn, or it is missing, not gitignored, redirected or could not be verified), so nothing written now is kept for the reader.`
+    ? `${SCRATCH_DIR}/ is read-only in this turn as well; see the sandbox note for the reason; nothing written now is kept for the reader.`
     : undefined;
   const message = command === "scratch"
-    ? `The scratch area ${SCRATCH_DIR}/ is read-only here, so nothing was removed. In a hosted turn that means a restricted autonomous turn, or a scratch directory the worker sandbox would not bind writable; the server prunes it hourly.`
+    ? `The scratch area ${SCRATCH_DIR}/ is read-only here, so nothing was removed. See the sandbox note for the reason; the server prunes it hourly.`
     : SCRATCH_WRITERS.has(command)
       ? `The brain is read-only here outside ${SCRATCH_DIR}/ (the hosted worker sandbox). ` + (sandbox
         ?? `Write the output with --scratch instead: ${SCRATCH_DIR}/ is writable and kept across turns. ${linkRule(SCRATCH_DIR)} Link the path the command prints. ${turnTempRule()}`)

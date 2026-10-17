@@ -31,3 +31,33 @@ test("ignored derived DB byte preparation stays in its validated existing destin
   expect(fs.readdirSync(join(brain,".brain")).filter(name=>name.startsWith(".maintenance-"))).toEqual([]);
  }finally{clearInterval(timer);await output?.cleanup();await view.cleanup();pretend.mockRestore();fs.rmSync(store,{recursive:true,force:true});}
 });
+
+
+for (const rel of ["context", ".git", "notes", "group", "group/private"]) test(`native host publication ${rel === "notes" ? "permits ordinary directory deletion" : rel.startsWith("group") ? `retains provider folder ${rel}` : `preserves protected ancestor ${rel}`}`,async()=>{
+ const store=fs.mkdtempSync("/tmp/odysseus-publication-parent-"),brain=join(store,"brain"),sourceUuid="11111111111141118111111111111790",uuid="22222222222242228222222222221790";
+ fs.mkdirSync(join(brain,rel),{recursive:true});fs.writeFileSync(join(brain,".athena.md"),"Athena original");
+ const statfs=fs.statfsSync,pretend=spyOn(fs,"statfsSync").mockImplementation(((path:any,options:any)=>{const value=statfs(path,options);return {...value,type:typeof value.type==="bigint"?0x9123683en:0x9123683e};}) as typeof fs.statfsSync);
+ const checkpoints=new Map<string,string>();
+ const start=fs.readFileSync(`/proc/${process.pid}/stat`,"utf8").replace(/^.*\) /s,"").split(" ")[19]!;
+ const manager={
+  async checkpoint(id:string){const path=join(store,".brain-native/checkpoints",id);fs.cpSync(brain,path,{recursive:true});checkpoints.set(id,path);return {id,path,sourceUuid,uuid,fsid:"11111111-1111-4111-8111-111111111790",rootId:"257",transaction:"8",readOnly:true as const};},
+  async release(id:string){fs.rmSync(checkpoints.get(id)!,{recursive:true,force:true});return{id,state:"deleted" as const};},
+  async prepareStage(id:string,checkpointId:string,allowanceBytes:number){const path=join(store,".brain-native/stages",id);fs.mkdirSync(path,{recursive:true});fs.cpSync(checkpoints.get(checkpointId)!,join(path,"merged"),{recursive:true});const info=fs.statSync(path,{bigint:true});return{id,path,checkpointId,checkpointUuid:uuid,sourceUuid,allowanceBytes,namespacePid:process.pid,namespaceStart:start,appUid:process.getuid!(),appGid:process.getgid!(),rootDevice:String(info.dev),rootInode:String(info.ino)};},
+  async inspectStage(){return{checkpointId:[...checkpoints.keys()][0]!,checkpointUuid:uuid,changes:(async function*(){yield {pathHex:Buffer.from(".athena.md").toString("hex"),kind:"entry"} as NativeStageChange;yield {pathHex:Buffer.from(rel).toString("hex"),kind:"whiteout"} as NativeStageChange;})(),completed:Promise.resolve({exitCode:0 as const,bytes:0})};},
+  async releaseStage(id:string){fs.rmSync(join(store,".brain-native/stages",id),{recursive:true,force:true});return{id,state:"deleted" as const};},
+ };
+ const view=await prepareNativeWorkerStartupView(brain,manager);let output:Awaited<ReturnType<typeof prepareNativeWorkerOutput>>|undefined;
+ try {
+  output=await prepareNativeWorkerOutput(brain,{startupView:view,folderPaths:["group/private"]});
+  fs.rmdirSync(join(output.output.source,rel));fs.writeFileSync(join(output.output.source,".athena.md"),"Athena updated");
+  if (rel === "notes") {
+   await output.publish();
+   expect(fs.existsSync(join(brain,rel)),"ORDINARY_EMPTY_DIRECTORY_DELETION_STILL_PUBLISHES").toBe(false);
+   expect(fs.readFileSync(join(brain,".athena.md"),"utf8")).toBe("Athena updated");
+  } else {
+   await expect(output.publish(),rel.startsWith("group") ? "HOST_PUBLICATION_CANNOT_REMOVE_RETAINED_PROVIDER_FOLDER" : "HOST_PUBLICATION_CANNOT_REMOVE_PROTECTED_ANCESTOR").rejects.toThrow(rel.startsWith("group") ? "retained provider folder topology" : "protected input");
+   expect(fs.statSync(join(brain,rel)).isDirectory(),"PROTECTED_ANCESTOR_REMAINS_IN_LIVE_BRAIN").toBe(true);
+   expect(fs.readFileSync(join(brain,".athena.md"),"utf8"),"PROTECTED_ANCESTOR_REFUSAL_PRECEDES_ALL_PUBLICATION").toBe("Athena original");
+  }
+ } finally {await output?.cleanup();await view.cleanup();pretend.mockRestore();fs.rmSync(store,{recursive:true,force:true});}
+});

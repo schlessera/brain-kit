@@ -5,7 +5,7 @@ import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan"
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
 
-export function localChecks(plan: CheckPlan, full = false): Command[] {
+export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): Command[] {
   const bun = process.execPath;
   const checks: Command[] = [
     { name: "all lint and leakage gates", argv: [bun, "run", "lint"] },
@@ -14,11 +14,15 @@ export function localChecks(plan: CheckPlan, full = false): Command[] {
   ];
   if (!full) {
     if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
+    if (mergeBase) checks.push({
+      name: "import-graph affected tests (feedback only; misses spawned and file-read inputs; no matches skips)",
+      argv: [bun, "run", "test", `--changed=${mergeBase}`, "--pass-with-no-tests"],
+    });
     return checks;
   }
   if (plan.typecheck) checks.push({ name: "strict typecheck", argv: [bun, "run", "typecheck"],
     env: { NODE_OPTIONS: "--max-old-space-size=4096" } });
-  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test"],
+  if (plan.local.fullTests) checks.push({ name: "complete unit and integration suite", argv: [bun, "run", "test", ...(plan.unitTests ?? []).map(path => `./${path}`)],
     env: { BRAIN_REQUIRE_CHROME: "1" } });
   else if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
   if (plan.local.browser || plan.local.layout || plan.local.endurance) checks.push({ name: "workspace build for real browser checks", argv: [bun, "run", "build"] });
@@ -35,8 +39,9 @@ export function localChecks(plan: CheckPlan, full = false): Command[] {
         `ip link set lo up && bun scripts/${script}.ts --out tmp/${script}.json`] });
     checks.push({ name: "native delegation, capabilities and measurement isolation",
       argv: ["unshare", "--user", "--map-current-user", "--keep-caps", "--net", "sh", "-c",
-        "ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all --bounding-set=-all sh -c 'bun scripts/measure-claude-delegation.ts --out tmp/delegation-probe.json && bun scripts/measure-claude-capability.ts > tmp/capability-probe.json && bun scripts/measure-claude-haiku.ts > tmp/haiku-probe.json && bun run test ./tests/measurement-isolation.test.ts'"] });
+        "ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all --bounding-set=-all sh -c 'bun scripts/measure-claude-delegation.ts --out tmp/delegation-probe.json && bun scripts/measure-claude-capability.ts > tmp/capability-probe.json && bun scripts/measure-claude-haiku.ts > tmp/haiku-probe.json && bun run test ./tests/measurement-isolation.test.ts ./experiments/turn-surface-runtime-placement.test.ts'"] });
     checks.push({ name: "native managed hosted admission", argv: [bun, "scripts/prove-native-host.ts"] });
+    checks.push({ name: "native separate-UID worker identity", argv: [bun, "scripts/prove-worker-identity.ts"] });
     checks.push({ name: "shared-process Chrome then child cleanup", argv: [bun, "run", "test", "--shard=1/1",
       "packages/ui-react/tests/chat-focus-runtime.test.ts", "packages/ui-react/tests/external-speech-runtime.test.ts"],
       env: { BRAIN_REQUIRE_CHROME: "1" } });
@@ -78,8 +83,14 @@ if (import.meta.main) {
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
-    const plan = planChecks(changed, workspaces(root));
-    const commands = localChecks(plan, full);
+    const plan = planChecks(changed, workspaces(root), root);
+    let mergeBase: string | undefined;
+    if (!full) {
+      const merge = Bun.spawnSync(["git", "merge-base", base, "HEAD"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+      if (merge.exitCode !== 0) throw new Error(`Cannot determine import-graph feedback merge base: ${new TextDecoder().decode(merge.stderr)}`);
+      mergeBase = new TextDecoder().decode(merge.stdout).trim();
+    }
+    const commands = localChecks(plan, full, mergeBase);
     console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);
     const chrome = full ? requireRuntimeTools(plan) : undefined;

@@ -1,5 +1,4 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { rtkRewriteCommand } from "@schlessera/brain-ui-sdk/server";
 import { bashCommand } from "@schlessera/brain-ui-sdk/internal";
 
 /**
@@ -86,8 +85,8 @@ export function createAgentHook(options: RewriteHookOptions = {}): HookCallback 
 }
 
 export function createRtkHook(
-  childEnv: NodeJS.ProcessEnv,
-  options: RewriteHookOptions = {}
+  _childEnv: NodeJS.ProcessEnv,
+  options: RewriteHookOptions & { rewriteCommand?: (command: string) => Promise<string> } = {}
 ): HookCallback {
   // rtk (token-optimizing CLI proxy) rewrite. Runs AFTER the mutating-tools
   // hook, so confirm patterns and lock classification see the command as the
@@ -100,7 +99,8 @@ export function createRtkHook(
     }
     const command = bashCommand(hookInput.tool_input);
     if (!command || options.leaveAlone?.(hookInput.tool_input)) return { continue: true };
-    const rewritten = await rtkRewriteCommand(command, childEnv);
+    // No live execution-view evidence means no opportunistic rewrite.
+    const rewritten = await options.rewriteCommand?.(command) ?? command;
     if (rewritten === command) return { continue: true };
     if (!mayGrant) options.onGrantWithheld?.("Bash");
     return {

@@ -1,3 +1,4 @@
+import { createContentRendererStore } from "./content-renderer-state.js";
 import { createUIStore } from "./ui-state.js";
 import { createConnectionStore } from "./connection-state.js";
 import { createProviderStore } from "./provider-state.js";
@@ -23,6 +24,7 @@ export function createBrainStores(env: StoreEnvironment) {
   // Every composer's draft (D52 §5): New chat gives the new-chat view a fresh one.
   const drafts = createDraftStore();
   return {
+    contentRenderers: createContentRendererStore(env),
     provider,
     drafts,
     chat: createChatStore(env, provider, drafts),

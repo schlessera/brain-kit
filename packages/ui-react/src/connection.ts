@@ -1,3 +1,5 @@
+import { createConversationClient } from "./voice/conversation-client.js";
+import { takeComposerTextAsAnswer } from "./lib/ask-user-typed.js";
 import { BrainUiClient, type WebSocketClose } from "@schlessera/brain-ui-sdk/client";
 import type { ServerMessage, ClientMessage, ServerLocationRequest, InboxView } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "./root.js";
@@ -61,6 +63,17 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   /** Every session's own composer draft, kept on the host when it can (D52 §5, #951). */
   let drafts = createDraftClient(root, { send: (message) => sendClientMessage(message) });
+  const conversation = createConversationClient(root, sendClientMessage, (sessionId, text) =>
+    takeComposerTextAsAnswer(root.stores.chat.getState(), sessionId, text, (answer) => {
+      void answers.submit(answer).then((result) => {
+        if (result === "refused") {
+          const drafts = root.stores.drafts.getState();
+          const id = drafts.idFor(sessionId);
+          const previous = drafts.drafts[id]?.text ?? "";
+          drafts.edit(id, sessionId, { text: [previous, text].filter(Boolean).join("\n\n") });
+        }
+      });
+    }));
 
   /**
    * Does this frame announce the identity of the conversation THIS client just
@@ -314,6 +327,9 @@ export function createWebSocketClient(root: BrainUiServices) {
 
   function handleServerMessage(msg: ServerMessage) {
     if (disposed || root.authLock.state.getState().phase !== "active") return;
+    const routed = conversation.frame(msg);
+    if (!routed) return;
+    msg = routed;
     const { sessionId, turnId } = msg as { sessionId?: string; turnId?: string };
     // A history read failing does not cancel a turn or disprove drawn content.
     if (msg.type === "error" && msg.code === "SESSION_LOAD_ERROR" && sessionId
@@ -954,6 +970,8 @@ export function createWebSocketClient(root: BrainUiServices) {
   }
 
   const client = {
+    /** @internal Concrete live voice controller; the ordinary chat path stays independent. */
+    conversation,
     connect,
     send: sendClientMessage,
     retryTurn,
@@ -975,6 +993,7 @@ export function createWebSocketClient(root: BrainUiServices) {
       endedTurns.clear();
       if (disposed) return;
       disposed = true;
+      conversation.dispose();
       for (const timer of retryTimers.values()) clearTimeout(timer);
       retryTimers.clear();
       disconnect();

@@ -45,6 +45,12 @@ async function mount(width = 1280, theme: "dark" | "light" = "dark") {
   await userEvent.fill(field, "Ask Penelope about the shroud.");
   return { socket, field, frame(receipt: ScopeCapReceipt, actor?: "interactive" | "voice") { socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([receipt], actor) }); } };
 }
+async function openTurnFacts() {
+  const facts = page.getByRole("button", { name: "Turn facts", exact: true });
+  await expect.element(facts).toHaveAttribute("aria-expanded", "false");
+  await facts.click();
+  await expect.element(facts).toHaveAttribute("aria-expanded", "true");
+}
 const option = (name: string) => [...host.querySelectorAll<HTMLElement>('[role="radio"]')].find(el => el.querySelector("b")?.textContent === name)!;
 for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const) test(`scope card numbers, finite Continue, input and native receipt focus: ${width} ${theme}`, async () => {
   const f = await mount(width, theme); const announcements: string[] = [];
@@ -67,7 +73,7 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const)
   expect(host.textContent).toContain("continued · limit 1,000 tool calls for this turn"); expect(f.field.value, "SCOPE_UNSENT_COMPOSER_INPUT_RETAINED").toBe("Ask Penelope about the shroud.");
   expect(announcements.filter(text => text.startsWith("Turn paused")), "SCOPE_STATUS_ANNOUNCED_ONCE").toHaveLength(1); observer.disconnect();
   const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!;
-  expect(disclosure.getAttribute("aria-expanded")).toBe("false"); disclosure.click(); await expect.poll(() => host.textContent).toContain("Observed versions in brain, scratch and workspaces");
+  expect(disclosure.getAttribute("aria-expanded")).toBe("false"); disclosure.click(); await openTurnFacts(); await expect.poll(() => host.textContent).toContain("Observed versions in brain, scratch and workspaces");
   expect(host.textContent).toContain("Independent hard timeout: 10 min");
 });
 test("scope disconnected, manual readback/failure, answered elsewhere and session changes preserve authority and focus", async () => {
@@ -94,7 +100,7 @@ test("true voice exposes no grant card; ended-before-answer and incomplete cover
   f.frame(cap({ state: "ended_before_answer", newCap: undefined, reason: "Host restarted; the turn was interrupted." })); expect(host.textContent).toContain("turn ended before an answer"); expect(host.textContent).toContain("Host restarted");
   const unknown = summary([]); unknown.scope!.changedPaths = null; unknown.scope!.observedBytes = null; unknown.scope!.coverage = "partial";
   f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: unknown });
-  const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!; disclosure.click(); await expect.poll(() => host.textContent).toContain("Incomplete observation; missing counts are unknown");
+  const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!; disclosure.click(); await openTurnFacts(); await expect.poll(() => host.textContent).toContain("Incomplete observation; missing counts are unknown");
   expect(f.socket.decisions()).toEqual([]);
 });
 
@@ -122,7 +128,7 @@ test("budget warning and scope pause share one Disclosure without granting a bud
   const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!;
   expect(disclosure.textContent).toContain("Budget warning");
   expect(host.querySelectorAll('[data-turn-journal] [aria-expanded]'), "COMBINED_LIMITS_ONE_DISCLOSURE").toHaveLength(1);
-  disclosure.click(); await expect.poll(() => host.textContent).toContain("Completed-response list-price usage: $100.0000");
+  disclosure.click(); await openTurnFacts(); await expect.poll(() => host.textContent).toContain("Completed-response list-price usage: $100.0000");
   expect(host.textContent).toContain("Scope limits"); expect(host.textContent).toContain("Ceilings: 500 calls");
   expect(host.textContent).toContain("stop $200");
   option("Continue").focus(); await userEvent.keyboard(" "); const sent = f.socket.decisions()[0];

@@ -199,7 +199,9 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
     }
   }
 
-  function deltaFrame(change: ActivityChange): ServerActivityDelta {
+  type StreamChange = ActivityChange | ReturnType<ActivityStore["lifecycleChangesSince"]>[number];
+  function deltaFrame(change: StreamChange): ServerActivityDelta {
+    if (change.kind === "lifecycle") return {type:"activity_delta",runId:change.runId,seq:change.seq,lifecycle:change.lifecycle};
     return change.kind === "span"
       ? { type: "activity_delta", runId: change.runId, seq: change.seq, span: toWireSpan(change.span) }
       : {
@@ -224,7 +226,7 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
         return;
       }
       for (;;) {
-        const changes = store.changesSince(cursor, 200);
+        const changes = [...store.changesSince(cursor, 200), ...store.lifecycleChangesSince(cursor, 200)].sort((a,b)=>a.changeId-b.changeId).slice(0,200);
         if (changes.length === 0) break;
         for (const change of changes) {
           cursor = change.changeId;
@@ -232,7 +234,9 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
           if (span) noteSpan(span);
           const frame = deltaFrame(change);
           for (const entry of subscriptions.values()) {
-            if (entry.subscriptions.some((s) => matches(s, change.runId, span))) {
+            if (entry.subscriptions.some((s) => change.kind === "lifecycle"
+              ? s.view === "index" || (s.view === "run" ? s.runId === change.lifecycle.turnId || s.runId === change.lifecycle.lifecycleId : s.sessionId === change.lifecycle.sessionId)
+              : matches(s, change.runId, span))) {
               sendTo(entry.ws, frame);
             }
           }
@@ -284,7 +288,12 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
     }
     for (const span of spans) noteSpan(span);
 
+    const lifecycles = sub.view === "run" && sub.runId
+      ? [store.lifecycle(sub.runId)].filter((x): x is NonNullable<typeof x> => x !== null)
+      : store.lifecycles(sub.view === "session" ? sub.sessionId : undefined);
+    for (const lifecycle of lifecycles) highWater[lifecycle.lifecycleId] = store.runHighWaterSeq(lifecycle.lifecycleId);
     const base: Omit<ServerActivitySnapshot, "spans" | "events"> = {
+      lifecycles,
       type: "activity_snapshot",
       view: sub.view,
       ...(sub.sessionId ? { sessionId: sub.sessionId } : {}),

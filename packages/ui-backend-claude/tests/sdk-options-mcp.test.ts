@@ -102,7 +102,7 @@ describe("the SDK options a turn is built with", () => {
       const names = (await client.listTools()).tools.map(tool => tool.name);
       expect(names.includes("propose_policy_change")).toBe(mode !== "autonomous");
       expect(turn.options.allowedTools).not.toContain("mcp__brain-ui__propose_policy_change");
-      expect(JSON.stringify(turn.options.systemPrompt).includes("propose_policy_change")).toBe(mode === "interactive");
+      expect(JSON.stringify(turn.options.systemPrompt).includes("propose_policy_change")).toBe(mode !== "autonomous");
       await client.close();
     } finally { await finish?.(); rmSync(brain, { recursive: true, force: true }); }
   });
@@ -123,25 +123,27 @@ describe("the SDK options a turn is built with", () => {
       expect(tools.length).toBeGreaterThan(0);
       expect(tools.map((tool) => tool.name)).toContain("ask_user_form");
       expect(options.allowedTools).not.toContain("mcp__brain-ui__ask_user_form");
-      expect(JSON.stringify(options.systemPrompt)).not.toContain("ask_user_form");
+      expect(JSON.stringify(options.systemPrompt)).toContain("ask_user_form");
       await client.close();
     } finally { rmSync(brain, { recursive: true, force: true }); }
   });
 
 });
 
-test("an interactive turn's appended prompt carries the runtime-state note for the backend's resolved allowance (#1625)", () => {
+test("an interactive turn's new tail carries the runtime-state note for the backend's resolved allowance (#1625)", async () => {
   const brain = mkdtempSync(join(tmpdir(), "sdk-options-state-note-"));
   try {
-    const { options, finishWorker } = createClaudeSdkTurn({
+    const { options, finishWorker, prompt } = createClaudeSdkTurn({
       backend: { brainPath: brain, workerState: { allowanceBytes: 32 * 1024 * 1024, budgetBytes: 96 * 1024 * 1024 } } as never,
       req: { prompt: "hello", turnBudgetMs: 180_000, bridge: {}, client: undefined } as never,
       profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never,
       abortController: new AbortController(), allowedTools: [], confirmPatterns: [],
       turnLock: { acquire: () => undefined, release: () => undefined } as never, log: () => undefined,
     });
-    void finishWorker();
-    expect((options.systemPrompt as { append?: string }).append).toContain("- **Runtime state: 32 MiB.**");
+    const text = typeof prompt === "string" ? prompt : JSON.stringify(await Array.fromAsync(prompt));
+    expect(text).toContain("- **Runtime state: 32 MiB.**");
+    expect(JSON.stringify(options.systemPrompt)).not.toContain("- **Runtime state:");
+    await finishWorker();
   } finally { rmSync(brain, { recursive: true, force: true }); }
 });
 
@@ -157,8 +159,10 @@ test("an interactive turn states its turn-temp allowance next to the turn_temp t
     });
     void turn.finishWorker();
     const append = (turn.options.systemPrompt as { append?: string }).append!;
-    expect(append).toContain("- **Turn temp: 128 MiB.**");
-    expect(append).toContain("`mcp__brain-ui__turn_temp` shows what uses it");
+    const tail = typeof turn.prompt === "string" ? turn.prompt : JSON.stringify(await Array.fromAsync(turn.prompt));
+    expect(tail).toContain("- **Turn temp: 128 MiB.**");
+    expect(tail).toContain("`mcp__brain-ui__turn_temp` shows what uses it");
+    expect(append).not.toContain("- **Turn temp:");
     // The prompt brief comes from the contract, with the name the model sees.
     expect(append).toContain("call `mcp__brain-ui__turn_temp` to see what");
     expect(turn.options.allowedTools).toContain("mcp__brain-ui__turn_temp");

@@ -53,14 +53,14 @@ describe("canvas palettes", () => {
     expect(ratio("diagram-cluster-border")).toBe(3.34);
   });
 
-  test("the dark marks clear 3:1 against the dark canvas, with the three recessive exceptions named", () => {
+  test("the dark marks clear 3:1 against the dark canvas, with the two recessive exceptions named", () => {
     const ground = dark("color-canvas");
     expect(T["color-canvas"]).toBe("#0c0e12");
-    // These three were tuned to recede, not to be read: the ramp's far end is
-    // the last hop fading out, `other` is the long tail past the legend, and
-    // the cluster border is the card edge. Named here so a fourth cannot join
-    // them unnoticed; changing them is a design question, not a derivation.
-    const recessive = ["canvas-ramp-5", "canvas-other", "diagram-cluster-border"];
+    // These two were tuned to recede: the ramp's far end is the last hop
+    // fading out, and `other` is the long tail past the legend.
+    // Diagram group borders now carry information under the adopted design.
+    // Named here so a third cannot join without a design ruling.
+    const recessive = ["canvas-ramp-5", "canvas-other"];
     const failing = MARKS.filter((name) => contrast(dark(name), ground) < 3);
     expect(failing).toEqual(recessive);
   });

@@ -19,6 +19,7 @@ export function AskUserFormExchangeCard(p: {
   form: AskUserFormSpec;
   answers?: AskUserFormAnswers;
   cancelled?: boolean;
+  lapsedNote?: string;
   answeredAt?: number;
   onSubmit?: (
     requestId: string,
@@ -52,7 +53,7 @@ export function AskUserFormExchangeCard(p: {
       <AskUserFormCard
         {...base}
         state="dismissed"
-        lapsedNote={DISMISSED_NOTE}
+        lapsedNote={p.lapsedNote ?? DISMISSED_NOTE}
         onAskAgain={p.onReask ? () => setReopened(true) : undefined}
       />
     );

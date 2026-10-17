@@ -1,5 +1,9 @@
 /** Data-only environment descriptors, safe for the SDK's browser-facing root. */
 export const ENV_VARS = [{
+  name: "BRAIN_UI_WORKER_IDENTITY_HELPER",
+  description: "Optional absolute root-owned executable implementing the version-1 authenticated worker identity broker protocol. It is invoked before the worker's filesystem filter and bubblewrap, never as a shell prefix. Requires a non-root server, distinct nonzero worker UID, shared group and qualified narrow host helpers. A configured helper that fails qualification refuses execution without same-UID fallback. Omit to retain the explicitly disclosed shared-UID mask boundary.",
+  required: false,
+}, {
   name: "BRAIN_UI_MAINTENANCE_TEMP_BYTES",
   description: "Per-maintenance-command temporary-write allowance in bytes, covering its private /tmp, scratch and XDG directories. Positive page-aligned integer. Separate from agent turn temp, runtime state and output staging; overflow is ENOSPC.",
   default: "268435456",
@@ -18,6 +22,10 @@ export const ENV_VARS = [{
   description: "Resource limits for each agent worker, as comma-separated name=value pairs over the defaults: processes, data, file_size and open_files (rlimits), memory, pids and cpu (the per-worker cgroup, when the host delegates one), and cgroup=on|off. Sizes take KiB, MiB, GiB or TiB; `unlimited` turns one limit off. A malformed entry refuses agent turns and names the entry. See docs/hosting/agent-workers.md#resource-limits.",
   default: "processes=4096, data and memory=half the server's memory (physical, or a lower cgroup cap above it), file_size=16GiB, open_files=65536, pids=4096, cpu=all CPUs but one, cgroup=on",
   required: false,
+}, {
+  name: "BRAIN_ROOT",
+  description: "Internal maintenance output root supplied in the launcher-cleared environment. It identifies the existing attested writable output target, never an operator input or additional host path authority.",
+  required: "trusted maintenance worker only",
 }, {
   name: "BRAIN_MAINTENANCE_GIT",
   description: "Internal path to the server-built immutable Git adapter configuration, supplied by a maintenance launch; not an operator input.",

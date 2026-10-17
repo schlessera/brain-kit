@@ -19,6 +19,7 @@ export interface PublishableManifest {
   private?: boolean;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   bin?: Record<string, string>;
@@ -89,6 +90,32 @@ export function listPublishablePackages(root: string = REPO_ROOT): PublishablePa
     placed.add(next.name);
   }
   return ordered;
+}
+
+/** Forward build inputs include dev and peer edges, without changing publish order. */
+export function selectBuildPackages(root: string, directories?: readonly string[]): PublishablePackage[] {
+  const ordered = listPublishablePackages(root);
+  if (directories === undefined) return ordered;
+  const byDirectory = new Map(ordered.map(pkg => [pkg.dir, pkg]));
+  const byName = new Map(ordered.map(pkg => [pkg.name, pkg]));
+  const selected = new Set<string>();
+  function visit(pkg: PublishablePackage): void {
+    if (selected.has(pkg.name)) return;
+    selected.add(pkg.name);
+    const manifest = pkg.manifest;
+    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDependencies,
+      ...manifest.peerDependencies, ...manifest.optionalDependencies })) {
+      const dependency = byName.get(name);
+      if (dependency) visit(dependency);
+    }
+  }
+  if (directories.length === 0) throw new Error("--for requires at least one package directory");
+  for (const directory of directories) {
+    const pkg = byDirectory.get(directory);
+    if (!pkg) throw new Error(`Unknown build package directory: ${directory || "(empty)"}`);
+    visit(pkg);
+  }
+  return ordered.filter(pkg => selected.has(pkg.name));
 }
 
 if (import.meta.main) {

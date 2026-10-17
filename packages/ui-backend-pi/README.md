@@ -57,6 +57,48 @@ runtime compatibility checks. Endpoint routing does not enable autonomous
 dispatch or replace its containment gate. The binding policy and verification
 boundaries are in the [endpoint-routing decision](../../docs/decisions/pi-endpoint-routing.md).
 
+## Host-held native authentication qualification
+
+The offline native-auth qualification tests exercise the installed public
+`ModelRuntime.getAuth` and `createAgentSession` APIs. They check current stored
+keys, one locked OAuth refresh for concurrent callers, cancellation without
+credential writeback, and sanitized relay failures. Native Codex SSE and
+WebSocket fixtures preserve account, model, usage and fresh/resident/disk-resume
+history. Through the existing HTTP relay, a WebSocket upgrade receives HTTP 405
+and native transport falls back successfully to SSE. Usage and calculated cost
+come from synthetic responses, not a billed provider observation.
+
+These are native SDK compatibility controls, not an ordinary credential-free
+Pi worker integration. The relay fixture retains fictional native OAuth tokens
+for native request construction and checks that host headers replace worker
+credentials. A plain placeholder cannot construct a Codex request because its
+native adapter extracts an account claim first. Native authentication can also
+supply a per-request endpoint, as the Copilot fixture demonstrates. Request
+shape metadata must retain native truth; model or account labels grant no
+recipient authority.
+
+The maintenance fixture runs native command-bearing keys and headers in a real
+restricted worker with read-only host HOME. Refresh writes to private scratch;
+existing compare-and-swap writeback occurs while the host credential exclusion
+is still held. Its startup view is an explicit copied test fixture, not managed
+Btrfs admission proof. It does not solve exclusive credential-command admission
+during a shared inference turn. There is no supported upstream command-executor
+callback to replace with a host shell.
+
+Ordinary host-held Pi routing remains incomplete under
+[#1665](https://github.com/schlessera/brain-kit/issues/1665). Custom-origin
+OAuth forwarding follows the approved
+[per-credential origin rule](../../docs/decisions/pi-endpoint-routing.md#stored-oauth-recipient-authorization):
+a non-first-party recipient requires explicit host-owned authorization for that
+credential's exact canonical origin. Native `models.json`, including an alias
+into writable project content, selects a route and grants no bearer recipient
+authority. Validate the actual native destination on each dispatch; refuse an
+unapproved recipient without endpoint substitution or credential transfer on
+redirect. The existing custom-origin negative control captures an HTTP 400
+fixture request; it grants no permission and makes no live account claim.
+These tests add no runtime option or default activation, and do not establish
+that the required ordinary host-side recipient check is implemented.
+
 ## GPT-6 profiles
 
 The pinned catalog supports `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and
@@ -225,6 +267,8 @@ the tool arguments in place before execution. `bash` commands are additionally r
 [rtk](https://github.com/rtk-ai/rtk) when the binary is on PATH — a
 token-optimizing proxy rewrite (`git status` → `rtk git status`) applied AFTER
 the gate, so confirm patterns always see the command as the model wrote it.
+Bash results contain combined command output without echoing the command. Empty
+output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marker.
 
 | Tool | Risk | Gate | Containment |
 |---|---|---|---|
@@ -330,6 +374,19 @@ normalizer threads each result back onto its assistant tool call. `bashExecution
 `custom`, and compaction/branch-summary entries are flattened out (the `parts`
 field is additive). Session cost/turn aggregates are left to the host's `sessions`
 metadata table.
+
+Promoted answer links and authoritative server receipts live in host-owned
+`session-replay/` metadata below `sessionDir`, outside the provider transcript.
+Replay applies each display mapping to its native message and exact original
+text. Receipts overlay the matching call on the active branch; a direct server
+application with no runtime call gets a display-only row at its original turn.
+A direct effect committed before any native message retains a session-root
+position and remains visible even when no runtime transcript file exists.
+Neither path manufactures a model message in the session file. After a worker
+exits, the host may append the missing result for an actual runtime-written
+call whose committed server application has no runtime result; existing results
+are never replaced. The installed Pi adapter otherwise repairs such orphaned
+calls with its own error result.
 
 ## Testing
 

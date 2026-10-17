@@ -49,7 +49,7 @@ places.
 Before this ruling a module could contribute taxonomy, skills, one CLI word,
 hygiene checks, index rules, excludes and cron, but no tools
 (`export interface ModuleContribution`,
-`packages/core/src/lib/module-types.ts:128-154`).
+`packages/core/src/lib/module-types.ts:136-164`).
 
 ## Alternatives rejected
 
@@ -168,7 +168,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
   produces `mcp__brain__jobs_review`, so 64 leaves headroom under 128.
 - **Collisions are impossible by construction and still checked.** Module
   names are unique at load (`if (seenNames.has(manifest.name))`,
-  `packages/core/src/lib/module-loader.ts:106-109`), local names are keys of
+  `packages/core/src/lib/module-loader.ts:108-111`), local names are keys of
   one record, and `brain` is reserved. Registration nevertheless checks
   every composed name against the names already registered, core's first,
   then modules in config order. On a duplicate it fails with
@@ -181,7 +181,7 @@ export function defineModuleTool<C, I, O>(tool: ModuleTool<C, I, O>): ModuleTool
 
 | When | What | On failure |
 | --- | --- | --- |
-| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:26-82`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:488-490`). |
+| Load (every command) | The `tools` record: local-name regex, and the module-name rules of §2 when `tools` is non-empty; values are functions | A load error, the same as any invalid contribution (`const contributionSchema`, `packages/core/src/lib/module-loader.ts:27-84`). The CLI reports an invalid config. `brain mcp` starts in its existing degraded mode with no modules loaded (`const configWarning = configError`, `packages/core/src/mcp-server.ts:488-490`). |
 | `brain mcp` start | Each import resolves. The definition parses: description, zod 4 object schemas, the annotation rules of §1. Canonical names do not collide. | **That module's tools, all of them, are not registered.** Nothing else changes. Core tools and other modules' tools are served. The failure goes to stderr and into the `warnings` of the core tools that return them, the channel the config warning already uses (`toolWarnings: (...warnings)`, `packages/core/src/mcp-server.ts:516-520`). A module never contributes half its tools. |
 | `brain module lint <name>` | Everything `brain mcp` checks, plus §9 | A lint error, so the module's author sees it before a user does |
 
@@ -315,7 +315,7 @@ A module that stops shipping a documented tool is making a breaking change.
 ### 9. Lint and documentation checks
 
 `brain module lint <name>` gains these checks
-(`function moduleLint`, `packages/core/src/cli/commands/module.ts:104-154`):
+(`function moduleLint`, `packages/core/src/cli/commands/module.ts:107-158`):
 
 - `tool-load`: every declared tool imports, and its definition passes §1
   and §3.

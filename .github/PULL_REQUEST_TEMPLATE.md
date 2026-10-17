@@ -47,6 +47,7 @@ bun run check:pr --base origin/main
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.
 - [ ] The integration contract index or relevant component is updated in this same commit, or nothing in the machine surface moved.
 - [ ] Docs under `docs/` reflect the change, or nothing documented moved.
+- [ ] Provider history stays append-only (`docs/decisions/provider-history.md`): the provider-history guard passes, or nothing on a turn's path changed.
 
 ## Anything left open
 

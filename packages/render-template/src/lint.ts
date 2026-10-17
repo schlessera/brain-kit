@@ -15,7 +15,8 @@ export interface DocumentWarning {
     | "remote-image"
     | "empty-link"
     | "script"
-    | "network-resource";
+    | "network-resource"
+    | "static-renderer";
   message: string;
 }
 

@@ -46,9 +46,9 @@ describe("createPiBackend (no LLM)", () => {
       // "medium", and its presence marks the profile as effort-capable —
       // omitted when the catalog can't confirm the model reasons.
       expect(backend.listProfiles()).toEqual([
-        { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic", thinkingLevel: "medium", supportedThinkingLevels: ["off", "minimal", "low", "medium", "high"] },
-        { id: "gpt", label: "GPT", vendor: "openai", thinkingLevel: "medium", supportedThinkingLevels: ["minimal", "low", "medium", "high"] },
-        { id: "typo", label: "Typo", vendor: "openai" },
+        { id: "sonnet", label: "Claude Sonnet", vendor: "anthropic", model: "claude-sonnet-4-5", thinkingLevel: "medium", supportedThinkingLevels: ["off", "minimal", "low", "medium", "high"] },
+        { id: "gpt", label: "GPT", vendor: "openai", model: "gpt-5", thinkingLevel: "medium", supportedThinkingLevels: ["minimal", "low", "medium", "high"] },
+        { id: "typo", label: "Typo", vendor: "openai", model: "not-a-model" },
       ]);
     } finally {
       brain.cleanup();
@@ -77,7 +77,7 @@ describe("createPiBackend (no LLM)", () => {
     try {
       const backend = createPiBackend({ brainPath: brain.root, model: "anthropic/claude-sonnet-4-5" });
       expect(backend.listProfiles()).toEqual([
-        { id: "default", label: "anthropic/claude-sonnet-4-5", vendor: "anthropic", thinkingLevel: "medium", supportedThinkingLevels: ["off", "minimal", "low", "medium", "high"] },
+        { id: "default", label: "anthropic/claude-sonnet-4-5", vendor: "anthropic", model: "claude-sonnet-4-5", thinkingLevel: "medium", supportedThinkingLevels: ["off", "minimal", "low", "medium", "high"] },
       ]);
     } finally {
       brain.cleanup();

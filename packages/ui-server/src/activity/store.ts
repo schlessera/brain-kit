@@ -1,3 +1,5 @@
+import type { ActivityTurnLifecycle } from "@schlessera/brain-ui-sdk/protocol";
+import { lifecycleTiming } from "./turn-lifecycle.js";
 import { settleInboxBudgetRun } from "../inbox/budget.js";
 /**
  * The activity store: the canonical record of agent activity (migration 007).
@@ -287,6 +289,11 @@ export interface PruneOptions {
 export const MAX_EVENT_PAYLOAD_BYTES = 16_384;
 
 export interface ActivityStore {
+  writeLifecycle(record: ActivityTurnLifecycle): void;
+  lifecycleChangesSince(cursor: number, limit?: number): Array<{ changeId: number; runId: string; seq: number; kind: "lifecycle"; lifecycle: ActivityTurnLifecycle }>;
+  lifecycle(turnId: string): ActivityTurnLifecycle | null;
+  lifecycles(sessionId?: string, limit?: number): ActivityTurnLifecycle[];
+
   readonly writer: string;
   startSpan(input: StartSpanInput): SpanRow;
   /**
@@ -300,6 +307,8 @@ export interface ActivityStore {
   patchSpan(
     spanId: string,
     patch: {
+      /** Bind an unnamed active span once; a different established identity is refused. */
+      sessionId?: string;
       principalId?: string;
       attrs?: Record<string, unknown>;
       usage?: SpanUsage;
@@ -344,6 +353,8 @@ export interface ActivityStore {
   /** The run's high-water seq — what a full snapshot carries, without the reads. */
   runHighWaterSeq(runId: string): number;
   getSpan(spanId: string): SpanRow | null;
+  /** Immediately preceding retained conversation root, not an older convenient baseline. */
+  previousSessionRoot?(spanId: string, sessionId: string): SpanRow | null;
   openRootSpans(): SpanRow[];
   /**
    * The run's rollup row, or null. Rollups are written at the terminal and
@@ -466,7 +477,7 @@ export function createActivityStore(
   function endSpanInTx(spanId: string, input: EndSpanInput): boolean {
     const existing = db
       .query(ACTIVITY_SQL.spanStateById)
-      .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null } | null;
+      .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null; session_id: string | null } | null;
     if (!existing || existing.outcome !== null) return false;
 
     const endedAt = input.endedAt ?? Date.now();
@@ -515,7 +526,7 @@ export function createActivityStore(
     // SDK's modelUsage) already includes subagent consumption — summing the
     // tree would double-count every fan-out. Verified empirically (plan U3
     // smoke test).
-    const failure =
+    const failure = root.outcome === "success" ? null :
       spans.find(
         (s) => (s.outcome === "error" || s.outcome === "timeout") && s.outcomeReason != null
       )?.outcomeReason ?? (root.outcome === "interrupted" ? "interrupted" : null);
@@ -608,8 +619,49 @@ export function createActivityStore(
     if (root.endedAt !== null) settleInboxBudgetRun(db, runId, "settled", Date.now(), getPricing());
   }
 
+  const lifecycle = (id: string): ActivityTurnLifecycle | null => {
+    const row = db.query("SELECT record FROM activity_turn_lifecycles WHERE turn_id = ?").get(id) as { record: string } | null;
+    return row ? lifecycleTiming(JSON.parse(row.record)) : null;
+  };
   return {
     writer,
+    previousSessionRoot(spanId, sessionId) {
+      const row = db.query(`SELECT * FROM activity_spans WHERE parent_span_id IS NULL AND COALESCE(session_id, json_extract(attrs, '$."session.id"')) = ?
+        AND origin = 'session' AND name = 'invoke_agent' AND rowid < (SELECT rowid FROM activity_spans WHERE span_id = ?)
+        ORDER BY rowid DESC LIMIT 1`).get(sessionId, spanId);
+      if (!row) return null;
+      const prior = rowToSpan(row);
+      // A pruned newer turn is a gap, never permission to compare an older
+      // convenient prefix. Equal timestamps conservatively remain unknown.
+      const gap = db.query(`SELECT 1 FROM activity_run_rollups WHERE session_id = ? AND name = 'invoke_agent'
+        AND detail_pruned = 1 AND started_at >= ? AND started_at <=
+          (SELECT started_at FROM activity_spans WHERE span_id = ?) LIMIT 1`).get(sessionId, prior.startedAt, spanId);
+      return gap ? null : prior;
+    },
+    lifecycle,
+    lifecycles(sessionId, limit = 100) {
+      const rows = sessionId === undefined
+        ? db.query("SELECT record FROM activity_turn_lifecycles ORDER BY accepted_at DESC LIMIT ?").all(limit)
+        : db.query("SELECT record FROM activity_turn_lifecycles WHERE session_id = ? ORDER BY accepted_at DESC LIMIT ?").all(sessionId, limit);
+      return (rows as { record: string }[]).map(row => lifecycleTiming(JSON.parse(row.record)));
+    },
+    lifecycleChangesSince(cursor, limit = 500) {
+      const rows = db.query(`SELECT c.change_id,c.run_id,c.seq,l.record FROM activity_changes c
+        JOIN activity_turn_lifecycles l ON l.turn_id = substr(c.run_id, 11) AND c.span_id = c.run_id
+        WHERE c.change_id > ? ORDER BY c.change_id LIMIT ?`).all(cursor, limit) as any[];
+      return rows.map(r => ({changeId:r.change_id,runId:r.run_id,seq:r.seq,kind:"lifecycle" as const,lifecycle:lifecycleTiming(JSON.parse(r.record))}));
+    },
+    writeLifecycle(record) {
+      inWrite(() => {
+        const previous = lifecycle(record.turnId);
+        if (previous?.endedAt !== null && previous !== null) return;
+        const value = lifecycleTiming(record);
+        db.query(`INSERT INTO activity_turn_lifecycles VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(turn_id) DO UPDATE SET session_id=excluded.session_id, ended_at=excluded.ended_at, record=excluded.record`)
+          .run(value.turnId, value.sessionId, value.acceptedAt, value.endedAt, JSON.stringify(value));
+        logChange(value.lifecycleId, nextSeq(value.lifecycleId), value.lifecycleId);
+      });
+    },
 
     startSpan(input) {
       return inWrite(() => {
@@ -642,13 +694,16 @@ export function createActivityStore(
       return inWrite(() => {
         const existing = db
           .query(ACTIVITY_SQL.spanStateById)
-          .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null } | null;
+          .get(spanId) as { run_id: string; outcome: string | null; attrs: string | null; session_id: string | null } | null;
         if (!existing || existing.outcome !== null) return false;
+        if (patch.sessionId !== undefined && (typeof patch.sessionId !== "string" || !patch.sessionId
+          || (existing.session_id !== null && existing.session_id !== patch.sessionId))) return false;
         const attrs = patch.attrs
           ? JSON.stringify({ ...(safeParse(existing.attrs) ?? {}), ...patch.attrs })
           : existing.attrs;
         const u = patch.usage ?? {};
         db.query(ACTIVITY_SQL.patchSpan).run(
+          patch.sessionId ?? null,
           patch.principalId ?? null,
           attrs,
           patch.waitUntil ?? null,
@@ -725,7 +780,14 @@ export function createActivityStore(
       const open = db
         .query(ACTIVITY_SQL.openSessionRuns)
         .all() as Array<{ run_id: string }>;
-      if (open.length === 0) return 0;
+      // Same single-server recovery ownership as session spans, including
+      // admission-only records with no backend root to discover.
+      const envelopes = db.query("SELECT record FROM activity_turn_lifecycles WHERE ended_at IS NULL").all() as { record: string }[];
+      for (const row of envelopes) {
+        const record: ActivityTurnLifecycle = JSON.parse(row.record);
+        this.writeLifecycle({ ...record, endedAt: Date.now(), outcome: "interrupted", reason: "server restarted" });
+      }
+      if (open.length === 0) return envelopes.length;
       getPricing(); // construct outside the write lock; rollup reuses it
       return inWrite(() => {
         let closed = 0;

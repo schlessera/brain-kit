@@ -175,7 +175,7 @@ if (!process.env[CHILD_MARKER]) {
     cleanup();
     for (const root of roots.splice(0)) root.dispose();
   });
-  afterAll(async () => { await GlobalRegistrator.unregister(); });
+  afterAll(async () => { await React.act(async () => {}); await GlobalRegistrator.unregister(); });
 
   describe("the chat", () => {
     test("a cleared scratch link keeps its words, is inert and is named expired", async () => {

@@ -38,9 +38,8 @@ export const connectionFrameHandlers = {
   inbox_delta: (msg, context) => {
     context.stores.inbox.getState().applyDelta(msg);
   },
-  // Live conversation (#957) is negotiated: a host sends these only to a
-  // connection that started a conversation or declared toolResolution, and
-  // this client does neither yet (capture/playback is #960).
+  // Root-owned conversation routing consumes permission outcomes before demux;
+  // ordinary chat progress keeps its existing handlers.
   tool_resolution: () => {},
   // Pending follow-ups (#1002) are consumed by the connection before demux.
   session_queue: () => {},

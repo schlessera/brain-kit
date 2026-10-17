@@ -132,6 +132,7 @@ stack, and the `brain` CLI/MCP surface. These are the product.
 packages/common              @schlessera/brain-common — internal: env descriptor core, cache-free frontmatter parser
 packages/geo                 @schlessera/brain-geo — shared geo services, track measurements and static maps
 packages/core                @schlessera/brain — CLI, MCP server, search, index, config, skills
+packages/module-diagrams     @schlessera/brain-module-diagrams — diagram scaffold and upstream review tooling
 packages/module-video        @schlessera/brain-module-video — Gemini video watching, opt-in
 packages/module-images       @schlessera/brain-module-images — image generation/editing, routed
                              between OpenAI and Gemini models by capability

@@ -6,7 +6,7 @@ import { prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepare
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { createGovernancePolicyReader, type TurnGovernancePolicy } from "./governance-policy.js";
+import { createGovernancePolicyReader, providerFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
 
 export interface GovernedTurnHold {
   readonly sandbox: WorkerSandbox;
@@ -61,10 +61,12 @@ export function createGovernedTurns(options: {
         signal.throwIfAborted();
         const availability = await options.execution.boundary.prepare(signal, startupView);
         const policy = policyReader.load();
+        const folderPaths = hold.retainFolders?.(providerFolderRoots(policy.policy))
+          ?? [...new Set([...(hold.folderPaths ?? []), ...providerFolderRoots(policy.policy)])];
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
         const resolveSandbox = () => prepareWorkerSandbox(options.brainPath, { profile: selected,
-          protectedPaths: protectedPaths(policy.policy),
+          protectedPaths: protectedPaths(policy.policy), folderPaths,
           maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
         let resolved = resolveSandbox();
         const missingWritableRoot = () => resolved.areas.find(area => area.mount.writable
@@ -79,6 +81,10 @@ export function createGovernedTurns(options: {
           const missing = missingWritableRoot();
           if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
         }
+        if (workerProfile(resolved) === "governed" && folderPaths.length) {
+          if (!hold.assertPeerFolderPlans) throw new Error("Provider folder admission cannot check active peer plans with this writer gate; retry using the qualified gate");
+          hold.assertPeerFolderPlans(folderPaths);
+        }
         const commandPolicy = Object.freeze({ hash: policy.hash,
           outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),
           deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
@@ -89,7 +95,7 @@ export function createGovernedTurns(options: {
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
-        for (const warning of policy.warnings) options.report(`Governance policy skipped invalid pattern: ${warning}`);
+        for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
         if (governed) { await startupView.cleanup(); startupView = undefined; }
         signal.throwIfAborted();
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));

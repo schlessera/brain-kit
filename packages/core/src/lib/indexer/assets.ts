@@ -14,6 +14,8 @@
  * vision call is always revisited rather than silently accepted.
  */
 import { createHash } from "crypto";
+import { unaliasedEmbeddingSource } from "../embedding-policy.js";
+import { providerAllows } from "@schlessera/brain-common/internal/governance-policy";
 import { readFileSync, statSync } from "fs";
 import { resolve } from "path";
 
@@ -238,7 +240,7 @@ async function describeAssets(
   const finishBatch = makeFinisher(run, st, embedQueue);
   const lookup = assetDescriptionLookup(loadAssetCache(run.root));
   const cacheHits: Array<[AssetTask, string]> = [];
-  const needsDescription = tasks.filter((task) => {
+  let needsDescription = tasks.filter((task) => {
     const cached = lookup(task.hash, task.asset.title);
     if (cached === undefined) return true;
     cacheHits.push([task, cached]);
@@ -259,6 +261,10 @@ async function describeAssets(
     return;
   }
 
+  // Asset descriptions use a distinct completion provider; embedding identity
+  // alone never authorizes that route. Keep keyword placeholders/cache reads.
+  needsDescription = needsDescription.filter(task => !run.embeddingRouting
+    || (unaliasedEmbeddingSource(run.root, task.asset.path) && providerAllows(run.embeddingRouting.rules, task.asset.path, task.asset.type, undefined)));
   const byHash = new Map<string, AssetTask[]>();
   for (const task of needsDescription) {
     const same = byHash.get(task.hash);

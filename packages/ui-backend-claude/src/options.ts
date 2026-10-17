@@ -72,12 +72,12 @@ export interface ClaudeBackendOptions {
    */
   log?: BackendLogFn;
   /**
-   * Text appended to the Claude Code system prompt, describing the chat
-   * surface the answer renders on. Defaults to `buildSystemPromptAppend(...)`,
-   * rebuilt per turn from the client's reported device; setting this pins one
-   * STATIC string instead. Repo-specific instructions belong in the brain
-   * repo's own CLAUDE.md, which the SDK already loads; this is only for facts
-   * about the UI. Pass an empty string to append nothing.
+   * Optional override for the chat-surface brief retained once per session.
+   * The default describes static UI/execution facts; current device, sandbox
+   * and handler facts arrive only in owned new tail context. The first value
+   * stays exact across resumed workers. Repo-specific instructions belong
+   * in CLAUDE.md, which the SDK loads. An empty string omits this brief;
+   * current host context still uses the new user message.
    */
   systemPromptAppend?: string;
   /**

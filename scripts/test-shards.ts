@@ -1,24 +1,14 @@
 /**
- * CI's file partition. Costs include imports/hooks: median elapsed file time
- * on Ubuntu 24.04 with Bun 1.3.14 in #629 (runs 36710401927/36712389676,
- * source ac5741eb). Each file was measured in three different layouts.
- * The fixed-deadline suites added in #286 use weights from their five-second
- * waits and bounded cleanup budgets.
- * Chat focus includes its package-build/browser setup, measured in #765
- * on CI run 36874037551 (head d4771bb7, test shard 3): 121.627s.
- * External speech runtime builds packages and launches Chrome the same way:
- * 62.43s on Depot run h1hfj72q5h (test shard 2), recorded in #1003. The two
- * Claude follow-up suites are from the same PR's CI run (bzvr9l77k7).
- * Answer delivery's browser suite (#910) is a local measurement until CI
- * re-measures it: 87.54s, including its 35s Liveness B blackhole case.
- * Parallel sessions' real-host proof (#953) is local too: 140.66s.
- * Completed file groups from hosted run 37914350451 (cancelled at the job
- * budget) update underestimated weights; scripts/unit-shard-observation.json
- * records the partial evidence. No unfinished file is counted as passing.
- * Run 37917910073 adds completed elapsed-file measurements from its artifacts;
- * its sole failed container-prerequisite file is excluded from those weights.
- * Only files costing >=1s are recorded; this is a weight table, not an allowlist.
- * New/renamed tests are discovered on every run and receive the small-file cost.
+ * CI's reviewed longest-file-first partition. The explicit refresh command
+ * `bun scripts/refresh-unit-costs.ts <run-id> <attempt>` admits only complete,
+ * successful hosted unit partitions with verified source and archive identity.
+ * scripts/unit-shard-measurement.json records the current table's run, attempt,
+ * actual checkout/tree/parents, job/step durations and artifact SHA256 digests.
+ * Weights are completed-file elapsed seconds, with a positive 0.1s minimum.
+ * New/renamed tests remain discoverable and receive the small-file default;
+ * refresh validation names any observed unweighted file exceeding 30 seconds.
+ * Historical partial observations remain in scripts/unit-shard-observation.json;
+ * they do not describe the current complete refresh or passing unfinished files.
  */
 import { readdirSync } from "node:fs";
 import { join } from "node:path";

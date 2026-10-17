@@ -268,6 +268,7 @@ const SPECIFIED: Record<string, string> = {
   "diagram-line": "#5f584c",
   "diagram-cluster-border": "#847c6f",
   "diagram-text": "#231f1a",
+  "diagram-focal-tint": "#fbf1e0",
 };
 
 /* ── Derivation ─────────────────────────────────────────────────────────── */

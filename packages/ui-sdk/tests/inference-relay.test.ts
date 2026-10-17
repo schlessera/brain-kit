@@ -39,6 +39,61 @@ function send(socketPath: string, method: string, path: string, headers: Record<
 }
 
 describe("inference relay", () => {
+  test("resolves current host credentials for every dispatch without forwarding worker identity or stale credentials", async () => {
+    let token = "odysseus-first-login";
+    let calls = 0;
+    const r = startInferenceRelay({ upstream: `http://127.0.0.1:${upstream.port}`, routes: ANTHROPIC_INFERENCE_ROUTES,
+      credentials: async signal => { expect(signal.aborted).toBe(false); calls++; return { authorization: `Bearer ${token}` }; } });
+    relays.push(r);
+    expect((await send(r.socketPath, "POST", "/v1/files", {}, "{}")).status).toBe(403);
+    expect(calls).toBe(0);
+    expect((await send(r.socketPath, "POST", "/v1/messages", { authorization: "Bearer worker", "x-api-key": "worker" }, "{}")).status).toBe(200);
+    token = "odysseus-changed-login";
+    expect((await send(r.socketPath, "POST", "/v1/messages", { authorization: "Bearer worker", "x-api-key": "worker" }, "{}")).status).toBe(200);
+    expect(calls).toBe(2);
+    expect(seen.map(item => item.headers.authorization)).toEqual(["Bearer odysseus-first-login", "Bearer odysseus-changed-login"]);
+    expect(seen.every(item => item.headers["x-api-key"] === undefined)).toBe(true);
+  });
+
+  test("credential resolution failures and invalid headers never reach upstream or disclose host secrets", async () => {
+    const events: InferenceRelayEvent[] = [];
+    let invalid = false;
+    const r = startInferenceRelay({ upstream: `http://127.0.0.1:${upstream.port}`, routes: ANTHROPIC_INFERENCE_ROUTES,
+      credentials: async () => {
+        if (invalid) return { authorization: `Bearer ${KEY}\r\nx-evil: ${KEY}` };
+        throw new Error(`Host path /odysseus/private/${KEY}`);
+      }, observe: event => events.push(event) });
+    relays.push(r);
+    for (const badHeader of [false, true]) {
+      invalid = badHeader;
+      const response = await send(r.socketPath, "POST", "/v1/messages", {}, "{}");
+      expect(response.status).toBe(503);
+      expect(response.body).not.toContain(KEY);
+      expect(response.body).toContain("Inference credentials unavailable");
+    }
+    expect(seen).toEqual([]);
+    expect(JSON.stringify(events)).not.toContain(KEY);
+  });
+
+  test("client cancellation aborts the actual pending credential resolver before any upstream request", async () => {
+    let entered!: () => void, cancelled!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const aborted = new Promise<void>(resolve => { cancelled = resolve; });
+    const r = startInferenceRelay({ upstream: `http://127.0.0.1:${upstream.port}`, routes: ANTHROPIC_INFERENCE_ROUTES,
+      credentials: signal => new Promise((_resolve, reject) => {
+        entered();
+        signal.addEventListener("abort", () => { cancelled(); reject(new Error(KEY)); }, { once: true });
+      }) });
+    relays.push(r);
+    const req = request({ socketPath: r.socketPath, method: "POST", path: "/v1/messages" });
+    req.on("error", () => {});
+    req.end("{}");
+    await started;
+    req.destroy();
+    await aborted;
+    expect(seen).toEqual([]);
+  });
+
   test("forwards an inference POST with the server's credential and none of the worker's", async () => {
     const events: InferenceRelayEvent[] = [];
     const r = relay(event => events.push(event));

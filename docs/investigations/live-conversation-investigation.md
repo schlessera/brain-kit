@@ -230,7 +230,7 @@ requestId)`; actual tool requests additionally use their existing `toolUseId`.
 Only committed original input supplies `StartTurnRequest.prompt`. The host
 selects the pinned existing backend/profile, cancellation signal and
 `BackendBridge`, and enforces the voice posture on new voice turns
-(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:470-571`).
+(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:496-593`).
 Do not feed approximate fragments or native task descriptions directly into
 execution. Keep raw outputs/private memory in the host and return only reviewed
 bounded facts needed by the voice service.
@@ -239,7 +239,7 @@ Backend reuse is structurally feasible for **both** adapters. `startTurn` is
 already asynchronous and accepts a host AbortSignal. A busy same-session turn
 is queued; new committed details use `followUp` only when the backend advertises
 it, otherwise remain queued/reviewable
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:640-670`).
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:672-702`).
 Continued voice interaction never requires unsafe concurrent `startTurn`s.
 This is source evidence and design mapping, not a real provider/backend trial.
 
@@ -288,13 +288,13 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1786-1791`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1818-1823`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.
 
 Voice question binding retains the existing one-question rule
-(`questionForTypedAnswer`, `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`).
+(`questionForTypedAnswer`, `packages/ui-react/src/lib/ask-user-typed.ts:33-35`).
 Multi-question, list, rank, form and permission-card interactions keep their
 visual boundaries. Under `noGrantSurface`, tools requiring those surfaces
 remain withheld. Starting voice on an ordinary turn does not erase its cards.

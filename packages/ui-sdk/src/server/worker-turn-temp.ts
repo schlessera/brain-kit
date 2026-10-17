@@ -20,9 +20,10 @@
  * while it is copied. The destination is opened the same way below
  * `.brain/scratch/turns/<turnId>/`.
  */
+import { hasIdentityReadRoot, prepareRecoveredWorkerFile, recoveredWorkerFile } from "./worker-identity-reader.js";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync,
   rmdirSync, statfsSync, unlinkSync, writeSync } from "node:fs";
-import { posix } from "node:path";
+import { join, posix } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BackendActivityEvent, TurnTempPromotionRefusal } from "./backend.js";
 import { at, BRAIN_SCRATCH_DIR, openDirectory, type WorkerNoteLimit } from "./worker-sandbox.js";
@@ -133,6 +134,7 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
   const done = new Map<string, Extract<TurnTempPromotionRecord, { kind: "promotion" }> | null>();
   const used = new Set<string>();
   let total = 0, promoted = 0;
+  const recoveryRefusals = new Map<string, Refused>();
 
   /** The host directory and segments a worker path is stored under, or null when it is not turn temp. */
   function locate(path: string): { base: string; segments: string[] } | null {
@@ -217,10 +219,20 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
   function promote(path: string, base: string, segments: string[]): { destination: string; bytes: number } {
     if (!options.scratchWritable) throw new Refused("scratch_unavailable");
     if (promoted >= filesMax) throw new Refused("turn_too_large");
-    const source = openSource(base, segments);
+    const recoveryRefusal = recoveryRefusals.get(path);
+    if (recoveryRefusal) throw recoveryRefusal;
+    let source: number | undefined, recovered: Buffer | undefined;
+    try { source = openSource(base, segments); }
+    catch (error) {
+      if (!hasIdentityReadRoot(base.endsWith("/.") ? base.slice(0, -2) : base)) throw error;
+      // Only the broker's registered retained mount can authorize this fallback.
+      // The fixed reader repeats alias/type/device/bound checks as the worker UID.
+      recovered = recoveredWorkerFile(join(base, ...segments), Math.min(fileMax, turnMax - total));
+      if (recovered === undefined) throw error;
+    }
     let dir: number | undefined, out: { fd: number; name: string } | undefined, copied = 0, complete = false;
     try {
-      const size = fstatSync(source).size;
+      const size = recovered?.length ?? fstatSync(source!).size;
       if (size > fileMax) throw new Refused("file_too_large", size, fileMax);
       if (total + size > turnMax) throw new Refused("turn_too_large", size, turnMax);
       options.beforeCopy?.(path);
@@ -229,7 +241,10 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
       const buffer = Buffer.allocUnsafe(COPY_CHUNK);
       for (;;) {
         let read: number;
-        try { read = readSync(source, buffer, 0, buffer.length, null); } catch { throw new Refused("io_error", copied); }
+        try {
+          if (recovered) { read = Math.min(buffer.length, recovered.length - copied); recovered.copy(buffer, 0, copied, copied + read); }
+          else read = readSync(source!, buffer, 0, buffer.length, null);
+        } catch { throw new Refused("io_error", copied); }
         if (read === 0) break;
         copied += read;
         if (copied > fileMax) throw new Refused("file_too_large", copied, fileMax);
@@ -242,7 +257,7 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
       total += copied; promoted++;
       return { destination: `${PROMOTED_SCRATCH_DIR}/${turnId}/${out.name}`, bytes: copied };
     } finally {
-      closeSync(source);
+      if (source !== undefined) closeSync(source);
       if (out) {
         closeSync(out.fd);
         if (!complete) try { unlinkSync(at(dir!, out.name)); } catch { /* The refusal stands either way. */ }
@@ -286,6 +301,29 @@ export function createTurnTempPromoter(options: TurnTempPromoterOptions) {
 
   return {
     records,
+    async prepareRecovery(text: string, signal?: AbortSignal): Promise<void> {
+      if (!hasIdentityReadRoot(options.tmp)) return;
+      const paths = new Map<string, { base: string; segments: string[] }>();
+      rewriteLinkDestinations(text, original => {
+        if (original.length <= LINK_MAX_CHARS) {
+          const target = linkTarget(original, options.scratch), located = target && locate(target.path);
+          if (target && located) paths.set(target.path, located);
+        }
+        return original;
+      });
+      let retained = 0, prepared = 0;
+      for (const [path, { base, segments }] of paths) {
+        signal?.throwIfAborted();
+        if (prepared >= filesMax) { recoveryRefusals.set(path, new Refused("turn_too_large")); continue; }
+        try { retained += await prepareRecoveredWorkerFile(join(base, ...segments), Math.min(fileMax, turnMax - retained), signal) ?? 0; prepared++; }
+        catch {
+          signal?.throwIfAborted();
+          // rewrite() records the ordinary named refusal. Failed recovery
+          // must not suppress other unrelated linked-file results.
+          recoveryRefusals.set(path, new Refused("io_error"));
+        }
+      }
+    },
     rewrite(text: string): string {
       return rewriteLinkDestinations(text, link);
     },

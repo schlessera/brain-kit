@@ -101,6 +101,40 @@ an optional command. Adding a long temporal scenario requires explaining its
 wall-clock purpose and retaining final confirmation; all unknown cases are
 conservatively final until deliberately classified.
 
+## Selecting browser categories
+
+Browser, layout and endurance start from the installed Vitest file discovery and
+the Vitest/Vite/Storybook configuration, including imported command modules.
+Captures start from `scripts/capture.ts`, `scripts/captures/` and the capture
+catalogue. Repository static imports use TypeScript's installed module resolver,
+including workspace exports and the Bun condition. Literal dynamic imports are
+traversed; computed loads and recognized process/file inputs require exact-call
+indirect declarations with real transitive targets. Asset imports remain inputs.
+Unsupported CSS/build input syntax conservatively keeps the broad category.
+
+The declaration files beside each harness are `packages/ui-kit/tests/proof-inputs.json`
+and `scripts/captures/proof-inputs.json`. Declare every actual fixed input of a
+spawned/generated entrypoint, not only its launcher. A directory target includes
+new descendants. Validation refuses absent targets, changed call sites, duplicate
+or unused ownership, and empty target lists. A declaration is not an exception
+for arbitrary user-selected paths; unresolved inputs retain the previous broad
+selection. The category still executes every discovered project/file when selected.
+
+For read-only replay, supply the shared 100-PR snapshot with immutable squash SHAs
+and complete `git diff --no-renames SHA^ SHA` paths:
+
+```sh
+bun scripts/replay-browser-selection.ts snapshot.json report.json
+```
+
+The tool verifies every diff and emits per-PR before/after selection, the list of
+omitted browser plans, complete category closures and unresolved-edge diagnostics.
+It compares current selection rules over historical changes, not historical source
+execution or elapsed performance. Closure graph hashes describe paths and diagnostics,
+not source bytes or passing-proof fingerprints. Keep the actual source identity
+with its report; proof retention requires its separate immutable input validation.
+Schedule/manual proof is exhaustive; push proof remains complete affected proof.
+
 ## Recording assertion mapping
 
 #1853 separates short limit correctness from native duration endurance. Apart

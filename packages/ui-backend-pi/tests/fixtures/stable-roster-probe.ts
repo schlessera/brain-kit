@@ -43,9 +43,9 @@ const backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, "s
 let sessionId: string | undefined;
 try {
   for (const mode of ["no-grant", "typed", "missing"]) {
-    active = { mode, tools: undefined, frames: [], calls: [], cards: 0 }; captures.push(active); next = 0;
+    active = { mode, tools: undefined, frames: [], activity: [], calls: [], cards: 0 }; captures.push(active); next = 0;
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30_000);
-    const bridge: any = { emit(frame: ServerMessage) { active.frames.push(frame); }, async requestPermission() { active.cards++; return { behavior: "allow" }; } };
+    const bridge: any = { activity(event: unknown) { active.activity.push(event); }, emit(frame: ServerMessage) { active.frames.push(frame); }, async requestPermission() { active.cards++; return { behavior: "allow" }; } };
     if (mode !== "missing") for (const name of ["askUserList", "askUserRank", "askUserForm", "requestMask", "proposePolicyChange", "inboxList", "inboxAdd", "resolveAction", "completeShare"])
       bridge[name] = async () => { active.calls.push(name); throw new Error("PRIVILEGED_HANDLER_EXECUTED"); };
     if (mode === "typed") bridge.askUserList = async () => { active.calls.push("askUserList"); return { answers: { raft: "Keep" }, skipped: [] }; };

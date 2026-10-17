@@ -1,0 +1,28 @@
+import { afterEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { sha256 } from "../scripts/captures/hash";
+import { readFontLock, verifyFontCache } from "../scripts/captures/fonts";
+import { prepareFontCache } from "../scripts/captures/prepare-fonts";
+const roots:string[]=[];
+afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
+test("actual prepared font readers preserve locked bytes and reject a corrupted owned cache offline",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"font-cache-binding-"));roots.push(root);const cache=join(root,"cache");
+  const original=JSON.parse(readFileSync(resolve(import.meta.dir,"../scripts/captures/font-lock.json"),"utf8"));
+  const font=Buffer.from("owned test font bytes"),license=Buffer.from("owned original notice bytes");
+  const asset={...original.assets[0],file:"fonts/0.ttf",sha256:sha256(font),bytes:font.length};
+  const notice={...original.licenses[0],file:"licenses/example.txt",sha256:sha256(license),bytes:license.length};
+  const css=`@font-face { src: url(${asset.url}); }`;
+  const lock={...original,assets:[asset],licenses:[notice],stylesheet:{file:"scripts/captures/fonts.css",sha256:sha256(css)}};
+  const write=(file:string,bytes:string|Uint8Array)=>{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);};
+  write(join(root,"scripts/captures/font-lock.json"),JSON.stringify(lock));write(join(root,"scripts/captures/fonts.css"),css);
+  write(join(root,"packages/ui-kit/.storybook/preview-head.html"),`<link href="${lock.preview_stylesheet_url}">`);
+  write(join(cache,asset.file),font);write(join(cache,notice.file),license);
+  const read=await readFontLock(root);expect(read.hash).toBe(sha256(JSON.stringify(lock)));
+  expect((await verifyFontCache(root,cache)).files.get(asset.url)).toEqual(font);
+  await prepareFontCache(root,cache);expect(readFileSync(join(cache,asset.file))).toEqual(font);
+  write(join(cache,asset.file),"wrong");
+  await expect(verifyFontCache(root,cache)).rejects.toThrow("Pinned font input checksum mismatch");
+  await expect(prepareFontCache(root,cache)).rejects.toThrow("Pinned font input checksum mismatch");
+});

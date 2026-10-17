@@ -428,8 +428,9 @@ export const TOKENS = {
   "diagram-node": "#1e2128",
   "diagram-cluster": "#0c0e12",
   "diagram-line": "#9a96a1",
-  "diagram-cluster-border": "#2a2d35",
+  "diagram-cluster-border": "#6b6873",
   "diagram-text": "#e8e4df",
+  "diagram-focal-tint": "#3d352c",
 } as const;
 
 export type TokenName = keyof typeof TOKENS;
@@ -803,6 +804,7 @@ export const LIGHT_TOKENS: Record<TokenName, string> = {
   "diagram-line": "#5f584c",
   "diagram-cluster-border": "#847c6f",
   "diagram-text": "#231f1a",
+  "diagram-focal-tint": "#fbf1e0",
 };
 // @light-tokens:end
 
@@ -1171,10 +1173,11 @@ export const PRINT_TOKENS: Record<TokenName, string> = {
   "canvas-lens-stale": "#8a6a10",
   "diagram-bg": "#ffffff",
   "diagram-node": "#ffffff",
-  "diagram-cluster": "#ece7dc",
+  "diagram-cluster": "#ffffff",
   "diagram-line": "#5f584c",
   "diagram-cluster-border": "#847c6f",
   "diagram-text": "#231f1a",
+  "diagram-focal-tint": "#ffffff",
 };
 // @print-tokens:end
 

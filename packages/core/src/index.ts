@@ -32,6 +32,7 @@ export type {
   ToolContext,
   ModuleCronEntry,
   LoadedModule,
+  ModuleRenderer,
   HygieneContext,
   CommandModule,
   CommandContext,

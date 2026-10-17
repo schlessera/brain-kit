@@ -63,6 +63,11 @@ inspecting CI on a PR live in the `work-issue` skill's
   `Object.defineProperty`, and delete only when the original was absent.
   Saving values or unconditionally deleting `navigator` leaks state between
   suites (#1158). Keep ordered native/absent/readonly restoration controls.
+- Persistence fault fixtures retain their storage failure through the original
+  failure and persisted-state assertions. Track and drain the actual native
+  transactions, then restore complete storage method descriptors in cleanup.
+  A queued autosave can legitimately clear a failure after successful recovery;
+  include a real queued writer to prove its position in the fault window (#2355).
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
@@ -247,7 +252,15 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
-  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
+  through the offline wrapper as import-graph affected feedback. Bun includes
+  committed, staged, unstaged and untracked changes; no affected test files
+  prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
+  remain `./packages ./tests`, and the optional changed value uses `=`. This
+  feedback misses spawned commands and inputs read from disk or named as
+  strings; complete hosted discovery remains the required proof. Full/all
+  modes retain their existing suites without this extra step.
+  Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
 - Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
@@ -281,8 +294,15 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
   receipt a new combined-tree pass. Under #1333, complete browser/layout
-  domains may retain validated equivalent successful automatic receipts. Read
-  the current retention ledger and aggregate; original run/job/checkout
+  domains may retain validated equivalent successful automatic receipts.
+  Inclusion fingerprints recompute each immutable tree's complete supported
+  import/declaration closure and tracked path/blob/mode, build/discovery/partition
+  and runner identities. Unknown generated/runtime inputs execute fresh; a
+  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  Before naming a source run as passing proof, verify its workflow name/path,
+  event, head, conclusion and complete job inventory. Repository synchronization
+  jobs do not provide CI proof. Read the current retention ledger and aggregate;
+  original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
   parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
   agents still require passing candidate proof and must re-read head/base before
@@ -313,7 +333,44 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+Hosted unit partitions run up to two serial Bun test processes through
+`scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
+install, build output and workspace lease. The wrapper preserves the caller's
+umask, drops setup capabilities and binds a private maintenance ledger without
+changing within-worker child limits or hiding the host's `/tmp` from Docker.
+Its checkout container lives outside host `/tmp`, which native workers replace
+with private storage. Namespace setup is a real prerequisite, never a skipped
+runtime. JUnit and timings must each match the complete discovered file set;
+combined reports and per-worker diagnostics are uploaded. Local `bun run test`
+and `check:pr` defaults keep their existing behavior. Use the internal unit
+proof `--workers=1` diagnostic for a serial measurement, preserving the actual
+source identity; performance qualification and remaining evidence live in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121).
+
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
 [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
+
+
+Shared browser proof discovery follows literal relative CSS imports and local
+asset URLs. Plain relative `@source` directories own their recursively scanned
+bytes and directory membership; scanned TypeScript is not executed or imported.
+The common build consumes both stylesheet entries. Their exact package-import
+ownership is recorded in `scripts/css-proof-inputs.json`: the installed
+Tailwind stylesheet is backed by the dependency manifests and lockfile, with
+`source(none)` disabling implicit scanning, and the kit token export names its
+source. An edited or duplicate statement invalidates its declaration. Missing
+inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
+build directives remain unresolved and require fresh proof. This discovery
+support does not itself establish a complete retainable browser domain.
+
+
+Retention's bounded browser-command audit must preserve imported top-level
+execution. Its tests import a real config in a Bun child and observe a transitive
+module input even while the registered callback remains dormant. Activating a
+command through a selected spec, inherited setup or configuration must force
+fresh execution; registration alone is not invocation. Registered dormant
+callbacks require the same complete call/escape audit, and a mutation of that
+activation guard must fail the named assertion.
+The exact audited configuration/source guard makes unsupported edits fresh.

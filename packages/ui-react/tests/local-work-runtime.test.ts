@@ -1,3 +1,4 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -109,18 +110,20 @@ async function stopHost(h: Host | undefined) {
   await h.app.close();
 }
 
+const hook = runtimeHookPhases("local-work-runtime");
+
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-local-work-"));
   brain = resolve(scratch, "brain");
-  await createFixtureBrain(repo, brain);
+  await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
   assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/local-work-client.ts"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [bundleOut, bundleErr, bundleCode] = await Promise.all([new Response(bundle.stdout).text(), new Response(bundle.stderr).text(), bundle.exited]);
+  const [bundleOut, bundleErr, bundleCode] = await hook.child("client-build", bundle);
   if (bundleCode !== 0) throw new Error(`Local work client build failed (${bundleCode}): ${bundleOut}\n${bundleErr}`);
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/kit.css"><link rel="stylesheet" href="/app.css"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
@@ -128,15 +131,15 @@ beforeAll(async () => {
   }
   await writeFile(resolve(scratch, "shroud.png"), SHROUD);
   passwordHash = await Bun.password.hash(PASSWORD);
-  host = await startHost("ithaca.db");
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
+  host = await hook.phase("host-start", () => startHost("ithaca.db"));
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   await stopHost(host);
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 type Fixture = {
@@ -374,44 +377,89 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
   }, 120_000);
 
   /**
-   * While armed, holds every readwrite transaction over `records` open after
-   * its own requests have succeeded: a request keeps going on each until the
-   * test releases them all, or aborts them all. So whichever write a
-   * snapshot waits on, its own transaction is among the held. Counts the
-   * writes that succeeded meanwhile.
+   * Hold the native writes open until release, or abort them while keeping
+   * the same storage fault active through the failed-write observations.
+   * Otherwise a queued autosave can commit after the explicit abort and
+   * legitimately clear the failure before the test observes it (#2355).
    */
   async function armHold(page: Page, outcome: "release" | "abort") {
     await page.evaluate((outcome) => {
-      const w = window as unknown as { __hold: { held: number; puts: number; finish: () => void } };
-      const transaction = IDBDatabase.prototype.transaction;
-      const put = IDBObjectStore.prototype.put;
-      const held: IDBTransaction[] = [];
-      let done = false;
-      w.__hold = { held: 0, puts: 0, finish: () => {} };
-      IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
-        const tx = transaction.apply(this, args);
-        const names = ([] as string[]).concat(args[0] as string | string[]);
-        if (done || args[1] !== "readwrite" || !names.includes("records")) return tx;
-        held.push(tx);
-        w.__hold.held = held.length;
-        const store = tx.objectStore("records");
-        // Issued first, so every write the caller issues next runs, and succeeds, before the spin goes on.
-        const spin = () => { if (!done) store.get(["held", "held"]).onsuccess = spin; };
-        spin();
-        return tx;
+      const transaction = Object.getOwnPropertyDescriptor(IDBDatabase.prototype, "transaction")!;
+      const put = Object.getOwnPropertyDescriptor(IDBObjectStore.prototype, "put")!;
+      const previousHold = Object.getOwnPropertyDescriptor(window, "__hold");
+      const owned: { tx: IDBTransaction; settled: boolean; aborting: boolean; completion: Promise<void> }[] = [];
+      let phase: "holding" | "released" | "aborted" = "holding";
+      const restoreMethods = () => {
+        Object.defineProperty(IDBDatabase.prototype, "transaction", transaction);
+        Object.defineProperty(IDBObjectStore.prototype, "put", put);
       };
-      IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...a: Parameters<IDBObjectStore["put"]>) {
-        const req = put.apply(this, a);
-        if (held.includes(this.transaction)) req.addEventListener("success", () => { w.__hold.puts++; });
-        return req;
+      const abort = (entry: typeof owned[number]) => {
+        if (!entry.settled && !entry.aborting) { entry.aborting = true; entry.tx.abort(); }
       };
-      w.__hold.finish = () => {
-        done = true;
-        IDBDatabase.prototype.transaction = transaction;
-        IDBObjectStore.prototype.put = put;
-        if (outcome === "abort") for (const tx of held) tx.abort();
+      const drain = async () => {
+        // Native completion can release another already queued writer.
+        for (let count = 0; count < owned.length;) {
+          const pending = owned.slice(count); count = owned.length;
+          await Promise.all(pending.map(entry => entry.completion));
+        }
       };
+      const state = {
+        held: 0, puts: 0, afterFinishSettled: 0,
+        async finish() {
+          phase = outcome === "abort" ? "aborted" : "released";
+          if (phase === "released") restoreMethods();
+          else for (const entry of owned) abort(entry);
+          await drain();
+        },
+        async restore() {
+          // Failure paths also stop every held request and await native close.
+          phase = "aborted";
+          for (const entry of owned) abort(entry);
+          await drain();
+          restoreMethods();
+          if (previousHold) Object.defineProperty(window, "__hold", previousHold);
+          else Reflect.deleteProperty(window, "__hold");
+          const same = (a: PropertyDescriptor, b: PropertyDescriptor) =>
+            ["value", "get", "set", "writable", "configurable", "enumerable"].every(k => a[k as keyof PropertyDescriptor] === b[k as keyof PropertyDescriptor]);
+          return { owned: owned.length, settled: owned.filter(entry => entry.settled).length,
+            descriptorsRestored: same(Object.getOwnPropertyDescriptor(IDBDatabase.prototype, "transaction")!, transaction) &&
+              same(Object.getOwnPropertyDescriptor(IDBObjectStore.prototype, "put")!, put) &&
+              (previousHold ? same(Object.getOwnPropertyDescriptor(window, "__hold")!, previousHold) : !Object.hasOwn(window, "__hold")) };
+        },
+      };
+      Object.defineProperty(window, "__hold", { configurable: true, value: state });
+      Object.defineProperty(IDBDatabase.prototype, "transaction", { ...transaction,
+        value: function (this: IDBDatabase, ...args: Parameters<IDBDatabase["transaction"]>) {
+          const tx = transaction.value.apply(this, args) as IDBTransaction;
+          const names = ([] as string[]).concat(args[0] as string | string[]);
+          if (args[1] !== "readwrite" || !names.includes("records")) return tx;
+          const afterFinish = phase === "aborted";
+          let settle!: () => void;
+          const entry = { tx, settled: false, aborting: false, completion: new Promise<void>(resolve => { settle = resolve; }) };
+          const completed = () => { entry.settled = true; if (afterFinish) state.afterFinishSettled++; settle(); };
+          tx.addEventListener("complete", completed, { once: true });
+          tx.addEventListener("abort", completed, { once: true });
+          owned.push(entry); state.held = owned.length;
+          if (afterFinish) { abort(entry); return tx; }
+          const store = tx.objectStore("records");
+          // Each caller's requests succeed before the next keepalive request.
+          const spin = () => { if (phase === "holding") store.get(["held", "held"]).onsuccess = spin; };
+          spin();
+          return tx;
+        },
+      });
+      Object.defineProperty(IDBObjectStore.prototype, "put", { ...put,
+        value: function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["put"]>) {
+          const request = put.value.apply(this, args) as IDBRequest;
+          if (owned.some(entry => entry.tx === this.transaction)) request.addEventListener("success", () => { state.puts++; });
+          return request;
+        },
+      });
     }, outcome);
+    let receipt: { owned: number; settled: number; descriptorsRestored: boolean } | undefined;
+    return async () => receipt ??= await page.evaluate(() => (window as unknown as {
+      __hold: { restore(): Promise<{ owned: number; settled: number; descriptorsRestored: boolean }> };
+    }).__hold.restore());
   }
   const hold = (page: Page) => page.evaluate(() => (window as unknown as { __hold: { held: number; puts: number } }).__hold);
   async function startSnapshot(page: Page, text: string) {
@@ -437,6 +485,7 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
     });
     const a = await context.newPage();
     const b = await context.newPage();
+    let restoreHold: Awaited<ReturnType<typeof armHold>> | undefined;
     try {
       await signIn(a);
       await a.goto(origin);
@@ -454,12 +503,12 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(await fixture(b, (f) => f.accountKey()), "both tabs hold the authenticated account key").toBe(key);
       expect(await field(b).inputValue()).toBe("Penelope's first weave");
 
-      await armHold(a, "release");
+      restoreHold = await armHold(a, "release");
       await startSnapshot(a, "Penelope keeps the committed weave");
       await a.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0);
       await startSnapshot(b, "Telemachus keeps his own voyage");
       expect((await snap(b)).done).toBe(false);
-      await a.evaluate(() => (window as unknown as { __hold: { finish(): void } }).__hold.finish());
+      await a.evaluate(() => (window as unknown as { __hold: { finish(): Promise<void> } }).__hold.finish());
       for (const page of [a, b]) await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done);
       expect((await snap(a)).result).toEqual({ ok: true, value: undefined });
       expect((await snap(b)).result).toEqual({ ok: true, value: undefined });
@@ -476,13 +525,20 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       expect(await field(b).inputValue(), "the authenticated tab resumes its own branch").toBe("Telemachus keeps his own voyage");
       expect(await b.locator("[data-device-conflict]").innerText()).toContain("Both versions kept");
     } finally {
-      await context.close();
+      try {
+        if (restoreHold) {
+          const restored = await restoreHold();
+          expect(restored.descriptorsRestored).toBe(true);
+          expect(restored.settled).toBe(restored.owned);
+        }
+      } finally { await context.close(); }
     }
   }, 120_000);
 
   test("snapshotNow resolves only once its transaction has committed, and rejects when it aborts", async () => {
     const context = await browser!.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
+    let restoreHold: Awaited<ReturnType<typeof armHold>> | undefined;
     try {
       await signIn(page);
       await page.goto(origin);
@@ -490,30 +546,48 @@ describe.skipIf(!executablePath)("device-local work context (#1014)", () => {
       await committed(page);
 
       // Its own transaction, its writes done, not yet committed.
-      await armHold(page, "release");
+      restoreHold = await armHold(page, "release");
       await startSnapshot(page, "The raft, and Calypso's island behind it");
       await page.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0, undefined, { timeout: 5_000 });
       await page.waitForTimeout(500);
       expect((await hold(page)).held, "its writes are in a held transaction").toBeGreaterThan(0);
       expect((await snap(page)).done, "not resolved while its transaction is open").toBe(false);
-      await page.evaluate(() => (window as unknown as { __hold: { finish: () => void } }).__hold.finish());
+      await page.evaluate(() => (window as unknown as { __hold: { finish: () => Promise<void> } }).__hold.finish());
       await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done, undefined, { timeout: 5_000 });
       expect((await snap(page)).result).toEqual({ ok: true, value: undefined });
       const stored = await fixture(page, (f) => f.list(f.accountKey()!));
       expect(stored.ok && stored.value.some((r) => JSON.stringify(r.value).includes("Calypso")), "committed when it resolved").toBe(true);
 
       // The same, aborted after its writes succeeded: no receipt, and the failure is said.
-      await armHold(page, "abort");
+      const released = await restoreHold();
+      expect(released.descriptorsRestored).toBe(true);
+      expect(released.settled).toBe(released.owned);
+      restoreHold = await armHold(page, "abort");
       await startSnapshot(page, "Ogygia, seven years");
       await page.waitForFunction(() => (window as unknown as { __hold: { puts: number } }).__hold.puts > 0, undefined, { timeout: 5_000 });
-      await page.evaluate(() => (window as unknown as { __hold: { finish: () => void } }).__hold.finish());
+      await page.evaluate(() => (window as unknown as { __hold: { finish: () => Promise<void> } }).__hold.finish());
       await page.waitForFunction(() => (window as unknown as { __snap: { done: boolean } }).__snap.done, undefined, { timeout: 5_000 });
       expect((await snap(page)).result, "an aborted snapshot rejects").toEqual({ ok: false, error: "AbortError" });
       expect(await fixture(page, (f) => f.status()?.failed)).toBe(true);
       const after = await fixture(page, (f) => f.list(f.accountKey()!));
       expect(after.ok && after.value.some((r) => JSON.stringify(r.value).includes("Ogygia")), "nothing of it was kept").toBe(false);
+
+      // A genuine later autosave must not escape the owned native abort
+      // window and invalidate the original status/data observations.
+      const before = await page.evaluate(() => (window as unknown as { __hold: { afterFinishSettled: number } }).__hold.afterFinishSettled);
+      await page.evaluate(() => document.dispatchEvent(new Event("selectionchange")));
+      await page.waitForFunction(before => (window as unknown as { __hold: { afterFinishSettled: number } }).__hold.afterFinishSettled > before, before, { timeout: 5_000 });
+      expect(await fixture(page, f => f.status()?.failed), "ABORTED_SNAPSHOT_REJECTS_QUEUED_RECOVERY").toBe(true);
+      const afterQueued = await fixture(page, f => f.list(f.accountKey()!));
+      expect(afterQueued.ok && afterQueued.value.some(r => JSON.stringify(r.value).includes("Ogygia")), "a queued writer cannot keep the failed snapshot during its abort window").toBe(false);
     } finally {
-      await context.close();
+      try {
+        if (restoreHold) {
+          const restored = await restoreHold();
+          expect(restored.descriptorsRestored).toBe(true);
+          expect(restored.settled).toBe(restored.owned);
+        }
+      } finally { await context.close(); }
     }
   }, 120_000);
 

@@ -1,3 +1,4 @@
+import type { VoicePermissionReceipt } from "../voice/conversation-permissions.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createStore } from "zustand/vanilla";
 import { rewriteLinkDestinations } from "@schlessera/brain-ui-sdk/internal/client";
@@ -139,6 +140,8 @@ export interface MessageAttachment {
 }
 
 export interface ToolCall {
+  /** Local voice dispatch and host-confirmed permission evidence. */
+  voicePermission?: VoicePermissionReceipt;
   policyChange?: PolicyChangeReview;
   id: string;
   name: string;
@@ -196,6 +199,8 @@ export interface ToolCall {
 
 export interface AskUserExchange {
   requestId: string;
+  /** Host terminal state ended the unanswered exchange. */
+  terminal?: true;
   /**
    * The host turn that raised the request, from the request frame. A card
    * rebuilt from history has none until the host re-delivers the request.
@@ -493,6 +498,7 @@ export interface ChatState {
     /** The host turn the request belongs to, from the frame. */
     turnId?: string
   ) => void;
+  applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   /**
    * Make restored approval cards read-only, each with the host fact that
@@ -539,6 +545,7 @@ export interface ChatState {
    */
   reopenAskExchange: (key: ChatKey, requestId: string) => void;
   clearAskUser: (key: ChatKey) => void;
+  endTurnQuestions: (key: ChatKey, turnId?: string) => void;
   /**
    * Delivery state of submitted ask answers, by request id (#910). Held
    * outside the transcript buffers: an answer queued in one session must
@@ -1069,7 +1076,7 @@ export function pendingApprovals(state: Pick<ChatState, "buffers" | "draft">): A
  * closure (#1072) has made it read-only.
  */
 export function awaitsDecision(tool: ToolCall): boolean {
-  return tool.status === "pending_approval" && !tool.readOnly;
+  return tool.status === "pending_approval" && !tool.readOnly && (!tool.voicePermission || tool.voicePermission.phase === "pending");
 }
 
 /** Evict least-recently-touched non-active buffers beyond MAX_BUFFERS. */
@@ -1557,6 +1564,20 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           return { messages: msgs };
         }),
 
+      applyVoicePermission: (receipt) => {
+        const key = receipt.sessionId;
+        const chat = get().buffers[key];
+        const owns = (m: ChatMessage, t: ToolCall) => t.id === receipt.toolUseId && (t.approvalTurnId ?? m.turnId ?? m.streamTurnId) === receipt.turnId;
+        if (!chat?.messages.some(m => m.toolCalls.some(t => owns(m, t) && t.voicePermission !== receipt))) return;
+        mutateBuffer(key, current => ({ messages: current.messages.map(m => ({ ...m, toolCalls: m.toolCalls.map(t => {
+          if (!owns(m, t)) return t;
+          // Receipt state locks decisions through awaitsDecision. Preserve the
+          // transcript status so ordinary result/recovery routing can still
+          // recognize an unanswered restored card and record its closure.
+          return { ...t, voicePermission: receipt };
+        }) })) }));
+      },
+
       resolveToolApproval: (key, toolUseId, approved) =>
         mutateToolHolder(key, toolUseId, (last) => ({
           ...last,
@@ -1782,6 +1803,17 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
         }),
 
       clearAskUser: (key) => mutateBuffer(key, () => ({ askUser: null })),
+
+      endTurnQuestions: (key, turnId) => mutateBuffer(key, (chat) => {
+        const end = (exchange: AskUserExchange): AskUserExchange => {
+          if ((turnId && exchange.turnId !== turnId) || exchange.answers || exchange.order || exchange.formAnswers || exchange.cancelled) return exchange;
+          return { ...exchange, cancelled: true, terminal: true };
+        };
+        return {
+          messages: chat.messages.map((message) => message.askUserExchanges ? { ...message, askUserExchanges: message.askUserExchanges.map(end) } : message),
+          askUser: chat.askUser ? end(chat.askUser) : null,
+        };
+      }),
 
       finishAssistantMessage: (key) =>
         mutateLastAssistant(

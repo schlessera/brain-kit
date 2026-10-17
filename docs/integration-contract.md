@@ -50,6 +50,7 @@ commands retain their original availability versions.
 
 - [Package API and extensions](integration-contract/package-api.md).
 - [CLI](integration-contract/cli.md).
+- [Diagram spec v1, check, export/build, hygiene, geometry and additive positional families](integration-contract/diagrams.md).
 - [Governance policy check](integration-contract/cli.md#governance-policy-check-additive-1650)
   and [governance policy schema v1](supported-inputs.md#governance-policy) are
   additive supported inputs and output in 0.42.0 (#1650).
@@ -236,6 +237,8 @@ Original fragment identities remain available at this entry point.
 <a id="worker-host-status-additive-1632"></a>
 
 - [Worker host status (additive, #1632)](integration-contract/http.md#worker-host-status-additive-1632).
+
+- [Interactive main-model identity (additive, #2037)](integration-contract/package-api.md#interactive-main-model-identity-additive-2037).
 
 <a id="governance-events-additive-1651"></a>
 
@@ -520,3 +523,27 @@ Original fragment identities remain available at this entry point.
 <a id="human-started-hygiene-review-additive-1027"></a>
 
 - [Human-started hygiene review (additive, #1027)](integration-contract/package-api.md#human-started-hygiene-review-additive-1027) (original line 5795).
+
+## Per-turn prompt-cache diagnostics (additive, #2050)
+
+Activity run detail and runtime stats gain [cache diagnostics](integration-contract/http.md#prompt-cache-diagnostics-additive-2050).
+The backend side channel gains hash-only assembled-prefix and first-main-request
+receipts, documented in the [package API](integration-contract/package-api.md#prompt-cache-diagnostic-events-additive-2050).
+
+### Static content exports
+
+`brain render` replaces configured active module fences having a static entry with its scriptless, resource-free output, always with `theme: "print"`, including HTML. Browser-only entries remain code. Failure or unsafe static output retains the original fence and adds a fence-named string to the existing `warnings` envelope. Local markdown SVG images are embedded only after brain containment and static-resource validation.
+
+`POST /api/render` applies the same print conversion using trusted build-bundled static registrations filtered by active configured module declarations; content-repository export specifiers are metadata and never imported by the server. Browser-only entries must already have been prepared by the client. Diagnostics use the URI-encoded JSON `X-Brain-Render-Warnings` header (at most 3500 encoded characters, messages truncated to 200 characters), with `X-Brain-Render-Warnings-Truncated: true` when findings were omitted. The binary response and request schema are unchanged.
+
+- [Content renderer bootstrap declarations (additive, #2087)](integration-contract/http.md#content-renderer-bootstrap-declarations-additive-2087).
+- [Deployment renderer registration (additive, #2087)](integration-contract/package-api.md#deployment-renderer-registration-additive-2087).
+
+
+## External persisted Claude memory history (additive, #1658)
+
+External native-memory saves join the existing retained steering history and
+authenticated recovery routes with an explicit logical scope, described in
+[the HTTP contract](integration-contract/http.md#persisted-claude-auto-memory-history-additive-1658).
+The host-only copy-out callback is described in
+[the package API](integration-contract/package-api.md#native-persisted-claude-memory-observation-additive-1658).
