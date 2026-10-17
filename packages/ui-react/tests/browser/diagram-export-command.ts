@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {diagramFontCss} from "../../../module-diagrams/src/fonts.ts";
 /// <reference types="@vitest/browser-playwright" />
-import {readFileSync,writeFileSync,mkdirSync,mkdtempSync,copyFileSync} from "node:fs";
+import {readFileSync,writeFileSync,mkdirSync,mkdtempSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {resolve,join} from "node:path";
 import {zeroRequestReplay} from "../../../ui-kit/tests/visual/zero-request-replay.ts";
@@ -20,7 +20,7 @@ export const diagramArtifact:BrowserCommand<[],unknown>=async(ctx)=>{
  if(checkout!==undefined)assert.equal(receipt.checkout,checkout,"NATIVE_EXPORT_ACTUAL_CHECKOUT");
  const expected=process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS?JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS):undefined;
  if(expected){assert.equal(receipt.source,expected.source,"NATIVE_EXPORT_RECEIPT_SOURCE");assert.equal(receipt.installation,expected.installation,"NATIVE_EXPORT_RECEIPT_INSTALLATION");assert.equal(receipt.runtime.sha256,expected.runtime,"NATIVE_EXPORT_RECEIPT_RUNTIME");}
- for(const format of ["svg","png","pdf"]){const name=`release.${format}`,bytes=readFileSync(resolve(prepared,name));assert.equal(createHash("sha256").update(bytes).digest("hex"),receipt.files[name],"NATIVE_EXPORT_ARTIFACT_CHANGED");copyFileSync(resolve(prepared,name),resolve(directory,name));}
+ for(const format of ["svg","png","pdf"]){const name=`release.${format}`,bytes=readFileSync(resolve(prepared,name));assert.equal(createHash("sha256").update(bytes).digest("hex"),receipt.files[name],"NATIVE_EXPORT_ARTIFACT_CHANGED");writeFileSync(resolve(directory,name),bytes);}
  const artifacts=receipt.artifacts as {format:string;bytes:number;pixelEquivalent?:boolean}[];
  const svg=readFileSync(resolve(directory,"release.svg"),"utf8"),width=Number(/width="([0-9.]+)"/.exec(svg)![1]),height=Number(/height="([0-9.]+)"/.exec(svg)![1]);
  const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:["--disable-gpu"]});const context=await browser.newContext({viewport:{width,height},deviceScaleFactor:2});const page=await context.newPage();const replay=await zeroRequestReplay(page);

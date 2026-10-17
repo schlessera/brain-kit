@@ -45,7 +45,7 @@ const declarations = [
   "owner": "packages/module-diagrams/src/fonts.ts",
   "caller": "packages/ui-react/tests/browser/diagram-export-command.ts",
   "ownerHash": "e575dbabbaa452f22389e61770b02200e78b965018f61662573f985024801419",
-  "callerHash": "0709672bae97566093473c1a9af5b307091aa9fcbe1b022436351268a6c1cb42",
+  "callerHash": "f7c3d14ccf96438bf4e28ecc1929b1208fb99520d21a9947086bb43bca933328",
   "data": {
     "packages/module-diagrams/assets/fonts/2.ttf": "44ce4a84f20d60f24539bd0cef11f79c29e38609e0f8adf18551c9794a5d9dc3",
     "packages/module-diagrams/assets/fonts/4.ttf": "df54dbfafba61d4911eb3dab9bba2d20531fb009f01d64dd42fa96ab862584d8",

@@ -10,11 +10,11 @@ export interface NativeDiagramIdentity {source:string;installation:string;runtim
 // Candidate qualification is exact: all source/installation drift requires fresh
 // execution and requalification. The separate Docker mount boundary closes
 // active initialization/shared-library reads; byte hashes alone do not.
-const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"11d5ace45974c167eaeb8c0843f7f587132a7a890d25ae8632cda13ecf2c0aec",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
+const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"870b3fe36250c1b2e986006ded1cc525c3771f048662da6d0f0218492f72e3fe",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
-  "packages/ui-react/tests/browser/diagram-export-command.ts": "0709672bae97566093473c1a9af5b307091aa9fcbe1b022436351268a6c1cb42",
+  "packages/ui-react/tests/browser/diagram-export-command.ts": "f7c3d14ccf96438bf4e28ecc1929b1208fb99520d21a9947086bb43bca933328",
   "scripts/ci-proof.ts": "dec94a5b3af083feb1b167afc93bdea79f520facd77dfbc7ff08d5d582a3a7ca"
 };
 /** The same complete source family the trusted host preparer enumerates. */
@@ -51,7 +51,7 @@ export function nativeDiagramInputs(root:string,files:readonly string[],importer
     "readFileSync(join(repo,\"tmp/diagram-export-source.json\"),\"utf8\")",
     "readdirSync(join(repo,\"node_modules\"))",
     "readdirSync(join(repo,\"node_modules\",top))",
-    "spawnSync(\"docker\",[\"run\",\"--rm\",\"--pull=never\",\"--read-only\",\"--network=none\",\"--shm-size=256m\",\"--user\",`${process.getuid()}:${process.getgid()}`,\"--tmpfs\",\"/tmp:rw,exec,nosuid,nodev,mode=1777\",\"-v\",`${source}:${source}:ro`,\"-v\",`${modules}:${join(repo,\"node_modules\")}:ro`,\"-v\",`${runtime.executable}:/usr/local/bin/bun:ro`,\"-v\",`${output}:/proof`,\"-w\",source,\"-e\",\"HOME=/tmp/home\",runtime.image,\"/usr/local/bin/bun\",\"-e\",program],{encoding:\"utf8\",maxBuffer:4*1024*1024})",
+    "spawnSync(\"docker\",[\"run\",\"--rm\",\"--pull=never\",\"--read-only\",\"--network=none\",\"--shm-size=256m\",\"--user\",`${process.getuid()}:${process.getgid()}`,\"--tmpfs\",\"/tmp:rw,exec,nosuid,nodev,mode=1777\",\"-v\",`${source}:${source}:ro`,\"-v\",`${modules}:${join(repo,\"node_modules\")}:ro`,\"-v\",`${executable}:/usr/local/bin/bun:ro`,\"-v\",`${output}:/proof`,\"-w\",source,\"-e\",\"HOME=/tmp/home\",runtime.image,\"/usr/local/bin/bun\",\"-e\",program],{encoding:\"utf8\",maxBuffer:4*1024*1024})",
     "readFileSync(join(output,name))"
 ])],
    ["scripts/diagram-export-source.mjs",new Set([

@@ -2,7 +2,8 @@
 import {createHash} from "node:crypto";
 import {lstatSync,readFileSync,readdirSync,readlinkSync,realpathSync} from "node:fs";
 import {isAbsolute,join,relative} from "node:path";
-/** Top-level aliases select packages; nested links and special files stay unknown. */
+/** Top-level aliases select packages; internal relative file links are bounded.
+ * Escaping/directory aliases and special files stay unsupported. */
 export function diagramInstallationIdentity(repo){
  const hash=createHash("sha256");let files=0,bytes=0,packages=0,installationRoot;
  const walk=(base,path)=>{
