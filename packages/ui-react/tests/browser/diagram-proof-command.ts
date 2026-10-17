@@ -48,15 +48,12 @@ export const diagramCapture: BrowserCommand<[string, string]> = async (ctx,selec
    return frame.locator(selector).evaluate(element=>({html:element.outerHTML,width:Math.ceil(element.getBoundingClientRect().width),height:Math.ceil(element.getBoundingClientRect().height),theme:element.querySelector("svg")?.getAttribute("data-theme")??"light",styles:[...document.querySelectorAll("style[data-design-fonts],style[data-diagram-capture-consumer]")].map(style=>style.textContent).join("\n")}));
   });
   const page=await trace.step("create-page",()=>ctx.context.newPage());
-  const replay=await trace.step("replay-guard",()=>zeroRequestReplay(page));
   try {
+   const replay=await trace.step("replay-guard",()=>zeroRequestReplay(page));
    await trace.step("viewport",()=>page.setViewportSize({width:drawing.width,height:drawing.height}));
-   await trace.step("content",()=>page.setContent(`<html data-theme="${drawing.theme}"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`));
-   replay.assert("diagram content");
-   await trace.step("fonts",()=>page.evaluate(()=>document.fonts.ready));
-   replay.assert("diagram fonts");
-   await trace.step("screenshot",async()=>{await writeFile(resolve(directory,`${name}-${engine}.png`),await page.locator(selector).screenshot());});
-   replay.assert("diagram capture");
+   await trace.step("content",async()=>{await page.setContent(`<html data-theme="${drawing.theme}"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`);replay.assert("diagram content");});
+   await trace.step("fonts",async()=>{await page.evaluate(()=>document.fonts.ready);replay.assert("diagram fonts");});
+   await trace.step("screenshot",async()=>{await writeFile(resolve(directory,`${name}-${engine}.png`),await page.locator(selector).screenshot());replay.assert("diagram capture");});
   }finally{await trace.step("close",()=>page.close());}
   succeeded=true;
  }finally{trace.finish(succeeded);}
