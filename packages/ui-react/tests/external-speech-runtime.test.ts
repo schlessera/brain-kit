@@ -33,7 +33,7 @@ if (worker) {
     if (!executablePath) return;
     const repo = resolve(import.meta.dir, "../../..");
     process.stderr.write("[external-speech] building packages\n");
-    const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+    const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await runtimeHookPhases("external-speech-runtime").child("package-build", build, relay);
     if (code !== 0) throw new Error(`Speech fixture package build failed: ${out}\n${err}`);
     process.stderr.write("[external-speech] constructing local speech and application servers\n");

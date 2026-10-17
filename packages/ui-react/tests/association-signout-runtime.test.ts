@@ -78,7 +78,7 @@ async function stopHost(h: Host | undefined) {
 beforeAll(async () => {
   if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM) return;
   if (!process.env.BRAIN_AUTH_FIXTURE_BUILT) {
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
   }

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
 import { markBinsExecutable } from "./bin-modes.ts";
-import { listPublishablePackages } from "./publishable-packages.ts";
+import { selectBuildPackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 // Build order is not load-bearing: each package's tsconfig.build.json extends
@@ -13,21 +13,37 @@ import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 // (scripts/publishable-packages.ts), so a future resolution change fails
 // loudly instead of subtly.
 //
-//   bun scripts/build.ts --dry-run [root]
+//   bun scripts/build.ts [--for <dir>[,<dir>…]] [--dry-run [root]]
 //
-// prints that order without building or removing anything.
+// --for includes each named package and its forward workspace dependencies.
+// --dry-run prints that order without building or removing anything.
 const args = process.argv.slice(2);
-if (args.includes("--dry-run")) {
-  const dryRoot = resolve(args.find((arg) => arg !== "--dry-run") ?? resolve(import.meta.dir, ".."));
-  for (const { dir } of listPublishablePackages(dryRoot)) console.log(`Would build packages/${dir}`);
-  process.exit(0);
-}
-if (args.length > 0) {
-  console.error(`Build failed: unexpected arguments ${args.join(" ")} (only --dry-run [root] is accepted).`);
+let dryRun = false, dryRoot: string | undefined, directories: string[] | undefined;
+let packages: ReturnType<typeof selectBuildPackages>;
+let root: string;
+try {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--dry-run" && !dryRun) dryRun = true;
+    else if (arg === "--for" && directories === undefined) {
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error("--for requires comma-separated package directories");
+      directories = value.split(",");
+    } else if (!arg.startsWith("--") && dryRoot === undefined) dryRoot = arg;
+    else throw new Error(`Unexpected build argument: ${arg}`);
+  }
+  if (dryRoot !== undefined && !dryRun) throw new Error("A root argument is accepted only with --dry-run");
+  root = resolve(dryRoot ?? resolve(import.meta.dir, ".."));
+  packages = selectBuildPackages(root, directories);
+} catch (error) {
+  console.error(`Build failed: ${(error as Error).message}`);
   process.exit(1);
 }
+if (dryRun) {
+  for (const { dir } of packages) console.log(`Would build packages/${dir}`);
+  process.exit(0);
+}
 
-const root = resolve(import.meta.dir, "..");
 const coordinated = await ensureWorkspaceLease(root, "write");
 if (coordinated !== undefined) process.exit(coordinated);
 const bunx = Bun.which("bunx");
@@ -38,7 +54,7 @@ if (!bunx) {
   process.exit(1);
 }
 
-for (const { dir: packageName, manifest } of listPublishablePackages(root)) {
+for (const { dir: packageName, manifest } of packages) {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");
   rmSync(distDir, { recursive: true, force: true });

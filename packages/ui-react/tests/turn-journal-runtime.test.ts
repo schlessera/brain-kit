@@ -29,7 +29,7 @@ async function child(args: string[]) {
   if (code !== 0) throw new Error(`Journal fixture build failed (${code})\n${out}${err}`);
 }
 beforeAll(async () => {
-  if (process.env.BRAIN_JOURNAL_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts"]);
+  if (process.env.BRAIN_JOURNAL_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   root = await mkdtemp(resolve(tmpdir(), "odysseus-journal-browser-"));
   const brain = resolve(root, "brain"), assets = resolve(root, "assets");
   await createFixtureBrain(repo, brain); await mkdir(assets);
