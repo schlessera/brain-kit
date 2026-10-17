@@ -11,7 +11,7 @@ import { createClaudeBackend } from "../../../ui-backend-claude/src/backend.js";
 import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/native-model-reply.js";
 import { serializeSigned } from "hono/utils/cookie";
 
-const brain = "/brain-fixture/brain", root = "/identity-server-private/server-ws";
+const brain = "/brain-fixture/ordinary-identity/brain", root = "/identity-server-private/server-ws";
 const home = join(root, "home"), config = join(home, ".claude"), data = "/identity-fixture/server-app";
 mkdirSync(data, { mode: 0o700 }); mkdirSync(config, { recursive: true, mode: 0o700 });
 const requests: Array<{ model: string; history: number; apiCredential: boolean }> = [];
