@@ -84,6 +84,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
+    // Turn cleanup must observe final audit failures before it publishes its
+    // terminal outcome; socket close callbacks run only after stop returns.
+    controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
     const charge = (count: number) => {
       if (finished || stopped) return false;
       if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
