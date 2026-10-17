@@ -94,7 +94,34 @@ test("short/long scenarios and observed App growth use distinct endpoint quantit
   expect(result.short.days).toBe(195); expect(result.long.days).toBe(195);
   expect(result.appAllocated?.bytesPerDay).toBe(24);
   expect(result.availableChange?.bytesPerDay).toBe(-4_000_000);
-  expect(result.long.samples).toBeLessThanOrEqual(29);
+  expect(result.long.samples).toBeLessThanOrEqual(31);
+});
+test("long scenarios include the approved 30-day boundary and exclude older endpoints", () => {
+  const payload = steady(35), now = at + 35 * DAY;
+  const result = capacityEvidence(payload, identity, now)!;
+  const start = at + 5 * DAY + 18 * HOUR;
+  expect(result.long.start, "STORAGE_LONG_SCENARIO_USES_30_DAY_POLICY").toBe(start);
+  expect(result.long.end).toBe(now);
+  expect(result.long.samples).toBe(31);
+  expect(result.long.depletionPerDay).toBe(4_000_000);
+  expect(result.short.start).toBe(now - 7 * DAY);
+  // A 30.25-day-old change cannot enter the selected window.
+  payload.samples.find(row => row[1] === 1 && row[3] === start - DAY)![9][0]![4] = 0;
+  expect(capacityEvidence(payload, identity, now)?.long).toEqual(result.long);
+  // The 29.25-day-old endpoint must affect the estimate, even though it was
+  // excluded by the superseded 28-day implementation.
+  payload.samples.find(row => row[1] === 1 && row[3] === start)![9][0]![4]! += 3_000_000;
+  const changed = capacityEvidence(payload, identity, now)!;
+  expect(changed.long.state).toBe("finite");
+  expect(changed.long.depletionPerDay).toBeCloseTo(120_000_000 / 29.25, 4);
+  expect(changed.short).toEqual(result.short);
+  const boundary = payload.samples.find(row => row[1] === 1 && row[3] === start)!;
+  boundary[3] = now - 30 * DAY; boundary[4] = boundary[3] - 100;
+  boundary[9][0]![2] = 120_000_000;
+  boundary[9][0]![3] = boundary[9][0]![4] = 880_000_000;
+  const exact = capacityEvidence(payload, identity, now)!;
+  expect(exact.long.start).toBe(now - 30 * DAY);
+  expect(exact.long.depletionPerDay).toBe(4_000_000);
 });
 test("minimum spans, stale/future evidence and gaps refuse scenarios without infinity", () => {
   const payload = steady(1), now = at + DAY;

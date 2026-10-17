@@ -85,6 +85,6 @@ export function capacityEvidence<S>(payload: HistoryPayload<S>, identity: string
   return { identity, rootScope: latest.rootScope, at: latest.sample[3], total: latest.capacity[1], available: latest.capacity[4],
     fresh: latest.capacity[5] !== 2 && latest.capacity[1] !== null && latest.capacity[1] > 0 && latest.capacity[4] !== null && latest.sample[3] <= now && now - latest.sample[3] <= RECENT,
     short: scenario(recent, 5, 48 * HOUR, 7 * DAY, 12 * HOUR, now),
-    long: scenario(long, 15, 14 * DAY, 28 * DAY, 48 * HOUR, now),
+    long: scenario(long, 15, 14 * DAY, 30 * DAY, 48 * HOUR, now),
     appLogical: rate(recent, 8, now), appAllocated: rate(recent, 9, now), availableChange: rate(recent, 4, now) };
 }

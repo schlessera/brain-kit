@@ -55,8 +55,9 @@ bounds do not promise recovery from arbitrary kernel/filesystem I/O stalls.
 ## Pressure and recovery
 
 Available bytes trigger Low at 10% and Critical at 5%. Qualified conditional
-scenarios use separate recent and daily windows; either at 30 days triggers Low,
-both at seven days trigger Critical. Each carries its actual evidence window.
+scenarios use recent endpoints within seven days and daily endpoints within 30
+days. Either scenario at or below 30 days until exhaustion triggers Low; both
+at or below seven days trigger Critical. Each carries its actual evidence window.
 Neither a projected range nor an observed rate is an accuracy guarantee.
 
 Each cause must recover independently. Capacity recovery is strictly above
