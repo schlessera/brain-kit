@@ -14,8 +14,9 @@ import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerSta
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_HOME, WORKER_XDG_DIRS,
+import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
+import { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
