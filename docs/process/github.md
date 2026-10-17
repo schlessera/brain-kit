@@ -370,7 +370,9 @@ non-interactive operation. These project rules apply alongside it:
   If native stacks are unavailable, report the CLI error and use ordinary PRs
   only after deliberately reconciling their ancestry and bases.
 - Ordinary upper-layer CI proves its parent/head merge; native CI verifies the
-  frozen synthetic chain from the exact trunk through that candidate. Record
+  verified checkout: either the frozen synthetic chain from the exact trunk,
+  or exact own-parent merge with independent frozen-trunk/member ancestry,
+  immutable member evidence and reconstructed tree. Record
   every contributing head and actual synthetic parent/checkout/tree. After merging, verify every
   included PR's merge result on `main`, the integrated commits/trees, issue
   states and milestones, and automatic main-push proof. A queued stack is not

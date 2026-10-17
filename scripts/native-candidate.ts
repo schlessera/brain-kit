@@ -70,8 +70,8 @@ export async function freezeNativePrefix(repository: string, pr: number, api: AP
     stack: stack.number, position: index + 1, trunk, members }));
 }
 
-/** Contract checks may inspect a draft; candidate proof always requires readiness. */
-export async function verifyNativePrefix(event: any, env: NodeJS.ProcessEnv, api: API, allowTopDraft = false): Promise<NativePrefix> {
+/** Bind request/event inputs before planning; live authority is checked separately. */
+export function requestedNativePrefix(event: any, env: NodeJS.ProcessEnv): NativePrefix {
   const requested = nativeRequest(event.pull_request?.body);
   const pr = event.pull_request;
   if (requested.repository !== env.GITHUB_REPOSITORY || requested.pr !== pr?.number || requested.stack !== pr.stack?.number ||
@@ -83,6 +83,12 @@ export async function verifyNativePrefix(event: any, env: NodeJS.ProcessEnv, api
         (pr.base?.ref === parent.parent && pr.base?.sha === ownNativeParent(requested))) ||
       (pr.head?.ref && pr.head.ref !== parent.ref) ||
       (pr.head?.repo?.full_name && pr.head.repo.full_name !== requested.repository)) fail("contradictory event parent or repository evidence");
+  return requested;
+}
+
+/** Contract checks may inspect a draft; candidate proof always requires readiness. */
+export async function verifyNativePrefix(event: any, env: NodeJS.ProcessEnv, api: API, allowTopDraft = false): Promise<NativePrefix> {
+  const requested = requestedNativePrefix(event, env);
   const live = await freezeNativePrefix(requested.repository, requested.pr, api, allowTopDraft);
   if (JSON.stringify({ ...live, request: requested.request }) !== JSON.stringify(requested)) fail("contributing prefix changed; request confirmation again");
   const current = await api.json(`pulls/${requested.pr}`);
@@ -94,16 +100,41 @@ export function ownNativeParent(prefix: NativePrefix): string {
   return prefix.members.at(-2)?.head ?? prefix.trunk.sha;
 }
 
-/** Supported native shape: a linear ORT merge chain rooted at the frozen trunk. */
+/** Compare local objects with independently obtained immutable API evidence. */
+async function immutableCheckout(root: string, id: string, api: API): Promise<Checkout> {
+  const local = checkout(root, id), immutable = await api.json(`git/commits/${id}`);
+  if (local.sha !== immutable.sha || local.tree !== immutable.tree?.sha ||
+      JSON.stringify(local.parents) !== JSON.stringify(immutable.parents?.map((p: { sha: string }) => p.sha))) fail("immutable checkout identity disagrees with local Git");
+  return local;
+}
+
+/** Admit only verified synthetic-chain or exact own-parent ORT checkouts. */
 export async function validateNativeCandidate(root: string, event: any, env: NodeJS.ProcessEnv, api: API, actual: Checkout): Promise<void> {
   if (actual.sha !== env.GITHUB_SHA) fail("checkout differs from the requested run identity");
   const prefix = await verifyNativePrefix(event, env, api);
+  const candidate = prefix.members.at(-1)!;
+  const ownParents = [ownNativeParent(prefix), candidate.head];
+  if (prefix.members.length > 1 && JSON.stringify(actual.parents) === JSON.stringify(ownParents)) {
+    const local = await immutableCheckout(root, actual.sha, api);
+    if (JSON.stringify(local) !== JSON.stringify(actual)) fail("actual own-parent checkout identity differs from local Git");
+    // The checkout alone contains no synthetic history for lower contributors.
+    // Independently bind every frozen member, starting at the exact frozen trunk.
+    let predecessor = prefix.trunk.sha;
+    for (const member of prefix.members) {
+      await immutableCheckout(root, member.head, api);
+      git(root, "merge-base", "--is-ancestor", predecessor, member.head);
+      predecessor = member.head;
+    }
+    const tree = git(root, "merge-tree", "--write-tree", ownParents[0]!, candidate.head).trim();
+    if (!sha(tree) || tree !== local.tree) fail("own-parent tree differs from the independently reconstructed ORT merge");
+    console.log(`BRAIN_NATIVE_CANDIDATE_RECEIPT ${JSON.stringify({ prefix, checkout: actual })}`);
+    return;
+  }
   let next = actual.sha;
   for (let index = prefix.members.length - 1; index >= 0; index--) {
     const member = prefix.members[index]!;
-    const local = checkout(root, next), immutable = await api.json(`git/commits/${next}`);
-    if (local.sha !== immutable.sha || local.tree !== immutable.tree?.sha ||
-        JSON.stringify(local.parents) !== JSON.stringify(immutable.parents?.map((p: { sha: string }) => p.sha)) || local.parents.length !== 2 || local.parents[1] !== member.head ||
+    const local = await immutableCheckout(root, next, api);
+    if (local.parents.length !== 2 || local.parents[1] !== member.head ||
         (index === prefix.members.length - 1 && JSON.stringify(local) !== JSON.stringify(actual))) fail("immutable synthetic checkout/parents do not match the ordered prefix");
     if (index) git(root, "merge-base", "--is-ancestor", prefix.members[index - 1]!.head, member.head);
     const tree = git(root, "merge-tree", "--write-tree", local.parents[0]!, member.head).trim();
