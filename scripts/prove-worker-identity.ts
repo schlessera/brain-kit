@@ -9,12 +9,14 @@ if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only]");
     const image = options.find(arg=>arg.startsWith("--image="))?.slice("--image=".length) ?? NATIVE_PROOF_IMAGE;
     const sharedGit = options.includes("--shared-git");
     const privateGitInputs = options.includes("--private-git-inputs");
     if (privateGitInputs && !sharedGit) throw Error("Private Git input proof requires the separate shared Git composition");
+    const nativePhaseOnly = options.includes("--native-phase-only");
     const mutation = options.find(arg=>arg.startsWith("--mutation="))?.slice("--mutation=".length);
+    if (nativePhaseOnly && (!sharedGit || mutation)) throw Error("Native-phase-only proof requires shared Git composition and forbids mutations");
     const changed = (text: string, before: string, after: string) => { if(!text.includes(before))throw Error("Identity fixture mutation anchor changed");return text.replace(before,after); };
     const source = resolve(import.meta.dir, ".."), output = join(source, "tmp", "worker-identity-proof");
     mkdirSync(output, { recursive: true });
@@ -169,13 +171,23 @@ else:raise RuntimeError('IDENTITY_OWNED_RESOURCES_REMAIN: '+repr(dict(records=he
 PY_CLEANUP
 exit "$case_code"
 `);
+    if (nativePhaseOnly) {
+      // Separately named partial proof; the complete default setup stays intact.
+      const complete = readFileSync(setup, "utf8");
+      const begin = "setpriv --reuid 21001 --regid 21001 --clear-groups env BRAIN_UI_WORKER_IDENTITY_HELPER=/usr/local/bin/identity-helper";
+      const end = "/usr/bin/python3 -I -S - <<'PY_CLEANUP'";
+      const first = complete.indexOf(begin), last = complete.indexOf(end, first);
+      if (first < 0 || last < first || complete.indexOf(begin, first + 1) !== -1) throw Error("Native phase selector anchors changed");
+      writeFileSync(setup, complete.slice(0, first) + "/usr/bin/python3 -I -S /fixture-variants/identity-fixture.py claude 1000\ncase_code=$?\nset -e\n" + complete.slice(last));
+    }
     const inspect = Bun.spawnSync(["docker", "image", "inspect", image, "--format", "{{.Id}}"], { stdout: "pipe", stderr: "pipe" });
     if (inspect.exitCode !== 0) throw Error("Prepared pinned native proof image is unavailable; prepare scripts/native-proof/Dockerfile before offline proof");
     const security = Bun.spawnSync(["docker", "info", "--format", "{{json .SecurityOptions}}"], { stdout: "pipe", stderr: "pipe" });
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
+    const metadata = { image, proofScope: nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+      skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls"] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
       helperSourceSha256: hash(readFileSync(helperSource)), helperSha256: hash(readFileSync(helper)),
       faultHashes, helperScriptSha256: hash(helperScript), nonDroppingScriptSha256: hash(readFileSync(nonDroppingScript)), nonDroppingHelperSha256: hash(readFileSync(nonDroppingHelper)), filterSha256: hash(WORKER_FILESYSTEM_FILTER_PROGRAM) };
