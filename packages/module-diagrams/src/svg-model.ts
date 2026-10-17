@@ -1,3 +1,5 @@
+import { diagramLegend } from "./legend.js";
+import { planCallouts } from "./callouts.js";
 import { shapeSvg } from "./shape-svg.js";
 import { nodeLinkSvg } from "./node-link-svg.js";
 import { parseDocument } from "yaml";
@@ -29,13 +31,14 @@ function arrow(points: {x:number;y:number}[], head: "open" | "filled" | "hollow"
 /** All geometry is supplied by the builder. This maps it to paints and safe elements only. */
 export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" = "default"): DiagramSvgModel {
  const tree=buildDiagramLayout(spec,layout);
- const positional=["quadrant","layer-stack","pyramid","funnel","loop","flywheel","venn"].includes(spec.type);
- const kinds=[...new Set([...(positional?[]:spec.edges.map(edge=>"cycle" in edge&&edge.cycle?"cycle":edge.kind??"default")),...tree.elements.flatMap(item=>positional&&item.kind==="shape"&&(item.from||item.to)?[item.paint==="line"?"default":item.paint]:[])]), ...(tree.elements.some(item=>item.kind==="node"&&item.focal||positional&&item.kind==="shape"&&item.paint==="focal")?["focal"]:[]), ...(!positional&&spec.nodes.some(item=>item.role==="store")?["store"]:[])], columns=Math.max(1,Math.min(kinds.length||1,tree.viewBox.width<=320?2:Infinity,Math.floor((tree.viewBox.width-16)/Math.max(1,...kinds.map(kind=>typeWidthBudget(kind,"label")+44))))), rows=Math.ceil(kinds.length/columns), footerHeight=rows?rows*20+16:0;
+ const {kinds,columns,footerHeight}=diagramLegend(spec,tree);
  const contentBottom=Math.max(0,...tree.elements.map(element=>element.kind==="connector"?Math.max(...element.points.map(point=>point.y)):element.y+element.height));
  if(footerHeight && contentBottom+footerHeight+8>tree.viewBox.height){
-  if(layout==="default" && spec.size==="fit") tree.viewBox={...tree.viewBox,height:Math.ceil((contentBottom+footerHeight+8)/4)*4};
+  if(layout==="default" && spec.size==="fit" || layout==="narrow" && spec.callouts?.length) tree.viewBox={...tree.viewBox,height:Math.ceil((contentBottom+footerHeight+8)/4)*4};
   else throw Error("The selected canvas has no room for its readable legend footer; reserve footer space or use size: fit");
  }
+ const callouts=planCallouts(spec,tree,footerHeight,layout==="narrow"||spec.size==="fit");
+ if(callouts.errors.length)throw Error(callouts.errors.map(item=>item.message).join("; "));
  const ground=(box:{x:number;y:number;width:number;height:number})=>{
   const group=tree.elements.flatMap(item=>item.kind==="group"&&box.x>=item.x&&box.y>=item.y&&box.x+box.width<=item.x+item.width&&box.y+box.height<=item.y+item.height?[item]:[]).sort((a,b)=>a.width*a.height-b.width*b.height)[0];
   if(group?.kind==="group")return ink(group.scopeKind==="admin"?"diagram-bg":"diagram-cluster");
@@ -73,6 +76,18 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
    default: { const exhaustive:never=element; throw Error(`Unknown diagram element: ${String(exhaustive)}`); }
   }
  }
+ const marker=(number:number,x:number,y:number):SvgPrimitive[]=>[primitive("circle",{cx:x,cy:y,r:8,fill:ink("diagram-node"),stroke:ink("diagram-line"),"stroke-width":1}),text(String(number),"label",x,y+3,16,ink("diagram-text"),{"text-anchor":"middle"})];
+ const noteText=(lines:string[],x:number,y:number)=>lines.map((line,index)=>primitive("text",{x,y:y+11+index*14,fill:ink("diagram-text"),"font-family":DIAGRAM_TYPE.note.family,"font-size":11,"font-weight":500},line));
+ for(const note of callouts.placements){
+  const children=note.placement==="marker"?marker(note.index+1,note.anchor.x,note.anchor.y):[primitive("line",{x1:note.anchor.x,y1:note.anchor.y,x2:note.end!.x,y2:note.end!.y,stroke:ink("diagram-line"),"stroke-width":1,"data-callout-leader":""}),primitive("circle",{cx:note.anchor.x,cy:note.anchor.y,r:2.5,fill:ink("diagram-text")}),...noteText(note.lines,note.box.x,note.box.y)];
+  elements.push(primitive("g",{"data-diagram-callout":note.index,"data-target":note.target,"data-placement":note.placement,"aria-label":`Note on ${note.name}: ${note.text}`},undefined,children));
+ }
+ if(callouts.bandHeight){
+  const rows:SvgPrimitive[]=[primitive("line",{x1:8,y1:callouts.bandTop,x2:tree.viewBox.width-8,y2:callouts.bandTop,stroke:ink("color-line"),"stroke-width":1})];let y=callouts.bandTop+12;
+  for(const note of callouts.placements.filter(item=>item.placement==="marker")){rows.push(primitive("g",{"data-diagram-callout-note":note.index},undefined,[...marker(note.index+1,16,y+8),...noteText(note.lines,40,y)]));y+=Math.max(16,note.lines.length*14)+8;}
+  elements.push(primitive("g",{"data-diagram-notes-band":""},undefined,rows));
+ }
+ for(const element of elements){const target=element.attrs["data-diagram-node"]??element.attrs["data-diagram-group"]??(element.attrs["data-diagram-edge"]!==undefined?spec.edges[Number(element.attrs["data-diagram-edge"])]?.id:undefined);const notes=callouts.placements.filter(note=>note.target===target);if(notes.length)element.attrs["aria-label"]=`${element.attrs["aria-label"]??callouts.placements.find(note=>note.target===target)!.name}, note: ${notes.map(note=>note.text).join("; ")}`;}
  if(kinds.length){
   const footerTop=tree.viewBox.height-footerHeight, cell=(tree.viewBox.width-16)/columns;
   const legend:SvgPrimitive[]=[primitive("line",{x1:8,y1:footerTop+2,x2:tree.viewBox.width-8,y2:footerTop+2,stroke:ink("color-line"),"stroke-width":1})];

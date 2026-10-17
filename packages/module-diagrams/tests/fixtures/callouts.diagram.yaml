@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "type": "architecture",
+  "title": "Homecoming relay",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "hermes",
+      "label": "Hermes",
+      "at": [
+        48,
+        64
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "INPUT",
+      "role": "input"
+    },
+    {
+      "id": "odysseus",
+      "label": "Odysseus",
+      "at": [
+        320,
+        64
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "AGENT",
+      "role": "focal"
+    },
+    {
+      "id": "ledger",
+      "label": "Voyage ledger",
+      "at": [
+        592,
+        64
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "STORE",
+      "role": "store"
+    }
+  ],
+  "edges": [
+    {
+      "to": "odysseus",
+      "label": "WORD",
+      "kind": "link",
+      "from": "hermes"
+    },
+    {
+      "to": "ledger",
+      "label": "RECORD",
+      "kind": "async",
+      "from": "odysseus"
+    }
+  ],
+  "groups": [
+    {
+      "id": "voyage",
+      "label": "VOYAGE",
+      "members": [
+        "odysseus",
+        "ledger"
+      ]
+    }
+  ],
+  "callouts": [
+    {
+      "target": "odysseus",
+      "text": "PREPARE PROVISIONS"
+    }
+  ]
+}

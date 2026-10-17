@@ -118,3 +118,10 @@ when it explains more than a table or paragraph, loads the chosen type reference
 and validates the versioned source with `brain diagram check`. Use Mermaid for
 a quick sketch; pictorial illustrations and image edits remain image-gen work.
 `brain module lint diagrams` validates the enabled contribution and skill.
+
+Common `callouts` contain `target`, `text`, and optional `side` (`below`,
+`above`, `right`, or `left`). The side is tried first; collisions still select
+another safe side or the notes fallback. Fixed named canvases that cannot
+hold the annotation return `callout_room` during checking: reserve space or
+use `size: fit`. This changes previously accepted crowded fixed-canvas input
+under the explicit #2242 compatibility ruling.

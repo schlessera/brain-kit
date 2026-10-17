@@ -315,3 +315,13 @@ Rejected:
   `schema_version` only grows additively without a maintainer ruling.
 - Mermaid stops being a special case, and its export path becomes the generic
   one.
+
+## Common callout compatibility
+
+The maintainer's [#2242 rulings](https://github.com/schlessera/brain-kit/issues/2242#issuecomment-6231827101)
+choose the dedicated sans note role (N1=A), validation-time `callout_room` for
+fixed named canvases without readable annotation space (N2=A), and optional
+preferred-side data (N3=B). The N2 rejection is an explicit compatibility
+change; it applies only to fixed named canvases. Other accepted v1 annotations
+retain their text and target association. A side hint never overrides collision
+protections, and content must never disappear, shrink or truncate to fit.

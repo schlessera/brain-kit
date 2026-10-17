@@ -26,7 +26,7 @@ const common = {
   groups: z.array(z.object({ id, label: text, members: z.array(id).min(1).max(1024) }).strict()).max(1024).optional(),
   edges: z.array(edge).max(4096),
   focal: z.array(id).max(2, "At most two focal elements are allowed").optional(),
-  callouts: z.array(z.object({ target: id, text }).strict()).max(1024).optional(),
+  callouts: z.array(z.object({ target: id, text, side: z.enum(["below", "above", "right", "left"]).optional() }).strict()).max(1024).optional(),
 };
 export const diagramSpecSchema = z.discriminatedUnion("type", [
   z.object({ ...common, type: z.literal("architecture"), nodes: z.array(freeNode.extend({ kind: z.enum(["compute", "endpoint", "managed"]).optional(), parent: id.optional(), target: id.optional() }).strict()).max(1024), edges: z.array(edge.extend({ peering: z.boolean().optional() }).strict()).max(4096), containment: z.object({ scopes: z.array(z.object({ id, label: text, kind: z.enum(["admin", "traffic"]), parent: id.optional(), at: position, size: dimensions }).strict()).min(1).max(1024) }).strict().optional() }).strict(),

@@ -3,7 +3,7 @@ import type { DiagramTypeRole } from "./skin.js";
 export type DiagramShapePaint = "line" | "primary" | "link" | "async" | "return" | "node" | "focal" | "cluster" | "text" | "muted" | "accent" | "ink" | "on-ink" | "none" | "lifeline" | "bar" | "zone" | "mask" | "focal-mask" | "message" | "cluster-mask";
 export interface DiagramShapeBase {
  kind: "shape"; id: string; x: number; y: number; width: number; height: number;
- nodeId?: string; from?: string; to?: string;
+ edgeId?: string; nodeId?: string; from?: string; to?: string;
  paint: DiagramShapePaint; strokeWidth?: number; family?: "axis" | "positional"; name?: string;
  arrow?: { x: number; y: number; dx: number; dy: number; head: "open" | "filled" | "hollow" };
 }

@@ -3,8 +3,9 @@ import type { DiagramSpec } from "./spec.js";
 export { DIAGRAM_PALETTE, DIAGRAM_TOKEN_CSS } from "./skin.generated.js";
 export type DiagramTheme = "light" | "dark" | "print";
 export interface DiagramTypeStyle { family: string; size: number; weight: number; tracking: number; uppercase: boolean }
-export type DiagramTypeRole = "title" | "name" | "sub" | "label";
+export type DiagramTypeRole = "title" | "name" | "sub" | "label" | "note";
 export const DIAGRAM_TYPE: Record<DiagramTypeRole, DiagramTypeStyle> = {
+ note: { family: '"Plus Jakarta Sans", system-ui, -apple-system, sans-serif', size: 11, weight: 500, tracking: 0, uppercase: false },
  title: { family: '"DM Serif Text", Georgia, serif', size: 18, weight: 400, tracking: 0, uppercase: false },
  name: { family: '"Plus Jakarta Sans", system-ui, -apple-system, sans-serif', size: 12, weight: 600, tracking: 0, uppercase: false },
  sub: { family: '"JetBrains Mono", ui-monospace, monospace', size: 10, weight: 400, tracking: 0, uppercase: false },
@@ -14,7 +15,7 @@ export const DIAGRAM_TYPE: Record<DiagramTypeRole, DiagramTypeStyle> = {
 export function typeWidthBudget(text: string, role: DiagramTypeRole, fontSize: number = DIAGRAM_TYPE[role].size): number {
  if (!Number.isFinite(fontSize) || fontSize < 9) throw Error("Diagram type must be at least 9px");
  const style = DIAGRAM_TYPE[role], value = style.uppercase ? text.toUpperCase() : text;
- return Array.from(value).reduce((width, char) => width + fontSize * (/[\u0000-\u007f]/.test(char) ? role === "name" || role === "title" ? /[MWmw@%]/.test(char) ? 1.1 : /[il .,'!]/.test(char) ? 0.4 : 0.72 : 0.62 : 1.2) + style.tracking * fontSize, 0);
+ return Array.from(value).reduce((width, char) => width + fontSize * (/[\u0000-\u007f]/.test(char) ? role === "name" || role === "title" || role === "note" ? /[MWmw@%]/.test(char) ? 1.1 : /[il .,'!]/.test(char) ? 0.4 : 0.72 : 0.62 : 1.2) + style.tracking * fontSize, 0);
 }
 /** Shared painter/checker fit policy; never shrink below the floor. */
 export function fitDiagramText(text: string, role: DiagramTypeRole, availableWidth: number): number {

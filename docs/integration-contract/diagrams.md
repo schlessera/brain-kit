@@ -453,3 +453,19 @@ line is one-based and offsets delimit the original GFM code block. The artifact
 helper accepts only PNG/PDF, denies external hosts, and always shuts its
 renderer down after success or failure. It reuses canonical sandbox environment
 aliases and does not introduce a renderer registration interface.
+
+## Common annotation placement (#2242)
+
+Callouts additionally accept optional `side: below|above|right|left`. It is a
+preference: the requested side is tried first, then the remaining sides in
+below, above, right, left order. No hint preserves that default order. Hints
+never move semantic geometry or allow an annotation to cover nodes or masks.
+
+The maintainer-approved N2 compatibility change adds `callout_room` at
+`$.callouts[index]` when a fixed named canvas has neither a collision-free
+readable note placement nor enough space for a notes band. Reserve annotation
+space or migrate the source to `size: fit`; named canvases do not grow. This
+is a breaking input-validation change authorized on #2242 and ships in a
+minor before 1.0. It does not authorize rejecting previously valid `fit`
+sources. Notes use Plus Jakarta Sans 11px/500 with authored capitalization,
+wrapping rather than truncation or reduced text size.

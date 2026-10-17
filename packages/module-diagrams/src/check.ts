@@ -1,3 +1,5 @@
+import { planCallouts } from "./callouts.js";
+import { diagramLegend } from "./legend.js";
 import { checkPositional } from "./positional-check.js";
 import { checkContainment } from "./containment.js";
 import { checkNodeLink } from "./node-link-check.js";
@@ -135,6 +137,9 @@ export function checkDiagram(source: string): DiagramCheckResult {
   output.errors.push(...checkDiagramSkin(spec), ...checkDiagramLayouts(spec));
   const positional = checkPositional(spec); output.errors.push(...positional.errors); output.warnings.push(...positional.warnings);
   const axisFindings = checkAxis(spec); output.errors.push(...axisFindings.errors); output.warnings.push(...axisFindings.warnings);
+  if(!output.errors.length&&spec.callouts?.length){
+    const tree=buildDiagram(spec);output.errors.push(...planCallouts(spec,tree,diagramLegend(spec,tree).footerHeight).errors);
+  }
   output.valid = output.errors.length === 0;
   return output;
 }
