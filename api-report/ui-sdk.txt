@@ -5392,6 +5392,8 @@ signatures (every public export and the types it is made of)
   ClientConversationStart (packages/ui-sdk/src/protocol.ts)
     export interface ClientConversationStart {
         type: "conversation_start";
+        requestId?: string;
+        agentProviderId?: string;
         conversationId?: string;
         sessionId?: string;
     }
@@ -5399,6 +5401,7 @@ signatures (every public export and the types it is made of)
     export interface ClientConversationStop {
         type: "conversation_stop";
         conversationId: string;
+        resumable?: boolean;
     }
   ClientEnvironment (packages/ui-sdk/src/protocol.ts)
     export interface ClientEnvironment {
@@ -8884,6 +8887,7 @@ signatures (every public export and the types it is made of)
   ServerConversationClosed (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationClosed {
         type: "conversation_closed";
+        requestId?: string;
         conversationId: string;
         epoch: number;
         reason: ConversationCloseReason;
@@ -8899,6 +8903,8 @@ signatures (every public export and the types it is made of)
   ServerConversationOpened (packages/ui-sdk/src/protocol.ts)
     export interface ServerConversationOpened {
         type: "conversation_opened";
+        requestId?: string;
+        agentProviderId?: string;
         conversationId: string;
         epoch: number;
         sessionId?: string;
@@ -10307,13 +10313,16 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   clientConversationStartSchema (packages/ui-sdk/src/schemas.ts)
     const clientConversationStartSchema: z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         conversationId: z.ZodOptional<z.ZodString>;
+        requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
     }, z.core.$loose>;
   clientConversationStopSchema (packages/ui-sdk/src/schemas.ts)
     const clientConversationStopSchema: z.ZodObject<{
         conversationId: z.ZodString;
+        resumable: z.ZodOptional<z.ZodBoolean>;
         type: z.ZodLiteral<"conversation_stop">;
     }, z.core.$loose>;
   clientEnvironmentSchema (packages/ui-sdk/src/schemas.ts)
@@ -10708,7 +10717,9 @@ signatures (every public export and the types it is made of)
             queue: "queue";
         }>;
     }, z.core.$strict>, z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         conversationId: z.ZodOptional<z.ZodString>;
+        requestId: z.ZodOptional<z.ZodString>;
         sessionId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_start">;
     }, z.core.$loose>, z.ZodObject<{
@@ -10747,6 +10758,7 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"conversation_playback">;
     }, z.core.$loose>, z.ZodObject<{
         conversationId: z.ZodString;
+        resumable: z.ZodOptional<z.ZodBoolean>;
         type: z.ZodLiteral<"conversation_stop">;
     }, z.core.$loose>], "type">;
   clientPingSchema (packages/ui-sdk/src/schemas.ts)
@@ -13856,6 +13868,7 @@ signatures (every public export and the types it is made of)
             replaced: "replaced";
             stopped: "stopped";
         }>;
+        requestId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_closed">;
     }, z.core.$loose>;
   serverConversationEventSchema (packages/ui-sdk/src/schemas.ts)
@@ -13927,6 +13940,7 @@ signatures (every public export and the types it is made of)
     }, z.core.$loose>;
   serverConversationOpenedSchema (packages/ui-sdk/src/schemas.ts)
     const serverConversationOpenedSchema: z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
@@ -13985,6 +13999,7 @@ signatures (every public export and the types it is made of)
             maxUtterances: z.ZodNumber;
         }, z.core.$loose>;
         providerId: z.ZodString;
+        requestId: z.ZodOptional<z.ZodString>;
         resync: z.ZodObject<{
             outputs: z.ZodNumber;
             work: z.ZodNumber;
@@ -16934,6 +16949,7 @@ signatures (every public export and the types it is made of)
         }, z.core.$loose>>;
         type: z.ZodLiteral<"session_queue">;
     }, z.core.$loose>, z.ZodObject<{
+        agentProviderId: z.ZodOptional<z.ZodString>;
         capabilities: z.ZodObject<{
             echoIsolatedInput: z.ZodEnum<{
                 supported: "supported";
@@ -16992,6 +17008,7 @@ signatures (every public export and the types it is made of)
             maxUtterances: z.ZodNumber;
         }, z.core.$loose>;
         providerId: z.ZodString;
+        requestId: z.ZodOptional<z.ZodString>;
         resync: z.ZodObject<{
             outputs: z.ZodNumber;
             work: z.ZodNumber;
@@ -17012,6 +17029,7 @@ signatures (every public export and the types it is made of)
             replaced: "replaced";
             stopped: "stopped";
         }>;
+        requestId: z.ZodOptional<z.ZodString>;
         type: z.ZodLiteral<"conversation_closed">;
     }, z.core.$loose>, z.ZodObject<{
         conversationId: z.ZodString;

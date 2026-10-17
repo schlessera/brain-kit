@@ -9,8 +9,8 @@ if (!GlobalRegistrator.isRegistered) {
 }
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-export function unregisterStagedTracksUnloadDom(): void {
+export async function unregisterStagedTracksUnloadDom(): Promise<void> {
   if (GlobalRegistrator.isRegistered) {
-    void GlobalRegistrator.unregister();
+    await GlobalRegistrator.unregister();
   }
 }

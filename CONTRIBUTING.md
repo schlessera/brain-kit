@@ -48,7 +48,14 @@ issue when you are not sure.
 repository preload, and the repository browser
 wrapper wait automatically for other commands using the same checkout's build
 output. Runtime tests hold exclusive access because their fixtures rebuild the
-packages. Browser ownership is acquired inside the pinned container against the
+packages. Every selected package is rebuilt. Persistent build-output reuse is
+disabled
+until its effective configuration, installed toolchain, runtime and stylesheet
+inputs can be qualified; package versions and symlink target strings are not
+complete input identities. `bun scripts/build.ts --force` remains accepted and
+follows the same rebuild path. Old files under `node_modules/.cache/brain-build/`
+are inert and are not read. Browser ownership is acquired inside the pinned
+container against the
 same bind-mounted lock file. Nested builds reuse an inherited descriptor, or
 verify its live owning ancestor on Linux when Bun's internal shell closes it;
 replaced child environments and existing extra stdio channels keep that ownership.

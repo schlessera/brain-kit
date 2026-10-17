@@ -30,7 +30,9 @@ const declarations:DocumentDeclaration[]=[{
   }
 },{
   // Reviewed against #2295: bounded capture tracing and split relay cases keep
-  // the exact source-owned HTML/CSS sink, four callers and offline producers.
+  // the exact source-owned HTML/CSS sink, its callers and offline producers.
+  // #2348 admits the callouts caller and pins the callout/legend modules that
+  // the drawing pipeline imports.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
@@ -49,6 +51,10 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-react/tests/browser/diagrams-node-link.layout.tsx": {
       "hash": "ee5282269f48ed482fc9f3b3316c88b538c7b29772e78f5f87ff27915fa4090f",
       "calls": 2
+    },
+    "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
+      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
+      "calls": 8
     }
   },
   "sink": "page.setContent(`<html data-theme=\"${drawing.theme}\"><head><style>${drawing.styles}</style><style>body{margin:0}</style></head><body>${drawing.html}</body></html>`)",
@@ -65,23 +71,26 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
     "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
-    "packages/module-diagrams/src/axis-layout.ts": "969b035e0cccb2bb63dabd403561efa41fc597af9b1537c29a3e9f60cd987bb9",
+    "packages/module-diagrams/src/axis-layout.ts": "75e78e607a91d3b5684eaf3b071f56e41c317a1b336a9c06b80608121a41c34d",
     "packages/module-diagrams/src/axis-spec.ts": "55bce9fad9e94af099a55fb1f7d282247c4b5f0dbdd9b33679e2903acfc28b93",
     "packages/module-diagrams/src/shape-svg.ts": "b629406bfec41e3ed9973a395a6271d69f1ce45d823591ab15b5581a0116a29b",
-    "packages/module-diagrams/src/shape.ts": "126cb4f530ea60736764c1237cc33a944ef924d62d74ba404e9b97d9f1e2696e",
+    "packages/module-diagrams/src/shape.ts": "9d3cd34d9153410ecc7b20e5edbf01c9a68e934dbe9ce662b4cf1af988d19f40",
     "packages/module-diagrams/tests/fixtures/axis-examples.ts": "3925e82b8bc2ced444d8d6019fa13a93396315438e6e1c426fd338cc42685d2e",
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
-    "packages/module-diagrams/src/check.ts": "9238125bac6b97809e34d4079af31e242c848a553b38e2415fa3b91b0bc7a96d",
-    "packages/module-diagrams/src/svg-model.ts": "f5032f9c58a7878f175e2f34623d90f819c01f20c60f2555a7574713514b9dcf",
+    "packages/module-diagrams/src/check.ts": "67e6497e3e66c91ae0a5c86cd99800f684141f2a56e4b9ccefc79a1c8277f7a9",
+    "packages/module-diagrams/src/svg-model.ts": "9656ef62a39fafabe4fd14d936efa51372e7758583140303ac73a5e92f0d60b0",
+    "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
+    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
+    "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
     "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
-    "packages/module-diagrams/src/drawing-style.ts": "9d9108f2e8fdf5c416d1deee3ecc8d4f4ad709956a15ffcdb0a1b3a07919cfe5",
-    "packages/module-diagrams/src/ui.tsx": "c407b4159ba4ff97d0dc30ad0b22845f60a1740e2caadffe44417a7d7a1a8386",
+    "packages/module-diagrams/src/drawing-style.ts": "cf1205bce1ab55197b70801bda46f915419ff174d5a1374a1c87df1f796bb36b",
+    "packages/module-diagrams/src/ui.tsx": "45bdd82c0cc724a2528297511f55e41f5f7bfe3b72d2a8c2c893873614d444db",
     "packages/module-diagrams/src/layout.ts": "89ae43c33902768a71541b917bfda9e3e89c246a7757ee7b1a151b619272c896",
-    "packages/module-diagrams/src/skin.ts": "7d49130676a58726964c29d13158b93327f7259855f8dd748a5fe07039e05de6",
+    "packages/module-diagrams/src/skin.ts": "b49834b6119b5bfa7b51d538b4896d2422d469216ffd517bf1ca401fc351f05a",
     "packages/module-diagrams/src/render.ts": "cca2cac8310060a9be4aa5f5fba72b1a16bc58fdc6158b71c7b2d854d07c2d71",
-    "packages/module-diagrams/src/spec.ts": "9b58a0da4b74e69abbc03a6bab0785dcc23bd401b809d9495e4a6a4ceeb9a01f",
+    "packages/module-diagrams/src/spec.ts": "32cfea76ec701e80a2bb06b0c892d95f888d92921f75dcf873c6a071962e7fd8",
     "packages/module-diagrams/src/positional-check.ts": "50736c5283fdefbe9c0b501fb385445e3092867ad93cf6e3aa744f4aedae1e4e",
-    "packages/module-diagrams/src/positional-layout.ts": "2d46fa8710bab9f3b512733d1e2ad2fe4b3b1189f2438937903df55437d53a49",
+    "packages/module-diagrams/src/positional-layout.ts": "47759c55dbd58bbec1cf25868f0f07270c1cec4d1a70c8f67ed29498ce8ad6ff",
     "packages/module-diagrams/src/positional-spec.ts": "2ab49b3b1f68610a4fea8ac90cde0a34ac96e099d21f7d3383fa72b44ce64a87",
     "packages/module-diagrams/src/containment.ts": "bb8ce8a46399e86e779d95c79c26e72db2d0005a9f517bcb86d0d4f0d79f4a24",
     "packages/module-diagrams/src/node-link-check.ts": "8d79f23079a7c9e0592315ae37515fcf92af9c70a1992cbf52ba9d6032fff3eb",
@@ -123,23 +132,26 @@ const declarations:DocumentDeclaration[]=[{
     "packages/module-diagrams/tests/fixtures/renderer-fixture.ts": "dc0db9aba9cd425c0cb12bd0241c6d9b4d8edd4a1ed6270e391f9d0cae7018be",
     "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml": "bc5d906627a8392da7921f8d74ff72eb7de4fb9cf03879fc6c83b1aaec0ee3a4",
     "packages/module-diagrams/src/axis-check.ts": "ba2133b3c42bcd72abcdb7200ba4fd4a05656aee0028b7894db7a22bcafbdbe9",
-    "packages/module-diagrams/src/axis-layout.ts": "969b035e0cccb2bb63dabd403561efa41fc597af9b1537c29a3e9f60cd987bb9",
+    "packages/module-diagrams/src/axis-layout.ts": "75e78e607a91d3b5684eaf3b071f56e41c317a1b336a9c06b80608121a41c34d",
     "packages/module-diagrams/src/axis-spec.ts": "55bce9fad9e94af099a55fb1f7d282247c4b5f0dbdd9b33679e2903acfc28b93",
     "packages/module-diagrams/src/shape-svg.ts": "b629406bfec41e3ed9973a395a6271d69f1ce45d823591ab15b5581a0116a29b",
-    "packages/module-diagrams/src/shape.ts": "126cb4f530ea60736764c1237cc33a944ef924d62d74ba404e9b97d9f1e2696e",
+    "packages/module-diagrams/src/shape.ts": "9d3cd34d9153410ecc7b20e5edbf01c9a68e934dbe9ce662b4cf1af988d19f40",
     "packages/module-diagrams/tests/fixtures/axis-examples.ts": "3925e82b8bc2ced444d8d6019fa13a93396315438e6e1c426fd338cc42685d2e",
     "packages/module-diagrams/src/skin.generated.ts": "3c78137114fdb7ac4d376bec30c871c57ebba64fe3872427807a8b4e77200996",
-    "packages/module-diagrams/src/check.ts": "9238125bac6b97809e34d4079af31e242c848a553b38e2415fa3b91b0bc7a96d",
-    "packages/module-diagrams/src/svg-model.ts": "f5032f9c58a7878f175e2f34623d90f819c01f20c60f2555a7574713514b9dcf",
+    "packages/module-diagrams/src/check.ts": "67e6497e3e66c91ae0a5c86cd99800f684141f2a56e4b9ccefc79a1c8277f7a9",
+    "packages/module-diagrams/src/svg-model.ts": "9656ef62a39fafabe4fd14d936efa51372e7758583140303ac73a5e92f0d60b0",
+    "packages/module-diagrams/src/legend.ts": "d5a9e9803a8b81100737cac0cc8b3fc8fdcb97c11a7d0ba10ced598a71744568",
+    "packages/module-diagrams/src/callouts.ts": "d220837ec25135844ccd4b2f8ef06411adbf8438e9395ff8b16d350698256ae9",
+    "packages/module-diagrams/src/callout-path.ts": "94354204bac1f9d2e8fffef49123fc787c47f07bdcce5b7593161a63468cb3fa",
     "packages/module-diagrams/src/geometry.ts": "f3b77d04e97a26d3351eb64c44550d27e60fc22bb1200a3c91412aec0ad50932",
-    "packages/module-diagrams/src/drawing-style.ts": "9d9108f2e8fdf5c416d1deee3ecc8d4f4ad709956a15ffcdb0a1b3a07919cfe5",
-    "packages/module-diagrams/src/ui.tsx": "c407b4159ba4ff97d0dc30ad0b22845f60a1740e2caadffe44417a7d7a1a8386",
+    "packages/module-diagrams/src/drawing-style.ts": "cf1205bce1ab55197b70801bda46f915419ff174d5a1374a1c87df1f796bb36b",
+    "packages/module-diagrams/src/ui.tsx": "45bdd82c0cc724a2528297511f55e41f5f7bfe3b72d2a8c2c893873614d444db",
     "packages/module-diagrams/src/layout.ts": "89ae43c33902768a71541b917bfda9e3e89c246a7757ee7b1a151b619272c896",
-    "packages/module-diagrams/src/skin.ts": "7d49130676a58726964c29d13158b93327f7259855f8dd748a5fe07039e05de6",
+    "packages/module-diagrams/src/skin.ts": "b49834b6119b5bfa7b51d538b4896d2422d469216ffd517bf1ca401fc351f05a",
     "packages/module-diagrams/src/render.ts": "cca2cac8310060a9be4aa5f5fba72b1a16bc58fdc6158b71c7b2d854d07c2d71",
-    "packages/module-diagrams/src/spec.ts": "9b58a0da4b74e69abbc03a6bab0785dcc23bd401b809d9495e4a6a4ceeb9a01f",
+    "packages/module-diagrams/src/spec.ts": "32cfea76ec701e80a2bb06b0c892d95f888d92921f75dcf873c6a071962e7fd8",
     "packages/module-diagrams/src/positional-check.ts": "50736c5283fdefbe9c0b501fb385445e3092867ad93cf6e3aa744f4aedae1e4e",
-    "packages/module-diagrams/src/positional-layout.ts": "2d46fa8710bab9f3b512733d1e2ad2fe4b3b1189f2438937903df55437d53a49",
+    "packages/module-diagrams/src/positional-layout.ts": "47759c55dbd58bbec1cf25868f0f07270c1cec4d1a70c8f67ed29498ce8ad6ff",
     "packages/module-diagrams/src/positional-spec.ts": "2ab49b3b1f68610a4fea8ac90cde0a34ac96e099d21f7d3383fa72b44ce64a87",
     "packages/module-diagrams/src/containment.ts": "bb8ce8a46399e86e779d95c79c26e72db2d0005a9f517bcb86d0d4f0d79f4a24",
     "packages/module-diagrams/src/node-link-check.ts": "8d79f23079a7c9e0592315ae37515fcf92af9c70a1992cbf52ba9d6032fff3eb",
@@ -167,16 +179,30 @@ const declarations:DocumentDeclaration[]=[{
   }
 }];
 export interface BrowserDocumentInputs {runtime:string[];bytes:string[];}
+/** The reviewed declarations, read-only, for the producer-closure guard in tests (#2348). */
+export const reviewedBrowserDocuments:readonly Readonly<DocumentDeclaration>[]=declarations;
 /** Requires a successful complete activation audit; aliases/loaders are checked
  * there. All producers/dependencies retain normal input traversal here.
  */
 export function boundBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters):Map<string,Map<string,BrowserDocumentInputs>>{
-  const result=new Map<string,Map<string,BrowserDocumentInputs>>();
+  return evaluateBrowserDocuments(root,files,importers).bound;
+}
+/** Why each declared document owner did not bind, naming the first offending file (#2348). */
+export function browserDocumentRefusals(root:string,files:readonly string[],importers:BrowserImporters):Map<string,string>{
+  return evaluateBrowserDocuments(root,files,importers).refusals;
+}
+function evaluateBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters){
+  const result=new Map<string,Map<string,BrowserDocumentInputs>>(),refusals=new Map<string,string>();
   const matches=(file:string,hash:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===hash;};
-  if(!matches(config,"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db"))return result;
+  if(!matches(config,"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db")){for(const declaration of declarations)refusals.set(declaration.owner,`unreviewed configuration ${config}`);return {bound:result,refusals};}
   for(const declaration of declarations){
     const callers=new Map<string,{hash:string;calls:number}>([[declaration.caller,{hash:declaration.callerHash,calls:declaration.calls}],...Object.entries(declaration.additionalCallers??{})]);
-    if(![config,declaration.owner,...callers.keys()].every(file=>files.includes(file))||!matches(declaration.owner,declaration.ownerHash)||[...callers].some(([file,entry])=>!matches(file,entry.hash))||Object.entries(declaration.producers).some(([file,hash])=>!matches(file,hash))||[...(importers.get(declaration.owner)??[])].some(file=>file!==config))continue;
+    const absent=[config,declaration.owner,...callers.keys()].find(file=>!files.includes(file));
+    const drifted=!matches(declaration.owner,declaration.ownerHash)?declaration.owner:
+      [...callers].find(([file,entry])=>!matches(file,entry.hash))?.[0]??Object.entries(declaration.producers).find(([file,hash])=>!matches(file,hash))?.[0];
+    const importer=[...(importers.get(declaration.owner)??[])].find(file=>file!==config);
+    const refusal=absent?`not selected: ${absent}`:drifted?`stale reviewed pin: ${drifted}`:importer?`direct command-owner importer: ${importer}`:undefined;
+    if(refusal){refusals.set(declaration.owner,refusal);continue;}
     const counts=new Map([...callers.keys()].map(file=>[file,0]));let unsafe=false;
     for(const file of files){
       if(!/\.[cm]?[jt]sx?$/.test(file))continue;
@@ -194,7 +220,7 @@ export function boundBrowserDocuments(root:string,files:readonly string[],import
       };bindings(source);
       const walk=(node:ts.Node)=>{
         if(ts.isPropertyAccessExpression(node)&&ts.isIdentifier(node.expression)&&names.has(node.expression.text)&&node.name.text===declaration.command){
-          if(!callers.has(file)||!ts.isCallExpression(node.parent)||node.parent.expression!==node)unsafe=true;else counts.set(file,counts.get(file)!+1);
+          if(!callers.has(file)||!ts.isCallExpression(node.parent)||node.parent.expression!==node){unsafe=true;refusals.set(declaration.owner,`${callers.has(file)?"unchecked command use":"unreviewed caller"}: ${file}`);}else counts.set(file,counts.get(file)!+1);
         }
         ts.forEachChild(node,walk);
       };walk(source);
@@ -203,7 +229,9 @@ export function boundBrowserDocuments(root:string,files:readonly string[],import
     // Ghost: argument-free call immediately after the exact Performance story;
     // all replay network attempts abort and fail before/after fonts and trace.
     const producers=Object.keys(declaration.producers);
-    if(!unsafe&&[...callers].every(([file,entry])=>counts.get(file)===entry.calls))result.set(declaration.owner,new Map([[declaration.sink,{runtime:[...callers.keys(),...producers.filter(file=>/\.[cm]?[jt]sx?$/.test(file))],bytes:producers.filter(file=>!/\.[cm]?[jt]sx?$/.test(file))}]]));
+    const miscounted=[...callers].find(([file,entry])=>counts.get(file)!==entry.calls)?.[0];
+    if(!unsafe&&miscounted)refusals.set(declaration.owner,`reviewed call count changed: ${miscounted}`);
+    if(!unsafe&&!miscounted)result.set(declaration.owner,new Map([[declaration.sink,{runtime:[...callers.keys(),...producers.filter(file=>/\.[cm]?[jt]sx?$/.test(file))],bytes:producers.filter(file=>!/\.[cm]?[jt]sx?$/.test(file))}]]));
   }
-  return result;
+  return {bound:result,refusals};
 }

@@ -41,7 +41,7 @@ test("free boxes require a 4px grid and may touch but cannot overlap", () => {
   expect(check(spec).errors.some(item => item.path === "$.nodes[1].size[0]" && item.code === "grid")).toBe(true);
 });
 test("universal budgets warn without refusing and focal roles cannot bypass the two-element limit", () => {
-  const spec = base(); spec.type = "timeline"; spec.nodes = Array.from({ length: 10 }, (_, i) => ({ id: `raft-${i}`, label: "Odysseus's raft" }));
+  const spec = base(); spec.size = "fit"; spec.type = "timeline"; spec.nodes = Array.from({ length: 10 }, (_, i) => ({ id: `raft-${i}`, label: "Odysseus's raft" }));
   spec.groups = []; spec.focal = [];
   spec.edges = Array.from({ length: 13 }, () => ({ from: "raft-0", to: "raft-1", label: "WORD FOR PENELOPE" }));
   spec.callouts = Array.from({ length: 3 }, () => ({ target: "raft-0", text: "Prepare provisions." }));

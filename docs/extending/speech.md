@@ -251,7 +251,7 @@ can continue during that work; a previous input needs its transcription finish
 marker before a new utterance can be attributed safely. Missing finalization
 ends the epoch rather than guessing from model completion.
 
-This does not enable a client conversation UI or certify live provider/device
+Registration alone never opens capture or certifies live provider/device
 behavior. Exact permission audio, acoustic echo isolation and word alignment
 remain unproven until separate qualification. See the
 [conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
@@ -278,3 +278,25 @@ cut does not claim remote output cancellation, and `store:false` does not
 promise zero retention. The
 [conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
 describes the guarded correlation, bounded result appends and close receipts.
+
+## Live conversation in Chat
+
+The shipped conversation client uses the separately registered
+`LiveConversationProvider`; it leaves dictation unchanged. Open **Live
+conversation** from the composer's capture menu, review the destinations and
+capability limits, then select **Start**. With either built-in service, use
+**Send now** to commit recognized text. The ordinary transcript, tools and
+question/permission controls remain available while host work runs asynchronously.
+
+Mute ends microphone capture. Stop reply flushes local audio and pauses the
+speech epoch; its remote outcome stays separate. Resume first resynchronizes
+host work and keeps capture off until explicitly restarted. Leave returns to
+the composer with retained review text in its original draft. Background views
+do not play speech. Missing alignment reads as spoken portion unknown.
+
+This client requires the host's `conversationPause` capability in addition to
+`liveConversation`. The additive lifecycle fields, opening correlation and
+agent-profile routing are described in the
+[wire contract](../integration-contract/wire.md#live-conversation-additive-957).
+Registering a service is explicit; it does not certify the separate live-device
+qualification or enable exact permission speech without evidence.

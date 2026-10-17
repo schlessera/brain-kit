@@ -384,6 +384,9 @@ export function makeBridge(
     },
     // Always present: a promotion also reaches the live view (#1698).
     activity: (event: Parameters<NonNullable<BackendBridge["activity"]>>[0]) => {
+      if (event.kind === "permission_denied" && work?.posture === "voice" && !signal.aborted && isAuthorized() && turn.turnId === turnId && coordinator.resolvedApprovals.get(event.toolUseId)?.turnId !== turnId) {
+        coordinator.recordApprovalOutcome(event.toolUseId, { outcome: "denied", turnId, sessionId: turn.sessionId, reason: "voice_posture" });
+      }
       if (event.kind === "main_model") {
         if (turn.turnId === turnId && turn.backendStarted && !signal.aborted && !turn.cancelled && event.model
           && (!turn.sessionId || turn.sessionId === event.sessionId)) mainModel?.bind(event.model);
