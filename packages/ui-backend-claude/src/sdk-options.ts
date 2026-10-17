@@ -219,6 +219,7 @@ function assembleClaudeSdkTurn(
     ...CLEARED_API_CREDENTIALS,
     CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER,
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
+    ANTHROPIC_BASE_URL: "http://localhost",
   } : undefined;
   const childEnv = inferenceEnv ? { ...inheritedEnv, ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and
