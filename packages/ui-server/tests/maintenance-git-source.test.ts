@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { parseMaintenanceGitSources } from "../src/brain/maintenance-git-source.js";
+import { parseMaintenanceGitSources, parseMaintenanceGitFailure } from "../src/brain/maintenance-git-source.js";
 const entry = resolve(import.meta.dir, "../src/brain/maintenance-git-source.ts");
 const git = Bun.which("git")!;
 function fixture(run: (root: string, home: string) => void) {
@@ -69,4 +69,27 @@ test("receipt parser rejects escaping, duplicate and foreign attribute records",
     expect(() => parseMaintenanceGitSources(JSON.stringify({ ...base, attributes: paths.map(path => ({ path, data: "" })) }), 4096, "1:2")).toThrow();
   }
   expect(() => parseMaintenanceGitSources(JSON.stringify(base), 4096, "3:4")).toThrow();
+});
+
+test("fixed Git failure diagnostics never forward malicious stderr properties or bytes", () => {
+  const unknown = { phase: "unknown", errorClass: "unknown", errno: "unknown" };
+  for (const text of [
+    JSON.stringify({ phase: "attrs", errorClass: "Error", errno: "EACCES", private: "Odysseus hidden worker stderr" }) + "\nConcrete Git source collection refused\n",
+    JSON.stringify({ phase: "Odysseus hidden worker stderr", errorClass: "Error", errno: "EACCES" }) + "\nConcrete Git source collection refused\n",
+    "Odysseus hidden worker stderr", "x".repeat(513), "null\nConcrete Git source collection refused\n",
+  ]) {
+    const receipt = parseMaintenanceGitFailure(text);
+    expect(receipt, "UNTRUSTED_GIT_FAILURE_STDERR_NOT_FORWARDED").toEqual(unknown);
+    expect(JSON.stringify(receipt)).not.toContain("Odysseus hidden worker stderr");
+  }
+  expect(parseMaintenanceGitFailure('{"phase":"attrs","errorClass":"Error","errno":"EACCES"}\nConcrete Git source collection refused\n'))
+    .toEqual({ phase: "attrs", errorClass: "Error", errno: "EACCES" });
+  fixture((root, home) => {
+    const program = join(home, "git-refusal");
+    writeFileSync(program, '#!/bin/sh\nprintf "Odysseus hidden worker stderr" >&2\nexit 23\n', { mode: 0o700 });
+    const result = collect(root, home, 1024 ** 2, undefined, program);
+    expect(result.code).not.toBe(0); expect(result.output).toBe("");
+    expect(result.error).not.toContain("Odysseus hidden worker stderr"); expect(result.error).not.toContain(root);
+    expect(parseMaintenanceGitFailure(result.error)).toEqual({ phase: "config", errorClass: "Error", errno: "unknown" });
+  });
 });

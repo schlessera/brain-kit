@@ -8,6 +8,32 @@ export interface MaintenanceGitSources {
   hookNames: string[];
   attributes: { path: string; data: string }[];
 }
+const phases = ["metadata", "config", "hooks", "attrs", "receipt"] as const;
+const errorClasses = ["Error", "TypeError", "RangeError", "SyntaxError", "SystemError"] as const;
+const errnos = ["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP", "ESTALE", "EIO", "EMFILE", "ENFILE", "ENOMEM", "E2BIG"] as const;
+const unknownFailure = () => ({ phase: "unknown", errorClass: "unknown", errno: "unknown" });
+class CollectionFailure extends Error {
+  readonly diagnostic;
+  constructor(phase: string, error: unknown) {
+    super("Concrete Git source collection refused");
+    const kind = error instanceof Error ? error.name : "unknown", code = (error as NodeJS.ErrnoException | null)?.code;
+    this.diagnostic = { phase: phases.includes(phase as any) ? phase : "unknown",
+      errorClass: errorClasses.includes(kind as any) ? kind : "unknown", errno: errnos.includes(code as any) ? code! : "unknown" };
+  }
+}
+/** Decode only the fixed refusal receipt; never forward worker stderr. */
+export function parseMaintenanceGitFailure(stderr: string) {
+  if (Buffer.byteLength(stderr) > 512) return unknownFailure();
+  try {
+    const lines = stderr.trim().split("\n");
+    if (lines.length !== 2 || lines[1] !== "Concrete Git source collection refused") return unknownFailure();
+    const value = JSON.parse(lines[0]!);
+    if (!value || Object.keys(value).sort().join(",") !== "errno,errorClass,phase"
+      || ![...phases, "unknown"].includes(value.phase) || ![...errorClasses, "unknown"].includes(value.errorClass)
+      || ![...errnos, "unknown"].includes(value.errno)) return unknownFailure();
+    return { phase: value.phase as string, errorClass: value.errorClass as string, errno: value.errno as string };
+  } catch { return unknownFailure(); }
+}
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 const FILE = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
@@ -25,7 +51,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
   const root = process.cwd(), fd = openSync(".", DIRECTORY), rootInfo = fstatSync(fd);
   const at = (directory: number, child = "") => `/proc/self/fd/${directory}/${child || "."}`;
   const answer: MaintenanceGitSources = { rootIdentity: identity(rootInfo), repository: false, config: [], hookNames: [], attributes: [] };
-  let entries = 0, bytes = 0;
+  let entries = 0, bytes = 0, phase = "metadata";
   function charge(value: string) { bytes += Buffer.byteLength(value); if (bytes > maximum) throw Error("Concrete Git inputs exceed their bound"); }
   function members(directory: number): string[] {
     return readdirSync(at(directory), { encoding: "buffer" }).map(raw => {
@@ -51,6 +77,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
       if (!config) return answer;
       if (!config.isFile() || config.nlink !== 1) throw Error("Unsupported Git configuration input");
     } finally { closeSync(git); }
+    phase = "config";
     if (!isAbsolute(binary)) throw Error("Maintenance needs its fixed Git binary");
     const child = Bun.spawn([binary, "-c", `safe.directory=${root}`, "config", "--null", "--list", "--includes"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -76,6 +103,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
     } catch (error) { child.kill("SIGKILL"); await Promise.allSettled(pending); throw error; }
     finally { if (timer) clearTimeout(timer); }
     answer.repository = true;
+    phase = "hooks";
     const declared = answer.config.filter(([key]) => key.toLowerCase() === "core.hookspath").at(-1)?.[1];
     const hooks = declared ? resolve(root, declared) : join(root, ".git/hooks");
     if (hooks === root || hooks.startsWith(`${root}/`)) {
@@ -113,10 +141,13 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
         }
       }
     }
+    phase = "attrs";
     walk(fd, "", 0);
+    phase = "receipt";
     if (identity(fstatSync(fd)) !== expectedRoot || Buffer.byteLength(JSON.stringify(answer)) > maximum) throw Error("Changed or oversized concrete Git source receipt");
     return answer;
-  } finally { closeSync(fd); }
+  } catch (error) { throw new CollectionFailure(phase, error); }
+  finally { closeSync(fd); }
 }
 export function parseMaintenanceGitSources(text: string, maximum: number, expectedRoot: string): MaintenanceGitSources {
   if (Buffer.byteLength(text) > maximum) throw Error("Oversized concrete Git source receipt");
@@ -138,5 +169,6 @@ export function parseMaintenanceGitSources(text: string, maximum: number, expect
 }
 if (import.meta.main) {
   try { console.log(JSON.stringify(await collectMaintenanceGitSources(process.argv[2]!, Number(process.argv[3]), process.argv[4]!))); }
-  catch { console.error("Concrete Git source collection refused"); process.exitCode = 1; }
+  catch (error) { console.error(JSON.stringify(error instanceof CollectionFailure ? error.diagnostic : unknownFailure()));
+    console.error("Concrete Git source collection refused"); process.exitCode = 1; }
 }

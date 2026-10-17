@@ -3,7 +3,7 @@ import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, 
 import { dirname, join, resolve } from "node:path";
 import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { parseMaintenanceGitSources, type MaintenanceGitSources } from "./maintenance-git-source.js";
+import { parseMaintenanceGitSources, parseMaintenanceGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
 
 const TARGET = "/tmp/brain-maintenance-git";
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -33,7 +33,11 @@ async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<R
     command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, binary ?? "", String(maximum), expectedRoot],
     readPaths: [...(command.readPaths ?? []), entry, ...(binary ? [binary] : [])], network: false, timeoutMs: 30000, ...(signal ? { signal } : {}) });
   validate();
-  if (result.exitCode !== 0 || result.killed) throw Error("Cannot freeze retained concrete Git sources");
+  if (result.exitCode !== 0 || result.killed) {
+    const exitCode = Number.isInteger(result.exitCode) && result.exitCode >= -255 && result.exitCode <= 255 ? result.exitCode : null;
+    console.error(JSON.stringify({ maintenanceGitSourceFailure: { exitCode, killed: result.killed === true, ...parseMaintenanceGitFailure(result.stderr) } }));
+    throw Error("Cannot freeze retained concrete Git sources");
+  }
   return parseMaintenanceGitSources(result.stdout.trim(), maximum, expectedRoot);
 }
 

@@ -168,7 +168,9 @@ if (process.argv[2] === "--index-child") {
       if (sharedGit) {
         writeFileSync("/proof/shared-git-server.stdout", aggregateOutput); writeFileSync("/proof/shared-git-server.stderr", aggregateErrors);
         if (phase) { writeFileSync(`/proof/shared-git-${phase}-server.stdout`, output); writeFileSync(`/proof/shared-git-${phase}-server.stderr`, errors); }
-        console.log(JSON.stringify({ sharedGitPhase: phase, code, ms: performance.now() - started }));
+        const receipt = { sharedGitPhase: phase, code, ms: performance.now() - started };
+        if (phase) writeFileSync(`/proof/shared-git-${phase}-phase.json`, JSON.stringify(receipt));
+        console.log(JSON.stringify(receipt));
       }
       console.log(JSON.stringify({ foreignProbeRequests: foreignRequests }));
       expect(code, errors).toBe(0); expect(foreignRequests, "FOREIGN_PROBE_LISTENER_NEVER_CONTACTED").toBe(0); console.log(output);

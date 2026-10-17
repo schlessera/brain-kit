@@ -1699,7 +1699,7 @@ rewrite. The collector imports no brain code, gains no network, and cannot
 select a new input root. The host binds its root receipt to the retained
 checkpoint and revalidates the original view, command and output identity
 before consuming it (`privateGitSources`,
-`packages/ui-server/src/brain/maintenance-git.ts:14-38`).
+`packages/ui-server/src/brain/maintenance-git.ts:14-42`).
 
 Attribute bytes round-trip UTF-8 exactly; aliases, unsupported types, unreadable
 inputs and bound/depth/entry overflow refuse instead of inventing absent
@@ -1708,7 +1708,7 @@ actual configuration query keeps the same host-resolved runtime and cleared
 worker environment; the existing adapter supplies the immutable hooks and
 attributes to later Git consumers. Credentialed and no-helper preparation keep
 their existing paths (`collectMaintenanceGitSources`,
-`packages/ui-server/src/brain/maintenance-git-source.ts:23-120`).
+`packages/ui-server/src/brain/maintenance-git-source.ts:49-151`).
 
 
 **Verification from inside a real worker.** The probe checks:
