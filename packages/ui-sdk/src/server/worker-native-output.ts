@@ -1,5 +1,5 @@
 /** Changed-only publication from a root-inspected trusted OverlayFS stage. */
-import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, fchmodSync, lstatSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -10,6 +10,9 @@ import { isEnvName, PROTECTED_TIER_A } from "./protected-paths.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
 import type { KeyedLock } from "./keyed-lock.js";
 import { NativeBrainManagerError, type NativeStage } from "./native-brain-manager-protocol.js";
+import { maintenanceEnvMaskQueries, hostEnvMaskQuery, type EnvMaskQuery } from "./maintenance-env-masks.js";
+import { captureMaintenanceGitFiles, maintenanceGitDigest, type MaintenanceGitManifest } from "./maintenance-git-input.js";
+import type { WorkerLaunch } from "./worker-launcher.js";
 import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 
 export interface WorkerOutputStorage {
@@ -27,6 +30,83 @@ export interface PreparedWorkerOutput {
   publishLocked(lock: KeyedLock): Promise<void>;
   /** Await stage deletion, then release the owned checkpoint reference. Idempotent. */
   cleanup(): Promise<void>;
+}
+type NativeMaintenanceOwner = {
+  protected: boolean;
+  generation: number;
+  bindExecution(exited: Promise<unknown>): void;
+  assertCurrent(input: WorkerLaunch): void;
+  masks(input: WorkerLaunch, signal?: AbortSignal): Promise<string[]>;
+  git(input: WorkerLaunch, spec: NonNullable<NonNullable<WorkerLaunch["maintenance"]>["git"]>, signal?: AbortSignal): Promise<NativeMaintenanceGitPreparation>;
+  finishGit(preparation: NativeMaintenanceGitPreparation, receipt: { inode: string; digest: string }, signal?: AbortSignal): Promise<void>;
+};
+type GitSpec = NonNullable<NonNullable<WorkerLaunch["maintenance"]>["git"]>;
+type NativeGitLease = { owner: NativeMaintenanceOwner; relative: string; hostSource: string; spec: GitSpec; inode?: string; digest?: string; ready: boolean };
+export type NativeMaintenanceGitPreparation = { owner: NativeMaintenanceOwner; lease: NativeGitLease; manifest: MaintenanceGitManifest; generation: number };
+const nativeGitPreparations = new WeakSet<NativeMaintenanceGitPreparation>();
+const nativeGitSpecs = new WeakMap<GitSpec, NativeGitLease>();
+const nativeGitWriters = new WeakMap<WorkerLaunch, NativeMaintenanceGitPreparation>();
+const nativeMaintenanceOwners = new WeakMap<WorkerOutputStorage, NativeMaintenanceOwner>();
+const nativeMaintenancePlans = new WeakMap<WorkerLaunch, { owner: NativeMaintenanceOwner; context: string; generation: number; masks: string[] }>();
+const maskContext = (input: WorkerLaunch) => JSON.stringify({ brain: input.brainPath, view: input.startupView?.root,
+  command: input.command, env: input.env, maintenance: input.maintenance && { ...input.maintenance,
+    output: input.maintenance.output && { source: input.maintenance.output.source, target: input.maintenance.output.target } } });
+function maintenanceOwner(input: WorkerLaunch): NativeMaintenanceOwner | undefined {
+  const output = input.maintenance?.output;
+  if (!output?.storage || input.maintenance?.credentials) return undefined;
+  const owner = nativeMaintenanceOwners.get(output.storage);
+  if (!owner && workerIdentityHelper()) throw Error("native maintenance requires its retained attested stage owner");
+  return owner?.protected ? owner : undefined;
+}
+/** Concrete Git input only, tied to an existing retained stage and fixed producer. */
+export async function prepareNativeMaintenanceGit(input: WorkerLaunch, spec: GitSpec, signal?: AbortSignal): Promise<NativeMaintenanceGitPreparation | undefined> {
+  const owner = maintenanceOwner(input); if (!owner) return undefined;
+  owner.assertCurrent(input);
+  const preparation = await owner.git(input, spec, signal);
+  nativeGitPreparations.add(preparation); return preparation;
+}
+export function authorizeNativeMaintenanceGitWriter(input: WorkerLaunch, preparation: NativeMaintenanceGitPreparation): void {
+  if (!nativeGitPreparations.has(preparation) || maintenanceOwner(input) !== preparation.owner || preparation.generation !== preparation.owner.generation || input.maintenance?.git)
+    throw Error("Foreign maintenance Git input preparation");
+  preparation.owner.assertCurrent(input); nativeGitWriters.set(input, preparation);
+}
+export async function finishNativeMaintenanceGit(preparation: NativeMaintenanceGitPreparation, receipt: { inode: string; digest: string }, signal?: AbortSignal): Promise<GitSpec> {
+  if (!nativeGitPreparations.delete(preparation)) throw Error("Replayed maintenance Git input preparation");
+  await preparation.owner.finishGit(preparation, receipt, signal); return preparation.lease.spec;
+}
+/** Package-private concrete preparation; no caller-provided reader or receipt is authority. */
+export async function prepareNativeMaintenanceMasks(input: WorkerLaunch, signal?: AbortSignal): Promise<void> {
+  nativeMaintenancePlans.delete(input);
+  const owner = maintenanceOwner(input); if (!owner) return;
+  try {
+    if (!input.startupView) throw Error("native maintenance requires an explicit prepared startup view");
+    signal?.throwIfAborted();
+    owner.assertCurrent(input); const context = maskContext(input), generation = owner.generation, masks = await owner.masks(input, signal);
+    owner.assertCurrent(input);
+    signal?.throwIfAborted();
+    if (generation !== owner.generation || context !== maskContext(input)) throw Error("changed maintenance command");
+    nativeMaintenancePlans.set(input, { owner, context, generation, masks });
+  } catch { throw Error("native maintenance mask metadata is unavailable or changed"); }
+}
+/** Transfer only between the same concrete envelope before its single synchronous launch. */
+export function transferNativeMaintenanceMasks(from: WorkerLaunch, to: WorkerLaunch): void {
+  const plan = nativeMaintenancePlans.get(from); nativeMaintenancePlans.delete(from);
+  if (!plan) return;
+  if (plan.generation !== plan.owner.generation || plan.context !== maskContext(to)) throw Error("native maintenance command changed after mask preparation");
+  plan.owner.assertCurrent(to); nativeMaintenancePlans.set(to, plan);
+  const writer = nativeGitWriters.get(from); nativeGitWriters.delete(from);
+  if (writer) nativeGitWriters.set(to, writer);
+}
+/** A protected stage never falls back to direct host traversal or a prior command's plan. */
+export function consumeNativeMaintenanceMasks(input: WorkerLaunch): string[] | undefined {
+  const plan = nativeMaintenancePlans.get(input); nativeMaintenancePlans.delete(input);
+  const owner = maintenanceOwner(input); if (!owner) return undefined;
+  if (!plan || plan.owner !== owner || plan.generation !== owner.generation || plan.context !== maskContext(input)) throw Error("native maintenance masks require fresh asynchronous preparation");
+  owner.assertCurrent(input); nativeGitWriters.delete(input); owner.generation++; return [...plan.masks];
+}
+/** Concrete stage ownership only; a completed command invalidates every earlier plan. */
+export function bindNativeMaintenanceExit(input: WorkerLaunch, exited: Promise<unknown>): void {
+  maintenanceOwner(input)?.bindExecution(exited);
 }
 const executionDrain = new WeakMap<PreparedWorkerOutput, { exited?: Promise<void> }>();
 /** Launcher-only ownership transfer: even a post-spawn failure must drain the child before deletion. */
@@ -116,6 +196,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
   let prepared: PreparedWorkerOutput | undefined, stageRequested = false;
   const id = randomUUID(); let stage: NativeStage | undefined, fd: number | undefined, cleanupPromise: Promise<void> | undefined;
   let identityTicket: { fd: number; close(): void } | undefined;
+  const gitControls = new Map<string, NativeGitLease>();
   const cleanup = () => cleanupPromise ??= (async () => {
     if (prepared) await executionDrain.get(prepared)?.exited;
     identityTicket?.close(); identityTicket = undefined;
@@ -138,7 +219,8 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
     fd = openSync(`/proc/${stage.namespacePid}/root${stage.path}`, DIRECTORY);
     const info = fstatSync(fd, { bigint: true });
     if (String(info.dev) !== stage.rootDevice || String(info.ino) !== stage.rootInode) throw Error("Native stage mounted-root identity differs from its receipt");
-    if (workerIdentityHelper()) identityTicket = await native.manager.attestStage(id, options.signal);
+    const retainedHelper = workerIdentityHelper();
+    if (retainedHelper) identityTicket = await native.manager.attestStage(id, options.signal);
     options.signal?.throwIfAborted();
     const root = `/proc/${process.pid}/fd/${fd}`, storage: WorkerOutputStorage = { root, mount: stage.path, namespacePid: stage.namespacePid,
       namespaceStart: stage.namespaceStart, ...(identityTicket ? { identityTicketFd: identityTicket.fd } : {}),
@@ -205,9 +287,11 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
           add(child); await expand(child, depth + 1);
         }
       }
-      function add(rel: string) { if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
+      const isGitControl = (rel: string) => [...gitControls.keys()].some(root => rel === root || rel.startsWith(`${root}/`));
+      function add(rel: string) { if (isGitControl(rel)) return; if (++count > 200_000) throw Error("Native output exceeds existing 200000 entry bound"); candidates.add(rel); }
       for await (const change of receipt.changes) {
         const rel = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(change.pathHex, "hex"));
+        if (isGitControl(rel)) continue;
         // Validate components before any host path walk.
         if (rel.split("/").some(p => !p || p === "." || p === ".." || p.includes("\u0000"))) throw Error("Invalid native stage path");
         add(rel); if (change.kind === "whiteout" || change.kind === "opaque") await expand(rel);
@@ -346,7 +430,95 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         if (publicationError) throw publicationError;
       } finally { for (const release of releases.reverse()) release(); }
     }
-    prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup }; executionDrain.set(prepared, {}); return prepared;
+    prepared = { view, output, publish: () => publish(), publishLocked: publish, cleanup };
+    const maintenanceOwner: NativeMaintenanceOwner = {
+      protected: Boolean(identityTicket), generation: 0,
+      bindExecution(exited) { if (prepared) bindPreparedWorkerOutputExit(prepared, exited); },
+      assertCurrent(input) {
+        if (cleanupPromise || fd === undefined || !stage || input.maintenance?.output?.storage !== storage
+          || input.maintenance.output.source !== output.source || workerIdentityHelper() !== retainedHelper
+          || input.brainPath !== brain || storage.root !== root || storage.mount !== stage.path
+          || storage.namespacePid !== stage.namespacePid || storage.namespaceStart !== stage.namespaceStart
+          || storage.identityTicketFd !== identityTicket?.fd)
+          throw Error("native maintenance stage owner is closed or foreign");
+        const current = fstatSync(fd, { bigint: true });
+        if (current.dev !== info.dev || current.ino !== info.ino
+          || readFileSync(`/proc/${stage.namespacePid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19] !== stage.namespaceStart)
+          throw Error("native maintenance stage identity changed");
+        if (!input.startupView || input.startupView.root !== native.checkpoint.path || input.startupView.brain !== brain)
+          throw Error("native maintenance checkpoint owner is absent or changed");
+        const git = input.maintenance?.git;
+        if (git) {
+          const lease = nativeGitSpecs.get(git);
+          if (!lease || lease.owner !== this || !lease.ready || !lease.inode || !lease.digest || gitControls.get(lease.relative) !== lease
+            || git.source !== join(output.source, lease.relative) || git.target !== "/tmp/brain-maintenance-git")
+            throw Error("Unprepared or foreign concrete maintenance Git input");
+        }
+        const checkpoint = nativeWorkerStartupInput(input.startupView);
+        if (checkpoint.manager !== native.manager || checkpoint.checkpoint.id !== native.checkpoint.id
+          || checkpoint.checkpoint.uuid !== native.checkpoint.uuid)
+          throw Error("native maintenance checkpoint owner is foreign");
+      },
+      async git(input, spec, commandSignal) {
+        const signal = commandSignal && options.signal ? AbortSignal.any([commandSignal, options.signal]) : commandSignal ?? options.signal;
+        signal?.throwIfAborted();
+        if (prepared) await executionDrain.get(prepared)?.exited;
+        this.assertCurrent(input);
+        const prior = nativeGitSpecs.get(spec), hostSource = join(dirname(output.source), "git-adapter");
+        if (spec.target !== "/tmp/brain-maintenance-git" || (prior ? prior.owner !== this || prior.hostSource !== hostSource : spec.source !== hostSource))
+          throw Error("Foreign concrete maintenance Git input");
+        const lease: NativeGitLease = prior ?? { owner: this, relative: `.brain-maintenance-git-${randomUUID()}`, hostSource,
+          spec: { ...spec, source: "" }, ready: false };
+        if (!prior) {
+          if (await native.manager.statStage(id, lease.relative, await readerUid(), signal)) throw Error("Maintenance Git control path already exists");
+          lease.spec.source = join(output.source, lease.relative);
+          gitControls.set(lease.relative, lease); nativeGitSpecs.set(lease.spec, lease);
+        }
+        const files = captureMaintenanceGitFiles(hostSource, storage.allowanceBytes);
+        const manifest: MaintenanceGitManifest = { relative: lease.relative, maximum: storage.allowanceBytes, files,
+          ...(lease.inode && lease.digest ? { previous: { inode: lease.inode, digest: lease.digest } } : {}) };
+        if (Buffer.byteLength(JSON.stringify(manifest)) > storage.allowanceBytes) throw Error("Maintenance Git input exceeds its existing stage allowance");
+        lease.ready = false;
+        return { owner: this, lease, manifest, generation: this.generation };
+      },
+      async finishGit(preparation, receipt, commandSignal) {
+        if (cleanupPromise || preparation.owner !== this || preparation.generation + 1 !== this.generation || gitControls.get(preparation.lease.relative) !== preparation.lease)
+          throw Error("Closed or foreign maintenance Git input");
+        const item = await native.manager.statStage(id, preparation.lease.relative, await readerUid(), commandSignal ?? options.signal);
+        if (!item || item.kind !== "directory" || item.mode !== 0o700 || item.inode !== receipt.inode
+          || receipt.digest !== maintenanceGitDigest(preparation.manifest.files)) throw Error("Changed maintenance Git input receipt");
+        preparation.lease.inode = receipt.inode; preparation.lease.digest = receipt.digest; preparation.lease.ready = true;
+      },
+      async masks(input, commandSignal) {
+        const signal = commandSignal && options.signal ? AbortSignal.any([commandSignal, options.signal]) : commandSignal ?? options.signal;
+        signal?.throwIfAborted();
+        if (prepared) await executionDrain.get(prepared)?.exited;
+        signal?.throwIfAborted();
+        const uid = await readerUid(), source = output.source;
+        const copies = [{ from: brain, to: input.maintenance!.output!.target }];
+        const plan = maintenanceEnvMaskQueries(source, brain, copies); let step = plan.next();
+        while (!step.done) {
+          const query: EnvMaskQuery = step.value;
+          // The held root permits metadata on the merged directory itself;
+          // only its contents require the already-authorized fixed reader.
+          if (query.path === source && query.operation === "stat" || !(query.path === source || query.path.startsWith(`${source}/`))) {
+            step = plan.next(hostEnvMaskQuery(query)); continue;
+          }
+          const rel = query.path === source ? "" : query.path.slice(source.length + 1);
+          if (query.operation === "list") step = plan.next((await native.manager.listStage(id, rel, uid, signal)).map(row => row.path.slice(rel ? rel.length + 1 : 0)));
+          else {
+            const item = await native.manager.statStage(id, rel, uid, signal);
+            step = plan.next(item ? { kind: item.kind, ...(item.kind === "symlink" ? { target: item.target } : {}) } : undefined);
+          }
+          if (cleanupPromise) throw Error("native maintenance stage closed during metadata preparation");
+        }
+        const writer = nativeGitWriters.get(input);
+        return [...step.value, ...[...gitControls.values()].flatMap(control => writer?.lease === control ? []
+          : ["--tmpfs", join(input.maintenance!.output!.target, control.relative), "--remount-ro", join(input.maintenance!.output!.target, control.relative)])];
+      },
+    };
+    nativeMaintenanceOwners.set(storage, maintenanceOwner);
+    executionDrain.set(prepared, {}); return prepared;
   } catch (error) {
     const refusal = error instanceof NativeBrainManagerError && error.code === "capacity"
       ? new WorkerStateError(FIRST_PARTY_FAILURE_CLASSES.worker_state_busy, `Native worker output staging capacity refused before launch: ${error.message} Nothing was sent. Retry after another conversation finishes, or align the configured manager allowance and budget.`) : error;

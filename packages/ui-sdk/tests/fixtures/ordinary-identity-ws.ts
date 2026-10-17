@@ -1,7 +1,7 @@
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, mkdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createApp } from "../../../ui-server/src/app.js";
 import { resolveServerConfig } from "../../../ui-server/src/config/env.js";
 import { createStaticBackendRegistry } from "../../../ui-server/src/agent/backend.js";
@@ -11,10 +11,11 @@ import { createClaudeBackend } from "../../../ui-backend-claude/src/backend.js";
 import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/native-model-reply.js";
 import { serializeSigned } from "hono/utils/cookie";
 
+const warm = new URL(import.meta.url).searchParams.has("warm");
 const profile = new URL(import.meta.url).searchParams.get("profile") === "strict" ? "strict" : "governed";
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
 const home = join(root, "home"), config = join(home, ".claude"), data = root;
-mkdirSync(data, { mode: 0o700 }); mkdirSync(config, { recursive: true, mode: 0o700 });
+mkdirSync(data, { mode: 0o700, recursive: true }); mkdirSync(config, { recursive: true, mode: 0o700 });
 const requests: Array<{ model: string; history: number; apiCredential: boolean }> = [];
 // Native worker calls this loopback provider directly. The outer Docker network
 // namespace has no external route; no fetch implementation or native SDK is mocked.
@@ -36,12 +37,31 @@ const observability = createRecordingObservability(), secret = "odysseus-fixture
 let app: Awaited<ReturnType<typeof createApp>> | undefined;
 let server: ReturnType<typeof Bun.serve> | undefined;
 let socket: WebSocket | undefined;
+const spawnDescriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!, spawn = Bun.spawn, observedAdapters = new Set<string>();
+Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]) => {
+  const options = Array.isArray(args[0]) ? args[1] : args[0];
+  const launch = options?.env?.BRAIN_WORKER_LAUNCH;
+  if (launch) {
+    const outer = JSON.parse(launch);
+    const source = outer.maintenance?.git?.source;
+    if (source && !observedAdapters.has(source)) {
+      observedAdapters.add(source);
+      const nodes = [dirname(source), source, `${source}/config.json`].map((path, index) => {
+        try { const info = index === 0 ? statSync(path) : lstatSync(path); return { uid: info.uid, gid: info.gid, mode: (info.mode & 0o7777).toString(8), directory: info.isDirectory() }; }
+        catch (error) { return { error: (error as NodeJS.ErrnoException).code }; }
+      });
+      console.log(JSON.stringify({ actualFrozenGitAdapterOwnership: { serverUid: process.getuid?.(), serverGid: process.getgid?.(),
+        classes: ["attested-stage-container", "git-adapter", "frozen-config"], nodes } }));
+    }
+  }
+  return Reflect.apply(spawn, Bun, args);
+} });
 async function until(check: () => boolean, label: string) {
   const deadline = Date.now() + 30000;
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
 }
 try {
-  if (profile === "governed") {
+  if (profile === "governed" && !warm) {
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);
   }
@@ -52,6 +72,17 @@ try {
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus inference", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   const cookie = await serializeSigned("brain_ui_session", principal.id, secret), frames: Array<Record<string, unknown>> = [];
+  if (warm) {
+    const { captureWarmMaintenanceDatabase } = await import("../maintenance-stage-provenance.native.js");
+    await captureWarmMaintenanceDatabase(brain);
+  }
+  const index = await fetch(`http://127.0.0.1:${server.port}/api/brain/index`, { method: "POST",
+    headers: { cookie, origin: `http://127.0.0.1:${server.port}`, "content-type": "application/json" }, body: "{}" });
+  const indexed = await index.text();
+  console.log(JSON.stringify({ actualManagedIndex: { profile, warm, status: index.status, body: indexed },
+    diagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
+  expect(index.status, "ACTUAL_MANAGED_AUTHENTICATED_INDEX").toBe(200);
+  expect(JSON.parse(indexed), "ACTUAL_MANAGED_AUTHENTICATED_INDEX_PUBLISHED").toEqual({ success: true });
   const NativeWebSocket = WebSocket as unknown as { new(url: string, options: { headers: Record<string, string> }): WebSocket };
   socket = new NativeWebSocket(`ws://127.0.0.1:${server.port}/ws`, { headers: { cookie, origin: `http://127.0.0.1:${server.port}` } });
   socket.addEventListener("message", event => frames.push(JSON.parse(String(event.data))));
@@ -61,17 +92,15 @@ try {
   await until(() => frames.some(frame => frame.type === "result" || frame.type === "error"), "REAL_SERVER_NATIVE_TERMINAL");
   await until(() => !app!.wsHost.coordinator.isTurnActive(), "REAL_SERVER_RELEASED_TURN");
   const admittedProfiles = app.db.query("SELECT profile FROM turn_governance_policy").all();
-  // #2300 currently refuses governed maintenance qualification, so the real
-  // requested-governed app admits strict. Keep that residual explicit rather
-  // than claiming the requested profile proves actual governed admission.
-  expect(admittedProfiles, "ACTUAL_MANAGED_WS_SELECTED_PROFILE").toEqual([{ profile: "strict" }]);
-  expect(backendProfiles, "ACTUAL_MANAGED_WS_BACKEND_SANDBOX").toEqual(["strict"]);
-  if (profile === "governed") expect(observability.logs.records().some(log => String(log.body).includes("credential-free maintenance worker could not start")), "KNOWN_2300_GOVERNED_FALLBACK_DISCLOSED").toBe(true);
-  console.log(JSON.stringify({ profile, admittedProfiles, backendProfiles, requests, terminal: frames.filter(frame => frame.type === "result" || frame.type === "error"),
+  expect(admittedProfiles, "ACTUAL_MANAGED_WS_SELECTED_PROFILE").toEqual(Array.from({ length: warm ? 2 : 1 }, () => ({ profile })));
+  expect(backendProfiles, "ACTUAL_MANAGED_WS_BACKEND_SANDBOX").toEqual([profile]);
+  console.log(JSON.stringify({ profile, warm, admittedProfiles, backendProfiles, requests, terminal: frames.filter(frame => frame.type === "result" || frame.type === "error"),
     limitations: observability.logs.records().filter(log => log.severity === "WARN" || String(log.body).includes("governed profile is unavailable")).map(log => log.body) }));
   expect(requests, "ACTUAL_MANAGED_WS_NATIVE_REQUEST").toEqual([{ model: "claude-haiku-4-5", history: 1, apiCredential: true }]);
   expect(frames.some(frame => frame.type === "result" && frame.outcome === "success"), "ACTUAL_MANAGED_WS_NATIVE_RESULT").toBe(true);
   expect(frames.some(frame => frame.type === "error"), "ACTUAL_MANAGED_WS_ADMISSION_NO_ERROR").toBe(false);
   const unavailable = observability.logs.records().filter(log => String(log.body).includes("the governed profile is unavailable"));
-  if (profile === "governed") expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
-} finally { socket?.close(); server?.stop(true); await app?.close(); provider.stop(true); }
+  expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
+} finally { try { socket?.close(); server?.stop(true); await app?.close();
+  console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
+  provider.stop(true); } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } }

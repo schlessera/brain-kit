@@ -722,7 +722,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:1034-1062`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:977-1005`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1341,7 +1341,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1663`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1624`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1369,11 +1369,41 @@ remain in place. It grants no broader HOME access or shared-group permissions.
 The real-helper controls exercise private file/socket refusal, group-class
 `0701` search, canonical aliases and brain/runtime overlap refusal. Actual
 managed-server/native SDK/WS turns also complete with the nested database.
-Their recorded admission is strict: requested-governed admission still falls
-back because of the independent credential-free maintenance qualification
-failure tracked in #2300. Direct actual governed helper launch is separately
-qualified; these receipts do not claim governed createApp admission or default
-OAuth activation.
+Profile qualification observes the canonical admitted profile and the backend's
+actual sandbox independently of the requested profile. Explicit strict remains
+a separate control. A successful direct helper launch does not establish that
+every CLI or index consumer can use the same stage, and grants no default OAuth
+activation.
+
+### Protected maintenance metadata and concrete Git inputs — 2026-10-17
+
+The host cannot enumerate a worker-owned `0700` merged stage. Credential-free
+maintenance obtains only the required environment-name and alias metadata
+through the retained manager's existing fixed-UID stage reader. The asynchronous
+owner prepares each concrete command; the synchronous launcher consumes its
+private plan once, bound to the stage/checkpoint, keeper identity, command and
+stage generation. Stale, foreign, closed or unprepared protected inputs refuse
+before payload (`prepareNativeMaintenanceMasks`,
+`packages/ui-sdk/src/server/worker-native-output.ts:78-90`),
+(`consumeNativeMaintenanceMasks`,
+`packages/ui-sdk/src/server/worker-native-output.ts:101-107`).
+
+Configured-helper credential-free maintenance uses the same verified launcher
+as agent workers. It retains one execution view and binds the owned stage drain
+before setup can spawn a worker, so setup failure also preserves unresolved
+cleanup authority. Credentialed and no-helper maintenance keep their existing
+paths (`launchMaintenanceWorker`,
+`packages/ui-sdk/src/server/maintenance-worker.ts:196-260`).
+
+The frozen Git adapter is concrete first-party input. Its bounded installer
+places only its fixed files in an initially absent private control directory
+inside the existing attested stage. Each consumer sees the fixed Git target
+read-only; its writable stage alias is concealed and the control directory is
+excluded even from default-scope publication. This changes no source modes,
+manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
+`packages/ui-sdk/src/server/maintenance-worker.ts:85-99`). Required lower Git
+metadata must still support the actual consumer operations; safe.directory is
+an exact host-selected-root check, not permission to write an unmapped inode.
 
 ### Owned runtime placement beneath `/tmp` — 2026-10-14
 
@@ -1396,9 +1426,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:696-702`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:703-742`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:743-761`).
+`packages/ui-sdk/src/server/worker-launcher.ts:639-645`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:646-685`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:686-704`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -1696,11 +1726,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1001-1029`;
+`packages/ui-sdk/src/server/worker-launcher.ts:944-972`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1034-1060`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:977-1003`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1193-1252`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1136-1209`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker

@@ -1018,6 +1018,8 @@ export "./internal" (./src/internal.ts)
   piMaskFilename
   piReportedMaskPath
   planClassification
+  prepareMaintenanceGitInput
+  prepareMaintenanceWorker
   prepareNativeWorkerOutput
   prepareNativeWorkerStartupView
   prepareOutwardPlan

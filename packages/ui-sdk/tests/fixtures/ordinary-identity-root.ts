@@ -56,6 +56,7 @@ if (process.argv[2] === "--child") {
   console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
   await import("../restricted-relay-qualification.native.js");
   await import("./ordinary-identity-ws.js");
+  await import("./ordinary-identity-ws.js" + "?profile=governed&warm=1");
   await import("./ordinary-identity-ws.js" + "?profile=strict");
 } else {
   expect(process.getuid!()).toBe(0);
@@ -103,6 +104,7 @@ if (process.argv[2] === "--child") {
       env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
     const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     writeFileSync("/proof/server.stdout", output); writeFileSync("/proof/server.stderr", errors);
+    writeFileSync("/proof/ordinary-server.stdout", output); writeFileSync("/proof/ordinary-server.stderr", errors);
     console.log(JSON.stringify({ foreignProbeRequests: foreignRequests }));
     expect(code, errors).toBe(0); expect(foreignRequests, "FOREIGN_PROBE_LISTENER_NEVER_CONTACTED").toBe(0); console.log(output);
   } finally {

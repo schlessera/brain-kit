@@ -1,7 +1,7 @@
 /** Frozen Git configuration: read by a worker, never by a host Git process. */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { maintenanceGitEntry, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
+import { maintenanceGitEntry, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { prepareMaintenanceOutput } from "./maintenance-output.js";
 
 const TARGET = "/tmp/brain-maintenance-git";
@@ -38,12 +38,16 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   for (const name of names) writeFileSync(join(root, "hooks", name), `#!/bin/sh\ncd ${quote(command.brainPath)} || exit 125\nhook=${quote(join(originalHooks, name))}\n[ -x "$hook" ] || exit 0\nexec "$hook" "$@"\n`, { mode: 0o755 });
   const entry = maintenanceGitEntry();
   writeFileSync(join(root, "bin/git"), `#!/bin/sh\nexec ${quote(process.execPath)} --config=/dev/null --no-env-file ${quote(entry)} "$@"\n`, { mode: 0o755 });
-  const spec = { source: root, target: TARGET, entry, binary };
+  let spec = { source: root, target: TARGET, entry, binary };
   const frozen = { binary, brain: command.brainPath, data: outputs.output.target, config, hooks: `${TARGET}/hooks`, attributes: "" };
   writeFileSync(join(root, "config.json"), JSON.stringify(frozen), { mode: 0o600 });
   // Git reads work-tree attributes as configuration too. An attributes-only
   // tree pins both existing bytes and absence without blocking checkout writes.
+  const refreshInput = async () => {
+    spec = await prepareMaintenanceGitInput({ ...command, startupView: outputs.view, output: outputs.output, git: spec }, signal);
+  };
   const gitRun = async (args: string[], stdin?: string) => {
+    await refreshInput();
     const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
       command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, ...args], ...(stdin !== undefined ? { stdin } : {}), network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
     if (answer.exitCode !== 0 || answer.killed || !/^[a-f0-9]{40,64}\n?$/.test(answer.stdout)) throw new Error(`cannot freeze Git attributes: ${answer.stderr.slice(-400)}`);
@@ -68,5 +72,6 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const EMPTY_TREE = await gitRun(["mktree", "-z"], "");
   frozen.attributes = await tree(outputs.view.root);
   writeFileSync(join(root, "config.json"), JSON.stringify(frozen), { mode: 0o600 });
+  await refreshInput();
   return spec;
 }

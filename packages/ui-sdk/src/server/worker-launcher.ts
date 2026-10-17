@@ -1,3 +1,4 @@
+import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
@@ -21,11 +22,10 @@ import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_EN
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
-import { isEnvName } from "./protected-paths.js";
 import { resolveWorkerProtection, protectedWorkerMounts, verifyWorkerFolderMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
-import { bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
+import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
@@ -449,67 +449,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   return argv;
 }
 
-/** Applied after the complete startup view too, so a snapshot never lifts the secret mask. */
-function maintenanceEnvMasks(source: string, brain: string, copies: readonly { from: string; to: string }[] = []): string[] {
-  const argv: string[] = [];
-  const covered = new Set<string>();
-  // Resolve in worker-visible names, inspecting brain components through
-  // the held snapshot spelling. realpath loses /proc/<server>/fd aliases
-  // into the helper-private namespace; absolute brain links must also use
-  // the snapshot, rather than resolve against later live bytes.
-  const originalName = (path: string) => {
-    const copy = copies.find(copy => within(copy.to, path));
-    return copy ? copy.from + path.slice(copy.to.length) : path;
-  };
-  const inspectedName = (path: string) => {
-    const original = originalName(path);
-    return within(brain, original) ? source + original.slice(brain.length) : original;
-  };
-  function target(path: string, links = 0): { path: string; info: import("node:fs").Stats } | undefined {
-    if (links > 40) return undefined;
-    const parts = path.split("/");
-    let current = "/";
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]!;
-      if (!part || part === ".") continue;
-      if (part === "..") { current = dirname(current); continue; }
-      const next = current === "/" ? `/${part}` : `${current}/${part}`;
-      // Named copy mounts create their parents in the worker namespace.
-      // Their metadata comes from the original held input tree.
-      if (copies.some(copy => next !== copy.to && within(next, copy.to))) { current = next; continue; }
-      const inspected = inspectedName(next);
-      const info = lstatSync(inspected, { throwIfNoEntry: false });
-      if (!info) return undefined;
-      if (info.isSymbolicLink()) {
-        const link = readlinkSync(inspected);
-        return target(`${isAbsolute(link) ? link : `${current}/${link}`}/${parts.slice(i + 1).join("/")}`, links + 1);
-      }
-      current = next;
-    }
-    const inspected = inspectedName(current);
-    const info = lstatSync(inspected, { throwIfNoEntry: false });
-    return info ? { path: current, info } : undefined;
-  }
-  for (const name of readdirSync(source)) {
-    if (!isEnvName(name)) continue;
-    const resolved = target(`${brain}/${name}`);
-    if (!resolved) continue;
-    const original = originalName(resolved.path);
-    const destinations = new Set([resolved.path, original]);
-    for (const copy of copies) {
-      if (within(copy.from, original)) destinations.add(copy.to + original.slice(copy.from.length));
-    }
-    for (const destination of destinations) {
-      if (covered.has(destination)) continue;
-      covered.add(destination);
-      if (resolved.info.isDirectory()) argv.push("--tmpfs", destination, "--remount-ro", destination);
-      // Native checkpoints retain special inodes too. Never leave a FIFO,
-      // socket or device reachable through an environment-secret alias.
-      else argv.push("--ro-bind", "/dev/null", destination);
-    }
-  }
-  return argv;
-}
+
 
 /** The only argv builder used by both live workers and the actual host probe. */
 export function workerCommand(input: WorkerLaunch): string[] {
@@ -543,6 +483,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
     }
   }
   const maintenance = input.maintenance;
+  let preparedMaintenanceMasks: string[] | undefined;
+  try { preparedMaintenanceMasks = consumeNativeMaintenanceMasks(input); }
+  catch { throw new WorkerHostError("native maintenance requires fresh masks from its retained attested stage"); }
   const transport = input.transport;
   if (input.egress && (maintenance || transport || input.restricted || !input.sandbox?.profile || input.sandbox.profile === "restricted")) {
     throw new WorkerHostError("egress transport belongs only to a governed or strict interactive worker");
@@ -622,7 +565,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ...(input.restricted ? maskedGit(brain) : []),
     ...(maintenance?.output ? ["--bind", maintenance.output.source, maintenance.output.target] : []),
     ...(input.startupView && maintenance && !maintenance.credentials ? maintenanceEnvMasks(input.startupView.root, brain, maintenance.output ? [{ from: brain, to: maintenance.output.target }] : []) : []),
-    ...(maintenance?.output && !maintenance.credentials ? maintenanceEnvMasks(maintenance.output.source, brain, [{ from: brain, to: maintenance.output.target }]) : []),
+    ...(maintenance?.output && !maintenance.credentials ? (preparedMaintenanceMasks ?? maintenanceEnvMasks(maintenance.output.source, brain, [{ from: brain, to: maintenance.output.target }])) : []),
     ...(maintenance?.git ? ["--ro-bind", maintenance.git.source, maintenance.git.target, "--ro-bind", maintenance.git.entry, maintenance.git.entry,
       "--ro-bind", maintenance.git.binary, maintenance.git.binary,
       "--bind", join(maintenance.output!.source, ".git"), `${maintenance.output!.target}/.git`,
@@ -1216,6 +1159,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
   let status: ReturnType<typeof createWorkerStatusPipe> | undefined;
   let identityBroker: ReturnType<typeof prepareWorkerIdentity> | undefined;
   let identityFinished = false, identityReferences = 0;
+  let completeMaintenanceSetup: (() => void) | undefined;
+  let failMaintenanceSetup: ((error: unknown) => void) | undefined;
   const identityHandles: WorkerStateHandle[] = [];
   const identityReaders: ReturnType<typeof registerIdentityReadRoot>[] = [];
   const releaseIdentity = () => {
@@ -1229,7 +1174,9 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     const configurationRoot = startupView?.root ?? realpathSync(input.brainPath);
     const areas = input.sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
     if (startupView && areas.length && !areaOutput) areaOutput = prepareWorkerOutput(input.brainPath, { startupView, areas });
-    input = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
+    const resolvedInput = { ...input, ...(startupView ? { startupView } : {}), ...(areaOutput ? { areaOutput: areaOutput.output } : {}) };
+    transferNativeMaintenanceMasks(input, resolvedInput);
+    input = resolvedInput;
     const brain = realpathSync(input.brainPath);
     const observeFile = createWorkerFileObserver({ brain, configurationRoot: startupView?.root ?? brain,
       areas: (input.sandbox?.areas ?? []).flatMap(area => area.mount.writable ? [{ rel: area.rel,
@@ -1238,7 +1185,17 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     pipes = createWorkerPipes();
     const helper = workerIdentityHelper();
     if (!helper) status = createWorkerStatusPipe();
-    const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path, status);
+    if (input.maintenance?.output?.storage && !input.maintenance.credentials) {
+      // Bind before bootstrap or spawn: setup failures must also settle the
+      // existing stage owner's drain through confirmed broker cleanup.
+      const setupDrain = new Promise<void>((resolve, reject) => {
+        completeMaintenanceSetup = resolve; failMaintenanceSetup = reject;
+      });
+      bindNativeMaintenanceExit(input, setupDrain);
+    }
+    const bootInput = { ...input, limits: plan };
+    transferNativeMaintenanceMasks(input, bootInput);
+    const boot = workerBootstrap(bootInput, cgroup?.path, status);
     if (helper) {
       const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[]; cgroup?: string };
       if (gated(input)) payload.argv.splice(payload.argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
@@ -1347,6 +1304,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       });
     }) : spawned.exited;
     if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, workerExit);
+    void workerExit.then(() => completeMaintenanceSetup?.(), error => failMaintenanceSetup?.(error));
     const exited = workerExit.then(async code => {
       clearInterval(memoryWatch);
       final = report(code);
@@ -1383,7 +1341,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     identityFinished = false;
     for (const handle of identityHandles) handle.close();
     let cleanupFailure: unknown;
-    try { identityBroker?.close(); } catch (failure) { cleanupFailure = failure; }
+    try { if (child) identityBroker?.close(); else identityBroker?.discard(); } catch (failure) { cleanupFailure = failure; }
     if (!cleanupFailure) for (const reader of identityReaders) reader.confirmCleanup();
     child?.kill("SIGKILL");
     status?.close();
@@ -1394,8 +1352,11 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     if (cleanupFailure) {
       // Keep native ownership/recovery intent and admission held: cleanup
       // was not verified, so no publication or successful release is implied.
-      throw new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`);
+      const failure = new WorkerIdentityCleanupError(`worker_identity_setup_cleanup_unconfirmed: ${String(cleanupFailure)}; original failure: ${String(error)}${detail ? ` (${detail})` : ""}`);
+      failMaintenanceSetup?.(failure);
+      throw failure;
     }
+    completeMaintenanceSetup?.();
     cgroup?.remove();
     if (child) void child.exited.finally(async () => { try { await areaOutput?.cleanup(); } finally { if (!input.preparedOutput) await startupView?.cleanup(); } }).catch(() => { /* Native broker retains unresolved release intent for recovery. */ });
     else { void Promise.resolve(areaOutput?.cleanup()).finally(() => input.preparedOutput ? undefined : startupView?.cleanup()).catch(() => { /* No child ran; durable ownership retains unresolved release intent. */ }); }
