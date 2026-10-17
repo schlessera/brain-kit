@@ -64,8 +64,14 @@ if (import.meta.main) {
     writeFileSync(nativeFixturePath, changed(readFileSync(join(source, "scripts/native-proof/fixture.py"), "utf8"),
       'run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=180)',
       'run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts", "--cleanup-failure"], timeout=180)'));
-    if (sharedGit) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
-      "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
+    if (sharedGit) {
+      // A separate fresh-brain composition: the original default retains the
+      // prior worker-private journal/recovery mutations and its failure evidence.
+      const fresh = changed(readFileSync(nativeFixturePath, "utf8"),
+        '    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n', "");
+      writeFileSync(nativeFixturePath, changed(fresh,
+        "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
+    }
     const setup = join(artifact, "setup.sh");
     writeFileSync(setup, `set -eu
 mkdir -p /usr/local/lib/brain-identity-fixture /run/brain-identity-fixture
@@ -167,7 +173,7 @@ exit "$case_code"
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, gitFixture: sharedGit ? "documented-shared-group" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
+    const metadata = { image, gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
       helperSourceSha256: hash(readFileSync(helperSource)), helperSha256: hash(readFileSync(helper)),
       faultHashes, helperScriptSha256: hash(helperScript), nonDroppingScriptSha256: hash(readFileSync(nonDroppingScript)), nonDroppingHelperSha256: hash(readFileSync(nonDroppingHelper)), filterSha256: hash(WORKER_FILESYSTEM_FILTER_PROGRAM) };
