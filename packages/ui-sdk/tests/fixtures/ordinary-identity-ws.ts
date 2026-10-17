@@ -41,6 +41,10 @@ async function until(check: () => boolean, label: string) {
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
 }
 try {
+  if (profile === "governed") {
+    const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
+    await captureMaintenanceStage(brain);
+  }
   app = await createApp({ workerProfile: profile, config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: secret,
     HOST: "127.0.0.1", DB_PATH: join(data, "ui.db"), BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: "claude",
     BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", BRAIN_UI_TURN_TIMEOUT_MS: "30000",
@@ -68,4 +72,6 @@ try {
   expect(requests, "ACTUAL_MANAGED_WS_NATIVE_REQUEST").toEqual([{ model: "claude-haiku-4-5", history: 1, apiCredential: true }]);
   expect(frames.some(frame => frame.type === "result" && frame.outcome === "success"), "ACTUAL_MANAGED_WS_NATIVE_RESULT").toBe(true);
   expect(frames.some(frame => frame.type === "error"), "ACTUAL_MANAGED_WS_ADMISSION_NO_ERROR").toBe(false);
+  const unavailable = observability.logs.records().filter(log => String(log.body).includes("the governed profile is unavailable"));
+  if (profile === "governed") expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
 } finally { socket?.close(); server?.stop(true); await app?.close(); provider.stop(true); }
