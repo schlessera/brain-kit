@@ -1,4 +1,5 @@
 /** The only program run by the fixed CI build container. Not a plugin host. */
+import { buildRead } from "./ci-build-files";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ if (import.meta.main) {
   const coordinated = await ensureWorkspaceLease("/repo", "write");
   if (coordinated !== undefined) process.exit(coordinated);
   process.umask(0o022);
-  const entry = JSON.parse(readFileSync("/operation/entry.json", "utf8")) as Entry;
+  const entry = JSON.parse(buildRead("/operation/entry.json", undefined, 1024 * 1024).bytes.toString("utf8")) as Entry;
   assert.equal(entry.version, 1);
   assert(!existsSync(entry.originalRoot), "CI_BUILD_ORIGINAL_CHECKOUT_UNMOUNTED");
   assert(!existsSync(entry.canary), "CI_BUILD_HOST_DATA_UNMOUNTED");
@@ -38,7 +39,7 @@ if (import.meta.main) {
   for (const [pkg, names] of Object.entries(entry.topology)) {
     assert.deepEqual(readdirSync(`/repo/packages/${pkg}`).sort(), names, "CI_BUILD_INITIAL_PACKAGE_TOPOLOGY");
   }
-  const runtime = { bun: digest(readFileSync("/tool/bun")), node: { path: entry.node, sha256: digest(readFileSync(entry.node)) } };
+  const runtime = { bun: digest(buildRead("/tool/bun").bytes), node: { path: entry.node, sha256: digest(buildRead(entry.node).bytes) } };
   mkdirSync("/tmp/home", { mode: 0o700 }); mkdirSync("/tmp/cache", { mode: 0o700 });
   process.env.TMPDIR = "/tmp"; process.env.XDG_CACHE_HOME = "/tmp/cache";
   const packages = listPublishablePackages("/repo").filter(pkg => entry.selected.includes(pkg.dir));
@@ -52,7 +53,7 @@ if (import.meta.main) {
     assert.equal(statSync(`/repo/packages/${pkg}`).mode & 0o777, 0o700, "CI_BUILD_PRIVATE_PARENT_MODE");
   }
   const receipts = readdirSync("/repo/tmp").filter(name => /^build-\d+-[0-9a-f-]+-probe\.json$/.test(name)).sort()
-    .map(name => ({ name, value: JSON.parse(readFileSync(join("/repo/tmp", name), "utf8")) }));
+    .map(name => ({ name, value: JSON.parse(buildRead(join("/repo/tmp", name), undefined, 16 * 1024 * 1024).bytes.toString("utf8")) }));
   writeFileSync("/repo/tmp/isolated-producer.json", JSON.stringify({ version: 1, code, runtime, receipts, mounts, topology: "checked-after-child-exit" }));
   process.exitCode = code;
 }

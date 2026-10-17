@@ -1,5 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import * as childProcess from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildMounts, captureBuildInputs, captureDerivedOutput, captureOutputs, identity, outputFiles, sameOutputIdentity } from "../scripts/ci-build-boundary";
@@ -82,10 +83,13 @@ test("derived output changed between identity check and capture refuses consumpt
 test("CI intent cannot authorize unqualified reuse", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-ci-intent-")); owned.push(root);
   const before = process.env.BRAIN_CI_BUILD_OPERATION;
+  const child = spyOn(childProcess, "spawnSync").mockImplementation(() => { throw new Error("Unexpected daemon control"); });
   try {
     process.env.BRAIN_CI_BUILD_OPERATION = "isolated-v1";
     expect(await attemptCiBuild(root, { jobs: 1, force: false }), "CI_BUILD_INTENT_IS_NOT_AUTHORITY").toBeUndefined();
+    expect(child, "CI_BUILD_UNQUALIFIED_LOOKUP_HAS_ZERO_DOCKER").not.toHaveBeenCalled();
   } finally {
+    child.mockRestore();
     if (before === undefined) delete process.env.BRAIN_CI_BUILD_OPERATION; else process.env.BRAIN_CI_BUILD_OPERATION = before;
   }
 });

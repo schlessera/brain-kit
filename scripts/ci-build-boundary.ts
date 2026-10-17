@@ -1,7 +1,8 @@
 /** Captured files for the single isolated workspace-build operation. */
 import { createHash } from "node:crypto";
-import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, posix, resolve } from "node:path";
+import { buildStat, buildRead, buildNames, buildLink } from "./ci-build-files";
 import { listPublishablePackages } from "./publishable-packages";
 
 export type BuildFile = { path: string; mode: number; kind: "directory" | "file" | "link"; sha256?: string; target?: string };
@@ -25,26 +26,26 @@ export function captureBuildInputs(root: string, destination: string) {
   function directory(path: string) {
     if (path === "." || files.has(path)) return;
     safePath(path); directory(posix.dirname(path));
-    const stat = lstatSync(join(root, path));
+    const stat = buildStat(join(root, path));
     if (!stat.isDirectory()) throw new Error("Build input ancestor is not a directory");
-    files.set(path, { path, kind: "directory", mode: stat.mode & 0o7777 });
+    files.set(path, { path, kind: "directory", mode: Number(stat.mode & 0o7777n) });
     mkdirSync(join(destination, path), { mode: 0o700 });
   }
   function capture(path: string, recurse: boolean) {
     safePath(path);
     if (ignored(path) || files.has(path)) return;
     directory(posix.dirname(path));
-    const from = join(root, path), to = join(destination, path), stat = lstatSync(from);
-    const mode = stat.mode & 0o7777;
+    const from = join(root, path), to = join(destination, path), stat = buildStat(from);
+    const mode = Number(stat.mode & 0o7777n);
     if (stat.isDirectory()) {
       directory(path);
-      if (recurse) for (const name of readdirSync(from).sort()) capture(`${path}/${name}`, true);
+      if (recurse) for (const name of buildNames(from, stat)) capture(`${path}/${name}`, true);
     } else if (stat.isFile()) {
-      const bytes = readFileSync(from);
+      const bytes = buildRead(from, stat).bytes;
       files.set(path, { path, mode, kind: "file", sha256: digest(bytes) });
       writeFileSync(to, bytes, { mode, flag: "wx" }); chmodSync(to, mode);
     } else if (stat.isSymbolicLink()) {
-      const target = readlinkSync(from);
+      const target = buildLink(from, stat);
       if (posix.isAbsolute(target) || target.includes("\\")) throw new Error("External build input link");
       files.set(path, { path, mode, kind: "link", target }); symlinkSync(target, to);
     } else throw new Error("Unsupported build input type");
@@ -52,7 +53,7 @@ export function captureBuildInputs(root: string, destination: string) {
   for (const path of new TextDecoder().decode(source.stdout).split("\0").filter(Boolean).sort()) {
     if (!/(^|\/)node_modules(?:\/|$)/.test(path)) capture(path, false);
   }
-  const packages = listPublishablePackages(root);
+  const packages = listPublishablePackages(destination);
   const dependencies = ["node_modules", ...packages.map(pkg => `packages/${pkg.dir}/node_modules`)];
   for (const path of dependencies) {
     const stat = lstatSync(join(root, path), { throwIfNoEntry: false });
@@ -95,11 +96,11 @@ export function captureBuildInputs(root: string, destination: string) {
 export function outputFiles(root: string): BuildFile[] {
   const records: BuildFile[] = [];
   function walk(path: string) {
-    const stat = lstatSync(join(root, path));
+    const stat = buildStat(join(root, path));
     if (stat.isDirectory()) {
-      records.push({ path, kind: "directory", mode: stat.mode & 0o7777 });
-      for (const name of readdirSync(join(root, path)).sort()) walk(path ? `${path}/${name}` : name);
-    } else if (stat.isFile()) records.push({ path, kind: "file", mode: stat.mode & 0o7777, sha256: digest(readFileSync(join(root, path))) });
+      records.push({ path, kind: "directory", mode: Number(stat.mode & 0o7777n) });
+      for (const name of buildNames(join(root, path), stat)) walk(path ? `${path}/${name}` : name);
+    } else if (stat.isFile()) records.push({ path, kind: "file", mode: Number(stat.mode & 0o7777n), sha256: digest(buildRead(join(root, path), stat).bytes) });
     else throw new Error("Unsupported build output type");
   }
   walk(""); return records;
@@ -113,14 +114,14 @@ export function sameOutputIdentity(root: string, expected: string): boolean {
 export function captureOutputs(root: string, destination: string): BuildFile[] {
   const records: BuildFile[] = [];
   function walk(path: string) {
-    const from = join(root, path), to = join(destination, path), stat = lstatSync(from);
+    const from = join(root, path), to = join(destination, path), stat = buildStat(from);
     if (stat.isDirectory()) {
       mkdirSync(to, { recursive: true, mode: 0o700 });
-      records.push({ path, kind: "directory", mode: stat.mode & 0o7777 });
-      for (const name of readdirSync(from).sort()) walk(path ? `${path}/${name}` : name);
-      chmodSync(to, stat.mode & 0o7777);
+      records.push({ path, kind: "directory", mode: Number(stat.mode & 0o7777n) });
+      for (const name of buildNames(from, stat)) walk(path ? `${path}/${name}` : name);
+      chmodSync(to, Number(stat.mode & 0o7777n));
     } else if (stat.isFile()) {
-      const bytes = readFileSync(from), mode = stat.mode & 0o7777;
+      const bytes = buildRead(from, stat).bytes, mode = Number(stat.mode & 0o7777n);
       writeFileSync(to, bytes, { mode, flag: "wx" }); chmodSync(to, mode);
       records.push({ path, kind: "file", mode, sha256: digest(bytes) });
     } else throw new Error("Unsupported build output type");

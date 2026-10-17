@@ -57,3 +57,19 @@ and comparable hosted setup/critical-path measurements including identity and
 publication overhead. The operation remains unqualified until those concrete
 identities and evidence are reviewed. This requirement also binds later
 producer, runtime, installed-input and configuration changes.
+
+File capture traverses Linux directory descriptors without following aliases,
+opens regular files with no-follow and nonblocking flags, and checks descriptor
+and ancestor bindings before and after bounded reads. Captured bytes, rather
+than a later pathname read, become the operation input. Mutable receipt and
+policy files use the same capture rule; kernel process-status files have fixed
+kernel-owned origins and are not repository inputs.
+
+The fixed operation requires non-root UID and GID. Each local daemon control
+has a ten-second limit; the image-owned entry has a 300-second TERM deadline
+with five-second KILL grace, and its host client has a 330-second limit. These
+operation bounds require real qualification on all nineteen packages before
+activation. They do not alter ordinary builds or test deadlines. Session-owned
+container removal and confirmed absence precede output publication and reuse
+stamps. Unconfirmed cleanup fails, records the incomplete cleanup and retains
+owned state; it never grants successful reuse authority.
