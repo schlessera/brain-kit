@@ -326,7 +326,12 @@ non-interactive operation. These project rules apply alongside it:
 - The bottom PR targets `main`; each upper PR targets its immediate parent.
   Run `bun run check:pr --base origin/main` at the bottom and
   `bun run check:pr --base <parent-ref>` above it, after fetching or verifying
-  that parent. CI and contract gates already use the PR's declared base.
+  that parent. Ordinary dependency PRs use their declared base. Native Actions
+  evaluate against the stack trunk: request confirmation with
+  `bun scripts/request-candidate.ts <pr>` after preflight, freezing the exact
+  contributing prefix before the ready event. The contract gate separately
+  verifies the layer's own parent. Missing/unsupported prefix evidence rejects
+  confirmation; see the [native identity policy](../decisions/ci-utility.md#native-contributing-prefix-identity-2141).
   Recheck the diff and affected proof after rebasing or retargeting.
 - Each PR uses the repository template and carries its own title, labels,
   release milestone and proof. Replace generated titles/bodies after
@@ -359,11 +364,16 @@ non-interactive operation. These project rules apply alongside it:
   before a PR number. Confirm the resolved membership and inspect all included
   PRs' current heads, bases, reviews, milestones and selected checks immediately
   before merging. The installed command has no `--match-head-commit` flag;
+  repeat `bun scripts/request-candidate.ts --verify <pr>` for the candidate's
+  frozen contributing prefix alongside the actual selected-job identity checks.
   do not describe that readback as an atomic head lock or bypass branch rules.
   If native stacks are unavailable, report the CLI error and use ordinary PRs
   only after deliberately reconciling their ancestry and bases.
-- Upper-layer CI proves a merge with its parent branch, not with live `main`.
-  Record that actual parent/head/checkout tree. After merging, verify every
+- Ordinary upper-layer CI proves its parent/head merge; native CI verifies the
+  verified checkout: either the frozen synthetic chain from the exact trunk,
+  or exact own-parent merge with independent frozen-trunk/member ancestry,
+  immutable member evidence and reconstructed tree. Record
+  every contributing head and actual synthetic parent/checkout/tree. After merging, verify every
   included PR's merge result on `main`, the integrated commits/trees, issue
   states and milestones, and automatic main-push proof. A queued stack is not
   yet merged. Use the stack-specific guidance in

@@ -269,7 +269,10 @@ harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
 pushes. A ready PR synchronize event runs fast feedback with a deliberately
 nonpassing final gate. After the last push, convert to draft and mark ready to
 request complete candidate confirmation; opening/reopening ready also requests it. After cheap gates independent categories run concurrently; per-PR
-cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
+cancellation cannot cancel another PR. For a native stack, use
+`bun scripts/request-candidate.ts <pr>` after the final push/preflight instead of
+a bare ready transition. It freezes the contributing prefix into the request;
+missing/stale native request evidence rejects confirmation. Measure queue/elapsed time and wasted
 cancellations before adding shards. Follow docs/decisions/ci-utility.md.
 
 Assess missing main commits before refreshing. Revalidate affected proof after

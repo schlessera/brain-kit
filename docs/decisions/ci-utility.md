@@ -570,6 +570,66 @@ Agents must not do so, and this policy does not change protection settings.
 The read-only [Get a pull request API](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
 accepts the existing `contents: read` permission; no privileged token/event is added.
 
+### Native contributing-prefix identity (#2141)
+
+The selected native policy freezes the trunk through the candidate, excluding
+strictly higher layers. After the final push and local preflight, run
+`bun scripts/request-candidate.ts <pr>` to place a bounded prefix descriptor in
+the PR body before requesting its ready event. It records a nonce, repository,
+stack, ordered PR numbers, heads, declared parent refs and exact trunk. It is
+request context, never authority by itself. Missing descriptors reject native
+confirmation with the required action; later live membership is never silently
+substituted. Ordinary PR requests keep their existing workflow.
+
+Final candidate validation and the contract gate independently compare the
+descriptor with read-only stack/PR APIs and live refs. Candidate proof also
+binds the actual run SHA and immutable checkout's ordered parents and tree.
+The supported prefix contains one to six open contributing members. The
+2026-10-17 maintainer ruling extends support to two exact checkout shapes:
+
+- A two-parent synthetic chain ending exactly at the frozen trunk. Each
+  synthetic commit's second parent is its ordered frozen member head, member
+  heads contain their predecessors, and every synthetic tree equals a locally
+  reconstructed `git merge-tree --write-tree` result.
+- For an upper candidate, a two-parent merge whose parents are exactly
+  `[frozen own parent, frozen candidate head]`. Independently compare each
+  contributing member's immutable commit with local Git, prove ancestry from
+  the exact frozen trunk through every ordered member head, and reconstruct
+  the actual merge tree with `git merge-tree --write-tree`.
+
+The second shape is observed in real upper fixture #2286; it does not encode
+lower synthetic commits in its first-parent history. Both shapes require the
+same frozen/live prefix authority and exact actual checkout identity. Conflicts,
+unavailable inputs, unsupported shapes and contradictory evidence reject;
+matching final trees alone never qualify a candidate. The six-member limit
+preserves the existing bounded API lookup. Git's
+[merge-tree documentation](https://git-scm.com/docs/git-merge-tree) defines the
+independent merge operation; support is limited to these verified shapes.
+
+The contract gate compares the frozen head with its verified own parent;
+proof selection always compares the frozen trunk to the requested head, even
+when the native event names its immediate own parent. The event/request/head
+bindings must agree before planning; live authority is independently checked
+at admission/final verification. An upper-only diff never narrows selected
+runtime coverage for its contributing lower layers. Categories,
+freshness and retention obligations are unchanged. A higher layer may change
+only if fresh evidence proves this prefix and tested identity unchanged. A
+contributing merge/rebase, head/ref/order change, replaced request or changed
+trunk requires a new request even for equal content. Repeat the read-only
+`bun scripts/request-candidate.ts --verify <pr>` immediately before native merge
+alongside actual-job and merge requirements. This check is not a lock; a failed
+request does not mark the candidate ready.
+
+[GitHub's event metadata](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/optimizing-ci-for-stacked-pull-requests)
+and [stack APIs](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests-apis-and-webhooks)
+supply request context and independent membership. They do not themselves
+freeze every contributing identity. Real ordinary and native hosted receipts
+are required before calling an implementation qualified; historical rejected
+or cancelled native runs remain unqualified. No privileged event/token, generic
+proof cache or native merge queue is introduced. #2111's selected reservation
+still covers one exact candidate; this verification never extends it to another
+candidate or waives per-layer proof.
+
 ## Historical measurement and upstream guidance
 
 The following guidance records the paid-provider investigation which motivated

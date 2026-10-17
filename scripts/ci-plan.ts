@@ -2,6 +2,7 @@
 import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { requestedNativePrefix } from "./native-candidate";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
 
 export interface Workspace {
@@ -354,7 +355,16 @@ export function changedFiles(root: string, base: string, head = "HEAD", mergeBas
 export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): CheckPlan {
   if (["api", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME ?? "")) return planChecks(["package.json"], workspaces(root), root);
   const pr = env.GITHUB_EVENT_NAME === "pull_request";
-  const base = pr ? env.BASE_SHA : env.BEFORE_SHA;
+  let base = pr ? env.BASE_SHA : env.BEFORE_SHA;
+  if (pr && env.GITHUB_EVENT_PATH) {
+    const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
+    if (event.pull_request?.stack) {
+      if (event.pull_request.head?.sha !== env.HEAD_SHA) throw new Error("Native planning head differs from the requested event");
+      // Every contributing layer remains a proof input. Only the contract gate
+      // compares the candidate's own parent; planning must retain the trunk.
+      base = requestedNativePrefix(event, env).trunk.sha;
+    }
+  }
   if (!base || !env.HEAD_SHA) throw new Error("CI requires BASE_SHA/BEFORE_SHA and HEAD_SHA");
   return planChecks(changedFiles(root, base, env.HEAD_SHA, pr), workspaces(root), root, pr);
 }

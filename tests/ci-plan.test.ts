@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { nativeRequestBody, type NativePrefix } from "../scripts/native-candidate";
 import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
 
 const scratch: string[] = [];
@@ -186,6 +187,7 @@ describe("affected CI checks", () => {
 
   test("the executable writes affected job outputs and keeps drafts on cheap gates", async () => {
     const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
+    f.write("scripts/native-candidate.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/native-candidate.ts"))};\n`);
     f.write("scripts/browser-input-closure.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/browser-input-closure.ts"))};\n`);
     f.write("packages/core/src/note.ts", "export const note = 2;\n");
     f.git("add", "."); f.git("commit", "-qm", "planner fixture");
@@ -339,4 +341,40 @@ test("browser closure composition preserves exact consumer inventories and bound
   expect(unitShards(selected)).toEqual([1]);
   expect(unitShards(selectBrowserClosures(base, { browser: closed, layout: closed, endurance: closed, captures: closed }))).toEqual([1, 2, 3, 4]);
   expect(selected.local.runtime).toBe(plan.local.runtime);
+});
+
+test("native upper planning retains frozen-trunk proof while contract diff stays own-parent scoped", async () => {
+  const f = fixture();
+  f.write("scripts/lower-tooling.ts", "export const lower = true;\n");
+  f.git("add", "."); f.git("commit", "-qm", "lower tooling"); const lower = f.git("rev-parse", "HEAD");
+  f.write("docs/raft.md", "The upper crossing.\n");f.git("add", ".");f.git("commit", "-qm", "upper docs"); const head = f.git("rev-parse", "HEAD");
+  const prefix: NativePrefix = { version: 1, request: "1".repeat(32), repository: "fixture/brain-kit", pr: 2, stack: 7, position: 2,
+    trunk: { ref: "main", sha: f.base }, members: [{ number: 1, ref: "lower", head: lower, parent: "main" }, { number: 2, ref: "upper", head, parent: "lower" }] };
+  const event = { action: "ready_for_review", pull_request: { number: 2, head: { sha: head }, base: { ref: "lower", sha: lower },
+    stack: { number: 7, position: 2, size: 2, base: prefix.trunk }, body: nativeRequestBody("", prefix) } };
+  const path = join(f.dir, "native-event.json"); writeFileSync(path, JSON.stringify(event));
+  const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: path, BASE_SHA: lower, HEAD_SHA: head, GITHUB_REPOSITORY: prefix.repository };
+  const plan = planFromEnvironment(f.dir, env);
+  expect(plan.changed, "NATIVE_PREFIX_PLANNING_RETAINS_LOWER_TOOLING").toEqual(["docs/raft.md", "scripts/lower-tooling.ts"]);
+  expect(plan.global).toBe(true);
+  expect(Object.values(proofSelections(plan)).every(Boolean)).toBe(true);
+  // Exercise the actual metadata executable and its job-dispatch outputs too.
+  f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
+  for (const name of ["browser-input-closure", "native-candidate"]) f.write(`scripts/${name}.ts`, `export * from ${JSON.stringify(resolve(import.meta.dir, `../scripts/${name}.ts`))};\n`);
+  const output = join(f.dir, "outputs"), savedPlan = join(f.dir, "plan.json");
+  const child = Bun.spawn([process.execPath, join(f.dir, "scripts/ci-plan.ts")], { cwd: f.dir, stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, ...env, GITHUB_ACTIONS: "true", PR_DRAFT: "false", GITHUB_OUTPUT: output, CI_PLAN_PATH: savedPlan } });
+  const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(code, err).toBe(0);
+  expect(JSON.parse(readFileSync(savedPlan, "utf8")).changed).toEqual(plan.changed);
+  for (const category of Object.keys(proofSelections(plan))) expect(readFileSync(output, "utf8"), `NATIVE_PREFIX_EXECUTABLE_SELECTS_${category}`).toContain(`${category}=true\n`);
+  expect(() => planFromEnvironment(f.dir, { ...env, HEAD_SHA: lower })).toThrow("Native planning head");
+  const original = JSON.stringify(event);
+  event.pull_request.body = "missing request"; writeFileSync(path, JSON.stringify(event));
+  expect(() => planFromEnvironment(f.dir, env)).toThrow("freeze the contributing prefix");
+  writeFileSync(path, original);
+  // Ordinary PRs still plan exactly their own declared base/head range.
+  delete (event.pull_request as Partial<typeof event.pull_request>).stack;
+  writeFileSync(path, JSON.stringify(event));
+  expect(planFromEnvironment(f.dir, env).changed).toEqual(["docs/raft.md"]);
 });

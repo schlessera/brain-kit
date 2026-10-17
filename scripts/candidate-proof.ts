@@ -2,6 +2,7 @@
 import { planFromEnvironment, proofCadence, proofSelections } from "./ci-plan";
 import { checkout, type Checkout } from "./proof-inputs";
 import { GitHubProofAPI, type API } from "./proof-reuse";
+import { validateNativeCandidate } from "./native-candidate";
 
 export async function validateCandidate(root: string, event: any, env: NodeJS.ProcessEnv,
   api?: API, actual: Checkout = checkout(root)): Promise<void> {
@@ -9,6 +10,11 @@ export async function validateCandidate(root: string, event: any, env: NodeJS.Pr
   if (cadence === "feedback") throw new Error("Candidate confirmation required: convert this PR to draft, then mark ready for review after the final push.");
   if (cadence !== "confirmation") return;
   const pr = event.pull_request;
+  if (pr?.stack) {
+    if (!api) throw new Error("Native candidate confirmation requires live read-only GitHub identity verification");
+    await validateNativeCandidate(root, event, env, api, actual);
+    return;
+  }
   if (!Number.isSafeInteger(pr?.number) || pr.number < 1 || !pr.base?.ref || !pr.head?.sha || !pr.base?.sha ||
       actual.sha !== env.GITHUB_SHA || JSON.stringify(actual.parents) !== JSON.stringify([pr.base.sha, pr.head.sha])) {
     throw new Error("Candidate checkout does not match the requested head/base merge identity");
@@ -17,7 +23,7 @@ export async function validateCandidate(root: string, event: any, env: NodeJS.Pr
   const live = await api.json(`pulls/${pr.number}`);
   const base = await api.json(`git/ref/heads/${encodeURIComponent(pr.base.ref)}`);
   const commit = await api.json(`git/commits/${actual.sha}`);
-  if (live.state !== "open" || live.draft !== false || live.head?.sha !== pr.head.sha ||
+  if (live.stack || live.state !== "open" || live.draft !== false || live.head?.sha !== pr.head.sha ||
       live.base?.ref !== pr.base.ref || live.base?.repo?.full_name !== env.GITHUB_REPOSITORY || base.object?.sha !== pr.base.sha) {
     throw new Error("Candidate became stale: the live PR head, readiness or base changed; request confirmation again");
   }
