@@ -440,5 +440,6 @@ await worker.exited;`;
       await stdout;expect(await stderr).toBe("");
     } finally { if(server.exitCode===null)server.kill("SIGKILL");await server.exited; }
   });
+  await import("./egress-identity-qualification.native.js");
   console.log(JSON.stringify({ identityQualification: "pass", cases, serverUid: process.getuid(), workerUid: 21002, limits: "owned-tree cleanup and best-effort observed-byte recovery; external references are not globally excluded" }));
 } finally { rmSync(root, { recursive: true, force: true }); }

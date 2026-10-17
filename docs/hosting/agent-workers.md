@@ -71,6 +71,18 @@ masks the helper-side source paths. Runtime directories use group access
 `0750` and relay/proxy sockets `0660`. Shared brain/scratch/workspace
 directories require the host's setgid ownership arrangement.
 
+The explicitly prepared ordinary egress proxy follows that same helper
+selection. Its directory and socket remain owned by the server and use its
+shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
+cannot choose another IPC group (`const separateIdentity`,
+`packages/ui-sdk/src/server/egress-proxy.ts:57-63`). Without a helper they retain
+owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
+canonical paths, server ownership, the expected helper group, exact modes and
+socket type. Missing entries, symlinks and widened permissions refuse before
+the payload starts (`if (input.egress)`,
+`packages/ui-sdk/src/server/worker-launcher.ts:515-530`). This does not select
+the ordinary inference route or enable the proxy by default.
+
 Native output stages use the existing manager's active stage identity. The
 manager transfers a root-owned sealed metadata descriptor containing the
 keeper PID/start identity, mount namespace identity, authorized merged and
