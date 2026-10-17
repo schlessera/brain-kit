@@ -48,6 +48,7 @@ test("Claude factory/module turns carry host exec to runtime probe and SDK worke
   try {
     for (const module of [false, true]) {
       for (const exec of [{ wrapper: a.path, killer: "/bin/true" }, { wrapper: c.path }, {}, undefined]) {
+        process.env.BRAIN_UI_EXEC_WRAPPER = b.path;
         const options = { brainPath: brain, claudeCodePath: binary, exec, queryFn,
           versionRequirements: { runtime: "2.1.283" }, log: () => {} };
         const resolved = module ? await backendModule.resolveFromEnv({
@@ -56,22 +57,23 @@ test("Claude factory/module turns carry host exec to runtime probe and SDK worke
         }) : null;
         if (resolved && !resolved.ok) throw resolved.error;
         const backend = resolved?.ok ? resolved.value.backend : construct(options);
+        if (exec === undefined) process.env.BRAIN_UI_EXEC_WRAPPER = c.path;
         const frames: unknown[] = [];
         await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal,
           workerSandbox: worker.prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] }),
           bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) } });
-        const expected = exec === undefined ? b.path : exec.wrapper;
-        expect(commands.at(-1), "SDK_WORKER_HOST_ARGV").toEqual([
+        const expected = exec === undefined ? c.path : exec.wrapper;
+        expect(commands.at(-1), exec === undefined ? "OMITTED_HOST_EXEC_REMAINS_LIVE" : "SDK_WORKER_HOST_ARGV").toEqual([
           ...(expected ? [expected] : []), binary, "--offline-turn",
         ]);
         expect(frames.some((frame: any) => frame.type === "error" && frame.message.includes(stop.message))).toBe(true);
       }
     }
-    for (const wrapper of [a, b, c]) {
-      expect(existsSync(wrapper.log), "PER_TURN_PROBE_USED_HOST_WRAPPER").toBe(true);
-      expect(readFileSync(wrapper.log, "utf8").trim().split("\n")).toEqual([
-        binary, "--version", binary, "--version",
-      ]);
+    for (const [wrapper, count] of [[a, 2], [b, 0], [c, 4]] as const) {
+      expect(existsSync(wrapper.log), "PER_TURN_PROBE_USED_HOST_WRAPPER").toBe(count > 0);
+      expect(existsSync(wrapper.log) ? readFileSync(wrapper.log, "utf8").trim().split("\n") : []).toEqual(
+        Array.from({ length: count }, () => [binary, "--version"]).flat(),
+      );
     }
   } finally {
     constructor.mockRestore(); launch.mockRestore();

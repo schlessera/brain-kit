@@ -382,12 +382,14 @@ test("host exec survives the Pi worker init boundary; omitted factory options re
   try {
     for (const exec of [{ wrapper: "/bin/false", killer: "/bin/true" }, {}, undefined]) {
       const frames: ServerMessage[] = [];
-      await createPiBackend({ brainPath: brain, sessionDir, exec }).startTurn({
+      const backend = createPiBackend({ brainPath: brain, sessionDir, exec });
+      if (exec === undefined) process.env.BRAIN_UI_EXEC_WRAPPER = "/bin/false";
+      await backend.startTurn({
         prompt: "Return to Ithaca", signal: new AbortController().signal,
         bridge: { emit: frame => frames.push(frame), requestPermission: async () => ({ behavior: "allow" }) },
       });
       expect(terminal(frames)).toMatchObject({ outcome: "success" });
-      expect(receivedInit.backend.exec, "PI_WORKER_HOST_EXEC").toEqual(exec ?? { wrapper: "/bin/true" });
+      expect(receivedInit.backend.exec, exec === undefined ? "PI_WORKER_OMITTED_EXEC_REMAINS_LIVE" : "PI_WORKER_HOST_EXEC").toEqual(exec ?? { wrapper: "/bin/false" });
     }
   } finally {
     if (old === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER; else process.env.BRAIN_UI_EXEC_WRAPPER = old;

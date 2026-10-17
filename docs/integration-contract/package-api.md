@@ -3450,6 +3450,8 @@ and backend construction. Both first-party backends use that host configuration
 for runtime probes, Claude SDK workers and Pi grep/bash tools, including tools
 inside Pi workers. An explicit empty object disables the optional wrapper;
 an absent field preserves ambient-wrapper compatibility. Standalone backend
-factories resolve that fallback once at construction and retain both wrapper
-and killer. Existing validation, argv, environment and permission semantics
+factories preserve omission, resolving the ambient wrapper and killer at the
+existing turn/tool-spawn boundaries; Pi serializes that host fallback into each
+worker turn. Explicit host configurations are copied at construction. Existing
+validation, argv, environment and permission semantics
 remain unchanged; the optional wrapper never replaces worker isolation.

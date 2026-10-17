@@ -8,4 +8,4 @@
 Pass each app's resolved exec wrapper through backend construction, runtime
 probes, Claude SDK workers and Pi tools. Explicit empty host configuration
 disables the optional wrapper; standalone callers omitting it retain the
-ambient wrapper resolved at construction.
+ambient fallback at the existing turn and tool-spawn boundaries.
