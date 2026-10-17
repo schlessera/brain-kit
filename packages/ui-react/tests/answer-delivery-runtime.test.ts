@@ -13,6 +13,7 @@
  * The phone PWA check reserved on #910 is not this: suspended timers and an
  * operating system's background policy are not reproduced here.
  */
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -72,6 +73,8 @@ let sequence = 0;
 const settlements = new Map<string, unknown[]>();
 const histories = new Map<string, SessionHistoryMessage[]>();
 
+const hook = runtimeHookPhases("answer-delivery-runtime");
+
 beforeAll(async () => {
   if (!executablePath) return;
   const repo = resolve(import.meta.dir, "../../..");
@@ -79,24 +82,22 @@ beforeAll(async () => {
   // their exported token dependency), as the sibling styled runtime fixtures
   // do, instead of depending on another test having built them first.
   const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [buildOut, buildErr, buildCode] = await Promise.all([
-    new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited,
-  ]);
+  const [buildOut, buildErr, buildCode] = await hook.child("package-build", build);
   if (buildCode !== 0) throw new Error(`Answer delivery fixture build failed (${buildCode}): ${buildOut}\n${buildErr}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-answer-delivery-"));
   const brain = resolve(scratch, "brain");
-  await createFixtureBrain(repo, brain);
+  await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
   const assets = resolve(scratch, "client");
   await mkdir(assets);
   // Bundled from source (the `bun` export condition), so what runs is this
   // checkout's code, not a stale dist.
-  const bundle = await Bun.build({
+  const bundle = await hook.phase("client-build", () => Bun.build({
     entrypoints: [resolve(import.meta.dir, "fixtures/answer-delivery-client.ts")],
     target: "browser",
     conditions: ["bun"],
     outdir: assets,
     naming: "client.js",
-  });
+  }));
   if (!bundle.success) throw new Error(`Answer delivery client build failed: ${bundle.logs.join("\n")}`);
   await writeFile(resolve(assets, "index.html"), '<!doctype html><html data-theme="dark"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>html,body,#app{height:100%;margin:0}#app{display:flex;flex-direction:column}</style></head><body><div id="app"></div><script type="module" src="/client.js"></script></body></html>');
   const backend: AgentBackend = {
@@ -149,16 +150,16 @@ beforeAll(async () => {
       bridge.emit({ type: "result", sessionId, outcome: "success", durationMs: 0, numTurns: 1, isError: false });
     },
   };
-  app = await createApp({
-    config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }),
+  app = await hook.phase("host-start", () => createApp({
+    config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(scratch!, "ui.db"), AUTH_MODE: "none", HOST: "127.0.0.1", NODE_ENV: "test", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_MODEL_DISCOVERY: "0" }),
     staticRoot: assets,
     registry: createStaticBackendRegistry([backend], backend.id),
     observability: createRecordingObservability(),
     turnTimeoutMs: 120_000,
-  });
+  }));
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   origin = `http://127.0.0.1:${server.port}`;
-  browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 });
+  browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
 }, 180_000);
 
 afterEach(() => {

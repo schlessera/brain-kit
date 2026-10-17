@@ -62,7 +62,7 @@ if (import.meta.main) {
     const nativeFixturePath = join(artifact, "identity-fixture.py");
     writeFileSync(nativeFixturePath, changed(readFileSync(join(source, "scripts/native-proof/fixture.py"), "utf8"),
       'run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=180)',
-      'run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)'));
+      'run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=180)'));
     const setup = join(artifact, "setup.sh");
     writeFileSync(setup, `set -eu
 mkdir -p /usr/local/lib/brain-identity-fixture /run/brain-identity-fixture
