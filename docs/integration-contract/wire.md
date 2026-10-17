@@ -1300,6 +1300,46 @@ that never echo credential-bearing URLs or remote error text. Events, frame
 sizes, outbound buffering and native handle ledgers are bounded; malformed
 frames, backpressure and disconnect end capture/admission visibly.
 
+**GPT-Live adapter (additive, #959).**
+`createGptLiveConversationProvider(apiKey: string): LiveConversationProvider`
+is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
+`CreateAppOptions.conversationProvider`. It opens the primary Live API v1
+server WebSocket with a server-owned Bearer header, starts `gpt-live-1`, mono
+PCM16/24 kHz, marin, client delegation and `store:false`, then waits for
+`session.started`. It does not substitute Realtime or Responses delegation.
+`store:false` is not a zero-retention claim.
+
+Native delegations are metadata only; the host's existing semantic commit and
+backend bridge own execution, progress, tools and interactive questions. Input
+and output remain independent of pending backend work. Audio commands carry
+opaque client event IDs. A transcript echoed with `client_event_id` keeps that
+original utterance identity even after another utterance starts. With one input
+only and no historical resync context, attribution is unambiguous; after multiple inputs, a fragment without a
+recognized client correlation closes the epoch rather than using the newest
+capture identity. Zero-duration appended text is not microphone input. Transcript fragments have no finalization event and remain
+unknown certainty/origin, so automatic semantic submission is unavailable.
+`markEndpoint` records the host's review boundary only; it sends no invented
+provider commit or done command.
+
+Host results use the original client `delegation_id` and bounded plain strings.
+Each append is limited conservatively to 500 UTF-8 bytes, below the documented
+500-token limit: preceding chunks use `session.thinking.append`, and an ordinary
+when-idle result uses one final `session.commentary.append`. Quiet results use
+only thinking appends. Commentary may paraphrase, and is never exact permission
+speech; the client owns quiet-boundary playback. Repeated, aborted, replaced or
+mismatched results reject without publication. Replay seeds only bounded
+historical host context in a new session, never effects or old native handles.
+
+Output has one stream identity per epoch, with no fabricated audio-done or
+word alignment. Local playback cut and host cancellation remain independent of
+remote acknowledgement. `session.closed` can acknowledge whole-session close;
+connection loss or the bounded close timeout reports unknown. No per-output
+cancellation acknowledgement is claimed. Error text never echoes remote
+messages, headers or credentials. Bounded event queues, wire frames, command
+and event ledgers close capture on overflow or malformed/unattributable input.
+Exact permission speech is unsupported, echo isolation and alignment remain
+unproven, and #961 still gates provider/device activation.
+
 <a id="interactive-answer-receipts-breaking-910"></a>
 
 ### Interactive answer receipts (breaking, #910)

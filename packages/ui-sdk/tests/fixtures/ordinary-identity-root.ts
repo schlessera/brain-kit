@@ -56,6 +56,7 @@ if (process.argv[2] === "--child") {
   console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
   await import("../restricted-relay-qualification.native.js");
   await import("./ordinary-identity-ws.js");
+  await import("./ordinary-identity-ws.js" + "?profile=strict");
 } else {
   expect(process.getuid!()).toBe(0);
   mkdirSync("/identity-fixture", { recursive: true }); chownSync("/identity-fixture", 21001, 21001); chmodSync("/identity-fixture", 0o2775);

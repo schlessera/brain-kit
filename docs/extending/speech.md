@@ -256,3 +256,25 @@ behavior. Exact permission audio, acoustic echo isolation and word alignment
 remain unproven until separate qualification. See the
 [conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
 and [qualification plan](../investigations/live-conversation-investigation.md#bounded-live-verification-plan).
+
+## Live conversation with GPT-Live
+
+`createGptLiveConversationProvider(serverOwnedApiKey)` from
+`@schlessera/brain-ui-server` supplies the separately registered
+`CreateAppOptions.conversationProvider`. The server retains the credential;
+the adapter fixes `gpt-live-1`, Live v1 primary WebSocket, PCM16/24 kHz, marin,
+client delegation and `store:false`. The host's independently selected backend
+continues streaming chat progress, tool activity and interactive cards while
+voice input/output and asynchronous delegated work remain active.
+
+All recognized text needs manual review: this API has transcript deltas and
+no complete-turn signal. Correlated fragments use echoed client command IDs;
+after multiple captured utterances, missing correlation visibly ends capture
+rather than borrowing the latest utterance's identity. These are conservative
+capability limits to qualify on real providers/devices under #961.
+
+Commentary is ordinary narration, never exact permission copy. Local playback
+cut does not claim remote output cancellation, and `store:false` does not
+promise zero retention. The
+[conversation contract](../integration-contract/wire.md#live-conversation-additive-957)
+describes the guarded correlation, bounded result appends and close receipts.
