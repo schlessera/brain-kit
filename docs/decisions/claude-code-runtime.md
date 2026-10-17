@@ -1425,8 +1425,10 @@ The qualified mutable settings need synchronous kernel event observation as well
 file identities: reading the same bytes again cannot exclude an edit-and-restore
 while native initialization cached a route. Lost watches, event overflow,
 aliases and unqualified source tiers refuse. Native library loading is lazy;
-an unavailable library refuses the selected prepared transport without making
-unrelated turn-runner imports fail.
+both the Bun FFI module and native library are loaded only when the prepared
+transport selects the guard. An unavailable module/library refuses that
+selection without making unrelated turn-runner or declared Node package imports
+fail. Concurrent first selections share a load; a failed load can be retried.
 
 A manager-acquired immutable startup view has a different lifetime from a
 mutable project path. Only its existing private acquisition attestation can

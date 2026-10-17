@@ -222,6 +222,43 @@ this now-completed same-source count comparison. Dependency copies and private
 builds count in proof time and sampled VM resources; setup/install and queues
 remain separate step measurements. No deadline, shard count or N changed here.
 
+### Opt-in compilation within one hosted workspace
+
+The [same-source compilation comparison](https://github.com/schlessera/brain-kit/issues/2321#issuecomment-6233589351)
+uses [run 39029776835](https://github.com/schlessera/brain-kit/actions/runs/39029776835),
+measurement SHA `742c0c951823233b91116e1836b0a0a1d7354328` descended from
+`f33358e6589f72e18099ff2954ebb9ef92cd6ae5`. It compares the original serial
+build before the subset implementation and the separately pending stamp work,
+with identical compiler/install identities, nineteen-package path/mode/byte
+inventories and an offline namespace on each four-vCPU Ubuntu runner.
+
+| Compilation arm | One private workspace (seconds) | Two private workspaces together (seconds) |
+| --- | ---: | ---: |
+| Serial before / after | 114.005 / 111.228 | 112.898 / 115.539 |
+| Two compilers per workspace | 81.078 | 111.200 |
+| Four compilers per workspace | 78.132 | Not run |
+| Incremental cold / unchanged warm | 113.714 / 36.213 | 115.668 / 39.017 |
+
+Two compilers reduce the one-workspace build by about 28%; four provide only
+about three seconds more. The two-workspace gain falls within serial bracket
+drift while increasing total user CPU from 338.49 to 404.47 seconds. Therefore
+only the hosted pack build and hosted browser/layout/endurance workspace-build
+commands select `--jobs=2`. Default, local, release, capture, native and private
+two-workspace unit builds remain serial. Hard and optional internal dependency
+levels constrain the selected package set; peer/dev closure selection does not
+introduce a scheduling cycle. Started peers finish before a named package
+failure returns its original compiler exit code. CSS, copies and executable bins
+remain part of each package's successful build.
+
+Incremental output is declined: after deleting `common/dist/env-core.js`, all
+three actual private workers return zero without restoring that required file.
+The unchanged warm gain cannot satisfy the existing output contract. This is
+one repetition per arm with serial bracketing, not a whole-CI speedup estimate
+or a claim about the newer subset/stamp implementation. Cold means empty output
+and incremental state, not cold OS caches. Aggregate memory measurements were
+unavailable; process maximum RSS does not establish aggregate headroom. The
+measurement workflow remains an evidence vehicle and is not merged.
+
 Unit weights have the same explicit reviewed path:
 `bun scripts/refresh-unit-costs.ts <run-id> <attempt>`. It requires all four
 successful exhaustive unit jobs and binds actual checkout logs, immutable

@@ -37,7 +37,17 @@ const diagram="packages/ui-react/tests/browser/diagram-proof-command.ts",diagram
 const diagramFiles=[diagram,diagramCaller,"packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx",...new Bun.Glob("packages/module-diagrams/skills/diagram/references/examples/**/*.yaml").scanSync({cwd:repo}),"packages/module-diagrams/tests/fixtures/axis-examples.ts",guard,"packages/ui-kit/tests/visual/form-browser.ts","packages/ui-kit/tests/visual/design-font-setup.ts","packages/ui-kit/tests/visual/design-font-checks.ts","packages/ui-kit/tests/visual/rank-footer-browser.ts","scripts/captures/fonts.ts","scripts/captures/font-lock.json","scripts/captures/fonts.css","packages/ui-kit/.storybook/preview-head.html","packages/module-diagrams/tests/fixtures/renderer-fixture.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",...new Bun.Glob("packages/module-diagrams/src/*.{ts,tsx}").scanSync({cwd:repo})];
 test("diagram replay binds all four exact callers and every SVG, fixture, CSS and inline-font producer",()=>{
  const {root}=fixture(diagramFiles),selected=[...files,...diagramFiles],bound=boundBrowserDocuments(root,selected,browserImporters(root,selected));
+ expect(bound.has(diagram),"REVIEWED_DIAGRAM_DOCUMENT_BINDS").toBe(true);
  const input=[...bound.get(diagram)!.values()][0]!;expect(input.runtime).toContain(diagramCaller);expect(input.runtime).toContain("packages/ui-react/tests/browser/diagrams-positional.layout.tsx");expect(input.runtime).toContain("packages/ui-react/tests/browser/diagrams-node-link.layout.tsx");expect(input.runtime).toContain("packages/module-diagrams/src/svg-model.ts");expect(input.runtime).toContain(guard);expect(input.bytes).toContain("packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml");
+});
+test("changing the reviewed HTML sink to an unchecked argument refuses diagram binding",()=>{
+ const {root,write}=fixture(diagramFiles),selected=[...files,...diagramFiles];
+ expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram),"CONTROL_REVIEWED_DOCUMENT_BINDS").toBe(true);
+ const source=readFileSync(join(root,diagram),"utf8");
+ const changed=source.replace("${drawing.html}","${externalHtml}");
+ expect(changed).not.toBe(source);
+ write(diagram,changed);
+ expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram),"UNCHECKED_HTML_SINK_REFUSED").toBe(false);
 });
 test("diagram caller, renderer, fixture, guard and font drift or extra caller refuse document binding",()=>{
  for(const file of [diagram,diagramCaller,"packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx","packages/module-diagrams/skills/diagram/references/examples/architecture.diagram.yaml","packages/module-diagrams/src/svg-model.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",guard,"scripts/captures/fonts.css"]){const {root,write}=fixture(diagramFiles),selected=[...files,...diagramFiles];write(file,readFileSync(join(root,file),"utf8")+"\n/* drift */\n");expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram)).toBe(false);}

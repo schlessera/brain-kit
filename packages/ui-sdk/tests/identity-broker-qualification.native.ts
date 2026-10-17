@@ -1,7 +1,9 @@
 /** Explicit disposable-container proof; never installs a helper on the host. */
 import { expect } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createConnection } from "node:net";
+import { once } from "node:events";
 import { launchAgentWorker, prepareWorkerSandbox, probeWorkerHost, WORKER_STATE, type LaunchedWorker } from "../src/server/worker-launcher.js";
 import { prepareRecoveredWorkerFile, prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "../src/server/worker-identity-reader.js";
 import { processStateLedger } from "../src/server/worker-state-budget.js";
@@ -50,6 +52,91 @@ async function check(name: string, run: () => Promise<void>) {
 }
 
 try {
+  await check("nested server-owned 0700 parent masks launch and conceal private files and sockets", async () => {
+    const directory = "/identity-server-private/nested-mask-state";
+    mkdirSync(directory, { mode: 0o700 });
+    const alias = "/identity-fixture/nested-private-alias"; symlinkSync(directory, alias);
+    mkdirSync(join(directory, "nested"));
+    const secret = join(directory, "private.txt"), socket = join(directory, "private.sock");
+    writeFileSync(secret, "Odysseus private operational state");
+    let contacts = 0;
+    const listener = Bun.serve({ unix: socket, fetch() { contacts++; return new Response("Ithaca"); } });
+    try {
+      const positive = createConnection({ path: socket });
+      try {
+        await once(positive, "connect");
+        positive.end("GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        let reply = "";
+        for await (const data of positive) reply += data.toString();
+        expect(reply).toContain("Ithaca");
+      } finally { positive.destroy(); }
+      const program = `import os,json,socket
+try: value=open(${JSON.stringify(secret)}).read()
+except (PermissionError,FileNotFoundError): value='REFUSED'
+s=socket.socket(socket.AF_UNIX);s.settimeout(1)
+try: s.connect(${JSON.stringify(socket)}); connected=True
+except OSError: connected=False
+finally: s.close()
+print(json.dumps(dict(uid=os.getuid(),value=value,connected=connected)))`;
+      for (const profile of ["governed"] as const) {
+        let launched: ReturnType<typeof launch> | undefined;
+        expect(() => { launched = launch(program, { sandbox: { brain, profile, restricted: false, areas: [], scratchAliasesRemoved: [], maskPaths: [alias, join(directory, "nested"), directory] } }); },
+          `NESTED_PRIVATE_PARENT_LAUNCH_${profile}`).not.toThrow();
+        const { worker, output, errors } = launched!;
+        try {
+          const code = await worker.exited;
+          if (code !== 0) await close(worker);
+          expect(code, `NESTED_PRIVATE_PARENT_LAUNCH_${profile}: ${errors()}`).toBe(0);
+          await until(() => output().includes("\n"), "NESTED_PRIVATE_PARENT_RECEIPT");
+          expect(JSON.parse(output())).toEqual({ uid: 21002, value: "REFUSED", connected: false });
+          expect(contacts, "NESTED_PRIVATE_SOCKET_NEVER_CONTACTED").toBe(1);
+        } finally { await close(worker); }
+      }
+      expect(readFileSync(secret, "utf8")).toBe("Odysseus private operational state");
+    } finally { try { listener.stop(true); } finally { rmSync(alias, { force: true }); rmSync(directory, { recursive: true, force: true }); } }
+  });
+  await check("shared-group 0701 parent uses group search permission before other search", async () => {
+    const parent = join(root, "group-no-search"), directory = join(parent, "state");
+    mkdirSync(parent, { mode: 0o701 }); chmodSync(parent, 0o701);
+    mkdirSync(directory, { mode: 0o700 });
+    const secret = join(directory, "private.txt"); writeFileSync(secret, "Odysseus private operational state");
+    expect(statSync(parent).gid).toBe(process.getgid!());
+    let launched: ReturnType<typeof launch> | undefined;
+    try {
+      expect(() => { launched = launch(`import os,json
+try: value=open(${JSON.stringify(secret)}).read()
+except (PermissionError,FileNotFoundError): value='REFUSED'
+print(json.dumps(dict(uid=os.getuid(),value=value)))`, { sandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [], maskPaths: [directory] } }); },
+        "SHARED_GROUP_0701_PARENT_MUST_LAUNCH").not.toThrow();
+      const { worker, output, errors } = launched!;
+      const code = await worker.exited;
+      if (code !== 0) await close(worker);
+      expect(code, `SHARED_GROUP_0701_PARENT_MUST_LAUNCH: ${errors()}`).toBe(0);
+      await until(() => output().includes("\n"), "SHARED_GROUP_0701_RECEIPT");
+      expect(JSON.parse(output())).toEqual({ uid: 21002, value: "REFUSED" });
+    } finally { try { if (launched) await close(launched.worker); } finally { rmSync(parent, { recursive: true, force: true }); } }
+  });
+  await check("private-parent promotion refuses brain and required runtime intersections before payload", async () => {
+    const marker = join(brain, "mask-overlap-must-not-run");
+    const parent = join(root, "runtime-parent"), directory = join(parent, "private"), runtime = join(parent, "runtime.txt");
+    mkdirSync(parent, { mode: 0o700 }); mkdirSync(directory); writeFileSync(runtime, "Odysseus runtime");
+    const alias = join(root, "runtime-alias"); symlinkSync(runtime, alias);
+    const refused = async (readPaths: string[] | undefined, label: string) => {
+      let unexpected: ReturnType<typeof launch> | undefined;
+      try {
+        expect(() => { unexpected = launch(`open(${JSON.stringify(marker)},'w').write('unexpected')`, { sandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [],
+          ...(readPaths ? { readPaths } : {}), maskPaths: [directory] } }); }, label).toThrow("overlaps the brain or required runtime");
+      } finally { if (unexpected) await close(unexpected.worker); }
+    };
+    try {
+      await refused(["/usr/bin/python3", alias], "PRIVATE_PARENT_RUNTIME_COLLISION_REFUSED");
+      expect(existsSync(marker)).toBe(false);
+      chmodSync(root, 0o700);
+      await refused(undefined, "PRIVATE_PARENT_BRAIN_COLLISION_REFUSED");
+      expect(existsSync(marker)).toBe(false);
+      await until(() => workerPids().length === 0, "PRIVATE_PARENT_COLLISION_LEFT_WORKER");
+    } finally { chmodSync(root, 0o2775); rmSync(alias, { force: true }); rmSync(parent, { recursive: true, force: true }); }
+  });
   await check("same-UID unmasked sentinel control and explicit no-helper database-directory mask", async () => {
     const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
     delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;

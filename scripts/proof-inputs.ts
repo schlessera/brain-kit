@@ -1,5 +1,6 @@
 /** Immutable inclusion-based browser inputs. Native/Git-derived proof stays fresh. */
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { inclusionInputs } from "./inclusion-inputs";
 
@@ -52,18 +53,61 @@ export function proofInputs(root: string, category: Reusable, inventory: Spec[],
   return inclusionInputs(root, category, inventory, runner, ref);
 }
 
+/** Drain both native pipes without retaining arbitrarily large warning output. */
+async function discoveryOutput(stream: ReadableStream<Uint8Array>) {
+  let bytes = 0, tail = Buffer.alloc(0);
+  for await (const chunk of stream) {
+    bytes += chunk.byteLength;
+    tail = Buffer.concat([tail, chunk.subarray(Math.max(0, chunk.byteLength - 1000))]).subarray(-1000);
+  }
+  return { bytes, tail: tail.toString("utf8") };
+}
+function inventoryPublication(output: string) {
+  try {
+    const stat = statSync(output);
+    return { present: true, bytes: stat.size,
+      // Identify a published inventory without logging its paths or retaining an unbounded file.
+      ...(stat.isFile() && stat.size <= 1024 * 1024 ? { sha256: createHash("sha256").update(readFileSync(output)).digest("hex") } : {}) };
+  } catch { return { present: false }; }
+}
+
 /** --filesOnly reaches Vitest's glob API without importing/collecting test suites. */
 export async function browserInventory(root: string): Promise<Spec[]> {
   const output = join(root, "tmp", `proof-browser-inventory-${process.pid}.json`);
   mkdirSync(dirname(output), { recursive: true });
   rmSync(output, { force: true });
+  const started = performance.now(), deadlineMs = 15000;
+  let timedOut = false;
   const p = Bun.spawn(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
-    cwd: join(root, "packages/ui-kit"), stdout: "pipe", stderr: "pipe", env: { ...process.env, CI: "true" },
+    cwd: join(root, "packages/ui-kit"), stdout: "pipe", stderr: "pipe", detached: process.platform !== "win32",
+    // The supported opt-out avoids unawaited Storybook telemetry retry timers
+    // retaining this file-only child after JSON publication. It changes no projects.
+    env: { ...process.env, CI: "true", STORYBOOK_DISABLE_TELEMETRY: "1" },
   });
-  const timer = setTimeout(() => p.kill("SIGKILL"), 15000);
+  // Own just this discovery session: retry/worker descendants may retain its pipes
+  // after the leader exits. Killing only the leader would leave the drain unbounded.
+  let completed = false, stopped = false, cleanupError: string | undefined;
+  const stopDiscovery = () => {
+    if (completed || stopped) return;
+    stopped = true;
+    if (process.platform !== "win32") {
+      try { process.kill(-p.pid, "SIGKILL"); return; } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") cleanupError = String(error).slice(-1000);
+      }
+    }
+    if (p.exitCode === null && !p.signalCode) {
+      try { p.kill("SIGKILL"); } catch (error) { cleanupError = String(error).slice(-1000); }
+    }
+  };
+  const timer = setTimeout(() => { timedOut = true; stopDiscovery(); }, deadlineMs);
+  let stdout = { bytes: 0, tail: "" }, stderr = { bytes: 0, tail: "" };
   try {
-    const [, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-    if (code) throw new Error(`Vitest file discovery failed: ${err.slice(-1000)}`);
+    const results = await Promise.all([discoveryOutput(p.stdout), discoveryOutput(p.stderr), p.exited]);
+    completed = true; // Reaped leader and EOF on both pipes: the owned lifetime has ended.
+    [stdout, stderr] = results;
+    const code = results[2];
+    clearTimeout(timer);
+    if (timedOut || code || p.signalCode) throw new Error("Native discovery process did not complete successfully");
     // Vitest's file channel is JSON.stringify + writeFileSync. Console output
     // may contain colored diagnostics; it is not the machine envelope.
     const inventory = normalizeInventory(await Bun.file(output).json(), root);
@@ -74,7 +118,18 @@ export async function browserInventory(root: string): Promise<Spec[]> {
     const actual = [...new Set(inventory.map(spec => spec.project))].sort();
     if (!defaults.length || new Set(expected).size !== expected.length || JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Unknown or missing browser project discovery requires fresh proof");
     return inventory;
-  } finally { clearTimeout(timer); rmSync(output, { force: true }); }
+  } catch (error) {
+    stopDiscovery();
+    await p.exited;
+    const receipt = { elapsedMs: Math.round(performance.now() - started), deadlineMs, timedOut,
+      exitCode: p.exitCode, signal: p.signalCode ?? null, ...(cleanupError ? { cleanupError } : {}), stdout, stderr, inventory: inventoryPublication(output) };
+    throw new Error(`Vitest file discovery failed: ${JSON.stringify(receipt)}\n${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    clearTimeout(timer);
+    stopDiscovery();
+    await p.exited;
+    rmSync(output, { force: true });
+  }
 }
 export function runnerIdentity(env: NodeJS.ProcessEnv = process.env): string {
   // No externally hosted Storybook or alternate runtime context can be retained.

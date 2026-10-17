@@ -114,7 +114,7 @@ const hook = runtimeHookPhases("local-work-runtime");
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-local-work-"));
@@ -135,11 +135,11 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   await stopHost(host);
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 type Fixture = {

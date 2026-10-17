@@ -112,7 +112,7 @@ const hook = runtimeHookPhases("auth-expiry-runtime");
 beforeAll(async () => {
   if (!executablePath) return;
   if (!process.env.BRAIN_AUTH_FIXTURE_BUILT) {
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
   }
@@ -136,11 +136,11 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${resolve(scratch!, "microphone.wav")}`, "--autoplay-policy=no-user-gesture-required"], timeout: 120_000 }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   await stopHost(host);
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 type Fixture = {

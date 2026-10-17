@@ -21,7 +21,16 @@ function fixture() {
   writeFileSync(policy, GOLDEN);
   linkSync(policy, join(brain, "notes/hardlink.md"));
   linkSync(policy, join(scratch, "alias.md"));
-  return { root, brain, scratch, policies, policy, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  const relays: Array<ReturnType<typeof Bun.serve>> = [];
+  function relay() {
+    const dir = join(root, "relay"); mkdirSync(dir); chmodSync(dir, 0o700);
+    relays.push(Bun.serve({ unix: join(dir, "relay.sock"), fetch: () => new Response("ithaca") }));
+    chmodSync(join(dir, "relay.sock"), 0o600); return dir;
+  }
+  return { root, brain, scratch, policies, policy, relay, cleanup: () => {
+    for (const server of relays) server.stop(true);
+    rmSync(root, { recursive: true, force: true });
+  } };
 }
 
 async function collect(stream: NodeJS.ReadableStream): Promise<string> {
@@ -35,7 +44,7 @@ describe("real bubblewrap worker launcher", () => {
     const f = fixture();
     let state: ReturnType<typeof launchAgentWorker>["state"];
     try {
-      const relay = join(f.root, "relay"); mkdirSync(relay); chmodSync(relay, 0o700);
+      const relay = f.relay();
       // cat installs no signal handlers; observing a shell would also observe
       // its own SIGQUIT ignore, which it is entitled to install after exec.
       const worker = launchAgentWorker({ brainPath: f.brain, command: ["/usr/bin/cat", "/proc/self/status"], env: {},
@@ -229,7 +238,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
         walk("/proc");
         let sysctl="written";try{writeFileSync("/proc/sys/kernel/panic",readFileSync("/proc/sys/kernel/panic"))}catch(e){sysctl=e.code}
         console.log(JSON.stringify({sysctl,writable,own:writable.some(p=>/^\\/proc\\/\\d+\\/uid_map$/.test(p))}));`;
-      const relay = join(f.root, "relay"); mkdirSync(relay); chmodSync(relay, 0o700);
+      const relay = f.relay();
       const worker = launchAgentWorker({ brainPath: f.brain, command: [process.execPath, "-e", program], env: { HOME: "/tmp" },
         ...(mode === "restricted" ? { restricted: { readPaths: [process.execPath], inferenceDir: relay } } : {}) });
       worker.stdin.end();
@@ -266,14 +275,10 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
   });
 
   describe("restricted envelope (#676)", () => {
-    function relayDir(root: string): string {
-      const dir = join(root, "relay"); mkdirSync(dir); chmodSync(dir, 0o700); return dir;
-    }
-
     test("a real restricted worker sees only loopback, the explicit envelope and the relay directory", async () => {
       const f = fixture();
       try {
-        const relay = relayDir(f.root);
+        const relay = f.relay();
         writeFileSync(join(relay, "marker"), "relay");
         // A host secret beside the brain, host scratch and the relay's host path.
         writeFileSync(join(f.root, "secret"), "Odysseus: host secret.\n");
@@ -306,7 +311,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     test.each(["directory", "gitlink file"] as const)("masks the brain's .git %s from a restricted worker", async (kind) => {
       const f = fixture();
       try {
-        const relay = relayDir(f.root), git = join(f.brain, ".git");
+        const relay = f.relay(), git = join(f.brain, ".git");
         if (kind === "directory") { mkdirSync(git); writeFileSync(join(git, "config"), "Odysseus: repository config.\n"); }
         else writeFileSync(git, "gitdir: /elsewhere/odysseus\n");
         const program = `import {readdirSync,readFileSync,statSync,writeFileSync} from "node:fs";
@@ -325,7 +330,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     test("refuses a .git symlink it cannot mask", () => {
       const f = fixture();
       try {
-        const relay = relayDir(f.root);
+        const relay = f.relay();
         symlinkSync(f.root, join(f.brain, ".git"));
         expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
           restricted: { readPaths: [process.execPath], inferenceDir: relay } })).toThrow("to be masked");
@@ -335,7 +340,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     test("argv: private network, no host root, relay at its fixed path", () => {
       const f = fixture();
       try {
-        const relay = relayDir(f.root);
+        const relay = f.relay();
         const argv = workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
           restricted: { readPaths: [process.execPath], inferenceDir: relay } });
         expect(argv).toContain("--unshare-net");
@@ -349,7 +354,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     test.each([["/"], ["/home"], ["/etc"], ["ancestor"]])("refuses %s as a read path broader than an explicit envelope", (path) => {
       const f = fixture();
       try {
-        const relay = relayDir(f.root);
+        const relay = f.relay();
         expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
           restricted: { readPaths: [path === "ancestor" ? f.root : path], inferenceDir: relay } })).toThrow("broader than an explicit envelope");
       } finally { f.cleanup(); }
@@ -358,7 +363,7 @@ os.execve(${JSON.stringify(boot.command[0])}, ${JSON.stringify(boot.command)}, $
     test("refuses a relay directory other users could reach", () => {
       const f = fixture();
       try {
-        const relay = relayDir(f.root); chmodSync(relay, 0o755);
+        const relay = f.relay(); chmodSync(relay, 0o755);
         expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {},
           restricted: { readPaths: [], inferenceDir: relay } })).toThrow("private directory");
       } finally { f.cleanup(); }
