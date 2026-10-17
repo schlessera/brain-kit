@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import {readFileSync} from "node:fs";
+import {resolve} from "node:path";
 import { refreshBrowserCosts } from "../scripts/refresh-browser-costs";
 import type { API } from "../scripts/proof-reuse";
 
@@ -27,6 +29,7 @@ function fixture(domain: "browser" | "layout" = "layout") {
       if (path === "actions/runs/42/attempts/1/jobs?per_page=100") return page;
       if (path === `git/commits/${sha}`) return commit;
       if (path === `contents/scripts/visual.mjs?ref=${sha}`) return source;
+      if (path === `contents/packages/ui-kit/package.json?ref=${sha}`) return {encoding:"base64",content:Buffer.from(JSON.stringify({devDependencies:{playwright:"1.63.0"}})).toString("base64")};
       throw Error(`Unexpected evidence request: ${path}`);
     },
     async log(job) { return logs[job - 1]!; },
@@ -93,4 +96,30 @@ test("separate endurance proof never becomes a browser timing weight", async () 
   const f = fixture("browser");
   f.logs[0] = f.logs[0]!.replace("✓ visual", "✓ ui-react-endurance");
   await expect(f.refresh()).rejects.toThrow("Wrong domain");
+});
+
+const canonicalImage="mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
+function canonicalFixture(){
+  const f=fixture(),requests:string[]=[],root=resolve(import.meta.dir,"..");
+  f.source.content=Buffer.from(readFileSync(resolve(root,"scripts/visual.mjs"),"utf8")).toString("base64");
+  const producer={encoding:"base64",content:Buffer.from(readFileSync(resolve(root,"scripts/diagram-export-producer.mjs"),"utf8")).toString("base64")};
+  for(let index=0;index<f.logs.length;index++)f.logs[index]=f.logs[index]!.replace(image,canonicalImage);
+  f.run.event="pull_request";f.run.head_sha=parent;f.commit.parents=[{sha:tree},{sha:parent}];for(const job of f.jobs)job.head_sha=parent;
+  const api:API={json:async path=>{requests.push(path);if([sha,parent].some(ref=>path===`contents/scripts/diagram-export-producer.mjs?ref=${ref}`))return producer;return f.api.json(path);},log:f.api.log};
+  return{...f,producer,requests,api,refresh:()=>refreshBrowserCosts("layout",42,1,f.previous,canonicalImage,api)};
+}
+
+test("canonical current-source measurement reads runner producer and manifest from one immutable checkout",async()=>{
+ const f=canonicalFixture(),result=await f.refresh();
+ expect(result.measurements?.layout).toMatchObject({image:canonicalImage,checkout:sha,tree});
+ expect(f.requests.filter(path=>path.startsWith("contents/"))).toEqual([
+  `contents/scripts/visual.mjs?ref=${sha}`,`contents/scripts/diagram-export-producer.mjs?ref=${sha}`,`contents/packages/ui-kit/package.json?ref=${sha}`]);
+});
+test("historical producer disagreement cannot be replaced by the current checkout pin",async()=>{
+ const f=canonicalFixture();f.producer.content=Buffer.from(Buffer.from(f.producer.content,"base64").toString().replace(canonicalImage,canonicalImage.replace("eff16","aff16"))).toString("base64");
+ await expect(f.refresh()).rejects.toThrow("does not declare the measured image");
+});
+test("historical source manifest and declared version must agree",async()=>{
+ const f=canonicalFixture();f.producer.content=Buffer.from(Buffer.from(f.producer.content,"base64").toString().replace("v1.63.0-noble","v1.62.0-noble")).toString("base64");
+ await expect(f.refresh()).rejects.toThrow("Playwright version differs");
 });

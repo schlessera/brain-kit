@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { sha256 } from "./hash.ts";
 export { sha256 } from "./hash.ts";
 import { execFileSync } from "node:child_process";
@@ -87,19 +88,78 @@ export async function outputDirectory(root: string, requested: string): Promise<
   return actual;
 }
 
+function pinSource(text: string, file: string): ts.SourceFile {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  if ((source as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length) throw new Error("Malformed shared browser pin source");
+  return source;
+}
+function pinBindings(source: ts.SourceFile, name: string): ts.Node[] {
+  const bindings: ts.Node[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node) ||
+        ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isImportSpecifier(node) ||
+        ts.isNamespaceImport(node) || ts.isImportClause(node)) && node.name && ts.isIdentifier(node.name) && node.name.text === name) bindings.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(source); return bindings;
+}
+function pinConstant(source: ts.SourceFile, name: string, exported = false): ts.Expression {
+  const bindings = pinBindings(source, name);
+  const declaration = bindings.length === 1 && ts.isVariableDeclaration(bindings[0]!) ? bindings[0]! : undefined;
+  const list = declaration?.parent, statement = list?.parent;
+  if (!declaration || !list || !ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const) ||
+      !statement || !ts.isVariableStatement(statement) || statement.parent !== source || !declaration.initializer ||
+      exported && !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+    throw new Error(`The shared browser source must declare exactly one static ${name} pin`);
+  }
+  return declaration.initializer;
+}
+function runnerImageSource(text: string): { image: string } | { producer: true } {
+  const source = pinSource(text, "visual.mjs"), value = pinConstant(source, "IMAGE");
+  if (ts.isStringLiteral(value)) return { image: value.text };
+  if (!ts.isIdentifier(value) || value.text !== "diagramProducerImageIdentity") throw new Error("Unsupported shared IMAGE initializer");
+  const imports = source.statements.filter(ts.isImportDeclaration).flatMap(statement => {
+    const bindings = statement.importClause?.namedBindings;
+    return bindings && ts.isNamedImports(bindings) ? bindings.elements.filter(element => element.name.text === value.text).map(element => ({ statement, element })) : [];
+  });
+  const imported = imports.length === 1 ? imports[0] : undefined;
+  if (pinBindings(source, value.text).length !== 1 || !imported || imported.statement.importClause?.isTypeOnly || imported.element.isTypeOnly ||
+      imported.element.propertyName && imported.element.propertyName.text !== value.text ||
+      !ts.isStringLiteral(imported.statement.moduleSpecifier) || imported.statement.moduleSpecifier.text !== "./diagram-export-producer.mjs") {
+    throw new Error("Unsupported shared IMAGE import ownership");
+  }
+  return { producer: true };
+}
+/** Both current and immutable historical callers read only this fixed owned module. */
+export function browserPinUsesProducer(runner: string): boolean {
+  return "producer" in runnerImageSource(runner);
+}
+/** Parse executable static declarations; comments/strings and runner imports never execute. */
+export function parseBrowserPin(runner: string, producer?: string): { image: string; playwright: string } {
+  const source = runnerImageSource(runner);
+  let image: string, tag: string;
+  if ("image" in source) image = tag = source.image;
+  else {
+    if (producer === undefined) throw new Error("Missing shared browser producer pin source");
+    const module = pinSource(producer, "diagram-export-producer.mjs");
+    const tagPin = pinConstant(module, "diagramProducerImage", true), identity = pinConstant(module, "diagramProducerImageIdentity", true);
+    if (!ts.isStringLiteral(tagPin) || !ts.isStringLiteral(identity) ||
+        !/^mcr\.microsoft\.com\/playwright@sha256:[a-f0-9]{64}$/.test(identity.text)) throw new Error("Unrecognized immutable shared Playwright image pin");
+    tag = tagPin.text; image = identity.text;
+  }
+  const version = /^mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble$/.exec(tag)?.[1];
+  if (!version) throw new Error("Unrecognized shared Playwright image pin");
+  return { image, playwright: version };
+}
 export async function resolveBrowserPin(root: string): Promise<{ image: string; playwright: string }> {
   const runner = await readFile(resolve(root, "scripts/visual.mjs"), "utf8");
-  const pins = [...runner.matchAll(/^const IMAGE = "([^"]+)";/gm)];
-  if (pins.length !== 1) throw new Error("The shared visual runner must declare exactly one IMAGE pin");
-  const image = pins[0][1];
-  const version = /^mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble$/.exec(image)?.[1];
-  if (!version) throw new Error("Unrecognized shared Playwright image pin");
+  const pin = parseBrowserPin(runner, browserPinUsesProducer(runner) ? await readFile(resolve(root, "scripts/diagram-export-producer.mjs"), "utf8") : undefined);
   const pkg = JSON.parse(await readFile(resolve(root, "packages/ui-kit/package.json"), "utf8"));
   const installed = JSON.parse(await readFile(resolve(root, "node_modules/playwright/package.json"), "utf8"));
-  if (pkg.devDependencies?.playwright !== version || installed.version !== version) {
+  if (pkg.devDependencies?.playwright !== pin.playwright || installed.version !== pin.playwright) {
     throw new Error("Shared image, declared Playwright and installed Playwright versions differ; run the frozen install and verify the pin");
   }
-  return { image, playwright: version };
+  return pin;
 }
 
 /** Qualify overrides without changing an approved default filename. */
