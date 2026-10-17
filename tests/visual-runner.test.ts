@@ -68,8 +68,7 @@ async function invoke(args: string[], exit = 0) {
       import {mkdirSync,writeFileSync} from "node:fs";
       import {join} from "node:path";
       const nativeArgs=process.argv.slice(2);
-      if(nativeArgs[0]==="image"){console.log("sha256:"+"a".repeat(64));process.exit(0);}
-      if(nativeArgs.includes("sha256:"+"a".repeat(64))){
+      if(nativeArgs.some(value=>/^sha256:[a-f0-9]{64}$/.test(value))){
         const mount=nativeArgs.find(value=>value.endsWith(":/proof"));const output=mount.slice(0,-7);mkdirSync(output,{recursive:true});
         for(const format of ["svg","png","pdf"])writeFileSync(join(output,"release."+format),"owned wrapper routing output");
         console.log("[]");process.exit(0);

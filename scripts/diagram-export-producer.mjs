@@ -7,12 +7,13 @@ import {delimiter,join,resolve} from "node:path";
 import {materializeDiagramExportSource} from "./diagram-export-source.mjs";
 import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
 export const diagramProducerImage="mcr.microsoft.com/playwright:v1.63.0-noble";
+// Qualified Linux x64 image config: Docker launches this immutable identity.
+export const diagramProducerImageIdentity="sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
 const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
 export function diagramProducerRuntime(){
  const bun=(process.env.PATH??"").split(delimiter).map(dir=>resolve(dir,"bun")).find(path=>{try{accessSync(path,constants.X_OK);return statSync(path).isFile();}catch{return false;}});
  if(!bun)throw Error("Native diagram producer requires the installed Bun");
- const result=spawnSync("docker",["image","inspect","--format","{{.Id}}",diagramProducerImage],{encoding:"utf8"});
- const image=result.stdout?.trim();if(result.status!==0||!/^sha256:[0-9a-f]{64}$/.test(image??""))throw Error("Native diagram producer requires the existing pinned image");
+ const image=diagramProducerImageIdentity;
  const executable=realpathSync(bun),identity={image,bun:hash(readFileSync(executable))};
  return{...identity,executable,sha256:hash(Buffer.from(JSON.stringify(identity)))};
 }

@@ -1,7 +1,7 @@
 /** One fixed mount-bound native SVG/PNG/PDF operation; drift keeps fresh proof. */
 import {createHash} from "node:crypto";
 import {existsSync,lstatSync,readFileSync,readdirSync,realpathSync} from "node:fs";
-import {join,resolve} from "node:path";
+import {resolve} from "node:path";
 import {diagramSourceDomains,diagramSourceSetup,diagramSourceIdentity} from "./diagram-export-source.mjs";
 import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
 import {diagramProducerRuntime} from "./diagram-export-producer.mjs";
@@ -10,7 +10,7 @@ export interface NativeDiagramIdentity {source:string;installation:string;runtim
 // Candidate qualification is exact: all source/installation drift requires fresh
 // execution and requalification. The separate Docker mount boundary closes
 // active initialization/shared-library reads; byte hashes alone do not.
-const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"66f531f9da79309053d35ccea1b42a2ecd3830c53fdff55dd1b663df46848fbf",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
+const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"11d5ace45974c167eaeb8c0843f7f587132a7a890d25ae8632cda13ecf2c0aec",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
@@ -47,7 +47,6 @@ export function nativeDiagramInputs(root:string,files:readonly string[],importer
    ["scripts/diagram-export-producer.mjs",new Set([
     "accessSync(path,constants.X_OK)",
     "statSync(path)",
-    "spawnSync(\"docker\",[\"image\",\"inspect\",\"--format\",\"{{.Id}}\",diagramProducerImage],{encoding:\"utf8\"})",
     "readFileSync(executable)",
     "readFileSync(join(repo,\"tmp/diagram-export-source.json\"),\"utf8\")",
     "readdirSync(join(repo,\"node_modules\"))",

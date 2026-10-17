@@ -1,7 +1,7 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "af237f6d2941e1366fdee2e36ec39d77914b3d8b3f33d44b9c572494156fee56",
+  "identity": "a6d3c460eddb71d435cd63e5676a9fc3c408605127c5df900306da9d7d5d2042",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
@@ -10,7 +10,7 @@
     "files": 2280,
     "scope": "Complete 307-pair selected source/import/configuration/command inventory, including the separate network-disabled read-only-root native Docker producer. All six source families and preparation inputs, copied external installation membership/bytes/modes/internal aliases, actual immutable image ID and mounted Bun bytes join current identity. The producer mounts only private source/install/Bun and initially empty owned output; HOME/tmp/shared-memory are fresh container filesystems. Host checkout/state mount counterfactuals fail the named absent-data assertions. Imported initialization and shared helpers remain active inside this finite filesystem boundary. Fresh per-launch output session, artifact hashes, exact native entry/configuration/core-dispatch guards and original generated SVG/reference consumers remain enforced. Source or installation drift makes the binding unavailable; runtime drift changes its fingerprint. All resource/Worker guards, complete fresh same-PR two-shard proof and whole-workflow success remain mandatory. Metadata is not passing proof; historical observations retain their scope and source.",
     "native": {
-      "source": "66f531f9da79309053d35ccea1b42a2ecd3830c53fdff55dd1b663df46848fbf",
+      "source": "11d5ace45974c167eaeb8c0843f7f587132a7a890d25ae8632cda13ecf2c0aec",
       "installation": "2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05",
       "trackedInputs": 853,
       "packages": 843,

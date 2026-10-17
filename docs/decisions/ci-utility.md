@@ -369,6 +369,8 @@ exact installed Bun executable (read-only), and an initially empty owned output
 directory. Its HOME/temp and shared-memory filesystems are fresh container state;
 neither the original checkout nor host temporary directories or browser font
 cache are mounted. Image and Bun identities join the browser input fingerprint.
+Metadata lookup projects the explicit image ID without requiring a Docker image
+on the metadata runner; actual execution requires that existing ID with no pull.
 The kernel mount boundary applies to imported initialization and shared library
 helpers as well as the fixed entry; their inactivity is not assumed.
 
