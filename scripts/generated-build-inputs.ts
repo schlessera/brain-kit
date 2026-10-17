@@ -11,7 +11,7 @@ const auditedProducer: Record<string,string> = {
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
   "scripts/workspace-lease.mjs": "dc6dc975e6abdb3fb193b368b79544bc98c60c624f0fd9c9985358284bb07df0",
   "scripts/ci-proof.ts": "14eed5d2f28570afc19a546cc405d6f7706405577cec059ceac30132256b6509",
-  "scripts/check-pr.ts": "545d2ee62357629f1511f5d0168668b3778dd7e8293fcd2866f2cf051bae680b",
+  "scripts/check-pr.ts": "ed29d8dbb2e8b9982b502ad663045992339088dd8db766335b0b7ed2ba2436f6",
   "scripts/ci-runner.ts": "e6b9da9fdf92cb7ade402c620a8f58727bf5a09725bed03000a862866a6f9262",
   ".github/workflows/ci.yml": "0664eae990558d400c8b34b8d1fe9d687ff2b9e82e906ad2480e10bf42d9fc32",
   "package.json": "0d2ba2667eed49f4b686e57e54578d5f51e6c1b93605de0e1f5c8d08f8d0b188"
