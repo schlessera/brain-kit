@@ -443,3 +443,5 @@ await worker.exited;`;
   await import("./egress-identity-qualification.native.js");
   console.log(JSON.stringify({ identityQualification: "pass", cases, serverUid: process.getuid(), workerUid: 21002, limits: "owned-tree cleanup and best-effort observed-byte recovery; external references are not globally excluded" }));
 } finally { rmSync(root, { recursive: true, force: true }); }
+
+await import("../../ui-backend-claude/tests/sdk-host-relay-identity.native.js");

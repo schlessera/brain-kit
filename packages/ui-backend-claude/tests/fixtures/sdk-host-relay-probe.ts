@@ -10,11 +10,15 @@ import { settingsRefusal, subscriptionVerdict, type CliSettingsReport } from "..
 import { processStateLedger } from "../../src/worker-state-budget.js";
 import { createFixtureWorkerStartupView } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import type { LaunchedWorker, WorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync, linkSync, chmodSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 
+const separateIdentity = process.argv[4] === "separate-uid";
+if (separateIdentity && (process.getuid?.() !== 21001 || process.env.BRAIN_UI_WORKER_IDENTITY_HELPER !== "/usr/local/bin/identity-helper")) {
+  throw new Error("SDK_IDENTITY_PROOF_REQUIRES_DISPOSABLE_HELPER");
+}
 const profile = process.argv[2] === "strict" ? "strict" : "governed";
 const ledger = processStateLedger();
 let observedLedgerHeld = 0;
@@ -26,6 +30,11 @@ let permissionRequests = 0;
 const root = mkdtempSync(join(tmpdir(), "odysseus-native-host-relay-"));
 const host = join(root, "host"), worker = join(root, "worker"), brain = join(worker, "brain"), directory = join(root, "lock");
 for (const path of [host, worker, brain, directory]) mkdirSync(path, { mode: 0o700 });
+if (separateIdentity) {
+  // Only the worker's projected brain needs shared-group traversal. The host
+  // credential store retains owner-only access and is never projected.
+  chmodSync(root, 0o750); chmodSync(worker, 0o750); chmodSync(brain, 0o2775);
+}
 const access = ["odysseus-host-first", "odysseus-host-changed", "odysseus-host-refreshed"];
 const refresh = "odysseus-host-refresh";
 function save(token: string, expiresAt = Date.now() + 3_600_000) {
@@ -49,6 +58,22 @@ const accounts: Array<AccountInfo | undefined> = [];
 const sdkRequire = createRequire(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"));
 const expectedExecutable = sdkRequire.resolve("@anthropic-ai/claude-agent-sdk-linux-x64/claude");
 let nativeBinaryMatches = true;
+const nativeIdentities: Array<{ uid: number; gid: number; placeholder: boolean; secrets: boolean; credentialFile: boolean; serverSentinel: boolean }> = [];
+const oracle = join("/identity-fixture", `native-oracle-${process.pid}.py`);
+if (separateIdentity) {
+  // A fixed fixture executable records only booleans and kernel identity into
+  // held worker state, then replaces itself with the actual selected binary.
+  // Cross-UID /proc reads are deliberately not granted to the server.
+  writeFileSync(oracle, `#!/usr/bin/python3
+import json,os,hashlib
+exe=${JSON.stringify(expectedExecutable)}
+state=os.environ['CLAUDE_CONFIG_DIR']
+value=dict(uid=os.getuid(),gid=os.getgid(),placeholder=os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')==${JSON.stringify(INFERENCE_PLACEHOLDER)},secrets=any(v.startswith('odysseus-') for k,v in os.environ.items() if k in ('CLAUDE_CODE_OAUTH_TOKEN','ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN')),credentialFile=os.path.exists(state+'/.credentials.json'),serverSentinel=os.access('/identity-server-private/sentinel',os.R_OK),executableSha256=hashlib.sha256(open(exe,'rb').read()).hexdigest())
+fd=os.open(state+'/native-identity-receipt.json',os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o660)
+with os.fdopen(fd,'w') as out: json.dump(value,out)
+os.execv(exe,[exe,*__import__('sys').argv[1:]])
+`, { mode: 0o750 });
+}
 let refreshes = 0;
 let holdRefresh = false, refreshCancelled = false;
 let enteredRefresh!: () => void, endedRefresh!: () => void;
@@ -112,6 +137,7 @@ const env = { HOME: worker, CLAUDE_CONFIG_DIR: host, PATH: "/usr/bin:/bin", LANG
   ANTHROPIC_UNIX_SOCKET: "/run/brain-egress/inference.sock", ANTHROPIC_BASE_URL: "http://localhost",
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
 const workers: LaunchedWorker[] = [];
+const exitedWorkers = new WeakSet<LaunchedWorker>();
 const spawners: Array<{ finish(): Promise<void> }> = [];
 let workerCredentialFile = false;
 function nativePid(root: number): number {
@@ -138,6 +164,14 @@ async function bounded<T>(promise: Promise<T>): Promise<T> {
 }
 let session: string | undefined, hostAfterRefresh = false;
 let cancellationRetainedHostBytes = false, cancellationReleasedLock = false;
+const copyOutRefusals: Array<{ name: string; signalAborted: boolean }> = [];
+const originalConsoleError = console.error;
+let currentAbort: AbortController | undefined;
+if (separateIdentity) console.error = (...args: unknown[]) => {
+  if (args[0] === "Claude worker runtime-state copy-out refused:") {
+    copyOutRefusals.push({ name: args[1] instanceof Error ? args[1].name : "unknown", signalAborted: currentAbort?.signal.aborted === true });
+  } else originalConsoleError(...args);
+};
 try {
   for (let turn = 0; turn < (inspectProof || permissionProof || settingsProof ? 1 : 4); turn++) {
     if (turn === 1) save(access[1]!);
@@ -145,17 +179,32 @@ try {
     if (turn === 3) { save(access[1]!, 1); holdRefresh = true; }
     const before = readFileSync(join(host, ".credentials.json"));
     const abort = new AbortController();
+    currentAbort = abort;
     const timer = setTimeout(() => abort.abort(), 20_000);
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let live: LaunchedWorker | undefined;
     const startupView = profile === "strict" ? createFixtureWorkerStartupView(brain) : undefined;
+    if (separateIdentity && startupView) {
+      // This explicit copied test input must be readable by the fixture's
+      // shared group. No host credential/configuration directory is shared.
+      chmodSync(startupView.storage.root, 0o750); chmodSync(dirname(startupView.root), 0o750);
+      const share = (path: string): void => {
+        chmodSync(path, 0o750);
+        for (const entry of readdirSync(path, { withFileTypes: true })) {
+          const child = join(path, entry.name);
+          if (entry.isDirectory()) share(child); else if (entry.isFile()) chmodSync(child, 0o640);
+        }
+      };
+      share(startupView.root);
+    }
     const sandbox: WorkerSandbox = { brain, restricted: false, profile, areas: [], scratchAliasesRemoved: [],
       ...(profile === "governed" ? { protection: { paths: [], ancestors: [] } } : {}) };
     const turnLock = createTurnLockBinding({ turn: { pendingReleases: new Map(), ended: false },
       writeLock: createKeyedLock(), lockWaitMs: 1000, log() {}, admission: { signal: abort.signal } });
     const sdkTurn = createClaudeSdkTurn({
-      backend: { brainPath: brain },
+      backend: { brainPath: brain, ...(separateIdentity ? { claudeCodePath: oracle } : {}) },
+      ...(separateIdentity ? { identity: { kind: "separate_uid" as const, workerUid: 21002 } } : {}),
       req: { prompt: turn ? "Continue the Ithaca plan." : "Plan the return to Ithaca.",
         signal: abort.signal, sessionId: session, workerSandbox: sandbox, workerStartupView: startupView,
         bridge: { emit() {}, requestPermission: async () => {
@@ -164,6 +213,7 @@ try {
         } },
         workerStarted: started => {
           live = started as LaunchedWorker; workers.push(live);
+          const owned = live; void owned.exited.then(() => exitedWorkers.add(owned), () => exitedWorkers.add(owned));
           observedLedgerHeld = Math.max(observedLedgerHeld, ledger.held);
           workerCredentialFile ||= existsSync(join(live.state!.root, ".credentials.json"));
         },
@@ -192,9 +242,16 @@ try {
       }
       if (withheldForSettings) continue;
       if (!live) throw new Error("The ordinary native worker did not start.");
-      const pid = nativePid(live.pid);
-      nativeBinaryMatches &&= readlinkSync(`/proc/${pid}/exe`) === expectedExecutable;
-      nativeEnvironments.push(readFileSync(`/proc/${pid}/environ`, "utf8"));
+      if (separateIdentity) {
+        const receipt = JSON.parse(readFileSync(join(live.state!.root, "native-identity-receipt.json"), "utf8"));
+        nativeIdentities.push(receipt);
+        const { createHash } = await import("node:crypto");
+        nativeBinaryMatches &&= receipt.executableSha256 === createHash("sha256").update(readFileSync(expectedExecutable)).digest("hex");
+      } else {
+        const pid = nativePid(live.pid);
+        nativeBinaryMatches &&= readlinkSync(`/proc/${pid}/exe`) === expectedExecutable;
+        nativeEnvironments.push(readFileSync(`/proc/${pid}/environ`, "utf8"));
+      }
       if (inspectProof) continue;
       release();
       if (turn === 3) {
@@ -222,14 +279,14 @@ try {
   }
   const observed = JSON.stringify({ nativeEnvironments, accounts, stderr, files: files(join(host, "projects")) });
   console.log(JSON.stringify({ namespace: readlinkSync("/proc/self/ns/net"), sessionRetained: Boolean(session),
-    profile, withheldForSettings, permissionRequests, deniedFileExists: existsSync(join(brain, "should-not-exist")), ledgerHeld: ledger.held, observedLedgerHeld, requests, authorities, refreshes, accounts, nativeBinaryMatches, egressRecords, egressBytes: egress.usedBytes(), workerCredentialFile,
+    profile, nativeIdentities, copyOutRefusals, withheldForSettings, permissionRequests, deniedFileExists: existsSync(join(brain, "should-not-exist")), ledgerHeld: ledger.held, observedLedgerHeld, requests, authorities, refreshes, accounts, nativeBinaryMatches, egressRecords, egressBytes: egress.usedBytes(), workerCredentialFile,
     hostAfterRefresh, refreshCancelled, cancellationRetainedHostBytes, cancellationReleasedLock,
     secretsInNativeObservation: [...access, refresh, "odysseus-rotated-refresh", "odysseus-inherited-host-oauth", "odysseus-inherited-api-key", "odysseus-inherited-auth-token"].some(secret => observed.includes(secret)),
-    nativePlaceholder: nativeEnvironments.length === 4 && nativeEnvironments.every(value => value.includes(`CLAUDE_CODE_OAUTH_TOKEN=${INFERENCE_PLACEHOLDER}\0`)),
+    nativePlaceholder: separateIdentity ? nativeIdentities.length === 4 && nativeIdentities.every(value => value.placeholder) : nativeEnvironments.length === 4 && nativeEnvironments.every(value => value.includes(`CLAUDE_CODE_OAUTH_TOKEN=${INFERENCE_PLACEHOLDER}\0`)),
     stderr,
   }));
 } finally {
-  for (const worker of workers) worker.kill("SIGKILL");
+  for (const worker of workers) if (!exitedWorkers.has(worker)) worker.kill("SIGKILL");
   await Promise.allSettled(spawners.map(spawner => spawner.finish()));
-  relay.stop(); egress.stop(); globalThis.fetch = originalFetch; provider.stop(true); rmSync(root, { recursive: true, force: true });
+  console.error = originalConsoleError; relay.stop(); egress.stop(); globalThis.fetch = originalFetch; provider.stop(true); if (separateIdentity) rmSync(oracle, { force: true }); rmSync(root, { recursive: true, force: true });
 }
