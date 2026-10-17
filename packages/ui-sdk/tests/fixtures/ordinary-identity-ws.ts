@@ -122,6 +122,11 @@ try {
   expect(frames.some(frame => frame.type === "error"), "ACTUAL_MANAGED_WS_ADMISSION_NO_ERROR").toBe(false);
   const unavailable = observability.logs.records().filter(log => String(log.body).includes("the governed profile is unavailable"));
   expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
+  if (sharedGit) {
+    expect(typeof app.wsHost.scratchPrune, "SHARED_GIT_OWNED_MAINTENANCE_JOIN_AVAILABLE").toBe("function");
+    await app.wsHost.scratchPrune!();
+    console.log(JSON.stringify({ actualOwnedScratchPruneJoined: { profile, warm } }));
+  }
 } finally { try {
   try { socket?.close(); } finally {
     try { server?.stop(true); } finally {
