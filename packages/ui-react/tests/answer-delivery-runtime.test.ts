@@ -167,13 +167,13 @@ afterEach(() => {
   app?.cancelActiveTurns();
 });
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   server?.stop(true);
   app?.cancelActiveTurns();
   await app?.close();
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 type Mode = "pass" | "refuse";
 

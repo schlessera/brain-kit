@@ -79,13 +79,13 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   server?.stop(true);
   app?.cancelActiveTurns();
   await app?.close();
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 async function connected(page: Page) {
   await page.waitForFunction("window.__recoveryFixture?.connected()");

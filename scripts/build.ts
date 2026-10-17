@@ -1,5 +1,6 @@
 import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
+import { buildReceipt } from "./build-receipt.ts";
 import { markBinsExecutable } from "./bin-modes.ts";
 import { selectBuildPackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
@@ -50,11 +51,13 @@ if (dryRun) {
 
 const coordinated = await ensureWorkspaceLease(root, "write");
 if (coordinated !== undefined) process.exit(coordinated);
+const receipt = buildReceipt(root, { jobs, subset: directories !== undefined, packages: packages.map(pkg => pkg.dir) });
 const bunx = Bun.which("bunx");
 if (!bunx) {
   console.error(
     "Build failed: could not find `bunx` on PATH. Install Bun >= 1.3 from https://bun.sh."
   );
+  receipt.finish(1);
   process.exit(1);
 }
 
@@ -66,7 +69,7 @@ class PackageBuildFailure extends Error {
   }
 }
 
-async function buildPackage({ dir: packageName, manifest }: (typeof packages)[number]): Promise<void> {
+async function buildPackageBody({ dir: packageName, manifest }: (typeof packages)[number]): Promise<void> {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");
   rmSync(distDir, { recursive: true, force: true });
@@ -85,7 +88,9 @@ async function buildPackage({ dir: packageName, manifest }: (typeof packages)[nu
     );
     throw new PackageBuildFailure(packageName, 1, "could not spawn compiler");
   }
+  receipt.childStart(packageName, "tsc", subprocess.pid);
   const exitCode = await subprocess.exited;
+  receipt.childExit(packageName, "tsc", exitCode);
   if (exitCode !== 0) throw new PackageBuildFailure(packageName, exitCode, `compiler exited ${exitCode}`);
 
   if (packageName === "ui-react" || packageName === "ui-kit") {
@@ -98,7 +103,9 @@ async function buildPackage({ dir: packageName, manifest }: (typeof packages)[nu
       [compilerLauncher, "-p", "@tailwindcss/cli", "tailwindcss", "-i", cssEntry, "-o", cssOut, "--minify"],
       { cwd: packageDir, stdout: "inherit", stderr: "inherit" }
     );
+    receipt.childStart(packageName, "css", css.pid);
     const cssExit = await css.exited;
+    receipt.childExit(packageName, "css", cssExit);
     if (cssExit !== 0) throw new PackageBuildFailure(packageName, cssExit, `stylesheet compiler exited ${cssExit}`);
 
     // The Tailwind-consumer theme entry ships from dist like every other
@@ -137,6 +144,18 @@ async function buildPackage({ dir: packageName, manifest }: (typeof packages)[nu
   }
 }
 
+
+async function buildPackage(pkg: (typeof packages)[number]): Promise<void> {
+  receipt.packageStart(pkg.dir);
+  try {
+    await buildPackageBody(pkg);
+    receipt.packageEnd(pkg.dir, true);
+  } catch (error) {
+    receipt.packageEnd(pkg.dir, false);
+    throw error;
+  }
+}
+
 try {
   if (jobs === 1) {
     for (const pkg of packages) await buildPackage(pkg);
@@ -165,3 +184,4 @@ try {
   console.error(String(error));
   process.exitCode = error instanceof PackageBuildFailure ? error.code : 1;
 }
+receipt.finish(Number(process.exitCode ?? 0));
