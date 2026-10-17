@@ -12,12 +12,13 @@ function fixture() {
   const variant = dbRepeatStageVariant(source);
   const run = new Function("info", "stage", "native", "createHash", new Bun.Transpiler({ loader: "ts" }).transformSync(variant.substitution.after));
   const fds: number[] = [];
-  const physical = (ordinal: 1 | 2, options: { omit?: boolean; sameStage?: boolean; sameCheckpoint?: boolean; differentOwner?: boolean } = {}) => {
+  const physical = (ordinal: 1 | 2, options: { omit?: boolean; sameStage?: boolean; sameCheckpoint?: boolean; sameStageBinding?: boolean; sameKeeper?: boolean } = {}) => {
     const stageOrdinal = options.sameStage ? 1 : ordinal, checkpointOrdinal = options.sameCheckpoint ? 1 : ordinal;
+    const bindingOrdinal = options.sameStageBinding ? 1 : ordinal, keeperOrdinal = options.sameKeeper ? 1 : ordinal;
     const directory = join(root, String(stageOrdinal)); mkdirSync(directory, { recursive: true });
     const fd = openSync(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); fds.push(fd);
     const info = fstatSync(fd, { bigint: true });
-    const stage = { id: `00000000-0000-4000-8000-00000000000${ordinal}`, rootDevice: String(info.dev), rootInode: String(info.ino), namespacePid: process.pid + (options.differentOwner ? 1 : 0), namespaceStart: options.differentOwner ? "2" : "1" };
+    const stage = { id: `00000000-0000-4000-8000-00000000000${bindingOrdinal}`, rootDevice: String(info.dev), rootInode: String(info.ino), checkpointUuid: `3000000000004000800000000000000${options.sameStageBinding ? 1 : checkpointOrdinal}`, namespacePid: process.pid + keeperOrdinal, namespaceStart: String(keeperOrdinal) };
     const checkpoint = { id: `10000000-0000-4000-8000-00000000000${ordinal}`, fsid: "20000000-0000-4000-8000-000000000001",
       uuid: `3000000000004000800000000000000${checkpointOrdinal}`, rootId: String(256 + checkpointOrdinal), transaction: "1" };
     if (!options.omit) run(info, stage, { checkpoint }, createHash);
@@ -66,23 +67,38 @@ test("real second loopback HTTP request follows first publication and retains di
   } finally { try { server.stop(true); } finally { try { observation.restore(); } finally { f.cleanup(); } } }
 });
 
-test("different path/ordinal IDs cannot replace distinct physical checkpoint and stage facts", () => {
-  for (const reused of ["sameStage", "sameCheckpoint", "sameStageDifferentOwner"] as const) {
+test("distinct keeper and stage bindings are both required even when numeric mount identities recycle", () => {
+  for (const reused of ["sameCheckpoint", "sameStageBinding", "sameKeeper", "samePhysicalOwnerOnly"] as const) {
     const f = fixture(), observation = installDbRepeatObservation();
     const logDescriptor = Object.getOwnPropertyDescriptor(console, "log")!, diagnostic: string[] = [];
     try {
       Object.defineProperty(console, "log", { ...logDescriptor, value: (line: string) => { diagnostic.push(line); } });
       observation.begin(1); observation.observe(f.physical(1)); observation.published(1, 200, { success: true });
-      observation.begin(2); observation.observe(f.physical(2, reused === "sameStageDifferentOwner" ? { sameStage: true, differentOwner: true } : { [reused]: true })); observation.published(2, 200, { success: true });
-      expect(() => observation.complete(), reused === "sameStageDifferentOwner" ? "DB_REPEAT_DIFFERENT_OWNER_SAME_INODE_REFUSES" : reused).toThrow("DB_REPEAT_DISTINCT_PHYSICAL_IDENTITIES_REQUIRED");
+      observation.begin(2); observation.observe(f.physical(2, reused === "samePhysicalOwnerOnly" ? { sameStage: true, sameStageBinding: true } : { [reused]: true })); observation.published(2, 200, { success: true });
+      expect(() => observation.complete(), `DB_REPEAT_${reused}_REFUSES`).toThrow("DB_REPEAT_DISTINCT_ATTESTED_IDENTITIES_REQUIRED");
       expect(diagnostic.length, "DB_REPEAT_FAILURE_OBSERVATIONS_RETAINED").toBe(1);
       const receipt = JSON.parse(diagnostic[0]!).dbRepeatPhysicalObservation;
       expect(receipt.physicalStages).toHaveLength(2);
       expect(receipt.checkpointEqual).toBe(reused === "sameCheckpoint");
-      expect(receipt.stageEqual).toBe(reused !== "sameCheckpoint");
+      expect(receipt.stageEqual).toBe(reused === "samePhysicalOwnerOnly");
+      expect(receipt.stageBindingEqual).toBe(reused === "sameStageBinding" || reused === "samePhysicalOwnerOnly");
+      expect(receipt.keeperGenerationEqual).toBe(reused === "sameKeeper");
       expect(JSON.stringify(receipt)).not.toContain("namespacePid"); expect(JSON.stringify(receipt)).not.toContain("/proc/");
     } finally { try { Object.defineProperty(console, "log", logDescriptor); } finally { try { observation.restore(); } finally { f.cleanup(); } } }
   }
+});
+
+test("released numeric stage identity can recur only with independent attested stage and keeper generations", () => {
+  const f = fixture(), observation = installDbRepeatObservation();
+  try {
+    observation.begin(1); observation.observe(f.physical(1)); observation.published(1, 200, { success: true });
+    observation.begin(2); observation.observe(f.physical(2, { sameStage: true })); observation.published(2, 200, { success: true });
+    const result = observation.complete();
+    expect(result[0]!.stagePhysical).toBe(result[1]!.stagePhysical);
+    expect(result[0]!.checkpointPhysical).not.toBe(result[1]!.checkpointPhysical);
+    expect(result[0]!.stageBinding).not.toBe(result[1]!.stageBinding);
+    expect(result[0]!.keeperGeneration).not.toBe(result[1]!.keeperGeneration);
+  } finally { try { observation.restore(); } finally { f.cleanup(); } }
 });
 
 test("fixed stage transform refuses drift/duplicate anchors and observation restores its exact slot", () => {

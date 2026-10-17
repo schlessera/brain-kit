@@ -15,6 +15,8 @@ export function dbRepeatStageVariant(source: string) {
         checkpointPhysical: fixtureHash(JSON.stringify({ fsid: native.checkpoint.fsid, uuid: native.checkpoint.uuid,
           rootId: native.checkpoint.rootId, transaction: native.checkpoint.transaction })),
         stagePhysical: fixtureHash(JSON.stringify({ dev: String(info.dev), ino: String(info.ino) })),
+        stageBinding: fixtureHash(JSON.stringify({ stageId: stage.id, checkpointUuid: stage.checkpointUuid })),
+        keeperGeneration: fixtureHash(JSON.stringify({ namespacePid: stage.namespacePid, namespaceStart: stage.namespaceStart })),
         namespacePid: stage.namespacePid, namespaceStart: stage.namespaceStart });
     }`;
   const output = source.replace(before, after);

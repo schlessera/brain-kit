@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 const key = Symbol.for("brain-kit.fixture.db-repeat-stage");
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-type PhysicalReceipt = { checkpointKey: string; stageKey: string; checkpointPhysical: string; stagePhysical: string; namespacePid: number; namespaceStart: string };
+type PhysicalReceipt = { checkpointKey: string; stageKey: string; checkpointPhysical: string; stagePhysical: string; stageBinding: string; keeperGeneration: string; namespacePid: number; namespaceStart: string };
 export function installDbRepeatObservation() {
   const original = Object.getOwnPropertyDescriptor(globalThis, key);
   if (original && (!("value" in original) || original.value !== undefined || !original.configurable)) throw Error("DB_REPEAT_SLOT_NOT_EMPTY");
@@ -14,7 +14,7 @@ export function installDbRepeatObservation() {
     return owner.receipts;
   };
   let active: 1 | 2 | undefined, firstPublished = false, secondPublished = false;
-  const observed: Array<{ ordinal: 1 | 2; checkpointPhysical: string; stagePhysical: string }> = [];
+  const observed: Array<{ ordinal: 1 | 2; checkpointPhysical: string; stagePhysical: string; stageBinding: string; keeperGeneration: string }> = [];
   return {
     begin(ordinal: 1 | 2) {
       current();
@@ -36,8 +36,8 @@ export function installDbRepeatObservation() {
       if (matches.length !== 1) throw Error("DB_REPEAT_PHYSICAL_STAGE_RECEIPT_REQUIRED");
       const receipt = matches[0]!;
       if (receipt.namespacePid !== storage?.namespacePid || receipt.namespaceStart !== storage?.namespaceStart) throw Error("DB_REPEAT_STAGE_OWNER_MISMATCH");
-      if (![receipt.checkpointPhysical, receipt.stagePhysical].every(value => /^[0-9a-f]{64}$/.test(value))) throw Error("DB_REPEAT_PHYSICAL_STAGE_RECEIPT_REQUIRED");
-      observed.push({ ordinal: active, checkpointPhysical: receipt.checkpointPhysical, stagePhysical: receipt.stagePhysical });
+      if (![receipt.checkpointPhysical, receipt.stagePhysical, receipt.stageBinding, receipt.keeperGeneration].every(value => /^[0-9a-f]{64}$/.test(value))) throw Error("DB_REPEAT_PHYSICAL_STAGE_RECEIPT_REQUIRED");
+      observed.push({ ordinal: active, checkpointPhysical: receipt.checkpointPhysical, stagePhysical: receipt.stagePhysical, stageBinding: receipt.stageBinding, keeperGeneration: receipt.keeperGeneration });
     },
     published(ordinal: 1 | 2, status: number, body: unknown) {
       if (active !== ordinal || status !== 200 || !body || typeof body !== "object" || Array.isArray(body)
@@ -50,8 +50,11 @@ export function installDbRepeatObservation() {
       current();
       if (!firstPublished || !secondPublished || active || observed.length !== 2) throw Error("DB_REPEAT_TWO_PUBLISHED_INDEXES_REQUIRED");
       console.log(JSON.stringify({ dbRepeatPhysicalObservation: { physicalStages: observed.map(receipt => ({ ...receipt })),
-        checkpointEqual: observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical, stageEqual: observed[0]!.stagePhysical === observed[1]!.stagePhysical } }));
-      if (observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical || observed[0]!.stagePhysical === observed[1]!.stagePhysical) throw Error("DB_REPEAT_DISTINCT_PHYSICAL_IDENTITIES_REQUIRED");
+        checkpointEqual: observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical, stageEqual: observed[0]!.stagePhysical === observed[1]!.stagePhysical,
+        stageBindingEqual: observed[0]!.stageBinding === observed[1]!.stageBinding, keeperGenerationEqual: observed[0]!.keeperGeneration === observed[1]!.keeperGeneration } }));
+      // Numeric tmpfs dev/ino can recur after release; each launch still proved its held-FD identity.
+      if (observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical || observed[0]!.stageBinding === observed[1]!.stageBinding
+        || observed[0]!.keeperGeneration === observed[1]!.keeperGeneration) throw Error("DB_REPEAT_DISTINCT_ATTESTED_IDENTITIES_REQUIRED");
       return observed.map(receipt => ({ ...receipt }));
     },
     restore() {
