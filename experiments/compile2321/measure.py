@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -110,7 +111,15 @@ def run_arm(workers, name, variant, original, report, smoke, clean):
         (worker / "scripts/compile2321-build.ts").write_text(candidate(original, variant, smoke))
     started = time.monotonic()
     cpu_before = cgroup_value("cpu.stat")
-    peak_memory = 0
+    peak_memory = [None]
+    stop_sampling = threading.Event()
+    def sample_memory():
+        while not stop_sampling.is_set():
+            raw = cgroup_value("memory.current")
+            if raw and raw.isdecimal():
+                peak_memory[0] = max(peak_memory[0] or 0, int(raw))
+            stop_sampling.wait(.1)
+    sampler = threading.Thread(target=sample_memory, daemon=True)
     children = []
     streams = []
     try:
@@ -120,17 +129,14 @@ def run_arm(workers, name, variant, original, report, smoke, clean):
             children.append(subprocess.Popen(["/usr/bin/time", "-v", "-o", str(report / f"{name}-worker{index + 1}-resources.txt"),
                 "bun", "scripts/compile2321-build.ts"], cwd=worker, stdout=stream, stderr=subprocess.STDOUT,
                 start_new_session=True))
-        while any(child.poll() is None for child in children):
-            if time.monotonic() - started > 600:
-                raise TimeoutError(f"Compilation arm {name} exceeded its bounded capacity")
-            raw = cgroup_value("memory.current")
-            if raw and raw.isdecimal():
-                peak_memory = max(peak_memory, int(raw))
-            time.sleep(.1)
-        exits = [child.wait() for child in children]
+        sampler.start()
+        exits = [child.wait(timeout=max(.001, 600 - (time.monotonic() - started))) for child in children]
         wall_seconds = time.monotonic() - started
         cpu_after = cgroup_value("cpu.stat")
     finally:
+        stop_sampling.set()
+        if sampler.ident is not None:
+            sampler.join(timeout=1)
         # Include compiler grandchildren if a build entry exits on failure.
         for child in children:
             try:
@@ -156,7 +162,9 @@ def run_arm(workers, name, variant, original, report, smoke, clean):
         assert not any(path.endswith(".tsbuildinfo") for path in output), "Incremental metadata entered dist"
     receipt = {"name": name, "variant": variant, "wallSeconds": wall_seconds,
                "exitCodes": exits, "outputDigests": [digest(output) for output in outputs],
-               "cpuBefore": cpu_before, "cpuAfter": cpu_after, "jobCgroupPeakMemoryObserved": peak_memory}
+               "variantSourceSha256": sha(workers[0] / "scripts/compile2321-build.ts"),
+               "argv": ["bun", "scripts/compile2321-build.ts"],
+               "cpuBefore": cpu_before, "cpuAfter": cpu_after, "jobCgroupPeakMemoryObserved": peak_memory[0]}
     (report / f"{name}.json").write_text(json.dumps(receipt, indent=2))
     print(json.dumps(receipt), flush=True)
     if any(exits):
@@ -169,9 +177,14 @@ def main():
     parser.add_argument("--workers", choices=(1, 2), type=int, required=True)
     parser.add_argument("--report", type=pathlib.Path, required=True)
     parser.add_argument("--smoke", action="store_true", help="common-only local driver check, never a timing qualification")
+    parser.add_argument("--require-offline", action="store_true")
     args = parser.parse_args()
     report = args.report.resolve()
     report.mkdir(parents=True, exist_ok=False)
+    network_interfaces = [line.split(":")[0].strip() for line in pathlib.Path("/proc/net/dev").read_text().splitlines()[2:]]
+    if args.require_offline:
+        assert network_interfaces == ["lo"], "Benchmark must own an offline network namespace"
+        assert len(pathlib.Path("/proc/net/route").read_text().splitlines()) == 1, "Benchmark has an IPv4 route"
     head = command(["git", "rev-parse", "HEAD"])
     original = (ROOT / "scripts/build.ts").read_text()
     dependency_paths = [ROOT / "node_modules", *[package / "node_modules" for package in (ROOT / "packages").iterdir() if package.is_dir()]]
@@ -183,6 +196,8 @@ def main():
         "bun": command(["bun", "--version"]), "node": command(["node", "--version"]),
         "typescript": json.loads((ROOT / "node_modules/typescript/package.json").read_text())["version"],
         "installationDigest": digest(install), "workers": args.workers, "smoke": args.smoke,
+        "offlineNamespaceRequired": args.require_offline,
+        "networkInterfaces": network_interfaces if args.require_offline else "not-qualified-local-smoke",
         "cpuCount": os.cpu_count(), "affinity": sorted(os.sched_getaffinity(0)),
         "cpuMax": cgroup_value("cpu.max"), "memoryMax": cgroup_value("memory.max"),
         "uid": os.getuid(), "gid": os.getgid(), "groups": os.getgroups(),

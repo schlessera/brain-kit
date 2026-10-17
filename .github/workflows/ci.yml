@@ -35,7 +35,7 @@ jobs:
           compile_groups=$(id -G | tr ' ' ',')
           sudo unshare --net -- setpriv --reuid="$compile_uid" --regid="$compile_gid" --groups="$compile_groups" \
             env PATH="$PATH" HOME="$HOME" ImageOS="$ImageOS" ImageVersion="$ImageVersion" \
-            python3 experiments/compile2321/measure.py --workers=${{ matrix.workers }} --report="$RUNNER_TEMP/compile2321-${{ matrix.workers }}"
+            python3 experiments/compile2321/measure.py --workers=${{ matrix.workers }} --require-offline --report="$RUNNER_TEMP/compile2321-${{ matrix.workers }}"
       - name: Immutable measurement receipts and failures
         if: always()
         uses: actions/upload-artifact@v7
