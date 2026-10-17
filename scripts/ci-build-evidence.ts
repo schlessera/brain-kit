@@ -37,7 +37,7 @@ export function compactBuildEvidence(workspace: string, controller: string, resu
     outputs[pkg] = { identity: expected, path: relative(controller, destination) };
   }
   if (result.purpose === "qualification-consumers") for (const pkg of result.producer.consumers.packages) {
-    assert(/^[a-z0-9-]+$/.test(pkg)); retain(`diagnostics/pack-work/brainkit-tarballs/${pkg}.tgz`);
+    assert(/^[a-z0-9-]+$/.test(pkg)); retain(`diagnostics/consumer-work/pack-work/brainkit-tarballs/${pkg}.tgz`);
   }
   const manifest = { version: 1, purpose: "qualification-evidence", authority: "none", session: result.session, key: result.key, originalCapture: state, files, outputs, bun: digest(bun.bytes), removedCapture: true };
   writeFileSync(join(evidence, "retained.writing.json"), JSON.stringify({ ...manifest, removedCapture: false }, null, 2), { flag: "wx", mode: 0o600 });

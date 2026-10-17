@@ -226,7 +226,9 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       const uid = process.getuid!(), gid = process.getgid!();
       const argv = ["run", "--name", name, "--label", `brain-ci-build-session=${session}`, "--pull=never", "--read-only", "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user", `${uid}:${gid}`, "--hostname", "brain-build", "--cpus=2", "--memory=4g", "--pids-limit=256", "--shm-size=64m",
         "--tmpfs", `/repo:rw,nosuid,nodev,mode=0700,uid=${uid},gid=${gid},size=64m`, "--tmpfs", "/tmp:rw,exec,nosuid,nodev,mode=1777,size=256m"];
-      const diagnosticMounts = proof?.trace ? [{ source: proof.trace.source, target: "/trace", readonly: true }] : proof?.consumers ? [{ source: proof.consumers.source, target: "/consumer-input", readonly: true }] : [];
+      const consumerWork = join(state, "diagnostics/consumer-work");
+      if (proof?.consumers) mkdirSync(consumerWork, { mode: 0o700 });
+      const diagnosticMounts = proof?.trace ? [{ source: proof.trace.source, target: "/trace", readonly: true }] : proof?.consumers ? [{ source: proof.consumers.source, target: "/consumer-input", readonly: true }, { source: consumerWork, target: "/consumer-work", readonly: false }] : [];
       const allMounts = [...mounts, ...diagnosticMounts, { source: tool, target: "/tool", readonly: true }, { source: entryPath, target: "/operation/entry.json", readonly: true },
         ...["hosts", "hostname", "resolv.conf"].map(file => ({ source: join(hostFiles, file), target: `/etc/${file}`, readonly: true }))];
       writeFileSync(entryPath, JSON.stringify({ version: 1, mode: proof?.consumers ? "consumers" : "build", uid, gid, originalRoot: root, canary, selected: pending, jobs: options.jobs, topology, rootNames, node: policy.node.path,
@@ -348,7 +350,9 @@ async function qualifyPrivateBuild(root: string): Promise<number> {
       const code = await execute(workspace, options, policy, true, proof);
       if (code === undefined) {
         const args = [process.execPath, join(workspace, "scripts/build.ts"), `--jobs=${options.jobs}`, ...(options.force ? ["--force"] : []), ...(options.directories ? ["--for", options.directories.join(",")] : [])];
-        const child = Bun.spawn(args, { cwd: workspace, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+        // Bun's default spawn environment retains startup values. Explicitly
+        // forward the private lease/PATH established by this controller.
+        const child = Bun.spawn(args, { cwd: workspace, stdin: "ignore", stdout: "inherit", stderr: "inherit", env: { ...process.env } });
         const fallback = await child.exited;
         if (fallback !== 0) throw new Error(`Private unsupported-context ordinary build failed (${fallback})`);
         const result = { label, purpose: "qualification", authority: "none", state: "unsupported-ordinary-rebuild", elapsedMs: performance.now() - start };
@@ -371,6 +375,11 @@ async function qualifyPrivateBuild(root: string): Promise<number> {
     const outputs = Object.fromEntries(source.packages.map(pkg => [pkg, identity(outputFiles(join(workspace, "packages", pkg, "dist")))]));
     const repeat = await run("unchanged"); assert.equal(repeat.compiled.length, 0, "CI_BUILD_UNCHANGED_HAS_NO_COMPILER_CHILDREN"); assert.equal(repeat.reused.length, 19);
     for (const pkg of source.packages) assert.equal(identity(outputFiles(join(workspace, "packages", pkg, "dist"))), outputs[pkg], "CI_BUILD_REPEAT_PRESERVES_OUTPUT");
+    // Check expensive consumer compatibility before the later causal controls,
+    // so a real packing failure does not repeat every independent build arm.
+    proof.consumers = consumerInputs;
+    try { await run("packed-consumers"); } finally { delete proof.consumers; }
+    const consumers = proof.results.at(-1);
     const dist = join(workspace, "packages/common/dist"), entry = outputFiles(dist).find(file => file.kind === "file")!;
     assert(entry); const file = join(dist, entry.path);
     const changes = [
@@ -436,9 +445,6 @@ async function qualifyPrivateBuild(root: string): Promise<number> {
     try { await run("diagnostic-trace", { jobs: 1, force: true }); } finally { delete proof.trace; }
     const traced = proof.results.at(-1), trace = classifyBuildTrace(buildRead(join(traced.artifactDirectory, "diagnostics/qualification-syscalls.log"), undefined, 256 * 1024 * 1024).bytes.toString("utf8"));
     for (const pkg of source.packages) assert.equal(traced.outputs[pkg], outputs[pkg], "CI_BUILD_TRACE_ARM_PRESERVES_OUTPUT");
-    proof.consumers = consumerInputs;
-    try { await run("packed-consumers"); } finally { delete proof.consumers; }
-    const consumers = proof.results.at(-1);
     writeFileSync(resultPath, JSON.stringify({ version: 1, purpose: "qualification", authority: "none", domain, workspace, results: proof.results, trace, consumers, remainingQualification: ["finite-ambient-source-audit-and-counterfactuals", "actual-owner-interruption", "browser-marker-and-default-export-consumers", "comparable-hosted-cost"], productionActivation: "unqualified" }, null, 2), { flag: "wx", mode: 0o600 });
     console.log(`Private qualification evidence retained at ${directory}; production reuse remains unqualified.`);
     return 0;

@@ -123,9 +123,25 @@ blanket directory-name exclusion. Installed `.bin` aliases must resolve to
 verified bytes declared by a package manifest. This policy does not add direct
 dependencies or overrides to flatten the consumer graph.
 
+The pinned Bun's native binlink optimization redirects esbuild's alias into an
+optional platform package without a `bin` declaration. Consumer installers
+disable that optimization with its fixed native-linker feature flag, retaining
+the declared wrapper and unchanged dependency graph and payloads. Actual offline
+controls compare both layouts and execute both entrypoints; the strict verified
+alias rule still applies before every consumer import.
+
 Consumer cache, archive extraction and installer scratch use the private
-disk-backed diagnostics mount. They do not enlarge the producer's `/tmp` tmpfs,
+disk-backed diagnostics child, bound at fixed `/consumer-work` outside the
+captured repository. This preserves the authoritative outside-repo consumer
+ancestry: missing dependencies cannot climb into captured `/repo/node_modules`.
+The mount is consumer-only and session-owned. These paths do not enlarge the producer's `/tmp` tmpfs,
 memory allowance or deadline. The outer qualification harness must also
 kernel-isolate networking for ordinary fallback compiler children; the Docker
 producer boundary alone does not cover those host-side children. Registry
 prefill is a separate preparation step outside that proof harness.
+
+Bun's packing and workspace-pin probes temporarily write package manifests
+and a probe tarball. Those unchanged probes run against a physical private
+repository copy under the consumer mount, excluding diagnostics scratch. The
+captured `/repo` remains read-only, and the installed consumers occupy a sibling
+directory so missing dependencies cannot resolve from that repository copy.

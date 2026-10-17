@@ -18,9 +18,9 @@ test("actual TypeScript data references refuse ambient paths without comment/str
  expect(buildDataRefusals(root,records),"CI_BUILD_EFFECTIVE_REFERENCE_ESCAPE_REFUSED").toEqual([path+":external-reference"]);
 });
 test("only the authoritative known packed installers receive native offline flags",()=>{
- const cwd="/repo/tmp/pack-work/brainkit-consumer",tar="/repo/tmp/pack-work/brainkit-tarballs/common.tgz";
+ const cwd="/consumer-work/pack-work/brainkit-consumer",tar="/consumer-work/pack-work/brainkit-tarballs/common.tgz";
  const actual=offlinePackInstallArgs(["/tool/bun","add",tar,"react","react-dom"],"/tool/bun",cwd,["common"]);
- expect(actual).toEqual(["/tool/bun","add","--offline","--ignore-scripts","--backend=copyfile","--cache-dir=/repo/tmp/consumer-cache",tar,"react","react-dom"]);
+ expect(actual).toEqual(["/tool/bun","add","--offline","--ignore-scripts","--backend=copyfile","--cache-dir=/consumer-work/cache",tar,"react","react-dom"]);
  expect(()=>offlinePackInstallArgs(["/tool/bun","add","odysseus-unreviewed-package"],"/tool/bun",cwd,["common"]),"CI_BUILD_UNKNOWN_INSTALLER_HAS_NO_ONLINE_FALLBACK").toThrow();
  expect(offlinePackInstallArgs(["/tool/bun","pm","pack"],"/tool/bun",cwd,["common"])).toBeUndefined();
 });
