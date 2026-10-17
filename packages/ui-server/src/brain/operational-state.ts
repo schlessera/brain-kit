@@ -2,7 +2,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { mountPointsUnder } from "@schlessera/brain-ui-sdk/internal";
+import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 
 /** Follow filesystem components in order: link/.. must traverse the link first. */
@@ -155,4 +155,28 @@ export function assertOperationalStateOutsideBrain(input: OperationalStateLayout
   error.name = "OperationalStateInBrainError";
   // An embedder can show the same diagnostic even though a refused app has no HTTP listener.
   throw Object.assign(error, { status: refusal });
+}
+
+/** Concrete host state used only by the server's existing worker identity probe. */
+export interface WorkerProbeState extends Omit<OperationalStateLayout, "brainPath"> {
+  /** @internal Already selected by createApp; revalidated before each probe. */
+  identitySentinelDirectory?: string;
+}
+
+/** Never place a helper's private proof input in a checkpointable brain. */
+export function workerIdentitySentinelDirectory(brainPath: string, state: WorkerProbeState = {}): string | undefined {
+  if (!workerIdentityHelper()) return undefined;
+  const selected = state.identitySentinelDirectory
+    ?? (state.dbPath && state.dbPath !== ":memory:" ? dirname(canonical(state.dbPath))
+      : (() => {
+        const lease = state.privateStatePaths?.find(entry => entry.setting === "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH");
+        return lease ? dirname(canonical(lease.path)) : undefined;
+      })());
+  if (!selected) throw new Error("Worker identity qualification requires trusted server state outside the brain");
+  const directory = canonical(selected);
+  if (!lstatSync(directory).isDirectory()) throw new Error("Worker identity qualification requires an existing server state directory");
+  assertOperationalStateOutsideBrain({ brainPath, privateStatePaths: [
+    { setting: "worker identity sentinel", path: join(directory, ".worker-identity-probe") },
+  ] });
+  return directory;
 }
