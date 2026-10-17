@@ -437,3 +437,8 @@ if (BACKEND === "pi" && APP_UID === 0) test("a native checkpoint descriptor rele
 if (BACKEND === "claude" && APP_UID === 1000) test("native recovery pages bound indexed work across retained identity growth (#1792)", async () => {
   await proveRecoveryInventory(ARTIFACTS);
 }, 120000);
+
+if (BACKEND === "claude" && APP_UID === 0) test("schedule Git publication inherits active native peer folder admission", async () => {
+  const { proveScheduleFolderAdmission } = await import("./schedule-folder-admission.js");
+  await proveScheduleFolderAdmission(ARTIFACTS);
+}, 30000);

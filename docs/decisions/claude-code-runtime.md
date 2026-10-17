@@ -1371,7 +1371,7 @@ outward approvals.
 The native qualification now constructs the full SDK turn, including its MCP
 server, system prompt, per-turn context and permission hooks, rather than
 constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:157-178`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:205-226`).
 Strict and governed controls retain history, model changes, host login
 rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
 call still reaches the existing per-use refusal: removing the assembled
@@ -1379,9 +1379,21 @@ PreToolUse hook creates the refused file. Native managed Unix-socket overrides
 and project API credentials withhold the prompt through the existing
 subscription settings check, before provider contact or host credential
 resolution (`settingsRefusal(settings`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:188-193`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:238-243`).
 The actual process state ledger is observed admitted while the worker is live
 and empty after teardown.
+
+The disposable identity qualification also composes these full SDK paths with
+the configured identity helper: server UID 21001 launches native inference as
+worker UID 21002 in both governed and strict profiles. A fixed fixture wrapper
+records kernel identity and credential-presence booleans in held worker state,
+then replaces itself with the selected installed native executable. The actual
+requests retain model/history, host refresh, account observations and shared
+proxy accounting. The worker cannot read the server-private sentinel and has
+neither the host credential file nor its tokens. Cancelled recovery keeps its
+explicit AbortError copy-out refusal; cleanup still releases the held ledger,
+helper records and workers. Strict input here is an explicitly shared copied
+fixture, not managed Btrfs admission or ordinary server dispatch enablement.
 
 This input supplies transport, not destination authority or automatic ordinary
 selection. Its trusted caller must bind the actual native-selected upstream,

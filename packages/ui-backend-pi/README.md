@@ -87,11 +87,17 @@ callback to replace with a host shell.
 
 Ordinary host-held Pi routing remains incomplete under
 [#1665](https://github.com/schlessera/brain-kit/issues/1665). Custom-origin
-credential authority still requires its pending Pi-specific decision: native
-`models.json` can be an alias into project content and can route a native OAuth
-bearer to a configured endpoint. The custom-origin negative control captures an
-HTTP 400 fixture request; it grants no permission and makes no live account
-claim. These tests add no runtime option or default activation.
+OAuth forwarding follows the approved
+[per-credential origin rule](../../docs/decisions/pi-endpoint-routing.md#stored-oauth-recipient-authorization):
+a non-first-party recipient requires explicit host-owned authorization for that
+credential's exact canonical origin. Native `models.json`, including an alias
+into writable project content, selects a route and grants no bearer recipient
+authority. Validate the actual native destination on each dispatch; refuse an
+unapproved recipient without endpoint substitution or credential transfer on
+redirect. The existing custom-origin negative control captures an HTTP 400
+fixture request; it grants no permission and makes no live account claim.
+These tests add no runtime option or default activation, and do not establish
+that the required ordinary host-side recipient check is implemented.
 
 ## GPT-6 profiles
 
