@@ -145,6 +145,8 @@ afterAll(() => hook.phase("cleanup", async () => {
 type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 type Fixture = {
   phase(): string;
+  snapshotFailed(): boolean;
+  hasSnapshot(): boolean;
   recording(): Promise<Array<{id:string; state:string; savedThroughMs:number; chunkCount:number}>>;
   tracks(): unknown[];
   allImages(): unknown[];
@@ -222,21 +224,25 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
   /**
    * While armed, holds every readwrite transaction over `records` open after
    * its own requests have succeeded: a request keeps going on each until the
-   * test releases them all, or aborts them all. So whichever write a
-   * snapshot waits on, its own transaction is among the held. Counts the
-   * writes that succeeded meanwhile.
+   * test releases them all, or aborts them all. Abort remains armed for
+   * later queued writes until explicitly restored: a held autosave must not
+   * consume the auth snapshot's injected failure. Counts successful puts.
    */
   async function armHold(page: Page, outcome: "release" | "abort") {
     await page.evaluate((outcome) => {
-      const w = window as unknown as { __hold: { held: number; puts: number; finish: () => void } };
+      const w = window as unknown as { __hold: { held: number; puts: number; finish: () => void; restore: () => void } };
       const put = IDBObjectStore.prototype.put;
       const held: IDBTransaction[] = [];
       let done = false;
-      w.__hold = { held: 0, puts: 0, finish: () => {} };
+      w.__hold = { held: 0, puts: 0, finish: () => {}, restore: () => { IDBObjectStore.prototype.put = put; } };
       IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...a: Parameters<IDBObjectStore["put"]>) {
         const req = put.apply(this, a);
         const key = a[1];
         if (this.name === "records" && Array.isArray(key) && String(key[1]).startsWith("root:")) {
+          if (done && outcome === "abort") {
+            this.transaction.abort();
+            return req;
+          }
           if (!held.includes(this.transaction)) {
             held.push(this.transaction);
             w.__hold.held = held.length;
@@ -254,8 +260,8 @@ const field = (page: Page) => page.locator("textarea[data-composer]");
       };
       w.__hold.finish = () => {
         done = true;
-        IDBObjectStore.prototype.put = put;
-        if (outcome === "abort") for (const tx of held) tx.abort();
+        if (outcome === "release") w.__hold.restore();
+        else for (const tx of held) tx.abort();
       };
     }, outcome);
   }
@@ -375,16 +381,24 @@ for (const kind of ["401", "1008"] as const) describe.skipIf(!executablePath)(`w
 });
 
 describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)",()=>{
- test("failed snapshot is reported; revocation uses signed-out copy",async()=>{
+ for (const priorAutosave of [false, true]) test(`failed snapshot is reported; revocation uses signed-out copy${priorAutosave ? "; prior autosave is held" : ""}`,async()=>{
   const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
   try {
    await boot(page); await field(page).fill(DRAFT); await committed(page);
    await armHold(page,"abort"); await field(page).evaluate((el:HTMLTextAreaElement)=>el.setSelectionRange(2,5));
+   if (priorAutosave) {
+    // Explicit ownership control: this native write predates auth revocation.
+    await page.waitForFunction(()=>(window as unknown as {__hold:{puts:number}}).__hold.puts>0);
+    expect(await fixture(page,f=>f.phase()),"held autosave precedes auth snapshot").toBe("active");
+   }
    await expire(page,"revoke");
    await page.waitForFunction(()=>(window as unknown as {__hold:{puts:number}}).__hold.puts>0);
    expect(await field(page).count(),"still mounted before abort").toBe(1);
    await page.evaluate(()=>(window as unknown as {__hold:{finish():void}}).__hold.finish());
    await until(page,"f.phase() === 'locked' && f.accountKey() === null");
+   await page.evaluate(()=>(window as unknown as {__hold:{restore():void}}).__hold.restore());
+   expect(await fixture(page,f=>f.snapshotFailed()),"injected failure belongs to auth snapshot").toBe(true);
+   expect(await fixture(page,f=>f.hasSnapshot()),"failed auth snapshot is not restorable").toBe(false);
    expect(await page.getByText("Your draft couldn't be saved on this device.",{exact:true}).count(),"failed snapshot is reported on neutral reauth screen").toBe(1);
    expect(await field(page).count()).toBe(0);
    expect(await page.getByText("This device was signed out",{exact:true}).count()).toBe(1);
@@ -396,7 +410,10 @@ describe.skipIf(!executablePath)("auth boundary failures and revocation (#1018)"
    expect(await navigation,"failed snapshot reloads even when account confirmation fails").toBe(true);
    expect(navigations,"same-account sign-in reloads after a failed snapshot").toBeGreaterThan(0);
    await page.unroute("**/api/vpn-check");
-  } finally { await context.close(); }
+  } finally {
+   try { await page.evaluate(()=>(window as unknown as {__hold?:{restore():void}}).__hold?.restore()); }
+   finally { await context.close(); }
+  }
  },120_000);
  test("different account navigates and cannot read or restore prior drafts or audio",async()=>{
   const context=await browser!.newContext({viewport:{width:900,height:700}}); const page=await context.newPage();
