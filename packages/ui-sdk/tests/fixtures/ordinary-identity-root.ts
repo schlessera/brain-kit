@@ -6,7 +6,7 @@ import { hostOutputStagingLimits } from "../../../ui-sdk/src/server/worker-state
 const brain = "/brain-fixture/brain";
 const sharedGit = process.argv.includes("--shared-git");
 const sharedPhase = sharedGit ? process.argv.find(arg => arg.startsWith("--shared-phase="))?.slice("--shared-phase=".length) : undefined;
-if (sharedPhase && !["fresh", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
+if (sharedPhase && !["private", "fresh", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
 const privateGitInputs = process.argv.includes("--private-git-inputs");
 function command(argv: string[]) {
   const child = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
@@ -68,7 +68,7 @@ if (process.argv[2] === "--index-child") {
     console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
     await import("../restricted-relay-qualification.native.js");
   }
-  if (privateGitInputs && (!sharedPhase || sharedPhase === "fresh")) await import("../private-git-inputs.native.js");
+  if (privateGitInputs && (!sharedPhase || sharedPhase === "private")) await import("../private-git-inputs.native.js");
   if (!sharedPhase || sharedPhase === "fresh") await import("./ordinary-identity-ws.js" + (sharedGit ? "?shared-git=1" : ""));
   if (!sharedPhase || sharedPhase === "warm") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=governed&warm=1&shared-git=1" : "?profile=governed&warm=1"));
   if (!sharedPhase || sharedPhase === "strict") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=strict&shared-git=1" : "?profile=strict"));
@@ -147,7 +147,7 @@ if (process.argv[2] === "--index-child") {
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
   try {
-    const phases = sharedGit && process.argv[2] !== "--index-controls" ? ["fresh", "warm", "strict"] : [undefined];
+    const phases = sharedGit && process.argv[2] !== "--index-controls" ? [...(privateGitInputs ? ["private"] : []), "fresh", "warm", "strict"] : [undefined];
     let aggregateOutput = "", aggregateErrors = "";
     for (const phase of phases) {
       const started = performance.now();
