@@ -17,7 +17,7 @@ export interface NativeDiagramDiagnostic {
 // Candidate qualification is exact: all source/installation drift requires fresh
 // execution and requalification. The separate Docker mount boundary closes
 // active initialization/shared-library reads; byte hashes alone do not.
-const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"44f1c61f08273808da03fc7735f70612d66e232d4c69442a14cb85b74ac7cfde",installation:"0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245"};
+const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b",installation:"0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245"};
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
