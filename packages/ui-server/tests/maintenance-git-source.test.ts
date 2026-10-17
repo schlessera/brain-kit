@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { parseMaintenanceGitSources, parseMaintenanceGitFailure } from "../src/brain/maintenance-git-source.js";
+import { parseMaintenanceGitSources, parseMaintenanceGitFailure, reportMaintenanceGitFailure } from "../src/brain/maintenance-git-source.js";
 const entry = resolve(import.meta.dir, "../src/brain/maintenance-git-source.ts");
 const git = Bun.which("git")!;
 function fixture(run: (root: string, home: string) => void) {
@@ -110,4 +110,26 @@ test("attribute refusal metadata accepts only bounded fixed topology fields", ()
     expect(actual, "ATTR_FAILURE_TOPOLOGY_NEVER_FORWARDS_UNBOUNDED_OR_ARBITRARY_FIELDS").toEqual({ phase: "unknown", errorClass: "unknown", errno: "unknown" });
     expect(JSON.stringify(actual)).not.toContain("Odysseus hidden worker stderr");
   }
+});
+
+
+test("collector refusal uses injected structured logging without forwarding untrusted stderr", async () => {
+  const { createRecordingLoggerProvider } = await import("../src/observability/loggers.js");
+  const logs = createRecordingLoggerProvider(), log = logs.getLogger("maintenance");
+  const attrs = { rootClass: ".brain", depth: 3, uid: 65534, gid: 21001, mode: 0o700, type: "directory" };
+  reportMaintenanceGitFailure(log, { exitCode: 1, killed: false,
+    stderr: JSON.stringify({ phase: "attrs", errorClass: "Error", errno: "EACCES", attrs }) + "\nConcrete Git source collection refused\n" });
+  const records = logs.records();
+  expect(records.length, "COLLECTOR_REFUSAL_REACHES_INJECTED_LOGGER").toBe(1);
+  expect(records[0]).toMatchObject({ severity: "WARN", body: "maintenance Git source collection refused", attributes: {
+    "maintenance.git.exitCode": 1, "maintenance.git.killed": false, "maintenance.git.phase": "attrs",
+    "maintenance.git.errorClass": "Error", "maintenance.git.errno": "EACCES", "maintenance.git.rootClass": ".brain",
+    "maintenance.git.depth": 3, "maintenance.git.uid": 65534, "maintenance.git.gid": 21001, "maintenance.git.mode": 0o700,
+    "maintenance.git.type": "directory",
+  } });
+  reportMaintenanceGitFailure(log, { exitCode: Infinity, killed: true, stderr: "Odysseus hidden worker stderr" });
+  expect(logs.records()[1]!.attributes).toEqual({ "maintenance.git.exitCode": -256, "maintenance.git.killed": true,
+    "maintenance.git.phase": "unknown", "maintenance.git.errorClass": "unknown", "maintenance.git.errno": "unknown" });
+  expect(JSON.stringify(logs.records())).not.toContain("Odysseus hidden worker stderr");
+  reportMaintenanceGitFailure(undefined, { exitCode: 1, stderr: "" });
 });

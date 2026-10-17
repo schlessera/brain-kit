@@ -1,3 +1,4 @@
+import { defaultIdentityPhase } from "./default-identity-phases.js";
 import { installDbRepeatObservation, repeatWarmIndex } from "./db-repeat-observation.js";
 import { installBootPruneCapture } from "./boot-prune-capture.js";
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
@@ -93,7 +94,7 @@ try {
     await captureSharedGitMaintenance(brain, profile === "strict" ? "strict" : warm ? "warm" : "fresh");
     stage("git-consumer:done");
   }
-  if (profile === "governed" && !warm && !appOnly) {
+  if (profile === "governed" && !warm && !appOnly && defaultIdentityPhase(process.argv.slice(2)) !== "fresh") {
     stage("stage-controls:start");
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);

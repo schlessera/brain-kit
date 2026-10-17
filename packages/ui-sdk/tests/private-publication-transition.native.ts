@@ -4,6 +4,7 @@ import { lstatSync, readFileSync, readdirSync, rmdirSync, unlinkSync } from "nod
 import { createNativeBrainManagerClient } from "../src/server/native-brain-manager-client.js";
 import { prepareNativeWorkerStartupView } from "../src/server/worker-startup-view.js";
 import { prepareMaintenanceOutput } from "../../ui-server/src/brain/maintenance-output.js";
+import { createRecordingLoggerProvider } from "../../ui-server/src/observability/loggers.js";
 import { prepareMaintenanceGit } from "../../ui-server/src/brain/maintenance-git.js";
 
 const brain = "/brain-fixture/brain", directory = `${brain}/.brain/scratch/private`, file = `${directory}/result.md`;
@@ -33,25 +34,23 @@ function validate() {
 validate();
 const manager = createNativeBrainManagerClient({ socketPath: "/native-runtime/server-ws-manager.sock" });
 const view = await prepareNativeWorkerStartupView(brain, manager);
-const failures: unknown[] = [], originalError = console.error;
+const logs = createRecordingLoggerProvider();
 let refused: unknown;
 try {
   const outputs = await prepareMaintenanceOutput(brain, { startupView: view });
   try {
-    console.error = (...args: unknown[]) => {
-      if (typeof args[0] === "string") { try { failures.push(JSON.parse(args[0])); } catch {} }
-      originalError(...args);
-    };
     try { await prepareMaintenanceGit({ brainPath: brain, command: ["/bin/true"], credentials: false,
-      env: { PATH: "/usr/local/bin:/usr/bin:/bin" } }, outputs); } catch (error) { refused = error; }
-    finally { console.error = originalError; }
+      env: { PATH: "/usr/local/bin:/usr/bin:/bin" } }, outputs, undefined, logs.getLogger("fixture")); } catch (error) { refused = error; }
   } finally { await outputs.cleanup(); }
-} finally { console.error = originalError; await view.cleanup(); }
+} finally { await view.cleanup(); }
 expect(String(refused), "STRICT_SERVER_PRIVATE_PUBLICATION_COLLECTOR_REFUSES").toContain("Cannot freeze retained concrete Git sources");
-expect(failures, "STRICT_SERVER_PRIVATE_PUBLICATION_REAL_ATTRS_EACCES").toContainEqual({ maintenanceGitSourceFailure: {
-  exitCode: 1, killed: false, phase: "attrs", errorClass: "Error", errno: "EACCES",
-  attrs: { rootClass: ".brain", depth: 3, uid: 65534, gid: 21001, mode: 0o700, type: "directory" },
-} });
+expect(logs.find({ body: "maintenance Git source collection refused" }).map(row => row.attributes),
+  "STRICT_SERVER_PRIVATE_PUBLICATION_REAL_ATTRS_EACCES").toEqual([{
+  "maintenance.git.exitCode": 1, "maintenance.git.killed": false, "maintenance.git.phase": "attrs",
+  "maintenance.git.errorClass": "Error", "maintenance.git.errno": "EACCES", "maintenance.git.rootClass": ".brain",
+  "maintenance.git.depth": 3, "maintenance.git.uid": 65534, "maintenance.git.gid": 21001, "maintenance.git.mode": 0o700,
+  "maintenance.git.type": "directory",
+}]);
 validate();
 // This two-node negative fixture has completed its publication and refusal proof.
 // No recursive delete, permission rewrite or unknown-name exclusion is allowed.

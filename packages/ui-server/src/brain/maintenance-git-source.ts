@@ -189,8 +189,20 @@ export function parseMaintenanceGitSources(text: string, maximum: number, expect
   if (!value.repository && (value.config.length || value.hookNames.length || value.attributes.length)) throw Error("Inconsistent concrete Git source receipt");
   return value;
 }
+/** Report only the bounded fixed collector receipt through the caller's logger. */
+export function reportMaintenanceGitFailure(log: import("@opentelemetry/api-logs").Logger | undefined,
+  result: { exitCode: number; killed?: boolean; stderr: string }): void {
+  const failure = parseMaintenanceGitFailure(result.stderr);
+  const exitCode = Number.isInteger(result.exitCode) && result.exitCode >= -255 && result.exitCode <= 255 ? result.exitCode : -256;
+  log?.emit({ severityText: "WARN", body: "maintenance Git source collection refused", attributes: {
+    "maintenance.git.exitCode": exitCode, "maintenance.git.killed": result.killed === true,
+    "maintenance.git.phase": failure.phase, "maintenance.git.errorClass": failure.errorClass, "maintenance.git.errno": failure.errno,
+    ...(failure.attrs ? { "maintenance.git.rootClass": failure.attrs.rootClass, "maintenance.git.depth": failure.attrs.depth,
+      "maintenance.git.uid": failure.attrs.uid, "maintenance.git.gid": failure.attrs.gid, "maintenance.git.mode": failure.attrs.mode,
+      "maintenance.git.type": failure.attrs.type } : {}),
+  } });
+}
 if (import.meta.main) {
-  try { console.log(JSON.stringify(await collectMaintenanceGitSources(process.argv[2]!, Number(process.argv[3]), process.argv[4]!))); }
-  catch (error) { console.error(JSON.stringify(error instanceof CollectionFailure ? error.diagnostic : unknownFailure()));
-    console.error("Concrete Git source collection refused"); process.exitCode = 1; }
+  try { process.stdout.write(JSON.stringify(await collectMaintenanceGitSources(process.argv[2]!, Number(process.argv[3]), process.argv[4]!)) + "\n"); }
+  catch (error) { process.stderr.write(JSON.stringify(error instanceof CollectionFailure ? error.diagnostic : unknownFailure()) + "\nConcrete Git source collection refused\n"); process.exitCode = 1; }
 }

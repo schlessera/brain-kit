@@ -1699,7 +1699,7 @@ rewrite. The collector imports no brain code, gains no network, and cannot
 select a new input root. The host binds its root receipt to the retained
 checkpoint and revalidates the original view, command and output identity
 before consuming it (`privateGitSources`,
-`packages/ui-server/src/brain/maintenance-git.ts:14-42`).
+`packages/ui-server/src/brain/maintenance-git.ts:14-41`).
 
 Attribute bytes round-trip UTF-8 exactly; aliases, unsupported types, unreadable
 inputs and bound/depth/entry overflow refuse instead of inventing absent

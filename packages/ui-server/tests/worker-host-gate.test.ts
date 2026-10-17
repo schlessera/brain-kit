@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -205,7 +205,11 @@ describe("pre-initialization worker host gate", () => {
 test("interactive, handoff and memory autonomous callers carry trusted probe placement before refusal", async () => {
   const directory = mkdtempSync(join(tmpdir(), "odysseus-turn-probe-"));
   const previous = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
-  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = "/usr/bin/true";
+  // Hosted coreutils can expose /usr/bin/true as an alias. Supply its
+  // concrete root-owned target; the production no-alias guard stays intact.
+  const helperAlias = join(directory, "helper-alias");
+  symlinkSync(realpathSync("/usr/bin/true"), helperAlias);
+  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = realpathSync(helperAlias);
   const f = setup("claude", undefined, directory); unsupported();
   try {
     await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [] });

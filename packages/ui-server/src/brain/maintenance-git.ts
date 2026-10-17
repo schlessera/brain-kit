@@ -3,7 +3,7 @@ import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, 
 import { dirname, join, resolve } from "node:path";
 import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { parseMaintenanceGitSources, parseMaintenanceGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
+import { parseMaintenanceGitSources, reportMaintenanceGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
 
 const TARGET = "/tmp/brain-maintenance-git";
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -11,7 +11,7 @@ const hooks = ["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commi
   "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update", "proc-receive",
   "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change"];
 
-async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, binary: string | undefined, signal?: AbortSignal): Promise<MaintenanceGitSources> {
+async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, binary: string | undefined, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceGitSources> {
   const view = outputs.view, native = nativeWorkerStartupInput(view), storage = outputs.output.storage;
   const checkpoint = JSON.stringify(native.checkpoint), source = outputs.output.source, target = outputs.output.target;
   const context = () => JSON.stringify({ brain: command.brainPath, command: command.command, env: command.env,
@@ -34,17 +34,16 @@ async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<R
     readPaths: [...(command.readPaths ?? []), entry, ...(binary ? [binary] : [])], network: false, timeoutMs: 30000, ...(signal ? { signal } : {}) });
   validate();
   if (result.exitCode !== 0 || result.killed) {
-    const exitCode = Number.isInteger(result.exitCode) && result.exitCode >= -255 && result.exitCode <= 255 ? result.exitCode : null;
-    console.error(JSON.stringify({ maintenanceGitSourceFailure: { exitCode, killed: result.killed === true, ...parseMaintenanceGitFailure(result.stderr) } }));
+    reportMaintenanceGitFailure(log, result);
     throw Error("Cannot freeze retained concrete Git sources");
   }
   return parseMaintenanceGitSources(result.stdout.trim(), maximum, expectedRoot);
 }
 
-export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, signal?: AbortSignal): Promise<MaintenanceCommand["git"]> {
+export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceCommand["git"]> {
   signal?.throwIfAborted();
   const binary = Bun.which("git") ?? undefined;
-  const privateInputs = !command.credentials && workerIdentityHelper() ? await privateGitSources(command, outputs, binary, signal) : undefined;
+  const privateInputs = !command.credentials && workerIdentityHelper() ? await privateGitSources(command, outputs, binary, signal, log) : undefined;
   const metadata = join(outputs.view.root, ".git");
   if (privateInputs ? !privateInputs.repository : !lstatSync(metadata, { throwIfNoEntry: false })?.isDirectory() || !existsSync(join(metadata, "config"))) return undefined;
   if (!binary) throw new Error("maintenance needs Git");
