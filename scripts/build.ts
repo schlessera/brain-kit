@@ -14,14 +14,18 @@ import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 // (scripts/publishable-packages.ts), so a future resolution change fails
 // loudly instead of subtly.
 //
-//   bun scripts/build.ts [--for <dir>[,<dir>…]] [--jobs=1|2] [--dry-run [root]]
+//   bun scripts/build.ts [--for <dir>[,<dir>…]] [--jobs=1|2] [--force] [--dry-run [root]]
 //
 // --for includes each named package and its forward workspace dependencies.
 // --dry-run prints that order without building or removing anything.
 // --jobs=2 opts a single CI workspace into bounded dependency-level builds.
 // The default stays serial, including two concurrent private unit workspaces.
+//
+// Rebuild every selected package. Persistent reuse is unavailable until effective
+// configuration, installed producers and runtime inputs are qualified (#2319).
+// --force remains accepted; ordinary builds already follow the same safe path.
 const args = process.argv.slice(2);
-let dryRun = false, dryRoot: string | undefined, directories: string[] | undefined;
+let dryRun = false, force = false, dryRoot: string | undefined, directories: string[] | undefined;
 let jobs = 1, jobsSeen = false;
 let packages: ReturnType<typeof selectBuildPackages>;
 let root: string;
@@ -29,6 +33,7 @@ try {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === "--dry-run" && !dryRun) dryRun = true;
+    else if (arg === "--force" && !force) force = true;
     else if (/^--jobs=[12]$/.test(arg) && !jobsSeen) { jobs = Number(arg.slice(7)); jobsSeen = true; }
     else if (arg === "--for" && directories === undefined) {
       const value = args[++index];
@@ -62,7 +67,6 @@ if (!bunx) {
 }
 
 const compilerLauncher = bunx;
-
 class PackageBuildFailure extends Error {
   constructor(readonly packageName: string, readonly code: number, detail: string) {
     super(`Build failed: packages/${packageName}: ${detail}`);

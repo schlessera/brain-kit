@@ -6,7 +6,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 // Tailwind CLI, build-before-browser order, checked exits and post-success receipt.
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
-  "scripts/build.ts": "025ca01230e8dc9737d96e2d6f31f4d70da7aefb6e53930044ea7a0d2d7df756",
+  "scripts/build.ts": "95c40d174c0dfa8d2f8f317a3c2236fecbba600faaaf3ebecb7a96dbd94c392d",
   "scripts/build-receipt.ts": "12c673be0e62aca17a4c11e45e2a915f17788199fd10632ae0833bcf6753b45d",
   "scripts/build-repeat-observation.ts": "06b2dd99186519e3dd084f9a5bb9d9d503af72da46678f556381dcaeca0c6e5f",
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",

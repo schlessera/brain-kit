@@ -39,7 +39,7 @@ const declarations:DocumentDeclaration[]=[{
   "calls": 2,
   "additionalCallers": {
     "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
-      "hash": "4a791c76a7ebd916ed7e47b91c37641a2f4b204aefd8ea470a46a3214f6c8cb2",
+      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
       "calls": 8
     },
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {
