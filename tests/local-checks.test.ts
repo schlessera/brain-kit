@@ -15,6 +15,35 @@ function fixture() {
   return dir;
 }
 
+function mountTable(count: number): string {
+  return Array.from({ length: count }, (_, i) => `${i + 1} 0 0:1 / /mnt/fixture/binds/${i} rw - tmpfs tmpfs rw`).join("\n") + "\n";
+}
+
+test("mount prerequisite permits 999 entries in focused preflight", () => {
+  const plan = planChecks([], []);
+  expect(requireRuntimeTools(plan, false, () => mountTable(999))).toBeUndefined();
+});
+
+test("mount prerequisite refuses 1000 entries before any child or tool lookup", () => {
+  const which = spyOn(Bun, "which").mockReturnValue("/fixture/tool");
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => { throw new Error("Unexpected child launch"); });
+  try {
+    for (const full of [false, true]) {
+      expect(() => requireRuntimeTools(planChecks([], []), full, () => mountTable(1000)))
+        .toThrow("1000 mount entries (limit: fewer than 1000); dominant mount-point prefix: /mnt/fixture/binds (1000 entries). Restart Docker Desktop, or on WSL2 run wsl --shutdown");
+    }
+    expect(which).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  } finally { which.mockRestore(); spawn.mockRestore(); }
+});
+
+test("mount prerequisite reports the largest parent prefix and decodes mountinfo escapes", () => {
+  const table = mountTable(600).replaceAll("/mnt/fixture/binds", "/mnt/fixture/binds\\040here") +
+    mountTable(400).replaceAll("/mnt/fixture/binds", "/other");
+  expect(() => requireRuntimeTools(planChecks([], []), false, () => table))
+    .toThrow("dominant mount-point prefix: /mnt/fixture/binds here (600 entries)");
+});
+
 test("runtime tools reject invalid Chrome paths before launching any child", () => {
   const dir = fixture();
   const file = join(dir, "non-executable"); writeFileSync(file, "fixture"); chmodSync(file, 0o600);
