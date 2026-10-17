@@ -397,6 +397,50 @@ binding unavailable. Current `dist` bytes never substitute for source inputs.
 Other generated artifacts, external assets and temporary readers remain unknown
 until their own bindings are validated.
 
+The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
+The host launches each engine's native producer in a separate network-disabled,
+read-only-root Docker container, using the existing pinned Playwright image's
+actual immutable manifest reference. The only host mounts are the private six-workspace
+source view (read-only), a private external-package installation (read-only), the
+captured installed Bun bytes (read-only), and an initially empty owned output
+directory. Its HOME/temp and shared-memory filesystems are fresh container state;
+neither the original checkout nor host temporary directories or browser font
+cache are mounted. Image and Bun identities join the browser input fingerprint.
+Execution bootstrap provisions the exact manifest digest and verifies its
+RepoDigest before either producer or browser consumption. Acquisition stays
+outside the offline producer and proof lookup.
+Metadata lookup projects the explicit manifest reference without requiring a Docker image
+on the metadata runner; actual execution requires that exact manifest reference with no pull.
+The kernel mount boundary applies to imported initialization and shared library
+helpers as well as the fixed entry; their inactivity is not assumed.
+
+The fixture retains the three fixed CLI vectors, literal diagrams-only config,
+fresh canonical brain/config roots, exact workspace resolution and immutable
+core-command refusal. The source view owns every tracked path, mode and byte in
+six workspace families plus exact preparation/entry files. External packages are
+copied without hidden package-manager state or unrelated workspace aliases. Their
+complete directory membership, package/manifest identities, modes, file bytes and
+internal file-link targets are reverified after copying; escaping aliases and
+mixed installation origins refuse. Code identity alone does not establish this
+closed read boundary: actual absent-host-data assertions and counterfactual host
+mounts qualify the mount restriction.
+
+Only a successful, drained native process publishes its artifact identities into
+a fresh per-launch handoff directory. The browser validates the preparation
+session, checkout, source/installation/runtime identities and all three artifact
+hashes, writes those exact validated bytes into its private consumer view, then
+retains the original SVG/reference zero-request replay and
+raster/font/PDF assertions. Different launches never share a prepared output root.
+The browser-side pinned font cache remains a separately owned browser input.
+
+Qualification is tied to the exact operation, source and installed identities;
+unknown readers, drift or missing inputs retain complete fresh proof. The fresh
+shard independently passes its computed identity to host preparation and checks
+installation/runtime identity again before emitting its existing receipt. Both
+shards, independent immutable source/current validation and whole-workflow
+successful eligibility retain the existing complete-domain protocol. Local proof
+is not a hosted baseline, retention hit or permission to use a failed workflow.
+
 Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative
 asset name, SHA-256 and mode in addition to the matching manifest/lockfile and

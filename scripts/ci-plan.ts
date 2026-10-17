@@ -19,6 +19,7 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   tooling: [
     "tests/ci-plan.test.ts", "tests/ci-runner.test.ts", "tests/browser-input-closure.test.ts",
     "tests/diagram-export-source.test.ts", // 0.3s tracked native-producer source controls.
+    "tests/diagram-export-installation.test.ts", // 0.03s finite installed input controls.
     "tests/local-checks.test.ts", "tests/hosted-proof.test.ts", "tests/browser-shards.test.ts",
     "tests/candidate-proof.test.ts", "tests/proof-inventory.test.ts",
     "tests/proof-reuse.test.ts", // 4.47s immutable source/input ownership controls (#1333).

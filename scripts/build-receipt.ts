@@ -2,6 +2,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { observedBuildContext, observedBuildOutputs } from "./build-repeat-observation.ts";
 
 type Compiler = "tsc" | "css";
 type Child = { compiler: Compiler; pid: number; startedAt: number; elapsedMs?: number; code?: number };
@@ -46,6 +47,12 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
     }
     mkdirSync(directory, { recursive: true });
   });
+  const beforeStarted = performance.now();
+  const before = available ? observedBuildContext(root, options.packages) : { state: "unknown" as const };
+  const beforeMs = performance.now() - beforeStarted;
+  observe(() => { Object.assign(receipt, { repeat: { scope: "fixed-observed-workload", state: "unknown", before,
+    observationMs: { before: beforeMs } } }); });
+  const executionStarted = performance.now();
   return {
     packageStart(name: string) { observe(() => { const value = pkg(name); value.state = "running"; value.startedAt = elapsed(); }); },
     childStart(name: string, compiler: Compiler, pid: number) {
@@ -64,6 +71,20 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
         value.elapsedMs = elapsed() - value.startedAt!;
       });
     },
-    finish(code: number) { observe(() => { receipt.state = "complete"; receipt.success = code === 0; receipt.code = code; }); },
+    finish(code: number) {
+      const executionMs = performance.now() - executionStarted;
+      observe(() => {
+        const afterStarted = performance.now();
+        const after = observedBuildContext(root, options.packages);
+        const afterMs = performance.now() - afterStarted;
+        const outputStarted = performance.now();
+        const output = code === 0 ? observedBuildOutputs(root, options.packages) : { state: "unknown" as const };
+        const outputMs = performance.now() - outputStarted;
+        const known = before.state === "known" && after.state === "known" && before.sha256 === after.sha256 && output.state === "known";
+        Object.assign(receipt, { repeat: { scope: "fixed-observed-workload", state: known ? "known" : "unknown",
+          before, after, output, executionMs, observationMs: { before: beforeMs, after: afterMs, output: outputMs } } });
+        receipt.state = "complete"; receipt.success = code === 0; receipt.code = code;
+      });
+    },
   };
 }

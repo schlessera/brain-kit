@@ -18,7 +18,7 @@ function fixture() {
   write(root, "bun.lock", "{}\n");
   write(root, "tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2019", module: "ESNext", moduleResolution: "Bundler", types: [], skipLibCheck: true } }));
   mkdirSync(join(root, "scripts"));
-  for (const file of ["build.ts", "build-receipt.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+  for (const file of ["build.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
     copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
   }
   const compiler = join(root, "node_modules/typescript");
