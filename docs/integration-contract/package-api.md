@@ -3,6 +3,36 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Prepared ordinary inference transport (internal #1665)
+
+The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created
+turn proxy from the SDK's internal `startEgressProxy`. It is trusted host data,
+not a wire field, backend extension callback or destination permission. The
+ordinary Claude turn runner consumes an explicitly supplied proxy for its
+stored-login profile; API-billed and autonomous paths retain their existing
+selection. Existing callers omitting it keep their current behavior.
+
+The prepared first-party composition uses the native worker's placeholder
+credential and host-held OAuth resolution on each actual dispatch. Native
+initialization, subscription/settings checks and actual model/session behavior
+remain in the ordinary SDK path. Mutable native project/managed settings are
+observed before a prompt; a retained immutable startup view instead requires
+its existing manager acquisition and matching kernel checkpoint identity.
+Cleanup attempts every owned resource and reports any failure.
+
+This member is first-party implementation sharing, with the internal-entry
+classification below; it does not add a supported public proxy extension API.
+Automatic server selection, custom-origin selection and Pi integration are
+separate from this input. Host-owned exact-origin authorization per
+credential remains mandatory for custom OAuth recipients. This input neither
+sanitizes arbitrary unrelated provider/command credentials nor completes the
+credential capability and maintenance cutover in #1666.
+
+**Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
+adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
+glyph and accessible label remain outside the truncating summary label, before
+the chevron. Existing controlled, seeded and uncontrolled behavior is unchanged.
+
 ## UI-kit action accessibility and loading (additive #1756)
 
 `ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
@@ -3372,3 +3402,26 @@ Call it before mounting. Registration is build-time trusted code, identity
 idempotent, with first-claim dispatch. It never imports server-named code.
 `@schlessera/brain-ui-sdk` exports `ContentRendererDeclaration` for the
 [authenticated bootstrap metadata](http.md#content-renderer-bootstrap-declarations-additive-2087).
+
+
+### Native persisted Claude memory observation (additive, #1658)
+
+`StartTurnRequest.persistClaudeMemory` is an optional host-only callback for
+validated native Claude memory copy-out. The backend supplies a direct note,
+its host-owned external directory, exact before/after bytes and before mode,
+and a synchronous save closure. A null observation explicitly reports copy-out
+that could not be inspected before a note callback. It is never serialized into a worker or
+accepted from a client. The first-party server retains/pins versions and a
+private pending receipt before invoking the closure, then publishes a steering
+change only after the save succeeds. Failed or interrupted finalization remains
+partial/unconfirmed. Other backends need not implement Claude native-memory
+persistence; this adds no agent history authority or new public request route.
+
+### Late Activity session association
+
+`ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed
+active span when the backend reports its session after the first frame. Repeating
+the same identity is allowed; changing an established identity or patching a
+terminal span returns false without modifying the row. The recorder persists
+this identity in both the queryable session column and the existing attributes.
+This additive API ships in a minor release.

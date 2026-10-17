@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
+import { createTurnRecorder } from "../src/activity/recorder.js";
 import { runActivityQuery } from "../src/activity/query.js";
 import { createUiDb } from "../src/db/client.js";
 import {
@@ -1239,4 +1240,38 @@ describe("activity store: effective cost (migration 010)", () => {
     expect(r.effective_cost_usd).toBeNull();
     expect(r.pricing_estimate).toBeNull();
   });
+});
+
+
+test("late session binding persists once and refuses reassignment or terminal writes", () => {
+  const {store, db} = freshStore();
+  try {
+    store.startSpan({spanId:"early-root", runId:"early", name:"invoke_agent", kind:"turn", origin:"session"});
+    startTurn(store,"other","athena-session");
+    expect(store.patchSpan("early-root",{sessionId:"ithaca-session"})).toBe(true);
+    expect(store.getSpan("early-root")?.sessionId,"LATE_SESSION_PERSISTED").toBe("ithaca-session");
+    expect(store.patchSpan("early-root",{sessionId:"ithaca-session"})).toBe(true);
+    expect(store.patchSpan("early-root",{sessionId:"other-session",attrs:{unexpected:true}}),"SESSION_IDENTITY_WRITE_ONCE").toBe(false);
+    expect(store.getSpan("early-root")?.attrs.unexpected).toBeUndefined();
+    store.endSpan("early-root",{outcome:"success"});
+    store.rollupRun("early");
+    expect(store.patchSpan("early-root",{sessionId:"other-session"})).toBe(false);
+    expect(db.query("SELECT session_id FROM activity_run_rollups WHERE run_id='early'").get()).toEqual({session_id:"ithaca-session"});
+    expect(db.query("SELECT span_id FROM activity_spans WHERE session_id='ithaca-session'").all()).toEqual([{span_id:"early-root"}]);
+    expect(store.getSpan("other-root")?.sessionId).toBe("athena-session");
+  } finally { db.close(); }
+});
+
+test("session_info binds a root opened by an earlier frame", () => {
+  const {store,db}=freshStore();
+  try {
+    const recorder=createTurnRecorder({store},{turnId:"early-frame",sessionId:null});
+    recorder.observeFrame({type:"tool_use_start",toolUseId:"wax",toolName:"Bash"});
+    expect(store.getSpan("early-frame:turn")?.sessionId).toBeNull();
+    recorder.observeFrame({type:"session_info",sessionId:"ithaca-session",isNew:true});
+    recorder.observeFrame({type:"session_info",sessionId:"other-session",isNew:false});
+    recorder.finish("success");
+    expect(store.getSpan("early-frame:turn")?.sessionId,"RECORDER_LATE_SESSION_BOUND").toBe("ithaca-session");
+    expect(db.query("SELECT session_id FROM activity_run_rollups WHERE run_id='early-frame'").get()).toEqual({session_id:"ithaca-session"});
+  } finally { db.close(); }
 });

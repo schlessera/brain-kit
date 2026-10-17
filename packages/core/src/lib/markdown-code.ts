@@ -18,7 +18,8 @@ import { unified } from "unified";
  */
 interface MdNode {
   type: string;
-  position?: { start: { offset?: number }; end: { offset?: number } };
+  lang?: string | null; meta?: string | null; value?: string;
+  position?: { start: { offset?: number; line?: number }; end: { offset?: number } };
   children?: MdNode[];
 }
 
@@ -43,4 +44,12 @@ export function codeRanges(text: string): [number, number][] {
 /** Whether `offset` falls inside one of `ranges`. */
 export function inRanges(ranges: [number, number][], offset: number): boolean {
   return ranges.some(([start, end]) => offset >= start && offset < end);
+}
+
+/** A real GFM fenced code block, including nested list/quote containers. */
+export interface MarkdownFence { language:string;meta:string;value:string;line:number;start:number;end:number }
+export function markdownFences(text:string):MarkdownFence[] {
+ const fences:MarkdownFence[]=[];
+ const walk=(node:MdNode)=>{if(node.type==="code"&&node.lang){fences.push({language:node.lang,meta:node.meta??"",value:node.value??"",line:node.position?.start.line??1,start:node.position?.start.offset??0,end:node.position?.end.offset??text.length});return;}for(const child of node.children??[])walk(child);};
+ walk(markdown.parse(text) as MdNode);return fences;
 }

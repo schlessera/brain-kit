@@ -28,32 +28,22 @@ export const RTK_WORKER_ENV = { RTK_SUPPRESS_HOOK_WARNING: "1" } as const;
 /** How long to give the rewrite oracle. rtk answers in <10ms; this is slack. */
 const RTK_TIMEOUT_MS = 2000;
 
-/** undefined = not probed yet. Cached for the process lifetime. */
-let rtkProbe: Promise<boolean> | undefined;
-
-/** Whether the `rtk` binary is available. Probed once, cached. */
+/** Probe this environment now; no successful host answer crosses workers. */
 export function rtkAvailable(env: NodeJS.ProcessEnv): Promise<boolean> {
-  if (rtkProbe) return rtkProbe;
-  rtkProbe = new Promise<boolean>((resolve) => {
-    try {
-      execFile(
-        "rtk",
-        ["--version"],
-        { timeout: RTK_TIMEOUT_MS, env },
-        (err) => {
-          resolve(!err);
-        }
-      );
-    } catch {
-      resolve(false);
-    }
-  });
-  return rtkProbe;
+  return available("rtk", env);
 }
+function available(binary: string, env: NodeJS.ProcessEnv, cwd?: string): Promise<boolean> {
+  return new Promise(resolve => {
+    try { execFile(binary, ["--version"], { timeout: RTK_TIMEOUT_MS, env, ...(cwd ? { cwd } : {}) }, err => resolve(!err)); }
+    catch { resolve(false); }
+  });
+}
+/** @internal Compatibility for existing test callers; probes are no longer cached. */
+export function resetRtkProbe(): void {}
 
-/** @internal Test seam — reset the cached probe. */
-export function resetRtkProbe(): void {
-  rtkProbe = undefined;
+/** Internal server-only oracle for a verified installed, worker-visible binary. */
+export function rewriteInstalledRtk(command: string, binary: string): Promise<string> {
+  return rewrite(command, { PATH: "/usr/bin:/bin", HOME: "/nonexistent", ...RTK_WORKER_ENV }, binary, "/");
 }
 
 /**
@@ -66,7 +56,10 @@ export async function rtkRewriteCommand(
   command: string,
   env: NodeJS.ProcessEnv
 ): Promise<string> {
-  if (!(await rtkAvailable(env))) return command;
+  return rewrite(command, env, "rtk");
+}
+async function rewrite(command: string, env: NodeJS.ProcessEnv, binary: string, cwd?: string): Promise<string> {
+  if (!(await available(binary, env, cwd))) return command;
   const payload = JSON.stringify({
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
@@ -75,9 +68,9 @@ export async function rtkRewriteCommand(
   const stdout = await new Promise<string | null>((resolve) => {
     try {
       const child = execFile(
-        "rtk",
+        binary,
         ["hook", "claude"],
-        { timeout: RTK_TIMEOUT_MS, maxBuffer: 1024 * 1024, env },
+        { timeout: RTK_TIMEOUT_MS, maxBuffer: 1024 * 1024, env, ...(cwd ? { cwd } : {}) },
         (err, out) => resolve(err ? null : out)
       );
       // An oracle can exit before consuming its input. Stream errors arrive

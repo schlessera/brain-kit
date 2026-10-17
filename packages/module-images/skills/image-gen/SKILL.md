@@ -1,6 +1,6 @@
 ---
 name: image-gen
-description: Use when an image needs making or changing — an illustration or asset for a document, a diagram or poster where the text must be legible, a mockup, a logo, a shareable graphic, or an edit to an image that already exists (replace part of it, restyle it, compose several references into one).
+description: Use when a pictorial image needs making or changing — an illustration or labelled cutaway, a poster with legible text, a mockup, a logo, a shareable graphic, or an image edit (replace part, restyle, compose references). Use the diagram skill for structured relationship figures authored as brain-kit specs.
 compatibility: Requires an API key for at least one image provider — OPENAI_API_KEY or GEMINI_API_KEY. Neither is bundled; each unlocks its own models.
 ---
 

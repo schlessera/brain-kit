@@ -1,13 +1,16 @@
 /** Concrete host-owned HTTP/CONNECT transport for one turn; no TLS interception. */
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { connect, type Socket } from "node:net";
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { workerIdentityHelper } from "./worker-identity.js";
 import { join } from "node:path";
 
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
 export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
 export interface EgressRecord {
+  /** Only the server's concrete inference-relay admission supplies this tag. */
+  inference?: true;
   method: string;
   host: string;
   port: number;
@@ -51,8 +54,12 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts]) {
     if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
+  const separateIdentity = Boolean(workerIdentityHelper());
   const dir = mkdtempSync(join(tmpdir(), "brain-egress-"));
-  chmodSync(dir, 0o700);
+  try {
+    if (separateIdentity) chownSync(dir, process.getuid!(), process.getgid!());
+    chmodSync(dir, separateIdentity ? 0o750 : 0o700);
+  } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
   const socketPath = join(dir, "proxy.sock");
   const connections = new Set<Socket>();
   const controllers = new Set<AbortController>();
@@ -63,19 +70,23 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   server.requestTimeout = 30_000;
   server.on("connection", socket => { connections.add(socket); socket.on("error", () => {}); socket.once("close", () => connections.delete(socket)); });
   const track = (socket: Socket) => { connections.add(socket); socket.on("error", () => {}); socket.once("close", () => connections.delete(socket)); return socket; };
-  function operation(method: string, url: URL) {
+  function operation(method: string, url: URL, inference = false) {
     const started = performance.now();
     const controller = new AbortController(); controllers.add(controller);
-    const host = hostname(url.hostname), port = Number(url.port || "80");
+    const host = hostname(url.hostname), port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
     let bytes = 0, finished = false;
+    let finalOutcome: EgressRecord["outcome"] | undefined;
     const finish = (outcome: EgressRecord["outcome"], reason?: string) => {
       if (finished) return;
-      finished = true; controllers.delete(controller); controller.abort();
+      finished = true; finalOutcome = outcome; controllers.delete(controller); controller.abort();
       // Records never contain request headers, content, credentials or query strings.
-      try { options.observe({ method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
+      try { options.observe({ ...(inference ? { inference: true } : {}), method, host, port, ...(method === "CONNECT" ? {} : { path: url.pathname }), bytes,
         accounting: method === "CONNECT" ? "opaque_bytes" : "http_wire_bound",
         durationMs: performance.now() - started, outcome, ...(reason ? { reason } : {}) }); } catch { /* A recorder cannot keep a connection alive. */ }
     };
+    // Turn cleanup must observe final audit failures before it publishes its
+    // terminal outcome; socket close callbacks run only after stop returns.
+    controller.signal.addEventListener("abort", () => finish("cancelled", "turn_cancelled"), { once: true });
     const charge = (count: number) => {
       if (finished || stopped) return false;
       if (count > options.maxBytes - usedBytes) { finish("denied", "max_bytes_per_turn"); return false; }
@@ -85,7 +96,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      if (matches(host, options.outwardHosts) || method !== "CONNECT" && !["GET", "HEAD"].includes(method)) {
+      if (matches(host, options.outwardHosts)) {
         let approved = false;
         let cancelled: (() => void) | undefined;
         try {
@@ -101,7 +112,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       return true;
     };
-    return { finish, charge, admit };
+    return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome };
   }
   server.on("connect", (request, client, head) => {
     client.on("error", () => {});
@@ -180,7 +191,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   server.on("clientError", (_error, socket) => socket.destroy());
   try {
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socketPath, () => { server.removeListener("error", reject); resolve(); }); });
-    chmodSync(socketPath, 0o600);
+    if (separateIdentity) chownSync(socketPath, process.getuid!(), process.getgid!());
+    chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
   } catch (error) { server.close(); rmSync(dir, { recursive: true, force: true }); throw error; }
   const stop = () => {
     if (stopped) return;
@@ -191,5 +203,19 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   };
   options.signal?.addEventListener("abort", stop, { once: true });
   if (options.signal?.aborted) stop();
-  return { dir, socketPath, stop, usedBytes: () => usedBytes };
+  return { dir, socketPath, stop, usedBytes: () => usedBytes,
+    /** The existing inference relay shares this turn's admission, counter and audit. */
+    inference(method: string, target: URL, signal: AbortSignal) {
+      const op = operation(method, new URL(target), true);
+      const abort = () => op.finish("cancelled", "client_disconnected");
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      return { charge: op.charge, signal: op.signal, outcome: op.outcome,
+        admit: async () => !op.signal.aborted && await op.admit(),
+        finish(outcome: EgressRecord["outcome"], reason?: string) {
+          signal.removeEventListener("abort", abort); op.finish(outcome, reason);
+        },
+      };
+    },
+  };
 }

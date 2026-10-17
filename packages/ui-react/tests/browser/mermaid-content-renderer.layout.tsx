@@ -132,3 +132,46 @@ test("screen pixels retain the unchanged upstream Mermaid configuration in light
     expect(await commands.mermaidScreenComparison(theme, before.svg, actual!), `UNCHANGED_${theme.toUpperCase()}_PIXELS`).toBe(true);
   }
 });
+
+test("adopted shared Mermaid cluster borders and white print groups reach actual SVG paint", async () => {
+  host = document.createElement("div"); document.body.append(host);
+  const clustered = "graph LR\nsubgraph BRAIN[THE BRAIN]\nI[Inbox]-->F[Note filer]\nend";
+  for (const theme of ["dark", "print"] as const) {
+    host.innerHTML = (await renderMermaidSvg(clustered, theme))!;
+    const rect = host.querySelector<SVGRectElement>(".cluster rect")!;
+    expect(rect, "REAL_MERMAID_CLUSTER").not.toBeNull();
+    const paint = getComputedStyle(rect);
+    expect(paint.stroke, `${theme}: ADOPTED_CLUSTER_BORDER`).toBe(theme === "dark" ? "rgb(107, 104, 115)" : "rgb(132, 124, 111)");
+    expect(paint.fill, `${theme}: ADOPTED_CLUSTER_GROUND`).toBe(theme === "dark" ? "rgb(12, 14, 18)" : "rgb(255, 255, 255)");
+  }
+});
+
+import { DIAGRAM_TOKEN_CSS, DIAGRAM_TYPE, fitDiagramText, typeWidthBudget } from "../../../module-diagrams/src/skin.js";
+test("generated diagram CSS prints white over explicit dark themes and fits actual font text", async () => {
+  document.documentElement.dataset.theme = "dark";
+  host = document.createElement("div"); document.body.append(host);
+  host.innerHTML = `<style>${DIAGRAM_TOKEN_CSS}</style><svg class="bk-diagram" data-theme="dark" width="320" height="160"><rect width="320" height="160" fill="var(--bk-diagram-cluster)"/><text x="8" y="24" fill="var(--bk-diagram-text)">Homecoming relay</text></svg>`;
+  const svg = host.querySelector("svg")!, rect = host.querySelector("rect")!, text = host.querySelector("text")!;
+  const style = DIAGRAM_TYPE.name;
+  Object.assign(text.style, { fontFamily: style.family, fontWeight: String(style.weight), fontSize: `${fitDiagramText(text.textContent!, "name", 132)}px` });
+  await document.fonts.ready;
+  expect((await document.fonts.load('600 12px "Plus Jakarta Sans"')).length, "PINNED_KIT_FONT_LOADED").toBeGreaterThan(0);
+  for (const label of ["Homecoming relay", "mmmmmmmm", "wwwwwwww", "WWWWWWWW", "iiiillll", "旅程ホーム"]) {
+    text.textContent = label;
+    text.style.fontSize = `${fitDiagramText(label, "name", 132)}px`;
+    await document.fonts.ready;
+    expect(text.getBBox().width, `ACTUAL_FONT_WITHIN_SHARED_CHARACTER_BUDGET: ${label}`).toBeLessThanOrEqual(132);
+    expect(text.getBBox().width, `ACTUAL_FONT_BELOW_CHARACTER_BUDGET: ${label}`).toBeLessThanOrEqual(typeWidthBudget(label, "name", Number.parseFloat(text.style.fontSize)) + 0.01);
+  }
+  expect(Number.parseFloat(getComputedStyle(text).fontSize), "REAL_TEXT_FLOOR").toBeGreaterThanOrEqual(9);
+  expect(getComputedStyle(rect).fill, "GENERATED_DARK_GROUP").toBe("rgb(12, 14, 18)");
+  svg.setAttribute("data-theme", "light");
+  expect(getComputedStyle(rect).fill, "EXPLICIT_LIGHT_BEATS_DARK_ANCESTOR").toBe("rgb(236, 231, 220)");
+  document.documentElement.dataset.theme = "light";
+  svg.setAttribute("data-theme", "dark");
+  expect(getComputedStyle(rect).fill, "EXPLICIT_DARK_BEATS_LIGHT_ANCESTOR").toBe("rgb(12, 14, 18)");
+  await commands.mermaidMedia("print");
+  expect(getComputedStyle(rect).fill, "GENERATED_PRINT_OUTRANKS_EXPLICIT_DARK").toBe("rgb(255, 255, 255)");
+  expect(getComputedStyle(text).fill).toBe("rgb(35, 31, 26)");
+  expect(getComputedStyle(svg).colorScheme).toBe("light");
+});

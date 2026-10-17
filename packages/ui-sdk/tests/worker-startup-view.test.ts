@@ -173,7 +173,12 @@ for (const mode of ["strict", "restricted", "maintenance"] as const) for (const 
     } else {
       const sandbox = prepareWorkerSandbox(brain, { profile: "strict", restricted: mode === "restricted", areas: [], readPaths: [process.execPath] });
       const inferenceDir = mode === "restricted" ? mkdtempSync("/var/tmp/odysseus-secret-relay-") : undefined;
-      if (inferenceDir) cleanup.push(() => rmSync(inferenceDir, { recursive: true, force: true }));
+      if (inferenceDir) {
+        cleanup.push(() => rmSync(inferenceDir, { recursive: true, force: true }));
+        const relay = Bun.serve({ unix: join(inferenceDir, "relay.sock"), fetch: () => new Response("ithaca") });
+        cleanup.push(() => relay.stop(true));
+        fs.chmodSync(join(inferenceDir, "relay.sock"), 0o600);
+      }
       const worker = launchAgentWorker({ brainPath: brain, startupView: createWorkerStartupView(brain), sandbox, ...(inferenceDir ? { restricted: { readPaths: [process.execPath], inferenceDir } } : {}), env: {}, command: [process.execPath, "--no-env-file", "-e", program] });
       try {
         const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);

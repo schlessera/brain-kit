@@ -35,8 +35,8 @@ export const ALLOWED_EDGES: Record<string, Edges> = {
     dependencies: ["@schlessera/brain-common", "@schlessera/brain-render-template", "@schlessera/brain-geo"],
     optionalPeers: ["@schlessera/brain-render-puppeteer"],
   },
-  // #2088 approved scaffold uses core module/command contracts; render stubs add no UI dependencies.
-  "@schlessera/brain-module-diagrams": { dependencies: ["@schlessera/brain"], optionalPeers: [] },
+  // #2094 approved client/static pack uses the public renderer seam and concrete UI helpers as optional peers.
+  "@schlessera/brain-module-diagrams": { dependencies: ["@schlessera/brain"], optionalPeers: ["@schlessera/brain-ui-sdk", "@schlessera/brain-ui-react", "@schlessera/brain-ui-kit"] },
   // Content modules extend core; concrete web imports also share scrape below.
   "@schlessera/brain-module-finance": { dependencies: ["@schlessera/brain-common", "@schlessera/brain"], optionalPeers: [] },
   "@schlessera/brain-module-images": { dependencies: ["@schlessera/brain-common", "@schlessera/brain"], optionalPeers: [] },

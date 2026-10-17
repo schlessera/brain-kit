@@ -50,7 +50,7 @@ commands retain their original availability versions.
 
 - [Package API and extensions](integration-contract/package-api.md).
 - [CLI](integration-contract/cli.md).
-- [Diagram spec v1 and check](integration-contract/diagrams.md).
+- [Diagram spec v1, check, export/build, hygiene, geometry and additive positional families](integration-contract/diagrams.md).
 - [Governance policy check](integration-contract/cli.md#governance-policy-check-additive-1650)
   and [governance policy schema v1](supported-inputs.md#governance-policy) are
   additive supported inputs and output in 0.42.0 (#1650).
@@ -538,3 +538,12 @@ receipts, documented in the [package API](integration-contract/package-api.md#pr
 
 - [Content renderer bootstrap declarations (additive, #2087)](integration-contract/http.md#content-renderer-bootstrap-declarations-additive-2087).
 - [Deployment renderer registration (additive, #2087)](integration-contract/package-api.md#deployment-renderer-registration-additive-2087).
+
+
+## External persisted Claude memory history (additive, #1658)
+
+External native-memory saves join the existing retained steering history and
+authenticated recovery routes with an explicit logical scope, described in
+[the HTTP contract](integration-contract/http.md#persisted-claude-auto-memory-history-additive-1658).
+The host-only copy-out callback is described in
+[the package API](integration-contract/package-api.md#native-persisted-claude-memory-observation-additive-1658).

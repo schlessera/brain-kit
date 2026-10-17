@@ -1,30 +1,51 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { diagramSourceSetup, diagramSourceDomains } from "../scripts/diagram-export-source.mjs";
 
 const roots: string[] = [];
 const node = Bun.which("node");
 if (!node) throw new Error("visual runner tests require Node, as does the pinned browser image");
-const projects = ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live"];
+const projects = ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live", "diagrams-chromium", "diagrams-webkit"];
 type Call = { command: string; args: string[]; cwd: string };
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function invoke(args: string[], exit = 0) {
+async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift" = "warm") {
   const root = await mkdtemp(resolve(tmpdir(), "brain-visual-runner-"));
   roots.push(root);
   for (const path of ["scripts/captures", "packages/ui-kit", "node_modules/vitest", "commands"]) {
     await mkdir(resolve(root, path), { recursive: true });
   }
-  await copyFile(resolve(import.meta.dir, "../scripts/visual.mjs"), resolve(root, "scripts/visual.mjs"));
-  await copyFile(resolve(import.meta.dir, "../scripts/workspace-lease.mjs"), resolve(root, "scripts/workspace-lease.mjs"));
+  // Run the real source preparer as well as the wrapper. Its tiny tracked
+  // fixture owns every Git/configuration input. Docker below records routing;
+  // actual native exports have separate pinned-container runtime proof.
+  for (const file of [...diagramSourceSetup, ...diagramSourceDomains.map(name => `packages/${name}/package.json`)]) {
+    await mkdir(dirname(resolve(root, file)), { recursive: true });
+    await copyFile(resolve(import.meta.dir, "..", file), resolve(root, file));
+  }
+  for (const domain of diagramSourceDomains) {
+    const manifest = JSON.parse(await readFile(resolve(root, `packages/${domain}/package.json`), "utf8"));
+    const alias = resolve(root, "node_modules", manifest.name);await mkdir(dirname(alias), {recursive:true});await symlink(resolve(root, "packages", domain), alias);
+  }
+  const git = Bun.which("git");
+  if (!git) throw new Error("visual runner source preparation requires Git");
+  await symlink(git, resolve(root, "commands/git"));
+  const gitEnv = { PATH: resolve(root, "commands"), HOME: root, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TEMPLATE_DIR: resolve(root, "template") };
+  await mkdir(resolve(root, "template"));
+  for (const args of [["init", "-q"], ["add", "scripts", "packages", "package.json", "bun.lock", "tsconfig.json", "bunfig.toml"],
+    ["-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.com", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false", "commit", "-qm", "owned wrapper source fixture"]]) {
+    const result = Bun.spawnSync([git, ...args], { cwd: root, env: gitEnv, stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode) throw Error(result.stderr.toString());
+  }
   const flock = Bun.which("flock");
   if (!flock) throw new Error("visual runner tests require flock");
   await symlink(flock, resolve(root, "commands/flock"));
   await writeFile(resolve(root, "scripts/captures/font-lock.json"), "{}\n");
+  await writeFile(resolve(root, "node_modules/vitest/package.json"), JSON.stringify({name:"vitest",version:"1.0.0"}));
   const log = resolve(root, "calls.jsonl");
   const record = `import { appendFileSync } from "node:fs";
     appendFileSync(process.env.RUNNER_LOG, JSON.stringify({command: COMMAND,
@@ -35,20 +56,44 @@ async function invoke(args: string[], exit = 0) {
     const script = resolve(root, "commands", command);
     const docker = command === "docker" ? `
       import { spawnSync } from "node:child_process";
-      import { resolve } from "node:path";
+      import { dirname, resolve } from "node:path";
       const argv = process.argv.slice(2);
-      const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright:"));
+      const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright@sha256:"));
       if (image < 0 || argv[image + 1] !== "node" || argv[image + 2] !== "scripts/visual.mjs") process.exit(91);
       const child = spawnSync(process.execPath,
         [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 3)],
         {env: process.env, stdio: "inherit"});
       process.exit(child.status ?? 92);` : "";
-    await writeFile(script, `#!${node}\n` + record.replace("COMMAND", JSON.stringify(command)) + docker);
+    const nativeRouting = command === "docker" ? `
+      import {mkdirSync,writeFileSync} from "node:fs";
+      import {join} from "node:path";
+      const nativeArgs=process.argv.slice(2);
+      if(nativeArgs[0]==="run"&&nativeArgs.some(value=>value.endsWith(":/proof"))){
+        const mount=nativeArgs.find(value=>value.endsWith(":/proof"));const output=mount.slice(0,-7);mkdirSync(output,{recursive:true});
+        for(const format of ["svg","png","pdf"])writeFileSync(join(output,"release."+format),"owned wrapper routing output");
+        console.log("[]");process.exit(0);
+      }
+    ` : "";
+    const bootstrap=command==="docker"?`
+      import * as imageFs from "node:fs";
+      const imageArgs=process.argv.slice(2),imageRef="mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27";
+      const recordImage=()=>imageFs.appendFileSync(process.env.RUNNER_ROOT+"/image-bootstrap.jsonl",JSON.stringify(imageArgs)+"\\n");
+      if(imageArgs[0]==="image"&&imageArgs[1]==="inspect"){
+        recordImage();
+        if(${JSON.stringify(imageState)}==="cold"&&!imageFs.existsSync(process.env.RUNNER_ROOT+"/image-acquired"))process.exit(1);
+        console.log(JSON.stringify([${JSON.stringify(imageState)}==="drift"?"mcr.microsoft.com/playwright@sha256:"+"0".repeat(64):imageRef]));process.exit(0);
+      }
+      if(imageArgs[0]==="pull"){
+        recordImage();if(imageArgs[1]!==imageRef)process.exit(95);
+        imageFs.writeFileSync(process.env.RUNNER_ROOT+"/image-acquired","acquired");process.exit(0);
+      }
+    `:"";
+    await writeFile(script, `#!${node}\n` + bootstrap + nativeRouting + record.replace("COMMAND", JSON.stringify(command)) + docker);
     await chmod(script, 0o755);
   }
   const child = Bun.spawn([node!, resolve(root, "scripts/visual.mjs"), ...args], {
     cwd: root,
-    env: { PATH: resolve(root, "commands"), RUNNER_ROOT: root, RUNNER_LOG: log, RUNNER_EXIT: String(exit) },
+    env: { ...gitEnv, RUNNER_ROOT: root, RUNNER_LOG: log, RUNNER_EXIT: String(exit) },
     stdout: "pipe", stderr: "pipe",
   });
   const [code, stdout, stderr] = await Promise.all([
@@ -57,7 +102,9 @@ async function invoke(args: string[], exit = 0) {
   let calls: Call[] = [];
   try { calls = (await readFile(log, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  return { root, code, stdout, stderr, calls };
+  let bootstrapCalls:string[][]=[];
+  try{bootstrapCalls=(await readFile(resolve(root,"image-bootstrap.jsonl"),"utf8")).trim().split("\n").map(line=>JSON.parse(line));}catch{/* Inside mode has no image bootstrap. */}
+  return { root, code, stdout, stderr, calls, bootstrapCalls };
 }
 
 test("inside default serializes browser files in every configured project", async () => {
@@ -146,3 +193,16 @@ for (const filter of ["--filter", "--filter=", "--filter=--passWithNoTests"]) {
     expect(result.calls).toEqual([]);
   });
 }
+
+test("cold execution provisions the exact manifest before either native or browser consumption",async()=>{
+ const result=await invoke(["--project=diagrams-chromium"],0,"cold");
+ expect(result.code,result.stderr).toBe(0);
+ expect(result.bootstrapCalls.map(args=>args.slice(0,2)),"COLD_IMAGE_IS_ACQUIRED_BEFORE_CONSUMPTION").toEqual([["image","inspect"],["pull","mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"],["image","inspect"]]);
+});
+test("a mismatching manifest is refused before native source preparation",async()=>{
+ const result=await invoke(["--project=diagrams-chromium"],0,"drift");
+ expect(result.code).not.toBe(0);
+ expect(result.stderr,"IMAGE_DRIFT_REFUSED_BEFORE_PRODUCER").toContain("PINNED_VISUAL_IMAGE_DIGEST_MISMATCH");
+ expect(result.calls).toEqual([]);
+ expect(await Bun.file(resolve(result.root,"tmp/diagram-export-source.json")).exists()).toBe(false);
+});

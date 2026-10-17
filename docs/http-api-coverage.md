@@ -7,7 +7,14 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`mounted supported handler:`, `packages/ui-server/tests/http-supported-mounts.test.ts:112-145`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:145-164`).
+The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
+permits a bounded group of immutable readers to share startup, with a new owner
+per case. Principal enumeration, activity ownership, CLI dispatch, caches,
+mutations and lifecycle distinctions keep fresh applications. Repeated and
+permuted readers retain the same response oracles; a failed case destroys its
+whole environment before the next reader.
+
 That request carries a real owner cookie and checks the handler's response or
 side effect. Public login verification also has a successful mounted login
 check in A; successful passkey cryptographic verification uses the injected
@@ -130,8 +137,9 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **H — Liveness.**
 
-- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:80-86`)
-- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:687-702`)
+- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:81-87`)
+- `shutdown refuses health before touching the closed database` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`shutdown refuses health before touching the closed database`, `packages/ui-server/tests/app-wiring.test.ts:688-702`).
+- `the public health route reports only unhealthy for a dead SQLite handle` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`the public health route reports only unhealthy for a dead SQLite handle`, `packages/ui-server/tests/app-wiring.test.ts:704-715`).
 
 **T — Operational status.**
 

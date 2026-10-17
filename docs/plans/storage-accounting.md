@@ -60,14 +60,14 @@ ownership, not permission to delete.
 Source anchors, checked against the reviewed commit:
 
 - A: root and index resolution (`initContext`, `packages/core/src/lib/context.ts:36-50`);
-  existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:158-209`),
-  available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:213-224`).
+  existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:161-212`),
+  available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:216-227`).
 - B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:55-64`)
   and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:76-84`).
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:253-288`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:254-289`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:107-113`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).
@@ -85,7 +85,7 @@ Source anchors, checked against the reviewed commit:
   decisions distinguish the independent configured limits and mounts. Delivered
   #1703 adds scoped turn-temp usage/purge and promotion protection; those
   measurements do not include the separate runtime-state tmpfs.
-- J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:34-48`)
+- J: private object store (`createJournalObjects`, `packages/ui-server/src/brain/journal-objects.ts:34-49`)
   and D's path resolution. Existing journal/revert accounting owns reservations.
 - K: consistent export (`exportInboxSnapshot`, `packages/ui-server/src/inbox/snapshot.ts:252-267`)
   and [operational recovery](../inbox-recovery.md); delivered #686 and its

@@ -73,6 +73,8 @@ export interface WorkerSandbox {
   readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
   readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
+  /** @internal Concrete host-prepared turn transport; never selected by client/project input. */
+  readonly egress?: Awaited<ReturnType<typeof import("./egress-proxy.js").startEgressProxy>>;
   /** @internal Advisory facts resolved by the admitting host, never a model grant. */
   readonly noteFacts?: WorkerNoteFacts;
   /** Canonical brain path the layout was resolved for. */
@@ -84,6 +86,8 @@ export interface WorkerSandbox {
   readonly fallbackReason?: string;
   /** Protected mounts and their ancestors, resolved before the start manifest. */
   readonly protection?: WorkerProtection;
+  /** Frozen topology plan for host publication; does not grant access to provider-restricted data. */
+  readonly retainedFolders?: readonly string[];
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -508,6 +512,9 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
+  }
+  if (profile !== "restricted" && sandbox.retainedFolders?.length) {
+    lines.push("", `Keep these folders and their ancestors in place: ${sandbox.retainedFolders.map(path => `\`${path}\``).join(", ")}. Their contents keep the usual write permissions; do not remove or replace the folders themselves.`);
   }
   if (profile !== "restricted" && (profile === "governed" || resolvedFacts.history)) {
     const history = resolvedFacts.history;
