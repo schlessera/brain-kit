@@ -40,7 +40,7 @@ beforeAll(async () => {
   if (!executablePath) return;
   // The client bundle uses fresh source plus ordinary package resolution.
   // Rebuild dependencies so a runtime mutation cannot hide behind stale dist.
-  await child([process.execPath, "scripts/build.ts"]);
+  await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-scratch-links-"));
   brain = resolve(fixture, "brain");
   await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
