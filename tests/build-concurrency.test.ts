@@ -20,7 +20,7 @@ import {mock} from "bun:test";
 let launched=false, blocked=false;
 const spawn=Bun.spawn;Bun.spawn=(...args)=>{const child=spawn(...args);if(Array.isArray(args[0]) && args[0].includes("tsc"))launched=true;return child};
 const write=fs.writeFileSync;mock.module("node:fs",()=>({...fs,writeFileSync:(path,...args)=>{
-  if(!blocked && String(path).endsWith("-probe.json.writing") && (${JSON.stringify(point)}==="startup" || launched)) {
+  if(!blocked && /^build-[0-9]+-[0-9a-f-]{36}-probe[.]json[.]writing$/.test(String(path).split("/").at(-1) ?? "") && (${JSON.stringify(point)}==="startup" || launched)) {
     blocked=true;fs.mkdirSync(path); // Actual EISDIR on the original filesystem write.
   }
   return write(path,...args);
