@@ -22,7 +22,7 @@ states that overlapping writable windows share observations. `observedAt`
 names the retained window observation, not a guessed receipt time.
 The type is defined by (`TurnJournalSummary`,
 `packages/ui-sdk/src/turn-journal.ts:2-18`); validation uses
-(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1031-1046`).
+(`turnJournalSummarySchema`, `packages/ui-sdk/src/schemas.ts:1034-1049`).
 `actor` additionally accepts `user` for a server-recorded history operation.
 Optional `kind` is `turn` or `revert`; a revert may name its original
 `sourceTurnId`. These facts do not create an assistant message or an inference
@@ -77,8 +77,8 @@ previous observation rather than adding it. The frame never opens a message,
 reopens run state or moves focus. Older clients may ignore it. The same optional
 `budget` is retained on `TurnJournalSummary` and replayed with the existing
 single below-turn disclosure. The additive types and validation are
-(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3705-3711`) and
-(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1814-1816`).
+(`ServerUsage`, `packages/ui-sdk/src/protocol.ts:3718-3724`) and
+(`serverUsageSchema`, `packages/ui-sdk/src/schemas.ts:1820-1822`).
 
 Budget list-price inference cost is separate from the journal's billing-aware
 `costUsd`. Unpriced totals remain null; known lower bounds, estimated rates,
@@ -1099,10 +1099,10 @@ provider by value; it is validated at startup and an invalid one throws. Only
 then does `server_hello` carry `capabilities.liveConversation: true`. Without
 one, every `conversation_*` frame is answered with `error` code
 `CONVERSATION_UNAVAILABLE`. No existing frame, route or rev-3 rule changes,
-and `PROTOCOL_REV` stays 4.
+and these additions do not change `PROTOCOL_REV`.
 
 ```
-client → { type: "conversation_start", conversationId?, sessionId? }
+client → { type: "conversation_start", requestId?, conversationId?, sessionId?, agentProviderId? }
 client → { type: "conversation_audio", conversationId, epoch, utteranceId,
            sequence, rate, pcm }
 client → { type: "conversation_endpoint", conversationId, epoch, utteranceId }
@@ -1110,11 +1110,11 @@ client → { type: "conversation_commit", conversationId, epoch, utteranceId,
            requestId, text }
 client → { type: "conversation_playback", conversationId, epoch, outputId,
            playback: "played" | "discarded" | "unknown", playedSamples? }
-client → { type: "conversation_stop", conversationId }
-server → { type: "conversation_opened", conversationId, epoch, sessionId?,
-           providerId, capabilities, disclosure, limits,
+client → { type: "conversation_stop", conversationId, resumable? }
+server → { type: "conversation_opened", requestId?, conversationId, epoch, sessionId?,
+           agentProviderId?, providerId, capabilities, disclosure, limits,
            resync: { work, outputs } }
-server → { type: "conversation_closed", conversationId, epoch, reason, message? }
+server → { type: "conversation_closed", requestId?, conversationId, epoch, reason, message? }
 server → { type: "conversation_event", conversationId, epoch, event }
 server → { type: "conversation_work", ...ConversationWorkReceipt }
 server → { type: "conversation_output", conversationId, ...ConversationOutputRecord }
@@ -1128,6 +1128,17 @@ server → { type: "conversation_permission", conversationId, epoch, sessionId,
 `outputWordAlignment` — each `supported`, `unsupported` or `unproven`. Neither
 the host nor a client promotes `unproven`. `disclosure` names the voice service
 and model and one to sixteen destination statements, shown before capture.
+
+The shipped client requires both `server_hello.capabilities.liveConversation`
+and `conversationPause`. The latter advertises resumable stop and opening-request
+correlation (#960). It sends a unique `requestId` on each start; the host echoes
+it on `conversation_opened` and `conversation_closed` for that opening attempt,
+including a failed open. Existing clients may omit it. A late opening from an
+abandoned view is closed without opening its microphone, then any newer entry
+can start. An `agentProviderId` selects the independently configured agent
+profile for a new chat only; it is echoed on `conversation_opened`. Resuming a
+chat or conversation never changes its pinned backend. The voice provider's
+`providerId` remains separate.
 
 **Identities and epochs.** The host mints `conversationId`. Each
 `conversation_start` opens a new `epoch`, starting at 1; resuming an existing
@@ -1217,6 +1228,18 @@ turn that ends with only an `error` frame and no `result`. `conversation_stop` a
 that has not been submitted yet; submitted work keeps running as an ordinary
 chat turn.
 
+With `resumable: true`, stop closes and aborts only the current speech epoch,
+then detaches and retains the conversation for an explicit start/resync with
+its identity. It opens no replacement microphone or provider session. Retained
+work/output receipts and once-only permission announcement identities survive;
+old results are never narrated into the replacement epoch. Without this flag,
+stop remains final and deletes the conversation. The owning principal may
+finally stop its own detached conversation; it cannot stop another principal's
+or another connection's attached conversation. Hide and local reply cut use the
+resumable form; Leave uses final stop. These operations preserve the existing
+queued-work cancellation and running-work behavior above.
+
+
 **Permissions.** `conversation_permission` lists a request pending in the
 conversation's session. `announce` is true at most once per
 `(sessionId, turnId, toolUseId)` for the conversation's lifetime, across
@@ -1299,6 +1322,46 @@ transport tests do not certify a live handshake or audible/device behavior;
 that never echo credential-bearing URLs or remote error text. Events, frame
 sizes, outbound buffering and native handle ledgers are bounded; malformed
 frames, backpressure and disconnect end capture/admission visibly.
+
+**GPT-Live adapter (additive, #959).**
+`createGptLiveConversationProvider(apiKey: string): LiveConversationProvider`
+is exported by `@schlessera/brain-ui-server`. Pass it explicitly as
+`CreateAppOptions.conversationProvider`. It opens the primary Live API v1
+server WebSocket with a server-owned Bearer header, starts `gpt-live-1`, mono
+PCM16/24 kHz, marin, client delegation and `store:false`, then waits for
+`session.started`. It does not substitute Realtime or Responses delegation.
+`store:false` is not a zero-retention claim.
+
+Native delegations are metadata only; the host's existing semantic commit and
+backend bridge own execution, progress, tools and interactive questions. Input
+and output remain independent of pending backend work. Audio commands carry
+opaque client event IDs. A transcript echoed with `client_event_id` keeps that
+original utterance identity even after another utterance starts. With one input
+only and no historical resync context, attribution is unambiguous; after multiple inputs, a fragment without a
+recognized client correlation closes the epoch rather than using the newest
+capture identity. Zero-duration appended text is not microphone input. Transcript fragments have no finalization event and remain
+unknown certainty/origin, so automatic semantic submission is unavailable.
+`markEndpoint` records the host's review boundary only; it sends no invented
+provider commit or done command.
+
+Host results use the original client `delegation_id` and bounded plain strings.
+Each append is limited conservatively to 500 UTF-8 bytes, below the documented
+500-token limit: preceding chunks use `session.thinking.append`, and an ordinary
+when-idle result uses one final `session.commentary.append`. Quiet results use
+only thinking appends. Commentary may paraphrase, and is never exact permission
+speech; the client owns quiet-boundary playback. Repeated, aborted, replaced or
+mismatched results reject without publication. Replay seeds only bounded
+historical host context in a new session, never effects or old native handles.
+
+Output has one stream identity per epoch, with no fabricated audio-done or
+word alignment. Local playback cut and host cancellation remain independent of
+remote acknowledgement. `session.closed` can acknowledge whole-session close;
+connection loss or the bounded close timeout reports unknown. No per-output
+cancellation acknowledgement is claimed. Error text never echoes remote
+messages, headers or credentials. Bounded event queues, wire frames, command
+and event ledgers close capture on overflow or malformed/unattributable input.
+Exact permission speech is unsupported, echo isolation and alignment remain
+unproven, and #961 still gates provider/device activation.
 
 <a id="interactive-answer-receipts-breaking-910"></a>
 
@@ -1738,3 +1801,82 @@ helper spend once, and unmatched auxiliary usage remains unattributed. Export
 loss or unavailable attribution does not assign a helper to a model by guess
 or imply zero cost. The additive server-only evidence event is documented in
 [the package API contract](package-api.md#claude-title-helper-evidence-additive-2052).
+
+### Shipped conversation client (#960)
+
+Explicitly registered conversation providers appear under the composer's capture
+menu. The service disclosure precedes microphone access and names the voice
+service, host relay and independently selected agent profile. Missing destination,
+retention and safety evidence reads as unknown. Phase-1 dictation remains separate.
+
+The browser owns PCM capture and one playback queue. Speech connection, actual
+microphone state and interaction state are independent. Original recognition stays
+NOT SENT until explicit review/send, or the supported finalized-input hold (700 ms
+silence, 500 ms hold). Unknown finalization, attribution or certainty requires
+manual review; a 2 s finalization timeout cannot later become an automatic send.
+The built-in service profiles remain manual-only. No provider task request is a
+commit. Single-question answers use the existing answer queue; other card kinds
+retain their own controls. Backend text, progress and tool/card events continue
+through the ordinary chat pipeline while asynchronous voice work waits.
+
+Leave, hide, disconnect and unmount stop capture and discard local audio; retained
+review text belongs to its original composer draft. Late capture, opening, input,
+output and Send callbacks cannot target a replacement scope. Reconnect/resync
+never opens a microphone without Resume. A local reply cut flushes every queued
+source before remote lifecycle resolution; it is not evidence of remote output
+cancellation. Generated words and submitted input stay distinct, and playback
+without proven alignment reads as spoken portion unknown. Host terminal state
+makes unanswered question controls inert even without a tool result; local
+playback must also drain or be discarded before voice work can appear settled.
+
+The 320 px strip retains 44 px controls and readable light/dark text. The shared
+working/pending row collapses during voice; on short screens it hides first when
+needed to retain transcript space. Cards remain in the existing scrolling Chat
+transcript. No live recognition, latency, echo or exact permission-speech
+qualification is implied; #961 owns the bounded provider/device measurements.
+
+### Conversation permission fallback (#114)
+
+The shipped SDK client declares `client_hello.capabilities.toolResolution: true`.
+The React conversation owner consumes scoped `tool_resolution` frames before
+ordinary chat dispatch. A host `permission_denied` activity event from a current,
+authorized voice-posture turn publishes one `denied` outcome with the fixed
+reason `voice_posture`; this is a posture refusal, not a user decision, and it
+raises no approval card. It uses the existing bounded host outcome ledger.
+
+Pending ordinary-turn approvals retain their visual grant controls. A refusal
+matches original, attributed user input only while approvals are pending in the
+selected session's current turn. A phrase-like `brain, stop` candidate snapshots
+that turn's pending requests and sends the existing `tool_denial` with explicit
+`turnId` and `channel: "voice"`. Partial, missing-confidence or unproven-isolation
+candidates are treated as ambiguous. Bare stop/no/cancel and affirmatives remain
+ordinary input. Assistant/output transcripts and unknown-origin input never
+invoke the detector. Both built-in adapters retain their unproven attribution
+profiles; manual review is not evidence authorizing a spoken decision.
+
+Sending a refusal locks only the affected controls and says `Refusal sent ·
+checking`. It never claims host confirmation. A correlated host outcome reports
+denied, the actual winning screen grant, expired, or unknown. Disconnect stops
+capture and retains uncertainty; it never queues an old denial for a replacement
+request. Host terminal state reconciles unanswered requests without depending on
+`tool_result`. Receipts remain readable if reconnect replaces the transcript.
+
+Neither built-in adapter has a proven deterministic exact-copy permission audio
+path. The approved fallback therefore uses a local earcon, the existing card and
+a 40px strip line. Permission scripts and confirmed outcome wording are visual
+only: they are never submitted as model commentary or to a separate TTS service.
+Labels come only from bounded static registry labels (four words at most), with
+`An action` as the generic fallback. Payloads and unproven effect descriptions
+never enter those scripts. Cues wait for quiet, survive duplicate/reconnect
+identities without repeating, and are dropped if the request resolves first.
+Earcons use the existing PCM owner; speech over an earcon keeps recognition live.
+Headphones/isolation limitations remain visible in the entry disclosure.
+
+The local permission view retains at most 128 records and 4096 once-only cue
+identities. If pending records exhaust the bound, capture closes and the screen
+remains the decision surface; a partial snapshot is never silently denied.
+At 320 × 568, shared-row summaries hide first; with review and a refusal line,
+the controls' eight pixels of empty vertical space give way while every target
+stays at least 44px and the transcript retains 264px. Real speaker/headphone
+listening, recognition, echo and latency qualification remain human/device
+verification under #114 and #961.

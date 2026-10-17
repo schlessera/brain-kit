@@ -233,10 +233,19 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     seen.add(path);
     argv.push("--ro-bind", path, path);
   }
-  const inference = realpathSync(envelope.inferenceDir);
-  if (!lstatSync(inference).isDirectory() || (statSync(inference).mode & 0o077) !== 0) {
-    throw new WorkerHostError("the inference relay directory must be a private directory");
-  }
+  const separateIdentity = Boolean(workerIdentityHelper());
+  let inference = "", valid = false;
+  try {
+    inference = realpathSync(envelope.inferenceDir);
+    const directory = lstatSync(inference), socket = lstatSync(join(inference, "relay.sock"));
+    valid = inference === normalize(envelope.inferenceDir) && directory.isDirectory() && socket.isSocket()
+      && directory.uid === process.getuid?.() && socket.uid === process.getuid?.()
+      && (directory.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+      && (socket.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+      && (!separateIdentity || directory.gid === process.getgid?.() && socket.gid === process.getgid?.())
+      && !within(brain, inference) && !within(inference, brain);
+  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+  if (!valid) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
   return argv;
 }
@@ -326,6 +335,29 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
+  const separateIdentity = Boolean(workerIdentityHelper());
+  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
+  const coverageRoot = (path: string): string => {
+    if (!separateIdentity) return path;
+    let covered = path;
+    for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
+      const info = lstatSync(parent);
+      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+        throw new WorkerHostError("a private mask ancestor changed or is linked");
+      }
+      // The verified helper keeps only the server's primary shared group.
+      // Cover an inaccessible parent with empty tmpfs, never its real contents.
+      const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
+      if (searchable) continue;
+      if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
+      covered = parent;
+    }
+    if (covered !== path && (within(covered, brain) || within(brain, covered) || envelope.readPaths.some(requested => {
+      const runtime = realpathSync(requested);
+      return within(covered, runtime) || within(runtime, covered);
+    }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
+    return covered;
+  };
   for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
@@ -338,11 +370,15 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     // Host /tmp is already absent behind the worker's private tmpfs. A
     // second operational mask would replace its capacity and writable mode.
     if (within(TURN_TEMP_ROOT, path)) continue;
-    if (info.isFile()) { fileMasks.add(path); continue; }
-    resolved.push(path);
+    if (info.isFile()) fileMasks.add(path);
+    else resolved.push(path);
     if (masks.some(mask => within(mask, path))) continue;
-    for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
-    masks.push(path);
+    const covered = coverageRoot(path);
+    if (info.isFile() && covered === path) continue;
+    if (covered !== path) resolved.push(covered);
+    if (masks.some(mask => within(mask, covered))) continue;
+    for (let i = masks.length - 1; i >= 0; i--) if (within(covered, masks[i]!)) masks.splice(i, 1);
+    masks.push(covered);
   }
   const masked = (path: string) => within(TURN_TEMP_ROOT, path) || masks.some(mask => within(mask, path));
   const argv = masks.flatMap(mask => ["--tmpfs", mask]);
@@ -1434,6 +1470,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   let identitySentinel: string | undefined;
   let verifiedWorkerUid: number | undefined;
   let identityRelay: ReturnType<typeof Bun.spawn> | undefined;
+  let privateRelay: ReturnType<typeof Bun.serve> | undefined;
   try {
     if (process.platform !== "linux") throw new Error("Linux namespaces are required");
     brainPath = realpathSync(brainPath);
@@ -1480,6 +1517,9 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
           throw new WorkerHostError("worker_identity_relay_probe_invalid");
         }
         if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];
+      } else {
+        privateRelay = Bun.serve({ unix: join(relayDir, "relay.sock"), fetch: () => new Response("ithaca") });
+        chmodSync(join(relayDir, "relay.sock"), 0o600);
       }
     }
     // The worker must see each rlimit the plan sets, as its hard limit (#1660).
@@ -1593,6 +1633,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   } finally {
     if (fixture) rmSync(fixture, { recursive: true, force: true });
     identityRelay?.kill("SIGKILL");
+    privateRelay?.stop(true);
     if (relayDir) rmSync(relayDir, { recursive: true, force: true });
     if (identitySentinel) rmSync(identitySentinel, { recursive: true, force: true });
   }

@@ -33,7 +33,7 @@ beforeAll(async () => {
   if (!executablePath) return;
   // Browser imports use the published default exports. Rebuild from source
   // on every run so a marker mutation cannot be hidden by stale dist output.
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Focus fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-chat-focus-"));
@@ -86,13 +86,13 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"], timeout: 120_000 }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   server?.stop(true);
   app?.cancelActiveTurns();
   await app?.close();
   if (scratch) await rm(scratch, { recursive: true, force: true });
-});
+}));
 
 async function open(prompt: string): Promise<Page> {
   const context = await browser!.newContext();

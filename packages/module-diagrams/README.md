@@ -118,3 +118,27 @@ when it explains more than a table or paragraph, loads the chosen type reference
 and validates the versioned source with `brain diagram check`. Use Mermaid for
 a quick sketch; pictorial illustrations and image edits remain image-gen work.
 `brain module lint diagrams` validates the enabled contribution and skill.
+
+Common `callouts` contain `target`, `text`, and optional `side` (`below`,
+`above`, `right`, or `left`). For inline notes the side is tried first, then
+remaining sides in below → above → right → left order. Collisions still select
+another safe placement or the notes fallback. Note text uses Plus Jakarta Sans
+11px/500, keeps authored capitalization and wraps without truncation.
+
+Repeated notes for one target stay together in a target-named notes band with
+one shared cue where it fits safely. Rows keep their original source indices
+and full text. At frame widths ≥640px the band uses two columns of at least
+280px each, reading down the first then the second; narrower frames use one
+column. An unmarked target gets an explicit explanation, and a declared target
+without drawn geometry retains its notes without inventing a connector.
+Client, static, print and summary output preserve the annotations.
+
+Fixed named canvases return `callout_room` during checking only when neither
+readable collision-free inline placement nor the notes band fits. If all
+repeated notes fit inline but their band does not, preserve all of them inline
+rather than rejecting the source. Named canvases keep their dimensions;
+reserve annotation space or use `size: fit` to grow for the complete band.
+The fixed-canvas validation failure is the explicit #2242 compatibility break;
+accepted `fit` sources remain valid. See the
+[diagram contract](../../docs/integration-contract/diagrams.md#common-annotation-placement-2242)
+for placement, cue and fallback details.

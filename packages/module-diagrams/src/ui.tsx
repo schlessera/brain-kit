@@ -1,10 +1,11 @@
+import { groupCallouts, undrawnCalloutExplanation } from "./callouts.js";
 import { AXIS_TYPES } from "./spec.js";
 import { createElement, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@schlessera/brain-ui-kit";
 import type { ContentRendererPack, ContentRendererProps } from "@schlessera/brain-ui-sdk/client";
 import { StaticDiagramShareMenu, ZoomViewer, useWikiLinkNavigation } from "@schlessera/brain-ui-react/content-figures";
 import { diagramSvgModel, parseDiagram, type DiagramSvgModel, type SvgPrimitive } from "./svg-model.js";
-import { DIAGRAM_TOKEN_CSS } from "./skin.js";
+import { DIAGRAM_TOKEN_CSS, typeWidthBudget } from "./skin.js";
 import { DIAGRAM_DRAWING_CSS } from "./drawing-style.js";
 import { toStatic } from "./render.js";
 
@@ -17,7 +18,7 @@ function Drawing({model,theme,id,interactive=true}: {model:DiagramSvgModel;theme
   if(node&&interactive){ attrs.tabIndex=0;attrs.role="group";attrs.onFocus=()=>setActive(node);attrs.onBlur=()=>setActive(null);attrs.onMouseEnter=()=>setActive(node);attrs.onMouseLeave=()=>setActive(null);
    if(typeof target==="string"&&navigation.resolve(target)){attrs.role="link";attrs.onClick=(event:React.MouseEvent<SVGGElement>)=>navigation.open(target,event.currentTarget,event.detail===0);attrs.onKeyDown=(event:React.KeyboardEvent<SVGGElement>)=>{if(event.key==="Enter"){event.preventDefault();navigation.open(target,event.currentTarget,true);}};}
   }
-  if(active&&(item.attrs["data-from"]===active||item.attrs["data-to"]===active))attrs["data-highlighted"]="";
+  if(active&&(item.attrs["data-from"]===active||item.attrs["data-to"]===active||item.attrs["data-target"]===active))attrs["data-highlighted"]="";
   return createElement(item.tag,{...attrs,key},item.text,item.children?.map(render));
  }
  const {width,height}=model.tree.viewBox;
@@ -38,13 +39,19 @@ export function DiagramContent({source,theme,mode}:ContentRendererProps) {
  return <figure ref={host} className="bk-diagram" data-theme={theme} data-content-renderer="diagram" data-renderer-mode={mode} style={{margin:"12px 0",maxWidth:"100%",minWidth:0,color:"var(--bk-diagram-text)",fontFamily:'"Plus Jakarta Sans",system-ui,sans-serif'}}>
   <style data-content-renderer-tokens="">{DIAGRAM_TOKEN_CSS}</style>
   <figcaption style={{fontFamily:'"DM Serif Text",Georgia,serif',fontSize:18}}>{spec.title}</figcaption>
-  {renderModel ? <Drawing model={renderModel} theme={theme} id={id}/> : <p data-diagram-summary="">{spec.desc}</p>}
+  {renderModel ? <Drawing model={renderModel} theme={theme} id={id}/> : <><p data-diagram-summary="">{spec.desc}</p>{spec.callouts?.length?<div data-diagram-notes="">{groupCallouts(spec).map(group=>{
+   const planned=desktop.elements.flatMap(item=>item.attrs["data-diagram-notes-band"]!==undefined?item.children??[]:[]).find(item=>item.attrs["data-diagram-callout-group"]===group.target);
+   return <section key={group.target} data-target={group.target}><h3 style={{fontFamily:'"JetBrains Mono",monospace',fontSize:9.5,fontWeight:600,color:"var(--bk-diagram-text)"}}>{group.name} · {group.indices.length} {group.indices.length===1?"NOTE":"NOTES"}</h3>
+    {planned?.attrs["data-target-drawn"]==="false"?<p style={{fontSize:14}}>{undrawnCalloutExplanation(spec,group.target)}</p>:null}
+    <ol style={{margin:0,padding:0,listStyle:"none"}}>{group.indices.map(index=><li key={index} value={index+1} data-diagram-callout={index} style={{display:"grid",gridTemplateColumns:`${Math.max(24,typeWidthBudget(String(spec.callouts!.length),"label"))}px minmax(0,1fr)`,columnGap:8,fontSize:14,fontWeight:500}}><span data-callout-index="" style={{fontFamily:'"JetBrains Mono",monospace',fontSize:9.5,fontWeight:600,textAlign:"right",color:"var(--bk-color-ink-mute)"}}>{index+1}</span><span data-callout-text="" style={{minWidth:0,overflowWrap:"anywhere"}}>{spec.callouts![index]!.text}</span></li>)}</ol>
+   </section>;
+  })}</div>:null}</>}
   <div className="bk-diagram-controls" style={{display:"flex",gap:8,flexWrap:"wrap"}}>
    <Button label="Open diagram" block={false} onClick={()=>setViewer(true)} style={{minHeight:44,minWidth:44}}/>
    <StaticDiagramShareMenu svg={()=>toStatic(source,{theme:"print"})}/>
   </div>
   <div className="bk-diagram-print" style={{display:"none"}}><Drawing model={desktop} theme="print" id={`${id}-print`} interactive={false}/></div>
-  <style>{`@media print{[data-content-renderer="diagram"]>.bk-diagram,[data-content-renderer="diagram"]>[data-diagram-summary],.bk-diagram-controls{display:none!important}.bk-diagram-print{display:block!important}}`}</style>
+  <style>{`@media print{[data-content-renderer="diagram"]>.bk-diagram,[data-content-renderer="diagram"]>[data-diagram-summary],[data-content-renderer="diagram"]>[data-diagram-notes],.bk-diagram-controls{display:none!important}.bk-diagram-print{display:block!important}}`}</style>
   {viewer&&<ZoomViewer label="Diagram viewer" onClose={()=>setViewer(false)} minScale={1} maxFitScale={1} actions={<StaticDiagramShareMenu svg={()=>toStatic(source,{theme:"print"})}/>}><Drawing model={narrow??desktop} theme={theme} id={`${id}-viewer`}/></ZoomViewer>}
  </figure>;
 }

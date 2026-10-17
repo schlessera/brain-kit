@@ -144,10 +144,10 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:436-456`;
-`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:457-481`), while
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
+`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:379-391`). Native protocol
+"session_queue")`, `packages/ui-react/src/connection.ts:395-407`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
@@ -430,13 +430,25 @@ failed cases, repeated controls and unexecuted paths remain distinguishable.
 
 The observations separate several temporal contracts:
 
-- The native boot-probe suite keeps thirteen real process-deadline cases. Its
-  existing lower oracle is 4950 ms for a 5000 ms deadline, with a 1500 ms
-  settlement margin for loaded scheduling. The eight-second fixture holds do
-  not run to completion. These bounds explain the present 66.73 second command;
-  they do not prove that five seconds of wall time is necessary to test every
-  deadline branch. A clock replacement still needs actual registered callbacks,
-  real process termination, ineffective-killer behavior and cleanup witnesses.
+- The boot-probe suite preserves thirteen original subprocess scenarios and two
+  native five-second forward/backward wall-clock-jump controls from #2180. The unwrapped
+  target and both hung-helper cases retain native 4950–6500 ms elapsed proof.
+  Ten other cases capture the actual source-owned 5000 ms primary callback;
+  after real version output, subsequent pending stdout/stderr reads and native
+  target readiness, 4999 ms cannot deliver it and 5000 ms delivers it once.
+  Their elapsed operand explicitly combines logical primary time and native
+  settlement, retaining the 1500 ms settlement allowance. Cleanup (250 ms),
+  helper cleanup (200 ms), signals, pipes and subprocess exits remain native.
+  Elapsed observations and bounded readiness/cleanup polls use monotonic time;
+  only the two native jump controls patch Date.now, with full restoration.
+  Inherited-pipe readiness compares the live descendant's actual endpoints
+  with the exited parent's endpoints. Successful exit/EOF proves cancellation;
+  assertion and actual disappearance-failure witnesses prove pending-work
+  settlement and complete descriptor restoration. Eight-second fixture holds
+  end in owned cleanup. Historical 66.73-second measurements describe the
+  original native file; delivery measurements and fault receipts belong to
+  [#1939](https://github.com/schlessera/brain-kit/issues/1939). They do not
+  resolve the independent historical helper-PID investigation in #1310.
 - Seven stale-write watchdogs requested 20000 ms; none fired, and all seven were
   cleared after roughly 329–357 ms. A supplemental HTTP observation recorded
   four 3000 ms watchdogs, also cleared without firing. These registration-to-clear

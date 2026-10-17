@@ -1,7 +1,7 @@
 /** Explicit reviewed measurement refresh; never called by contribution CI. */
 import { resolve } from "node:path";
 import { browserCostsFromLogs, browserTimingReports, type BrowserCosts } from "./browser-shards";
-import { resolveBrowserPin } from "./captures/provenance";
+import { browserPinUsesProducer, parseBrowserPin, resolveBrowserPin } from "./captures/provenance";
 import type { API } from "./proof-reuse";
 
 type Domain = "browser" | "layout";
@@ -61,8 +61,21 @@ export async function refreshBrowserCosts(domain: Domain, run: number, attempt: 
   if (commit.sha !== sha || !SHA.test(commit.tree?.sha) || !Array.isArray(parents) || parents.some((parent: unknown) => typeof parent !== "string" || !SHA.test(parent)) ||
       (info.event === "pull_request" ? parents.length !== 2 || parents[1] !== info.head_sha : sha !== info.head_sha)) throw new Error("Immutable checkout/tree/parent attribution does not match the run");
   const source = await api.json(`contents/scripts/visual.mjs?ref=${sha}`);
-  const sourcePins = source.encoding === "base64" ? [...Buffer.from(source.content, "base64").toString("utf8").matchAll(/^const IMAGE = "([^"]+)";/gm)] : [];
-  if (sourcePins.length !== 1 || sourcePins[0]![1] !== image) throw new Error("Execution source does not declare the measured image pin");
+  if (source.encoding !== "base64" || typeof source.content !== "string") throw new Error("Execution source image pin is unavailable");
+  const runnerSource = Buffer.from(source.content, "base64").toString("utf8");
+  let producerSource: string | undefined;
+  if (browserPinUsesProducer(runnerSource)) {
+    const producer = await api.json(`contents/scripts/diagram-export-producer.mjs?ref=${sha}`);
+    if (producer.encoding !== "base64" || typeof producer.content !== "string") throw new Error("Execution source producer pin is unavailable");
+    producerSource = Buffer.from(producer.content, "base64").toString("utf8");
+  }
+  const pin = parseBrowserPin(runnerSource, producerSource);
+  if (pin.image !== image) throw new Error("Execution source does not declare the measured image pin");
+  const manifest = await api.json(`contents/packages/ui-kit/package.json?ref=${sha}`);
+  if (manifest.encoding !== "base64" || typeof manifest.content !== "string" ||
+      JSON.parse(Buffer.from(manifest.content, "base64").toString("utf8")).devDependencies?.playwright !== pin.playwright) {
+    throw new Error("Execution source Playwright version differs from its image pin");
+  }
   const measurements = { ...previous.measurements };
   // The original table recorded browser jobs only; retain their full provenance.
   if (previous.measurement && !measurements.browser) measurements.browser = previous.measurement;

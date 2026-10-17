@@ -269,6 +269,7 @@ signatures (every public export and the types it is made of)
         y: number;
         width: number;
         height: number;
+        edgeId?: string;
         nodeId?: string;
         from?: string;
         to?: string;
@@ -309,7 +310,7 @@ signatures (every public export and the types it is made of)
         elements: DiagramElement[];
     }
   DiagramTypeRole (packages/module-diagrams/src/skin.ts)
-    export type DiagramTypeRole = "title" | "name" | "sub" | "label";
+    export type DiagramTypeRole = "title" | "name" | "sub" | "label" | "note";
   DiagramTypeStyle (packages/module-diagrams/src/skin.ts)
     export interface DiagramTypeStyle {
         family: string;
@@ -350,6 +351,12 @@ signatures (every public export and the types it is made of)
   diagramSpecJsonSchema (packages/module-diagrams/src/spec.ts)
     const diagramSpecJsonSchema: z.core.ZodStandardJSONSchemaPayload<z.ZodDiscriminatedUnion<[z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -441,6 +448,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"architecture">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -518,6 +531,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"flowchart">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -593,6 +612,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"state-machine">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -668,6 +693,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"tree">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -758,6 +789,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"er">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -887,6 +924,12 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>;
         }, z.core.$strict>], "kind">>;
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -955,6 +998,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"gantt" | "sequence" | "swimlane" | "timeline">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1076,6 +1125,12 @@ signatures (every public export and the types it is made of)
   diagramSpecSchema (packages/module-diagrams/src/spec.ts)
     const diagramSpecSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1167,6 +1222,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"architecture">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1244,6 +1305,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"flowchart">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1319,6 +1386,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"state-machine">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1394,6 +1467,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"tree">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1484,6 +1563,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"er">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1613,6 +1698,12 @@ signatures (every public export and the types it is made of)
             }, z.core.$strict>>;
         }, z.core.$strict>], "kind">>;
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;
@@ -1681,6 +1772,12 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"gantt" | "sequence" | "swimlane" | "timeline">;
     }, z.core.$strict>, z.ZodObject<{
         callouts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            side: z.ZodOptional<z.ZodEnum<{
+                above: "above";
+                below: "below";
+                left: "left";
+                right: "right";
+            }>>;
             target: z.ZodString;
             text: z.ZodString;
         }, z.core.$strict>>>;

@@ -64,6 +64,7 @@ export "." (./src/index.ts)
   createBrainClient
   createConsoleLoggerProvider
   createGeminiConversationProvider
+  createGptLiveConversationProvider
   createInMemoryMeterProvider
   createLabeller
   createObservability
@@ -1262,6 +1263,8 @@ signatures (every public export and the types it is made of)
     export function createConsoleLoggerProvider(options?: ConsoleLoggerProviderOptions): LoggerProvider;
   createGeminiConversationProvider (packages/ui-server/src/voice/gemini-conversation.ts)
     export function createGeminiConversationProvider(apiKey: string): LiveConversationProvider;
+  createGptLiveConversationProvider (packages/ui-server/src/voice/gpt-live-conversation.ts)
+    export function createGptLiveConversationProvider(apiKey: string): LiveConversationProvider;
   createInMemoryMeterProvider (packages/ui-server/src/observability/meter.ts)
     export function createInMemoryMeterProvider(): InMemoryMeterProvider;
   createInboxBridgeTools (packages/ui-server/src/inbox/bridge-tools.ts)

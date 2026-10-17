@@ -7,7 +7,7 @@ export interface AxisShape {
  kind:"axis-shape"; shape:"line"|"rect"|"path"|"circle"|"text"; name:string;
  x:number;y:number;x2?:number;y2?:number;width?:number;height?:number;radius?:number;path?:string;text?:string;
  paint:"line"|"lifeline"|"bar"|"node"|"zone"|"mask"|"focal-mask"|"message"|"return"|"async"|"focal";
- textRole?:"name"|"label"|"note";align?:"start"|"middle"|"end";head?:"open"|"filled";node?:string;link?:string;from?:string;to?:string;
+ textRole?:"name"|"label"|"note";align?:"start"|"middle"|"end";head?:"open"|"filled";edgeId?:string;node?:string;link?:string;from?:string;to?:string;
 }
 const day=(s:string)=>Date.parse(`${s}T00:00:00Z`)/86400000;
 /** Order/date-derived geometry; all glyphs stay at their normal role size. */
@@ -41,7 +41,7 @@ export function buildAxisDiagram(spec:DiagramSpec,width=720):DiagramTree {
    box("message-mask",left,y-26,labelWidth,18,m.focal?"focal-mask":"mask");txt(m.label,labelX+(align==="start"?4:align==="end"?-4:0),y-13,"label",m.focal?"focal":"line",align);
    if(self){const loop=narrow?24:32;if(a+loop+4>width-8)throw Error("Self-message does not fit; use summary and Open diagram");add("path","self-message",a+4,y,paint as AxisShape["paint"],{width:loop-4,height:24,path:`M ${a+4} ${y} L ${a+loop-8} ${y} Q ${a+loop} ${y} ${a+loop} ${y+8} L ${a+loop} ${y+16} Q ${a+loop} ${y+24} ${a+loop-8} ${y+24} L ${a+4} ${y+24}`,x2:a+4,y2:y+24,head:m.focal?"filled":"open"});}
    else add("line","message",a+4*dir,y,paint as AxisShape["paint"],{x2:b-4*dir,y2:y,head:m.focal?"filled":"open"});
-   elements.at(-1)!.from=m.from;elements.at(-1)!.to=m.to;
+   elements.at(-1)!.edgeId=m.id;elements.at(-1)!.from=m.from;elements.at(-1)!.to=m.to;
    if(m.note){const noteWidth=Math.max(140,typeWidthBudget(m.note,"name",11)+16);if(noteWidth>width-32)throw Error("Note cannot fit without shrinking");const x=Math.min(Math.max(16,left),width-noteWidth-16);box("note",x,y+32,noteWidth,44);txt("NOTE",x+8,y+45);txt(m.note,x+8,y+62,"note");}
   });
  }else if(spec.type==="swimlane"){
@@ -69,7 +69,7 @@ export function buildAxisDiagram(spec:DiagramSpec,width=720):DiagramTree {
   }
  }
  const shapes=elements.map((item,index):DiagramShape=>{
- const common={kind:"shape" as const,id:`axis-${index}`,family:"axis" as const,name:item.name,x:item.x,y:item.y,width:item.width??0,height:item.height??0,paint:item.paint,nodeId:item.node,from:item.from,to:item.to};
+ const common={kind:"shape" as const,id:`axis-${index}`,family:"axis" as const,name:item.name,x:item.x,y:item.y,width:item.width??0,height:item.height??0,paint:item.paint,edgeId:item.edgeId,nodeId:item.node,from:item.from,to:item.to};
  const arrow=item.head?{x:item.x2!,y:item.y2!,dx:item.shape==="path"?-1:Math.sign(item.x2!-item.x),dy:0,head:item.head}:undefined;
  if(item.shape==="text") {const role=item.textRole??"label",size=role==="name"?12:role==="note"?11:9.5,w=typeWidthBudget(item.text!,role==="note"?"name":role,size)+4;return {...common,shape:"text",text:item.text!,textRole:role,fontSize:size,width:w,height:12,x:item.x-(item.align==="middle"?w/2:item.align==="end"?w:0),y:item.y-9,align:item.align,paint:item.paint==="focal"?"accent":"text"};}
  if(item.shape==="line")return {...common,shape:"line",x1:item.x,y1:item.y,x2:item.x2!,y2:item.y2!,x:Math.min(item.x,item.x2!),y:Math.min(item.y,item.y2!),width:Math.abs(item.x2!-item.x),height:Math.abs(item.y2!-item.y),arrow};

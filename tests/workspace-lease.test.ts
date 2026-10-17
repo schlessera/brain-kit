@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveBrowserPin } from "../scripts/captures/provenance.ts";
 
 const project = resolve(import.meta.dir, "..");
 const helper = pathToFileURL(join(project, "scripts/workspace-lease.mjs")).href;
@@ -115,7 +116,7 @@ test("shared verification overlaps, blocks a writer and rejects a nested build b
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "bin"));
   mkdirSync(join(root, "packages/geo/dist"), { recursive: true });
   writeFileSync(join(root, "packages/geo/dist/retained"), "retained\n");
-  for (const name of ["build.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  for (const name of ["build.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   writeFileSync(join(root, "bin/bunx"), "#!/bin/sh\nexit 77\n", { mode: 0o755 });
   const first = start(root, "read", "hold", "first"), second = start(root, "read", "hold", "second");
   await Promise.all([entered(root, "first"), entered(root, "second")]);
@@ -214,13 +215,13 @@ const spawn = (...args) => {
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {
   const root = fixture();
   for (const path of ["scripts", "packages/ui-kit", "node_modules/vitest"]) mkdirSync(join(root, path), { recursive: true });
-  for (const name of ["visual.mjs", "workspace-lease.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  for (const name of ["visual.mjs", "workspace-lease.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync("/repo/vitest-entered","native container acquired ownership\\n");\n');
   const owner = start(root, "write", "hold", "host");
   await entered(root, "host");
   const container = Bun.spawn(["docker", "run", "--rm", "--pull=never", "--network=none", "--ipc=host",
     "--user", `${process.getuid!()}:${process.getgid!()}`, "-v", `${root}:/repo`, "-w", "/repo",
-    "mcr.microsoft.com/playwright:v1.63.0-noble", "node", "scripts/visual.mjs", "--inside", "--project=visual"],
+    (await resolveBrowserPin(project)).image, "node", "scripts/visual.mjs", "--inside", "--project=visual"],
   { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   children.push(container);
   const stdout = new Response(container.stdout).text();

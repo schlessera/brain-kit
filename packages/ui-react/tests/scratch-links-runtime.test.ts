@@ -40,7 +40,7 @@ beforeAll(async () => {
   if (!executablePath) return;
   // The client bundle uses fresh source plus ordinary package resolution.
   // Rebuild dependencies so a runtime mutation cannot hide behind stale dist.
-  await child([process.execPath, "scripts/build.ts"]);
+  await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-scratch-links-"));
   brain = resolve(fixture, "brain");
   await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));
@@ -86,12 +86,12 @@ beforeAll(async () => {
   browser = await hook.phase("chrome-launch", () => chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] }));
 }, 180_000);
 
-afterAll(async () => {
+afterAll(() => hook.phase("cleanup", async () => {
   await browser?.close();
   server?.stop(true);
   await app?.close();
   if (fixture) await rm(fixture, { recursive: true, force: true });
-});
+}));
 
 async function open(format: string, mode: string, theme: string, width: number) {
   const context = await browser!.newContext({ viewport: { width, height: 900 } });

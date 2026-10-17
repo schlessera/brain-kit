@@ -1,14 +1,22 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "f8a497c017892732a3eeb17c85045081505a070a8b0df8afa84d2d3348954dc2",
+  "identity": "795abd5839096c4c451db7ff42ea5264b3ad7652439f8c927858505708a597b5",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "4ba792473152c89eb74c286fc914e54ca1dae8fc",
-    "selected": 305,
-    "files": 1727,
-    "scope": "Complete 305-pair selected source/import/configuration/command inventory audited, including ordered-axis, positional and node-link geometry and closed SVG shapes. All four exact capture callers and every renderer, finite fixture, CSS and inline-font producer are sealed. Default Vitest baseline-image directories and the verified installed resolver join source identity; custom screenshot paths/options and symlinks are unsupported. Historical 297-pair observation remains historical. Actual complete 305 guarded fresh hosted shards remain mandatory; native/PDF-worker layout/endurance categories stay fresh. The renderer viewport restoration was corrected by #2253 without changing references or assertions."
+    "base": "b03e6550688723f644b5efc4b97d243c832963a0",
+    "selected": 309,
+    "files": 2295,
+    "scope": "Complete 309-pair selected source/import/configuration/command inventory, including the separate network-disabled read-only-root native Docker producer. All six source families and preparation inputs, copied external installation membership/bytes/modes/internal aliases, actual immutable manifest reference and captured private Bun bytes join current identity. The producer mounts only private source/install/Bun and initially empty owned output; HOME/tmp/shared-memory are fresh container filesystems. Host checkout/state mount counterfactuals fail the named absent-data assertions. Imported initialization and shared helpers remain active inside this finite filesystem boundary. Fresh per-launch output session, captured validated artifact bytes, artifact hashes, exact native entry/configuration/core-dispatch guards and original generated SVG/reference consumers remain enforced. Source or installation drift makes the binding unavailable; runtime drift changes its fingerprint. All resource/Worker guards, complete fresh same-PR two-shard proof and whole-workflow success remain mandatory. Metadata is not passing proof; historical observations retain their scope and source. Reviewed exact source deltas include bounded compilation, restricted IPC, private-parent masking, observational build receipts and repeat-identity observation, and the delivered conversation modules. The complete selected closure has 2,295 files. The two added callout project/file pairs use the exact reviewed diagramCapture caller and producers. Directory and external identities remain unchanged. The complete 859-input diagram source identity is qualified by actual offline SVG/PNG/PDF execution on the same private hosted-mode installation and runtime. The original enforced PDF Worker exception remains the sole unresolved input. The hosted installation mode identity is qualified by actual offline SVG/PNG/PDF execution on an independent normalized copy, not by accepting drift. This metadata update still requires fresh complete selected browser execution and whole-workflow success before any retention. The latest reviewed selected-source changes are per-case callout ownership/drain and separated proof scenarios, plus the ordinary safe builder that refuses unqualified persistent output reuse. The observational receipt and repeat observer remain inputs; these two source changes leave directory, external and native identities unchanged. No new native execution or whole-workflow result is inferred from this projection.",
+    "native": {
+      "source": "e8502b6ffb3c575f2e9a1c93dea8dbf5ceda93ece367da9d542cb10b1c9ac32b",
+      "installation": "0c2758c046f2b69d5f33b66521baf3098db5f44256b73ec96961c98d381e6245",
+      "trackedInputs": 859,
+      "packages": 843,
+      "installedBytes": 1833832361,
+      "runtime": "bf65590d9d594d238c2c7b6e01e038a26402a676ccf16a1caf596f1179bdc9fb"
+    }
   },
   "historicalDiagnostic": {
     "base": "b0b4340cd",

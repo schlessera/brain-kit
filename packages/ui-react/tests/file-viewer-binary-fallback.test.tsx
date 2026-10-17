@@ -28,7 +28,7 @@ if (!process.env[CHILD_MARKER]) {
   GlobalRegistrator.register();
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-  const { cleanup, fireEvent, render } = await import("@testing-library/react");
+  const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
   const { BrainUiProvider } = await import("../src/root-context.js");
   const { createBrainUiRoot } = await import("../src/root.js");
   const { FileViewerBinary } = await import("../src/components/files/file-viewer-binary.js");
@@ -66,6 +66,7 @@ if (!process.env[CHILD_MARKER]) {
   afterAll(async () => {
     cleanup();
     root.dispose();
+    await act(async () => {});
     await GlobalRegistrator.unregister();
   });
 }

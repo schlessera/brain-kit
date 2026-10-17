@@ -14,8 +14,7 @@ import type { ToolCall } from "../../src/stores/chat-store.js";
 
 afterEach(cleanup);
 afterAll(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  unregisterDom();
+  await unregisterDom();
 });
 
 const EFFECT = "delete a directory and everything inside it";
