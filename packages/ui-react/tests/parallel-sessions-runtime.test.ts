@@ -253,6 +253,7 @@ afterAll(async () => {
 type View = { sessionId: string; state: string; pendingKind: string | null; cleared: boolean; turnId: string | null; settled: boolean };
 type Probe = {
   connected(): boolean;
+  admission(): { draftId: string; restoration: unknown; profilesSupported: boolean; profileEpoch: number; authPhase: string };
   draftsSupported(): boolean | null;
   activeSessionId(): string | null;
   view(): string;
@@ -351,7 +352,7 @@ function waitingWorker() {
 
 type ApprovalInput = { type: string; target: string | null; at: number; node: number | null; connected: boolean; y: number | null };
 type ApprovalFrame = { event: "framesent" | "framereceived"; socket: number; at: number; frame: ClientMessage | ServerMessage };
-type ProfileRead = { path: string; status?: number; body?: string; failure?: string };
+type ProfileRead = { path: string; at: number; status?: number; body?: string; failure?: string };
 type Device = { profileReads: ProfileRead[]; context: BrowserContext; page: Page; dialogs: string[]; sockets: string[]; approvals: ApprovalFrame[] };
 async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}): Promise<Device> {
   const context = await browser!.newContext(run.options);
@@ -376,7 +377,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
   page.on("request", request => {
     const path = new URL(request.url()).pathname;
     if (!path.endsWith("/profile")) return;
-    const read: ProfileRead = { path };
+    const read: ProfileRead = { path, at: Date.now() };
     profileRequests.set(request, read);
     profileReads.push(read);
     if (profileReads.length > 8) profileReads.shift();
@@ -1042,7 +1043,7 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             if (decision === "Always allow") expect(await readPolicy(), "only the explicit online decision wrote policy").toMatchObject({ tools: expect.arrayContaining(["Read"]) });
           } catch (error) {
             console.error("Refused approval diagnostic", JSON.stringify({ run: run.name, surface, decision, runtime: Bun.version, browser: browser!.version(), frames: a.approvals, profileReads: a.profileReads,
-              state: await probe(a.page, p => ({ connected: p.connected(), draftsSupported: p.draftsSupported(), active: p.activeSessionId(), draft: p.draft() })).catch(() => null),
+              state: await probe(a.page, p => ({ connected: p.connected(), draftsSupported: p.draftsSupported(), active: p.activeSessionId(), draft: p.draft(), admission: p.admission() })).catch(() => null),
               composer: await a.page.evaluate(() => ({ value: (document.querySelector("textarea[data-composer]") as HTMLTextAreaElement | null)?.value,
                 placeholder: document.querySelector("textarea[data-composer]")?.getAttribute("placeholder"),
                 visibleText: document.body.innerText.slice(-4000),
