@@ -23,8 +23,17 @@ async function worker(code: string) {
   child.stdin.end();
   const output = new Response(Readable.toWeb(child.stdout as Readable) as unknown as ReadableStream).text();
   const error = new Response(Readable.toWeb(child.stderr as Readable) as unknown as ReadableStream).text();
-  try { const [stdout, stderr, status] = await Promise.all([output, error, child.exited]); expect(status, stderr).toBe(0); return stdout; }
-  finally { child.state?.close(); child.turnTemp?.close(); }
+  try {
+    let status: number;
+    try { status = await child.exited; observe("worker:exited"); }
+    finally {
+      try { child.state?.close(); } finally { child.turnTemp?.close(); }
+      observe("worker:handles-closed");
+    }
+    const [stdout, stderr] = await Promise.all([output, error]);
+    observe("worker:eof");
+    expect(status, stderr).toBe(0); return stdout;
+  } finally { await Promise.allSettled([output, error]); }
 }
 observe("creating-worker:start");
 const creation = await worker(String.raw`import os,json
