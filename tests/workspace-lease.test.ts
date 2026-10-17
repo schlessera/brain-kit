@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveBrowserPin } from "../scripts/captures/provenance.ts";
 
 const project = resolve(import.meta.dir, "..");
 const helper = pathToFileURL(join(project, "scripts/workspace-lease.mjs")).href;
@@ -220,7 +221,7 @@ test("the real pinned container wrapper waits for host ownership of its mounted 
   await entered(root, "host");
   const container = Bun.spawn(["docker", "run", "--rm", "--pull=never", "--network=none", "--ipc=host",
     "--user", `${process.getuid!()}:${process.getgid!()}`, "-v", `${root}:/repo`, "-w", "/repo",
-    "mcr.microsoft.com/playwright:v1.63.0-noble", "node", "scripts/visual.mjs", "--inside", "--project=visual"],
+    (await resolveBrowserPin(project)).image, "node", "scripts/visual.mjs", "--inside", "--project=visual"],
   { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   children.push(container);
   const stdout = new Response(container.stdout).text();
