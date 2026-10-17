@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildDecision, buildInputs, recordBuild, stampPath } from "../scripts/build-stamp.ts";
 
+const repo = join(import.meta.dir, "..");
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
@@ -131,3 +132,50 @@ describe("workspace build stamp", () => {
     }
   });
 });
+
+/** The real build script, in a Git fixture whose tsc wrapper runs the installed compiler. */
+async function realBuild(root: string, ...args: string[]) {
+  const child = Bun.spawn([process.execPath, "scripts/build.ts", ...args], { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(code, `${out}\n${err}`).toBe(0);
+  const names = readdirSync(join(root, "tmp")).filter(name => /^build-.*-probe\.json$/.test(name));
+  const receipts = names.map(name => JSON.parse(readFileSync(join(root, "tmp", name), "utf8")));
+  for (const name of names) rmSync(join(root, "tmp", name));
+  expect(receipts).toHaveLength(1);
+  return { out, receipt: receipts[0] as { success: boolean; packages: { name: string; state: string; children: unknown[] }[] } };
+}
+
+test("the real build reports an unchanged second run up to date and rebuilds after --force or a source edit", async () => {
+  const root = fixture();
+  mkdirSync(join(root, "scripts"), { recursive: true });
+  for (const file of ["build.ts", "build-stamp.ts", "build-receipt.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
+  }
+  mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
+  const wrapper = join(root, "node_modules/.bin/tsc");
+  writeFileSync(wrapper, `#!${process.execPath}
+const compiler=Bun.spawn([process.execPath,${JSON.stringify(join(repo, "node_modules/typescript/bin/tsc"))},...process.argv.slice(2)],{stdout:"inherit",stderr:"inherit"});
+process.exitCode=await compiler.exited;
+`);
+  chmodSync(wrapper, 0o755);
+  for (const name of ["ithaca", "troy"]) write(root, `packages/${name}/tsconfig.build.json`, JSON.stringify({ compilerOptions: {
+    rootDir: "src", outDir: "dist", target: "ESNext", module: "ESNext", moduleResolution: "Bundler", types: [], declaration: true, skipLibCheck: true,
+  }, include: ["src"] }));
+  const states = (receipt: { packages: { state: string; children: unknown[] }[] }) => receipt.packages.map(pkg => `${pkg.state}:${pkg.children.length}`);
+
+  const first = await realBuild(root, "--jobs=2");
+  expect(states(first.receipt), "FIRST_BUILD_COMPILES_EVERY_PACKAGE").toEqual(["complete:1", "complete:1"]);
+  const built = readFileSync(join(root, "packages/troy/dist/index.js"), "utf8");
+
+  const second = await realBuild(root, "--jobs=2");
+  expect(second.out.trim().split("\n").sort(), "SECOND_BUILD_SKIPS_EVERY_PACKAGE").toEqual(["Up to date packages/ithaca", "Up to date packages/troy"]);
+  expect(states(second.receipt), "SKIPPED_PACKAGES_RUN_NO_COMPILER").toEqual(["up-to-date:0", "up-to-date:0"]);
+  expect(second.receipt.success).toBe(true);
+  expect(readFileSync(join(root, "packages/troy/dist/index.js"), "utf8")).toBe(built);
+
+  expect(states((await realBuild(root, "--force")).receipt), "FORCE_REBUILDS").toEqual(["complete:1", "complete:1"]);
+
+  write(root, "packages/ithaca/src/index.ts", 'export const harbour = "Scheria";\n');
+  expect(states((await realBuild(root)).receipt), "ANY_SOURCE_EDIT_REBUILDS_EVERY_PACKAGE").toEqual(["complete:1", "complete:1"]);
+  expect(readFileSync(join(root, "packages/ithaca/dist/index.js"), "utf8")).toContain("Scheria");
+}, 60_000);
