@@ -1,6 +1,6 @@
 /** Runtime consumer proof for freshly created documented shared Git metadata. */
 import { expect } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { createNativeBrainManagerClient } from "../src/server/native-brain-manager-client.js";
 import { createHostBoundary } from "../../ui-server/src/brain/host-boundary.js";
 
@@ -12,7 +12,19 @@ export async function captureSharedGitMaintenance(brain: string, phase: "fresh" 
   const run = (program: string) => boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
     env: { PATH: "/usr/local/bin:/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: `Odysseus shared Git ${phase}` });
   const ref = `refs/heads/odysseus-shared-${phase}`, content = `Odysseus shared Git ${phase}.\n`;
-  expect(existsSync(`${brain}/.git/modules`), "GIT_MASK_SCAFFOLD_ORIGINALLY_ABSENT").toBe(false);
+  const moduleState = () => {
+    const path = `${brain}/.git/modules`, info = lstatSync(path, { throwIfNoEntry: false });
+    if (!info) return { present: false as const };
+    expect(info.isDirectory() && !info.isSymbolicLink(), "GIT_MASK_ORIGINAL_INPUT_IS_DIRECTORY").toBe(true);
+    const members = readdirSync(path).sort();
+    expect(members, "GIT_MASK_ORIGINAL_FIXTURE_INPUT_EMPTY").toEqual([]);
+    return { present: true as const, type: "directory", dev: String(info.dev), ino: String(info.ino),
+      uid: info.uid, gid: info.gid, mode: (info.mode & 0o7777).toString(8), members };
+  };
+  const moduleBefore = moduleState();
+  // createApp's documented protection resolver creates missing directories;
+  // warm/strict may therefore begin with an original read-only input.
+  if (phase === "fresh") expect(moduleBefore, "GIT_MASK_SCAFFOLD_ORIGINALLY_ABSENT").toEqual({ present: false });
   const result = await run(`
     const fs = require("node:fs"), root=process.env.BRAIN_ROOT;
     process.umask(0o002);
@@ -63,7 +75,7 @@ export async function captureSharedGitMaintenance(brain: string, phase: "fresh" 
   for (const key of ["blob", "tree", "commit"]) expect(actual[key], `SHARED_GIT_ACTUAL_${key.toUpperCase()}_WRITTEN`).toMatch(/^[a-f0-9]{40,64}$/);
   expect(actual.scaffoldDenials, "GIT_MASK_SCAFFOLD_ACTUAL_PAYLOAD_WRITES_REFUSED").toMatchObject({ write: "EROFS", originalHooks: "EROFS", originalInfo: "EROFS", chmod: "EROFS", rename: "EBUSY", symlink: "EROFS" });
   expect(["EROFS", "EXDEV"]).toContain(actual.scaffoldDenials.hardlink);
-  expect(existsSync(`${brain}/.git/modules`), "GIT_MASK_SCAFFOLD_NOT_PUBLISHED").toBe(false);
+  expect(moduleState(), "GIT_MASK_SCAFFOLD_NOT_PUBLISHED").toEqual(moduleBefore);
   const persisted = await run(`
     for(const args of [["cat-file","blob",${JSON.stringify(actual.blob)}],["show",":shared-git-proof.md"],["show",${JSON.stringify(ref + ':shared-git-proof.md')}]]) {
       const p=Bun.spawnSync(["git",...args],{stdout:"pipe",stderr:"pipe"});
@@ -74,11 +86,13 @@ export async function captureSharedGitMaintenance(brain: string, phase: "fresh" 
   `);
   expect(persisted.exitCode, persisted.stderr).toBe(0);
   expect(persisted.stdout, "SHARED_GIT_PUBLISHED_OBJECT_INDEX_REF_REOPENED").toBe("SHARED_GIT_OBJECT_INDEX_REF_REOPENED\n");
-  expect(existsSync(`${brain}/.git/modules`), "GIT_MASK_SCAFFOLD_ABSENCE_SURVIVES_REOPEN").toBe(false);
+  expect(moduleState(), "GIT_MASK_SCAFFOLD_ORIGIN_SURVIVES_REOPEN").toEqual(moduleBefore);
   const version = await boundary.run({ argv: [`${brain}/node_modules/.bin/brain`, "--version"], env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
     credentials: false, gate: "shared", purpose: `Odysseus shared Git CLI ${phase}` });
   expect(version.exitCode, version.stderr).toBe(0);
   const expected = JSON.parse(readFileSync(new URL("../../core/package.json", import.meta.url), "utf8")).version;
   expect(version.stdout.trim().replace(/^v/, ""), "SHARED_GIT_ACTUAL_INSTALLED_CLI_VERSION").toBe(expected);
-  console.log(JSON.stringify({ actualDocumentedSharedGitConsumer: { phase, ...actual, published: true, cliVersion: version.stdout.trim() } }));
+  const moduleAfter = moduleState();
+  expect(moduleAfter, "GIT_MASK_SCAFFOLD_ORIGIN_SURVIVES_CLI_VERSION").toEqual(moduleBefore);
+  console.log(JSON.stringify({ actualDocumentedSharedGitConsumer: { phase, ...actual, published: true, cliVersion: version.stdout.trim(), moduleBefore, moduleAfter } }));
 }
