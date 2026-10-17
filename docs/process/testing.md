@@ -63,6 +63,11 @@ inspecting CI on a PR live in the `work-issue` skill's
   `Object.defineProperty`, and delete only when the original was absent.
   Saving values or unconditionally deleting `navigator` leaks state between
   suites (#1158). Keep ordered native/absent/readonly restoration controls.
+- Persistence fault fixtures retain their storage failure through the original
+  failure and persisted-state assertions. Track and drain the actual native
+  transactions, then restore complete storage method descriptors in cleanup.
+  A queued autosave can legitimately clear a failure after successful recovery;
+  include a real queued writer to prove its position in the fault window (#2355).
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
