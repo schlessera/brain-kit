@@ -178,7 +178,7 @@ async function inspect(root: string, rel: string, members = false): Promise<Capt
   try {
     const path = at(handle.fd, handle.name), info = lstatSync(path, { bigint: true, throwIfNoEntry: false });
     if (!info) return { entry: undefined, stamp: undefined };
-    const version = stamp(info), mode = Number(info.mode & 0o777n);
+    const version = stamp(info), mode = Number(info.mode & (info.isDirectory() ? 0o7777n : 0o777n));
     if (info.isSymbolicLink()) return { entry: { type: "symlink", mode, link: readlinkSync(path) }, stamp: version };
     if (info.isDirectory()) {
       const fd = openSync(path, DIRECTORY);
@@ -380,7 +380,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
         let publicationError: unknown;
         const finalizeDirectory = (directory: (typeof directoryModes)[number]) => {
           const held = fstatSync(directory.fd), visible = lstatSync(at(directory.parent,directory.name));
-          if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
+          if (!visible.isDirectory() || held.dev !== visible.dev || held.ino !== visible.ino || (held.mode & 0o7777) !== directory.temporaryMode) throw Error(`stale maintenance output: ${directory.rel}`);
           fchmodSync(directory.fd,directory.mode);
         };
         try {
