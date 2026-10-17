@@ -87,3 +87,14 @@ test("host-boundary probes use the same concrete memory placement; no-helper lea
   hostExecution.probe(f.brain);
   expect(probe.mock.calls[2]?.[1]).toBeUndefined();
 });
+
+
+test("host-boundary preserves the configured-helper refusal instead of misattributing placement", () => {
+  const f = fixture(); const probe = observingProbe();
+  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = "   ";
+  const diagnostic = "BRAIN_UI_WORKER_IDENTITY_HELPER cannot be whitespace";
+  expect(hostExecution.probe(f.brain, { dbPath: f.dbPath }), "PROBE_HELPER_DIAGNOSTIC_PRESERVED").toEqual({ ok: false, requirement: diagnostic });
+  expect(probeWorkerHostRecorded(f.brain, "ordinary", undefined, "check", undefined, undefined, { dbPath: f.dbPath }))
+    .toEqual({ ok: false, requirement: diagnostic });
+  expect(probe).not.toHaveBeenCalled();
+});

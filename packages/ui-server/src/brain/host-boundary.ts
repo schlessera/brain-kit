@@ -134,7 +134,7 @@ export const hostExecution = {
   probe: (brainPath: string, state?: WorkerProbeState): WorkerHostProbe => {
     let directory: string | undefined;
     try { directory = workerIdentitySentinelDirectory(brainPath, state); }
-    catch { return { ok: false, requirement: "Worker identity qualification requires trusted server state outside the brain" }; }
+    catch (error) { return { ok: false, requirement: error instanceof Error ? error.message : "Worker identity qualification requires trusted server state outside the brain" }; }
     return workerHostBoundary.probe(brainPath, directory ? { identitySentinelDirectory: directory } : undefined);
   },
   /** A credential-free maintenance worker, network namespace included, which the ordinary probe does not cover. */
