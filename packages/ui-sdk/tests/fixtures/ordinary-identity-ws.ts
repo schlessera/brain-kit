@@ -11,6 +11,7 @@ import { createClaudeBackend } from "../../../ui-backend-claude/src/backend.js";
 import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/native-model-reply.js";
 import { serializeSigned } from "hono/utils/cookie";
 
+const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
 const warm = new URL(import.meta.url).searchParams.has("warm");
 const profile = new URL(import.meta.url).searchParams.get("profile") === "strict" ? "strict" : "governed";
 const brain = "/brain-fixture/brain", root = profile === "strict" ? "/identity-server-private/server-ws-strict" : "/identity-server-private/server-ws";
@@ -61,6 +62,10 @@ async function until(check: () => boolean, label: string) {
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
 }
 try {
+  if (sharedGit) {
+    const { captureSharedGitMaintenance } = await import("../shared-git-maintenance.native.js");
+    await captureSharedGitMaintenance(brain, profile === "strict" ? "strict" : warm ? "warm" : "fresh");
+  }
   if (profile === "governed" && !warm) {
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);
@@ -103,4 +108,7 @@ try {
   expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
 } finally { try { socket?.close(); server?.stop(true); await app?.close();
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
-  provider.stop(true); } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } }
+  provider.stop(true);
+  if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),
+    "SHARED_GIT_FRESH_WARM_CLI_SCRATCH_DIAGNOSTICS_CLEAN").toEqual([]);
+  } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } }

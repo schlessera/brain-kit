@@ -1,9 +1,10 @@
 import { expect } from "bun:test";
-import { chmodSync, chownSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
+import { chmodSync, chownSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { serveNativeBrainManager } from "../../../ui-sdk/src/server/native-brain-manager.js";
 import { hostOutputStagingLimits } from "../../../ui-sdk/src/server/worker-state-limits.js";
 const brain = "/brain-fixture/brain";
+const sharedGit = process.argv.includes("--shared-git");
 function command(argv: string[]) {
   const child = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
   expect(child.exitCode, child.stderr.toString()).toBe(0); return child.stdout.toString();
@@ -55,9 +56,9 @@ if (process.argv[2] === "--child") {
   }
   console.log(JSON.stringify({ actualPrivateRelayFaults: Object.keys(faults) }));
   await import("../restricted-relay-qualification.native.js");
-  await import("./ordinary-identity-ws.js");
-  await import("./ordinary-identity-ws.js" + "?profile=governed&warm=1");
-  await import("./ordinary-identity-ws.js" + "?profile=strict");
+  await import("./ordinary-identity-ws.js" + (sharedGit ? "?shared-git=1" : ""));
+  await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=governed&warm=1&shared-git=1" : "?profile=governed&warm=1"));
+  await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=strict&shared-git=1" : "?profile=strict"));
 } else {
   expect(process.getuid!()).toBe(0);
   mkdirSync("/identity-fixture", { recursive: true }); chownSync("/identity-fixture", 21001, 21001); chmodSync("/identity-fixture", 0o2775);
@@ -71,12 +72,43 @@ if (process.argv[2] === "--child") {
     join(brain, "node_modules"), join(brain, "node_modules/.bin"), join(brain, "brain.config.ts"),
     join(brain, ".gitignore"), join(brain, "notes/voyage.md"), cli]) chownSync(owned, 21001, 21001);
   const git = ["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--clear-groups", "/usr/bin/env", "HOME=/identity-server-private", "/usr/bin/git"];
-  command([...git, "init", "-q", brain]);
+  if (sharedGit) {
+    expect(existsSync(join(brain, ".git")), "SHARED_GIT_CREATED_FRESH_WITHOUT_PRIVATE_METADATA_REWRITE").toBe(false);
+    // Hosting owns this creation envelope; setgid precedes Git creation.
+    chmodSync(brain, 0o2775);
+    command(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--clear-groups", "/usr/bin/env", "HOME=/identity-server-private", "/bin/sh", "-c",
+      'umask 0002; exec /usr/bin/git init --shared=group -q "$1"', "shared-git-init", brain]);
+  } else command([...git, "init", "-q", brain]);
   command([...git, "-C", brain, "add", "--", "brain.config.ts", ".gitignore", "notes/voyage.md"]);
   const staged = Bun.spawnSync([...git, "-C", brain, "diff", "--cached", "--quiet"], { stdout: "pipe", stderr: "pipe" });
   expect([0, 1], staged.stderr.toString()).toContain(staged.exitCode);
   if (staged.exitCode === 1) command([...git, "-C", brain, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Prepare the Ithaca voyage"]);
   chmodSync(brain, 0o2775); chmodSync(join(brain, "notes"), 0o2775); chmodSync(join(brain, ".brain"), 0o2775); chmodSync(join(brain, ".brain/scratch"), 0o2775);
+  if (sharedGit) {
+    const nodes = [".git", ".git/objects", ".git/refs", ".git/config", ".git/HEAD", ".git/index"].map(path => {
+      const info = lstatSync(join(brain, path));
+      expect(info.uid, "INITIAL_SHARED_GIT_SERVER_OWNER").toBe(21001);
+      expect(info.gid, "INITIAL_SHARED_GIT_COMMON_GROUP").toBe(21001);
+      expect(info.mode & 0o020, "INITIAL_SHARED_GIT_GROUP_WRITABLE").toBe(0o020);
+      expect(info.mode & 0o002, "INITIAL_SHARED_GIT_NOT_WORLD_WRITABLE").toBe(0);
+      if (info.isDirectory()) expect(info.mode & 0o2000, "INITIAL_SHARED_GIT_SETGID").toBe(0o2000);
+      return { path, uid: info.uid, gid: info.gid, mode: (info.mode & 0o7777).toString(8) };
+    });
+    expect(command([...git, "-C", brain, "config", "core.sharedRepository"]).trim()).toBe("1");
+    console.log(JSON.stringify({ initialDocumentedSharedGit: { serverUid: 21001, workerUid: 21002, sharedGid: 21001, nodes } }));
+    // Deliberately present host-only Git credentials and a failing global hook.
+    // The real credential-free consumer must neither read nor select them.
+    mkdirSync("/identity-server-private/global-git-hooks", { mode: 0o700 });
+    for (const [path, bytes, mode] of [
+      [".gitconfig", "[credential]\n helper = !printf odysseus-host-only\n[core]\n hooksPath = /identity-server-private/global-git-hooks\n", 0o600],
+      [".git-credentials", "Odysseus fictional Git credential\n", 0o600],
+      ["global-git-hooks/pre-commit", "#!/bin/sh\nexit 97\n", 0o700],
+    ] as const) {
+      const target = join("/identity-server-private", path);
+      writeFileSync(target, bytes, { mode }); chownSync(target, 21001, 21001);
+    }
+    chownSync("/identity-server-private/global-git-hooks", 21001, 21001);
+  }
   const show = command(["btrfs", "subvolume", "show", brain]);
   const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show)![1]!.replaceAll("-", "");
   const fsid = /^fsid\s+([0-9a-f-]+)/m.exec(command(["btrfs", "inspect-internal", "dump-super", "/dev/brain-native-proof-loop"]))![1]!;
@@ -100,11 +132,12 @@ if (process.argv[2] === "--child") {
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
   try {
-    const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename, "--child"], {
+    const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename, "--child", ...(sharedGit ? ["--shared-git"] : [])], {
       env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
     const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     writeFileSync("/proof/server.stdout", output); writeFileSync("/proof/server.stderr", errors);
     writeFileSync("/proof/ordinary-server.stdout", output); writeFileSync("/proof/ordinary-server.stderr", errors);
+    if (sharedGit) { writeFileSync("/proof/shared-git-server.stdout", output); writeFileSync("/proof/shared-git-server.stderr", errors); }
     console.log(JSON.stringify({ foreignProbeRequests: foreignRequests }));
     expect(code, errors).toBe(0); expect(foreignRequests, "FOREIGN_PROBE_LISTENER_NEVER_CONTACTED").toBe(0); console.log(output);
   } finally {
