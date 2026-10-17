@@ -161,17 +161,17 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **P — Passkey ceremonies and metadata.**
 
-- `reports passkey availability per RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`reports passkey availability per RP`, `packages/ui-server/tests/passkeys.test.ts:292-301`)
-- `valid assertion sets the session cookie and updates the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`valid assertion sets the session cookie and updates the credential`, `packages/ui-server/tests/passkeys.test.ts:439-480`)
-- `register-verify stores the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`register-verify stores the credential`, `packages/ui-server/tests/passkeys.test.ts:960-985`)
-- `list, rename, delete round-trip` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`list, rename, delete round-trip`, `packages/ui-server/tests/passkeys.test.ts:987-1028`)
-- `challenges are single-use, typed, and expire` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`challenges are single-use, typed, and expire`, `packages/ui-server/tests/passkeys.test.ts:560-582`)
-- `password login is refused once a passkey exists for the RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`password login is refused once a passkey exists for the RP`, `packages/ui-server/tests/passkeys.test.ts:784-794`)
+- `reports passkey availability per RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`reports passkey availability per RP`, `packages/ui-server/tests/passkeys.test.ts:298-307`)
+- `valid assertion sets the session cookie and updates the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`valid assertion sets the session cookie and updates the credential`, `packages/ui-server/tests/passkeys.test.ts:445-486`)
+- `register-verify stores the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`register-verify stores the credential`, `packages/ui-server/tests/passkeys.test.ts:966-991`)
+- `list, rename, delete round-trip` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`list, rename, delete round-trip`, `packages/ui-server/tests/passkeys.test.ts:993-1034`)
+- `challenges are single-use, typed, and expire` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`challenges are single-use, typed, and expire`, `packages/ui-server/tests/passkeys.test.ts:566-588`)
+- `password login is refused once a passkey exists for the RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`password login is refused once a passkey exists for the RP`, `packages/ui-server/tests/passkeys.test.ts:790-800`)
 
 **O — Owner boundary with populated stores.**
 
 - `real owner management rejects a live agent against populated principal and credential stores` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`real owner management rejects a live agent against populated principal and credential stores`, `packages/ui-server/tests/http-principal-boundaries.test.ts:19-53`)
-- `non-password mode rejects every passkey route` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`non-password mode rejects every passkey route`, `packages/ui-server/tests/passkeys.test.ts:257-288`)
+- `non-password mode rejects every passkey route` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`non-password mode rejects every passkey route`, `packages/ui-server/tests/passkeys.test.ts:261-292`)
 
 **D — Delegated principal lifecycle.**
 
@@ -197,7 +197,7 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 **Y — Sync reservation.**
 
 - `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:19-69`)
-- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:71-83`)
+- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:72-84`)
 
 **V — Mounted validation.**
 

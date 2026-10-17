@@ -18,9 +18,7 @@ import {
   type AuthMode,
   type AuthRuntime,
   issueLoginSession,
-  consumeLoginToken,
-  isLoginBlocked,
-  recordLoginFailure,
+  type LoginRateLimiter,
   PASSKEY_LOGIN_RATE_LIMIT,
   acquirePasskeyVerification,
   releasePasskeyVerification,
@@ -53,6 +51,8 @@ import { requireOwner } from "./require-owner.js";
 /** Injected per-app dependencies for every passkey route and helper. */
 export interface PasskeyContext {
   db: Database;
+  rateLimiter: LoginRateLimiter;
+  challenges: ReturnType<typeof createPasskeyChallenges>;
   /** Runtime authorization state invalidated when a credential is revoked. */
   revoker: Pick<WsHost, "revokePrincipals">;
   /** WebAuthn identity plus ceremony-only origin and RP overrides. */
@@ -124,26 +124,31 @@ export interface PasskeyDeps {
 // --- challenge store (in-memory: single-process server; move to a shared
 // store if this ever runs multi-process) ---
 
-const pendingChallenges = new Map<string, { type: ChallengeType; expiresAt: number }>();
+/** One store for an app's public and management ceremonies. */
+export function createPasskeyChallenges() {
+  const pendingChallenges = new Map<string, { type: ChallengeType; expiresAt: number }>();
 
-function putChallenge(challenge: string, type: ChallengeType, now: number): void {
-  for (const [key, entry] of pendingChallenges) {
-    if (entry.expiresAt <= now) pendingChallenges.delete(key);
+  function putChallenge(challenge: string, type: ChallengeType, now: number): void {
+    for (const [key, entry] of pendingChallenges) {
+      if (entry.expiresAt <= now) pendingChallenges.delete(key);
+    }
+    while (pendingChallenges.size >= MAX_PENDING_CHALLENGES) {
+      const oldest = pendingChallenges.keys().next().value;
+      if (oldest === undefined) break;
+      pendingChallenges.delete(oldest);
+    }
+    pendingChallenges.set(challenge, { type, expiresAt: now + CHALLENGE_TTL_MS });
   }
-  while (pendingChallenges.size >= MAX_PENDING_CHALLENGES) {
-    const oldest = pendingChallenges.keys().next().value;
-    if (oldest === undefined) break;
-    pendingChallenges.delete(oldest);
-  }
-  pendingChallenges.set(challenge, { type, expiresAt: now + CHALLENGE_TTL_MS });
-}
 
-/** Single-use: deleted before verification, so a failed verify still burns it. */
-function consumeChallenge(challenge: string, type: ChallengeType, now: number): boolean {
-  const entry = pendingChallenges.get(challenge);
-  if (!entry) return false;
-  pendingChallenges.delete(challenge);
-  return entry.type === type && entry.expiresAt > now;
+  /** Single-use: deleted before verification, so a failed verify still burns it. */
+  function consumeChallenge(challenge: string, type: ChallengeType, now: number): boolean {
+    const entry = pendingChallenges.get(challenge);
+    if (!entry) return false;
+    pendingChallenges.delete(challenge);
+    return entry.type === type && entry.expiresAt > now;
+  }
+
+  return { putChallenge, consumeChallenge };
 }
 
 /** The challenge the browser actually signed, from clientDataJSON. */
@@ -300,6 +305,7 @@ export function passkeyPublicRoutes(
 ): Hono {
   const verifyAuthentication = deps.verifyAuthenticationResponse ?? realVerifyAuthentication;
   const now = deps.now ?? Date.now;
+  const { putChallenge, consumeChallenge } = ctx.challenges;
   const app = new Hono();
 
   // Capability hint for the login screen: which methods can it offer?
@@ -319,7 +325,7 @@ export function passkeyPublicRoutes(
     const ip = clientIp(c, ctx.auth.trustProxy, ctx.auth.trustProxyHops) || "unknown";
     // Own bucket: conditional-UI mounts fire this on every login-screen load
     // and must not starve real verify attempts of their shared budget.
-    if (!consumeLoginToken(`pk-opt:${ip}`, OPTIONS_RATE_LIMIT)) {
+    if (!ctx.rateLimiter.consumeLoginToken(`pk-opt:${ip}`, OPTIONS_RATE_LIMIT)) {
       return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
     }
     const rp = resolveRp(c, ctx);
@@ -365,7 +371,7 @@ export function passkeyPublicRoutes(
     // reach this budget. Random bodies are rejected above without allocating
     // or incrementing attacker-controlled bucket keys.
     const failureBucket = `pk:${ip}`;
-    if (isLoginBlocked(failureBucket, PASSKEY_LOGIN_RATE_LIMIT)) {
+    if (ctx.rateLimiter.isLoginBlocked(failureBucket, PASSKEY_LOGIN_RATE_LIMIT)) {
       return c.json({ error: "Too many attempts. Try again in a minute." }, 429);
     }
 
@@ -392,7 +398,7 @@ export function passkeyPublicRoutes(
           credential: toWebAuthnCredential(row),
         });
         if (!result.verified) {
-          recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
+          ctx.rateLimiter.recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
           ctx.failures?.add(1, {
             reason: "verification_failed",
             ceremony: "authentication",
@@ -416,7 +422,7 @@ export function passkeyPublicRoutes(
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
+      ctx.rateLimiter.recordLoginFailure(failureBucket, PASSKEY_LOGIN_RATE_LIMIT);
       // The library throws on a counter regression — possible cloned
       // credential. Cloud passkeys legitimately sit at 0, so warn, don't
       // revoke.
@@ -462,6 +468,7 @@ export function passkeyManagementRoutes(
 ): Hono<AppEnv> {
   const verifyRegistration = deps.verifyRegistrationResponse ?? realVerifyRegistration;
   const now = deps.now ?? Date.now;
+  const { putChallenge, consumeChallenge } = ctx.challenges;
   const app = new Hono<AppEnv>();
 
   app.use("/auth/passkey/*", async (c, next) => {

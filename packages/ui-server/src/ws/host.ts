@@ -258,6 +258,8 @@ export class WsHost {
   readonly turnTasks = new Set<Promise<void>>();
   /** @internal Application shutdown refuses new runners. */
   closing = false;
+  /** @internal Receipt order is compared only within this host's session queues. */
+  nextSendOrder = 0;
   /** @internal Host wiring (#1053). */
   readonly clients: ClientSet;
   readonly registry: BackendRegistry;

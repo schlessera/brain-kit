@@ -868,9 +868,6 @@ function formatMb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Receipt order of chat messages, for `QueuedFollowUp.sendOrder` (#1063). */
-let nextSendOrder = 0;
-
 /**
  * How long a slot waits for its live follow-ups' deliveries before it starts
  * the next queued turn anyway. A backend settles a delivery as it takes the
@@ -1030,7 +1027,7 @@ export async function handleChatMessage(
     work,
   } = msg;
   const { coordinator } = host;
-  const sendOrder = ++nextSendOrder;
+  const sendOrder = ++host.nextSendOrder;
   // Exchanges sent with a message to a session that already exists are
   // recorded like `local_exchange` frames: the prompt handed over next
   // carries them, whichever of the paths below hands it over.
