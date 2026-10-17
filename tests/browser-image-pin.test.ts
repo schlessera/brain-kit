@@ -42,3 +42,9 @@ test("declared or installed version disagreement remains refused",async()=>{
   await expect(resolveBrowserPin(path)).rejects.toThrow("versions differ");
  }
 });
+
+test("producer pin rejects explicit competing export aliases",()=>{
+ for(const name of ["diagramProducerImage","diagramProducerImageIdentity"]){
+  expect(()=>parseBrowserPin(runner,producer+`\nconst other="invalid"; export {other as ${name}};`)).toThrow(`exactly one static ${name} pin`);
+ }
+});

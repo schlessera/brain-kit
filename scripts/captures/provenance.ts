@@ -104,10 +104,12 @@ function pinBindings(source: ts.SourceFile, name: string): ts.Node[] {
   visit(source); return bindings;
 }
 function pinConstant(source: ts.SourceFile, name: string, exported = false): ts.Expression {
+  const competingExport = exported && source.statements.filter(ts.isExportDeclaration).some(statement =>
+    statement.exportClause && ts.isNamedExports(statement.exportClause) && statement.exportClause.elements.some(element => element.name.text === name));
   const bindings = pinBindings(source, name);
   const declaration = bindings.length === 1 && ts.isVariableDeclaration(bindings[0]!) ? bindings[0]! : undefined;
   const list = declaration?.parent, statement = list?.parent;
-  if (!declaration || !list || !ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const) ||
+  if (competingExport || !declaration || !list || !ts.isVariableDeclarationList(list) || !(list.flags & ts.NodeFlags.Const) ||
       !statement || !ts.isVariableStatement(statement) || statement.parent !== source || !declaration.initializer ||
       exported && !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
     throw new Error(`The shared browser source must declare exactly one static ${name} pin`);
