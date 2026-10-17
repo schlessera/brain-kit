@@ -33,6 +33,7 @@ import { trackerViews } from "../../src/stores/tracker-state.js";
 import type { Draft } from "@schlessera/brain-ui-sdk/protocol";
 import { useServiceWorkerUpdates } from "../../src/hooks/use-service-worker-updates.js";
 import { trackView } from "../track-fixtures.js";
+import { handleShareTargetRequest } from "@schlessera/brain-ui-sdk/internal/client";
 
 declare module "vitest" {
   interface ProvidedContext { railPointer: "fine" | "coarse" | "mixed"; }
@@ -743,13 +744,17 @@ for (const theme of THEMES) test(`${theme}: share actions have names, pointer ta
   const mode = pointer();
   await resize(320, 800);
   document.documentElement.dataset.theme = theme;
-  const ui = createBrainUiRoot({ storage: null, request: async () => Response.json({ providers: [], backends: {} }) });
+  const account = `odysseus-share-pointer-${mode}-${theme}`;
+  const ui = createBrainUiRoot({ storage: localStorage, storagePrefix: account, request: async () => Response.json({ providers: [], backends: {} }) });
+  ui.stores.connection.getState().setVpnStatus("connected", account);
   const host = document.createElement("div");
   host.style.cssText = "padding:16px;background:var(--bk-color-canvas)";
   document.body.append(host);
   const renderer = createRoot(host);
   ctx.onTestFinished(() => { flushSync(() => renderer.unmount()); ui.dispose(); host.remove(); });
-  ui.stores.share.getState().enqueue({ id: "ithaca-share", receivedAt: Date.UTC(2026, 6, 12), text: "Inspect the raft lashings.", files: [] });
+  const form = new FormData(); form.set("text", "Inspect the raft lashings.");
+  const received = await handleShareTargetRequest(new Request(`${location.origin}/share-target`, { method: "POST", body: form }));
+  expect(received.status, "the real share target stashed the pointer fixture").toBe(303);
   flushSync(() => renderer.render(<BrainUiProvider root={ui}><ShareIntake /><ShareBlock body="The raft lashings." format="text" /></BrainUiProvider>));
   await expect.poll(() => page.getByRole("button", { name: "Add to brain", exact: true }).elements().length, { message: "Add to brain accessible name" }).toBe(1);
   for (const name of ["Add to brain", "Dismiss", "Share as plain text"]) {

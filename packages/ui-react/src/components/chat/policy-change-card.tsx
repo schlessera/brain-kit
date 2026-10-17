@@ -54,8 +54,9 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
   useLayoutEffect(() => {
     if (explicit.current && (busy || review.state !== "pending")) { explicit.current = false; receipt.current?.focus({ preventScroll: true }); }
   }, [busy, review.state]);
+  const voiceLocked = toolCall.voicePermission && toolCall.voicePermission.phase !== "pending";
   function decide(approved: boolean) {
-    if (!verified || !current() || busy || sent.current || review.state !== "pending" || !onApproval) return;
+    if (voiceLocked || !verified || !current() || busy || sent.current || review.state !== "pending" || !onApproval) return;
     sent.current = true;
     if (onApproval(toolCall.id, approved) === false) { sent.current = false; return; }
     explicit.current = true; setBusy(true); setReader(false);
@@ -72,7 +73,7 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
     <p className="text-xs">{review.bodyChanged ? "Body text changed." : "Body text unchanged."}</p>
     {review.bodyChanged && <div className="[&_[role=button]]:min-h-11"><Disclosure label="Read body diff"><div className="max-h-80 min-w-0 overflow-auto"><DiffBlock tinted variant="inset" text={review.bodyDiff} /></div></Disclosure></div>}
   </>;
-  const pending = review.state === "pending" && !busy;
+  const pending = review.state === "pending" && !busy && !voiceLocked;
   return <div data-policy-change data-policy-state={review.state} className="min-w-0 space-y-2 text-foreground" style={{ overflowWrap: "anywhere" }}>
     {pending ? <div data-approval-card role="group" aria-label="Policy change proposed">
       <ApprovalCard tool="Policy change proposed" target={review.path} badge="Review policy" wrapHeader wrapActions diff="" risk=""
@@ -87,7 +88,7 @@ export function PolicyChangeCard({ toolCall, onApproval }: {
       </ApprovalCard>
       <span className="sr-only" role="status">Policy change proposed. Review before approving.</span>
     </div> : <div ref={receipt} tabIndex={-1} data-policy-receipt className="rounded-md border border-border-subtle p-3 outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
-      <p role="status" className="text-sm">{busy ? review.message : readError || review.message}</p>
+      <p role="status" className="text-sm">{voiceLocked ? toolCall.voicePermission?.word : busy ? review.message : readError || review.message}</p>
       <p className="font-mono text-xs">{review.state === "updated" ? `${review.baseHash ?? "defaults"} → ${review.proposedHash}` : `Based on ${review.baseHash ?? "no policy file"}`}</p>
       {review.state === "updated" && <Button label="View policy" tone="quiet" size="md" style={{ minHeight: 44 }} onClick={() => { const opener = document.activeElement; if (opener instanceof HTMLElement) openFile(opener, opener.matches(":focus-visible")); }} />}
       {!busy && (review.state === "unknown" || readError) && <Button label="Check again" tone="quiet" size="md" style={{ minHeight: 44 }} onClick={() => { explicit.current = true; void check(); }} />}

@@ -162,6 +162,7 @@ export function ActivityReportSheet({ request, server, onClose }: {
   const facts = useMemo<ReportRun>(() => fetched ? {
     ...run,
     durationMs: run.durationMs ?? fetched.durationMs,
+    lifecycle: run.lifecycle ?? fetched.lifecycle,
     billingMode: run.billingMode ?? fetched.billingMode,
     failureReason: run.failureReason ?? fetched.failureReason,
   } : run, [run, fetched]);

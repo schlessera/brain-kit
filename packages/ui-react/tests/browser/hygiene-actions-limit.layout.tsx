@@ -95,9 +95,14 @@ async function fill(longFinding = false) {
   const result = await set({ longFinding, fillActions: true });
   expect(result.read.review.pendingActionId, "cap clears the authoritative pointer").toBeUndefined();
   expect(result.read.action).toBeNull();
+  const reason = result.read.review.pauseReason!;
+  // Filling commits on the server before the browser drains the Action burst.
+  // Start the presentation deadline only after the real retirement reaches it.
+  await expect.poll(() => ui!.stores.inbox.getState().items[reason.retiredActionId]?.status,
+    { message: "cap retirement reaches the browser" }).toBe("dropped");
   await expect.poll(() => panel()?.dataset.hygieneLimit).toBe("L1");
   await expect.poll(() => host!.querySelector("[data-hygiene-id]"), { message: "retirement clears the visible finding" }).toBeNull();
-  return result.read.review.pauseReason!;
+  return reason;
 }
 function noCard() {
   expect(host!.querySelector("[data-hygiene-id]"), "retirement renders no hygiene card").toBeNull();

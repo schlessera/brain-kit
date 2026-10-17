@@ -342,7 +342,7 @@ function NotePicker({
         {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />}
       </label>
       {editing && results.length > 0 && (
-        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-surface-overlay shadow-2xl">
+        <div className="bk-focus-clip absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-surface-overlay shadow-2xl">
           {results.map((hit) => (
             <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Composite search result keeps focus in the field. */
               key={hit.path}

@@ -1,11 +1,8 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "./hash.ts";
+export { sha256 } from "./hash.ts";
 import { execFileSync } from "node:child_process";
 import { readFile, readdir, realpath, mkdir, writeFile, stat } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-
-export function sha256(bytes: string | Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
-}
 
 /** Sorted paths and actual bytes; timestamps are not build identity. */
 export async function hashTree(root: string, directory: string, excluded: string[] = []): Promise<string> {

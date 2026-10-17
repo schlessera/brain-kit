@@ -1,0 +1,317 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "sourceRows": [
+    8,
+    9,
+    10
+  ],
+  "sources": [
+    {
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "sha256": "b3c5a05f0f4f54c82991fc08ff90723b6324edb677fc1680e07326e72e7c8fe5"
+    },
+    {
+      "file": "packages/core/tests/agent-runner-contracts.run.ts",
+      "sha256": "55760349d436d85a08af4445aad122181cb5f6a9d9fc03e7c1d8bac6cf6a3900"
+    },
+    {
+      "file": "packages/core/src/providers/agents/cli-runners.ts",
+      "sha256": "0b06e7e2fa5c6a2990042d52f8af9711697d7af0cc0bde9a7ed4ffe084288cb0"
+    },
+    {
+      "file": "packages/core/src/testing/agent-runners.ts",
+      "sha256": "d1710858994e419dc816d94f99ca0e60ed62bd51839a2e735eb17b235ebaaab6"
+    },
+    {
+      "file": "packages/core/src/lib/registry.ts",
+      "sha256": "274f131b0541bed08f15e92ba3a0240bf4c2085ff14b918098b6b1b5de1557c8"
+    }
+  ],
+  "scope": "One unchanged outer contract case; actual child timer observations, not a timing optimization or replacement for native runner deadlines.",
+  "commandArgs": [
+    "bun",
+    "run",
+    "test",
+    "packages/core/tests/agent-runner-contracts.test.ts"
+  ],
+  "harness": {
+    "runtime": "Bun 1.4.2 (744846f84), Linux x86_64",
+    "offline": "Existing test preload plus explicit ordinary-uid user/network namespace, loopback only, no external routes; capabilities dropped before timed test. Native ordinary subprocesses inherit that namespace.",
+    "timing": "GNU time inside the shared benchmark lock; uncontrolled shared-host load.",
+    "childAuthority": "Existing ordinary Bun.spawn paths, PATH-only stand-ins, environment, argv, native handles, stdout/stderr and all parent oracles unchanged. No new inherited FD or write permission. Diagnostic files use existing ordinary filesystem authority.",
+    "observer": "A lexical setTimeout forwarder in each generated stand-in returns its original handle and forwards callback this/arguments. In-memory observations serialize once after each 30000 ms registration and on normal process exit. These synchronous writes add explicit diagnostic overhead outside the observed callback delay. No new timer or await.",
+    "originalCodeIdentity": {
+      "originalAwaitCount": 1,
+      "originalMatcherCount": 3,
+      "originalTestNameCount": 1,
+      "embeddedSourcesUnchanged": [
+        "toolEventSeen",
+        "argvAgent",
+        "claudeAgent"
+      ],
+      "identical": true
+    }
+  },
+  "outcome": {
+    "outerPass": 1,
+    "outerFail": 0,
+    "outerExpectCalls": 3,
+    "requiredChildPassCount": 24,
+    "childCountBasis": "The unchanged passing parent assertions require six contract cases per each of four registered runners, zero child failures and successful child exit. Child case results are not added to outer counts.",
+    "bodyMilliseconds": 11740.22,
+    "bunSeconds": 11.78,
+    "commandSeconds": 11.85,
+    "userSeconds": 0.3,
+    "systemSeconds": 0.2,
+    "maxRssKiB": 53776
+  },
+  "observations": {
+    "normalExitSnapshots": 5,
+    "poll20msRegistrationsByThoseExits": 0,
+    "poll20msCallbackFiresByThoseExits": 0,
+    "basis": "Those normal paths return from toolEventSeen because its file predicate is already satisfied; reaching the loop does not guarantee a polling iteration.",
+    "hangRegistrationSnapshots": 8,
+    "hangDelayMilliseconds": 30000,
+    "hangLimit": "Snapshots occur after registration. Later child termination is covered by the native contract tests; no exit snapshot, actual clear age or final callback count is inferred for killed children. Eight registered ceilings are not 240 seconds of awaited time.",
+    "missingEvidence": "No minimum wall duration is needed for the unentered poll. Native short/long contract deadlines retain their existing actual termination and elapsed-time oracles. The observations do not replace those native cases."
+  },
+  "childSnapshots": [
+    {
+      "runner": "claude",
+      "phase": "process-exit",
+      "events": []
+    },
+    {
+      "runner": "claude",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 14.658754
+        }
+      ]
+    },
+    {
+      "runner": "claude",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 14.220355
+        }
+      ]
+    },
+    {
+      "runner": "claude",
+      "phase": "process-exit",
+      "events": []
+    },
+    {
+      "runner": "pi",
+      "phase": "process-exit",
+      "events": []
+    },
+    {
+      "runner": "pi",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 8.046205
+        }
+      ]
+    },
+    {
+      "runner": "pi",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 8.103044
+        }
+      ]
+    },
+    {
+      "runner": "codex",
+      "phase": "process-exit",
+      "events": []
+    },
+    {
+      "runner": "codex",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 8.215783
+        }
+      ]
+    },
+    {
+      "runner": "codex",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 7.991155
+        }
+      ]
+    },
+    {
+      "runner": "gemini",
+      "phase": "process-exit",
+      "events": []
+    },
+    {
+      "runner": "gemini",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 8.324786
+        }
+      ]
+    },
+    {
+      "runner": "gemini",
+      "phase": "hang-registration",
+      "events": [
+        {
+          "id": 1,
+          "delay": 30000,
+          "registeredAt": 8.063736
+        }
+      ]
+    }
+  ],
+  "rawSnapshotIndex": [
+    {
+      "receipt": "ast-proof.json",
+      "sha256": "ea89b949c0e82c1c940eae95eb41ce83a407270a4bb00555dc6057a624bbc7fb",
+      "bytes": 203
+    },
+    {
+      "receipt": "children/2087630.json",
+      "sha256": "0192230c10652bba36c41fcd5a848ace69abfc954b6e2f1cee66286a1465ae16",
+      "bytes": 54
+    },
+    {
+      "receipt": "children/2087639.json",
+      "sha256": "cb3b69fe352184cfd3e070b83947b2b681967c2994613d8283fb805962ccd2c8",
+      "bytes": 106
+    },
+    {
+      "receipt": "children/2087748.json",
+      "sha256": "f6dcf505233ddd217a0e99f67bf244f07ceac699f9b53e1147f244da44f7c2fb",
+      "bytes": 106
+    },
+    {
+      "receipt": "children/2088115.json",
+      "sha256": "0192230c10652bba36c41fcd5a848ace69abfc954b6e2f1cee66286a1465ae16",
+      "bytes": 54
+    },
+    {
+      "receipt": "children/2088121.json",
+      "sha256": "292328a2df6df91cfc85a574666544832cb7a709324cb041b226059da90c6db1",
+      "bytes": 50
+    },
+    {
+      "receipt": "children/2088125.json",
+      "sha256": "9c824077bcf8b67099119f2a37ef49b68fe6ba921e0e7d1f199ce825693ebe9f",
+      "bytes": 101
+    },
+    {
+      "receipt": "children/2088169.json",
+      "sha256": "eb0ba813d67f170ca3b7c18ff72aa9f515578c8c8a9f3302fb5fb06a2abee456",
+      "bytes": 101
+    },
+    {
+      "receipt": "children/2088722.json",
+      "sha256": "cf0fe0b71d7deb476f912fe5db7bf7d77ac93b56d5417cc4d37a000044868c44",
+      "bytes": 53
+    },
+    {
+      "receipt": "children/2088726.json",
+      "sha256": "c56ed55c21e8f5989f3d2a9c5e59d7eaf078c773dfcfa6da08d28823a1ba298a",
+      "bytes": 104
+    },
+    {
+      "receipt": "children/2088747.json",
+      "sha256": "48fe138ea00b23aa59d9030c52c3b068369ed58f4db359d7e5168216cf33473e",
+      "bytes": 104
+    },
+    {
+      "receipt": "children/2089116.json",
+      "sha256": "6caa139a78f77be46878c885c4477f9960ce7a323d0ff50c0ce29165067e0368",
+      "bytes": 54
+    },
+    {
+      "receipt": "children/2089124.json",
+      "sha256": "3550eb02e6dafaad51fe23169af2a42de7669ecdc686b730f2ac345885b40ea9",
+      "bytes": 105
+    },
+    {
+      "receipt": "children/2089242.json",
+      "sha256": "051f2d8a0cc84e7909c24cb1fb5d0689d7962389056ea6b62c37c65f397fd153",
+      "bytes": 105
+    },
+    {
+      "receipt": "exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "instrumented.ts",
+      "sha256": "5621c08406d72d7799436b2341f10ebea1a82dd37b563330647cf4d4f2e98f3a",
+      "bytes": 5903
+    },
+    {
+      "receipt": "manifest.json",
+      "sha256": "949630d3d5f07909af6734dd6dff94757b409c8cebe39bf1c916102bcd6cebbe",
+      "bytes": 799
+    },
+    {
+      "receipt": "original.ts",
+      "sha256": "b3c5a05f0f4f54c82991fc08ff90723b6324edb677fc1680e07326e72e7c8fe5",
+      "bytes": 4897
+    },
+    {
+      "receipt": "restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "run.log",
+      "sha256": "a112110d746ed529aa49ab051b1d8eab5ca3558db40b3f4d98c2bef09b46a77e",
+      "bytes": 398
+    },
+    {
+      "receipt": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "run.time",
+      "sha256": "cfe8473d005b16527ecc71f5380b8c6b37f1007932a57038a5724b9e7927917b",
+      "bytes": 783
+    }
+  ],
+  "restored": true
+}

@@ -257,7 +257,7 @@ export const PendingState = meta.story({
 });
 
 /**
- * "OTHER" OPENS A REAL FIELD in place of the Submit row rather than a modal:
+ * "OTHER" OPENS A REAL FIELD above the Submit row rather than a modal:
  * a free-text answer is the same exchange, not a new one. Enter submits the
  * text through `onOtherSubmit`. The field only exists while pending — a closed
  * exchange takes no answer.
@@ -267,14 +267,18 @@ export const OtherOpen = meta.story({
   play: async ({ canvas, userEvent, args }) => {
     const input = await canvas.findByRole("textbox", { name: "Your own answer" });
     await expect(input).toHaveAttribute("placeholder", "Type where it should go…");
-    // The Submit row gave its place to the field.
-    await expect(canvas.queryByText("Submit")).toBeNull();
-    await expect(canvas.queryByText("Dismiss")).toBeNull();
+    const submit = canvas.getByRole("button", { name: "Submit" });
+    await expect(submit).toHaveAttribute("aria-disabled", "true");
+    await expect(canvas.getByRole("button", { name: "Dismiss" })).toBeVisible();
     // The options are still there: the field is an answer, not a state change.
     await expect(canvas.getAllByRole("radio")).toHaveLength(3);
 
-    await userEvent.type(input, "put it with the other omens{Enter}");
+    await userEvent.type(input, "put it with the other omens");
+    await expect(submit).not.toHaveAttribute("aria-disabled");
+    await userEvent.click(submit);
     await expect(args.onOtherSubmit).toHaveBeenCalledWith("put it with the other omens");
+    await userEvent.type(input, "{Enter}");
+    await expect(args.onOtherSubmit).toHaveBeenCalledTimes(2);
   },
 });
 

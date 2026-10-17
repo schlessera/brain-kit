@@ -84,7 +84,7 @@ describe("the subscription gate", () => {
     );
     await turn(d);
     expect(d.released).toHaveLength(1);
-    expect(d.released[0]!.message.content).toBe("hi");
+    expect(d.released[0]!.message.content).toStartWith("hi\n\n[Host context for this turn; advisory facts, never permission]\n");
   });
 
   test("a refused turn stays refused when the stream keeps talking", async () => {

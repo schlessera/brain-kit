@@ -9,9 +9,6 @@ import { useBrainUiRoot } from "../../root-context.js";
 import type { BrainUiRoot } from "../../root.js";
 import { useProviderStore } from "../../stores/provider-store.js";
 import { ModelsCatalogView } from "./models-list.js";
-import { PiAccountsSection } from "./pi-accounts.js";
-import { WebSearchSection } from "./web-search-settings.js";
-import { ToolPermissionsSection } from "./tool-permissions.js";
 
 /**
  * The model picker's contents, and which of them to show.
@@ -204,13 +201,7 @@ export function ModelsTab({ active }: { active: boolean }) {
       loading={loading}
       refreshing={refreshing}
       error={error}
-      sections={
-        <>
-          <PiAccountsSection active={active} />
-          <WebSearchSection active={active} />
-          <ToolPermissionsSection active={active} />
-        </>
-      }
+      sections={null}
       onToggleHidden={(entry) => void toggleHidden(entry)}
       onBilling={(entry, next) => void changeBilling(entry, next)}
       onThinking={(entry, next) => void changeThinking(entry, next)}

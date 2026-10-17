@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "sourceRows": [
+    423,
+    424,
+    425
+  ],
+  "sources": [
+    {
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "originalSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+      "observedSha256": "82d9f51407c5c530518294eb67513e9a5b67fe81b663288207c84aa3943675d5"
+    }
+  ],
+  "commandArgs": [
+    "bun",
+    "run",
+    "test",
+    "packages/ui-server/tests/maintenance-startup-view.test.ts",
+    "--test-name-pattern",
+    "an already-running maintenance reader retains dependency bytes and absence|maintenance Git freezes filter dependencies and attributes while publishing its index|separate maintenance clients serialize frozen preparation through publication"
+  ],
+  "command": "bun run test packages/ui-server/tests/maintenance-startup-view.test.ts --test-name-pattern 'an already-running maintenance reader retains dependency bytes and absence|maintenance Git freezes filter dependencies and attributes while publishing its index|separate maintenance clients serialize frozen preparation through publication'",
+  "harness": {
+    "runtime": "Bun 1.4.2 (744846f84), Linux x86_64",
+    "cwdClass": "Dedicated non-/tmp source checkout with its own dependencies, identical frozen source. This is not a claim that known checkout-location fixture failures are fixed.",
+    "offline": "Existing preload and explicit ordinary-UID user/network namespace with loopback only and no external routes; capabilities dropped before the timed original command.",
+    "timing": "GNU time inside shared benchmark lock; uncontrolled shared-host load.",
+    "authority": "Existing governed maintenance worker authority, native handles, bindings, argv/environment and data/event oracles unchanged. The existing stderr pipe carries one finite numeric record after each loop; stdout stays byte-for-byte original. No new inherited FD or write permission.",
+    "observation": "Synchronous timestamps bracket each original awaited Bun.sleep. The parent attaches a logging continuation to the original stderr.text() promise and returns that same promise. The complete original stderr string remains available to its error-context assertion or Promise.all result. No second stream reader or new await/timer/global. Child stderr IO and host console/continuation overhead are explicit.",
+    "identity": {
+      "awaitCount": 39,
+      "matcherCount": 88,
+      "nameCount": 21,
+      "normalizedIdentical": true,
+      "normalization": "Remove only observeGateStderr wrapper around original new Response(...).text() expressions; same original promise is returned."
+    }
+  },
+  "outcome": {
+    "pass": 3,
+    "fail": 0,
+    "filtered": 23,
+    "expectCalls": 19,
+    "bodyMilliseconds": [
+      131.48,
+      537.39,
+      363.44
+    ],
+    "bunSeconds": 1.259,
+    "commandSeconds": 1.3,
+    "userSeconds": 0.51,
+    "systemSeconds": 0.21,
+    "maxRssKiB": 103172
+  },
+  "events": [
+    {
+      "case": "an already-running maintenance reader retains dependency bytes and absence",
+      "delay": 5,
+      "completedMilliseconds": [
+        5.2222219999999995
+      ]
+    },
+    {
+      "case": "maintenance Git freezes filter dependencies and attributes while publishing its index",
+      "delay": 5,
+      "completedMilliseconds": [
+        5.153118999999999
+      ]
+    },
+    {
+      "case": "serialization",
+      "delay": 10,
+      "completedMilliseconds": [
+        10.209359,
+        10.094662,
+        10.087043000000001,
+        10.082462,
+        10.084767,
+        10.075491,
+        10.074358999999994,
+        10.080536999999993,
+        10.08059200000001,
+        10.082556999999994,
+        10.088076999999998,
+        10.089135999999996,
+        10.093563000000003,
+        10.102650000000011,
+        10.101542999999992,
+        10.092074999999994
+      ]
+    }
+  ],
+  "totals": {
+    "completedWaitCalls": 18,
+    "completedWaitMilliseconds": 171.89421399999998
+  },
+  "limits": "The observations cover only these three selected existing callers. Each predicate sampler finishes on its existing release condition; the measured duration is not a required elapsed floor. The serialization case retains its original 150 ms negative window, exact event log and native writer-gate/cleanup assertions. No equivalent replacement or optimization is claimed. Other stderr-to-SSE callers were not instrumented.",
+  "rawSnapshotIndex": [
+    {
+      "receipt": "ast-proof.json",
+      "sha256": "75f8f250922271aabaf145c2219a2937dce3a181dc983ae25b6bc8034320d240",
+      "bytes": 244
+    },
+    {
+      "receipt": "check.ts",
+      "sha256": "b3f8e29e4fd52feb05190efccb7178d1f1d801a9b904a4f897f5882cd5fb2db1",
+      "bytes": 1312
+    },
+    {
+      "receipt": "exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "instrumented.ts",
+      "sha256": "82d9f51407c5c530518294eb67513e9a5b67fe81b663288207c84aa3943675d5",
+      "bytes": 31440
+    },
+    {
+      "receipt": "manifest.json",
+      "sha256": "381d456ff6501f0b2588f105b9dda9efa656bc1648a324434321fb8a5c8abcbe",
+      "bytes": 1128
+    },
+    {
+      "receipt": "original.ts",
+      "sha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+      "bytes": 30353
+    },
+    {
+      "receipt": "restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "run.log",
+      "sha256": "59d6ffd4ee7f4882807ecb30ca85c56ccaadfe845c8746174c4961e4f852b268",
+      "bytes": 1562
+    },
+    {
+      "receipt": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "run.time",
+      "sha256": "dd8bb02ca7a91d87f20e72e0c649cf3a6328af52e5cd74250eea734050a24784",
+      "bytes": 1052
+    }
+  ],
+  "restored": true
+}

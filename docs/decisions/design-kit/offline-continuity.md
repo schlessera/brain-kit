@@ -37,6 +37,23 @@ message; a cumulative geometry mutation fails it. This is pinned desktop
 Chromium runtime evidence,
 not Safari, Android or OS interruption coverage.
 
+**2026-10-15 — Concurrent history and queued replies (#1917).** A backend
+history read can sample the transcript before a queued turn completes and
+return after its live reply. The host watches turn starts and terminals only
+while a read is outstanding. An overlapping read is sampled again once; a
+second overlap produces the existing session-load error rather than publishing
+known stale content. Validation, history chunks, pending-request replay and
+current turn status publish synchronously, including snapshot-on-connect.
+When fresh history inserts one missing user row before the live answer,
+reconciliation keeps that answer's identity and streaming state, including
+across chunks and intervening deltas. Existing text, tool and turn guards
+still decide whether the answer matches. Ordinary shorter or empty history
+retains its existing replacement semantics;
+no freshness field, wire revision or client no-shrink policy is introduced.
+The native stale/fresh cases check retained store messages and rendered reply
+after history and idle status settle. This controlled ordering does not establish
+the cause of the original hosted timeout.
+
 **2026-10-14 — Theme matrix clarification.** The
 [central theme-parity map](../../process/theme-parity.md#connection-continuity-runtime-matrix)
 assigns one fixed theme per width while preserving every recovery assertion.

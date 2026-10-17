@@ -54,6 +54,10 @@ test("ordinary Claude worker protects policy bytes, applies and indexes permitte
 });
 test("aborting an actual Claude mid-tool removes its detached descendant and history has no phantom Markdown effect", async () => {
   const r = await probe("abort");
+  expect(r.diagnostics.atAbort.native.some((file: { bash: number }) => file.bash > 0),
+    "CLAUDE_ABORT_HAS_PERSISTED_BASH").toBe(true);
+  expect(r.histories.length, JSON.stringify(r.diagnostics)).toBe(1);
+  expect(r.sessions[0].id).toBe(r.diagnostics.sessionId);
   expect(r.calls).toBeGreaterThan(0);
   expect(r.sawDetachedChild, "actual detached sleep process started before cancellation").toBe(true);
   expect(r.frames.some((f: any) => f.type === "tool_use_start" && f.toolName === "Bash")).toBe(true);

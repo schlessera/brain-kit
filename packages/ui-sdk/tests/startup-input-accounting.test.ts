@@ -19,7 +19,7 @@ test("complete immutable inputs larger than output staging are not staged writes
     mkdirSync(join(brain, ".brain", "scratch"), { recursive: true });
     view = createWorkerStartupView(brain);
     expect(view.root).toBeDefined();
-    const worker = launchAgentWorker({ brainPath: brain, startupView: view, sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"], maintenance: { startupView: view } }),
+    const worker = launchAgentWorker({ brainPath: brain, startupView: view, sandbox: prepareWorkerSandbox(brain, { profile: "strict", areas: ["scratch"], maintenance: { startupView: view, tempDomain: { statePath: join(view.storage.root, "maintenance-state.db") } } }),
       env: {}, command: ["/bin/sh", "-c", '/usr/bin/head -c1 node_modules/odysseus-input.bin; printf "Penelope strict output" > /tmp/brain-worker-areas/scratch/retained.txt'] });
     const streams = Promise.all([text(worker.stdout), text(worker.stderr)]);
     try {
@@ -40,7 +40,7 @@ test("a real maintenance output over a large immutable baseline publishes and re
     try { for (let i = 0; i < 257; i++) writeSync(fd, chunk); } finally { closeSync(fd); }
     writeFileSync(join(brain, "helper.txt"), "Odysseus before launch");
     outputs = prepareWorkerOutput(brain);
-    const result = await runMaintenanceWorker({ brainPath: brain, startupView: outputs.view, output: outputs.output,
+    const result = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(outputs.view.storage.root, "maintenance-state.db") }, startupView: outputs.view, output: outputs.output,
       credentials: false, env: {}, command: ["/bin/sh", "-c", '/usr/bin/head -c1 odysseus-baseline.bin; /usr/bin/cat helper.txt; printf "Penelope retained" > "$BRAIN_ROOT/retained.txt"'] });
     expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stdout, result.stderr).toBe("aOdysseus before launch");
@@ -50,7 +50,7 @@ test("a real maintenance output over a large immutable baseline publishes and re
     outputs.cleanup(); outputs = prepareWorkerOutput(brain);
     // Removing a large lower-only input creates a bounded whiteout, not free
     // write capacity. Its original bytes remain canonical until publication.
-    const overflow = await runMaintenanceWorker({ brainPath: brain, startupView: outputs.view, output: outputs.output,
+    const overflow = await runMaintenanceWorker({ brainPath: brain, tempDomain: { statePath: join(outputs.view.storage.root, "maintenance-state.db") }, startupView: outputs.view, output: outputs.output,
       credentials: false, env: {}, command: ["/bin/sh", "-c", '/usr/bin/rm "$BRAIN_ROOT/odysseus-baseline.bin" && /usr/bin/dd if=/dev/zero of="$BRAIN_ROOT/overflow.bin" bs=1048576 count=257'] });
     expect(overflow.exitCode, "DELETING_BASELINE_CANNOT_EXPAND_WRITABLE_ALLOWANCE").not.toBe(0);
     expect(overflow.stderr).toContain("No space left on device");

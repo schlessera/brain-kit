@@ -887,6 +887,7 @@ the capability you need and read its command's requirements.
 
 | Variable | Read by | Effect |
 |---|---|---|
+| `BRAIN_STORAGE_GIT_ROOTS` | storage inventory | Trusted JSON array of up to 16 absolute external Git roots; absent means no external roots. Never a request parameter. |
 | `BRAIN_ROOT` | root resolution | Which brain to operate on. See below. |
 | `GEMINI_API_KEY` | embeddings, completions, images | Semantic search and asset descriptions (`brain index --embeddings`), the completions provider, and the Gemini image models. Overridable per feature via `embeddings.apiKeyEnv` / `completions.apiKeyEnv`. |
 | `OPENAI_API_KEY` | images | OpenAI image generation. Mask, transparency, output-format and exact-size requirements route by capability; see the [images reference](../packages/module-images/README.md). |

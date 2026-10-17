@@ -11,6 +11,7 @@ import {
   typeSpecSchema,
 } from "./config.js";
 import type { LoadedModule, ModuleContribution, ModuleManifest } from "./module-types.js";
+import { collectModuleRenderers, moduleRendererSchema, validateRendererSpecifiers } from "./module-renderers.js";
 import { safeResolve } from "./safe-path.js";
 import { mergeModuleSettings, readModuleSettings } from "./module-settings-source.js";
 import { validateSettingsMetadata } from "./module-settings-metadata.js";
@@ -34,6 +35,7 @@ const contributionSchema = z
       })
       .strict()
       .optional(),
+    renderers: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), moduleRendererSchema).optional(),
     skills: repoRelativePathSchema.optional(),
     instructions: z.object({
       text: z.string().min(1).refine((s) => s.trim().length > 0)
@@ -162,6 +164,8 @@ export async function loadModules(
       throw new Error(`Module "${manifest.name}" instruction owner must match ^[a-z][a-z0-9-]{0,30}$`);
     }
 
+    validateRendererSpecifiers(parsed.data.renderers, dir, manifest.name);
+
     loaded.push({
       key,
       // Store the VALIDATED output, not the raw contribution, so any schema
@@ -181,6 +185,7 @@ export async function loadModules(
     });
   }
 
+  collectModuleRenderers(loaded);
   return loaded;
 }
 

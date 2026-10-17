@@ -1,0 +1,1028 @@
+{
+  "sourceCommit": "085d8ccf4a76f58b48640800ee9e86cb573aa2be",
+  "method": "Five bounded commands on an owned checkout/dependencies; all mandatory fixture builds retained. Exact original matcher/name/await expressions checked before each command. Actual Chrome/native HTTP and original pointer/click/hit acknowledgements retained. Every original denied 1500 ms half retained; only three positive navigation halves use exact current-document href plus readyState complete. An actual changed app URL returns an escape result for original assertions; detached frame alone is not completion. Held response and wrong-target mutations are temporary diagnostics, not production changes.",
+  "runtime": {
+    "bun": "1.4.2 (744846f84), recorded in each test log",
+    "chrome": "Installed Google Chrome 140.0.7339.127; --version inspected during the batch",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64",
+    "resources": "Same shared host; no exclusive CPU reservation or claim of controlled background load. GNU time inside benchmark lock, after namespace setup. RSS is process-tree maximum reported by GNU time, not summed concurrent memory.",
+    "isolation": "Original preload plus explicit ordinary-UID user/network namespace, loopback only, no external routes, capabilities dropped before tests; BRAIN_REQUIRE_CHROME=1. Address/route/UID-map receipts retained."
+  },
+  "runs": [
+    {
+      "variant": "baseline",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+          "observedSha256": "7e4c2936039163b5fed0a071d1b89d8bf833068a988d6ff02165947efae42fd1"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 0,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 84,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": []
+      },
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "expect() calls": 134
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, dark, 320px)",
+          "bodyMs": 796.15
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, light, 1280px)",
+          "bodyMs": 653.96
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, dark, 320px)",
+          "bodyMs": 657.72
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, light, 1280px)",
+          "bodyMs": 645.33
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > control: in the none auth mode the server would answer the same request",
+          "bodyMs": 1.9
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > window.open is blocked in both contexts",
+          "bodyMs": 3730.08
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > form submission is blocked in both contexts",
+          "bodyMs": 3699.92
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > downloads are blocked in both contexts",
+          "bodyMs": 3717.55
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 3703.43
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 3713.06
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): the new tab shows untrusted content under the app's host",
+          "bodyMs": 538.24
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the non-interactive raw route still runs no script",
+          "bodyMs": 455.85
+        }
+      ],
+      "summedBodyMs": 22313.19,
+      "setupMs": 50516.994484,
+      "resources": {
+        "wallSeconds": 73.36,
+        "userSeconds": 88.81,
+        "systemSeconds": 9.14,
+        "maxRssKiB": 1252716
+      },
+      "nativeObservation": {
+        "calls": 10,
+        "elapsedMs": 15013.882239000006,
+        "pollCalls": 5,
+        "pollMs": 125.61413999999058
+      },
+      "positiveNavigationDiagnostics": {}
+    },
+    {
+      "variant": "held-body",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "--test-name-pattern",
+        "the preview cannot navigate the app's window|self-navigation carries"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the preview cannot navigate the app'\"'\"'s window|self-navigation carries'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+          "observedSha256": "e6e7874fca5013b5ebcaa577bbc60202bac52b4117b335c54bd9237a8272785b"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 0,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 84,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": [
+          "expect(heldState).toBe(\"loading\")",
+          "expect(completedState).toBe(\"complete\")"
+        ]
+      },
+      "counts": {
+        "pass": 2,
+        "filtered out": 10,
+        "fail": 0,
+        "expect() calls": 12
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 4302.14
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 4739.86
+        }
+      ],
+      "summedBodyMs": 9042.0,
+      "setupMs": 49058.501061,
+      "resources": {
+        "wallSeconds": 58.6,
+        "userSeconds": 84.71,
+        "systemSeconds": 7.73,
+        "maxRssKiB": 1233228
+      },
+      "nativeObservation": {
+        "calls": 1,
+        "elapsedMs": 1500.6527390000047,
+        "pollCalls": 230,
+        "pollMs": 5787.434062999964
+      },
+      "positiveNavigationDiagnostics": {
+        "HTML_NAV_HELD_STATE": [
+          {
+            "path": "/top?ctx=tab",
+            "state": "loading",
+            "atMs": 51715.815682
+          },
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "state": "loading",
+            "atMs": 54333.925292
+          },
+          {
+            "path": "/nav?ctx=tab&leak=Penelope%20weaves%20by%20day",
+            "state": "loading",
+            "atMs": 56448.172522
+          }
+        ],
+        "HTML_NAV_BODY_RELEASE": [
+          {
+            "path": "/top?ctx=tab",
+            "atMs": 53683.475153
+          },
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "atMs": 56302.896878
+          },
+          {
+            "path": "/nav?ctx=tab&leak=Penelope%20weaves%20by%20day",
+            "atMs": 58417.072945
+          }
+        ],
+        "HTML_NAV_COMPLETION_MS": [
+          {
+            "path": "/top?ctx=tab",
+            "elapsedMs": 1972.8192320000016,
+            "appEscaped": false
+          },
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "elapsedMs": 1996.1791229999944,
+            "appEscaped": false
+          },
+          {
+            "path": "/nav?ctx=tab&leak=Penelope%20weaves%20by%20day",
+            "elapsedMs": 1983.3530020000035,
+            "appEscaped": false
+          }
+        ],
+        "HTML_NAV_COMPLETED_STATE": [
+          {
+            "path": "/top?ctx=tab",
+            "state": "complete",
+            "atMs": 53687.721765
+          },
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "state": "complete",
+            "atMs": 56329.542962
+          },
+          {
+            "path": "/nav?ctx=tab&leak=Penelope%20weaves%20by%20day",
+            "state": "complete",
+            "atMs": 58430.822445
+          }
+        ]
+      }
+    },
+    {
+      "variant": "premature",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "--test-name-pattern",
+        "self-navigation carries"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'self-navigation carries'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+          "observedSha256": "44dd9c672ea0dfb77dc50353d226a4333439e3c2c709be3e44fbf7ec3d426bff"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 1,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 84,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": [
+          "expect(heldState).toBe(\"loading\")",
+          "expect(completedState).toBe(\"complete\")"
+        ]
+      },
+      "counts": {
+        "pass": 0,
+        "filtered out": 11,
+        "fail": 1,
+        "expect() calls": 2
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 844.57
+        }
+      ],
+      "summedBodyMs": 844.57,
+      "setupMs": 49420.759788,
+      "resources": {
+        "wallSeconds": 50.82,
+        "userSeconds": 84.3,
+        "systemSeconds": 7.66,
+        "maxRssKiB": 1241536
+      },
+      "nativeObservation": {
+        "calls": 0,
+        "elapsedMs": 0,
+        "pollCalls": 1,
+        "pollMs": 25.119659999996657
+      },
+      "positiveNavigationDiagnostics": {
+        "HTML_NAV_HELD_STATE": [
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "state": "loading",
+            "atMs": 50595.040714
+          }
+        ],
+        "HTML_NAV_COMPLETED_STATE": [
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "state": "loading",
+            "atMs": 50595.662966
+          }
+        ]
+      }
+    },
+    {
+      "variant": "wrong-target",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "--test-name-pattern",
+        "the preview cannot navigate the app's window|self-navigation carries"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the preview cannot navigate the app'\"'\"'s window|self-navigation carries'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+          "observedSha256": "5748537e46e6093dfba883f34b0cb6c3c4b7726ec363074e05a4c9cc0968e86c"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "7542f623841722ee39bfa1de10a8329105a0262f183408ea96d0be8c61ec2fb1"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "46b18e75d06631e3c4f0da721a94a6695b0b2560f02afbf0af7f4e4b35221547"
+        }
+      ],
+      "exitCode": 1,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 84,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": []
+      },
+      "counts": {
+        "pass": 0,
+        "filtered out": 10,
+        "fail": 2,
+        "expect() calls": 2
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 2236.72
+        },
+        {
+          "outcome": "fail",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 602.84
+        }
+      ],
+      "summedBodyMs": 2839.56,
+      "setupMs": 49526.071488,
+      "resources": {
+        "wallSeconds": 52.98,
+        "userSeconds": 85.19,
+        "systemSeconds": 7.62,
+        "maxRssKiB": 1251780
+      },
+      "nativeObservation": {
+        "calls": 1,
+        "elapsedMs": 1500.650830999999,
+        "pollCalls": 1,
+        "pollMs": 25.100210000004154
+      },
+      "positiveNavigationDiagnostics": {
+        "HTML_NAV_COMPLETION_MS": [
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "elapsedMs": 0.036566999995557126,
+            "appEscaped": true
+          }
+        ]
+      }
+    },
+    {
+      "variant": "restored",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+          "observedSha256": "eacc9c669a1e4acef3662140f2c0b3a0f130db937aab3fdd7be0277eff009d16"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 0,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 84,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": []
+      },
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "expect() calls": 134
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, dark, 320px)",
+          "bodyMs": 734.67
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, light, 1280px)",
+          "bodyMs": 560.9
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, dark, 320px)",
+          "bodyMs": 527.02
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, light, 1280px)",
+          "bodyMs": 627.91
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > control: in the none auth mode the server would answer the same request",
+          "bodyMs": 1.97
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > window.open is blocked in both contexts",
+          "bodyMs": 3665.56
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > form submission is blocked in both contexts",
+          "bodyMs": 3812.66
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > downloads are blocked in both contexts",
+          "bodyMs": 3667.28
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 2200.72
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 783.7
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): the new tab shows untrusted content under the app's host",
+          "bodyMs": 504.26
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the non-interactive raw route still runs no script",
+          "bodyMs": 478.98
+        }
+      ],
+      "summedBodyMs": 17565.63,
+      "setupMs": 49514.109825,
+      "resources": {
+        "wallSeconds": 67.59,
+        "userSeconds": 86.65,
+        "systemSeconds": 8.87,
+        "maxRssKiB": 1240324
+      },
+      "nativeObservation": {
+        "calls": 7,
+        "elapsedMs": 10507.435503,
+        "pollCalls": 4,
+        "pollMs": 100.51818900000944
+      },
+      "positiveNavigationDiagnostics": {
+        "HTML_NAV_COMPLETION_MS": [
+          {
+            "path": "/top?ctx=tab",
+            "elapsedMs": 0.8282619999954477,
+            "appEscaped": false
+          },
+          {
+            "path": "/nav?ctx=frame&leak=Penelope%20weaves%20by%20day",
+            "elapsedMs": 0.7477340000041295,
+            "appEscaped": false
+          },
+          {
+            "path": "/nav?ctx=tab&leak=Penelope%20weaves%20by%20day",
+            "elapsedMs": 0.7540799999987939,
+            "appEscaped": false
+          }
+        ]
+      }
+    }
+  ],
+  "comparison": {
+    "wholeCommandSeconds": {
+      "before": 73.36,
+      "after": 67.59
+    },
+    "summedBodyMs": {
+      "before": 22313.19,
+      "after": 17565.63
+    },
+    "setupMs": {
+      "before": 50516.994484,
+      "after": 49514.109825
+    },
+    "native1500WindowCalls": {
+      "before": 10,
+      "after": 7
+    },
+    "native1500AwaitedMs": {
+      "before": 15013.882239000006,
+      "after": 10507.435503
+    },
+    "caution": "One matched source/resource pair on a shared host. Body/whole differences also include setup and native scheduling variance; not every elapsed difference is removed wait. No universal native minimum or global browser-drain equivalence is established."
+  },
+  "mutationInterpretation": {
+    "premature": "The exact destination was observed committed and loading. Omitting completion failed the added readyState-complete diagnostic with received loading: 0 pass, 1 fail, 2 expects. This proves that URL/request arrival is not the claimed completion boundary; it is not an original escape matcher.",
+    "wrong-target": "Enabling actual iframe and response sandbox top-navigation guards, and changing the self-navigation fixture to target the top window, failed both original oracles: top app URL received the attacker frame URL; self exact-hit list lacked the tab hit after actual parent navigation. Neither failure was a detached-frame timeout.",
+    "restored": "All three modified sources restored byte-identical after each command. The final full candidate passed 12 cases / 134 expects with all production guards and original fixture content restored."
+  },
+  "schemaVersion": 1,
+  "scope": "Two existing positive-navigation cases in the HTML preview native runtime file; all original test names and matchers retained. This is not a completed census or universal minimum-window justification for issue 1855.",
+  "harnessCommandTemplate": "flock <shared-benchmark-lock> unshare --user --map-current-user --net --keep-caps bash <verified-loopback-wrapper> <receipt-prefix> <test arguments>",
+  "harnessDetail": "The wrapper enables only loopback, records addresses/routes/UID mapping, checks isolation, drops inheritable/ambient/bounding capabilities, then runs GNU time -v around the test command. Raw exact invocations are preserved by the receipt hashes; placeholders omit machine-local paths only.",
+  "implementation": {
+    "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+    "sha256": "0cfce515e25fd5454c9d5e78cd22da982e277db4c0f02e64c62b6f7f8d9b9174",
+    "observationDifference": "The proposed source omits only synchronous setup/completion diagnostic timestamps and console output from the passing restored candidate, and adjusts explanatory comments. Original and candidate awaits/matchers/name expressions are checked separately. The held-body diagnostic and wrong-target mutants are not shipped.",
+    "astIdentity": {
+      "originalMatchers": 37,
+      "originalTestNames": 9,
+      "originalAwaits": 84,
+      "finalAwaits": 87,
+      "originalMatchersAndNamesExact": true,
+      "originalAwaitsRetained": true,
+      "passingCandidateAwaitMatcherNameIdentity": true
+    }
+  },
+  "rawReceipts": [
+    {
+      "receipt": "baseline/ast-proof.log",
+      "sha256": "6d780151f9b0cbe36b8e4a6ca992f3d3c61df46a94f3385d84506c25acf76f0f",
+      "bytes": 221
+    },
+    {
+      "receipt": "baseline/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "baseline/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "baseline/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "baseline/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "baseline/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "baseline/html-preview-runtime.test.ts.observed",
+      "sha256": "7e4c2936039163b5fed0a071d1b89d8bf833068a988d6ff02165947efae42fd1",
+      "bytes": 24370
+    },
+    {
+      "receipt": "baseline/html-preview-runtime.test.ts.original",
+      "sha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+      "bytes": 24248
+    },
+    {
+      "receipt": "baseline/manifest.json",
+      "sha256": "1944c6e62e5a51513dd2103e14e6c3b29b8037c40c5152f8d7b5435d271b6292",
+      "bytes": 1688
+    },
+    {
+      "receipt": "baseline/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "baseline/run.log",
+      "sha256": "ff61ad0e55952ec5296683ed549dcfcb6e73900e2f33cfdd4002e426e5c2a4c6",
+      "bytes": 2197
+    },
+    {
+      "receipt": "baseline/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "baseline/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "baseline/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "baseline/run.time",
+      "sha256": "b8d01b56c8f3076eab2530fe00b3e5a9b3407d468b1019a84f70ee06823edf24",
+      "bytes": 803
+    },
+    {
+      "receipt": "held-body/ast-proof.log",
+      "sha256": "2ee495b255e40bfbd7c65a479465d57c46c06ae63e7d55d410f97390b070e961",
+      "bytes": 315
+    },
+    {
+      "receipt": "held-body/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "held-body/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "held-body/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "held-body/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "held-body/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "held-body/html-preview-runtime.test.ts.observed",
+      "sha256": "e6e7874fca5013b5ebcaa577bbc60202bac52b4117b335c54bd9237a8272785b",
+      "bytes": 26773
+    },
+    {
+      "receipt": "held-body/html-preview-runtime.test.ts.original",
+      "sha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+      "bytes": 24248
+    },
+    {
+      "receipt": "held-body/manifest.json",
+      "sha256": "f88033ad6e2880d74719c813fad0165cbb24d44bdffd328d52162a0c2bb77c2e",
+      "bytes": 1793
+    },
+    {
+      "receipt": "held-body/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "held-body/run.log",
+      "sha256": "793cc2557925d3e26e5bdcbcf2d5ff18d1046fe687daf7c26babc12d65054055",
+      "bytes": 2155
+    },
+    {
+      "receipt": "held-body/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "held-body/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "held-body/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "held-body/run.time",
+      "sha256": "321c0a2ad50133a8474a74c79e44e61eab99052c0ddbb082363fda42bd1e0b79",
+      "bytes": 891
+    },
+    {
+      "receipt": "premature/ast-proof.log",
+      "sha256": "2ee495b255e40bfbd7c65a479465d57c46c06ae63e7d55d410f97390b070e961",
+      "bytes": 315
+    },
+    {
+      "receipt": "premature/exit.json",
+      "sha256": "e153f5bd2ee7416d77570b30ba1de5bb9196c55f8d145e34df9dab12190ffe43",
+      "bytes": 16
+    },
+    {
+      "receipt": "premature/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "premature/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "premature/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "premature/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "premature/html-preview-runtime.test.ts.observed",
+      "sha256": "44dd9c672ea0dfb77dc50353d226a4333439e3c2c709be3e44fbf7ec3d426bff",
+      "bytes": 26330
+    },
+    {
+      "receipt": "premature/html-preview-runtime.test.ts.original",
+      "sha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+      "bytes": 24248
+    },
+    {
+      "receipt": "premature/manifest.json",
+      "sha256": "3ff1b395345b1075fbdd306ed520a4935ccd9a520fd7eb82b457dc9c4c8523c9",
+      "bytes": 1748
+    },
+    {
+      "receipt": "premature/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "premature/run.log",
+      "sha256": "0c9bcdd29342236086d44c1c792485d120ed904c020a86c4f44ec872c289882f",
+      "bytes": 1917
+    },
+    {
+      "receipt": "premature/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "premature/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "premature/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "premature/run.time",
+      "sha256": "4a37509e9996a45ae244e386d33acbc9af6f9f1def529a45c7adedd9427960e6",
+      "bytes": 882
+    },
+    {
+      "receipt": "report.json",
+      "sha256": "331c7e77fcfb170bdacb3cb98caa3cb1d59124b86b4ab2a0b521b70e372e0a8b",
+      "bytes": 25992
+    },
+    {
+      "receipt": "restored/ast-proof.log",
+      "sha256": "6d780151f9b0cbe36b8e4a6ca992f3d3c61df46a94f3385d84506c25acf76f0f",
+      "bytes": 221
+    },
+    {
+      "receipt": "restored/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "restored/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "restored/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "restored/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "restored/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "restored/html-preview-runtime.test.ts.observed",
+      "sha256": "eacc9c669a1e4acef3662140f2c0b3a0f130db937aab3fdd7be0277eff009d16",
+      "bytes": 25542
+    },
+    {
+      "receipt": "restored/html-preview-runtime.test.ts.original",
+      "sha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+      "bytes": 24248
+    },
+    {
+      "receipt": "restored/manifest.json",
+      "sha256": "3732bbaae757550b3f76c2798e23bbf107093d6c347c7751444ceecb55f4d21e",
+      "bytes": 1688
+    },
+    {
+      "receipt": "restored/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "restored/run.log",
+      "sha256": "76a81127f66dd335a0fc63e29ff79fc587934b30f8abab9071c64e3c71ada21e",
+      "bytes": 2550
+    },
+    {
+      "receipt": "restored/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "restored/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "restored/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "restored/run.time",
+      "sha256": "bf4dc8e7e57d2c1631eb0012f9074fd35774d9a2cac02a81151a1eec2cba1213",
+      "bytes": 802
+    },
+    {
+      "receipt": "verify.ts",
+      "sha256": "b95ee5e08520c87c5b2fe9a208b2f052925cde45c7c956b01588d8315bfcfc9c",
+      "bytes": 1502
+    },
+    {
+      "receipt": "wrong-target/ast-proof.log",
+      "sha256": "6d780151f9b0cbe36b8e4a6ca992f3d3c61df46a94f3385d84506c25acf76f0f",
+      "bytes": 221
+    },
+    {
+      "receipt": "wrong-target/exit.json",
+      "sha256": "e153f5bd2ee7416d77570b30ba1de5bb9196c55f8d145e34df9dab12190ffe43",
+      "bytes": 16
+    },
+    {
+      "receipt": "wrong-target/file-viewer-html.tsx.observed",
+      "sha256": "7542f623841722ee39bfa1de10a8329105a0262f183408ea96d0be8c61ec2fb1",
+      "bytes": 1250
+    },
+    {
+      "receipt": "wrong-target/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "wrong-target/files.ts.observed",
+      "sha256": "46b18e75d06631e3c4f0da721a94a6695b0b2560f02afbf0af7f4e4b35221547",
+      "bytes": 11210
+    },
+    {
+      "receipt": "wrong-target/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "wrong-target/html-preview-runtime.test.ts.observed",
+      "sha256": "5748537e46e6093dfba883f34b0cb6c3c4b7726ec363074e05a4c9cc0968e86c",
+      "bytes": 25553
+    },
+    {
+      "receipt": "wrong-target/html-preview-runtime.test.ts.original",
+      "sha256": "6fc177b7a47970881a5549f96f624248f4a23a30f3f9bd2687357ed74a9a6d69",
+      "bytes": 24248
+    },
+    {
+      "receipt": "wrong-target/manifest.json",
+      "sha256": "142ab0620dd00336fcf099ae059d5213189908b2bccdb5f090470e6a4f61aa92",
+      "bytes": 1799
+    },
+    {
+      "receipt": "wrong-target/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "wrong-target/run.log",
+      "sha256": "fdaa919f7223df2839bbedad070deead02d6825d240f396b36e154671bcba3d1",
+      "bytes": 2428
+    },
+    {
+      "receipt": "wrong-target/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "wrong-target/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "wrong-target/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "wrong-target/run.time",
+      "sha256": "a0f9a5fcb5bcb21e030dcd1ed2d4ff920ee4ff91108e0f13eeb15224d5dab2d7",
+      "bytes": 929
+    }
+  ]
+}

@@ -260,7 +260,7 @@ async function duringTurn(
       },
       // The per-turn runtime report (#211) is not what these tests are about.
     activity: (event) => {
-      if (event.kind !== "runtime_observed") activity.push(event);
+      if (event.kind !== "runtime_observed" && event.kind !== "claude_session_usage") activity.push(event);
     },
       requestMask: async () => new Uint8Array(),
     },
@@ -297,13 +297,14 @@ describe("a turn under the voice posture", () => {
     expect(turn.requests).toHaveLength(0);
     expect(approvalFrames(turn.frames)).toHaveLength(0);
     expect(turn.activity.map((event) => event.kind)).toEqual([
+      "prompt_prefix", "outward_classification", "permission_denied", "outward_classification",
       "outward_classification", "permission_denied", "outward_classification",
-      "outward_classification", "permission_denied", "outward_classification",
-      "permission_denied", "outward_classification",
+      "permission_denied", "outward_classification", "claude_title_usage",
     ]);
+    expect(turn.activity.at(-1)).toEqual({ kind: "claude_title_usage", receipts: [], coverage: "unknown" });
   });
 
-  test("allows brain_add and brain_update in that same turn: read-mostly, not read-only", async () => {
+  test("missing application handlers refuse brain_add and brain_update without cards", async () => {
     const turn = await duringTurn([
       call("mcp__brain-ui__brain_add", { type: "note", title: "Garden" }, "add-1"),
       call(
@@ -315,8 +316,10 @@ describe("a turn under the voice posture", () => {
     ]);
     const [add, update, bash] = turn.value;
 
-    expect(add!.executed).toBe(true);
-    expect(update!.executed).toBe(true);
+    expect(add!.executed).toBe(false);
+    expect(update!.executed).toBe(false);
+    expect(add!.message).toContain("host handler");
+    expect(update!.message).toContain("host handler");
     expect(bash!.executed).toBe(false);
     expect(turn.requests).toHaveLength(0);
     expect(approvalFrames(turn.frames)).toHaveLength(0);
@@ -389,7 +392,8 @@ for (const mode of ["voice", "chat"] as const) {
         expect(db.query("SELECT review_status FROM jobs ORDER BY id").all()).toEqual([
           { review_status: "queued" }, { review_status: "queued" },
         ]);
-        expect(turn.activity.map((event) => event.kind)).toEqual(["outward_classification", "outward_classification", "permission_denied", "outward_classification"]);
+        expect(turn.activity.map((event) => event.kind)).toEqual(["prompt_prefix", "outward_classification", "outward_classification", "permission_denied", "outward_classification", "claude_title_usage"]);
+        expect(turn.activity.at(-1)).toEqual({ kind: "claude_title_usage", receipts: [], coverage: "unknown" });
       }
     } finally {
       db.close();

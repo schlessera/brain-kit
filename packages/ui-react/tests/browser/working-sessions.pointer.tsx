@@ -460,17 +460,40 @@ for (const width of [320, 900, 1440] as const) {
     const where = () => (width >= 1280 ? workingRows(pane(s)) : stripItems(s));
     await expect.poll(() => named(where())[0] ?? "", { message: "drawn" }).toMatch(/^Compare Circe.*, failed/);
     await press(s, where()[0]!, mode);
-    s.socket.deliver({ type: "session_info", sessionId: CIRCE.id, isNew: false });
-    s.socket.deliver({ type: "session_history", sessionId: CIRCE.id, messages: history(CIRCE.id, 6) });
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    s.socket.deliver({
-      type: "session_history", sessionId: CIRCE.id, append: true, messages: [
-        { role: "user", content: "Check Circe's directions against the forecast.", toolCalls: [] },
-        { role: "assistant", content: "", toolCalls: [], turnId: "circe-turn", retryOfTurnId: "circe-turn", failure: { errorClass: "server_error", message: "The storm cut the line to the host." } },
-      ],
-    });
-    s.socket.deliver({ type: "status", sessionId: CIRCE.id, status: "idle", detail: "Session loaded" });
+    // Keep native opening/input above. The replay phase's logical clock is
+    // controlled: a requested 60 ms host wait cannot bound a chunk gap (#1982).
     const action = () => [...s.host.querySelectorAll<HTMLElement>("[data-turn-failure] .bk-turn-error-actions [data-bk-button]")].at(0) ?? null;
+    const globals = (["Date", "setTimeout", "clearTimeout"] as const).map((key) =>
+      [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], shouldClearNativeTimers: true });
+    try {
+      s.socket.deliver({ type: "session_info", sessionId: CIRCE.id, isNew: false });
+      s.socket.deliver({ type: "session_history", sessionId: CIRCE.id, messages: history(CIRCE.id, 6) });
+      // FixtureSocket.deliver flushes the real React commit and its effects.
+      expect(s.ui.stores.chat.getState().historyLoads[CIRCE.id], "the first chunk committed").toBe(1);
+      expect(transcript(s)?.textContent, "the first chunk is rendered").toContain("Day 6 out of Troy");
+      flushSync(() => vi.advanceTimersByTime(60));
+      expect(document.activeElement, "an incomplete replay does not focus the composer").not.toBe(composer(s));
+      s.socket.deliver({
+        type: "session_history", sessionId: CIRCE.id, append: true, messages: [
+          { role: "user", content: "Check Circe's directions against the forecast.", toolCalls: [] },
+          { role: "assistant", content: "", toolCalls: [], turnId: "circe-turn", retryOfTurnId: "circe-turn", failure: { errorClass: "server_error", message: "The storm cut the line to the host." } },
+        ],
+      });
+      s.socket.deliver({ type: "status", sessionId: CIRCE.id, status: "idle", detail: "Session loaded" });
+      expect(s.ui.stores.chat.getState().historyLoads[CIRCE.id], "the final chunk committed separately").toBe(2);
+      expect(action(), "the final chunk rendered its failure action").not.toBeNull();
+      flushSync(() => vi.advanceTimersByTime(149));
+      expect(document.activeElement, "the final chunk resets the 150 ms quiet boundary").not.toBe(action());
+      flushSync(() => vi.advanceTimersByTime(1));
+      expect(document.activeElement, "the registered quiet callback focuses at 150 ms").toBe(action());
+    } finally {
+      vi.useRealTimers();
+      for (const [key, descriptor] of globals) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else Reflect.deleteProperty(globalThis, key);
+      }
+    }
     await expect.poll(() => action(), { message: "the failure is drawn with its action" }).not.toBeNull();
     await expect.poll(() => document.activeElement, { message: "focus is on the failure's primary action" }).toBe(action());
   });

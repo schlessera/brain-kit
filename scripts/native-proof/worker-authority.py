@@ -7,6 +7,7 @@ import os
 import socket
 import tempfile
 import sys
+import time
 
 expected_host_uid = int(sys.argv[1])
 
@@ -77,7 +78,27 @@ if maintenance:
     _, status = os.waitpid(child, 0)
     assert os.waitstatus_to_exitcode(status) == 0, "NATIVE_MAINTENANCE_NESTED_USERNS_DENIED"
     nested_denied = True
-print(json.dumps({"namespaceUid": os.getuid(), "namespaceGid": os.getgid(), "caps": caps, "ioctlsDenied": denied,
+descendant = None
+if maintenance and len(sys.argv) > 3 and sys.argv[3] == "cwd-descendant":
+    ready_read, ready_write = os.pipe()
+    descendant = os.fork()
+    if descendant == 0:
+        os.close(ready_read)
+        os.setsid()  # A detached process still belongs to the worker PID namespace.
+        os.chdir(os.environ["BRAIN_WORKER_CONFIG_ROOT"])
+        assert ctypes.CDLL(None).prctl(15, b"odysseus-index", 0, 0, 0) == 0, "NATIVE_INDEX_DESCENDANT_NAMED"
+        null = os.open("/dev/null", os.O_RDWR)
+        for stream in (0, 1, 2): os.dup2(null, stream)
+        os.close(null)
+        os.write(ready_write, b"ready")
+        os.close(ready_write)
+        time.sleep(120)  # Normal CLI exit must kill this before checkpoint release.
+        os._exit(0)
+    os.close(ready_write)
+    assert os.read(ready_read, 5) == b"ready", "NATIVE_INDEX_DESCENDANT_STARTED"
+    os.close(ready_read)
+    time.sleep(0.15)  # The host must observe this actual descendant before CLI work continues.
+print(json.dumps({"descendant": descendant, "namespaceUid": os.getuid(), "namespaceGid": os.getgid(), "caps": caps, "ioctlsDenied": denied,
                   "trustedOverlayDenied": True, "privateStateMasked": True, "controlSocketMasked": True,
                   "procReadonly": proc_readonly, "nestedUsernsDenied": nested_denied,
                   "quotaWriteDenied": quota_denied, "siblingWriteDenied": sibling_denied}))

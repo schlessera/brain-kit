@@ -13,10 +13,10 @@ import type { SharedFileMeta } from "@schlessera/brain-ui-sdk/protocol";
  *
  * The key is the text the backend REPLAYS, so it only holds where that is
  * the text the client sent. It is for both backends' attachment and
- * client-environment paths: Claude replays the text block verbatim and puts
- * the environment in the system prompt, and pi's history reader strips the
+ * client-environment paths: Both backends replay the user's original text through host-owned message
+ * provenance; current host facts are new tail content. Pi's history reader strips the
  * image notes pi appends to the stored text (`stripImageNotes`,
- * `packages/ui-backend-pi/src/history.ts:218-220`). It is not for a pi `/skill:` or
+ * `packages/ui-backend-pi/src/history.ts:254-256`). It is not for a pi `/skill:` or
  * prompt-template command, which pi stores expanded: that message matches
  * no row and replays as `typed`. Its row is orphaned, and because every
  * message with the same text expands the same way, the orphan can only

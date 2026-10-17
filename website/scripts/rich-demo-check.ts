@@ -127,6 +127,17 @@ export async function verifyRichDemo(page: Page, origin: string, base: string, c
   assert.equal(createHash('sha256').update(originalPdf).digest('hex'), createHash('sha256').update(pdf).digest('hex'));
   await openFile('voyage/ogygia/departure-brief.html');
   await demo.frameLocator('iframe[title="HTML preview"]').getByRole('heading', { name: 'Departure from Ogygia', exact: true }).waitFor();
+  const htmlStatuses = await demo.evaluate(async route => {
+    const checks = [];
+    for (const path of ['voyage/ogygia/departure-brief.html', 'voyage/ogygia/missing.html', 'voyage/ogygia/departure-plan.md']) {
+      const response = await fetch(`${route}?path=${encodeURIComponent(path)}`, { method: 'HEAD' });
+      checks.push({ status: response.status, body: await response.text(), type: response.headers.get('content-type') });
+    }
+    return checks;
+  }, `${origin}${base}demo/api/files/html`);
+  assert.deepEqual(htmlStatuses, [{ status: 200, body: '', type: 'text/html; charset=utf-8' },
+    { status: 404, body: '', type: null }, { status: 404, body: '', type: null }], 'HTML_PREVIEW_HEAD_MATCHES_FICTIONAL_FIXTURE_SET');
+  assert.equal(await demo.locator('iframe[title="HTML preview"]').getAttribute('sandbox'), 'allow-scripts');
   await download('Share', 'Share as .html file', '.html');
   await download('Share', 'Share as image', '.png'); await download('Share', 'Share as PDF', '.pdf');
   await openFile('voyage/ogygia/passage.mmd');
@@ -144,7 +155,9 @@ export async function verifyRichDemo(page: Page, origin: string, base: string, c
   await download('Share message', 'PDF', '.pdf');
   await demo.setViewportSize({ width: 390, height: 844 });
   await demo.getByRole('tab', { name: 'Files', exact: true }).click();
-  await demo.getByRole('button', { name: 'Show tree', exact: true }).click();
+  const showTree = demo.getByRole('button', { name: 'Show tree', exact: true });
+  if (await showTree.isVisible()) await showTree.click();
+  await demo.getByRole('tree').waitFor();
   await openFile('decisions/scylla-or-charybdis.md');
   await demo.getByRole('heading', { name: 'Scylla or Charybdis', exact: true }).waitFor();
   assert.equal(await demo.getByRole('button', { name: /^frontmatter/ }).getAttribute('aria-expanded'), 'false');

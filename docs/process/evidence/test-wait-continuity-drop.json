@@ -1,0 +1,1231 @@
+{
+  "schemaVersion": 1,
+  "issue": 1855,
+  "sourceBase": "7e5bfa2abab214c89e91ece1a6ac1ff15154c59e",
+  "scope": "Only three held-snapshot drop preparations use the existing finite-render helper after the unchanged native offline/status/banner checkpoints. Scene drop windows and all three snapshot final windows remain; no fixture or production implementation change.",
+  "environment": {
+    "bun": "1.4.2",
+    "nativeChrome": "Required installed Chrome; 140.0.7339.127 is inherited installation metadata, not a fresh per-command version measurement.",
+    "guards": "Original preload and BRAIN_REQUIRE_CHROME=1. unshare --user --map-current-user --net --keep-caps with loopback only, ordinary UID and route checks, then capability drop. Commands serialized by flock; GNU time inside the lock.",
+    "build": "Own checkout/dependencies; each command retains the original mandatory package build and browser bundle.",
+    "overhead": "Same prior synchronous setup/preparation/recovery counters; additional synchronous per-drop render spans. No new observer, timer or browser task.",
+    "limits": "Historical shared host with uncontrolled load. Restored selection includes an extra unchanged finite-render case: whole-command/resource comparison is not equal-selection."
+  },
+  "originalSources": [
+    {
+      "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92"
+    },
+    {
+      "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+    },
+    {
+      "path": "packages/ui-react/src/connection.ts",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+    },
+    {
+      "path": "packages/ui-server/src/ws/connection.ts",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+    },
+    {
+      "path": "packages/ui-server/src/ws/dispatch.ts",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+    },
+    {
+      "path": "packages/ui-react/src/lib/draft-client.ts",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+    }
+  ],
+  "candidateSource": {
+    "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+    "sha256": "bdeb63f1423a889b7c95281035f18698290b6d58790e7bf904abf97e009a953f"
+  },
+  "measuredSource": {
+    "path": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+    "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337"
+  },
+  "astProof": {
+    "original": {
+      "awaits": 200,
+      "matchers": 65,
+      "names": 5
+    },
+    "candidate": {
+      "awaits": 201,
+      "matchers": 65,
+      "names": 5
+    },
+    "explicitChangedCall": {
+      "originalCall": "await drop({ context, page, net })",
+      "candidateCall": "await drop({ context, page, net }, \"held-snapshot\")"
+    },
+    "scope": "Every original matcher/name and other await retained in order. The drop helper's settle await becomes conditional for scenes; only the snapshot caller (three cases) uses existing finishRender instead. No fixture or production change."
+  },
+  "helperIdentity": {
+    "referenceSource": "fd8f030f5e90f5cd3d3ab4aaa40f25fb64f328f8",
+    "currentSource": "7e5bfa2abab214c89e91ece1a6ac1ff15154c59e",
+    "finishRenderByteIdentical": true,
+    "finishRenderSha256": "b7711b9810c8bdcbb13569784bf89c5fcddbcc30994e2c2e7f4caccced7a01dc",
+    "controlByteIdentical": true,
+    "controlSha256": "f573028e6114471f03af2d6368d741d37999011a8f8ae5f1039fbcc3ee48902d",
+    "historicalFaultLimit": "Reference Git source equality does not retroactively prehash the old driver execution."
+  },
+  "baselineReuse": {
+    "source": "44d2aab6f29b76b36910d6b83c6210283123ac47",
+    "variant": "Prior recovery restored candidate, integrated byte-identically in this study base.",
+    "pass": 3,
+    "expects": 41,
+    "diagnosticFreeTestByteIdentical": true,
+    "executedMeasuredTestByteIdentical": true,
+    "executedMeasuredTestSha256": "15b63e028a72f0bb34af0e2f4b18533cf805196cca7c6bf8c9183e65d3defd3d",
+    "unchangedConfigAndProduction": [
+      {
+        "path": "packages/ui-react/tests/fixtures/connection-continuity-client.tsx",
+        "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518"
+      },
+      {
+        "path": "packages/ui-react/src/connection.ts",
+        "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25"
+      },
+      {
+        "path": "packages/ui-server/src/ws/connection.ts",
+        "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743"
+      },
+      {
+        "path": "packages/ui-server/src/ws/dispatch.ts",
+        "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5"
+      },
+      {
+        "path": "packages/ui-react/src/lib/draft-client.ts",
+        "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+      },
+      {
+        "path": "bun.lock",
+        "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+      },
+      {
+        "path": "package.json",
+        "sha256": "232d38504e9568ef3976dd48a38db3f732d09fcdebbead162b4f652ba93fa350"
+      },
+      {
+        "path": "bunfig.toml",
+        "sha256": "3fef2f8dd575b80b8280fd9f3afe9048181df522d95232bbf2f491cbb55ba7c5"
+      },
+      {
+        "path": "tsconfig.json",
+        "sha256": "cac6061176046c4987620622aac9b5edf89987aa712ab3d47b959e65f411ada6"
+      },
+      {
+        "path": "scripts/build.ts",
+        "sha256": "3b6d685506a53f46671ed44764711a2bf46e68cdfacf80791fc5d84cbc516fa1"
+      },
+      {
+        "path": "scripts/test.ts",
+        "sha256": "df3f3109ec6e0e92dc21dfeaf80a5bb9bd897fb53941fa52385a4b75dd5d6a23"
+      },
+      {
+        "path": "packages/ui-react/bunfig.toml",
+        "sha256": "377cf4ce2d5b53c7156610958d9676a4bed896b2fd90db5c441e816c69f1c017"
+      },
+      {
+        "path": "packages/ui-react/src/lib/local-work.ts",
+        "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+      }
+    ],
+    "mutantSources": [
+      {
+        "path": "missing-ended-guard.ts",
+        "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23"
+      },
+      {
+        "path": "old-terminal-snapshot.ts",
+        "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145"
+      }
+    ],
+    "originalTerminalSource": "65d05a55404dce7a3136a1c9b6e90bbefacb5a18",
+    "originalTerminalOutcome": "Historical 0 pass / 1 fail / 8 expectations at the original newer-stream assertion; current candidate reruns the same exact production fault.",
+    "renderFault": "Historical two-frame replacement fails FINITE_ANIMATION_FINISHED_BEFORE_GEOMETRY: expected finished, received running, 177.96 ms body / one expectation. Full executed source was not prehashed and the current explicit namespace was not recorded. Git helper/control identity is verified separately and does not repair that historical limitation."
+  },
+  "causalScope": [
+    "Original server stop, native offline setting, wsStatus/vpnStatus predicate and visible Connection lost checkpoint retain their order. The existing unreachable sample is not relabeled as a newly numbered probe.",
+    "The SDK has no queued chat outbox. Disconnected handling is synchronous; future reconnect/probe timers remain real. Fresh snapshot inputs contain no tracks, held sends, confirmed shares or asks; their relevant native offline listeners have no corresponding queued work.",
+    "Draft saves can overlap drop. Existing current-draft recovery acknowledgement, held-resume admission and source fences remain; no storage or global event drain is inferred.",
+    "Snapshots have no immediate offline geometry/banner-position oracle. finishRender covers finite native animations/fonts and its existing geometry targets, not necessarily every Motion JavaScript banner entrance. Scene windows remain.",
+    "Original final no-extra-chat/streaming/identity/focus/text/selection oracles remain after three retained final windows."
+  ],
+  "baseline": {
+    "commandSeconds": 79.7,
+    "bunSeconds": 79.61,
+    "cpuSeconds": 93.07,
+    "rssKiB": 1243784.0,
+    "setupMs": 48241.53064,
+    "cases": [
+      {
+        "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+        "bodyMs": 10662.69
+      },
+      {
+        "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+        "bodyMs": 10527.37
+      },
+      {
+        "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+        "bodyMs": 9744.31
+      }
+    ],
+    "bodyMs": 30934.370000000003,
+    "waitMetrics": {
+      "renderCalls": 11,
+      "renderMs": 1872.7963360000067,
+      "observationCalls": 6,
+      "observationMs": 3003.606504000003,
+      "retainedFrameCalls": 6,
+      "retainedFrameMs": 143.09829200000968,
+      "pollCalls": 5,
+      "pollMs": 50.41619300000457
+    },
+    "boundaries": [
+      {
+        "started": 57790.211664,
+        "ready": 57791.574505,
+        "rendered": 57837.411533
+      },
+      {
+        "started": 68265.287872,
+        "ready": 68266.722076,
+        "rendered": 68303.583546
+      },
+      {
+        "started": 78787.293108,
+        "ready": 78788.381802,
+        "rendered": 78836.202789
+      }
+    ],
+    "preparationBoundaries": [
+      {
+        "readinessStarted": 58328.822373,
+        "readyAt": 58333.095665,
+        "renderEnded": 58553.854628
+      },
+      {
+        "readinessStarted": 68838.097135,
+        "readyAt": 68839.498366,
+        "renderEnded": 69086.783993
+      }
+    ],
+    "validation": {
+      "mode": "restored",
+      "pass": 3,
+      "fail": 0,
+      "expects": 41,
+      "restored": true,
+      "exitCode": 0,
+      "boundaries": [
+        {
+          "started": 57790.211664,
+          "ready": 57791.574505,
+          "rendered": 57837.411533
+        },
+        {
+          "started": 68265.287872,
+          "ready": 68266.722076,
+          "rendered": 68303.583546
+        },
+        {
+          "started": 78787.293108,
+          "ready": 78788.381802,
+          "rendered": 78836.202789
+        }
+      ],
+      "waitMetrics": {
+        "renderCalls": 11,
+        "renderMs": 1872.7963360000067,
+        "observationCalls": 6,
+        "observationMs": 3003.606504000003,
+        "retainedFrameCalls": 6,
+        "retainedFrameMs": 143.09829200000968,
+        "pollCalls": 5,
+        "pollMs": 50.41619300000457
+      },
+      "gatePassed": true
+    },
+    "snapshotEntries": 32
+  },
+  "runs": {
+    "candidate-terminal": {
+      "commandSeconds": 59.19,
+      "bunSeconds": 59.11,
+      "cpuSeconds": 91.86999999999999,
+      "rssKiB": 1272004.0,
+      "setupMs": 48477.273776999995,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10169.23
+        }
+      ],
+      "bodyMs": 10169.23,
+      "waitMetrics": {
+        "renderCalls": 5,
+        "renderMs": 904.1166419999936,
+        "observationCalls": 1,
+        "observationMs": 500.6940919999979,
+        "retainedFrameCalls": 1,
+        "retainedFrameMs": 9.253338999995322,
+        "pollCalls": 3,
+        "pollMs": 30.305238000000827
+      },
+      "boundaries": [
+        {
+          "started": 57643.60858,
+          "ready": 57645.071091,
+          "rendered": 57695.65757
+        }
+      ],
+      "preparationBoundaries": [
+        {
+          "readinessStarted": 58184.530388,
+          "readyAt": 58186.549056,
+          "renderEnded": 58412.329453
+        }
+      ],
+      "dropRenderMs": [
+        227.8630309999935
+      ],
+      "validation": {
+        "mode": "candidate-terminal",
+        "pass": 0,
+        "fail": 1,
+        "expects": 11,
+        "restored": true,
+        "exitCode": 1,
+        "waitMetrics": {
+          "renderCalls": 5,
+          "renderMs": 904.1166419999936,
+          "observationCalls": 1,
+          "observationMs": 500.6940919999979,
+          "retainedFrameCalls": 1,
+          "retainedFrameMs": 9.253338999995322,
+          "pollCalls": 3,
+          "pollMs": 30.305238000000827
+        },
+        "snapshotDropRenderMs": [
+          227.8630309999935
+        ],
+        "gatePassed": true
+      },
+      "snapshotEntries": 34
+    },
+    "restored": {
+      "commandSeconds": 79.69,
+      "bunSeconds": 79.61,
+      "cpuSeconds": 93.82000000000001,
+      "rssKiB": 1231080.0,
+      "setupMs": 48766.739600999994,
+      "cases": [
+        {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 336.51
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 10322.46
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 10168.71
+        },
+        {
+          "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 9591.17
+        }
+      ],
+      "bodyMs": 30418.85,
+      "waitMetrics": {
+        "renderCalls": 15,
+        "renderMs": 2796.975455000007,
+        "observationCalls": 3,
+        "observationMs": 1501.6339989999906,
+        "retainedFrameCalls": 3,
+        "retainedFrameMs": 72.26063299999078,
+        "pollCalls": 5,
+        "pollMs": 50.4915850000034
+      },
+      "boundaries": [
+        {
+          "started": 58306.688822,
+          "ready": 58308.156908,
+          "rendered": 58345.58268
+        },
+        {
+          "started": 68476.381968,
+          "ready": 68477.574899,
+          "rendered": 68528.615865
+        },
+        {
+          "started": 78675.472979,
+          "ready": 78676.760478,
+          "rendered": 78728.030355
+        }
+      ],
+      "preparationBoundaries": [
+        {
+          "readinessStarted": 58823.912361,
+          "readyAt": 58825.331399,
+          "renderEnded": 59062.168905
+        },
+        {
+          "readinessStarted": 69000.588963,
+          "readyAt": 69005.829388,
+          "renderEnded": 69245.061241
+        }
+      ],
+      "dropRenderMs": [
+        228.95773899999767,
+        230.40638899999612,
+        228.87280700000701
+      ],
+      "validation": {
+        "mode": "restored",
+        "pass": 4,
+        "fail": 0,
+        "expects": 43,
+        "restored": true,
+        "exitCode": 0,
+        "waitMetrics": {
+          "renderCalls": 15,
+          "renderMs": 2796.975455000007,
+          "observationCalls": 3,
+          "observationMs": 1501.6339989999906,
+          "retainedFrameCalls": 3,
+          "retainedFrameMs": 72.26063299999078,
+          "pollCalls": 5,
+          "pollMs": 50.4915850000034
+        },
+        "snapshotDropRenderMs": [
+          228.95773899999767,
+          230.40638899999612,
+          228.87280700000701
+        ],
+        "snapshotCases": [
+          {
+            "name": "repeated connection drops in the mounted app > single running session: a captured empty history snapshot cannot end a newer turn",
+            "bodyMs": 10322.46
+          },
+          {
+            "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end a newer turn",
+            "bodyMs": 10168.71
+          },
+          {
+            "name": "repeated connection drops in the mounted app > single running session: a captured failed history snapshot cannot end its quiet turn",
+            "bodyMs": 9591.17
+          }
+        ],
+        "snapshotBodyMs": 30082.339999999997,
+        "helperCase": {
+          "name": "repeated connection drops in the mounted app > render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 336.51
+        },
+        "comparisonLimit": "Only the three snapshot body sum is equal-selection with historical baseline. Command/resources include an extra unchanged helper case.",
+        "gatePassed": true
+      },
+      "snapshotEntries": 34
+    }
+  },
+  "sameSelectionSnapshotBodies": {
+    "beforeMs": 30934.370000000003,
+    "afterMs": 30082.339999999997,
+    "deltaMs": -852.0300000000061
+  },
+  "descriptiveUnequalSelection": {
+    "commandSeconds": {
+      "beforeThreeSnapshots": 79.7,
+      "afterThreeSnapshotsAndHelper": 79.69,
+      "arithmeticDifferenceNotAttributedGain": -0.010000000000005116
+    },
+    "cpuSeconds": {
+      "beforeThreeSnapshots": 93.07,
+      "afterThreeSnapshotsAndHelper": 93.82000000000001,
+      "arithmeticDifferenceNotAttributedGain": 0.7500000000000142
+    },
+    "rssKiB": {
+      "beforeThreeSnapshots": 1243784.0,
+      "afterThreeSnapshotsAndHelper": 1231080.0,
+      "arithmeticDifferenceNotAttributedGain": -12704.0
+    },
+    "setupMs": {
+      "beforeThreeSnapshots": 48241.53064,
+      "afterThreeSnapshotsAndHelper": 48766.739600999994,
+      "arithmeticDifferenceNotAttributedGain": 525.2089609999966
+    }
+  },
+  "cost": {
+    "newCommandSeconds": 138.88,
+    "historicalBaselineCommandSeconds": 79.7,
+    "historicalOriginalTerminalCommandSeconds": 60.49,
+    "historicalRenderFaultBunSeconds": 61.92,
+    "historicalRenderFaultWholeCommandSeconds": null,
+    "limits": "Historical reused costs are not new execution; old helper log supplies Bun duration, not GNU-time command duration."
+  },
+  "limits": [
+    "Historical source-equivalent shared-host baseline; uncontrolled load and setup variance.",
+    "Restored command adds the unchanged finite-render control; command/resources are unequal selection. Only three snapshot bodies are compared as same selection.",
+    "Three drop settle/two-rAF calls replaced by existing finite-render calls; three final observation windows remain.",
+    "Finite native rendering is not a claim that all Motion banner animation, draft/persistence work, or future probes drained.",
+    "Historical helper mutation lacks full executed-source prehash and current namespace receipt; current helper/control Git source identity verified, restored helper executes under current harness.",
+    "No minimum or whole-CI speedup claim."
+  ],
+  "receiptIndex": [
+    {
+      "receipt": "candidate-terminal",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "ast-proof.json",
+      "sha256": "22ce256434851703c292d39095bfb9b9a1a397668f17e70bd83431ea0d224556",
+      "bytes": 55509
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "candidate-types.json",
+      "sha256": "b82426cf712a5b031d0c7be56192b35f0a96af3e27536c550e8bec9c213a6956",
+      "bytes": 233
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "causal-review.md",
+      "sha256": "3a72ef56ebb7fd6c69ce2689edf9fcee7eeedd0bbc8c32f755576a9578ee7521",
+      "bytes": 8812
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "check-measured-ast.ts",
+      "sha256": "0201d29d5d469fc9b8b3b18ef9a664251250a5c507d2b7115ae798cce101b60e",
+      "bytes": 2078
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "check-result.py",
+      "sha256": "17a495619644648b72db8c89fa0879e903ef9d9a789762c333fb2cab438cce56",
+      "bytes": 2260
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "command.json",
+      "sha256": "2ff3193a038d93a088294beca12260b1ffa7e0bfa21216a6c7000b1373b37a71",
+      "bytes": 1785
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "completion.json",
+      "sha256": "c43a18e9fa3c5f29208534d6d069070199e02f297e963e870ea01c02a477cf77",
+      "bytes": 83
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "execution-manifest.json",
+      "sha256": "8c9ad870ad7a8fb9d86d43570b48fd45166d0a2c66166a2737bda09c15fe1d73",
+      "bytes": 8208
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "helper-source-identity.json",
+      "sha256": "16ae77256d545ca3b11daf962e4c3fb42100c2488217cedaf2b268614aae96a2",
+      "bytes": 495
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "manifest.json",
+      "sha256": "4369397818797b8489b03baa4f7c60ec713e52796e66d09329a5acb2f324c94e",
+      "bytes": 554
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "measured-types.json",
+      "sha256": "4c76f71645712f8e85c0cc4c4d6d1a59da380a31e571cd33633e4f1c21da349c",
+      "bytes": 167
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__src__connection.ts.executed",
+      "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23",
+      "bytes": 48418
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337",
+      "bytes": 53646
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "bdeb63f1423a889b7c95281035f18698290b6d58790e7bf904abf97e009a953f",
+      "bytes": 52430
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145",
+      "bytes": 14913
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "reused-source-identities.json",
+      "sha256": "644b5739036b331552fc8b234ff1c5ede8bc6b7968c2853d625048e605eceb07",
+      "bytes": 3223
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "run.log",
+      "sha256": "89d164890aa40cd87a01d172dc4b7fab2088436a175d704397c984df235356ab",
+      "bytes": 2529
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "run.py",
+      "sha256": "321a0ac8bd8a66bff117445a93896f44125e4923bd3f1892efa14c17d5aaba0e",
+      "bytes": 5155
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "run.time",
+      "sha256": "417581a0a05f4fa930aa563048038e63516f4a26e2c42e9ee644c9f6b1ff7f95",
+      "bytes": 998
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "validation.json",
+      "sha256": "645141774a30048079d2085931755c63ea62b19380b23b9e7fc9d26c92cb7606",
+      "bytes": 464
+    },
+    {
+      "receipt": "candidate-terminal",
+      "name": "validation.log",
+      "sha256": "a9dfca9506ad7069e8b528da39ad2d59c99fac219ab436cd616c8d847ebef9e1",
+      "bytes": 400
+    },
+    {
+      "receipt": "restored",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "restored",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "restored",
+      "name": "ast-proof.json",
+      "sha256": "90b253f9eb40f6c95d5a37a4044116e4e21590f25d3247d426843021eb7f6c31",
+      "bytes": 55499
+    },
+    {
+      "receipt": "restored",
+      "name": "candidate-types.json",
+      "sha256": "b82426cf712a5b031d0c7be56192b35f0a96af3e27536c550e8bec9c213a6956",
+      "bytes": 233
+    },
+    {
+      "receipt": "restored",
+      "name": "causal-review.md",
+      "sha256": "3a72ef56ebb7fd6c69ce2689edf9fcee7eeedd0bbc8c32f755576a9578ee7521",
+      "bytes": 8812
+    },
+    {
+      "receipt": "restored",
+      "name": "check-measured-ast.ts",
+      "sha256": "0201d29d5d469fc9b8b3b18ef9a664251250a5c507d2b7115ae798cce101b60e",
+      "bytes": 2078
+    },
+    {
+      "receipt": "restored",
+      "name": "check-result.py",
+      "sha256": "17a495619644648b72db8c89fa0879e903ef9d9a789762c333fb2cab438cce56",
+      "bytes": 2260
+    },
+    {
+      "receipt": "restored",
+      "name": "command.json",
+      "sha256": "cf3de1df26518e647bfac9b036208a4693ed54ab9ea8038611e9e79264225c79",
+      "bytes": 1879
+    },
+    {
+      "receipt": "restored",
+      "name": "completion.json",
+      "sha256": "362453477724be288712764a557b4207f3111509001f56b24dea1c0c57da07c8",
+      "bytes": 83
+    },
+    {
+      "receipt": "restored",
+      "name": "execution-manifest.json",
+      "sha256": "8c9ad870ad7a8fb9d86d43570b48fd45166d0a2c66166a2737bda09c15fe1d73",
+      "bytes": 8208
+    },
+    {
+      "receipt": "restored",
+      "name": "helper-source-identity.json",
+      "sha256": "16ae77256d545ca3b11daf962e4c3fb42100c2488217cedaf2b268614aae96a2",
+      "bytes": 495
+    },
+    {
+      "receipt": "restored",
+      "name": "manifest.json",
+      "sha256": "4369397818797b8489b03baa4f7c60ec713e52796e66d09329a5acb2f324c94e",
+      "bytes": 554
+    },
+    {
+      "receipt": "restored",
+      "name": "measured-types.json",
+      "sha256": "4c76f71645712f8e85c0cc4c4d6d1a59da380a31e571cd33633e4f1c21da349c",
+      "bytes": 167
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "143f75afa7c2f2701eeb47e8fe03b0a3dfdf8281a7562691c8101f5a0a6e4337",
+      "bytes": 53646
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "bdeb63f1423a889b7c95281035f18698290b6d58790e7bf904abf97e009a953f",
+      "bytes": 52430
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "restored",
+      "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "restored",
+      "name": "reused-source-identities.json",
+      "sha256": "644b5739036b331552fc8b234ff1c5ede8bc6b7968c2853d625048e605eceb07",
+      "bytes": 3223
+    },
+    {
+      "receipt": "restored",
+      "name": "run.log",
+      "sha256": "162f58a2333def418c61e57e6f6c9ef1c2a8908af41eaf6c4afa692703732afe",
+      "bytes": 2035
+    },
+    {
+      "receipt": "restored",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "restored",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "restored",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "restored",
+      "name": "run.py",
+      "sha256": "321a0ac8bd8a66bff117445a93896f44125e4923bd3f1892efa14c17d5aaba0e",
+      "bytes": 5155
+    },
+    {
+      "receipt": "restored",
+      "name": "run.time",
+      "sha256": "53578f05e3b84f4b0f8cf37a345d9811f1fbbc5a767e2cdaf0bb31026453fb2d",
+      "bytes": 1074
+    },
+    {
+      "receipt": "restored",
+      "name": "validation.json",
+      "sha256": "37b4c2617b2204c81a4cd97e973a79a098c16a330a09b6eeee8c51bb4680d891",
+      "bytes": 1474
+    },
+    {
+      "receipt": "restored",
+      "name": "validation.log",
+      "sha256": "ceebbc88dd53d3b53e47f49697fd3c1e43282864ee1ecb8daf677afc2fa9841a",
+      "bytes": 1312
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "ast-proof.json",
+      "sha256": "e7dd9c2d171b4dc71cd4fd90e6fdcbeec9b97ec33fee5e280419ffadd311d417",
+      "bytes": 55389
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "causal-review.md",
+      "sha256": "6015cee280ab35214c14ca3b9bb7052b8916cdb8b02b563a14c6b0cafddf473d",
+      "bytes": 10798
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "check-measured-ast.ts",
+      "sha256": "5ce698f614dda8b632cf8d5529c8233b8ef7fa179aa20a2ad08a5a07e6f95a99",
+      "bytes": 2082
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "check-result.py",
+      "sha256": "4cc3d8e497ec57eddab2e7984c85576268564e7dd099273e1f4d04e54435123d",
+      "bytes": 3051
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "command.json",
+      "sha256": "830d9507a03b0e1c63dbc2b39a049ba60df631d64e1da1575846a902a3a16913",
+      "bytes": 1798
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "completion.json",
+      "sha256": "c05a5fad3015b686cf1eea08419e543bfde6cd68fcce7594d12ebbb437914606",
+      "bytes": 83
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "execution-manifest.json",
+      "sha256": "f9135018c0d662791786dd2564970bf1a98effbc3afcc085bb842f743dcd4d76",
+      "bytes": 7360
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "final-held-types.json",
+      "sha256": "b8ec677823220991411d41f9d78507982c06f2f55b3e645b7b341925f41450b3",
+      "bytes": 390
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "manifest.json",
+      "sha256": "695dfc49fa793a1d2270f31d7b820b0be11a016346ae29459f077d64c701e2f9",
+      "bytes": 1822
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__src__connection.ts.executed",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__src__connection.ts.restored",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__src__lib__draft-client.ts.executed",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__src__lib__draft-client.ts.restored",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "15b63e028a72f0bb34af0e2f4b18533cf805196cca7c6bf8c9183e65d3defd3d",
+      "bytes": 53102
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored",
+      "sha256": "f5e92239c82794eb1686f4586bc8666d01fe446e5f745a78470f3a50ace15c92",
+      "bytes": 52143
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored",
+      "sha256": "57537a53a76986830b3b2a12329d76577d1a2936928519740e1af40000e0b518",
+      "bytes": 9947
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-server__src__ws__connection.ts.restored",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-server__src__ws__dispatch.ts.executed",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "packages__ui-server__src__ws__dispatch.ts.restored",
+      "sha256": "438b39e7f1f62db792caebe0f36c478045be564bfeee605f911d9cfa86898ec5",
+      "bytes": 29937
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "reused-source-identities.json",
+      "sha256": "af830f76f8fe36071d367727b3a548a61f15fec429e77b5f67998e7d085df416",
+      "bytes": 5416
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "run.log",
+      "sha256": "336a477ac013e041a42e9c799acc187b2deb9eba78b264d3e559e57f3545b994",
+      "bytes": 1699
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "run.py",
+      "sha256": "4294d23aa9f0671d44f8b3a1b2caa217b516209bc0c26a250e8d6860bae48a63",
+      "bytes": 5407
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "run.time",
+      "sha256": "84ff86e7cb8ce69561e1dd4c72735d747e2976383220071036a4d9ece630ed28",
+      "bytes": 985
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "validation.json",
+      "sha256": "a6abec0b1411563be14a7548fe9ccdfff9673db38dd17efca76d585001c6dfad",
+      "bytes": 735
+    },
+    {
+      "receipt": "historical-recovery-baseline",
+      "name": "validation.log",
+      "sha256": "3c1c2000be96dae2e8804f0b020a608f77553a7f6c5f4124fa512ddf6dfe1ec2",
+      "bytes": 591
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "ast-checker.ts",
+      "sha256": "035444c7c24b6f5cc7288f5252bf6ada11e60c772971ab9a40319419a1c0a603",
+      "bytes": 1485
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "ast-proof.json",
+      "sha256": "7e2e751b981a7b02d3310d13823654fdbe520b0d0db9d219d287211b0a024b26",
+      "bytes": 240
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "command.json",
+      "sha256": "2b712b1962da98263ba695f1e749adbbddfb265ff52e755604bf0b5f115e1e5f",
+      "bytes": 2019
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "completion.json",
+      "sha256": "06356610c48db5d6355344903a57fad63cc59e77eb34da3df98c4dc8ddfe1249",
+      "bytes": 83
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "driver.py",
+      "sha256": "7e4961d5f9c8337bd27a2541ed09cc6f340d58c023e90e51e6f8d474eb951963",
+      "bytes": 5752
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "executed.test.ts",
+      "sha256": "27e003a3080c739b877c364f412aeeb5b5f4327bb0bbb3528bb412d1e2706b57",
+      "bytes": 50348
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "original.test.ts",
+      "sha256": "6a8e2dc7237fc2f979f1f9f56f8345d2a4b971caa2e052d65ceade329fec7f7e",
+      "bytes": 50212
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-react__src__connection.ts.executed",
+      "sha256": "282aebb8672446b228780da8bf3e927a78312fc127c6e9255075880a6277ca23",
+      "bytes": 48418
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-react__src__connection.ts.restored-candidate",
+      "sha256": "30b0d883ffafc59fe94169ab2cc45ca2414da30dbf06702effe06f2807cd0b25",
+      "bytes": 48488
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.executed",
+      "sha256": "27e003a3080c739b877c364f412aeeb5b5f4327bb0bbb3528bb412d1e2706b57",
+      "bytes": 50348
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-react__tests__connection-continuity-runtime.test.ts.restored-candidate",
+      "sha256": "5824f3044680d955b98b417b1cf590118f75306d56662181c521a40160522e33",
+      "bytes": 57065
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.executed",
+      "sha256": "24f92a6bf56e7dc2e3abdb0a378ed7bf2cbd882d968b3b3822006e8fcad50e6e",
+      "bytes": 3025
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-react__tests__fixtures__connection-continuity-client.tsx.restored-candidate",
+      "sha256": "d0c3231b7a8fef7c304d37a4639a93f10b676b52dbb04621696becd289c3723c",
+      "bytes": 6346
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-server__src__ws__connection.ts.executed",
+      "sha256": "4bf7f05e79d5daf6628ca47c26a90d79edcb8447fc5ab669b5b7ecde38e92145",
+      "bytes": 14913
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "packages__ui-server__src__ws__connection.ts.restored-candidate",
+      "sha256": "987a3667c10dca3c9e5d5860edf45d59dd5449d47823ec2f1cfc452988e0b743",
+      "bytes": 14917
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "review-manifest.json",
+      "sha256": "7b1238580dcb1066bdca33562c2a2331cbf858ccbea2a1e7d74c22c76b1fe31d",
+      "bytes": 5742
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "run.log",
+      "sha256": "fa80b6954ad6c930abd1fd74d0186dd0e0181f37603312961a395bc913cbff07",
+      "bytes": 2256
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "historical-original-terminal",
+      "name": "run.time",
+      "sha256": "7ec4d2d8450a78b93de4ccc526a12712682ee29e5e0a27105abc263a782295b1",
+      "bytes": 997
+    },
+    {
+      "receipt": "historical-helper",
+      "name": "premature-render.log",
+      "sha256": "44686a095aba1c16999271da2a68ca0a0ef9710431ecba679dbcf0737222b597",
+      "bytes": 1307
+    },
+    {
+      "receipt": "historical-helper",
+      "name": "browser-mutations.py",
+      "sha256": "8894c6b727afd776d78cfa479f201fcd81c967d934ca149cc321f09da5d86431",
+      "bytes": 3245
+    }
+  ]
+}

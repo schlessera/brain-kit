@@ -97,6 +97,9 @@ function fixtureRequest() {
   return async (url: string, init?: RequestInit): Promise<Response> => {
     const parsed = new URL(url, "http://fixture.invalid");
     const path = parsed.pathname;
+    // Settings now reserves no shared Input height; use real long content
+    // so the N3 scroll-away premise holds at every drawer width.
+    if (path.endsWith("/models")) return Response.json({ models: Array.from({ length: 24 }, (_, i) => ({ id: `ithaca-${i}`, label: `Ithaca model ${i + 1}`, hidden: false })), customModels: [], discovery: { enabled: false }, stale: false, refreshedAt: null });
     if (path.endsWith("/sessions")) return Response.json({ sessions: SESSIONS });
     if (/\/sessions\/[^/]+/.test(path)) return Response.json({ messages: [] });
     if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: RUNS });
@@ -338,7 +341,7 @@ const SPECS: Record<Start, Spec> = {
   settings: {
     index: 4,
     root: (s) => panel(s, "Settings"),
-    ready: (s) => settingsTab(s) !== null,
+    ready: (s) => settingsTab(s) !== null && (panel(s, "Settings")?.textContent ?? "").includes("Ithaca model 24"),
     target: (s) => settingsTab(s),
   },
 };

@@ -1,0 +1,47 @@
+{
+  "run": 38886704020,
+  "attempt": 1,
+  "head": "5af94530672aec0999c571b3f8774a71f4f97729",
+  "sha": "5af94530672aec0999c571b3f8774a71f4f97729",
+  "tree": "5813c3f87dbd43bd5f771ac39b0206bc42a521dc",
+  "parents": [
+    "ab0e9fb77a236cefbe5a0b19424836acf9205bde"
+  ],
+  "jobs": [
+    {
+      "shard": 1,
+      "job": 116926308009,
+      "artifact": 12040062992,
+      "digest": "sha256:1a48f8ca83794a54637aba5269159a7d9cc6c7d6790d797707bdc8bfe43b645b",
+      "files": 229,
+      "elapsedSeconds": 840
+    },
+    {
+      "shard": 2,
+      "job": 116926308175,
+      "artifact": 12040559224,
+      "digest": "sha256:438b317a08694ea5ab0d1415b84a84bd4c9e25b1dc12b99b1ace0adf6f0a1bcd",
+      "files": 241,
+      "elapsedSeconds": 1530
+    },
+    {
+      "shard": 3,
+      "job": 116926308096,
+      "artifact": 12039954503,
+      "digest": "sha256:13665cc2026b8a46fc1b87641a966cc9aba8b401222205feb2024d781790dfa8",
+      "files": 241,
+      "elapsedSeconds": 864
+    },
+    {
+      "shard": 4,
+      "job": 116926308153,
+      "artifact": 12041250080,
+      "digest": "sha256:e91a2a5d8b3c2f03f580f7d4bbc33f791c1a4e90c82c2c30f1a2247c609e6071",
+      "files": 244,
+      "elapsedSeconds": 1013
+    }
+  ],
+  "units": "seconds",
+  "aggregation": "completed-file elapsed milliseconds / 1000; minimum positive weight 0.1s",
+  "missingWeightThresholdSeconds": 30
+}

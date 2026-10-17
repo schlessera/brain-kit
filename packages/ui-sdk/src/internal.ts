@@ -1,4 +1,7 @@
 /** First-party implementation sharing. No compatibility guarantee; use the same lockstep version. */
+export { prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "./server/worker-identity-reader.js";
+export { workerCleanupUnconfirmed, workerIdentityHelper } from "./server/worker-identity.js";
+export { verifiedWorkerIdentity } from "./server/worker-launcher.js";
 export { launchAgentWorker, launchLimits, requireWorkerHost, WorkerResourceLimitError, probeWorkerHost, workerHostBoundary, WorkerHostError, WORKER_SCRATCH, WORKER_STATE } from "./server/worker-launcher.js";
 export type { LaunchedWorker, WorkerLaunch, WorkerHostProbe, WorkerStateHandle } from "./server/worker-launcher.js";
 export { ARCHIVING_UPDATE_REASON, archivesDocument, bashCommand } from "./server/confirm-patterns.js";
@@ -16,6 +19,8 @@ export { execWrapperSpawnOptions } from "./server/exec-wrapper.js";
 export { assertScratchMask } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_DIR, WORKER_INFERENCE_SOCKET, MAX_INFERENCE_REQUEST_BYTES } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
+export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET } from "./server/egress-proxy.js";
+export type { EgressProxyOptions, EgressRecord } from "./server/egress-proxy.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox } from "./server/worker-launcher.js";
@@ -42,7 +47,7 @@ export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
 export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
-export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView } from "./server/worker-startup-view.js";
+export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";
@@ -75,3 +80,17 @@ export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutput
 
 export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
 export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";
+
+export { RTK_WORKER_ENV } from "./server/rtk.js";
+export { sessionPromptContext } from "./server/session-prompt-context.js";
+export type { SessionPromptFacts } from "./server/session-prompt-context.js";
+
+export { describeClient } from "./server/system-prompt.js";
+
+export { sessionReplay } from "./server/session-replay.js";
+export type { ReplayReceipt } from "./server/session-replay.js";
+
+export { promptPrefixFingerprint } from "./server/prompt-fingerprint.js";
+
+export { rewriteWorkerRtk } from "./server/worker-rtk.js";
+export { acquireHostCredentialExclusion, HostCredentialExclusionError, type HostCredentialDomain } from "./server/credential-exclusion.js";

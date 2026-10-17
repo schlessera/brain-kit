@@ -69,7 +69,7 @@ objects merge per field. No value grants authority to autonomous turns.
 | `egress` | `mode`: `record`/`allowlist`; `allow`, `deny`: string arrays; `max_bytes_per_turn`: nonnegative safe integer | `record`, empty lists and no byte cap by default. This reader does not establish network enforcement. |
 | `outward` | `allow`: array of `{ command: string, remotes: string[] }`; `hosts`: string array | Default empty additions to the existing outward-action rules and built-in destination list. Parsing grants no action. |
 | `taint` | `egress: { allow: string[] }` | Default empty additions; session-derived hosts/inference relay and taint enforcement remain their owning guardrail's responsibility. |
-| `providers` | Array of `{ paths: string[], allow: string[] }` | Default `[]`; path patterns and named providers are data for the routing guardrail. Parsing does not activate filtering or a relay. |
+| `providers` | Array of `{ paths?: string[], types?: string[], allow: string[] }` | Default `[]`. At least one selector is present. Paths use canonical brain-relative Bun glob patterns; types are exact runtime taxonomy names. Either selector matches; every matching rule must allow the actual recipient. Unknown recipients cannot authorize matching content. |
 
 The [budget](https://github.com/schlessera/brain-kit/issues/1669#issuecomment-6128541024)
 and [scope](https://github.com/schlessera/brain-kit/issues/1670#issuecomment-6128541457)
@@ -92,6 +92,66 @@ any valid file, they use built-in defaults with a null effective hash. A missing
 optional file selects defaults without an error. A running turn retains its
 captured identity; a later load cannot mutate it. Policy edits remain outside
 turns or use the separately approved proposal route, never a worker write.
+
+Literal recursive folder selectors such as `me/**` also retain folder topology
+for newly admitted hosted writers. The prefix must contain no glob operators;
+this step does not interpret exact document types or arbitrary glob selectors.
+A shared writer inherits the retained folder roots of active peers, even if a
+later policy removes them. A governed worker read-write binds each existing,
+unaliased root and every ancestor before its ordinary protected mounts. Files
+inside and permitted siblings stay writable; root and ancestor renames fail.
+Initial inspection of an absent, linked, special or unverifiable folder selects
+strict fallback without creating a placeholder. A changed inspected identity
+refuses launch. Folder mount qualification stays private to the resolver and binds
+the frozen layout to its exact brain identity; copied or caller-constructed
+layouts cannot authorize retained-folder mounts. The live governed launcher also
+checks each retained root/ancestor mount point and its exact inode in the
+authenticated worker namespace before opening the payload gate. A changed or
+unobservable view refuses launch. This requires host access to the held worker
+namespace; the current separate-UID broker only attests runtime-state/temp roots,
+so it cannot qualify retained provider folders. Such launches refuse until that
+concrete boundary is qualified; ordinary separate-UID launches without retained
+folders retain their existing behavior. Native output publication refuses staged removal/replacement of
+admitted roots or ancestors through strict-area, maintenance and local sync.
+
+Before admitting a governed live writer with retained folders, the gate refuses
+an active peer with an unaccounted plan or a plan missing a required root pin.
+A peer's descendant root also retains its ancestors; retaining an ancestor alone
+does not retain each child inside it. An unknown peer-plan checker refuses too.
+This check does not wait for or stop an older writer and does not block nested
+shared maintenance, explicitly strict turns or strict inspection fallback.
+
+The gate stores planned root sets, not proof of mounted namespace identities;
+legacy rows remain unaccounted. These primitives do not activate inference-worker
+routing, masks, filtered indexes or server-tool refusals. They do not establish
+that a pre-existing writer or a concurrent policy change is safe for a protected
+reader. A future privacy admission must qualify all those boundaries and refuse
+unsupported unsafe selectors. Arbitrary type/glob requirements remain open;
+folder retention cannot authorize protected data for an unknown recipient.
+
+Core indexing applies these selectors to embedding eligibility without removing
+keyword documents, chunks or links. A changed restriction reconciles existing
+vectors even without `--embeddings`; force rebuilds, cache reuse and asynchronous
+vector writes retain the same check. With provider rules present, hardlinked,
+symlinked, escaped or unreadable source paths cannot borrow an unrestricted
+spelling to authorize provider work. Keyword indexing remains available for
+these sources; coverage uses the eligible denominator.
+The concrete built-in Gemini embedding factory recognizes recipient `google`
+only when its actual installed SDK client resolves to the HTTPS Google
+Generative Language endpoint. Provider/model labels, custom implementations,
+Vertex/platform overrides and other endpoints do not establish that identity.
+A constructed client retains its resolved route when the ambient environment
+later changes; a new client is checked independently.
+
+An embedding recipient does not authorize a separate completion or vision
+provider. Matching documents use local summary/context fallback, and matching
+assets retain keyword placeholders or cached descriptions rather than sending
+bytes to an unproven enrichment route. An invalid policy leaves keyword indexing
+available, disables embedding/enrichment requests and reconciles all vectors as
+ineligible, with a named diagnostic. This does not redact text already copied
+into unrelated documents or establish worker, history or server-tool isolation.
+Policy check warns that affected turns lose Git history; the warning is not
+proof that worker masks or a relay are active.
 
 `brain policy check --json` is read-only, does not execute `brain.config.ts`,
 and reports the [documented envelope](integration-contract/cli.md#governance-policy-check-additive-1650).
@@ -146,6 +206,13 @@ all subject to the persistent activation gate.
 
 ## Environment inputs
 
+`BRAIN_UI_WORKER_IDENTITY_HELPER` is an optional trusted host input owned by
+the UI SDK. It names one absolute, root-owned executable implementing the
+[separate worker identity protocol](hosting/agent-workers.md#separate-worker-identity).
+It is not a repository setting, command prefix or per-turn environment grant.
+Omission retains shared UID with masks and an explicit exposure disclosure;
+configured helpers must pass the real identity/sentinel/positive-control probe.
+
 The package-owned references below contain the literal-variable inventory,
 meaning, omission behavior and conditional requirements. The inventory includes
 platform inputs and test controls so they can be classified rather than silently
@@ -159,7 +226,7 @@ promote ambient SDK variables to supported inputs.
 
 | Owner reference | Declared literal names |
 | --- | --- |
-| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
+| [core](../packages/core/README.md#environment) | `BRAIN_ROOT`, `BRAIN_STORAGE_GIT_ROOTS`, `BRAIN_RERANK_MODE`, `XDG_BIN_HOME`, `NO_COLOR`, `BRAIN_CHROME_NO_SANDBOX`, `BRAIN_UI_CHROME_NO_SANDBOX`, `CLAUDE_CODE_PATH`, `GEMINI_API_KEY`, `TYPESAFE_API_KEY`, `ANTHROPIC_API_KEY` |
 | [module-images](../packages/module-images/README.md#environment) | `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENAI_BASE_URL`, `GEMINI_BASE_URL` |
 | [module-jobs](../packages/module-jobs/README.md#environment) | `CHROME_CDP_URL` |
 | [scrape](../packages/scrape/README.md#configuration) | `SCRAPE_USER_AGENT`, `SCRAPE_CHROME_URL`, `SCRAPE_CHROME_PATH`, `SCRAPE_CHROME_NO_SANDBOX`, `SCRAPE_RESPECT_ROBOTS` |
@@ -296,3 +363,9 @@ reconstruct that state. UI operational storage likewise has its own backup and
 recovery requirements. Those schemas can remain internal while their state must
 be preserved. Canonical module Markdown, JSON settings and user-kept assets are
 never disposable merely because they are outside the core content index.
+
+## Diagram specs
+
+The enabled diagrams module accepts a versioned YAML `diagram` fence or
+standalone `.diagram.yaml` document. The [v1 spec and check contract](integration-contract/diagrams.md)
+owns its strict fields, family grammar, budgets, geometry validation and parse bounds.

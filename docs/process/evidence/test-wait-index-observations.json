@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "scope": "Two selected native CLI fixture waits; original execution/cleanup/coalescing assertions retained. Not an optimization or qualification of every worker capability.",
+  "sources": [
+    {
+      "file": "packages/ui-server/src/brain/client.ts",
+      "originalSha256": "46175af344d8e7ff5bb6b2a45bc01183481cffbacb3c579ab3d0fd357011b9e4",
+      "observedSha256": "3afc6d85b551875925827f1c3e9e7776a98f7755dd7847612a07975ee41ac26a"
+    },
+    {
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "originalSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+      "observedSha256": "eccbe872bb23ab2952b3ff7680df80e658fc211a9bd78c040633e6ab35c8213a"
+    },
+    {
+      "file": "packages/ui-server/tests/capture-outcome.test.ts",
+      "originalSha256": "bb46f4143c0f344685c22f92c8c02cddb792452c982778d60e242d2f04b88af6",
+      "observedSha256": "a4c0d61c5560516009c765872ec98d9068c7ef88e17e6d1744b3d01f1e8d3149"
+    }
+  ],
+  "harness": {
+    "runtime": "Bun 1.4.2 (744846f84), Linux x86_64",
+    "cwdClass": "Dedicated non-/tmp checkout at identical frozen source, with own dependencies.",
+    "offline": "Existing preload plus explicit ordinary-UID user/network namespace, loopback only, no external routes, capabilities dropped before command. Timed inside shared benchmark lock; shared host load uncontrolled.",
+    "observer": "Fixture timestamps around original await; one tagged line on existing stderr before original stdout. A synchronous observer in index logs only that line after original awaited execBrain result. Same result/error branch/promises, native handles, permissions/bindings, stdout, data log, coalesced responses, app close and writer-gate assertions; no additional await/timer/stream read. IO/console overhead explicit.",
+    "channel": "The existing index result already contains stderr; the success branch discards it and the failure branch retains it in the original error. Only a tagged diagnostic is logged after the original awaited result. No new FD, stream read, binding, permission or SSE traffic.",
+    "sourceIdentity": [
+      {
+        "file": 0,
+        "awaitCount": 18,
+        "matcherCount": 0,
+        "nameCount": 0,
+        "rawAwaitExpressionsChanged": 0,
+        "originalMatchersAndNamesIdentical": true,
+        "awaitsIdenticalAfterRemovingOnlyInjectedFixtureLiteralStatements": true
+      },
+      {
+        "file": 1,
+        "awaitCount": 39,
+        "matcherCount": 88,
+        "nameCount": 21,
+        "rawAwaitExpressionsChanged": 1,
+        "originalMatchersAndNamesIdentical": true,
+        "awaitsIdenticalAfterRemovingOnlyInjectedFixtureLiteralStatements": true
+      },
+      {
+        "file": 2,
+        "awaitCount": 7,
+        "matcherCount": 7,
+        "nameCount": 1,
+        "rawAwaitExpressionsChanged": 0,
+        "originalMatchersAndNamesIdentical": true,
+        "awaitsIdenticalAfterRemovingOnlyInjectedFixtureLiteralStatements": true
+      }
+    ]
+  },
+  "runs": [
+    {
+      "id": "deferred-refresh",
+      "sourceRow": 428,
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-server/tests/maintenance-startup-view.test.ts",
+        "--test-name-pattern",
+        "app close drains its real deferred maintenance refresh before closing the writer gate database"
+      ],
+      "command": "bun run test packages/ui-server/tests/maintenance-startup-view.test.ts --test-name-pattern 'app close drains its real deferred maintenance refresh before closing the writer gate database'",
+      "outcome": {
+        "pass": 1,
+        "fail": 0,
+        "expectCalls": 3,
+        "filtered": 25
+      },
+      "bodyMilliseconds": 1491.09,
+      "bunSeconds": 1.68,
+      "resources": {
+        "commandSeconds": 1.74,
+        "userSeconds": 0.53,
+        "systemSeconds": 0.17,
+        "maxRssKiB": 153092
+      },
+      "events": [
+        {
+          "delay": 700,
+          "elapsedMilliseconds": 700.876155
+        }
+      ]
+    },
+    {
+      "id": "capture-index",
+      "sourceRow": 357,
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-server/tests/capture-outcome.test.ts",
+        "--test-name-pattern",
+        "capture keeps partial success and retry runs only index through the actual CLI adapter"
+      ],
+      "command": "bun run test packages/ui-server/tests/capture-outcome.test.ts --test-name-pattern 'capture keeps partial success and retry runs only index through the actual CLI adapter'",
+      "outcome": {
+        "pass": 1,
+        "fail": 0,
+        "expectCalls": 9,
+        "filtered": 0
+      },
+      "bodyMilliseconds": 447.43,
+      "bunSeconds": 0.525,
+      "resources": {
+        "commandSeconds": 0.57,
+        "userSeconds": 0.25,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 79788
+      },
+      "events": [
+        {
+          "delay": 30,
+          "elapsedMilliseconds": 30.125981999999997
+        }
+      ]
+    }
+  ],
+  "qualificationLimit": {
+    "deferredRefresh": "App startup recorded EINVAL: invalid argument, fchown in the original version probe and governed-availability checks. The selected original native index/drain/writer-gate assertions passed. This receipt is not a passing governed-availability qualification, a repaired namespace harness or a full-file result.",
+    "captureIndex": "The original exact [add,index] operation log, three coalesced success responses, later index failure and successful retry assertions remain intact.",
+    "duration": "The 700 ms deferred-completion fixture and 30 ms overlap fixture are measured original awaited work. Their successful observed durations do not establish universal minimum windows or justify replacing native process/gate proof."
+  },
+  "rawSnapshotIndex": [
+    {
+      "receipt": "0.observed.ts",
+      "sha256": "3afc6d85b551875925827f1c3e9e7776a98f7755dd7847612a07975ee41ac26a",
+      "bytes": 19920
+    },
+    {
+      "receipt": "0.original.ts",
+      "sha256": "46175af344d8e7ff5bb6b2a45bc01183481cffbacb3c579ab3d0fd357011b9e4",
+      "bytes": 19806
+    },
+    {
+      "receipt": "1.observed.ts",
+      "sha256": "eccbe872bb23ab2952b3ff7680df80e658fc211a9bd78c040633e6ab35c8213a",
+      "bytes": 30502
+    },
+    {
+      "receipt": "1.original.ts",
+      "sha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+      "bytes": 30353
+    },
+    {
+      "receipt": "2.observed.ts",
+      "sha256": "a4c0d61c5560516009c765872ec98d9068c7ef88e17e6d1744b3d01f1e8d3149",
+      "bytes": 3010
+    },
+    {
+      "receipt": "2.original.ts",
+      "sha256": "bb46f4143c0f344685c22f92c8c02cddb792452c982778d60e242d2f04b88af6",
+      "bytes": 2862
+    },
+    {
+      "receipt": "ast-proof.json",
+      "sha256": "0c314e9b636086caa2b293b0d73a3c2be2710630f2ce643850d120d4b6441150",
+      "bytes": 754
+    },
+    {
+      "receipt": "capture-index.exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "capture-index.log",
+      "sha256": "060b2fcf1b78fc3b470bc89cd539893a9d8137ab6be37fe51687d4ae91237f5a",
+      "bytes": 595
+    },
+    {
+      "receipt": "capture-index.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "capture-index.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "capture-index.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "capture-index.time",
+      "sha256": "9c1bd426705bc2264bb22a118de620fedbf60e4e825f83dedb8bc5b6c3c697c7",
+      "bytes": 890
+    },
+    {
+      "receipt": "check.ts",
+      "sha256": "9853719d97a575c742c2f19375f6b064a313ff0baa31f6c42aa382dfd29d8dc2",
+      "bytes": 1776
+    },
+    {
+      "receipt": "deferred-refresh.exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "deferred-refresh.log",
+      "sha256": "c0ef05de3f31e430075e04d193c8c892d44570b5a5008d5e68053a05a6b088d0",
+      "bytes": 6162
+    },
+    {
+      "receipt": "deferred-refresh.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "deferred-refresh.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "deferred-refresh.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "deferred-refresh.time",
+      "sha256": "698dde3129cf00a9dc46d98f7e3583320b5972e31e4a5255d5cefa1b637c6013",
+      "bytes": 908
+    },
+    {
+      "receipt": "manifest.json",
+      "sha256": "660d135a02c870fbe3b64b368cd885d5930aee94f5615392ea77df6c7b964383",
+      "bytes": 1291
+    },
+    {
+      "receipt": "normalization.json",
+      "sha256": "1a20dbb934a38815eac53efbf427b4a596d1321645e8822695dd2e1c33f374f4",
+      "bytes": 599
+    },
+    {
+      "receipt": "restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    }
+  ],
+  "restored": true
+}

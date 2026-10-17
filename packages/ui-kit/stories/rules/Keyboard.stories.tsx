@@ -188,7 +188,11 @@ export const TheWholeTable = meta.story({
       // the two selectors together — because a switch is a small control that
       // has room around it. It carries its own class only because its HIT
       // EXPANSION differs, not its ring.
-      if (classes.includes("bk-control") || classes.includes("bk-switch")) {
+      // Clipped control strips use the inside offset while keeping control
+      // hover/pressed behavior. Their corner pixels are covered by focus frames.
+      if (stop.classList.contains("bk-control-inset")) {
+        await expect({ el: shape(stop), ...ring(stop) }).toEqual({ el: shape(stop), ...CONTROL_RING, offset: "-2px" });
+      } else if (classes.includes("bk-control") || classes.includes("bk-switch")) {
         await expect({ el: shape(stop), ...ring(stop) }).toEqual({ el: shape(stop), ...CONTROL_RING });
       } else if (classes.includes("bk-row")) {
         await expect({ el: shape(stop), ...ring(stop) }).toEqual({ el: shape(stop), ...ROW_RING });

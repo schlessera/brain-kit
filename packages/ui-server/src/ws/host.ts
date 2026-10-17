@@ -18,9 +18,10 @@ import type { Principal } from "../db/principals.js";
 import type { createInboxBridgeTools } from "../inbox/bridge-tools.js";
 import type { InboxStream } from "../inbox/stream.js";
 import type { DraftStore } from "../drafts/store.js";
+import { stripLegacyBudgetNotes } from "./legacy-budget-notes.js";
 import { spliceLocalExchanges, stripLocalContext } from "./local-exchanges.js";
 import { FailureReplay } from "./turn-failures.js";
-import type { LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
+import type { AgentBackend, LiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertLiveConversationProvider } from "@schlessera/brain-ui-sdk/server";
 import { ConversationHost } from "./conversation.js";
@@ -318,6 +319,8 @@ export class WsHost {
     ReturnType<Observability["meter"]>["createCounter"]
   >;
   private readonly authorizationExpiryTimer: ReturnType<typeof setInterval>;
+  /** Only outstanding reads are retained; no transcript or per-session cache. */
+  private readonly historyReads = new Set<{ sessionId: string; changed: boolean; resultTurnId?: string }>();
 
   constructor(options: WsHostOptions) {
     this.journal = options.journal;
@@ -490,6 +493,66 @@ export class WsHost {
   }
 
   /**
+   * Publish a history only if no turn started or ended while it was read.
+   * A backend may sample before awaiting, so delivery time cannot establish
+   * freshness (#1917). Retry one overlapping read; continued change reports
+   * the ordinary load error instead of replacing newly delivered messages.
+   * `publish` runs synchronously under the check, including the replay's
+   * final status: returning the messages would open another async race.
+   * @internal Shared by explicit resume and snapshot-on-connect.
+   */
+  async publishHistory(
+    sessionId: string,
+    backend: AgentBackend,
+    authorized: () => boolean,
+    publish: (messages: SessionHistoryMessage[]) => void,
+  ): Promise<boolean> {
+    const turn = this.coordinator.bySession.get(sessionId);
+    const read = { sessionId, changed: false, resultTurnId: turn?.lastResult ? turn.turnId : undefined };
+    this.historyReads.add(read);
+    const attempt = async (): Promise<"published" | "changed" | "unauthorized"> => {
+      await this.failureReplay.wait(sessionId);
+      if (!authorized()) return "unauthorized";
+      // Changes before sampling are already part of this attempt's history.
+      read.changed = false;
+      const messages = await backend.getHistory(sessionId);
+      if (!authorized()) return "unauthorized";
+      await this.failureReplay.wait(sessionId);
+      if (!authorized()) return "unauthorized";
+      if (read.changed) return "changed";
+      publish(messages);
+      return "published";
+    };
+    try {
+      const first = await attempt();
+      if (first !== "changed") return first === "published";
+      const second = await attempt();
+      if (second === "changed") throw new Error("Session changed while its history was loading. Try again.");
+      return second === "published";
+    } finally {
+      this.historyReads.delete(read);
+    }
+  }
+
+  /** Live transcript transitions invalidate only reads of their own session. */
+  private observeHistoryProgress(msg: ServerMessage): void {
+    const terminal = msg.type === "result" || (msg.type === "status" && (msg.status === "idle" || msg.status === "cancelled"));
+    if (!terminal && msg.type !== "session_info" && !(msg.type === "session_queue" && msg.started)) return;
+    const sessionId = "sessionId" in msg ? msg.sessionId : undefined;
+    if (!sessionId) return;
+    const turnId = "turnId" in msg ? msg.turnId : undefined;
+    for (const read of this.historyReads) {
+      if (read.sessionId !== sessionId) continue;
+      // The backend result and host cleanup report the same terminal. The
+      // latter must not invalidate a reread begun after the former. A
+      // cancelled status can precede its result, which still invalidates.
+      if (msg.type === "status" && terminal && turnId && read.resultTurnId === turnId) continue;
+      read.changed = true;
+      if (msg.type === "result") read.resultTurnId = turnId;
+    }
+  }
+
+  /**
    * Replayed history as the host sends it: each observed turn's id on the
    * answer that ended it (#964), the context blocks of locally
    * answered commands stripped from the prompts that carried them, each user
@@ -508,7 +571,7 @@ export class WsHost {
     messages = this.policyProposals?.attachHistory(sessionId, messages) ?? messages;
     messages = this.catalog.attachTurnFailures?.(sessionId, messages) ?? messages;
     const exchanges = this.catalog.loadLocalExchanges?.(sessionId) ?? [];
-    const { messages: stripped, carriers } = stripLocalContext(messages, exchanges);
+    const { messages: stripped, carriers } = stripLocalContext(stripLegacyBudgetNotes(messages), exchanges);
     const withSources = this.catalog.attachMessageSources?.(sessionId, stripped) ?? stripped;
     const joined = spliceLocalExchanges(this.attachMessageBlocks(sessionId, withSources), exchanges, carriers);
     return this.catalog.attachRetryRequest?.(sessionId, joined) ?? joined;
@@ -573,6 +636,7 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   sendToClients(msg: ServerMessage): void {
+    this.observeHistoryProgress(msg);
     this.clients.broadcast(msg, () => {
       // Outbound counterpart of reportDroppedFrame: the peer never saw this
       // frame. Counted only — a dead socket would otherwise WARN per frame
@@ -614,6 +678,7 @@ export class WsHost {
    * @internal Host wiring (#1053).
    */
   sendToCapable(capability: string, msg: ServerMessage): void {
+    this.observeHistoryProgress(msg);
     this.clients.broadcast(
       msg,
       () => {

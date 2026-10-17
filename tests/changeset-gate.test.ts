@@ -12,6 +12,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { contributedChangesets, judge, shippedRoots } from "../scripts/check-changeset.ts";
 import { join, resolve } from "path";
 
@@ -123,5 +125,60 @@ describe("contributedChangesets", () => {
     expect(contributedChangesets(stub, "base")).toEqual([
       ".changeset/pending.md",
     ]);
+  });
+});
+
+/** A real synthetic merge: main retains pending work while the release advances source. */
+function mergeHistory(mode: "consumed" | "edited" | "absent", check: (git: (args: string[]) => string[], base: string) => void) {
+  const cwd = mkdtempSync(join(tmpdir(), "odysseus-changeset-history-"));
+  const git = (args: string[]) => {
+    const child = Bun.spawnSync(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], {
+      cwd, env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_AUTHOR_DATE: "2026-07-12T00:00:00Z", GIT_COMMITTER_DATE: "2026-07-12T00:00:00Z" }, stdout: "pipe", stderr: "pipe",
+    });
+    if (child.exitCode !== 0) throw new Error(child.stderr.toString());
+    return child.stdout.toString().trim().split("\n").filter(Boolean);
+  };
+  const commit = (message: string) => { git(["add", "."]); git(["commit", "-qm", message]); };
+  const changeset = "---\n\"@schlessera/brain\": patch\n---\n\nOdysseus prepares the raft.\n";
+  try {
+    git(["init", "-q", "--template=", "-b", "main"]);
+    git(["config", "user.name", "Odysseus"]); git(["config", "user.email", "odysseus@example.invalid"]);
+    mkdirSync(join(cwd, ".changeset")); mkdirSync(join(cwd, "packages/core/src"), { recursive: true });
+    writeFileSync(join(cwd, ".changeset/inherited.md"), changeset);
+    writeFileSync(join(cwd, "packages/core/src/index.ts"), 'export const voyage = "outbound";\n'); commit("Begin voyage");
+    git(["checkout", "-qb", "release"]);
+    writeFileSync(join(cwd, "packages/core/src/index.ts"), 'export const voyage = "Ithaca";\n');
+    if (mode === "consumed") writeFileSync(join(cwd, ".changeset/raft-repair.md"), changeset);
+    if (mode === "edited") writeFileSync(join(cwd, ".changeset/inherited.md"), changeset + "Athena checks the rope.\n");
+    commit("Repair raft");
+    if (mode === "consumed") {
+      rmSync(join(cwd, ".changeset/raft-repair.md"));
+      writeFileSync(join(cwd, "packages/core/CHANGELOG.md"), "## 0.43.1\n\nOdysseus prepares the raft.\n"); commit("Version repair");
+    }
+    git(["checkout", "-q", "main"]);
+    writeFileSync(join(cwd, ".changeset/future.md"), changeset); commit("Plan next voyage");
+    const base = git(["rev-parse", "HEAD"])[0]!;
+    git(["merge", "--no-ff", "--no-edit", "release"]);
+    expect(git(["show", "-s", "--format=%P", "HEAD"])[0]!.split(" ")).toHaveLength(2);
+    check(git, base);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+}
+
+test("a consumed release-side changeset contributes through a real merge", () => {
+  mergeHistory("consumed", (git, base) => {
+    const added = contributedChangesets(git, base);
+    expect(added, "MERGED_CONSUMED_CHANGESET_CONTRIBUTED").toEqual([".changeset/raft-repair.md"]);
+    const verdict = judge(git(["diff", "--name-only", `${base}...HEAD`]), added, shipped);
+    expect(verdict.release).toBe(false);
+    expect(verdict.ok).toBe(true);
+  });
+});
+
+for (const mode of ["edited", "absent"] as const) test(`${mode} merge-side changesets do not excuse an uncontributed source change`, () => {
+  mergeHistory(mode, (git, base) => {
+    const added = contributedChangesets(git, base);
+    expect(added, "MERGED_EXISTING_CHANGESET_NOT_CONTRIBUTED").toEqual([]);
+    expect(judge(git(["diff", "--name-only", `${base}...HEAD`]), added, shipped).ok, "MERGED_UNCONTRIBUTED_SOURCE_REFUSED").toBe(false);
   });
 });

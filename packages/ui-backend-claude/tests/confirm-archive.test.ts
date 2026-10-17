@@ -24,7 +24,11 @@ import type {
 } from "@schlessera/brain-ui-sdk/server";
 
 import { createClaudeBackend } from "../src/backend";
-import { BRAIN_UPDATE_TOOL, MUTATING_TOOL_MATCHER } from "../src/tool-policy";
+import { MUTATING_TOOL_MATCHER } from "../src/tool-policy";
+
+// This is the legacy MCP permission gate. Hosted applications own their
+// exact operation approvals in the server; missing hosted routes fail closed.
+const BRAIN_UPDATE_TOOL = "mcp__brain__brain_update";
 
 const init = {
   type: "system",

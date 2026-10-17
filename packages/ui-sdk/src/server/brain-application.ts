@@ -25,6 +25,8 @@ export type BrainApplicationInput = z.infer<typeof brainApplicationInput>;
 export type BrainApplicationOperation = BrainApplicationInput["operation"];
 export interface BrainApplicationResult {
   ok: boolean;
+  /** Host receipt for this bound share only; never grants application authority. */
+  shareReceiptId?: string;
   code?: string;
   message: string;
   /** Only effects actually committed to authoritative Markdown or PNG masks. */

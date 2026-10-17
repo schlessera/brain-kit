@@ -9,7 +9,7 @@ import { replaceNativeStartupAcquisitionForFixture } from "../helpers/fixture-na
 const [root, principalId, itemId, ready, nativeConfig] = process.argv.slice(2);
 const db = createUiDb(`${root}/../ui.sqlite`);
 replaceNativeStartupAcquisitionForFixture();
-const boundary = createHostBoundary({ brainPath: root!, exec: {}, nativeManager: createNativeBrainManagerClient(JSON.parse(nativeConfig!)) });
+const boundary = createHostBoundary({ brainPath: root!, dbPath: `${root}/../ui.sqlite`, exec: {}, nativeManager: createNativeBrainManagerClient(JSON.parse(nativeConfig!)) });
 const review = createHygieneReview(db, { brain: createBrainClient({ brainPath: root!, exec: {}, boundary }) });
 const original = InboxStore.prototype.commit;
 InboxStore.prototype.commit = function(mutations) {

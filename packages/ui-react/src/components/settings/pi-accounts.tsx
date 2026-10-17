@@ -11,12 +11,12 @@ import { AccountsList } from "./pi-accounts-list.js";
  * verification page on ANY device, and the server stores the credential.
  *
  * Renders nothing when the server reports no pi providers (pi not
- * configured), so the Models tab is unchanged for Claude-only deployments.
+ * configured), so Accounts can show its combined empty state.
  *
  * This is the container (S7): the request, the flow and its polling, the
  * cancel and the disconnect live here; `AccountsList` draws the rows.
  */
-export function PiAccountsSection({ active }: { active: boolean }) {
+export function PiAccountsSection({ active, onPresence }: { active: boolean; onPresence?: (present: boolean | null) => void }) {
   const root = useBrainUiRoot();
   const api = root.api;
   const lifetime = useRef(0);
@@ -47,25 +47,26 @@ export function PiAccountsSection({ active }: { active: boolean }) {
     const current = () => generation === lifetime.current && request === listRequest.current;
     try {
       const { providers } = await api.piAuthProviders();
-      if (current()) setProviders(providers);
+      if (current()) { setProviders(providers); onPresence?.(providers.length > 0); }
     } catch (err) {
       if (!current()) return;
       // Older servers without this endpoint simply hide the initial card.
-      if (quiet) setProviders([]);
+      if (quiet) { setProviders([]); onPresence?.(false); }
       else setError(err instanceof Error ? err.message : "Could not load accounts");
     }
-  }, [api]);
+  }, [api, onPresence]);
 
   useEffect(() => {
     lifetime.current++;
     setProviders([]);
+    onPresence?.(null);
     setError(null);
     setBusy(null);
     setFlow(null);
     if (active) void reload(true);
     const invalidate = () => { lifetime.current++; };
     return invalidate;
-  }, [active, root, reload, setFlow]);
+  }, [active, root, reload, setFlow, onPresence]);
 
   // Poll the pending flow until it settles. Chained timeouts rather than an
   // interval, so a slow response never stacks requests.

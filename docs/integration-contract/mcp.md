@@ -66,8 +66,14 @@ Hosted turns route authoritative Markdown through the server-owned application
 boundary. Standalone terminal `brain mcp` names and schemas above are unchanged.
 Claude registers the tools below under `mcp__brain-ui__`; pi uses the unprefixed
 names. Hosted Claude disallows project `mcp__brain__brain_add`,
-`mcp__brain__brain_update` and `mcp__brain__brain_archive`, plus built-in raw
-writers; its server tools apply the validated effects instead.
+`mcp__brain__brain_update` and `mcp__brain__brain_archive`.
+Hosted interactive Claude keeps native `Write`/`Edit`/`NotebookEdit` registered
+across governed, strict and voice turns. Governed typed natives are auto-allowed
+when configured, under existing stale-read, write-lock, journaling and protected
+mount controls. Strict and voice native calls refuse at call time before
+execution or an approval card, including with settings or remembered allows;
+server application tools retain their existing per-turn authority. Autonomous
+registration and authority are unchanged (#2022, #2048 A).
 
 | Tool | Exact input (unknown keys refuse) |
 | --- | --- |
@@ -152,7 +158,11 @@ results through its existing tool-error path.
 
 CLI commands encountering `EROFS` exit 2. On Linux, known write forms also
 refuse a read-only brain mount before entering handlers which collect per-file
-errors; dry-run forms and read-only commands remain available. Machine mode emits
+errors; dry-run forms and read-only commands remain available. Since #2038,
+`brain render` checks that its input is inside the brain and exists before this
+refusal: an outside or missing input is a usage error (exit 1), even on a
+read-only brain. Stdin (`-`) and reference forms have no input path to check.
+Other commands retain their existing error precedence. Machine mode emits
 `{ schema_version: 1, ok: false, error: { code: "read_only_brain", message: string,
 tool: string } }`. The message states that the brain is read-only here and names
 `brain_add`, `brain_archive`, or `apply_staged_changes` for the corresponding
@@ -163,7 +173,9 @@ directory a command writes: `brain scratch` and a `brain render` sent to
 which a hosted worker binds writable, so they run there. For `brain render`
 and `brain image` into the read-only brain the message names `--scratch` as
 the route and says to link the printed path; when `.brain/scratch/` is
-read-only as well it says nothing written now is kept. For `brain scratch` it
+read-only as well it states that condition, points to the sandbox note for the
+reason, and says nothing written now is kept; it does not guess the host's
+mount reason. For `brain scratch` it
 says the scratch area is read-only and nothing was removed. Nothing is staged or replayed;
 read-only commands continue to work. Writable index connections retain SQLite WAL
 sidecars after clean close, so a read-only mount can read the checkpointed index
@@ -209,6 +221,25 @@ The Markdown byte cap and supported file kinds above remain unchanged.
 
 ### Chat-UI in-process tools (`mcp__brain-ui__*`)
 
+**Interactive roster stability (#2048).** Each backend offers its complete
+first-party deployment tool roster in deterministic order on every interactive
+turn, including voice-first sessions. A temporary missing handler, no-grant
+surface or strict sandbox fallback does not remove tools, schemas or descriptions.
+Registration grants no authority. Unavailable bridge calls return a model-readable
+refusal before opening a permission card or invoking the privileged handler;
+voice and no-grant turns refuse visual pickers, image masks, policy proposals and
+inbox mutations. Claude keeps native `Write`, `Edit` and `NotebookEdit` registered
+and refuses them at call time on strict/voice turns, including settings or
+remembered allows. Governed typed calls retain their stale-read and write-lock
+checks. Pi still rejects voice dispatch before a provider request: the stable
+roster does not add a voice posture. Restricted autonomous rosters remain exact
+server authority and are outside this interactive stability rule. Existing tool
+names, inputs and result shapes are unchanged. Hosted legacy project-MCP
+shadowing uses the session-stable trusted
+`StartTurnRequest.applicationAuthority: "server"` declaration even when its
+route handler is absent; direct unhosted consumers retain their legacy tools.
+See [the package API](package-api.md#stable-hosted-application-roster-2048).
+
 The chat-UI backends register an in-process MCP server under the `brain-ui`
 key; its tool names are equally stable. `ask_user`, `ask_user_form` (additive in 0.40.0), `ask_user_rank` (additive in 0.40.0), `ask_user_list` (additive
 in 0.40.0), `get_current_location` and `request_image_mask` bridge to the
@@ -219,16 +250,22 @@ connected browser. `query_activity`
 The `roadblocks` scope reads retained governance episodes rather than prunable
 Activity details. Optional `hoursBack` is an integer from 1 to 2160 (default
 24), and `limit` is an integer from 1 to 100 (default 20), applied separately
-to each ranking after all episodes in the window have been aggregated. The
+to each ranking after selected episodes in the window have been aggregated.
+Optional `remedy` is `actionable` (default), `all`, `guidance`, `capability`, or
+`abandoned` (#2034). Actionable excludes abandoned episodes before aggregation,
+rankings, totals and examples; all includes them, and a named remedy selects
+only that class. Abandoned indicates one unresolved failure with no retry and
+an eligible later successful step; it does not prove intent was satisfied. The
 result has `windowHours`, `episodes` (valid episodes), `totalGroups`,
 `unavailableEpisodes` (unsupported versions or invalid stored payloads), and
 four arrays of groups: `byCount`, `byTokens`, `byCostUsd`, `byTime`.
 
 Each group has the classifier's normalized `signature`, episode `count`,
-`remedies: { guidance, capability }` counts, `resolved` count,
+`remedies: { guidance, capability, abandoned }` counts, `resolved` count,
 `resolutionRate` (resolved/count), `waste: { tokens, costUsd, ms,
 unknownTokens, unknownCostUsd }`, and up to five distinct `exampleTurnIds`
-in event-id order. Mixed remedy counts retain both classes. Waste totals sum
+in event-id order. Mixed remedy counts retain all selected classes. Historical version-1 evidence
+is read as recorded, without synthesizing abandoned classifications. Waste totals sum
 measured values only; tokens/cost remain `null` when none were measured, and
 the unknown counts disclose incomplete coverage. A genuine measured zero is
 zero. Rankings descend by their named metric; unknown totals follow measured
@@ -731,8 +768,8 @@ initialization/migration as the CLI. Annotations are `readOnlyHint: true` and
 
 ## Durable inbox bridge tools (additive, #685)
 
-Both first-party backends attach `inbox_list`, `inbox_get`, `inbox_add` and
-`resolve_action` to their existing UI bridge. Claude names them
+Both first-party backends attach `inbox_list`, `inbox_get`, `inbox_add`,
+`resolve_action` and `complete_share` to their existing UI bridge. Claude names them
 `mcp__brain-ui__<name>` and loads their schemas and executors eagerly; pi
 attaches plain names to its session toolkit. Shared contracts are exported
 from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
@@ -743,6 +780,7 @@ from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
 | `inbox_get` | `itemId` | `{ item, thread }` |
 | `inbox_add` | `text` (1–32000 characters); `idempotencyKey` | `{ created, threadId, itemId }` |
 | `resolve_action` | `sessionId`, `itemId`, `optionId`, positive integer `expectedVersion` | `{ replay, followUpId? }` |
+| `complete_share` | `receiptIds` (1–32 distinct IDs); `files` (0–10 exact original dispositions) | `{ itemId, status: "done", replay }` |
 
 IDs and keys are nonempty strings of at most 256 characters. Inputs are strict
 objects; origin, principal, trust, policy and effects are never tool arguments.
@@ -769,6 +807,62 @@ binding: ordinary and autonomous sessions refuse `resolve_action`. Deferred
 `open_session`/`write_policy` and hygiene's separate UI preview are unavailable
 through this tool. A future bound flow must supply an explicit exact approval;
 the tool name or an extra permission tap alone cannot establish that binding.
+
+### Interactive share completion (additive, #1764)
+
+The confirmed client sends the intake's UUID as `chat_message.shareId`, outside
+the quoted prompt. The host matches the immutable authenticated intake principal
+and share provenance, claims the original triage item using its existing
+version/attempt/lease lifecycle, and persists the resulting session binding.
+It accepts no model-selected item ID, trust class or operation grant. Racing
+owners refuse. A repeated confirmed intake resumes its server-selected existing
+session; a caller asking for a different session refuses. Recovery uses that
+same session and item. A share whose start ended before a
+session was named can start again after lease recovery.
+
+The device retains its confirmed review until the matching `requestId` receives
+`session_info`, after the durable binding exists. Refused sends, disconnects
+and unconfirmed admission retain the copy. Repeated authenticated
+`POST /api/share` returns optional `ShareIntakeResult.filingSessionId` only to
+the original intake principal when a bound session exists. The client opens
+that session for recovery without dispatching another filing turn, including
+a lost acknowledgement or reload after partial or completed filing. This is
+read-only recovery, not authority to complete the item or apply content.
+
+For a bound session, successful authoritative applications return an optional
+`BrainApplicationResult.shareReceiptId`. Each receipt belongs to the source
+item and records actual document paths and hashes. An intake admits at most
+32 bounded application records; reaching that limit refuses additional filing. Equivalent validated
+application effects replay their original result without applying again, including
+a freshly read base hash after a lost response. A proven no-effect failure may
+retry only under a fresh bounded server claim, with current operation authority
+and approvals; repeated delivery within one claim keeps its original refusal. An
+interrupted application with an uncertain result refuses replay and preserves
+originals for inspection; it never guesses success or retries the side effect.
+
+`complete_share` takes no session or item ID. The server selects both from the
+live bridge, rechecks principal/turn authority and verifies each receipt against
+current authoritative document bytes. The filed Markdown must include
+`<!-- share-source:INTAKE_UUID -->`, identifying the source association; this
+marker alone cannot create a receipt or grant authority. Unrelated or forged
+receipts, destructive effects, changed documents and incomplete intake refuse.
+
+Each original requires exactly one strict disposition object. Retention uses
+`{ sourcePath, disposition: "retained", path }`: `path` must be an ordinary
+`assets/` file with the original intake hash and a Markdown link in a filed
+document. Discard uses `{ sourcePath, disposition: "discarded", reason }`, with
+a nonempty reason capped at 1000 characters, and requires the existing exact
+interactive approval. Missing files, aliases, changed originals and unsupported
+retention refuse. The operation promotes no binary and grants no new writer.
+
+Completion atomically records the exact request and transitions the owned item
+to `done` once. Replaying that request returns `replay: true`; a changed replay
+refuses. Later ordinary work in the same chat remains available. Partial or
+cancelled filing retains originals and durable replay restrictions, and a
+dispatcher cannot acquire the bound item. Cleanup is journaled only after
+verified completion and live worker unwind, then retried through the existing
+compensation lifecycle. The path also works with dispatch disabled. Voice,
+restricted and unbound sessions cannot complete interactive shares.
 
 ## Hosted policy proposal (additive, #1662)
 

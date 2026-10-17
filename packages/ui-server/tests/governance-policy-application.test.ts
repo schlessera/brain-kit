@@ -145,7 +145,7 @@ test("an allowed scratch mask's actual cleanup retains protected files and direc
   writeFileSync(join(root, imagePath), png); writeFileSync(join(root, protectedPath), png);
   utimesSync(join(root, protectedPath), new Date(0), new Date(0));
   const scratchView = createFixtureWorkerStartupView(root);
-  const apply = createMaskApplication({ maintenance: { startupView: scratchView }, root, principalId: "odysseus", turnId: "protected-cleanup", signal: new AbortController().signal,
+  const apply = createMaskApplication({ maintenance: { startupView: scratchView, tempDomain: { statePath: join(scratchView.storage.root, "maintenance-state.db") } }, root, principalId: "odysseus", turnId: "protected-cleanup", signal: new AbortController().signal,
     protectedPaths: [".brain/scratch/kept", ".brain/scratch/empty", ".brain/scratch/anchor/future.png"], lock: createKeyedLock(), isAuthorized: () => true, isAvailable: () => true, record() {} });
   try {
     const result = await apply({ principalId: "odysseus", turnId: "protected-cleanup", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });

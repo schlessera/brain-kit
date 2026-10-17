@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useId, useMemo, useRef } from "react";
 import type { GraphNodePayload } from "@schlessera/brain-ui-sdk/protocol";
 import {
   ContactCard,
   Label,
   RelatedFiles,
+  TextButton,
   type ContactAction,
   type ContactFact,
   type ContactKind,
@@ -79,8 +80,12 @@ function SelectedNode({ node }: { node: GraphNodePayload }) {
     cardActions.push({ label: "Open note", icon: "file", tone: "primary", onClick: actions.open });
   if (actions.canFocus)
     cardActions.push({ label: "Focus here", icon: "graph", tone: "ghost", onClick: actions.focus });
+  const expansionReasonId = useId();
+  const detailsHost = useRef<HTMLDivElement>(null);
   if (actions.canExpand)
-    cardActions.push({ label: "Expand", icon: "expand", tone: "ghost", onClick: actions.expand });
+    cardActions.push({ label: actions.expandLabel, icon: "expand", tone: "ghost", onClick: actions.expand,
+      disabled: actions.expandDisabled, ariaDisabled: actions.expandLoading, loading: actions.expandLoading,
+      ariaLabel: actions.expandName, ariaDescribedBy: actions.expandReason ? expansionReasonId : undefined });
 
   const neighbours = useMemo(() => {
     const byId = new Map(subgraph.nodes.map((n) => [n.id, n]));
@@ -102,7 +107,7 @@ function SelectedNode({ node }: { node: GraphNodePayload }) {
 
   return (
     <>
-      <ContactCard
+      <div ref={detailsHost} data-discovery-node-details=""><ContactCard
         label={node.title || node.path}
         role={`${kindLabel} · ${node.path}`}
         kind={entity.kind}
@@ -111,6 +116,13 @@ function SelectedNode({ node }: { node: GraphNodePayload }) {
         actions={cardActions}
         keyWidth={72}
       />
+      {actions.canExpand && actions.expandReason && <p id={expansionReasonId} className="text-xs text-muted-foreground">
+        {actions.expandReason}{actions.expandError && <TextButton label={actions.expandNeedsRefresh ? "Refresh graph" : "Retry"} ariaLabel={actions.expandNeedsRefresh ? `Refresh graph before expanding ${node.title || node.path}` : `Retry expanding ${node.title || node.path}`} tone="meta" inline style={{ marginLeft: 8 }} onClick={() => {
+          [...detailsHost.current!.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.getAttribute("aria-label") === actions.expandName)?.focus();
+          actions.retry();
+        }} />}
+      </p>}
+      </div>
       {neighbours.length > 0 && (
         <>
           <Label text="Edges" icon="files" tone="teal" meta={`${neighbours.length} drawn`} />

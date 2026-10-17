@@ -10,6 +10,7 @@
  */
 
 import { join } from "path";
+import { validateRenderInput } from "./commands/render.js";
 import { isReadOnlyBrainMount, readOnlyBrainError, writeTarget } from "./read-only.js";
 import { Console } from "node:console";
 
@@ -126,6 +127,14 @@ async function main(): Promise<number> {
   const json = computeJson(argv);
   const { command, wantsHelp } = scanCliArgs(argv);
 
+  // Storage observes host-selected roots without executing repository config.
+  if (command === "storage") {
+    const { storageCommand, runStorageInventory } = await import("./commands/storage.js");
+    if (wantsHelp) { console.log(storageCommand.helpBlock); return 0; }
+    await runStorageInventory(argv.slice(1), json);
+    return 0;
+  }
+
   // Policy is host-parsed data, never a reason to evaluate repository code.
   if (command === "policy") {
     const brain = degradedContext();
@@ -210,6 +219,9 @@ async function main(): Promise<number> {
     );
     return 1;
   }
+
+  // Render source mistakes must reach the caller before a sandbox refusal.
+  if (command === "render") validateRenderInput(argv.slice(1), brain.root);
 
   // Refuse known write forms before handlers which intentionally collect
   // per-file errors; those loops cannot surface EROFS to main's catch.

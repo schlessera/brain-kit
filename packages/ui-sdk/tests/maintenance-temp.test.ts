@@ -21,7 +21,7 @@ afterEach(() => { for (const cleanup of viewCleanups.splice(0)) cleanup(); while
 function fixture() {
   const root = mkdtempSync(join(ROOT, "tmp/maintenance-temp-")); roots.push(root);
   const brain = join(root, "brain"); const home = join(root, "home");
-  mkdirSync(brain); mkdirSync(home);
+  mkdirSync(brain); mkdirSync(home); mkdirSync(join(root, "state"));
   writeFileSync(join(home, ".gitconfig"), "[user]\nname = Penelope\n");
   writeFileSync(join(brain, "harbour.md"), "Odysseus surveys Ithaca.\n");
   const startupView = createFixtureWorkerStartupView(brain); viewCleanups.push(startupView.cleanup);
@@ -41,7 +41,7 @@ test("maintenance temporary writes share one actual filesystem allowance, with n
     const refused = [process.env.HOME+"/escape", "/run/escape", "/dev/escape", "/dev/shm/escape"].map(path => { try { fs.writeFileSync(path,"escape"); return null; } catch(e) { return e.code; } });
     console.log(JSON.stringify({topology,results,refused,config:fs.readFileSync(process.env.HOME+"/.gitconfig","utf8")}));
   `;
-  const result = await runMaintenanceWorker({ brainPath: f.brain, startupView: f.startupView, command: [realpathSync(process.execPath), "-e", program],
+  const result = await runMaintenanceWorker({ brainPath: f.brain, tempDomain: { statePath: join(f.root, "state/ui.db") }, startupView: f.startupView, command: [realpathSync(process.execPath), "-e", program],
     env: { PATH: "/usr/bin:/bin", HOME: f.home, XDG_CONFIG_HOME:"/tmp/brain-worker-home/config", XDG_CACHE_HOME:"/tmp/brain-worker-home/cache",
       XDG_DATA_HOME:"/tmp/brain-worker-home/data", XDG_STATE_HOME:"/tmp/brain-maintenance-state" }, home: f.home, credentials: true, network: false,
     tempLimits: { allowanceBytes, budgetBytes: 256 * 1024 * 1024 }, timeoutMs: 10_000 });
@@ -110,7 +110,7 @@ test("trusted transport temporary writes are bounded while mirror writes retain 
     fs.writeFileSync("transport-output","Penelope receives the objects.");
     console.log(JSON.stringify({overflow,refused}));
   `;
-  const result = await runMaintenanceWorker({brainPath:f.brain,command:[realpathSync(process.execPath),"-e",program],
+  const result = await runMaintenanceWorker({brainPath:f.brain,tempDomain:{statePath:join(f.root,"state/ui.db")},command:[realpathSync(process.execPath),"-e",program],
     env:{PATH:"/usr/bin:/bin",HOME:"/tmp/brain-worker-home"},credentials:true,
     transport:{mirror,readPaths:[realpathSync(process.execPath)]},tempLimits:{allowanceBytes,budgetBytes:268435456},timeoutMs:10_000});
   expect(result.exitCode,result.stderr).toBe(0);

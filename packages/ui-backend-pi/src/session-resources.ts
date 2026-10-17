@@ -1,4 +1,5 @@
 import {
+  DefaultPackageManager,
   DefaultResourceLoader,
   SettingsManager,
   getAgentDir,
@@ -33,12 +34,17 @@ export function createSessionResources(options: {
   confirmPatterns: readonly RegExp[];
   loadExtensions: boolean;
   settingsSnapshot?: string;
+  /** Per-turn workers consume prepared packages; installation belongs to setup. */
+  requireInstalledPackages?: boolean;
   permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
   shellCwd?: string;
   directWrites?: boolean;
   nativeFileObservation?: import("./tools.js").BrainToolDeps["nativeFileObservation"];
   /** The worker's sandbox note, rendered by the server from its resolved mounts (#1626). */
   sandboxNote?: string;
+  /** Host-owned session snapshot, read-only in this worker. */
+  fixedAppend?: string;
+  observeAppend?: (append: string) => void;
 }) {
   const { backend, brain, lock, allowedTools, confirmPatterns, loadExtensions } = options;
   const brainPath = backend.brainPath;
@@ -90,6 +96,11 @@ export function createSessionResources(options: {
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
           ...SettingsManager.create(brainPath, agentDir).getProjectSettings() })
       : SettingsManager.create(brainPath, agentDir);
+    if (options.requireInstalledPackages) {
+      await new DefaultPackageManager({ cwd: brainPath, agentDir, settingsManager }).resolve(async source => {
+        throw new Error(`Pi worker requires prepared package resources: ${source}. Install or update them before starting a turn.`);
+      });
+    }
     const subagentTool =
       loadExtensions && hasPackage(settingsManager, "pi-subagents") ? "subagent" : false;
     // No web extension, no search tool — and nothing to say about providers.
@@ -98,7 +109,12 @@ export function createSessionResources(options: {
         ? readWebSearchBrief()
         : undefined;
     const brief = env.autonomous?.systemPromptAppend ?? buildAppend(backend, env, subagentTool, webSearch, Boolean(options.shellCwd));
-    const append = [brief, options.sandboxNote].filter(Boolean).join("\n\n");
+    const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
+      : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
+        policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
+        location: true, activity: true, inbox: true, mask: true, turnTemp: true,
+      } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
+    options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
       cwd: brainPath,
       agentDir,
@@ -156,9 +172,8 @@ function buildAppend(
 ): string {
   // The chat-surface brief for one session: what the answer renders into
   // (diagrams, share blocks), which bridge tools exist, the reader's device.
-  // Unlike the Claude backend (whose subprocess is rebuilt every turn) this is
-  // baked at SESSION construction, from the session-opening turn's client — a
-  // later device change applies from the next new/reopened session.
+  // Production workers reopen each turn. The host retains the exact first
+  // append across workers; live device/sandbox facts are new-tail context.
   return (
     options.systemPromptAppend ??
     buildSystemPromptAppend({
@@ -178,7 +193,7 @@ function buildAppend(
         location: env.caps.location && "get_current_location",
         activity: env.caps.activity && "query_activity",
         inboxList: env.caps.inbox && "inbox_list", inboxGet: env.caps.inbox && "inbox_get",
-        inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action",
+        inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action", completeShare: env.caps.inbox && "complete_share",
         mask: env.caps.mask && "request_image_mask",
         turnTemp: env.caps.turnTemp === true && "turn_temp",
         // Always registered: it needs nothing from the bridge.

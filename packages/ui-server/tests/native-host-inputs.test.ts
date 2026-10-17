@@ -9,7 +9,7 @@ import { brainCommandClass, createHostBoundary } from "../src/brain/host-boundar
 test("boot qualification and each async host operation acquire fresh inputs and await native release", async () => {
   const f = fixture();
   try {
-    const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.manager });
+    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.statePath, nativeManager: f.manager });
     expect((await boundary.prepare()).available).toBe(true);
     expect(f.released).toEqual(f.checkpoints);
     const first = await boundary.run(f.execution);
@@ -25,7 +25,7 @@ test("boot qualification and each async host operation acquire fresh inputs and 
 test("sync readers require an explicitly prepared owner and never borrow a boot checkpoint", async () => {
   const f = fixture();
   try {
-    const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.manager });
+    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.statePath, nativeManager: f.manager });
     expect(() => boundary.runSync({ ...f.execution, timeoutMs: 1000 }), "NO_SYNC_PREPARATION_OR_BOOT_REUSE").toThrow("caller's prepared immutable startupView");
     const view = await prepareNativeWorkerStartupView(f.brain, f.manager);
     fs.writeFileSync(join(f.brain, "helper.txt"), "Penelope later live input");
@@ -38,7 +38,7 @@ test("sync readers require an explicitly prepared owner and never borrow a boot 
 test("an abort after checkpoint creation releases ownership and output admission for retry", async () => {
   const f = fixture(), aborted = new AbortController(), checkpoint = f.manager.checkpoint;
   try {
-    const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.manager });
+    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.statePath, nativeManager: f.manager });
     f.manager.checkpoint = async id => { const result = await checkpoint(id); aborted.abort(); return result; };
     await expect(boundary.launch({ ...f.execution, signal: aborted.signal })).rejects.toThrow();
     expect(f.released).toEqual(f.checkpoints);
@@ -52,7 +52,7 @@ test("host completion cannot settle while final native deletion is still pending
   const f = fixture(), entered = Promise.withResolvers<void>(), complete = Promise.withResolvers<void>(), release = f.manager.release;
   try {
     f.manager.release = async id => { entered.resolve(); await complete.promise; return release(id); };
-    const boundary = createHostBoundary({ brainPath: f.brain, nativeManager: f.manager });
+    const boundary = createHostBoundary({ brainPath: f.brain, dbPath: f.statePath, nativeManager: f.manager });
     let settled = false;
     const operation = boundary.run(f.execution).finally(() => { settled = true; });
     await entered.promise; await Bun.sleep(1);
@@ -71,7 +71,7 @@ test("a known passing maintenance probe never waits for unrelated maintenance ou
   const f=fixture(),entered=Promise.withResolvers<void>(),resume=Promise.withResolvers<void>();
   let running:Promise<unknown>|undefined;
   try {
-    const boundary=createHostBoundary({brainPath:f.brain,nativeManager:f.manager,workerHost:()=>({ok:true})});
+    const boundary=createHostBoundary({brainPath:f.brain,dbPath:f.statePath,nativeManager:f.manager,workerHost:()=>({ok:true})});
     expect((await boundary.prepare()).available).toBe(true);
     const checkpoint=f.manager.checkpoint;
     f.manager.checkpoint=async id=>{entered.resolve();await resume.promise;return checkpoint(id);};

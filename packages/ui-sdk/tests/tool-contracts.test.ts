@@ -53,7 +53,7 @@ describe("the contract list is the single source", () => {
         location: GET_CURRENT_LOCATION_CONTRACT.name,
         mask: REQUEST_IMAGE_MASK_CONTRACT.name,
         activity: QUERY_ACTIVITY_CONTRACT.name,
-        inboxList: "inbox_list", inboxGet: "inbox_get", inboxAdd: "inbox_add", resolveAction: "resolve_action",
+        inboxList: "inbox_list", inboxGet: "inbox_get", inboxAdd: "inbox_add", resolveAction: "resolve_action", completeShare: "complete_share",
         block: SHOW_BLOCK_CONTRACT.name,
         turnTemp: TURN_TEMP_CONTRACT.name,
       },

@@ -199,7 +199,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
 
       enter(doc, "module-setting-queries", "Unsaved query in progress");
       expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      flushSync(() => ui.stores.ui.getState().setSettingsTab("models"));
+      flushSync(() => ui.stores.ui.getState().setSettingsTab("accounts"));
       expect(ui.stores.ui.getState().settingsTab).toBe("modules");
       expect(doc.body.textContent).toContain("Keep your unsaved changes?");
       flushSync(() => button(doc, "Keep editing").click());

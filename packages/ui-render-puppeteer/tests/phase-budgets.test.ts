@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Browser, Page } from "puppeteer-core";
 import { createRenderer, type Renderer, type RendererOptions } from "../src/renderer.js";
 
@@ -8,16 +8,82 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
+// Policy proof with doubles only: native Chromium cleanup duration is covered elsewhere.
+// A native event-loop turn drains real promise continuations before we inspect state;
+// no fixed microtask count is used as an operation-completion signal.
+const nativeSetTimeout = globalThis.setTimeout;
+const nativeClearTimeout = globalThis.clearTimeout;
+const turn = () => new Promise<void>(resolve => setImmediate(resolve));
+
+type Timer = { at: number; ms: number; callback: () => void; state: "pending" | "fired" | "cleared" };
+class Clock {
+  now = 0;
+  timers: Timer[] = [];
+  readonly descriptors = {
+    setTimeout: Object.getOwnPropertyDescriptor(globalThis, "setTimeout")!,
+    clearTimeout: Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")!,
+  };
+  install() {
+    Object.defineProperty(globalThis, "setTimeout", { ...this.descriptors.setTimeout,
+      value: (callback: () => void, ms: number) => {
+        const timer: Timer = { at: this.now + ms, ms, callback, state: "pending" };
+        this.timers.push(timer);
+        return timer;
+      },
+    });
+    Object.defineProperty(globalThis, "clearTimeout", { ...this.descriptors.clearTimeout,
+      value: (timer?: Timer) => { if (timer?.state === "pending") timer.state = "cleared"; },
+    });
+  }
+  pending(ms: number) { return this.timers.filter(t => t.state === "pending" && t.ms === ms); }
+  async registered(ms: number, count = 1) {
+    await turn();
+    expect(this.pending(ms).length).toBe(count);
+    return this.pending(ms)[count - 1]!;
+  }
+  async advance(ms: number) {
+    const target = this.now + ms;
+    await turn();
+    for (;;) {
+      const next = this.timers.filter(t => t.state === "pending" && t.at <= target)
+        .sort((a, b) => a.at - b.at)[0];
+      if (!next) break;
+      this.now = next.at;
+      next.state = "fired";
+      next.callback();
+      await turn();
+    }
+    this.now = target;
+    await turn();
+  }
+  restore() {
+    Object.defineProperties(globalThis, this.descriptors);
+  }
+}
+let clock: Clock;
+beforeEach(() => { clock = new Clock(); clock.install(); });
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-async function outcome<T>(promise: Promise<T>, ms = 400) {
-  let timer!: ReturnType<typeof setTimeout>;
-  try {
-    return await Promise.race([
-      promise.then(value => ({ status: "ok" as const, value }), error => ({ status: "error" as const, message: String(error) })),
-      new Promise<{ status: "pending" }>(resolve => { timer = setTimeout(() => resolve({ status: "pending" }), ms); }),
-    ]);
-  } finally { clearTimeout(timer); }
+function outcome<T>(promise: Promise<T>, ms = 400) {
+  // The failure ceiling stays real and independent of logical time.
+  let timer: ReturnType<typeof setTimeout>;
+  const result = Promise.race([
+    promise.then(value => ({ status: "ok" as const, value }), error => ({ status: "error" as const, message: String(error) })),
+    new Promise<{ status: "pending" }>(resolve => { timer = nativeSetTimeout(() => resolve({ status: "pending" }), ms); }),
+  ]).finally(() => nativeClearTimeout(timer));
+  return result;
+}
+
+async function expire<T>(promise: Promise<T>, ms: number) {
+  let settled = false;
+  const result = outcome(promise).then(value => { settled = true; return value; });
+  const deadline = await clock.registered(ms);
+  await clock.advance(ms - 1);
+  expect(deadline.state).toBe("pending");
+  expect(settled).toBe(false);
+  await clock.advance(1);
+  expect(deadline.state).toBe("fired");
+  return result;
 }
 
 class FakePage {
@@ -59,9 +125,28 @@ function renderer(options: RendererOptions) {
   renderers.push(r);
   return r;
 }
-afterEach(async () => {
-  for (const r of renderers.splice(0)) await outcome(r.shutdown(), 500);
-});
+async function dispose() {
+  try {
+    const shutdown = Promise.all(renderers.splice(0).map(r => r.shutdown()));
+    let done = false;
+    void shutdown.then(() => { done = true; });
+    // Failed assertions may leave acquisition, rendering or cleanup in flight.
+    // Drive their actual registered callbacks, without adding a cleanup seam.
+    for (let i = 0; !done && i < 20; i++) {
+      await turn();
+      const next = clock.timers.filter(t => t.state === "pending").sort((a,b) => a.at - b.at)[0];
+      if (next) await clock.advance(next.at - clock.now);
+    }
+    expect(done).toBe(true);
+    expect(clock.timers.filter(t => t.state === "pending")).toEqual([]);
+    await shutdown;
+  } finally {
+    // Even a failed cleanup assertion must leave no callable fake timers behind.
+    for (const timer of clock.timers) if (timer.state === "pending") timer.state = "cleared";
+    clock.restore();
+  }
+}
+afterEach(dispose);
 const html = { html: "<p>phase budgets</p>" };
 
 describe("renderer phase budgets", () => {
@@ -96,11 +181,32 @@ describe("renderer phase budgets", () => {
       browsers.push(browser);
       return browser.asBrowser();
     } });
-    expect((await outcome(r.renderPng(html))).status).toBe("ok");
+    const first = outcome(r.renderPng(html));
+    await clock.registered(60);
+    await clock.advance(59);
     expect(browsers[0].closes).toBe(0);
-    await delay(60);
+    await clock.advance(1);
+    expect((await first).status).toBe("ok");
+    expect(browsers[0].closes).toBe(0);
+    const idle = await clock.registered(30);
+    await clock.advance(29);
+    expect(browsers[0].closes).toBe(0);
+    await clock.advance(1);
+    expect(idle.state).toBe("fired");
     expect(browsers[0].closes).toBe(1);
-    expect((await outcome(r.renderPng(html))).status).toBe("ok");
+    const second = outcome(r.renderPng(html));
+    await clock.registered(60);
+    await clock.advance(60);
+    expect((await second).status).toBe("ok");
+    const rearmed = await clock.registered(30);
+    expect(rearmed).not.toBe(idle);
+    // Starting work cancels the previous idle callback and completion rearms it.
+    const third = outcome(r.renderPng(html));
+    await clock.registered(60);
+    expect(rearmed.state).toBe("cleared");
+    await clock.advance(60);
+    expect((await third).status).toBe("ok");
+    await clock.registered(30);
     expect(browsers.length).toBe(2);
     expect(browsers[1].closes).toBe(0);
   });
@@ -110,10 +216,24 @@ describe("renderer phase budgets", () => {
     page.capture = async () => { await delay(80); return new Uint8Array([1, 2, 3]); };
     browser.open = async () => page;
     const r = renderer({ browserTimeoutMs: 200, renderTimeoutMs: 120, launch: async () => { await delay(80); return browser.asBrowser(); } });
-    const result = await outcome(r.renderPng(html));
+    const pending = outcome(r.renderPng(html));
+    const acquisition = await clock.registered(200);
+    await clock.registered(80);
+    await clock.advance(80);
+    expect(acquisition.state).toBe("cleared");
+    const rendering = await clock.registered(120);
+    await clock.registered(80);
+    await clock.advance(79);
+    expect(rendering.state).toBe("pending");
+    await clock.advance(1);
+    const result = await pending;
+    expect(rendering.state).toBe("cleared");
     expect(result.status).toBe("ok");
     expect(page.screenshots).toBe(1);
     expect(page.closes).toBe(1);
+    await clock.advance(200);
+    expect(page.closes).toBe(1);
+    expect(page.screenshots).toBe(1);
   });
 
   test("queue expiry rejects while the slot is held and removes the expired waiter", async () => {
@@ -128,7 +248,7 @@ describe("renderer phase budgets", () => {
     const r = renderer({ maxConcurrent: 1, maxQueue: 1, queueTimeoutMs: 30, renderTimeoutMs: 500, launch: async () => browser.asBrowser() });
     const first = outcome(r.renderPng(html));
     await entered.promise;
-    const expired = await outcome(r.renderPng(html), 100);
+    const expired = await expire(r.renderPng(html), 30);
     // This assertion runs before freeing the occupied slot.
     expect(expired).toEqual({ status: "error", message: "Error: Render queue exceeded 30ms budget" });
     const survivor = outcome(r.renderPng(html));
@@ -142,7 +262,7 @@ describe("renderer phase budgets", () => {
     const browser = new FakeBrowser();
     let launches = 0;
     const r = renderer({ maxConcurrent: 1, browserTimeoutMs: 30, renderTimeoutMs: 100, launch: () => ++launches === 1 ? new Promise<Browser>(() => {}) : Promise.resolve(browser.asBrowser()) });
-    expect(await outcome(r.renderPng(html))).toEqual({ status: "error", message: "Error: Browser acquisition exceeded 30ms budget" });
+    expect(await expire(r.renderPng(html), 30)).toEqual({ status: "error", message: "Error: Browser acquisition exceeded 30ms budget" });
     expect((await outcome(r.renderPng(html))).status).toBe("ok");
     expect(launches).toBe(2);
     expect(browser.pages).toBe(1);
@@ -153,7 +273,7 @@ describe("renderer phase budgets", () => {
     const browser = new FakeBrowser();
     browser.open = () => browser.pages === 1 ? new Promise<FakePage>(() => {}) : Promise.resolve(new FakePage());
     const r = renderer({ maxConcurrent: 1, browserTimeoutMs: 200, renderTimeoutMs: 30, launch: async () => browser.asBrowser() });
-    expect(await outcome(r.renderPng(html))).toEqual({ status: "error", message: "Error: Render exceeded 30ms budget" });
+    expect(await expire(r.renderPng(html), 30)).toEqual({ status: "error", message: "Error: Render exceeded 30ms budget" });
     expect((await outcome(r.renderPdf(html))).status).toBe("ok");
     expect(browser.pages).toBe(2);
   });
@@ -164,10 +284,10 @@ describe("renderer phase budgets", () => {
     const replacement = new FakeBrowser();
     let launches = 0;
     const r = renderer({ browserTimeoutMs: 30, renderTimeoutMs: 100, launch: () => ++launches === 1 ? late.promise : Promise.resolve(replacement.asBrowser()) });
-    expect(await outcome(r.renderPng(html))).toEqual({ status: "error", message: "Error: Browser acquisition exceeded 30ms budget" });
+    expect(await expire(r.renderPng(html), 30)).toEqual({ status: "error", message: "Error: Browser acquisition exceeded 30ms budget" });
     expect((await outcome(r.renderPng(html))).status).toBe("ok");
     late.resolve(abandoned.asBrowser());
-    await delay(5);
+    await turn();
     expect(abandoned.closes).toBe(1);
     expect(abandoned.pages).toBe(0);
     expect((await outcome(r.renderPng(html))).status).toBe("ok");
@@ -181,10 +301,10 @@ describe("renderer phase budgets", () => {
     const page = new FakePage();
     browser.open = () => browser.pages === 1 ? late.promise : Promise.resolve(new FakePage());
     const r = renderer({ maxConcurrent: 1, renderTimeoutMs: 30, launch: async () => browser.asBrowser() });
-    expect((await outcome(r.renderPng(html))).status).toBe("error");
+    expect((await expire(r.renderPng(html), 30)).status).toBe("error");
     expect((await outcome(r.renderPng(html))).status).toBe("ok");
     late.resolve(page);
-    await delay(5);
+    await turn();
     expect(page.closes).toBe(1);
     expect(page.configured).toBe(0);
     expect(page.screenshots).toBe(0);
@@ -196,11 +316,19 @@ describe("renderer phase budgets", () => {
     let launches = 0;
     const r = renderer({ maxConcurrent: 2, browserTimeoutMs: 200, renderTimeoutMs: 200, launch: () => { launches++; return launched.promise; } });
     const first = outcome(r.renderPng(html));
-    await delay(50);
+    await clock.registered(200);
+    await clock.advance(50);
     const second = outcome(r.renderPdf(html));
+    const newer = await clock.registered(200, 2);
+    await clock.advance(149);
+    expect(newer.state).toBe("pending");
+    await clock.advance(1);
+    expect(newer.state).toBe("pending");
     expect(await first).toEqual({ status: "error", message: "Error: Browser acquisition exceeded 200ms budget" });
     launched.resolve(browser.asBrowser());
     expect((await second).status).toBe("ok");
+    expect(newer.state).toBe("cleared");
+    await clock.advance(50);
     expect(browser.pages).toBe(1);
     expect(browser.closes).toBe(0);
     expect(launches).toBe(1);
@@ -218,10 +346,19 @@ describe("renderer phase budgets", () => {
     };
     const r = renderer({ maxConcurrent: 2, renderTimeoutMs: 200, launch: async () => browser.asBrowser() });
     const first = outcome(r.renderPng(html));
-    await delay(70);
+    await clock.registered(200);
+    await clock.advance(70);
     const second = outcome(r.renderPng(html));
+    const newer = await clock.registered(200, 2);
+    await clock.registered(160);
+    await clock.advance(129);
+    expect(pages[0].closes).toBe(0);
+    await clock.advance(1);
+    expect(newer.state).toBe("pending");
     expect((await first).status).toBe("error");
+    await clock.advance(30);
     expect((await second).status).toBe("ok");
+    expect(newer.state).toBe("cleared");
     expect(browser.closes).toBe(0);
     expect(pages.map(p => p.closes)).toEqual([1, 1]);
   });
@@ -233,9 +370,9 @@ describe("renderer phase budgets", () => {
     const browser = new FakeBrowser();
     browser.open = async () => page;
     const r = renderer({ renderTimeoutMs: 30, launch: async () => browser.asBrowser() });
-    expect((await outcome(r.renderPng(html))).status).toBe("error");
+    expect((await expire(r.renderPng(html), 30)).status).toBe("error");
     content.resolve();
-    await delay(5);
+    await turn();
     expect(page.screenshots).toBe(0);
     expect(page.closes).toBe(1);
   });
@@ -250,10 +387,14 @@ describe("renderer phase budgets", () => {
     const queued = outcome(r.renderPng(html));
     const stopped = outcome(r.shutdown(), 300);
     expect(await queued).toEqual({ status: "error", message: "Error: Renderer has been shut down" });
+    await clock.registered(30);
+    await clock.advance(29);
+    expect(browser.closes).toBe(0);
+    await clock.advance(1);
     expect((await active).status).toBe("error");
     expect((await stopped).status).toBe("ok");
     launched.resolve(browser.asBrowser());
-    await delay(5);
+    await turn();
     expect(browser.closes).toBe(1);
     expect(browser.pages).toBe(0);
     expect((await outcome(r.renderPng(html)))).toEqual({ status: "error", message: "Error: Renderer has been shut down" });
@@ -285,7 +426,34 @@ describe("renderer phase budgets", () => {
     const r = renderer({ maxConcurrent: 1, renderTimeoutMs: 100, launch: async () => browser.asBrowser() });
     expect((await outcome(r.renderPng(html))).status).toBe("ok");
     expect((await outcome(r.renderPng(html))).status).toBe("ok");
-    expect((await outcome(r.shutdown(), 2_500)).status).toBe("ok");
+    const stopped = outcome(r.shutdown(), 2_500);
+    let settled = false;
+    void stopped.then(() => { settled = true; });
+    const cleanup = await clock.registered(2_000);
+    await clock.advance(1_999);
+    expect(settled).toBe(false);
+    expect(cleanup.state).toBe("pending");
+    await clock.advance(1);
+    expect(cleanup.state).toBe("fired");
+    expect((await stopped).status).toBe("ok");
     expect(browser.pages).toBe(2);
+  });
+
+  test("failed assertion cleanup drains owned callbacks and restores complete descriptors", async () => {
+    const browser = new FakeBrowser();
+    browser.close = () => { browser.closes++; return new Promise<void>(() => {}); };
+    const r = renderer({ browserTimeoutMs: 30, launch: async () => browser.asBrowser() });
+    expect((await outcome(r.renderPng(html))).status).toBe("ok");
+    try {
+      throw new Error("synthetic assertion failure");
+    } catch (error) {
+      expect(String(error)).toContain("synthetic assertion failure");
+    } finally {
+      await dispose();
+    }
+    expect(browser.closes).toBe(1);
+    expect(clock.timers.some(t => t.ms === 2_000 && t.state === "fired")).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "setTimeout")).toEqual(clock.descriptors.setTimeout);
+    expect(Object.getOwnPropertyDescriptor(globalThis, "clearTimeout")).toEqual(clock.descriptors.clearTimeout);
   });
 });

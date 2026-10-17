@@ -57,7 +57,7 @@ export function enqueueInboxCleanup(db: Database, threadId: string, now: number)
   const active = db.query(`SELECT 1 FROM inbox_items WHERE thread_id = ? AND deleted_at IS NULL AND
     ((queue = 'queue' AND type != 'cleanup_pending' AND status IN ('scheduled','ready','claimed','blocked','failed')) OR
      (queue = 'actions' AND type != 'fyi' AND status IN ('pending','snoozed'))) LIMIT 1`).get(threadId);
-  if (active) return;
+  if (active || db.query("SELECT 1 FROM inbox_interactive_shares s JOIN inbox_items i ON i.id = s.item_id WHERE i.thread_id = ? AND s.completion_json IS NULL").get(threadId)) return;
   const rows = db.query("SELECT data_json FROM inbox_items WHERE thread_id = ? AND queue = 'queue' AND type = 'triage'")
     .all(threadId) as { data_json: string }[];
   const store = createInboxStore(db, { now: () => now });
@@ -172,6 +172,7 @@ export function sweepInboxLifecycle(db: Database, now = Date.now(), cap?: number
         else if (!item.hygiene && item.status === "snoozed" && item.waitUntil !== undefined && item.waitUntil <= now)
           store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "pending", waitUntil: null }]);
       } else if (item.queue === "queue" && item.type !== "cleanup_pending") {
+        if (db.query("SELECT 1 FROM inbox_interactive_shares WHERE item_id = ? AND completion_json IS NULL").get(item.id)) continue;
         if (item.expiresAt <= now && item.status === "blocked" && item.blockedByItemId) {
           const blocker = store.getItem(item.blockedByItemId);
           if (blocker?.queue === "actions" && ["pending", "snoozed"].includes(blocker.status)) retireInboxAction(db, blocker, "expired", now);

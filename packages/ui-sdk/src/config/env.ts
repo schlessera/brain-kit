@@ -6,6 +6,11 @@ export function workerLaunchPayload(): string | undefined {
   return readEnvVar("BRAIN_WORKER_LAUNCH");
 }
 
+/** Optional host-owned cross-UID broker helper, never read inside a worker. */
+export function workerIdentityHelperInput(): string | undefined {
+  return readEnvVar("BRAIN_UI_WORKER_IDENTITY_HELPER");
+}
+
 /** The host's agent worker resource limits (#1660), parsed by `parseWorkerLimits`. */
 export function workerLimitsSpec(): string | undefined {
   return readEnvVar("BRAIN_UI_WORKER_LIMITS");
@@ -15,8 +20,11 @@ export function workerLimitsSpec(): string | undefined {
 export function maintenanceGitEnvironment(): { path: string | undefined; env: NodeJS.ProcessEnv } {
   return { path: readEnvVar("BRAIN_MAINTENANCE_GIT"), env: { ...process.env } };
 }
+/** Inside the trusted egress bootstrap, after the launcher's complete environment replacement. */
+export function workerEgressEnvironment(): NodeJS.ProcessEnv { return { ...process.env }; }
 export const DYNAMIC_ENV_READS = [{ source: "maintenance Git subprocess environment",
-  description: "Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential." }] as const;
+  description: "Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential." },
+{ source: "egress worker subprocess environment", description: "The trusted loopback bootstrap preserves only the worker environment already cleared and selected by the launcher, replacing proxy routing before its child starts. It admits no host environment or new operator setting." }] as const;
 
 /** Trusted host settings for output staging; callers pass these only before worker launch. */
 export function outputStagingEnvironment(): Record<string, string | undefined> {

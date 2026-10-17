@@ -83,6 +83,33 @@ describes severe snapshot-related latency and inconsistent accounting that can
 interrupt enforcement. A bounded managed volume avoids adding a shared-extent
 ownership graph to the application merely to reproduce the old byte cap.
 
+## Recovery inventory and identity fences
+
+Recovery pages use a disposable, broker-local SQLite B-tree of checkpoint and
+stage identities. The manager rebuilds it from durable JSON intents once at
+startup, alongside existing stage accounting. Startup still enumerates and
+reads the historical intents; this is not bounded startup work.
+
+Each page seeks strictly after its UUID cursor and reads at most 65 index keys:
+64 response candidates and one lookahead. It opens at most 64 durable intents,
+keeps the existing response-byte limit, and never enumerates or sorts the
+complete intent directory during a page request. The manager serializes an
+individual page with mutations. Pages do not promise a multi-request snapshot:
+an identity inserted below an already-consumed cursor is not returned later.
+
+Intent rename and parent-directory fsync precede index insertion. If insertion
+fails, the mutation has an unknown outcome and the index refuses subsequent
+pages until restart rebuilds it. Losing the in-memory index or a transport reply
+does not lose the durable identity. Deleted intents remain present and continue
+to fence delayed create requests; no identity retirement or tombstone lifetime
+policy is introduced.
+
+Retained JSON metadata still grows with historical identities inside the finite
+managed volume. The in-memory index also grows with that history. Qualification
+records allocated JSON blocks and SQLite index pages separately from page work
+and startup time; SQLite page bytes do not measure the whole broker heap. An
+allocation failure is a refusal, not permission to return an incomplete index.
+
 ## Authority and qualification
 
 A concrete host-owned manager operates only the configured store and generated
@@ -90,7 +117,22 @@ checkpoint identities. It executes no brain configuration, Git, hooks or CLI.
 Workers receive no manager endpoint, block device or administrative capability.
 Untrusted writers must be prevented from creating nested subvolumes or changing
 snapshot flags; otherwise native snapshots could omit writable content or lose
-immutability. Read-only mounts and inaccessible private aliases remain required.
+immutability. Read-only mounts and inaccessible private aliases remain required. Maintenance
+masking covers exact regular-file paths as well as directories; the qualified
+loop backing file does not rely on its parent being masked or its DAC mode
+denying reads.
+
+> **2026-10-15 — Recovery scope for mutable private storage.** The
+> [runtime-state recovery amendment](policy-write-boundary.md#cross-uid-runtime-state-and-best-effort-recovery--2026-10-15)
+> records #1677 option E. Read-only native checkpoints remain immutable inputs;
+> their existence does not snapshot the mutable tmpfs outputs described below.
+> After verified owned-tree termination and implemented owned-I/O cleanup,
+> recovery is best effort over observed bytes, with explicit external-reference,
+> source-consistency and physical-reclamation limits. Configured bounds, known
+> retained-resource accounting and this record's no-qgroup policy remain.
+> This neither selects Btrfs-backed runtime state nor claims broker/runtime
+> qualification; production packaging remains in
+> [brain-hosting-template #18](https://github.com/schlessera/brain-hosting-template/issues/18).
 
 Writable maintenance and strict-worker outputs use a private bounded tmpfs
 upper layer over the admitted checkpoint. The host manager mounts OverlayFS

@@ -9,12 +9,11 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { resetRtkProbe, rtkRewriteCommand } from "../src/server/rtk.js";
+import { resetRtkProbe, rtkAvailable, rtkRewriteCommand, RTK_WORKER_ENV } from "../src/server/rtk.js";
 
 let directory: string | undefined;
 
-// Earlier backend tests can warm the process-wide probe. This test needs to
-// observe its own fake binary's version call, not reuse that earlier answer.
+// Kept for compatibility with callers that isolate their fake oracle lifecycle.
 beforeEach(resetRtkProbe);
 
 afterEach(() => {
@@ -24,6 +23,18 @@ afterEach(() => {
 });
 
 describe("rtk subprocess environment", () => {
+  test("an absent optional rtk preserves and executes the original command", async () => {
+    directory = mkdtempSync(join(tmpdir(), "ui-sdk-rtk-absent-"));
+    const env = { PATH: directory, HOME: directory, ...RTK_WORKER_ENV };
+    const original = "printf 'Odysseus sails'";
+    const command = await rtkRewriteCommand(original, env);
+    expect(command).toBe(original);
+    const child = Bun.spawn(["/bin/bash", "-c", command], { env, stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, err).toBe(0);
+    expect(out).toBe("Odysseus sails");
+  });
+
   test("an oracle closing stdin keeps the parent alive and falls back before its late reply", async () => {
     directory = mkdtempSync(join(tmpdir(), "ui-sdk-rtk-pipe-"));
     const binary = join(directory, "rtk");
@@ -112,4 +123,21 @@ console.log(JSON.stringify({ same: command === original, length: original.length
       else process.env.SERVER_SECRET = previousServerSecret;
     }
   });
+});
+
+
+test("a successful RTK probe cannot authorize another environment or a replaced executable", async () => {
+  directory = mkdtempSync(join(tmpdir(), "ui-sdk-rtk-environments-"));
+  const binary = join(directory, "rtk");
+  const oracle = `#!/bin/sh\nif [ "$1" = "--version" ]; then exit 0; fi\nwhile IFS= read -r line; do :; done\nprintf '%s\\n' '{"hookSpecificOutput":{"updatedInput":{"command":"rtk git status"}}}'\n`;
+  writeFileSync(binary, oracle); chmodSync(binary, 0o755);
+  const env = { PATH: directory };
+  expect(await rtkAvailable(env)).toBe(true);
+  expect(await rtkRewriteCommand("git status", env)).toBe("rtk git status");
+  const missing = { PATH: join(directory, "missing") };
+  expect(await rtkAvailable(missing)).toBe(false);
+  expect(await rtkRewriteCommand("git status", missing)).toBe("git status");
+  writeFileSync(binary, oracle.replace('then exit 0;', 'then exit 1;'));
+  expect(await rtkAvailable(env)).toBe(false);
+  expect(await rtkRewriteCommand("git status", env)).toBe("git status");
 });

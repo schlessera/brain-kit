@@ -1,0 +1,3236 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "scope": "Immutable source review supplement to test-wait-operational-basis.json. All 75 embedded-program rows have a causal role and missing-counter boundary; 16 additional source reviews cover 29 imported/helper/race/control rows. Counts and inferred control flow are not interchangeable. This is not completion of every native-minimum or tier criterion.",
+  "embeddedGroups": [
+    {
+      "sourceRows": [
+        1,
+        2
+      ],
+      "role": "fragmented output and delayed exit",
+      "causalBasis": "fakeNative writes one byte before each 1 ms await, optionally appends a newline, then awaits 10 ms before native exit. Terminated and unterminated cases assert complete result, code 1 and natural close; consumer rejection can stop a later child early.",
+      "elapsedMinimumDisposition": "Native pipe fragmentation, final receipt and EOF must remain; these fixtures do not establish a universal smallest per-byte gap.",
+      "missingCounterEvidence": "The separate child observations now measure the two terminated/unterminated cases. Success, consumer-rejection and missing-result callers remain unmeasured; do not extrapolate their counts or termination behavior.",
+      "sources": [
+        {
+          "file": "experiments/measurement-results.test.ts",
+          "sha256": "d67cee46aac08be3595a503d528ca260ff0158d9cc11dcc44a512384e2cf6a2f"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        7
+      ],
+      "role": "delayed output callback",
+      "causalBasis": "The child writes initial JSON immediately and schedules final unterminated JSON after 150 ms. The consumer throws early; assertions require the late native EOF receipt and unknown missing usage.",
+      "elapsedMinimumDisposition": "150 ms deliberately places output after early consumer failure; no mathematical minimum or callback latency is established by the passing parent.",
+      "missingCounterEvidence": "One selected ordinary-child case can observe the original timer handle/callback and report through a permitted sidecar; preserve exact protocol bytes.",
+      "sources": [
+        {
+          "file": "experiments/turn-surface-stdout.test.ts",
+          "sha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        8,
+        9,
+        10
+      ],
+      "role": "tool-event polling and hang ceilings",
+      "causalBasis": "toolEventSeen samples its marker at 20 ms for at most 500 attempts. argvAgent hang mode schedules exit at 30000 ms; claudeAgent protocol hang mode schedules that exit for each matching message. The parent invokes runner contract suites and checks their native exit and expected six passing cases per runner.",
+      "elapsedMinimumDisposition": "The 20 ms value is a sampling cadence. The 30000 ms timers keep cancellation/deadline fixtures pending; parent success does not mean those deadlines fired or were awaited in full.",
+      "missingCounterEvidence": "Counts require nested contract-child mode/message attribution and original timer handles. Parent test-count assertions do not expose leaf callbacks.",
+      "sources": [
+        {
+          "file": "packages/core/tests/agent-runner-contracts.test.ts",
+          "sha256": "b3c5a05f0f4f54c82991fc08ff90723b6324edb677fc1680e07326e72e7c8fe5"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        11
+      ],
+      "role": "native pipe backpressure",
+      "causalBasis": "Every data chunk is appended, stdout is paused and a 2 ms callback resumes it. Close produces the original byte count, tail, SHA256 and chunk count. The selected case requires the complete human response.",
+      "elapsedMinimumDisposition": "Two milliseconds supplies delayed consumption, not a proven universal minimum. Preserve a native paused pipe and complete byte/hash/EOF assertions.",
+      "missingCounterEvidence": "One selected ordinary consumer can publish aggregate callback counters with its existing receipt only if every original field/assertion stays intact; chunk count alone counts registrations, not completed resume callbacks.",
+      "sources": [
+        {
+          "file": "packages/core/tests/cli-output-completion.test.ts",
+          "sha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        12,
+        95,
+        423,
+        424,
+        425,
+        465
+      ],
+      "role": "external condition polling in a child",
+      "causalBasis": "12 holds an in-flight MCP tool until pending-release; 95 holds CLI exit while the actual server drains/reserves a root; 423 and 424 hold maintenance readers before live config/filter edits; 425 holds only the first serialized maintenance command; 465 holds sync until the external release file. Native markers/readiness precede the parent operation and actual exit/output follows release.",
+      "elapsedMinimumDisposition": "Five or ten milliseconds is a predicate sampling cadence, not an unconditional minimum. Poll counts may be zero after the first condition check. Preserve actual process/config/snapshot/reservation ordering.",
+      "missingCounterEvidence": "These workers have explicit writable bindings or protocol outputs. Exact counters need an observer within existing authority and unchanged output or an external observer; do not add writable files/FDs or alter parser assertions.",
+      "sources": [
+        {
+          "file": "packages/core/tests/module-mcp-tools.test.ts",
+          "sha256": "6001041f999417297c7f817e8751801e7f5d0900cad3204ee8787bd6d6b40ec5"
+        },
+        {
+          "file": "packages/ui-react/tests/api-client-sync.test.ts",
+          "sha256": "e65c34d4702619436d05b7fe69a2a58945e26ba4039e40316292073b8810181f"
+        },
+        {
+          "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+          "sha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0"
+        },
+        {
+          "file": "packages/ui-server/tests/sync-reservation.test.ts",
+          "sha256": "395f6a45cc051dcb7bc64d46739466955020f62831badab1008fae6817bbbe92"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        29
+      ],
+      "role": "delayed browser navigation",
+      "causalBasis": "The /navigate route schedules location.assign(/denied) at 50 ms. The actual browser interception must refuse main-frame navigation to a robots-denied destination.",
+      "elapsedMinimumDisposition": "50 ms makes navigation asynchronous after initial HTML. Host logical time alone does not exercise Chrome request interception; native-equivalence and numeric minimum remain unproved.",
+      "missingCounterEvidence": "A selected native browser observer could count the actual callback without replacing it, using the existing browser harness. Current parent receipt is not page timer telemetry.",
+      "sources": [
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        53,
+        54
+      ],
+      "role": "SDK protocol watchdog and exit delay",
+      "causalBasis": "The installed SDK fixture schedules a 20000 ms failure exit, exchanges actual hook protocol frames, sends result then awaits 10 ms before exit 0. Two cases assert real state-room hook propagation and result text.",
+      "elapsedMinimumDisposition": "The watchdog is a failure ceiling. The post-result 10 ms is an exit delay; backend teardown after result may prevent completion, so do not infer two completed delays from two successful results.",
+      "missingCounterEvidence": "Instrumented child registration/exit snapshot would need to preserve the SDK worker protocol and authority. No successful-result assertion proves natural child exit here.",
+      "sources": [
+        {
+          "file": "packages/ui-backend-claude/tests/state-room-sdk-hook.test.ts",
+          "sha256": "19d5169b375d1f71add66965b512bfb9dd4e70f16c9b20673f3dde7c08b55522"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        197
+      ],
+      "role": "CSP event completion polling",
+      "causalBasis": "The opaque-origin REPORT helper waits in 25 ms steps for both connect-src and img-src violation evidence, with a 10000 ms failure cap. It is distinct from the parent 1500 ms negative escape window.",
+      "elapsedMinimumDisposition": "Condition completion, not a mandatory 25 ms floor. Native CSP violation delivery and opaque origin remain required.",
+      "missingCounterEvidence": "Embedded browser callback count remains unobserved. A qualified native page observer must preserve report contents, origin and sandbox behavior; no need to repeat the parent negative window solely for this row.",
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "sha256": "98babb2fa1fee82e3f29be329b19b4b75fa3841d9094bf8ddd5a018d9c4880e1"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        336,
+        674
+      ],
+      "role": "native stdin closure ordering",
+      "causalBasis": "The child wrapper waits synchronously at 1 ms for the actual closed-stdin marker before returning the real execFile handle. The shell closes stdin, touches the marker, waits 50 ms and emits the late hook response. Assertions retain fallback, closed-before-delivery and actual hook result.",
+      "elapsedMinimumDisposition": "The 1 ms is condition polling; the 50 ms separates native EPIPE/fallback from late response. Source establishes ordering, not a universal smallest delay.",
+      "missingCounterEvidence": "The ordinary wrapper can count sleepSync iterations without altering its original return/callbacks. Exact shell sleep elapsed requires host observation or a separately reviewed shell diagnostic; do not replace the shell.",
+      "sources": [
+        {
+          "file": "packages/ui-sdk/tests/rtk.test.ts",
+          "sha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        357
+      ],
+      "role": "overlapping native index operation",
+      "causalBasis": "The first CLI index execution awaits 30 ms then prints {}. Three simultaneous HTTP retries must all succeed while the calls file records exactly add,index; later failure and retry use rewritten binaries without this delay.",
+      "elapsedMinimumDisposition": "A deliberate overlap opportunity tests coalescing, not a product deadline. The passing call list infers one completed 30 ms fixture path, not measured elapsed.",
+      "missingCounterEvidence": "One selected caller can instrument the existing child with authority-preserving telemetry. Do not add fields to the calls.jsonl array oracle or change JSON stdout.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/capture-outcome.test.ts",
+          "sha256": "bb46f4143c0f344685c22f92c8c02cddb792452c982778d60e242d2f04b88af6"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        359
+      ],
+      "role": "native completion after broken output sink",
+      "causalBasis": "The child prints start, awaits 50 ms, writes the finished marker, prints end and exits 7. The sink throws; recorded finish must observe the marker, end text, code 7 and closed recorder.",
+      "elapsedMinimumDisposition": "The 50 ms separates sink failure from child completion; the exact causal marker/native exit is required. One successful selected path infers one completed delay, not measured duration.",
+      "missingCounterEvidence": "One selected ordinary child can carry lexical timing through a permitted sidecar without touching original stdout, exit or marker assertions; authority must be verified first.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/cron-run-job.test.ts",
+          "sha256": "817720a5f607f6cb4c23327b815d27e53ab9fc0f529c8c4db7967f12fbed1a44"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        361,
+        362,
+        363,
+        383,
+        586
+      ],
+      "role": "native child lifetime before cancellation",
+      "causalBasis": "361 aborts scratch prune; 362 app.close kills an in-flight boot prune; 363 helper teardown reaps before state removal; 383 aborts the whole maintenance worker; 586 signals the test wrapper after atomic PID publication. Delays of 60000 or 20000 ms keep the original child alive until real cancellation/reaping.",
+      "elapsedMinimumDisposition": "These are fixture lifetime ceilings, not successfully completed waits. PID/marker publication may precede scheduling, so neither timer entry nor a completed duration follows from readiness alone.",
+      "missingCounterEvidence": "Actual entered delay and cancellation age need child telemetry available before termination or external tracing. An exit-only hook cannot recover SIGKILL observations; keep this explicit rather than inventing completed waits.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+          "sha256": "b89f54c19e751135ce2135dcb9f5ecb3417e246b4122062859e89c19e7d03497"
+        },
+        {
+          "file": "packages/ui-server/tests/host-execution-boundary.test.ts",
+          "sha256": "b081c63e89d06514aef089891a61d8f6ab62e0f86b8e60d3b7a3c6b3b07f42f7"
+        },
+        {
+          "file": "tests/test-script.test.ts",
+          "sha256": "ea3b069dff5adce55be09cd905acdc585a87589fb848e7319a054e921f2ea9d3"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        428
+      ],
+      "role": "native deferred refresh duration",
+      "causalBasis": "The prepared CLI awaits 700 ms only for index, then prints {}. The parent requests refresh, observes a real index PID and closes the app; PID absence and an empty writer gate prove drain.",
+      "elapsedMinimumDisposition": "The deliberate operation delay exposes closing during refresh. PID visibility does not prove the sleep began, and drain can be cancellation; no completed 700 ms inference.",
+      "missingCounterEvidence": "The six-caller host-process supplement measures parent polling only. Exact index registration/completion remains nested and requires a worker-authority-preserving observer.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+          "sha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        562,
+        730
+      ],
+      "role": "native CI-runner coordination",
+      "causalBasis": "562 launches two children, each watching for the other marker and clearing a 1500 ms failure timer on completion. 730 keeps the running sibling alive with a 60000 ms interval, then SIGTERM writes stopped and clears the interval.",
+      "elapsedMinimumDisposition": "Failure ceiling and live-handle fixture respectively; neither requests a completed 1500/60000 ms wait. Both require actual concurrent child processes and termination.",
+      "missingCounterEvidence": "Ordinary child original-handle observers can measure registration, clear and callback counts through existing permissible telemetry; selected cases are inexpensive. Preserve all original marker and exit assertions.",
+      "sources": [
+        {
+          "file": "tests/ci-runner.test.ts",
+          "sha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        570
+      ],
+      "role": "native socket refusal watchdog",
+      "causalBasis": "The generated Node child connects to the host Unix socket, exits 41 on connect, 0 on error and 42 on a 1000 ms deadline. Parent records native code and listener hits.",
+      "elapsedMinimumDisposition": "1000 ms is an unsuccessful socket-attempt ceiling; the intended refusal path completes on a native error. No successful minimum applies to the watchdog.",
+      "missingCounterEvidence": "Actual timer registration/clear/end state is unobserved inside the governed worker. Any observer must preserve socket authority and native endpoint; parent no-hit proof is separate.",
+      "sources": [
+        {
+          "file": "tests/fixtures/governed-socket-probe.ts",
+          "sha256": "acedcf145df21ff557367c205c21780221b8b2504e296acefa99197867cf0030"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        571,
+        572,
+        708
+      ],
+      "role": "Pi forged output and descendant lifetime",
+      "causalBasis": "forge_worker emits forged RPC or overflow then waits 100 ms before returning. linger_worker spawns bash with sleep 60 and then awaits 60000 ms before a late result. Native refusal/cancellation may terminate either path early.",
+      "elapsedMinimumDisposition": "100 ms is a late-tool completion opportunity; 60 s holds live native descendants. Passing cancellation does not mean either delay completed.",
+      "missingCounterEvidence": "Per-mode entry and lifecycle need allowed pre-termination telemetry. Original protocol streams and descendant authority must stay unchanged; the parent host sidecar does not count nested workers.",
+      "sources": [
+        {
+          "file": "tests/fixtures/pi-worker-probe.ts",
+          "sha256": "4fad8943e9da8a87e2311de5434af882a3f51b461faabcfe9d5946f59148263f"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        606,
+        676,
+        677,
+        680,
+        681,
+        682,
+        683,
+        690,
+        691
+      ],
+      "role": "native probe and wrapper lifetime",
+      "causalBasis": "Shell fixtures retain real sleeping children: runtime probe ignores TERM during sleep 8; version probes use exec sleep 8 or sleep 5; boot probes include failing/no-op/held killer branches and inherited pipes; wrapper cases retain sleep 300 descendants. Row690 also has an unconditional 0.3 s step before failed or timed-out branches.",
+      "elapsedMinimumDisposition": "These durations retain the native process across production deadlines or cancellation. Do not sum them as completed cost. The 5 s exit/deadline race intentionally admits either outcome; killer readiness and pipe drain are separate guarantees.",
+      "missingCounterEvidence": "Native lifetime and syscall entry require external process observation or reviewed diagnostics. #1933 feasibility/#1939 and #1937 own boot primary-clock/cleanup work; no prototype is treated as delivered. The helper378 supplement measures only host PID polling.",
+      "sources": [
+        {
+          "file": "packages/ui-backend-claude/tests/runtime-probe.test.ts",
+          "sha256": "4cbe926d22cd92046bb04e3189ff4840a8a266ab474d44802d4a032fc479ac4e"
+        },
+        {
+          "file": "packages/ui-sdk/tests/version-probe.test.ts",
+          "sha256": "307dd212fdc5c9c149c541dd25e902b6dce25f28fb50c090a166de47259674f9"
+        },
+        {
+          "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+          "sha256": "2a0111af7325cb9086cc157d6b64aa6c882744fdd8edd8cc72a67c80a6d84888"
+        },
+        {
+          "file": "packages/ui-server/tests/brain-client.test.ts",
+          "sha256": "60be9bb9ad1f97745597a4e9a75445af4af952c8f26968ec53603bca8d293cc9"
+        },
+        {
+          "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+          "sha256": "b680aba7d61dcd897b8bdcc2fee3dc686daa68f9aa69c405ff693b4104f86768"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        610,
+        611,
+        612
+      ],
+      "role": "late native tmpfs outcome",
+      "causalBasis": "610 and 611 wait 0.3 s before writing 8 MiB or 1 MiB after the SDK result; 612 fills first, waits 0.3 s and returns while host cancellation competes. Assertions distinguish state-exceeded, success and cancellation precedence.",
+      "elapsedMinimumDisposition": "These are deliberate ordering opportunities around real tmpfs writes/monitoring. Native write failure and post-result outcome precedence cannot be established by an isolated host clock jump. Numeric minimum remains unproved.",
+      "missingCounterEvidence": "Shell entry/exit telemetry is missing. Preserve mounts, native monitor cadence and outcome assertions; changing shell output or granting write paths would change the fixture.",
+      "sources": [
+        {
+          "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+          "sha256": "b4c22349201746f18ea9967b68b335dec98792f52c904bfe91fa8eb63f09fc90"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        613,
+        670,
+        688
+      ],
+      "role": "native process hold until explicit kill",
+      "causalBasis": "613 launches a shell loop before the worker-start callback throws and requires SIGKILL/reaping plus reservation release. 670 has a TERM-ignoring shell loop before direct forced kill. 688 keeps a scope restart worker alive after its note until real restart cleanup.",
+      "elapsedMinimumDisposition": "Loop cadences keep native processes live; no full interval is a required successful delay. A launch callback or ready marker can precede the first sleep.",
+      "missingCounterEvidence": "Exact shell loop counts and killed syscall ages remain unobserved. Native PID/exit/recovery proof exists independently; external observation would require validating unchanged authority and ptrace effects.",
+      "sources": [
+        {
+          "file": "packages/ui-backend-claude/tests/worker.test.ts",
+          "sha256": "4d637d0a186d25c304bf6e4e946166037ee9f04ed3aa9264c99c922bc718950e"
+        },
+        {
+          "file": "packages/ui-sdk/tests/exec-wrapper.test.ts",
+          "sha256": "96e2b2f62e3420f74a2493c3e065d06453728ee4fd23794a485bd7f5054dd4d3"
+        },
+        {
+          "file": "packages/ui-server/tests/fixtures/scope-restart-probe.ts",
+          "sha256": "71ae4e77e63e7fc378ff6f6b60400a129185a9be8250a5f6bff3f3eb780d3858"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        671
+      ],
+      "role": "native cgroup OOM child hold",
+      "causalBasis": "The shell launches a real allocation child, reports its exit, sleeps 2 s then exits 137. This is inside the selected native cgroup probe; the parent-observed sampler interval is a different source row.",
+      "elapsedMinimumDisposition": "The 2 s is fixture lifetime after allocation, not the observed parent sampler cost. OOM may kill the shell or descendant earlier.",
+      "missingCounterEvidence": "Selected cgroup parent proof does not count shell sleep entry/completion. Exact nested attribution needs a cgroup-safe observer; preserve actual scoped UID/network namespace/capability receipts.",
+      "sources": [
+        {
+          "file": "packages/ui-sdk/tests/fixtures/worker-cgroup-probe.ts",
+          "sha256": "48ba3e318fec92d6b0da9faaa5cd4a8b9d94a954460119be623164e0700b0b05"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        672,
+        673
+      ],
+      "role": "native peer-file polling",
+      "causalBasis": "The governed reader publishes readiness and polls at 10 ms for writer-done, while the governed writer polls for reader-ready before creating protected config and completion. Both cap at 200 attempts and retain native exit/output assertions.",
+      "elapsedMinimumDisposition": "Condition polling with a nominal 2000 ms failure horizon; neither loop requires 200 iterations or a positive minimum.",
+      "missingCounterEvidence": "Exact shell iterations are absent. Existing governed workers cannot gain writable sidecars or extra descriptors; an external observer must be proven non-invasive before using counters.",
+      "sources": [
+        {
+          "file": "packages/ui-sdk/tests/governed-worker.test.ts",
+          "sha256": "f45606feecc98b1c76413890b1212d0ffdac60a493b8cad042e883afcf77474a"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        675
+      ],
+      "role": "native exit after two output streams",
+      "causalBasis": "The shell prints version and diagnostic, sleeps 20 ms then exits 3. The caller asserts both complete outputs, exit 3, the actual production deadline cleared and no later unhandled rejection.",
+      "elapsedMinimumDisposition": "20 ms separates output from exit, not a public deadline; one successful branch infers the sleep completed without supplying elapsed telemetry.",
+      "missingCounterEvidence": "Exact shell elapsed remains missing. Parent timer lifecycle observations concern the deadline, not this shell delay.",
+      "sources": [
+        {
+          "file": "packages/ui-sdk/tests/version-probe.test.ts",
+          "sha256": "307dd212fdc5c9c149c541dd25e902b6dce25f28fb50c090a166de47259674f9"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        678,
+        679
+      ],
+      "role": "native mount and launch-gate lifetime",
+      "causalBasis": "678 fills one real tmpfs, holds it with sleep 1 while another mount is checked, then awaits exit. 679 deliberately holds a fake launcher before pivot with sleep 6 under an outer tmpfs so the held-root gate must refuse.",
+      "elapsedMinimumDisposition": "The first delay retains overlap for independent mount proof. The second is a refused launcher lifetime; do not count six seconds from the literal. Neither establishes a universal minimum.",
+      "missingCounterEvidence": "Actual shell telemetry missing. Row679 retains original location-sensitive failure and faithful non-/tmp control under #1931; a green control does not erase the failed context.",
+      "sources": [
+        {
+          "file": "packages/ui-sdk/tests/worker-state-mount.test.ts",
+          "sha256": "e58814ef87bb880c54b3cf7dc427d7378738b789bf568db2abe34c5fd29cb6b8"
+        },
+        {
+          "file": "packages/ui-sdk/tests/worker-turn-temp.test.ts",
+          "sha256": "e65ed215880cba26b719086a46c5c768716ed25757cca78209dfd59c26d1c860"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        687,
+        707
+      ],
+      "role": "scope heartbeat writer cadence",
+      "causalBasis": "A shell appends a byte then sleeps 20 ms repeatedly while the real adapter is running. Scope tests freeze at the cap, retain a native negative observation, grant once, refuse a second grant and Stop; Pi voice refuses before worker admission.",
+      "elapsedMinimumDisposition": "20 ms is a write cadence, not the negative observation duration. Native freezer/writer behavior is required; no source inference of exact callback/iteration count from unchanged bytes.",
+      "missingCounterEvidence": "Exact shell iterations/frozen syscall states are missing. Existing parent heartbeat snapshots establish native change/absence only at their capture boundaries, not a completed-sleep census.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/scope-pi-worker.ts",
+          "sha256": "9c3290b9b7115223a074ddbb293dd124628851a30638066cdd924bd4d9c6d705"
+        },
+        {
+          "file": "packages/ui-server/tests/ws-scope-caps.test.ts",
+          "sha256": "157bcfa5da32eb9f57684856c26791f2c4e2d7ae694d17e3668a0033cd050939"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        689,
+        710,
+        711,
+        712,
+        713,
+        714
+      ],
+      "role": "native tmpfs contention and late mutations",
+      "causalBasis": "689 writes 1 MiB then sleeps 200 ms repeatedly; 710 appends state then sleeps 1 s; 711 holds for 2 s before append; 712 starts a 200 ms late symlink swap while the main shell holds 500 ms; 713 performs tmpfs work then sleeps 1 s before append; 714 holds a crash worker for 30 s. Parent source review maps each scenario and native assertions.",
+      "elapsedMinimumDisposition": "These are overlapping fixture holds, write cadence and delayed mutation, not a sum of waited literals. The scope 200 ms negative check equals its shell cadence with zero nominal extra allowance; no guaranteed numeric sensitivity is claimed.",
+      "missingCounterEvidence": "Exact shell counts/elapsed remain missing despite passing parent scenarios. Original tmpfs/mount/process authority and independent final bytes must remain; source-derived path counts are not timer telemetry.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/scope-tmpfs-probe.ts",
+          "sha256": "c51f34d53f99ffcd37a1e40d407d7c9dcea1b57711ff463c89af0e0adb828c68"
+        },
+        {
+          "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+          "sha256": "0dba40801d55e4a58be5585685288faf96971ab843d18f144b076e34834c744a"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        692
+      ],
+      "role": "readiness rejection hold",
+      "causalBasis": "Malformed readiness controls (empty, wrong, missing) print a diagnostic then enter an indefinite Atomics.wait while the parent must reject by its deadline and reap the child.",
+      "elapsedMinimumDisposition": "Indefinite hold is a fixture lifetime, not an elapsed minimum. Parent seeing a file/diagnostic does not prove the subsequent Atomics call was entered.",
+      "missingCounterEvidence": "Entry requires observation before blocking; exit-sidecar telemetry cannot run while blocked or after SIGKILL. Preserve exact readiness/stdout/stderr oracles.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+          "sha256": "f32f04b7ef0d6f6b1ad8a8ccc8bf0d13e57a75c112b8caeecbb9f9c556585428"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        693,
+        694,
+        696
+      ],
+      "role": "native operation completion and cancellation ordering",
+      "causalBasis": "693 delays real Git by 600 ms for during/after cancellation; 694 touches probe-started, sleeps 300 ms, touches probe-finished and exits success/refusal before app resources may open; 696 sleeps 200 ms then prints after cancelling stdout or stderr, and preserves exit status/gate reuse.",
+      "elapsedMinimumDisposition": "These delays expose asynchronous preparation or completion. Some cancellation paths may terminate before sleep completion; successful probe-finished or exit 0 paths can infer completion, not elapsed. Numeric minimum/equivalence remains unproved.",
+      "missingCounterEvidence": "Shell exact entry/completion counters are absent. Preserve actual Git, resource-opening assertions and both stream-cancellation variants. Parent case wall is not leaf delay cost.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+          "sha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0"
+        },
+        {
+          "file": "packages/ui-server/tests/runtime-boot.test.ts",
+          "sha256": "2a48673078f8ee341370e050c3a8050ac68c4e15fa7b08ea65af9b3960b6e471"
+        },
+        {
+          "file": "packages/ui-server/tests/sync-mirror.test.ts",
+          "sha256": "4c7c69cdc7ebdacfd1832e785e7399a66a4f9b356101a9aad24c7d3234ec18c0"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        695
+      ],
+      "role": "native descendant release condition",
+      "causalBasis": "The descendant samples parent PID liveness every 20 ms, then attempts mirror poisoning. Namespace init must reap it before credentialed transport; the parent retains a separate 1100 ms negative check and remote-content assertions.",
+      "elapsedMinimumDisposition": "20 ms is predicate cadence, not the 1100 ms security window. Native namespace descendant lifetime and host storage validation remain essential.",
+      "missingCounterEvidence": "Exact shell loop/entry count absent. Source construction alone does not prove the loop ran before namespace teardown; do not grant it telemetry write permissions.",
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/sync-mirror.test.ts",
+          "sha256": "4c7c69cdc7ebdacfd1832e785e7399a66a4f9b356101a9aad24c7d3234ec18c0"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        709
+      ],
+      "role": "native Git serialization opportunity",
+      "causalBasis": "Each governed-lock actor first appends start, writes/adds its note, sleeps 200 ms only if git add succeeds, commits, and appends end. Script selection is scenario- and actor-step-specific.",
+      "elapsedMinimumDisposition": "200 ms widens overlap inside native Git work; it is not a product deadline. Exact actor event order/commit proof is separate from elapsed minimum.",
+      "missingCounterEvidence": "Host-side policy probe telemetry does not count shell callbacks. Retain both actors, actual Git lock, credential boundary and original event stream; external observation would need separate validation.",
+      "sources": [
+        {
+          "file": "tests/fixtures/policy-boundary-probe.ts",
+          "sha256": "cf0972faa6b12e25f57ca6aa6b0e3f4ccc87e02c5786e1744a4a4044a5f5330d"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        718,
+        719,
+        720,
+        724,
+        728,
+        731
+      ],
+      "role": "native live-handle fixture",
+      "causalBasis": "718 ignores TERM and holds an owned process with a 1000 ms interval; 719 keeps a socket/60000 ms interval live during ordinary CLI output; 720 holds an embedding lock before SIGKILL; 724 holds search CLI during abort/deadline/HTTP disconnect (already-aborted branch never launches); 728 adds a 1000 ms interval only for server role after filesystem checks; 731 holds writable FD/mmap donor authority with a 60000 ms interval.",
+      "elapsedMinimumDisposition": "Intervals retain process lifetime, not mandatory callback opportunities. A prior ready write can precede registration; no fired-count inference from publication. Real exit/kill/socket/lock/authority proof remains.",
+      "missingCounterEvidence": "Exact registration/fired/clear data absent inside each generated child. Ordinary children can sometimes publish lifecycle telemetry, but worker/donor authority must not expand and SIGKILL cannot supply an exit snapshot.",
+      "sources": [
+        {
+          "file": "experiments/measurement-results.test.ts",
+          "sha256": "d67cee46aac08be3595a503d528ca260ff0158d9cc11dcc44a512384e2cf6a2f"
+        },
+        {
+          "file": "packages/core/tests/cli-output-completion.test.ts",
+          "sha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a"
+        },
+        {
+          "file": "packages/core/tests/indexer-reliability.test.ts",
+          "sha256": "eecead5c9272df9071ed839e3d003b3f66fbdee2dc2c0a7b9bcad07edcda5c5d"
+        },
+        {
+          "file": "packages/ui-server/tests/brain-client.test.ts",
+          "sha256": "60be9bb9ad1f97745597a4e9a75445af4af952c8f26968ec53603bca8d293cc9"
+        },
+        {
+          "file": "packages/ui-server/tests/maintenance-temp-boundary-child.ts",
+          "sha256": "27f96fc217f59bb6234bca6c8d95efaa34917a67a4de786abbc938da0235f69d"
+        },
+        {
+          "file": "tests/fixtures/policy-boundary-probe.ts",
+          "sha256": "cf0972faa6b12e25f57ca6aa6b0e3f4ccc87e02c5786e1744a4a4044a5f5330d"
+        }
+      ]
+    },
+    {
+      "sourceRows": [
+        632
+      ],
+      "role": "native frame after opaque preview scroll",
+      "causalBasis": "The embedded preview handles scroll-preview-to-end, scrolls to document end and schedules report in requestAnimationFrame. Parent accepts only the expected source/origin, observes scrolled top, then tests fresh destination press/reload with the same iframe and top reset.",
+      "elapsedMinimumDisposition": "One native frame opportunity after scroll is the causal unit, not a fixed millisecond floor. Retain all three pointer projects and real iframe/input behavior.",
+      "missingCounterEvidence": "Exact callback count is not retained in existing trace. A selected browser observer can count without replacing rAF; do not substitute corrected-source paint proof for frozen04a timer telemetry.",
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/browser/destination-press.pointer.tsx",
+          "sha256": "0e711774ba2fdd98984c8102220c348034b8cd95a9c3dc6171a92c4acaf3d116"
+        }
+      ]
+    }
+  ],
+  "embeddedRowIndex": [
+    {
+      "sourceRow": 1,
+      "file": "experiments/measurement-results.test.ts",
+      "line": 27,
+      "originalExpression": "await new Promise(resolve => setTimeout(resolve, 1));",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 0,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 2,
+      "file": "experiments/measurement-results.test.ts",
+      "line": 30,
+      "originalExpression": "await new Promise(resolve => setTimeout(resolve, 10));",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 0,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 7,
+      "file": "experiments/turn-surface-stdout.test.ts",
+      "line": 64,
+      "originalExpression": "const child = spawn(execPath, [\"-e\", `process.stdout.write(${JSON.stringify(JSON.stringify(initial)+\"\\n\")});setTimeout(()=>process.stdout.write(${JSON.stringify(JSON.stringify(final))}),150)`],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 57,
+          "expression": "test",
+          "argument": "\"native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown\"",
+          "literal": "native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "4e10a95641d2e3be65cc40451c8e7a74110a317ed372125b740e18dd6c9b338d",
+          "originalSourceSha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown",
+              "bodyMs": 163.71
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 2,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 8,
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "line": 42,
+      "originalExpression": "await new Promise((r) => setTimeout(r, 20));",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 3,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 9,
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "line": 50,
+      "originalExpression": "if (${hangs}) setTimeout(() => process.exit(1), 30_000);",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 3,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 10,
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "line": 78,
+      "originalExpression": "if (hang) { setTimeout(() => process.exit(1), 30_000); continue; }",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 3,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 11,
+      "file": "packages/core/tests/cli-output-completion.test.ts",
+      "line": 89,
+      "originalExpression": "setTimeout(() => child.stdout.resume(), 2);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 80,
+          "expression": "test",
+          "argument": "\"a slow pipe consumer drains the whole human response\"",
+          "literal": "a slow pipe consumer drains the whole human response"
+        },
+        {
+          "kind": "call",
+          "line": 40,
+          "expression": "describe",
+          "argument": "\"CLI output completion\"",
+          "literal": "CLI output completion"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "031605746bbe362d938b255adbeef15f8c1020fa901e3827dbad04a13ce3044b",
+          "originalSourceSha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "CLI output completion > a slow pipe consumer drains the whole human response",
+              "bodyMs": 228.44
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 4,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 12,
+      "file": "packages/core/tests/module-mcp-tools.test.ts",
+      "line": 202,
+      "originalExpression": "while (!await Bun.file(ctx.root + \"/pending-release\").exists()) await Bun.sleep(10);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 194,
+          "expression": "test",
+          "argument": "\"a dormancy edit preserves registered and in-flight calls until the next process\"",
+          "literal": "a dormancy edit preserves registered and in-flight calls until the next process"
+        },
+        {
+          "kind": "call",
+          "line": 153,
+          "expression": "describe",
+          "argument": "\"dormant module MCP startup\"",
+          "literal": "dormant module MCP startup"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "89dbbaf2c8baebf126ae9a39bf4404ab8bea932cf5c80fbceba75d1ae94aa33f",
+          "originalSourceSha256": "6001041f999417297c7f817e8751801e7f5d0900cad3204ee8787bd6d6b40ec5",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "dormant module MCP startup > a dormancy edit preserves registered and in-flight calls until the next process",
+              "bodyMs": 419.1
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 5,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": [
+            "241:72"
+          ]
+        }
+      ]
+    },
+    {
+      "sourceRow": 29,
+      "file": "packages/scrape/tests/browser-politeness.test.ts",
+      "line": 39,
+      "originalExpression": "if (parsed.pathname === \"/navigate\") return new Response('<script>setTimeout(() => location.assign(\"/denied\"), 50)</script>start', { headers: { \"content-type\": \"text/html\" } });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "function",
+          "line": 33,
+          "name": "serve"
+        },
+        {
+          "kind": "call",
+          "line": 19,
+          "expression": "describe.skipIf(!executablePath)",
+          "argument": "\"browser main-frame politeness (real Chrome, local origins)\"",
+          "literal": "browser main-frame politeness (real Chrome, local origins)"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 15,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 53,
+      "file": "packages/ui-backend-claude/tests/state-room-sdk-hook.test.ts",
+      "line": 16,
+      "originalExpression": "setTimeout(()=>{console.error(\"Keyless SDK fixture did not finish its protocol exchange\");process.exit(1)},20000);",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 31,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 54,
+      "file": "packages/ui-backend-claude/tests/state-room-sdk-hook.test.ts",
+      "line": 33,
+      "originalExpression": "await new Promise(resolve=>setTimeout(resolve,10)); process.exit(0);",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 31,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 95,
+      "file": "packages/ui-react/tests/api-client-sync.test.ts",
+      "line": 83,
+      "originalExpression": "while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 74,
+          "expression": "test",
+          "argument": "\"transport loss stays incomplete while the real server drains and reserves the root\"",
+          "literal": "transport loss stays incomplete while the real server drains and reserves the root"
+        },
+        {
+          "kind": "call",
+          "line": 45,
+          "expression": "describe",
+          "argument": "\"published sync helper through actual routes\"",
+          "literal": "published sync helper through actual routes"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "e54cc15e37f02204ec1641dd1e3ae3c0ae23a1f661a577ce67a23193e1bd5a16",
+          "originalSourceSha256": "e65c34d4702619436d05b7fe69a2a58945e26ba4039e40316292073b8810181f",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "published sync helper through actual routes > transport loss stays incomplete while the real server drains and reserves the root",
+              "bodyMs": 490.76
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 53,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": [
+            "41:5",
+            "124:9"
+          ]
+        }
+      ]
+    },
+    {
+      "sourceRow": 197,
+      "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+      "line": 77,
+      "originalExpression": "await new Promise((done) => setTimeout(done, 25));",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 118,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 336,
+      "file": "packages/ui-sdk/tests/rtk.test.ts",
+      "line": 57,
+      "originalExpression": "Bun.sleepSync(1);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 27,
+          "expression": "test",
+          "argument": "\"an oracle closing stdin keeps the parent alive and falls back before its late reply\"",
+          "literal": "an oracle closing stdin keeps the parent alive and falls back before its late reply"
+        },
+        {
+          "kind": "call",
+          "line": 26,
+          "expression": "describe",
+          "argument": "\"rtk subprocess environment\"",
+          "literal": "rtk subprocess environment"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "97b24bd1b69c21e73caa7f4b9363e76ecd19c6b34b032862ba2f0e84cb2a5449",
+          "originalSourceSha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "rtk subprocess environment > an oracle closing stdin keeps the parent alive and falls back before its late reply",
+              "bodyMs": 75.4
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 157,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 357,
+      "file": "packages/ui-server/tests/capture-outcome.test.ts",
+      "line": 17,
+      "originalExpression": "else if (process.argv[2] === \"index\") { await Bun.sleep(30); console.log(\"{}\"); }",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 8,
+          "expression": "test",
+          "argument": "\"capture keeps partial success and retry runs only index through the actual CLI adapter\"",
+          "literal": "capture keeps partial success and retry runs only index through the actual CLI adapter"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "e3a7463a0af404abccd479bd5bdb1cb6cc5f50534d27743e8d4f510ed3ee660b",
+          "originalSourceSha256": "bb46f4143c0f344685c22f92c8c02cddb792452c982778d60e242d2f04b88af6",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "capture keeps partial success and retry runs only index through the actual CLI adapter",
+              "bodyMs": 466.6
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 171,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 359,
+      "file": "packages/ui-server/tests/cron-run-job.test.ts",
+      "line": 348,
+      "originalExpression": "command: [process.execPath, \"-e\", `console.log('start'); await Bun.sleep(50); await Bun.write(${JSON.stringify(marker)}, 'done'); console.log('end'); process.exit(7);`],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 340,
+          "expression": "test",
+          "argument": "\"a broken output sink does not finish before the real child exits\"",
+          "literal": "a broken output sink does not finish before the real child exits"
+        },
+        {
+          "kind": "call",
+          "line": 339,
+          "expression": "describe",
+          "argument": "\"cron lifecycle recovery\"",
+          "literal": "cron lifecycle recovery"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "b572e278c68194877b53c641139866873c7dd5c42058853dfa21cec7882ab7d6",
+          "originalSourceSha256": "817720a5f607f6cb4c23327b815d27e53ab9fc0f529c8c4db7967f12fbed1a44",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "cron lifecycle recovery > a broken output sink does not finish before the real child exits",
+              "bodyMs": 61.91
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 173,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 361,
+      "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "line": 218,
+      "originalExpression": "`await Bun.sleep(60_000);\\n`",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 216,
+          "expression": "test",
+          "argument": "\"an aborted signal kills the child, and the call rejects only once it is gone\"",
+          "literal": "an aborted signal kills the child, and the call rejects only once it is gone"
+        },
+        {
+          "kind": "call",
+          "line": 166,
+          "expression": "describe",
+          "argument": "\"BrainClient.scratchPrune\"",
+          "literal": "BrainClient.scratchPrune"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "63e6d0535fadecc2ce2b3ec3575b80b7967c44558d261fb4d7ba404e5516a2df",
+          "originalSourceSha256": "b89f54c19e751135ce2135dcb9f5ecb3417e246b4122062859e89c19e7d03497",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "BrainClient.scratchPrune > an aborted signal kills the child, and the call rejects only once it is gone",
+              "bodyMs": 150.44
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 174,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 362,
+      "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "line": 252,
+      "originalExpression": "`await Bun.sleep(60_000);\\n`",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 244,
+          "expression": "test",
+          "argument": "\"resolves only once a scratch prune in flight has been killed and has exited\"",
+          "literal": "resolves only once a scratch prune in flight has been killed and has exited"
+        },
+        {
+          "kind": "call",
+          "line": 243,
+          "expression": "describe",
+          "argument": "\"BrainUiApp.close\"",
+          "literal": "BrainUiApp.close"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "63e6d0535fadecc2ce2b3ec3575b80b7967c44558d261fb4d7ba404e5516a2df",
+          "originalSourceSha256": "b89f54c19e751135ce2135dcb9f5ecb3417e246b4122062859e89c19e7d03497",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "BrainUiApp.close > resolves only once a scratch prune in flight has been killed and has exited",
+              "bodyMs": 1185.73
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 174,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 363,
+      "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "line": 292,
+      "originalExpression": "`await Bun.sleep(60_000);\\n`",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 283,
+          "expression": "test",
+          "argument": "\"teardown awaits the app's close: the prune child is gone before state is removed\"",
+          "literal": "teardown awaits the app's close: the prune child is gone before state is removed"
+        },
+        {
+          "kind": "call",
+          "line": 282,
+          "expression": "describe",
+          "argument": "\"the shared test-app helper\"",
+          "literal": "the shared test-app helper"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "63e6d0535fadecc2ce2b3ec3575b80b7967c44558d261fb4d7ba404e5516a2df",
+          "originalSourceSha256": "b89f54c19e751135ce2135dcb9f5ecb3417e246b4122062859e89c19e7d03497",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "the shared test-app helper > teardown awaits the app's close: the prune child is gone before state is removed",
+              "bodyMs": 656.93
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 174,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 383,
+      "file": "packages/ui-server/tests/host-execution-boundary.test.ts",
+      "line": 317,
+      "originalExpression": "installCli(f.brain, `if (args[0] === \"search\") { await Bun.write((process.env.BRAIN_WORKER_DATA_ROOT ?? process.cwd()) + \"/started\", \"x\"); await Bun.sleep(60_000); }`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 314,
+          "expression": "test",
+          "argument": "\"an abort kills the whole maintenance worker, and the call settles only once it is gone\"",
+          "literal": "an abort kills the whole maintenance worker, and the call settles only once it is gone"
+        },
+        {
+          "kind": "call",
+          "line": 286,
+          "expression": "describe",
+          "argument": "\"cron jobs (#1648)\"",
+          "literal": "cron jobs (#1648)"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "d0ecd9dede2f5fd8f41e14d8aff9d9cc65f2d62fa8d48329997b46322405bbe6",
+          "originalSourceSha256": "b081c63e89d06514aef089891a61d8f6ab62e0f86b8e60d3b7a3c6b3b07f42f7",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "cron jobs (#1648) > an abort kills the whole maintenance worker, and the call settles only once it is gone",
+              "bodyMs": 185.92
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 179,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 423,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "line": 167,
+      "originalExpression": "const program = `console.log(\"ready\"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5); console.log((await import(\"./brain.config.ts\")).default); console.log(await Bun.file(\".mcp.json\").exists());`;",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 162,
+          "expression": "test",
+          "argument": "\"an already-running maintenance reader retains dependency bytes and absence\"",
+          "literal": "an already-running maintenance reader retains dependency bytes and absence"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "c207afaa66d6c2b87aeb96a96c92b78c92a0207db7c6bb822d9a2c49716827b3",
+          "originalSourceSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "an already-running maintenance reader retains dependency bytes and absence",
+              "bodyMs": 134.78
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 197,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 424,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "line": 239,
+      "originalExpression": "const program = `console.log(\"ready\"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 227,
+          "expression": "test",
+          "argument": "\"maintenance Git freezes filter dependencies and attributes while publishing its index\"",
+          "literal": "maintenance Git freezes filter dependencies and attributes while publishing its index"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "c207afaa66d6c2b87aeb96a96c92b78c92a0207db7c6bb822d9a2c49716827b3",
+          "originalSourceSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "maintenance Git freezes filter dependencies and attributes while publishing its index",
+              "bodyMs": 661.71
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 197,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 425,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "line": 378,
+      "originalExpression": "${wait ? `while(!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);` : \"\"}",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "function-variable",
+          "line": 375,
+          "name": "program"
+        },
+        {
+          "kind": "call",
+          "line": 370,
+          "expression": "test",
+          "argument": "\"separate maintenance clients serialize frozen preparation through publication\"",
+          "literal": "separate maintenance clients serialize frozen preparation through publication"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "c207afaa66d6c2b87aeb96a96c92b78c92a0207db7c6bb822d9a2c49716827b3",
+          "originalSourceSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "separate maintenance clients serialize frozen preparation through publication",
+              "bodyMs": 439.51
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 197,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": [
+            "389:86"
+          ]
+        }
+      ]
+    },
+    {
+      "sourceRow": 428,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "line": 409,
+      "originalExpression": "else if(process.argv.includes(\"index\")) {await Bun.sleep(700);console.log(\"{}\");} else console.log(\"{}\");`, { mode: 0o755 });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 405,
+          "expression": "test",
+          "argument": "\"app close drains its real deferred maintenance refresh before closing the writer gate database\"",
+          "literal": "app close drains its real deferred maintenance refresh before closing the writer gate database"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "c207afaa66d6c2b87aeb96a96c92b78c92a0207db7c6bb822d9a2c49716827b3",
+          "originalSourceSha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "app close drains its real deferred maintenance refresh before closing the writer gate database",
+              "bodyMs": 1421.84
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 197,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 465,
+      "file": "packages/ui-server/tests/sync-reservation.test.ts",
+      "line": 31,
+      "originalExpression": "while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 19,
+          "expression": "test",
+          "argument": "\"reserves canonical roots across routes and disconnects, and releases after exit\"",
+          "literal": "reserves canonical roots across routes and disconnects, and releases after exit"
+        },
+        {
+          "kind": "call",
+          "line": 18,
+          "expression": "describe",
+          "argument": "\"sync reservation\"",
+          "literal": "sync reservation"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "3716cba6afc1616d476a55d3fe13be8da2b4b7c9a0c026f138c2a1451b8f6354",
+          "originalSourceSha256": "395f6a45cc051dcb7bc64d46739466955020f62831badab1008fae6817bbbe92",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "sync reservation > reserves canonical roots across routes and disconnects, and releases after exit",
+              "bodyMs": 518.55
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 218,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": [
+            "14:5",
+            "56:9"
+          ]
+        }
+      ]
+    },
+    {
+      "sourceRow": 562,
+      "file": "tests/ci-runner.test.ts",
+      "line": 18,
+      "originalExpression": "const timer = setTimeout(() => { watcher.close(); process.exit(7); }, 1500);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 12,
+          "expression": "test",
+          "argument": "\"the runner executes independent children concurrently\"",
+          "literal": "the runner executes independent children concurrently"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "6ec0f237e6e3a2590409935cab3dc243b1265d11a251184d93afc007a9864c7e",
+          "originalSourceSha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "the runner executes independent children concurrently",
+              "bodyMs": 14.29
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 258,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 570,
+      "file": "tests/fixtures/governed-socket-probe.ts",
+      "line": 10,
+      "originalExpression": "`const net=require(\"node:net\"); const client=net.connect(${JSON.stringify(socket)}); client.on(\"connect\",()=>process.exit(41)); client.on(\"error\",()=>process.exit(0)); setTimeout(()=>process.exit(42),1000);`] }),",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 571,
+      "file": "tests/fixtures/pi-worker-probe.ts",
+      "line": 71,
+      "originalExpression": "await new Promise(r=>setTimeout(r,100));",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 262,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 572,
+      "file": "tests/fixtures/pi-worker-probe.ts",
+      "line": 76,
+      "originalExpression": "await new Promise(r=>setTimeout(r,60000));",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 262,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 586,
+      "file": "tests/test-script.test.ts",
+      "line": 160,
+      "originalExpression": "`  await Bun.sleep(20_000);\\n` +",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 144,
+          "expression": "test",
+          "argument": "\"a signal sent to the wrapper stops the tests it started\"",
+          "literal": "a signal sent to the wrapper stops the tests it started"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "2d24957f4c86fefb3621014df99a8fcfeb16079c74aad878c07bfffce314d0b5",
+          "originalSourceSha256": "ea3b069dff5adce55be09cd905acdc585a87589fb848e7319a054e921f2ea9d3",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "a signal sent to the wrapper stops the tests it started",
+              "bodyMs": 42.05
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 267,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 606,
+      "file": "packages/ui-backend-claude/tests/runtime-probe.test.ts",
+      "line": 178,
+      "originalExpression": "writeFileSync(path, `#!/bin/sh\\ntrap \"\" TERM\\necho \"2.0.0 (Claude Code)\"\\nsleep 8\\n`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 174,
+          "expression": "test",
+          "argument": "\"a binary that ignores SIGTERM past the deadline refuses at the deadline\"",
+          "literal": "a binary that ignores SIGTERM past the deadline refuses at the deadline"
+        },
+        {
+          "kind": "call",
+          "line": 173,
+          "expression": "describe",
+          "argument": "\"isMeasuredRuntime\"",
+          "literal": "isMeasuredRuntime"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "e62aa483725e5b79c982f2e03993273df3d5d837f2e41d3b92bc9efca3cbc1f3",
+          "originalSourceSha256": "4cbe926d22cd92046bb04e3189ff4840a8a266ab474d44802d4a032fc479ac4e",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "isMeasuredRuntime > a binary that ignores SIGTERM past the deadline refuses at the deadline",
+              "bodyMs": 5252.77
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 272,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 610,
+      "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+      "line": 48,
+      "originalExpression": "const results = await run(`sleep 0.3; head -c ${8 * MiB} /dev/zero > \"$CLAUDE_CONFIG_DIR/late\" 2>/dev/null; exit 0`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 47,
+          "expression": "test",
+          "argument": "\"state that fills after the result still ends the turn as worker_state_exceeded, keeping its usage\"",
+          "literal": "state that fills after the result still ends the turn as worker_state_exceeded, keeping its usage"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "8fdb18dfd2355b9191a41581a165fee225e246b56521a21fba5b1e3f1098604c",
+          "originalSourceSha256": "b4c22349201746f18ea9967b68b335dec98792f52c904bfe91fa8eb63f09fc90",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "state that fills after the result still ends the turn as worker_state_exceeded, keeping its usage",
+              "bodyMs": 451.94
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 275,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 611,
+      "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+      "line": 54,
+      "originalExpression": "const results = await run(`sleep 0.3; head -c ${MiB} /dev/zero > \"$CLAUDE_CONFIG_DIR/small\"; exit 0`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 53,
+          "expression": "test",
+          "argument": "\"state with room left keeps the runtime's success\"",
+          "literal": "state with room left keeps the runtime's success"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "8fdb18dfd2355b9191a41581a165fee225e246b56521a21fba5b1e3f1098604c",
+          "originalSourceSha256": "b4c22349201746f18ea9967b68b335dec98792f52c904bfe91fa8eb63f09fc90",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "state with room left keeps the runtime's success",
+              "bodyMs": 434.64
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 275,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 612,
+      "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+      "line": 59,
+      "originalExpression": "const results = await run(`head -c ${8 * MiB} /dev/zero > \"$CLAUDE_CONFIG_DIR/full\" 2>/dev/null; sleep 0.3; exit 0`, true);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 58,
+          "expression": "test",
+          "argument": "\"a host cancellation outranks a full state found after the result\"",
+          "literal": "a host cancellation outranks a full state found after the result"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "8fdb18dfd2355b9191a41581a165fee225e246b56521a21fba5b1e3f1098604c",
+          "originalSourceSha256": "b4c22349201746f18ea9967b68b335dec98792f52c904bfe91fa8eb63f09fc90",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "a host cancellation outranks a full state found after the result",
+              "bodyMs": 434.89
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 275,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 613,
+      "file": "packages/ui-backend-claude/tests/worker.test.ts",
+      "line": 124,
+      "originalExpression": "const child = spawner.spawn({ command: \"/bin/sh\", args: [\"-c\", \"while :; do sleep 1; done\"],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 113,
+          "expression": "test",
+          "argument": "\"a throwing worker-start callback kills and drains its real child before releasing state\"",
+          "literal": "a throwing worker-start callback kills and drains its real child before releasing state"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "8a99d8889906083a7288c7c2bcf3cc61ea2e74eac68a224f61da0b081c9d6644",
+          "originalSourceSha256": "4d637d0a186d25c304bf6e4e946166037ee9f04ed3aa9264c99c922bc718950e",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "a throwing worker-start callback kills and drains its real child before releasing state",
+              "bodyMs": 114.75
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 276,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 632,
+      "file": "packages/ui-react/tests/browser/destination-press.pointer.tsx",
+      "line": 516,
+      "originalExpression": "requestAnimationFrame(report);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 499,
+          "expression": "test",
+          "argument": "`D52 N3 at ${width}: Files with an HTML preview loads it again at its top`",
+          "literal": null
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 60,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        },
+        {
+          "receiptCatalogIndex": 61,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        },
+        {
+          "receiptCatalogIndex": 62,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 670,
+      "file": "packages/ui-sdk/tests/exec-wrapper.test.ts",
+      "line": 297,
+      "originalExpression": "`#!/bin/sh\\ntrap '' TERM\\ntouch '${ready}'\\nwhile : ; do sleep 0.05; done\\n`,",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 288,
+          "expression": "test",
+          "argument": "\"without a wrapper the requested signal is the one that is sent\"",
+          "literal": "without a wrapper the requested signal is the one that is sent"
+        },
+        {
+          "kind": "call",
+          "line": 260,
+          "expression": "describe",
+          "argument": "\"failures of the helper itself are not mistaken for success\"",
+          "literal": "failures of the helper itself are not mistaken for success"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "48780e1f73af7ea99926ea096a9d27a58a5ecb81dfd474210c9cd1f4525e1a9e",
+          "originalSourceSha256": "96e2b2f62e3420f74a2493c3e065d06453728ee4fd23794a485bd7f5054dd4d3",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "failures of the helper itself are not mistaken for success > without a wrapper the requested signal is the one that is sent",
+              "bodyMs": 25.87
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 151,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 671,
+      "file": "packages/ui-sdk/tests/fixtures/worker-cgroup-probe.ts",
+      "line": 60,
+      "originalExpression": "`${process.execPath} -e 'const h=[]; for(let i=0;i<32;i++) h.push(Buffer.alloc(32*1024*1024,1))'; echo \"child=$?\"; sleep 2; exit 137`], 100);",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 301,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 672,
+      "file": "packages/ui-sdk/tests/governed-worker.test.ts",
+      "line": 78,
+      "originalExpression": "'printf ready > reader-ready.md; for i in $(seq 1 200); do if test -f writer-done.md; then if test -s .mcp.json; then cat .mcp.json; exit 0; fi; exit 43; fi; sleep 0.01; done; exit 44'] }),",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 72,
+          "expression": "test",
+          "argument": "\"governed peers may consume a protected name created after launch\"",
+          "literal": "governed peers may consume a protected name created after launch"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "a554d4d6d5b4b5a0102e79a0b2bf49e5a06141e0a0227e1ae3fc0f612947daff",
+          "originalSourceSha256": "f45606feecc98b1c76413890b1212d0ffdac60a493b8cad042e883afcf77474a",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "governed peers may consume a protected name created after launch",
+              "bodyMs": 41.78
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 302,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 673,
+      "file": "packages/ui-sdk/tests/governed-worker.test.ts",
+      "line": 81,
+      "originalExpression": "'for i in $(seq 1 200); do if test -f reader-ready.md; then printf \"{\\\\\"mcpServers\\\\\":{\\\\\"odysseus\\\\\":{\\\\\"command\\\\\":\\\\\"/bin/true\\\\\"}}}\" > .mcp.json; printf done > writer-done.md; exit 0; fi; sleep 0.01; done; exit 45'] }),",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 72,
+          "expression": "test",
+          "argument": "\"governed peers may consume a protected name created after launch\"",
+          "literal": "governed peers may consume a protected name created after launch"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "a554d4d6d5b4b5a0102e79a0b2bf49e5a06141e0a0227e1ae3fc0f612947daff",
+          "originalSourceSha256": "f45606feecc98b1c76413890b1212d0ffdac60a493b8cad042e883afcf77474a",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "governed peers may consume a protected name created after launch",
+              "bodyMs": 41.78
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 302,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 674,
+      "file": "packages/ui-sdk/tests/rtk.test.ts",
+      "line": 31,
+      "originalExpression": "writeFileSync(binary, `#!/bin/sh\\nif [ \"$1\" = \"--version\" ]; then exit 0; fi\\nexec 0<&-\\ntouch '${closed}'\\nsleep 0.05\\nprintf '%s\\\\n' '{\"hookSpecificOutput\":{\"updatedInput\":{\"command\":\"rtk git status\"}}}'\\n`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 27,
+          "expression": "test",
+          "argument": "\"an oracle closing stdin keeps the parent alive and falls back before its late reply\"",
+          "literal": "an oracle closing stdin keeps the parent alive and falls back before its late reply"
+        },
+        {
+          "kind": "call",
+          "line": 26,
+          "expression": "describe",
+          "argument": "\"rtk subprocess environment\"",
+          "literal": "rtk subprocess environment"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "97b24bd1b69c21e73caa7f4b9363e76ecd19c6b34b032862ba2f0e84cb2a5449",
+          "originalSourceSha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "rtk subprocess environment > an oracle closing stdin keeps the parent alive and falls back before its late reply",
+              "bodyMs": 75.4
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 157,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 675,
+      "file": "packages/ui-sdk/tests/version-probe.test.ts",
+      "line": 19,
+      "originalExpression": "const result = await probeVersionCommand([\"/bin/sh\", \"-c\", \"printf 'version\\\\n'; printf 'diagnostic\\\\n' >&2; sleep 0.02; exit 3\"], { cwd: dir, env: {}, exec: {} });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 10,
+          "expression": "test",
+          "argument": "\"a completed async probe clears its deadline and retains both output streams and exit code\"",
+          "literal": "a completed async probe clears its deadline and retains both output streams and exit code"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "5b2380ba9316eb2475ea59a62218d0b97b7968302eb335e9ab7fe399052cad1f",
+          "originalSourceSha256": "307dd212fdc5c9c149c541dd25e902b6dce25f28fb50c090a166de47259674f9",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "a completed async probe clears its deadline and retains both output streams and exit code",
+              "bodyMs": 27.24
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 160,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 676,
+      "file": "packages/ui-sdk/tests/version-probe.test.ts",
+      "line": 38,
+      "originalExpression": "writeFileSync(binary, `#!/bin/sh\\necho $$ > '${childPid}'\\necho version\\nexec sleep 8\\n`, { mode: 0o755 });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 32,
+          "expression": "test",
+          "argument": "\"giving up on an unconfirmed probe closes readers and does not keep its host alive\"",
+          "literal": "giving up on an unconfirmed probe closes readers and does not keep its host alive"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "5b2380ba9316eb2475ea59a62218d0b97b7968302eb335e9ab7fe399052cad1f",
+          "originalSourceSha256": "307dd212fdc5c9c149c541dd25e902b6dce25f28fb50c090a166de47259674f9",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "giving up on an unconfirmed probe closes readers and does not keep its host alive",
+              "bodyMs": 5266.8
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 160,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 677,
+      "file": "packages/ui-sdk/tests/version-probe.test.ts",
+      "line": 67,
+      "originalExpression": "writeFileSync(binary, \"#!/bin/sh\\necho version\\nexec sleep 5\\n\", { mode: 0o755 });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 63,
+          "expression": "test",
+          "argument": "\"exit and deadline racing settle once, with one group sweep and no unhandled rejection\"",
+          "literal": "exit and deadline racing settle once, with one group sweep and no unhandled rejection"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "5b2380ba9316eb2475ea59a62218d0b97b7968302eb335e9ab7fe399052cad1f",
+          "originalSourceSha256": "307dd212fdc5c9c149c541dd25e902b6dce25f28fb50c090a166de47259674f9",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "exit and deadline racing settle once, with one group sweep and no unhandled rejection",
+              "bodyMs": 5103.33
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 160,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 678,
+      "file": "packages/ui-sdk/tests/worker-state-mount.test.ts",
+      "line": 64,
+      "originalExpression": "command: [\"/bin/sh\", \"-c\", `head -c ${8 * MiB} /dev/zero > \"${WORKER_STATE}/flood\" 2>/dev/null; sleep 1`] });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 60,
+          "expression": "test",
+          "argument": "\"two workers' tmpfs mounts are separate: one filling its own leaves the other's allowance whole\"",
+          "literal": "two workers' tmpfs mounts are separate: one filling its own leaves the other's allowance whole"
+        },
+        {
+          "kind": "call",
+          "line": 39,
+          "expression": "describe",
+          "argument": "\"private runtime-state tmpfs\"",
+          "literal": "private runtime-state tmpfs"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "93295c55e48cc4663d7f58b29070e9a8ae29c8f9cb5dcb9c4abade6857bbc56f",
+          "originalSourceSha256": "e58814ef87bb880c54b3cf7dc427d7378738b789bf568db2abe34c5fd29cb6b8",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "private runtime-state tmpfs > two workers' tmpfs mounts are separate: one filling its own leaves the other's allowance whole",
+              "bodyMs": 1034.58
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 164,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 679,
+      "file": "packages/ui-sdk/tests/worker-turn-temp.test.ts",
+      "line": 73,
+      "originalExpression": "? spawn(['/bin/sh','-c','/bin/sleep 6 >/dev/null 2>/dev/null </dev/null & wait'], options)",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 66,
+          "expression": "test.skipIf(!LINUX)",
+          "argument": "\"the held-root gate refuses the host tmpfs even when its size equals admission\"",
+          "literal": "the held-root gate refuses the host tmpfs even when its size equals admission"
+        },
+        {
+          "kind": "call",
+          "line": 65,
+          "expression": "describe",
+          "argument": "\"turn temp (#1655, #1703)\"",
+          "literal": "turn temp (#1655, #1703)"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "9b31bba4f56e27e30e21b3345b2079a876f49d0526fd1fc32b749c6cdfeb4a38",
+          "originalSourceSha256": "e65ed215880cba26b719086a46c5c768716ed25757cca78209dfd59c26d1c860",
+          "matchingOriginalCases": [
+            {
+              "outcome": "fail",
+              "name": "turn temp (#1655, #1703) > the held-root gate refuses the host tmpfs even when its size equals admission",
+              "bodyMs": 19.4
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 165,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 680,
+      "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "line": 31,
+      "originalExpression": "function fixture(output: string, body = 'exec sleep 8') {",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "function",
+          "line": 31,
+          "name": "fixture"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 169,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 681,
+      "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "line": 70,
+      "originalExpression": "mode === \"failing\" ? \"exit 3\" : mode === \"noop\" ? \"exit 0\" : `echo $$ > '${f.dir}/helper.pid'\\nexec sleep 8`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 67,
+          "expression": "test",
+          "argument": "`${kind} bounds cleanup with a ${mode} killer`",
+          "literal": null
+        },
+        {
+          "kind": "call",
+          "line": 55,
+          "expression": "describe",
+          "argument": "\"boot probe deadline\"",
+          "literal": "boot probe deadline"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 169,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 682,
+      "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "line": 95,
+      "originalExpression": "const f = fixture(kind === \"brain\" ? \"0.42.0\" : \"2.0.0 (Claude Code)\", `sleep 8 &\\necho $! > descendant.pid\\nexit 0`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 94,
+          "expression": "test",
+          "argument": "`${kind} bounds inherited output pipes after the probe process exits`",
+          "literal": null
+        },
+        {
+          "kind": "call",
+          "line": 55,
+          "expression": "describe",
+          "argument": "\"boot probe deadline\"",
+          "literal": "boot probe deadline"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 169,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 683,
+      "file": "packages/ui-server/tests/brain-client.test.ts",
+      "line": 600,
+      "originalExpression": "`#!/bin/sh\\n/bin/sh -c 'sleep 300; :' '${marker}' &\\nsleep 300\\n`,",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 590,
+          "expression": "test",
+          "argument": "\"a probe that times out does not orphan the CLI behind its wrapper\"",
+          "literal": "a probe that times out does not orphan the CLI behind its wrapper"
+        },
+        {
+          "kind": "call",
+          "line": 464,
+          "expression": "describe",
+          "argument": "\"the exec wrapper covers the shared CLI client\"",
+          "literal": "the exec wrapper covers the shared CLI client"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "ca8badec71f0e17639cb8c4818ed45566d77f195fb954544005e47a28a61b9f4",
+          "originalSourceSha256": "60be9bb9ad1f97745597a4e9a75445af4af952c8f26968ec53603bca8d293cc9",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "the exec wrapper covers the shared CLI client > a probe that times out does not orphan the CLI behind its wrapper",
+              "bodyMs": 5051.25
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 170,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 687,
+      "file": "packages/ui-server/tests/fixtures/scope-pi-worker.ts",
+      "line": 13,
+      "originalExpression": "const shell = Bun.spawn([\"/bin/sh\", \"-c\", 'while :; do printf x >> adapter-heartbeat; sleep 0.02; done'], { cwd: brain, env: { PATH: \"/usr/bin:/bin\" }, stdout: \"ignore\", stderr: \"pipe\" });",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 688,
+      "file": "packages/ui-server/tests/fixtures/scope-restart-probe.ts",
+      "line": 4,
+      "originalExpression": "const child = f.worker('printf Ithaca > restart-note; while :; do sleep 1; done');",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 689,
+      "file": "packages/ui-server/tests/fixtures/scope-tmpfs-probe.ts",
+      "line": 11,
+      "originalExpression": "await f.begin(); child = f.worker('i=0; while [ \"$i\" -lt 200 ]; do i=$((i+1)); head -c 1048576 /dev/zero > .brain/scratch/sail-$i; sleep 0.2; done; printf done > finished');",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 690,
+      "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+      "line": 189,
+      "originalExpression": "writeFileSync(wrapper, `#!/bin/sh\\n/bin/sh -c 'sleep 300; :' '${marker}' ${timesOut ? \"\" : \">/dev/null 2>&1 \"}&\\nsleep 0.3\\n${timesOut ? \"sleep 300\" : \"exit 4\"}\\n`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 185,
+          "expression": "test",
+          "argument": "`an explicit ${timesOut ? \"timed-out\" : \"failed\"} probe leaves no wrapper child`",
+          "literal": null
+        },
+        {
+          "kind": "call",
+          "line": 183,
+          "expression": "describe",
+          "argument": "\"explicit probes retain bounded wrapper cleanup\"",
+          "literal": "explicit probes retain bounded wrapper cleanup"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 180,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 691,
+      "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+      "line": 240,
+      "originalExpression": "writeFileSync(f.bin, \"#!/bin/sh\\nsleep 300\\n\");",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 238,
+          "expression": "test",
+          "argument": "\"a cancelled explicit invocation check reaps its child before sending user input\"",
+          "literal": "a cancelled explicit invocation check reaps its child before sending user input"
+        },
+        {
+          "kind": "call",
+          "line": 204,
+          "expression": "describe",
+          "argument": "\"explicit CLI minima on direct clients and probes\"",
+          "literal": "explicit CLI minima on direct clients and probes"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "9e0af383bc7382bc34382adba4d7f0298154dc827eaf4c3d239e0e0dc97c2ce8",
+          "originalSourceSha256": "b680aba7d61dcd897b8bdcc2fee3dc686daa68f9aa69c405ff693b4104f86768",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "explicit CLI minima on direct clients and probes > a cancelled explicit invocation check reaps its child before sending user input",
+              "bodyMs": 531.44
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 180,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 692,
+      "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+      "line": 499,
+      "originalExpression": "const child = Bun.spawn([process.execPath, \"-e\", `${script} console.error('readiness-control'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);`, ready],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 496,
+          "expression": "test.each([\"empty\", \"wrong\", \"missing\"])",
+          "argument": "\"crash readiness rejects %s publication at the deadline and reaps the child\"",
+          "literal": "crash readiness rejects %s publication at the deadline and reaps the child"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 189,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 693,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "line": 432,
+      "originalExpression": "writeFileSync(fakeGit, `#!/bin/sh\\nsleep 0.6\\nexec '${realGit}' \"$@\"\\n`, { mode: 0o755 });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 423,
+          "expression": "test",
+          "argument": "`cancellation ${timing} Git preparation starts no maintenance command and releases admission`",
+          "literal": null
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 197,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 694,
+      "file": "packages/ui-server/tests/runtime-boot.test.ts",
+      "line": 141,
+      "originalExpression": "writeFileSync(path, `#!/bin/sh\\ntouch '${marker}'\\nsleep 0.3\\ntouch '${completedProbe}'\\necho '2.0.0 (Claude Code)'\\nexit ${succeeds ? 0 : 2}\\n`);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 132,
+          "expression": "test",
+          "argument": "`a pending required probe opens no resources; ${succeeds ? \"successful\" : \"refused\"} startup ${succeeds ? \"then serves\" : \"never serves\"}`",
+          "literal": null
+        },
+        {
+          "kind": "call",
+          "line": 130,
+          "expression": "describe",
+          "argument": "\"asynchronous startup resource ordering\"",
+          "literal": "asynchronous startup resource ordering"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 207,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 695,
+      "file": "packages/ui-server/tests/sync-mirror.test.ts",
+      "line": 193,
+      "originalExpression": "Bun.spawn([\"/bin/sh\", \"-c\", ${JSON.stringify('while kill -0 \"$2\" 2>/dev/null; do sleep 0.02; done; printf poisoned > \"$1\"')}, \"child\", ${JSON.stringify(join(mirror, \"objects/info/alternates\"))}, String(process.pid)], { stdin: \"ignore\", stdout: \"ignore\", stderr: \"ignore\" });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 182,
+          "expression": "test",
+          "argument": "\"maintenance cannot write mirror config or hooks; a background writer cannot survive into credentialed transport\"",
+          "literal": "maintenance cannot write mirror config or hooks; a background writer cannot survive into credentialed transport"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "c0ce1ea9dd27abed3932f5c74d06233b4d6a5d86d7eae10acdde7aa77698c6eb",
+          "originalSourceSha256": "4c7c69cdc7ebdacfd1832e785e7399a66a4f9b356101a9aad24c7d3234ec18c0",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "maintenance cannot write mirror config or hooks; a background writer cannot survive into credentialed transport",
+              "bodyMs": 3371.62
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 217,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 696,
+      "file": "packages/ui-server/tests/sync-mirror.test.ts",
+      "line": 305,
+      "originalExpression": "const worker = await execution.boundary.launch({ argv: [\"/bin/sh\", \"-c\", \"sleep 0.2; printf local-work-done\"],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 299,
+          "expression": "test",
+          "argument": "`cancelling sync ${output} while the worker runs preserves exit status and releases its gate`",
+          "literal": null
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 217,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 707,
+      "file": "packages/ui-server/tests/ws-scope-caps.test.ts",
+      "line": 32,
+      "originalExpression": "const child = params.options.spawnClaudeCodeProcess({ command: \"/bin/sh\", args: [\"-c\", 'while :; do printf x >> adapter-heartbeat; sleep 0.02; done'],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 20,
+          "expression": "test",
+          "argument": "`${adapter}: ${voice ? (adapter === \"pi\" ? \"voice admission refuses before a worker\" : \"true voice stops without a grant\") : \"dictation pauses, grants once, refuses a second grant and Stops normally\"}`",
+          "literal": null
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 249,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 708,
+      "file": "tests/fixtures/pi-worker-probe.ts",
+      "line": 75,
+      "originalExpression": "Bun.spawn([\"bash\",\"-c\",\"sleep 60 & wait\"],{stdin:\"ignore\",stdout:\"ignore\",stderr:\"ignore\"});",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 262,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 709,
+      "file": "tests/fixtures/policy-boundary-probe.ts",
+      "line": 369,
+      "originalExpression": "const lockScript = lockStep ? [] : [bash(`printf 'start-${lockActor}\\\\n' >> notes/git-serialization.md; printf Odysseus > notes/lock-${lockActor}.md; git add notes/lock-${lockActor}.md && sleep 0.2 && git -c user.name=Odysseus -c user.email=odysseus@ithaca.example commit -m 'Odysseus lock ${lockActor}'; printf 'end-${lockActor}\\\\n' >> notes/git-serialization.md`)];",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "function",
+          "line": 223,
+          "name": "server"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 263,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 710,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "line": 65,
+      "originalExpression": "const append = (id: string, line: string) => `printf '%s\\\\n' '${line}' >> \"$CLAUDE_CONFIG_DIR/projects/${projectName}/${id}.jsonl\" && sleep 1`;",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 711,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "line": 96,
+      "originalExpression": "const holder = turn(`sleep 2; ${append(TROY, \"{\\\"text\\\":\\\"Still at Troy\\\"}\")}`, TROY);",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 712,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "line": 123,
+      "originalExpression": "\"late swap\": `printf '{}\\\\n' > \"$d/${VOYAGE}.jsonl\"; (sleep 0.2; rm \"$d/${VOYAGE}.jsonl\"; ln -s \"${victim}\" \"$d/${VOYAGE}.jsonl\") & sleep 0.5`,",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 713,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "line": 146,
+      "originalExpression": "+ 'stat -f -c \"free=%a\" /tmp; sleep 1; ' + append(TROY, \"{\\\"text\\\":\\\"Scylla\\\"}\");",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 714,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "line": 164,
+      "originalExpression": "turn(`echo ready; sleep 30 # ${marker}`, TROY);",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 718,
+      "file": "experiments/measurement-results.test.ts",
+      "line": 105,
+      "originalExpression": "const child = observed.spawn({ command: process.execPath, args: [\"-e\", 'process.on(\"SIGTERM\",()=>{});process.stdout.write(\"ready\\\\n\");setInterval(()=>{},1000);'],",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 103,
+          "expression": "test",
+          "argument": "\"drain timeout force-kills and awaits an owned native child ignoring SIGTERM\"",
+          "literal": "drain timeout force-kills and awaits an owned native child ignoring SIGTERM"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "43e2f59066f2ba5855227761a2d4e115f4a8ddbd67b3f47bdd26ea759bc3b297",
+          "originalSourceSha256": "d67cee46aac08be3595a503d528ca260ff0158d9cc11dcc44a512384e2cf6a2f",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "drain timeout force-kills and awaits an owned native child ignoring SIGTERM",
+              "bodyMs": 65.05
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 0,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 719,
+      "file": "packages/core/tests/cli-output-completion.test.ts",
+      "line": 137,
+      "originalExpression": "setInterval(() => {}, 60_000);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 132,
+          "expression": "test",
+          "argument": "\"ordinary output finishes despite unrelated live sockets and timers\"",
+          "literal": "ordinary output finishes despite unrelated live sockets and timers"
+        },
+        {
+          "kind": "call",
+          "line": 40,
+          "expression": "describe",
+          "argument": "\"CLI output completion\"",
+          "literal": "CLI output completion"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "031605746bbe362d938b255adbeef15f8c1020fa901e3827dbad04a13ce3044b",
+          "originalSourceSha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "CLI output completion > ordinary output finishes despite unrelated live sockets and timers",
+              "bodyMs": 265.72
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 4,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 720,
+      "file": "packages/core/tests/indexer-reliability.test.ts",
+      "line": 196,
+      "originalExpression": "setInterval(() => {}, 1000);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 186,
+          "expression": "test",
+          "argument": "\"embedding lock excludes another process and recovers after its owner dies\"",
+          "literal": "embedding lock excludes another process and recovers after its owner dies"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "aaf95a198f85db325244238e136d383e09cdebe46fd2613773488bee3351bc30",
+          "originalSourceSha256": "eecead5c9272df9071ed839e3d003b3f66fbdee2dc2c0a7b9bcad07edcda5c5d",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "embedding lock excludes another process and recovers after its owner dies",
+              "bodyMs": 33.58
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 303,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 724,
+      "file": "packages/ui-server/tests/brain-client.test.ts",
+      "line": 176,
+      "originalExpression": "setInterval(() => {}, 1000);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "function",
+          "line": 171,
+          "name": "stalledBrain"
+        },
+        {
+          "kind": "call",
+          "line": 147,
+          "expression": "describe",
+          "argument": "\"search cancellation and deadlines\"",
+          "literal": "search cancellation and deadlines"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 170,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 728,
+      "file": "packages/ui-server/tests/maintenance-temp-boundary-child.ts",
+      "line": 17,
+      "originalExpression": "const program = `const fs=require(\"node:fs\"),temp=fs.statfsSync(\"/tmp\"); if(fs.existsSync(${JSON.stringify(dbPath)}) || temp.type!==0x01021994 || temp.blocks*temp.bsize!==${JSON.parse(raw!).allowanceBytes}) throw new Error(\"maintenance did not run in its admitted filesystem\"); fs.writeFileSync(process.env.BRAIN_ROOT+\"/\"+${JSON.stringify(basename(marker!))}, \"${role} ran\"); ${role === \"server\" ? 'console.log(JSON.stringify({held:true}));setInterval(() => {},1000);' : ''}`;",
+      "lexicalEnclosingCallers": [],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": []
+    },
+    {
+      "sourceRow": 730,
+      "file": "tests/ci-runner.test.ts",
+      "line": 34,
+      "originalExpression": "const timer = setInterval(() => {}, 60000);",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "call",
+          "line": 30,
+          "expression": "test",
+          "argument": "\"a failed check stops its running sibling and remains a failure\"",
+          "literal": "a failed check stops its running sibling and remains a failure"
+        }
+      ],
+      "parentReceiptReferences": [
+        {
+          "logSha256": "6ec0f237e6e3a2590409935cab3dc243b1265d11a251184d93afc007a9864c7e",
+          "originalSourceSha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+          "matchingOriginalCases": [
+            {
+              "outcome": "pass",
+              "name": "a failed check stops its running sibling and remains a failure",
+              "bodyMs": 12.86
+            }
+          ]
+        }
+      ],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 258,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    },
+    {
+      "sourceRow": 731,
+      "file": "tests/fixtures/policy-boundary-probe.ts",
+      "line": 175,
+      "originalExpression": "setInterval(() => {}, 60000);`, DONOR_MARKER], { stdin: \"ignore\", stdout: \"pipe\", stderr: \"inherit\" });",
+      "lexicalEnclosingCallers": [
+        {
+          "kind": "function",
+          "line": 111,
+          "name": "outer"
+        }
+      ],
+      "parentReceiptReferences": [],
+      "priorOperationalReceiptCatalogLinks": [
+        {
+          "receiptCatalogIndex": 263,
+          "exactFrozen04aSites": [],
+          "observedZeroFrozen04aSites": [],
+          "expressionCandidatesRequireSourceLineageReview": []
+        }
+      ]
+    }
+  ],
+  "additionalSourceReviews": [
+    {
+      "sourceRows": [
+        349,
+        350,
+        431,
+        434
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/auth.test.ts",
+          "sha256": "20f2be32410f8a3a443fd8ccd606605508344c764b0ade3ade0eb78f347c6beb"
+        },
+        {
+          "file": "packages/ui-server/tests/model-pricing.test.ts",
+          "sha256": "fe4f7a55d2bdfd7915f7a6415b6fab23e37162d2a36eb5f53502a0e918e24872"
+        },
+        {
+          "file": "packages/ui-server/tests/passkeys.test.ts",
+          "sha256": "feef00415fc8c4150af76dabcdabecccf58238f0d903679814f21bc109c8bda1"
+        }
+      ],
+      "basis": "Four Promise.race arrays eagerly evaluate Bun.sleep. The measured enclosing races completed once with non-timeout outcomes: two admitted verifiers, a 429 response, stale-cache return and two admitted passkey verifiers.",
+      "sourceControlFlowInference": {
+        "registrationsByRow": {
+          "349": 1,
+          "350": 1,
+          "431": 1,
+          "434": 1
+        },
+        "requestedMsByRow": {
+          "349": 250,
+          "350": 500,
+          "431": 100,
+          "434": 250
+        },
+        "measuredOuterElapsedMsByRow": {
+          "349": 0.19221,
+          "350": 0.018111,
+          "431": 0.046602,
+          "434": 0.48333
+        },
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "One registration per selected row is inferred from original control flow. Actual sleep callbacks and elapsed time remain unobserved; the sleep literal is a failure ceiling, not completed cost."
+    },
+    {
+      "sourceRows": [
+        598,
+        607,
+        608,
+        609
+      ],
+      "sources": [
+        {
+          "file": "packages/core/tests/claude-runner-subscription.test.ts",
+          "sha256": "dcba15b7c0ade6b6e122d0cf1047ed73abc0a02cccdb2887fcd68901ca5db324"
+        },
+        {
+          "file": "packages/ui-backend-claude/tests/subscription-billing.test.ts",
+          "sha256": "75c660a6e6dd1ed8ee48a0bf61bf963c95ca9c1a94db49413bdd50efb85e636d"
+        },
+        {
+          "file": "packages/ui-backend-claude/tests/subscription-gate.test.ts",
+          "sha256": "91d3515cf35f0a86ccb9a3006e264f4263706357a535fb91b0e65825c0e2fc67"
+        },
+        {
+          "file": "packages/ui-backend-claude/tests/subscription.test.ts",
+          "sha256": "6c55a20caed27de7675743cf5f64c3b9a41debe16fb28cb7bbde32707f4cabb0"
+        }
+      ],
+      "basis": "Rows 598 and 607 are native subscription-denial cases: touch precedes sleep 2 in the hostile command, and marker absence plus no requests is the no-launch oracle. Row 608 is a scripted settings refusal; row 609 is pure string classification. Neither latter case executes the shell.",
+      "sourceControlFlowInference": {
+        "controlInputEvaluationsByRow": {
+          "598": 2,
+          "607": 1,
+          "608": 1,
+          "609": 1
+        },
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "No successful elapsed minimum applies to denied inputs. Native refusal evidence and pure/double classification stay separate; neither is a directly observed universal process-count zero."
+    },
+    {
+      "sourceRows": [
+        726
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+          "sha256": "8a4755c147569c3ef16e6d73be2f2ff1eaf7b6b99a781fb8b72d3029e471fe1c"
+        },
+        {
+          "file": "packages/ui-server/src/inbox/runtime.ts",
+          "sha256": "5d87d9e2a444553f5eb8da0ace208d49c4679e7d06712e62d50032f282f21bc8"
+        }
+      ],
+      "basis": "The fake interval asserts 60000 ms and stores callbacks in a Map. The selected boot/rearm case manually invokes a callback, checks recovery, advances logical time, asserts rearm and verifies close empties the Map.",
+      "sourceControlFlowInference": {
+        "selectedCaseLogicalRegistrations": 2,
+        "selectedCaseManualCallbacks": 1,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "Two logical registrations and one manual callback are source inferences for the selected case, not full-file telemetry. No native interval floor applies. Its separate Bun.sleep(0) remains a real event-loop turn."
+    },
+    {
+      "sourceRows": [
+        333,
+        722
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-sdk/tests/maintenance-temp-ledger-protocol.ts",
+          "sha256": "da54d47a446ed7034331a583f5fcf49c98f3323e3bbcb814347c3e182bd7e9b4"
+        },
+        {
+          "file": "packages/ui-sdk/tests/maintenance-temp-ledger-child.ts",
+          "sha256": "b5b5c3f54870c6090037bac6113e8f251639efde94602a3f598e991260825de4"
+        },
+        {
+          "file": "packages/ui-sdk/tests/maintenance-temp-budget.test.ts",
+          "sha256": "2709f90de2fb7bb8c38c9d7f93e33baf8ebb4fe4326da59269c1e04115de39a6"
+        },
+        {
+          "file": "packages/ui-server/tests/maintenance-temp-boundary.test.ts",
+          "sha256": "6f8aa7a6e325513369290510ee9e1af7028ce328b00fcbc41a1b66ea9a9a547f"
+        },
+        {
+          "file": "packages/ui-server/tests/maintenance-temp-boundary-child.ts",
+          "sha256": "27f96fc217f59bb6234bca6c8d95efaa34917a67a4de786abbc938da0235f69d"
+        }
+      ],
+      "basis": "ledgerLine creates one 5000 ms watchdog per invocation, reuses it across reader chunks, then clears it and releases the reader. Maintenance budget/boundary callers include nested ledger and boundary children. The attach branch uses an empty 1000 ms interval to retain an actual worker after owner death.",
+      "sourceControlFlowInference": null,
+      "missingEvidence": "Per-process watchdog registrations, clear ages, chunks and interval callbacks remain unmeasured. These are failure ceilings and fixture lifetime, not mandatory five-second or one-second waits."
+    },
+    {
+      "sourceRows": [
+        378
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/helpers/host-processes.ts",
+          "sha256": "66c532933c06bbfd9e28eb1553b449eeb1329686fa530e2161fe7090185cbb1c"
+        },
+        {
+          "file": "packages/ui-server/tests/brain-client.test.ts",
+          "sha256": "60be9bb9ad1f97745597a4e9a75445af4af952c8f26968ec53603bca8d293cc9"
+        },
+        {
+          "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+          "sha256": "b680aba7d61dcd897b8bdcc2fee3dc686daa68f9aa69c405ff693b4104f86768"
+        },
+        {
+          "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+          "sha256": "ea387fcc896b21828d1d63ce0b8916f768a057121549d0c356224891b5b9e3b0"
+        }
+      ],
+      "basis": "waitForHostProcesses samples actual /proc command lines until it finds the expected PID, with a five-second failure ceiling. Six selected callers cover wrapped timeout, failed/timed-out explicit probes, cancellation, deferred refresh drain and cancellation during Git preparation.",
+      "sourceControlFlowInference": {
+        "completedHelperInvocations": 6,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "The selected child observations measure six helper completions and 33 polls. They do not count child timers or establish a native minimum; helper spans contain polling and /proc scans."
+    },
+    {
+      "sourceRows": [
+        430
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/maintenance-temp-shared-uid-proof.ts",
+          "sha256": "1245dc430dd692f07639571b32f43fd98d818fdcb726366f14f4ba48e3933270"
+        }
+      ],
+      "basis": "The standalone shared-UID proof selects fixture UIDs 0 and 65534 and actual worker admission. After owner SIGKILL it attempts at most 50 fresh cron processes; a 20 ms wait occurs only after an asserted worker_state_busy refusal, while success breaks before waiting.",
+      "sourceControlFlowInference": null,
+      "missingEvidence": "No audited invocation was found. Faithful attribution requires its explicit-UID qualification harness and verified offline boundary. Fifty attempts is a cap, not 50 completed waits or 1000 ms measured time."
+    },
+    {
+      "sourceRows": [
+        20
+      ],
+      "sources": [
+        {
+          "file": "packages/geo/tests/fixtures/admission-worker.ts",
+          "sha256": "425a3879cc607b5eb9de18784ae040e4f65d4f3519f37ed8f82e2c4d0fdf924b"
+        },
+        {
+          "file": "packages/geo/tests/io.test.ts",
+          "sha256": "e940572765aa5f1d28c1faa45cb7dc8ea6d3301e11688f05b18b094c7ecafda1"
+        }
+      ],
+      "basis": "Two native admission children append start, wait 1300 ms and append end. The parent requires two starts/ends, no overlapping connection and at least 1000 ms between starts. The nominal 300 ms allowance is source arithmetic, not a universal scheduler minimum.",
+      "sourceControlFlowInference": {
+        "completed1300msPromises": 2,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "The separate selected child receipt now measures both completed waits. Absolute performance.now origins must not be compared across child processes; the original shared-admission assertions remain native."
+    },
+    {
+      "sourceRows": [
+        368
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/inbox-actions-worker.ts",
+          "sha256": "2c108ecdff5080933790a1e197676c3b327451be5dc758aaa25e7b94750a1476"
+        },
+        {
+          "file": "packages/ui-server/tests/inbox-resolve.test.ts",
+          "sha256": "fbf9eaee03996bec25f8e04d99e596eab8b0ededd31fef4a4a9fc554025946ec"
+        }
+      ],
+      "basis": "Only inbox-actions race mode polls a shared gate at 2 ms. The parent observes both ready files, checks no resolution, opens the gate and asserts one actual resolution/follow-up plus both native exits.",
+      "sourceControlFlowInference": {
+        "childGateLoopEntries": 2,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "Two loop entries are inferred, but each may execute zero waits if the gate is already open. Exact iterations and elapsed time remain absent; parent polling is separate."
+    },
+    {
+      "sourceRows": [
+        369,
+        370,
+        371,
+        372
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+          "sha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647"
+        },
+        {
+          "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+          "sha256": "8a4755c147569c3ef16e6d73be2f2ff1eaf7b6b99a781fb8b72d3029e471fe1c"
+        }
+      ],
+      "basis": "Inbox serve mode publishes a port then polls its gate at 5 ms before shutdown. Hold mode acquires BEGIN IMMEDIATE, publishes readiness, polls, then holds the SQLite lock for 300 ms before COMMIT. Other modes publish readiness and poll before actual tick/close.",
+      "sourceControlFlowInference": null,
+      "missingEvidence": "Per-mode child counts and the 300 ms completion time remain unobserved. Existing passing claim/lock/restart cases remain distinct from the original four listener-interface failures."
+    },
+    {
+      "sourceRows": [
+        373
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/inbox-unwind-worker.ts",
+          "sha256": "d36502b26dbe1610110128854a40c6cd60dfc454f0ac9ac699fd02d6e8f552eb"
+        },
+        {
+          "file": "packages/ui-server/tests/inbox-unwind.test.ts",
+          "sha256": "ff77f2bb5bdabb1d43993b8c29915579119843a453387a588137de81b3492ed8"
+        }
+      ],
+      "basis": "The unwind child writes an empty partial readiness file, waits 50 ms, writes JSON and atomically renames it before remaining live. Two passing claimed/escalated parent cases require the exact final payload, native lease state and SIGKILL recovery.",
+      "sourceControlFlowInference": {
+        "completed50msPromises": 2,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "Two completed waits follow by source/control-flow inference; exact elapsed is absent. The parent polls the final file and does not assert observing the partial file. Preserve exact JSON and empty stdout/stderr; do not add telemetry fields or weaken parsing."
+    },
+    {
+      "sourceRows": [
+        374
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/schedule-admission-worker.ts",
+          "sha256": "70463bbf3fb3c68a24648fb095726194d14fecca5dfeb064c4c81a6c28516d90"
+        },
+        {
+          "file": "packages/ui-server/tests/schedule-admission.test.ts",
+          "sha256": "2c552b6feebbb333bf9753c2d104d4c9e915165049d4487320d93081cdeb3e75"
+        }
+      ],
+      "basis": "Each schedule-admission child awaits service readiness, publishes a ready file and polls its external gate at 5 ms. Admit and crash modes then exercise actual claim/start/effect boundaries.",
+      "sourceControlFlowInference": null,
+      "missingEvidence": "Per-mode child invocation counts need the original caller loop; leaf poll iterations remain missing. The gate is a condition, not a minimum elapsed interval."
+    },
+    {
+      "sourceRows": [
+        614,
+        615
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-kit/tests/visual/canvas-encoding-load.ts",
+          "sha256": "aff4e4b6de52a40464b7a88d732df285523b14172aad2e3276ffe27ac500acfc"
+        },
+        {
+          "file": "packages/ui-kit/tests/visual/track-intake.visual.tsx",
+          "sha256": "db0f1ea24263cf8e3b33f33a12ad9758bd241abd9e41adb31ed70717dd62029a"
+        }
+      ],
+      "basis": "The native canvas load case performs 18 ms of CPU work per frame while the real pointer is held, stopping when preview readiness/cancellation or a 2000 ms ceiling is reached. It asserts at least one frame and at least 18 ms of work.",
+      "sourceControlFlowInference": {
+        "initialRegistration": 1,
+        "minimumCompletedWorkFrames": 1,
+        "minimumActualWorkMsFromAssertion": 18,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "One initial rAF registration and the frame/work lower bounds are source/assertion inferences. Exact returned counts were not logged. Host clock advancement cannot create native encoding contention."
+    },
+    {
+      "sourceRows": [
+        636
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/browser/dispatch-actions-scene.tsx",
+          "sha256": "f19a3beee1570967872ba4ed0e34d217f3f00dc3022cfa75afca7e92dd2b4355"
+        },
+        {
+          "file": "packages/ui-react/tests/browser/dispatch-actions-command.ts",
+          "sha256": "1e832b08a6560980f224bfc38713517091f381446da8e6eabeb28062f7ac151e"
+        },
+        {
+          "file": "packages/ui-react/tests/browser/dispatch-actions.layout.tsx",
+          "sha256": "b16a8803cd5ab1aa5f6afa1b40d7a738bf2572cad0a3d1fd8624cdd2bf14c995"
+        }
+      ],
+      "basis": "The approval MutationObserver requests a native frame; its actual callback appends an event to the original trace. Two saved case artifacts contain two callbacks per device, eight total, before trace capture.",
+      "missingEvidence": "These are recovered original event counts, not a source inference. No callback elapsed or post-capture drain is available; mtime corroborates the owned run but is not standalone execution attestation.",
+      "originalTraceObservations": {
+        "measuredCallbacksByTraceCapture": 8,
+        "byCaseDevice": [
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        "method": "Actual original trace events by capture point; not source/control-flow inference.",
+        "traceReceiptSha256": [
+          "ef437ea2b41753ad6756634e9772e4f1a06fcd19e090b53a699d4aa2bbd0ae0d",
+          "40c737741821a96db55b020cacd92c4a5a18f3a7f30edf27888c2d529c5b8bbe"
+        ]
+      }
+    },
+    {
+      "sourceRows": [
+        658,
+        684
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-react/tests/fixtures/hygiene-loop-server.ts",
+          "sha256": "1b141c5a47a5e5ed41e510f2984e265b3df434623e35a6775ffeb11781c1fe5f"
+        },
+        {
+          "file": "packages/ui-react/tests/browser/hygiene-loop-command.ts",
+          "sha256": "fd9c5e18f1e374be3657fefd6c7aac76f16794f1ca59f0f038761c75130da35a"
+        },
+        {
+          "file": "packages/ui-server/tests/fixtures/hygiene-review-worker.ts",
+          "sha256": "31c9e834aa82cd9be7c1dc834b5eace2370468825fa1eb2254c39df7a186da67"
+        },
+        {
+          "file": "packages/ui-server/tests/hygiene-review.test.ts",
+          "sha256": "f7f445426db669e3e4ba7a78bef49c3a1eeac5cc3636fcb256ed8cdba2debc25"
+        }
+      ],
+      "basis": "Hygiene crash fixtures publish their witness after real repair/commit work, then enter an indefinite Atomics.wait before a native SIGKILL/reopen check.",
+      "sourceControlFlowInference": null,
+      "missingEvidence": "A witness proves publication, not entry into the subsequent hold. Exact entry/lifetime is absent and is not an unconditional waited duration."
+    },
+    {
+      "sourceRows": [
+        685,
+        686
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/inbox-snapshot-worker.ts",
+          "sha256": "537d25f278be185716a01af8b86a71223e5c6bc646d2b2e24f36ba486bdcdd0c"
+        },
+        {
+          "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+          "sha256": "f32f04b7ef0d6f6b1ad8a8ccc8bf0d13e57a75c112b8caeecbb9f9c556585428"
+        }
+      ],
+      "basis": "Fifteen snapshot scenarios cover five crash modes with complete, empty or partial publication. Ten incomplete paths poll for a parent acknowledgement at 10 ms with a ten-second cap, then publish final readiness and enter an indefinite hold.",
+      "sourceControlFlowInference": {
+        "partialPublicationLoopEntries": 10,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations.",
+        "finalReadinessPublications": 15
+      },
+      "missingEvidence": "Fifteen readiness publications and ten loop entries are source inferences. Neither proves positive loop iterations or entry into Atomics.wait before SIGKILL. No new output fields or readiness-oracle changes are justified for counters."
+    },
+    {
+      "sourceRows": [
+        725
+      ],
+      "sources": [
+        {
+          "file": "packages/ui-server/tests/fixtures/scope-pi-worker.ts",
+          "sha256": "9c3290b9b7115223a074ddbb293dd124628851a30638066cdd924bd4d9c6d705"
+        },
+        {
+          "file": "packages/ui-server/tests/ws-scope-caps.test.ts",
+          "sha256": "157bcfa5da32eb9f57684856c26791f2c4e2d7ae694d17e3668a0033cd050939"
+        }
+      ],
+      "basis": "Accepted Pi dictation schedules actual 100 ms events and starts a 20 ms shell writer. Native cap/freeze, retained negative observation, one grant, second-grant refusal and Stop assertions remain. Pi voice refuses before worker admission.",
+      "sourceControlFlowInference": {
+        "dictationIntervalRegistrations": 1,
+        "dictationCallbacks": 4,
+        "voiceRegistrations": 0,
+        "method": "Source/control-flow inference only, except fields explicitly identified as recovered original trace observations."
+      },
+      "missingEvidence": "A selected passing path infers one interval and four event callbacks from unique increment/cap oracles; exact timer ages, clears and shell counts are absent. This is not a full-file runtime counter."
+    }
+  ],
+  "observationPointRules": [
+    "A published marker can precede timer or Atomics entry.",
+    "A passing parent command is not a nested callback count.",
+    "Fixture lifetimes and failure ceilings are not completed elapsed waits.",
+    "Condition samplers need actual iteration counts; a reached loop can execute zero times.",
+    "A native opportunity or source allowance does not prove the smallest reliable window.",
+    "Do not add writable bindings, inherited FDs, altered protocol output or relaxed assertions solely to collect counters."
+  ],
+  "interpretation": "The historical operational classifications remain as originally published. New selected observations and recovered traces apply only to their named cases/source. Missing child telemetry does not imply zero; numeric minima are inapplicable to pure logical declarations and denied control inputs, while native absence/late-effect windows retain unresolved equivalence requirements."
+}

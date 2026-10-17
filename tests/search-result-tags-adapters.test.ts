@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Hono } from "hono";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { BRAIN_BIN, cleanup, keylessEnv, makeTempBrain, runCli } from "../packages/core/tests/cli-harness";
 import { createBrainClient } from "../packages/ui-server/src/brain/client";
 import { createBrainRoutes } from "../packages/ui-server/src/routes/brain";
@@ -47,7 +47,7 @@ beforeAll(async () => {
     command: process.execPath, args: [BRAIN_BIN, "mcp"], env: keylessEnv(root),
   }));
   native = createNativeAppFixture(root);
-  const boundary = createHostBoundary({ brainPath: root, nativeManager: createNativeBrainManagerClient(native.nativeBrain) });
+  const boundary = createHostBoundary({ brainPath: root, dbPath: join(dirname(native.nativeBrain.leasePath), "ui.db"), nativeManager: createNativeBrainManagerClient(native.nativeBrain) });
   app = new Hono().route("/api", createBrainRoutes({
     brain: createBrainClient({ brainPath: root, boundary }), brainPath: root,
     keyterms: { brainPath: root, cacheDir: root, limit: 10 },

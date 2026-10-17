@@ -10,6 +10,9 @@ import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { createInboxStore } from "../src/inbox/store.js";
 import { exportInboxSnapshot, restoreInboxSnapshot, writeInboxSnapshot, type InboxBackup } from "../src/inbox/snapshot.js";
+import { createInteractiveShares } from "../src/inbox/interactive-share.js";
+import { createBrainApplication } from "../src/brain/application.js";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createInboxIntake } from "../src/inbox/intake.js";
 import { createInboxBudget, acquireInboxBudgetRun } from "../src/inbox/budget.js";
 import { createPrincipal } from "../src/db/principals.js";
@@ -86,6 +89,21 @@ async function world(owner = cleanup) {
     }
     activity.endSpan(runId, { outcome: "success" }); activity.rollupRun(runId);
   }
+  // Populate the new durable binding/receipt tables through their real
+  // application path, retaining a partial share for same-session recovery.
+  const shared = records.get("ready")!, interactive = createInteractiveShares(db, root);
+  const runId = "interactive-snapshot", sessionId = "interactive-snapshot-session";
+  const sourceInput = { operation: "write" as const, path: "notes/share-receipt.md", expectedBaseHash: null,
+    content: `Odysseus reviews the harbor.\n<!-- share-source:${shared.stagingId} -->\n` };
+  interactive.start(principal.id, runId, undefined, shared.stagingId, () => true);
+  interactive.bind(runId, sessionId);
+  try {
+    const apply = createBrainApplication({ root, principalId: principal.id, turnId: runId, signal: new AbortController().signal,
+      policy: { available: ["write"], autoAllowed: ["write"], lock: createKeyedLock() }, isAuthorized: () => true,
+      approve: async () => false, record() {}, planner: { planAdd: async () => { throw Error("No capture here"); }, index: async () => {} } });
+    expect((await interactive.apply(principal.id, runId, sessionId, () => true, sourceInput,
+      () => apply({ principalId: principal.id, turnId: runId, input: sourceInput }))).ok).toBe(true);
+  } finally { interactive.end(runId); }
   store.commit([{ kind: "suppress", classKey: "harbor-seen", evidenceBoundary: "arrival", expiresAt: AT + YEAR, reraiseCondition: "New arrival" },
     { kind: "heartbeat", name: "inbox-drain", tickAt: AT, changeCursor: store.snapshot().cursor }]);
   // Durable Action notice state: a delivered push episode, frozen attempt
@@ -257,7 +275,7 @@ test.each([
   ["relation", "inbox_snapshot_relations"], ["reservation", "inbox_snapshot_reservation"],
   ["follow-up", "inbox_snapshot_relations"], ["sequence", "inbox_snapshot_relations"],
   ["missing-sequence", "inbox_snapshot_relations"], ["missing-resolution", "inbox_snapshot_relations"],
-  ["schema", "inbox_snapshot_schema"],
+  ["schema", "inbox_snapshot_schema"], ["interactive-binding", "inbox_snapshot_interactive_share"], ["interactive-receipt", "inbox_snapshot_interactive_share"],
 ])("refuses %s snapshot before writing a target", async (kind, error) => {
   let snapshot = await refusalSnapshot();
   if (kind === "unsupported") snapshot = { ...snapshot, version: 2 } as unknown as InboxBackup;
@@ -274,6 +292,8 @@ test.each([
     const trigger = db.query("SELECT sql FROM sqlite_master WHERE name = 'inbox_resolution_no_delete'").get() as { sql: string };
     db.exec("DROP TRIGGER inbox_resolution_no_delete; DELETE FROM inbox_resolutions"); db.exec(trigger.sql);
   });
+  if (kind === "interactive-binding") snapshot = editImage(snapshot, db => { db.exec("UPDATE inbox_interactive_shares SET principal_id = 'unrelated-principal'"); });
+  if (kind === "interactive-receipt") snapshot = editImage(snapshot, db => { db.exec("UPDATE inbox_share_applications SET operation_key = 'forged-operation'"); });
   if (kind === "schema") snapshot = editImage(snapshot, db => { db.exec("DROP TRIGGER inbox_thread_provenance_immutable"); });
   const target = directory(), path = join(target, "ui.sqlite");
   await expect(restoreInboxSnapshot(snapshot, path, target, AT)).rejects.toThrow(error);
@@ -453,7 +473,7 @@ test("a pending gate stops a live drain and compensation before changing ledgers
   const record = f.records.get("ready")!, old = f.store.getItem(record.itemId)!;
   f.store.commit([{ kind: "transition", itemId: old.id, expectedVersion: old.version, to: "dropped" },
     { kind: "item", item: { ...old, id: "compensate", dedupKey: "compensate", queue: "queue", type: "cleanup_pending",
-      payload: { stagingId: record.stagingId }, status: "ready", attempts: 0, maxAttempts: 3 } }]);
+      payload: { stagingId: record.stagingId }, status: "ready", version: 1, attempts: 0, maxAttempts: 3 } }]);
   f.db.query("INSERT INTO inbox_recovery_state VALUES (1, ?, ?, 'pending', NULL)").run("a".repeat(64), f.root);
   const before = f.store.exportState(), file = join(f.root, SHARE_STAGING_DIR, record.stagingId, "harbor.png"), bytes = readFileSync(file);
   const result = await runtime.tick();

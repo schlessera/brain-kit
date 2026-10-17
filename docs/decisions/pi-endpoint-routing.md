@@ -30,6 +30,38 @@ configured endpoint. Credential discovery, refresh, account/subscription
 routing and billing ownership stay with pi; brain-kit neither copies those
 rules nor caches an authentication endpoint at session creation.
 
+### Stored OAuth recipient authorization
+
+**Amended by the maintainer, 2026-10-17.** The
+[Pi OAuth origin ruling](https://github.com/schlessera/brain-kit/issues/1665#issuecomment-6231564799),
+[also recorded for credential removal](https://github.com/schlessera/brain-kit/issues/1666#issuecomment-6231565043),
+requires explicit host-owned exact-origin authorization **per credential** before
+forwarding a stored OAuth bearer to a non-first-party inference origin.
+
+Native endpoint selection still follows the precedence above. The resulting
+route is a fact to validate, not permission to release a credential. Native
+model/authentication settings, provider/model labels, account metadata and
+`models.json` aliases into writable brain content cannot grant that permission.
+An authorization belonging to one credential cannot authorize another.
+
+Compare the actual selected destination's canonical scheme, host and port
+against the trusted host authorization for that credential on each dispatch.
+This includes destinations changed by native authentication or refresh. Refuse
+an unapproved origin before forwarding its credential; do not silently replace
+the native destination with an approved one. Redirects must not transfer the
+credential to a different recipient. The host authorization must remain outside
+worker/project-controlled routing inputs.
+
+This amendment adds a recipient check without changing native model selection,
+refresh, account, billing, usage or request metadata. It does not authorize an
+API-key recipient policy, bypass the existing credential-command maintenance
+and exclusion boundary, or activate ordinary host-held inference by itself.
+Implementation and offline qualification remain owned by #1665 and #1666.
+Required controls cover approved/unapproved canonical origins, writable aliases,
+changed authentication endpoints, cross-credential isolation, redirects and
+absence of stored secrets from workers. Fictional credentials and local fixture
+transports suffice; live or paid provider calls are not required.
+
 Explicit profiles, picker ordering and built-in eligibility stay intact.
 Preserve the exact selected provider/model identity and native model metadata.
 An unavailable declared model must fail instead of releasing selection to
@@ -74,7 +106,7 @@ The concrete adapter integration points are:
 | Declared-model validation (`export function toModel`, `packages/ui-backend-pi/src/profiles.ts:57-77`) | Keep built-in validation and identity refusal, then select the configured model from the inference runtime. The current function returns the raw catalog object. |
 | Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:41-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. The worker uses `SessionManager.inMemory`; the server persists ordinary JSONL over pipes, and autonomous turns remain nonpersistent. |
 | Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:74-109`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
-| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:83-112`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
+| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:89-128`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
 
 Runtime construction belongs at these concrete session boundaries. No runtime
 factory option, new public seam or authentication wrapper is needed. Each hosted turn reconstructs its native inference runtime inside a fresh
@@ -176,7 +208,9 @@ Three alternatives were rejected:
   proxy/compatible-endpoint use case whose SDK path is already demonstrated.
 - **Reject solely because native auth supplies a different endpoint.** It
   would stop otherwise supported subscription/account routing and add a
-  separate per-request conflict policy, contrary to the final ruling.
+  separate per-request conflict policy, contrary to the 2026-10-03 routing
+  ruling. The later stored-OAuth recipient authorization above remains binding;
+  a differing endpoint alone grants no permission to receive that credential.
 - **Force native credentials to the configured endpoint.** It would override
   native account routing and credential ownership. Configured proxy support
   does not authorize credential forwarding to a different destination.

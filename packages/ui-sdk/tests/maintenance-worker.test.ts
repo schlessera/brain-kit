@@ -8,7 +8,7 @@ import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixt
  * run from below a masked home.
  */
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join, resolve } from "node:path";
 import { HOST_MASKS, MAINTENANCE_HOME, probeWorkerHost, workerCommand } from "../src/server/worker-launcher";
@@ -89,6 +89,20 @@ describe("maintenance worker (#1648)", () => {
     expect(r.homeWritable, "a private, writable home").toBe("ok");
     expect(r.links, "a private network namespace with only loopback").toEqual(["lo"]);
     for (const dir of ["root", "srv", "varLib"] as const) if (Array.isArray(r[dir])) expect(r[dir], `${dir} is an empty mask`).toEqual([]);
+  });
+
+  test("regular-file masks hide bytes through aliases and after credentialed HOME bind-back", async () => {
+    if (!supported) return;
+    const f = fixture();
+    const marker = join(f.host, "backing.img"), alias = join(f.host, "backing-alias");
+    writeFileSync(marker, "Odysseus fictional backing marker.");
+    symlinkSync(marker, alias);
+    const program = `let bytes = ""; try { bytes = require("fs").readFileSync(${JSON.stringify(marker)}, "utf8"); } catch (error) { if (error.code !== "EACCES") throw error; } console.log(JSON.stringify({ bytes }));`;
+    expect(await inWorker(f.brain, program, { credentials: false }), "UNMASKED_FILE_CONTROL").toEqual({ bytes: "Odysseus fictional backing marker." });
+    for (const mask of [marker, alias]) {
+      expect(await inWorker(f.brain, program, { credentials: false, maskPaths: [mask] }), "EXACT_FILE_AND_ALIAS_MASKED").toEqual({ bytes: "" });
+      expect(await inWorker(f.brain, program, { credentials: true, home: f.host, maskPaths: [mask] }), "HOME_BIND_BACK_CANNOT_RESTORE_PRIVATE_FILE").toEqual({ bytes: "" });
+    }
   });
 
   test("credentialed: the brain's .env and the passed credentials reach the command, inside the worker", async () => {
@@ -213,6 +227,7 @@ describe("maintenance launch refusals", () => {
     expect(() => workerCommand(maintenanceLaunch({ ...base, credentials: true, home: join(f.brain, "notes") }))).toThrow("outside the brain");
     const inside = join(f.brain, "notes/harbor.md");
     chmodSync(inside, 0o644);
+    expect(() => workerCommand(maintenanceLaunch({ ...base, credentials: false, maskPaths: [inside] }))).toThrow("cannot mask");
     expect(() => workerCommand(maintenanceLaunch({ ...base, credentials: false, writeFiles: [inside] }))).toThrow("outside the brain");
   });
 });

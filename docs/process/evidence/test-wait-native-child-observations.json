@@ -1,0 +1,3342 @@
+{
+  "schemaVersion": 1,
+  "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "scope": "Selected native child and failure-ceiling attribution at frozen source. Overlaps earlier full-file receipts and source reviews; no optimization, full-file qualification or universal numerical-minimum claim. Historical artifacts remain unchanged.",
+  "harness": {
+    "runtime": "Bun 1.4.2; existing bun run test wrapper and preload.",
+    "serialization": "Actual command timing occurs inside the shared benchmark lock; queue time excluded.",
+    "offline": "unshare --user --map-current-user --net --keep-caps; enable loopback, verify only lo and no routes, then drop inherited/ambient/bounding capabilities with setpriv before /usr/bin/time -v bun run test. Each command retains address/route/UID-map hashes.",
+    "authority": "Ordinary unrestricted fixture children only. No worker permission, inherited FD, protocol byte or assertion added/removed. In-memory observations add ordinary diagnostic file writes at their stated boundaries, using existing authority. Original await expressions/handles/callback arguments and callback this are retained; source restored byte-identical.",
+    "limits": "Shared-host load and observer IO are uncontrolled. Independent process clocks have separate origins. Callback age, completed wait, body duration and command wall time overlap and must not be summed. afterAll/exit snapshots do not observe subsequent hooks/listeners."
+  },
+  "totals": {
+    "commands": 14,
+    "passedCases": 19,
+    "failedCases": 0,
+    "expects": 191,
+    "wallSeconds": 9.72,
+    "distinctSourceRows": 19,
+    "scope": "Accepted selected executions only; prior whole-file receipts overlap. Rejected diagnostic attempts below are excluded."
+  },
+  "sourceRowIndex": [
+    {
+      "sourceRow": 7,
+      "file": "experiments/turn-surface-stdout.test.ts",
+      "line": 64,
+      "originalExpression": "const child = spawn(execPath, [\"-e\", `process.stdout.write(${JSON.stringify(JSON.stringify(initial)+\"\\n\")});setTimeout(()=>process.stdout.write(${JSON.stringify(JSON.stringify(final))}),150)`],",
+      "originalSha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009",
+      "role": "fixture event scheduling / native operation progress",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 11,
+      "file": "packages/core/tests/cli-output-completion.test.ts",
+      "line": 89,
+      "originalExpression": "setTimeout(() => child.stdout.resume(), 2);",
+      "originalSha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+      "role": "fixture event scheduling / native operation progress",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 12,
+      "file": "packages/core/tests/module-mcp-tools.test.ts",
+      "line": 202,
+      "originalExpression": "while (!await Bun.file(ctx.root + \"/pending-release\").exists()) await Bun.sleep(10);",
+      "originalSha256": "6001041f999417297c7f817e8751801e7f5d0900cad3204ee8787bd6d6b40ec5",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 333,
+      "file": "packages/ui-sdk/tests/maintenance-temp-ledger-protocol.ts",
+      "line": 7,
+      "originalExpression": "const deadline = new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error(\"owned ledger child did not report its phase\")), 5000); });",
+      "originalSha256": "da54d47a446ed7034331a583f5fcf49c98f3323e3bbcb814347c3e182bd7e9b4",
+      "role": "maximum failure timeout / scheduled abort",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 336,
+      "file": "packages/ui-sdk/tests/rtk.test.ts",
+      "line": 57,
+      "originalExpression": "Bun.sleepSync(1);",
+      "originalSha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 349,
+      "file": "packages/ui-server/tests/auth.test.ts",
+      "line": 366,
+      "originalExpression": "Bun.sleep(250).then(() => {",
+      "originalSha256": "20f2be32410f8a3a443fd8ccd606605508344c764b0ade3ade0eb78f347c6beb",
+      "role": "maximum failure timeout / negative observation race",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 350,
+      "file": "packages/ui-server/tests/auth.test.ts",
+      "line": 955,
+      "originalExpression": "Bun.sleep(500).then(() => \"timed-out\" as const),",
+      "originalSha256": "20f2be32410f8a3a443fd8ccd606605508344c764b0ade3ade0eb78f347c6beb",
+      "role": "maximum failure timeout / negative observation race",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 359,
+      "file": "packages/ui-server/tests/cron-run-job.test.ts",
+      "line": 348,
+      "originalExpression": "command: [process.execPath, \"-e\", `console.log('start'); await Bun.sleep(50); await Bun.write(${JSON.stringify(marker)}, 'done'); console.log('end'); process.exit(7);`],",
+      "originalSha256": "817720a5f607f6cb4c23327b815d27e53ab9fc0f529c8c4db7967f12fbed1a44",
+      "role": "fixture event scheduling / native operation progress",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 368,
+      "file": "packages/ui-server/tests/fixtures/inbox-actions-worker.ts",
+      "line": 29,
+      "originalExpression": "while (!await Bun.file(gateFile!).exists()) await Bun.sleep(2);",
+      "originalSha256": "2c108ecdff5080933790a1e197676c3b327451be5dc758aaa25e7b94750a1476",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 369,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "line": 26,
+      "originalExpression": "while (!existsSync(gate!)) await Bun.sleep(5);",
+      "originalSha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 370,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "line": 35,
+      "originalExpression": "while (!existsSync(gate!)) await Bun.sleep(5);",
+      "originalSha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 371,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "line": 36,
+      "originalExpression": "await Bun.sleep(300);",
+      "originalSha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647",
+      "role": "fixture latency / concurrency observation",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 372,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "line": 47,
+      "originalExpression": "while (!existsSync(gate!)) await Bun.sleep(5);",
+      "originalSha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 373,
+      "file": "packages/ui-server/tests/fixtures/inbox-unwind-worker.ts",
+      "line": 31,
+      "originalExpression": "await Bun.sleep(50);",
+      "originalSha256": "d36502b26dbe1610110128854a40c6cd60dfc454f0ac9ac699fd02d6e8f552eb",
+      "role": "fixture latency / concurrency observation",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 374,
+      "file": "packages/ui-server/tests/fixtures/schedule-admission-worker.ts",
+      "line": 31,
+      "originalExpression": "while (!existsSync(gate)) await Bun.sleep(5);",
+      "originalSha256": "70463bbf3fb3c68a24648fb095726194d14fecca5dfeb064c4c81a6c28516d90",
+      "role": "condition polling",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 431,
+      "file": "packages/ui-server/tests/model-pricing.test.ts",
+      "line": 545,
+      "originalExpression": "Bun.sleep(100).then(() => \"blocked\"),",
+      "originalSha256": "fe4f7a55d2bdfd7915f7a6415b6fab23e37162d2a36eb5f53502a0e918e24872",
+      "role": "maximum failure timeout / negative observation race",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 434,
+      "file": "packages/ui-server/tests/passkeys.test.ts",
+      "line": 693,
+      "originalExpression": "Bun.sleep(250).then(() => {",
+      "originalSha256": "feef00415fc8c4150af76dabcdabecccf58238f0d903679814f21bc109c8bda1",
+      "role": "maximum failure timeout / negative observation race",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 562,
+      "file": "tests/ci-runner.test.ts",
+      "line": 18,
+      "originalExpression": "const timer = setTimeout(() => { watcher.close(); process.exit(7); }, 1500);",
+      "originalSha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+      "role": "maximum failure timeout / fixture termination",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    },
+    {
+      "sourceRow": 730,
+      "file": "tests/ci-runner.test.ts",
+      "line": 34,
+      "originalExpression": "const timer = setInterval(() => {}, 60000);",
+      "originalSha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+      "role": "native fixture lifetime hold",
+      "observationScope": "Only the named selected commands in this supplement; other callers and later teardown are not inferred."
+    }
+  ],
+  "ordinaryChildren": {
+    "commands": [
+      {
+        "logName": "ci-runner.test.ts.log",
+        "rawLogSha256": "350ecc0101977902a4a07f6f434a6fe564cb53d034a34fd7aa173564a5e94a59",
+        "timeSha256": "936c9b7bbbb807add0d211245b2d955e1eed23f3476bed76d4d40c4f084f9d68",
+        "passedCases": [
+          {
+            "name": "the runner executes independent children concurrently",
+            "bodyMs": 14.4
+          },
+          {
+            "name": "a failed check stops its running sibling and remains a failure",
+            "bodyMs": 31.3
+          }
+        ],
+        "failedCases": [],
+        "expects": 6,
+        "resources": {
+          "wallSeconds": 0.1,
+          "userSeconds": 0.07,
+          "systemSeconds": 0.04,
+          "maximumRssKiB": 30372
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "tests/ci-runner.test.ts",
+          "--test-name-pattern",
+          "^the runner executes independent children concurrently$|^a failed check stops its running sibling and remains a failure$"
+        ],
+        "command": "bun run test tests/ci-runner.test.ts --test-name-pattern '^the runner executes independent children concurrently$|^a failed check stops its running sibling and remains a failure$'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 5,
+        "bunSeconds": 0.057,
+        "environment": {}
+      },
+      {
+        "logName": "cli-output-completion.test.ts.log",
+        "rawLogSha256": "8b3e7d4d9bcb40be5b36cbd341f1ffac125cd3cda58d5f92c442fbefdac51e5a",
+        "timeSha256": "69d7319acd16c91611bfe65474fba620e4dbbe72b64be87ae9e33abf0c7ff706",
+        "passedCases": [
+          {
+            "name": "CLI output completion > a slow pipe consumer drains the whole human response",
+            "bodyMs": 179.27
+          }
+        ],
+        "failedCases": [],
+        "expects": 8,
+        "resources": {
+          "wallSeconds": 0.66,
+          "userSeconds": 0.69,
+          "systemSeconds": 0.4,
+          "maximumRssKiB": 114024
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/core/tests/cli-output-completion.test.ts",
+          "--test-name-pattern",
+          "a slow pipe consumer drains the whole human response"
+        ],
+        "command": "bun run test packages/core/tests/cli-output-completion.test.ts --test-name-pattern 'a slow pipe consumer drains the whole human response'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 5,
+        "bunSeconds": 0.596,
+        "environment": {}
+      },
+      {
+        "logName": "rtk.test.ts.log",
+        "rawLogSha256": "1b5d7386fe4a21df318c31068c408e9defe1c2eb5697ce6b371b1724612f5919",
+        "timeSha256": "4d38c17d23c8f2f4c18f0cb60330100fa5ca780c874fcb0e33399c1bb754e0b2",
+        "passedCases": [
+          {
+            "name": "rtk subprocess environment > an oracle closing stdin keeps the parent alive and falls back before its late reply",
+            "bodyMs": 79.83
+          }
+        ],
+        "failedCases": [],
+        "expects": 3,
+        "resources": {
+          "wallSeconds": 0.14,
+          "userSeconds": 0.07,
+          "systemSeconds": 0.03,
+          "maximumRssKiB": 37264
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-sdk/tests/rtk.test.ts",
+          "--test-name-pattern",
+          "an oracle closing stdin keeps the parent alive and falls back before its late reply"
+        ],
+        "command": "bun run test packages/ui-sdk/tests/rtk.test.ts --test-name-pattern 'an oracle closing stdin keeps the parent alive and falls back before its late reply'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 1,
+        "bunSeconds": 0.096,
+        "environment": {}
+      },
+      {
+        "logName": "turn-surface-stdout.test.ts.log",
+        "rawLogSha256": "a9292925fb873c07b996db969276a95adb891b94823fd8ab7818eaa3501c7a12",
+        "timeSha256": "894be2d870ac2d03ae8e7e7352e41fc96daa890f6971db7d0a18c2a3608e4254",
+        "passedCases": [
+          {
+            "name": "native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown",
+            "bodyMs": 165.19
+          }
+        ],
+        "failedCases": [],
+        "expects": 7,
+        "resources": {
+          "wallSeconds": 0.28,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumRssKiB": 66732
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "experiments/turn-surface-stdout.test.ts",
+          "--test-name-pattern",
+          "^native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown$"
+        ],
+        "command": "bun run test experiments/turn-surface-stdout.test.ts --test-name-pattern '^native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown$'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 1,
+        "bunSeconds": 0.23,
+        "environment": {}
+      }
+    ],
+    "sidecars": [
+      {
+        "name": "children/1739675.json",
+        "sha256": "393dc506770ed960543139b5431c831de0ad8f65de61a11b92bbd1477b318abf",
+        "observation": {
+          "site": "7",
+          "rows": [
+            {
+              "kind": "timeout",
+              "delay": 150,
+              "registeredMs": 9.096356,
+              "firedMs": [
+                159.323291
+              ],
+              "returnedMs": [
+                159.391038
+              ],
+              "clearedMs": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1739992.json",
+        "sha256": "178d7dfba0d6000a0d1ecab101a5004c8df5dd07068d542883484cca9b345c60",
+        "observation": {
+          "site": "11",
+          "rows": [
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 131.836067,
+              "firedMs": [
+                134.007142
+              ],
+              "returnedMs": [
+                134.030092
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 134.352217,
+              "firedMs": [
+                136.453038
+              ],
+              "returnedMs": [
+                136.471425
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 136.569076,
+              "firedMs": [
+                138.681414
+              ],
+              "returnedMs": [
+                138.701724
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 138.866634,
+              "firedMs": [
+                140.965174
+              ],
+              "returnedMs": [
+                140.979809
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 141.133767,
+              "firedMs": [
+                143.24114
+              ],
+              "returnedMs": [
+                143.264141
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 143.535762,
+              "firedMs": [
+                145.62881
+              ],
+              "returnedMs": [
+                145.640796
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 145.836343,
+              "firedMs": [
+                147.920343
+              ],
+              "returnedMs": [
+                147.925754
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 148.099835,
+              "firedMs": [
+                150.18054
+              ],
+              "returnedMs": [
+                150.186359
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 150.301647,
+              "firedMs": [
+                152.423812
+              ],
+              "returnedMs": [
+                152.429591
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 152.537535,
+              "firedMs": [
+                154.632065
+              ],
+              "returnedMs": [
+                154.645047
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 154.818991,
+              "firedMs": [
+                156.915329
+              ],
+              "returnedMs": [
+                156.943192
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 157.116746,
+              "firedMs": [
+                159.259614
+              ],
+              "returnedMs": [
+                159.274113
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 159.438133,
+              "firedMs": [
+                161.522317
+              ],
+              "returnedMs": [
+                161.528594
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 160.774221,
+              "firedMs": [
+                168.294576
+              ],
+              "returnedMs": [
+                168.299407
+              ],
+              "clearedMs": []
+            },
+            {
+              "kind": "timeout",
+              "delay": 2,
+              "registeredMs": 161.555065,
+              "firedMs": [
+                168.300439
+              ],
+              "returnedMs": [
+                168.300955
+              ],
+              "clearedMs": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1740161.json",
+        "sha256": "d77ba7c4333bab269d1f9fa873143d3d3b82ba82183e42382c4fc103d362e145",
+        "observation": {
+          "site": "562",
+          "rows": [
+            {
+              "kind": "timeout",
+              "delay": 1500,
+              "registeredMs": 11.424946,
+              "firedMs": [],
+              "returnedMs": [],
+              "clearedMs": [
+                11.573408
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1740162.json",
+        "sha256": "1504fa0f59c41a6950d8b546174e4f031b4e6d3fb25e11c6d865a3272628e3dc",
+        "observation": {
+          "site": "562",
+          "rows": [
+            {
+              "kind": "timeout",
+              "delay": 1500,
+              "registeredMs": 11.215753,
+              "firedMs": [],
+              "returnedMs": [],
+              "clearedMs": [
+                11.336672
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1740175.json",
+        "sha256": "215d6261078db9ae377eea2ce99090ccfec9b7709b5eda889967e7fd3fa50f6b",
+        "observation": {
+          "site": "730",
+          "rows": [
+            {
+              "kind": "interval",
+              "delay": 60000,
+              "registeredMs": 9.84133,
+              "firedMs": [],
+              "returnedMs": [],
+              "clearedMs": [
+                29.283213
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1740258.json",
+        "sha256": "2e195b61670aa9140ecb00253af34d9352e1103bfb5d7f2564577eb63fd0f371",
+        "observation": {
+          "site": "336",
+          "rows": [
+            {
+              "kind": "sleepSync",
+              "delay": 1,
+              "startedMs": 23.727311,
+              "completedMs": 24.801934
+            }
+          ]
+        }
+      }
+    ],
+    "totals": {
+      "commands": 4,
+      "passedCases": 5,
+      "failedCases": 0,
+      "expects": 24,
+      "wallSeconds": 1.18
+    },
+    "observationLimit": "Original native callbacks/clear events captured by ordinary child process-exit snapshots; later exit listeners are outside this snapshot. Original timer handles/arguments/callback this and protocol outputs preserved. Actual globals remain unchanged through lexical const bindings. One added exit-sidecar write per child uses existing authority.",
+    "sourceFiles": [
+      {
+        "file": "experiments/turn-surface-stdout.test.ts",
+        "originalSha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009",
+        "instrumentedSha256": "b62f6f2d026114e9ca1d43bde3c494d2b0225bb9280c47c79b1d8929da207fcf"
+      },
+      {
+        "file": "packages/core/tests/cli-output-completion.test.ts",
+        "originalSha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+        "instrumentedSha256": "6c35fb57802bf3ba51cf74b110055a88a1499731ab68fd98058ccf3671bb11b9"
+      },
+      {
+        "file": "tests/ci-runner.test.ts",
+        "originalSha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+        "instrumentedSha256": "d1aadc4dc9c606fd8d4114588505731046f80f6b21dcddaf8e3645b7d02cc51d"
+      },
+      {
+        "file": "packages/ui-sdk/tests/rtk.test.ts",
+        "originalSha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+        "instrumentedSha256": "9851f05911206f612dadc7835d57c6b2cf3899d64a6f3d821b10040aab25a543"
+      }
+    ],
+    "sourceRows": [
+      7,
+      11,
+      336,
+      562,
+      730
+    ],
+    "cwdClass": "dedicated non-/tmp checkout",
+    "integrity": [
+      {
+        "file": "turn-surface-stdout.test.ts",
+        "awaits": 5,
+        "assertions": 14,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "cli-output-completion.test.ts",
+        "awaits": 13,
+        "assertions": 44,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "ci-runner.test.ts",
+        "awaits": 3,
+        "assertions": 16,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "rtk.test.ts",
+        "awaits": 2,
+        "assertions": 5,
+        "originalAwaitAndAssertionTextIdentical": true
+      }
+    ],
+    "embeddedIntegrity": [
+      {
+        "file": "turn-surface-stdout.test.ts",
+        "originalEmbeddedOperations": 3,
+        "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+      },
+      {
+        "file": "cli-output-completion.test.ts",
+        "originalEmbeddedOperations": 2,
+        "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+      },
+      {
+        "file": "ci-runner.test.ts",
+        "originalEmbeddedOperations": 7,
+        "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+      },
+      {
+        "file": "rtk.test.ts",
+        "originalEmbeddedOperations": 4,
+        "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+      }
+    ]
+  },
+  "ledger": {
+    "commands": [
+      {
+        "logName": "run.log",
+        "rawLogSha256": "def19202132de1bd7748c029ecf815763b9f929c4626f2272de137616e6d7e90",
+        "timeSha256": "f99267efaba4b835c567e87414554988481a985dd4560d7c5dac3b054e82cf99",
+        "passedCases": [
+          {
+            "name": "simultaneous admissions from two owned processes atomically admit at most one default allowance",
+            "bodyMs": 63.48
+          }
+        ],
+        "failedCases": [],
+        "expects": 4,
+        "resources": {
+          "wallSeconds": 0.15,
+          "userSeconds": 0.07,
+          "systemSeconds": 0.07,
+          "maximumRssKiB": 37820
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-sdk/tests/maintenance-temp-budget.test.ts",
+          "--test-name-pattern",
+          "^simultaneous admissions from two owned processes atomically admit at most one default allowance$"
+        ],
+        "command": "bun run test packages/ui-sdk/tests/maintenance-temp-budget.test.ts --test-name-pattern '^simultaneous admissions from two owned processes atomically admit at most one default allowance$'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 9,
+        "bunSeconds": 0.084,
+        "environment": {}
+      }
+    ],
+    "sidecars": [
+      {
+        "name": "processes/exit-1753166.json",
+        "sha256": "04d36a9dff149554d94086757e6da6c9fe13f2e7b67da7d919dd26784d9fc2d6",
+        "observation": {
+          "snapshot": "process-exit",
+          "pid": 1753166,
+          "records": [
+            {
+              "registeredMs": 18.903142,
+              "firedMs": [],
+              "clearedMs": [
+                19.046088
+              ],
+              "readAttempts": 1,
+              "chunks": 1,
+              "completedReads": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "processes/exit-1753168.json",
+        "sha256": "4e59f064d0ea9a37286b0040335d624fafd9b5030f68a7966f6a08e1773f6764",
+        "observation": {
+          "snapshot": "process-exit",
+          "pid": 1753168,
+          "records": [
+            {
+              "registeredMs": 16.976242,
+              "firedMs": [],
+              "clearedMs": [
+                18.386278
+              ],
+              "readAttempts": 1,
+              "chunks": 1,
+              "completedReads": 1
+            }
+          ]
+        }
+      },
+      {
+        "name": "processes/parent-afterAll-1753153.json",
+        "sha256": "398ef368bbb03a800bf422941971099407819f212531b03060dee9507ba4f966",
+        "observation": {
+          "snapshot": "parent-afterAll",
+          "pid": 1753153,
+          "records": [
+            {
+              "registeredMs": 21.27121,
+              "firedMs": [],
+              "clearedMs": [
+                40.293247
+              ],
+              "readAttempts": 1,
+              "chunks": 1,
+              "completedReads": 1
+            },
+            {
+              "registeredMs": 21.494447,
+              "firedMs": [],
+              "clearedMs": [
+                38.957154
+              ],
+              "readAttempts": 1,
+              "chunks": 1,
+              "completedReads": 1
+            },
+            {
+              "registeredMs": 40.477006,
+              "firedMs": [],
+              "clearedMs": [
+                53.156052
+              ],
+              "readAttempts": 1,
+              "chunks": 1,
+              "completedReads": 1
+            },
+            {
+              "registeredMs": 40.483335,
+              "firedMs": [],
+              "clearedMs": [
+                69.507389
+              ],
+              "readAttempts": 1,
+              "chunks": 1,
+              "completedReads": 1
+            }
+          ]
+        }
+      }
+    ],
+    "totals": {
+      "commands": 1,
+      "passedCases": 1,
+      "failedCases": 0,
+      "expects": 4,
+      "wallSeconds": 0.15
+    },
+    "observationLimit": "One selected case only: four parent helper calls captured afterAll and one call in each of two ordinary children at exit. All six original watchdogs cleared; their overlapping ages are not accumulated waited time. Original reader locks/chunk/race/release behavior retained. No attached-worker interval inference.",
+    "sourceFiles": [
+      {
+        "file": "packages/ui-sdk/tests/maintenance-temp-ledger-protocol.ts",
+        "originalSha256": "da54d47a446ed7034331a583f5fcf49c98f3323e3bbcb814347c3e182bd7e9b4",
+        "instrumentedSha256": "9568d4227e6d19749d6a923ad661da59a9d8d21de6d5cba3889b354d778518b5"
+      },
+      {
+        "file": "packages/ui-sdk/tests/maintenance-temp-budget.test.ts",
+        "originalSha256": "2709f90de2fb7bb8c38c9d7f93e33baf8ebb4fe4326da59269c1e04115de39a6",
+        "instrumentedSha256": "a8057457e03ac1cde4b6e62671a00013e6826a241895c13c831feedc14d0531b"
+      }
+    ],
+    "sourceRows": [
+      333
+    ],
+    "cwdClass": "dedicated /tmp checkout",
+    "unmodifiedChild": {
+      "file": "packages/ui-sdk/tests/maintenance-temp-ledger-child.ts",
+      "sha256": "b5b5c3f54870c6090037bac6113e8f251639efde94602a3f598e991260825de4"
+    },
+    "integrity": [
+      {
+        "file": "maintenance-temp-ledger-protocol.ts",
+        "awaits": 1,
+        "assertions": 0,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "maintenance-temp-budget.test.ts",
+        "awaits": 29,
+        "assertions": 51,
+        "originalAwaitAndAssertionTextIdentical": true
+      }
+    ]
+  },
+  "gateAndCompletion": {
+    "commands": [
+      {
+        "logName": "cron-run-job.test.ts.log",
+        "rawLogSha256": "96d9f68889ce5338cb04397d2c1811820467bdb5964dec379a3f4719e49e0d09",
+        "timeSha256": "c22e43ffc50db01eac06a5356d6b422de42510552b243004f355dff1f58e7ec5",
+        "passedCases": [
+          {
+            "name": "cron lifecycle recovery > a broken output sink does not finish before the real child exits",
+            "bodyMs": 62.88
+          }
+        ],
+        "failedCases": [],
+        "expects": 7,
+        "resources": {
+          "wallSeconds": 0.21,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.06,
+          "maximumRssKiB": 75464
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/cron-run-job.test.ts",
+          "--test-name-pattern",
+          "a broken output sink does not finish before the real child exits"
+        ],
+        "command": "bun run test packages/ui-server/tests/cron-run-job.test.ts --test-name-pattern 'a broken output sink does not finish before the real child exits'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 17,
+        "bunSeconds": 0.146,
+        "environment": {}
+      },
+      {
+        "logName": "module-mcp-tools.test.ts.log",
+        "rawLogSha256": "446ddea0712d297e68585ec0e11f22116198a13b1f0952b710103d898e8eaf8c",
+        "timeSha256": "4396b87f43a7db72b3ecb029ea91918130a0f33b422fb3493571b7eef7c0e476",
+        "passedCases": [
+          {
+            "name": "dormant module MCP startup > a dormancy edit preserves registered and in-flight calls until the next process",
+            "bodyMs": 365.39
+          }
+        ],
+        "failedCases": [],
+        "expects": 17,
+        "resources": {
+          "wallSeconds": 0.75,
+          "userSeconds": 0.79,
+          "systemSeconds": 0.36,
+          "maximumRssKiB": 108948
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/core/tests/module-mcp-tools.test.ts",
+          "--test-name-pattern",
+          "a dormancy edit preserves registered and in-flight calls until the next process"
+        ],
+        "command": "bun run test packages/core/tests/module-mcp-tools.test.ts --test-name-pattern 'a dormancy edit preserves registered and in-flight calls until the next process'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 25,
+        "bunSeconds": 0.684,
+        "environment": {}
+      }
+    ],
+    "sidecars": [
+      {
+        "name": "children/12-1772579.json",
+        "sha256": "47c240413616e3b93261ec920aedc401fa8b65f35d9144688a60990867d667e7",
+        "observation": {
+          "site": "12",
+          "records": [
+            {
+              "delay": 10,
+              "startedMs": 187.734254,
+              "completedMs": 198.2837
+            },
+            {
+              "delay": 10,
+              "startedMs": 198.295406,
+              "completedMs": 208.4025
+            },
+            {
+              "delay": 10,
+              "startedMs": 208.420033,
+              "completedMs": 218.550795
+            },
+            {
+              "delay": 10,
+              "startedMs": 218.56981,
+              "completedMs": 228.718285
+            },
+            {
+              "delay": 10,
+              "startedMs": 228.729399,
+              "completedMs": 238.845443
+            },
+            {
+              "delay": 10,
+              "startedMs": 238.858832,
+              "completedMs": 248.964601
+            },
+            {
+              "delay": 10,
+              "startedMs": 249.000857,
+              "completedMs": 259.094718
+            },
+            {
+              "delay": 10,
+              "startedMs": 259.106245,
+              "completedMs": 269.195945
+            },
+            {
+              "delay": 10,
+              "startedMs": 269.205709,
+              "completedMs": 279.315971
+            },
+            {
+              "delay": 10,
+              "startedMs": 279.334471,
+              "completedMs": 289.485547
+            },
+            {
+              "delay": 10,
+              "startedMs": 289.505886,
+              "completedMs": 299.625343
+            },
+            {
+              "delay": 10,
+              "startedMs": 299.644516,
+              "completedMs": 309.74745
+            },
+            {
+              "delay": 10,
+              "startedMs": 309.762604,
+              "completedMs": 319.864986
+            },
+            {
+              "delay": 10,
+              "startedMs": 319.879629,
+              "completedMs": 330.006193
+            },
+            {
+              "delay": 10,
+              "startedMs": 330.024751,
+              "completedMs": 340.146844
+            },
+            {
+              "delay": 10,
+              "startedMs": 340.171907,
+              "completedMs": 350.27795
+            },
+            {
+              "delay": 10,
+              "startedMs": 350.292358,
+              "completedMs": 360.408004
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/359-1772748.json",
+        "sha256": "a70b0cf4dd4d96de2fe21e71e733fb8bb66526bdf8c3964ac34ca704605b7c8b",
+        "observation": {
+          "site": "359",
+          "records": [
+            {
+              "delay": 50,
+              "startedMs": 9.840724,
+              "completedMs": 59.961072
+            }
+          ]
+        }
+      }
+    ],
+    "totals": {
+      "commands": 2,
+      "passedCases": 2,
+      "failedCases": 0,
+      "expects": 24,
+      "wallSeconds": 0.96
+    },
+    "observationLimit": "MCP12 snapshot follows original completed marker but precedes unchanged return, adding a synchronous diagnostic write outside recorded waits. Cron359 snapshot occurs at original native exit7. Cron test-local Bun.spawn forwarder matches only the original inline script; actual native child object/options/argv shape returned unchanged and complete descriptor restored afterEach. No added timer, await, worker authority or protocol bytes.",
+    "sourceFiles": [
+      {
+        "file": "packages/core/tests/module-mcp-tools.test.ts",
+        "originalSha256": "6001041f999417297c7f817e8751801e7f5d0900cad3204ee8787bd6d6b40ec5",
+        "instrumentedSha256": "f7b05406516f8dec7220ccd301e7443637ec3514a5dad095fdf0946f0572417f"
+      },
+      {
+        "file": "packages/ui-server/tests/cron-run-job.test.ts",
+        "originalSha256": "817720a5f607f6cb4c23327b815d27e53ab9fc0f529c8c4db7967f12fbed1a44",
+        "instrumentedSha256": "e469c438675e009ba99f0c0b31015066c02092aaf94df1ef1d0baa1051864842"
+      }
+    ],
+    "sourceRows": [
+      12,
+      359
+    ],
+    "cwdClass": "dedicated /tmp checkout",
+    "integrity": [
+      {
+        "file": "module-mcp-tools.test.ts",
+        "awaits": 55,
+        "assertions": 72,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "cron-run-job.test.ts",
+        "awaits": 17,
+        "assertions": 58,
+        "originalAwaitAndAssertionTextIdentical": true
+      }
+    ]
+  },
+  "inboxAndSchedule": {
+    "commands": [
+      {
+        "logName": "inbox-resolve.test.ts.log",
+        "rawLogSha256": "e36d54544edf827f12b8c5a92912e5fd468dc9b0a951f64d553df603e97fa327",
+        "timeSha256": "7d550376a14299318362ba8392338a8db24304581f73edf02c8ac94f2844771b",
+        "passedCases": [
+          {
+            "name": "two real engine processes race a gated resolution and persist one follow-up",
+            "bodyMs": 431.53
+          }
+        ],
+        "failedCases": [],
+        "expects": 13,
+        "resources": {
+          "wallSeconds": 0.56,
+          "userSeconds": 0.33,
+          "systemSeconds": 0.11,
+          "maximumRssKiB": 75444
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/inbox-resolve.test.ts",
+          "--test-name-pattern",
+          "two real engine processes race a gated resolution and persist one follow-up"
+        ],
+        "command": "bun run test packages/ui-server/tests/inbox-resolve.test.ts --test-name-pattern 'two real engine processes race a gated resolution and persist one follow-up'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 16,
+        "bunSeconds": 0.486,
+        "environment": {}
+      },
+      {
+        "logName": "inbox-runtime.test.ts.log",
+        "rawLogSha256": "672b8c004261941267ba1de24362ae3601e5793c791f00701a64467d82181c2c",
+        "timeSha256": "468d1adc970724da52cc7df511ca7142ea0f00215e0a37f764eafb05dc5e766c",
+        "passedCases": [
+          {
+            "name": "inbox drain lifecycle > two real processes race one immediate claim and produce exactly one dispatch",
+            "bodyMs": 395.12
+          },
+          {
+            "name": "inbox drain lifecycle > cron heartbeat racing a claim waits within the configured five-second timeout",
+            "bodyMs": 718.72
+          },
+          {
+            "name": "mounted internal poke > separate server processes rotate boot authorization and recover the persisted lease",
+            "bodyMs": 1829.18
+          }
+        ],
+        "failedCases": [],
+        "expects": 24,
+        "resources": {
+          "wallSeconds": 3.11,
+          "userSeconds": 1.47,
+          "systemSeconds": 0.59,
+          "maximumRssKiB": 162112
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/inbox-runtime.test.ts",
+          "--test-name-pattern",
+          "two real processes race one immediate claim and produce exactly one dispatch|cron heartbeat racing a claim waits within the configured five-second timeout|separate server processes rotate boot authorization and recover the persisted lease"
+        ],
+        "command": "bun run test packages/ui-server/tests/inbox-runtime.test.ts --test-name-pattern 'two real processes race one immediate claim and produce exactly one dispatch|cron heartbeat racing a claim waits within the configured five-second timeout|separate server processes rotate boot authorization and recover the persisted lease'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 15,
+        "bunSeconds": 3.04,
+        "environment": {}
+      },
+      {
+        "logName": "schedule-admission.test.ts.log",
+        "rawLogSha256": "04071ee0f93afec12148fa6813827ba7c3869b3ffca2f10ba66eab98fe87316a",
+        "timeSha256": "78aee09000c87fbfd1b69f6d15eaa8c4ceced96c2c90dc4e48f8ddba38815907",
+        "passedCases": [
+          {
+            "name": "a one-off is admitted once by concurrent processes, runs once through the Queue and is never due again",
+            "bodyMs": 805.28
+          }
+        ],
+        "failedCases": [],
+        "expects": 30,
+        "resources": {
+          "wallSeconds": 1.03,
+          "userSeconds": 0.68,
+          "systemSeconds": 0.29,
+          "maximumRssKiB": 97080
+        },
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/schedule-admission.test.ts",
+          "--test-name-pattern",
+          "a one-off is admitted once by concurrent processes, runs once through the Queue and is never due again"
+        ],
+        "command": "bun run test packages/ui-server/tests/schedule-admission.test.ts --test-name-pattern 'a one-off is admitted once by concurrent processes, runs once through the Queue and is never due again'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "filteredCases": 27,
+        "bunSeconds": 0.934,
+        "environment": {}
+      }
+    ],
+    "sidecars": [
+      {
+        "name": "children/1815445.json",
+        "sha256": "55a89f5880b4a004cd9401c02b3750d7052f9a2069b65e78e814af4260d3faee",
+        "observation": {
+          "fixture": "inbox-actions-worker.ts",
+          "mode": "race",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 368,
+              "requestedMs": 2,
+              "startedMs": 54.913531,
+              "completedMs": 57.045946,
+              "completed": true
+            },
+            {
+              "row": 368,
+              "requestedMs": 2,
+              "startedMs": 57.059792,
+              "completedMs": 59.159161,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1815446.json",
+        "sha256": "c1211219e46db942b665dd9250e2281c6d20f964170aacf007e9f272dfe7e7eb",
+        "observation": {
+          "fixture": "inbox-actions-worker.ts",
+          "mode": "race",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 368,
+              "requestedMs": 2,
+              "startedMs": 55.110339,
+              "completedMs": 57.249872,
+              "completed": true
+            },
+            {
+              "row": 368,
+              "requestedMs": 2,
+              "startedMs": 57.259083,
+              "completedMs": 59.342816,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1815657.json",
+        "sha256": "246c4fd59f5621f5bd171b667e18a6b8a2bf14ae62bcff4af396db4ead14b306",
+        "observation": {
+          "fixture": "inbox-runtime-worker.ts",
+          "mode": "claim",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 372,
+              "requestedMs": 5,
+              "startedMs": 71.125592,
+              "completedMs": 76.236192,
+              "completed": true
+            },
+            {
+              "row": 372,
+              "requestedMs": 5,
+              "startedMs": 76.259606,
+              "completedMs": 81.375385,
+              "completed": true
+            },
+            {
+              "row": 372,
+              "requestedMs": 5,
+              "startedMs": 81.391327,
+              "completedMs": 86.50751,
+              "completed": true
+            },
+            {
+              "row": 372,
+              "requestedMs": 5,
+              "startedMs": 86.524863,
+              "completedMs": 91.640856,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1815658.json",
+        "sha256": "e30e968c1c42c95a12f736d949f4733db18fb2be2ad620057c5ca4de4da03867",
+        "observation": {
+          "fixture": "inbox-runtime-worker.ts",
+          "mode": "claim",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 372,
+              "requestedMs": 5,
+              "startedMs": 82.292006,
+              "completedMs": 87.407785,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1815803.json",
+        "sha256": "c0c683638c1a18ce293926b544014efbcf3f47f88c9bf5267854ce7a64ebbd96",
+        "observation": {
+          "fixture": "inbox-runtime-worker.ts",
+          "mode": "hold",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 370,
+              "requestedMs": 5,
+              "startedMs": 47.705584,
+              "completedMs": 52.904339,
+              "completed": true
+            },
+            {
+              "row": 371,
+              "requestedMs": 300,
+              "startedMs": 52.917724,
+              "completedMs": 353.188653,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1815912.json",
+        "sha256": "0938fc471538a2349bc223e2f4a7bda57a444e5391ccf9b2d8b70490fbddbc51",
+        "observation": {
+          "fixture": "inbox-runtime-worker.ts",
+          "mode": "serve",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 679.17255,
+              "completedMs": 716.605985,
+              "completed": true
+            },
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 716.613086,
+              "completedMs": 727.8833,
+              "completed": true
+            },
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 727.893065,
+              "completedMs": 733.003524,
+              "completed": true
+            },
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 733.015099,
+              "completedMs": 738.137657,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1816111.json",
+        "sha256": "8b36699db1b06fa5ee37c1020addc470368b090073387e1d6743830b3877ead6",
+        "observation": {
+          "fixture": "inbox-runtime-worker.ts",
+          "mode": "serve",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 688.06449,
+              "completedMs": 720.795128,
+              "completed": true
+            },
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 720.810942,
+              "completedMs": 731.606984,
+              "completed": true
+            },
+            {
+              "row": 369,
+              "requestedMs": 5,
+              "startedMs": 731.618154,
+              "completedMs": 736.716873,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1816450.json",
+        "sha256": "75f6389387007bc9ce3ff0624deef81983c17f534bc8106d0cc99f109001bbd2",
+        "observation": {
+          "fixture": "schedule-admission-worker.ts",
+          "mode": "admit",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 374,
+              "requestedMs": 5,
+              "startedMs": 157.021706,
+              "completedMs": 162.162762,
+              "completed": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "children/1816451.json",
+        "sha256": "cbf981df243b60daa93286e777c0e6e814a0386d037cd87bf510074f5ddd6a85",
+        "observation": {
+          "fixture": "schedule-admission-worker.ts",
+          "mode": "admit",
+          "snapshot": "process-exit",
+          "records": [
+            {
+              "row": 374,
+              "requestedMs": 5,
+              "startedMs": 153.890646,
+              "completedMs": 159.020954,
+              "completed": true
+            }
+          ]
+        }
+      }
+    ],
+    "totals": {
+      "commands": 3,
+      "passedCases": 5,
+      "failedCases": 0,
+      "expects": 67,
+      "wallSeconds": 4.7
+    },
+    "sourceFiles": [
+      {
+        "file": "packages/ui-server/tests/fixtures/inbox-actions-worker.ts",
+        "sourceRows": [
+          368
+        ],
+        "originalSha256": "2c108ecdff5080933790a1e197676c3b327451be5dc758aaa25e7b94750a1476",
+        "instrumentedSha256": "f40ffe296dd61baf3aa16281e29bdd74a4ec828ab4f1bd9fd4568e2aef06cf17"
+      },
+      {
+        "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+        "sourceRows": [
+          369,
+          370,
+          371,
+          372
+        ],
+        "originalSha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647",
+        "instrumentedSha256": "273af03c4e6c31a2dde1280ac23abcc9e6e9050a4fd6892921984948533a3c48"
+      },
+      {
+        "file": "packages/ui-server/tests/fixtures/schedule-admission-worker.ts",
+        "sourceRows": [
+          374
+        ],
+        "originalSha256": "70463bbf3fb3c68a24648fb095726194d14fecca5dfeb064c4c81a6c28516d90",
+        "instrumentedSha256": "4981422cd76ed42c8c0453eb8e5669e0ad4736a1a468c093d04d82c15eacc13b"
+      }
+    ],
+    "sourceRows": [
+      368,
+      369,
+      370,
+      371,
+      372,
+      374
+    ],
+    "cwdClass": "dedicated /tmp checkout",
+    "unmodifiedCallers": [
+      {
+        "file": "packages/ui-server/tests/inbox-resolve.test.ts",
+        "sha256": "fbf9eaee03996bec25f8e04d99e596eab8b0ededd31fef4a4a9fc554025946ec"
+      },
+      {
+        "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+        "sha256": "8a4755c147569c3ef16e6d73be2f2ff1eaf7b6b99a781fb8b72d3029e471fe1c"
+      },
+      {
+        "file": "packages/ui-server/tests/schedule-admission.test.ts",
+        "sha256": "2c552b6feebbb333bf9753c2d104d4c9e915165049d4487320d93081cdeb3e75"
+      }
+    ],
+    "integrity": [
+      {
+        "file": "inbox-actions-worker.ts",
+        "awaits": 5,
+        "assertions": 0,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "inbox-runtime-worker.ts",
+        "awaits": 14,
+        "assertions": 0,
+        "originalAwaitAndAssertionTextIdentical": true
+      },
+      {
+        "file": "schedule-admission-worker.ts",
+        "awaits": 5,
+        "assertions": 0,
+        "originalAwaitAndAssertionTextIdentical": true
+      }
+    ],
+    "observationLimit": "Nine ordinary native child exit snapshots across five selected cases. Original callers untouched; fixture awaits retained with synchronous before/finally timestamps and one exit-sidecar write per child. Native readiness, stdout/stderr, SQLite, server authorization, dispatch, exit and cleanup assertions remain. No new authority, FD, timer or await. Four earlier listener-interface failures and schedule crash modes are not selected. Exit IO is inside command time and outside measured waits; later exit listeners are unobserved.",
+    "bySourceRow": {
+      "368": {
+        "completed": 4,
+        "elapsedMs": 8.45505
+      },
+      "372": {
+        "completed": 5,
+        "elapsedMs": 25.574333999999993
+      },
+      "370": {
+        "completed": 1,
+        "elapsedMs": 5.1987549999999985
+      },
+      "371": {
+        "completed": 1,
+        "elapsedMs": 300.27092899999997
+      },
+      "369": {
+        "completed": 7,
+        "elapsedMs": 107.56206500000008
+      },
+      "374": {
+        "completed": 2,
+        "elapsedMs": 10.271363999999977
+      }
+    }
+  },
+  "races": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "sourceRows": [
+      349,
+      350,
+      431,
+      434
+    ],
+    "commands": 3,
+    "passedCases": 4,
+    "expects": 26,
+    "wallSeconds": 1.22,
+    "records": [
+      {
+        "file": "packages/ui-server/tests/auth.test.ts",
+        "rows": [
+          349,
+          350
+        ],
+        "pattern": "bounds concurrent password verification per client IP|a blocked client gets 429 without waiting for its body to finish",
+        "originalSha256": "20f2be32410f8a3a443fd8ccd606605508344c764b0ade3ade0eb78f347c6beb",
+        "instrumentedSha256": "881ef218d613ccd80224bf24c396d35d14de70c00230b4060ae415abc8a0f84d",
+        "result": {
+          "passed": 2,
+          "failed": 0,
+          "expects": 10,
+          "filtered": 35
+        },
+        "cases": [
+          {
+            "name": "password login + guard > bounds concurrent password verification per client IP",
+            "bodyMs": 9.25
+          },
+          {
+            "name": "password login admission > a blocked client gets 429 without waiting for its body to finish",
+            "bodyMs": 0.93
+          }
+        ],
+        "resources": {
+          "wallSeconds": 0.3,
+          "userSeconds": 0.28,
+          "systemSeconds": 0.11,
+          "maximumRssKiB": 149576.0
+        },
+        "observation": {
+          "phase": "afterAll",
+          "atMs": 223.681771,
+          "records": [
+            {
+              "row": 349,
+              "registeredAtMs": 222.239965
+            },
+            {
+              "row": 350,
+              "registeredAtMs": 223.59638
+            }
+          ]
+        },
+        "rawLogSha256": "d8972e27f30f1cd0989295b0285a308bfa2a2fdd3b7d73d44747ce92938abe8a",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/auth.test.ts",
+          "--test-name-pattern",
+          "bounds concurrent password verification per client IP|a blocked client gets 429 without waiting for its body to finish"
+        ],
+        "command": "bun run test packages/ui-server/tests/auth.test.ts --test-name-pattern 'bounds concurrent password verification per client IP|a blocked client gets 429 without waiting for its body to finish'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        }
+      },
+      {
+        "file": "packages/ui-server/tests/passkeys.test.ts",
+        "rows": [
+          434
+        ],
+        "pattern": "bounds concurrent passkey verification per client IP",
+        "originalSha256": "feef00415fc8c4150af76dabcdabecccf58238f0d903679814f21bc109c8bda1",
+        "instrumentedSha256": "5f8733f1a84ca2ec7cb9853cf7a54e5688189768a2902a9363437ff3d525048c",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "expects": 12,
+          "filtered": 31
+        },
+        "cases": [
+          {
+            "name": "login-verify > bounds concurrent passkey verification per client IP",
+            "bodyMs": 45.96
+          }
+        ],
+        "resources": {
+          "wallSeconds": 0.76,
+          "userSeconds": 0.43,
+          "systemSeconds": 0.17,
+          "maximumRssKiB": 153796.0
+        },
+        "observation": {
+          "phase": "afterAll",
+          "atMs": 648.585964,
+          "records": [
+            {
+              "row": 434,
+              "registeredAtMs": 636.909693
+            }
+          ]
+        },
+        "rawLogSha256": "e38541c20600be9c9a559c0341927b82be22d0ea9fe5457ed90c9a5c5367a499",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/passkeys.test.ts",
+          "--test-name-pattern",
+          "bounds concurrent passkey verification per client IP"
+        ],
+        "command": "bun run test packages/ui-server/tests/passkeys.test.ts --test-name-pattern 'bounds concurrent passkey verification per client IP'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        }
+      },
+      {
+        "file": "packages/ui-server/tests/model-pricing.test.ts",
+        "rows": [
+          431
+        ],
+        "pattern": "ensureFresh awaits a cold start but returns immediately when stale",
+        "originalSha256": "fe4f7a55d2bdfd7915f7a6415b6fab23e37162d2a36eb5f53502a0e918e24872",
+        "instrumentedSha256": "888493178dcb815abe02f487b1b6aed356c9accf91166d1c0d6b0f8049e72156",
+        "result": {
+          "passed": 1,
+          "failed": 0,
+          "expects": 4,
+          "filtered": 47
+        },
+        "cases": [
+          {
+            "name": "createModelPricing refresh behavior > ensureFresh awaits a cold start but returns immediately when stale",
+            "bodyMs": 2.29
+          }
+        ],
+        "resources": {
+          "wallSeconds": 0.16,
+          "userSeconds": 0.16,
+          "systemSeconds": 0.06,
+          "maximumRssKiB": 76744.0
+        },
+        "observation": {
+          "phase": "afterAll",
+          "atMs": 93.080513,
+          "records": [
+            {
+              "row": 431,
+              "registeredAtMs": 92.278537
+            }
+          ]
+        },
+        "rawLogSha256": "d6be33b5fbb1124212782c809e40de652f64f03a66a68d84bb890643aedc387f",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-server/tests/model-pricing.test.ts",
+          "--test-name-pattern",
+          "ensureFresh awaits a cold start but returns immediately when stale"
+        ],
+        "command": "bun run test packages/ui-server/tests/model-pricing.test.ts --test-name-pattern 'ensureFresh awaits a cold start but returns immediately when stale'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        }
+      }
+    ],
+    "method": "Host-only factory observer calls original Bun.sleep once and returns its exact promise, with synchronous registration/completion timestamps and original then branch retained. No added await/timer. Pricing uses a case-local Bun.sleep forwarder so its original expect(await Promise.race(...)) text remains unchanged. All final original await counts, matcher ASTs and test-name expressions unchanged. Original sources restored.",
+    "observationLimit": "afterAll snapshot only: four actual registrations and no completed or rejected callbacks by that point. Pending age is not accumulated completed wait time, a zero-cost claim or a post-exit lifecycle guarantee. No timeout shortened or native guard changed.",
+    "guards": "Original bun run test wrapper/preload and explicit ordinary-uid user/network namespace, loopback only/no routes, capabilities dropped. Shared benchmark lock serialized commands."
+  },
+  "unwind": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "sourceRows": [
+      373
+    ],
+    "sourceFiles": [
+      {
+        "file": "packages/ui-server/tests/fixtures/inbox-unwind-worker.ts",
+        "originalSha256": "d36502b26dbe1610110128854a40c6cd60dfc454f0ac9ac699fd02d6e8f552eb",
+        "instrumentedSha256": "c666c975925f05d3d84b64ea8081af783048a7d7d785c26ee4fc3b8c18bbcb4d"
+      },
+      {
+        "file": "packages/ui-server/tests/inbox-unwind.test.ts",
+        "sha256": "ff77f2bb5bdabb1d43993b8c29915579119843a453387a588137de81b3492ed8"
+      }
+    ],
+    "result": {
+      "passed": 2,
+      "failed": 0,
+      "filtered": 10,
+      "expects": 46,
+      "bodyMs": [
+        710.54,
+        616.85
+      ],
+      "bunSeconds": 1.439,
+      "wallSeconds": 1.51,
+      "userSeconds": 0.6,
+      "systemSeconds": 0.26,
+      "maximumRssKiB": 92128
+    },
+    "observations": [
+      {
+        "mode": "escalated",
+        "requestedMs": 50,
+        "registeredAtMs": 226.441815,
+        "completedAtMs": 276.548303,
+        "elapsedMs": 50.106487999999985,
+        "rawSha256": "e37f097420f8c704b51e3d0a657c92357c6cce66a48caccff12e5483e3cc4308"
+      },
+      {
+        "mode": "claimed",
+        "requestedMs": 50,
+        "registeredAtMs": 193.37515,
+        "completedAtMs": 243.469699,
+        "elapsedMs": 50.094549,
+        "rawSha256": "d0db3fc2f7674d1611b7913ce4015bd4bf1cb70544d4300d539c42ae7e08bf8b"
+      }
+    ],
+    "completedWaits": 2,
+    "sumCompletedWaitMs": 100.20103699999999,
+    "method": "Only the ordinary unrestricted inbox-unwind fixture is instrumented. Synchronous timestamps surround the original await Bun.sleep(50); one diagnostic file write occurs after completion and before the original readiness JSON write/rename. Parent source is untouched. Original exact readiness JSON, stdout-empty/stderr-empty, native SIGKILL, kernel-life, budget/spend and cleanup oracles remain. No new inherited FD, argv/env value, worker permission, await or timer. The existing file-write authority of the ordinary fixture is used; governed payloads are unchanged. Observation-write overhead is outside the measured promise span and inside the case wall time.",
+    "guards": "Existing bun run test wrapper/preload, explicit ordinary-uid user/network namespace with loopback only/no routes and capabilities dropped; shared benchmark lock. All source restored byte-identical after the completed wrapper.",
+    "scope": "Two selected original crash/recovery cases, overlapping earlier full-file receipts. Actual two completed50ms waits; no claim that the parent observed the incomplete partial-file window, no minimum50ms proof, no lifetime measurement for the later unresolved promise.",
+    "rawLogSha256": "bc537a7acd71a8b9b577c6027a61836d2cf9b5e576e3ac25905f78c212d65287",
+    "commandArgs": [
+      "bun",
+      "run",
+      "test",
+      "packages/ui-server/tests/inbox-unwind.test.ts",
+      "--test-name-pattern",
+      "^SIGKILL (during denial unwind releases kernel life and recovers cost before one cleanup|before checkpoint recovers the expired claim without resetting attempts or spend)$"
+    ],
+    "command": "bun run test packages/ui-server/tests/inbox-unwind.test.ts --test-name-pattern '^SIGKILL (during denial unwind releases kernel life and recovers cost before one cleanup|before checkpoint recovers the expired claim without resetting attempts or spend)$'",
+    "namespace": {
+      "interfaces": [
+        "lo"
+      ],
+      "routes": [],
+      "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+    }
+  },
+  "excludedDiagnosticAttempts": {
+    "recursiveObserver": {
+      "commands": [
+        {
+          "logName": "turn-surface-stdout.test.ts.log",
+          "rawLogSha256": "e56b34632897edbce404533a84e1097f87ef6e2bda299c92e960fda059ec79d6",
+          "timeSha256": "1ae812fbaf605088c1eaee9f71b89b2f3d5de23159e478a1f26dddeb95db010b",
+          "passedCases": [],
+          "failedCases": [
+            {
+              "name": "native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown",
+              "bodyMs": 36.08
+            }
+          ],
+          "expects": 4,
+          "resources": {
+            "wallSeconds": 0.16,
+            "userSeconds": 0.15,
+            "systemSeconds": 0.09,
+            "maximumRssKiB": 68056
+          },
+          "commandArgs": [
+            "bun",
+            "run",
+            "test",
+            "experiments/turn-surface-stdout.test.ts",
+            "--test-name-pattern",
+            "^native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown$"
+          ],
+          "command": "bun run test experiments/turn-surface-stdout.test.ts --test-name-pattern '^native late EOF receipt survives an early SDK consumer throw; missing raw usage remains unknown$'",
+          "namespace": {
+            "interfaces": [
+              "lo"
+            ],
+            "routes": [],
+            "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+            "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+            "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+          },
+          "filteredCases": 1,
+          "bunSeconds": 0.117,
+          "environment": {}
+        }
+      ],
+      "sidecars": [
+        {
+          "name": "children/1728125.json",
+          "sha256": "1b2c9b53380d8b4af84de07d3afb013ded88469b8fab097b18734e7d56fa2457",
+          "classification": "Rejected observer recursion; not native source timer counts."
+        }
+      ],
+      "totals": {
+        "commands": 1,
+        "passedCases": 0,
+        "failedCases": 1,
+        "expects": 4,
+        "wallSeconds": 0.16
+      },
+      "observationLimit": "Rejected instrumentation attempt only, not source timer counts. In Bun CommonJS eval mode selected by require, top-level function declarations installed the observer on globalThis before capture, causing recursive observer registrations. Original expected child exit0 instead received1. Source was restored immediately; raw failed attempt retained. Corrected lexical const bindings preserve the native global properties. This is not a product failure or a failing-first behavior mutation.",
+      "sourceFiles": [
+        {
+          "file": "experiments/turn-surface-stdout.test.ts",
+          "originalSha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009",
+          "instrumentedSha256": "56ae26aa510190c1d6b64e8c4dbbc48f9de785afa71364cbfb79acb278509ed3"
+        },
+        {
+          "file": "packages/core/tests/cli-output-completion.test.ts",
+          "originalSha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+          "instrumentedSha256": "13f4c5b8890b439ac1a7dd715894e909ca3b0517412cd910c20bd808ee89377d"
+        },
+        {
+          "file": "tests/ci-runner.test.ts",
+          "originalSha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+          "instrumentedSha256": "bd0760dcc4751fb05e939631d8f0a2569846deb22581b527378c3b67a903e092"
+        },
+        {
+          "file": "packages/ui-sdk/tests/rtk.test.ts",
+          "originalSha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+          "instrumentedSha256": "d44e4984d002c7938f4f1a8a6d7b54472cfdd0a9a16d76dc69e6a57e42057e27"
+        }
+      ],
+      "sourceRows": [
+        7
+      ],
+      "cwdClass": "dedicated non-/tmp checkout",
+      "integrity": [
+        {
+          "file": "turn-surface-stdout.test.ts",
+          "awaits": 5,
+          "assertions": 14,
+          "originalAwaitAndAssertionTextIdentical": true
+        },
+        {
+          "file": "cli-output-completion.test.ts",
+          "awaits": 13,
+          "assertions": 44,
+          "originalAwaitAndAssertionTextIdentical": true
+        },
+        {
+          "file": "ci-runner.test.ts",
+          "awaits": 3,
+          "assertions": 16,
+          "originalAwaitAndAssertionTextIdentical": true
+        },
+        {
+          "file": "rtk.test.ts",
+          "awaits": 2,
+          "assertions": 5,
+          "originalAwaitAndAssertionTextIdentical": true
+        }
+      ],
+      "embeddedIntegrity": [
+        {
+          "file": "turn-surface-stdout.test.ts",
+          "originalEmbeddedOperations": 3,
+          "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+        },
+        {
+          "file": "cli-output-completion.test.ts",
+          "originalEmbeddedOperations": 2,
+          "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+        },
+        {
+          "file": "ci-runner.test.ts",
+          "originalEmbeddedOperations": 7,
+          "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+        },
+        {
+          "file": "rtk.test.ts",
+          "originalEmbeddedOperations": 4,
+          "originalAwaitTimerSleepOutputExitOperationsUnchanged": true
+        }
+      ]
+    },
+    "firstPricingArrangement": {
+      "passed": 1,
+      "expects": 4,
+      "bodyMs": 3.71,
+      "wallSeconds": 0.15,
+      "reason": "Factory wrapping inside the original expect subject changed the strict raw matcher AST, although the same promise and expected value passed. The initial strict audit rejected that textual identity; the command batch had already run. Replaced only the diagnostic arrangement with a case-local native forwarder and reran pricing. Original initial receipt retained; no product failure or weakened assertion claimed."
+    }
+  },
+  "rawReceiptIndexes": {
+    "ordinaryChildren": [
+      {
+        "name": "children/1739675.json",
+        "sha256": "393dc506770ed960543139b5431c831de0ad8f65de61a11b92bbd1477b318abf",
+        "bytes": 140
+      },
+      {
+        "name": "children/1739992.json",
+        "sha256": "178d7dfba0d6000a0d1ecab101a5004c8df5dd07068d542883484cca9b345c60",
+        "bytes": 1804
+      },
+      {
+        "name": "children/1740161.json",
+        "sha256": "d77ba7c4333bab269d1f9fa873143d3d3b82ba82183e42382c4fc103d362e145",
+        "bytes": 133
+      },
+      {
+        "name": "children/1740162.json",
+        "sha256": "1504fa0f59c41a6950d8b546174e4f031b4e6d3fb25e11c6d865a3272628e3dc",
+        "bytes": 133
+      },
+      {
+        "name": "children/1740175.json",
+        "sha256": "215d6261078db9ae377eea2ce99090ccfec9b7709b5eda889967e7fd3fa50f6b",
+        "bytes": 133
+      },
+      {
+        "name": "children/1740258.json",
+        "sha256": "2e195b61670aa9140ecb00253af34d9352e1103bfb5d7f2564577eb63fd0f371",
+        "bytes": 100
+      },
+      {
+        "name": "ci-runner.test.ts.instrumented",
+        "sha256": "d1aadc4dc9c606fd8d4114588505731046f80f6b21dcddaf8e3645b7d02cc51d",
+        "bytes": 7611
+      },
+      {
+        "name": "ci-runner.test.ts.log",
+        "sha256": "350ecc0101977902a4a07f6f434a6fe564cb53d034a34fd7aa173564a5e94a59",
+        "bytes": 637
+      },
+      {
+        "name": "ci-runner.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "ci-runner.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "ci-runner.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "ci-runner.test.ts.original",
+        "sha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+        "bytes": 4485
+      },
+      {
+        "name": "ci-runner.test.ts.time",
+        "sha256": "936c9b7bbbb807add0d211245b2d955e1eed23f3476bed76d4d40c4f084f9d68",
+        "bytes": 898
+      },
+      {
+        "name": "cli-output-completion.test.ts.instrumented",
+        "sha256": "6c35fb57802bf3ba51cf74b110055a88a1499731ab68fd98058ccf3671bb11b9",
+        "bytes": 9208
+      },
+      {
+        "name": "cli-output-completion.test.ts.log",
+        "sha256": "8b3e7d4d9bcb40be5b36cbd341f1ffac125cd3cda58d5f92c442fbefdac51e5a",
+        "bytes": 498
+      },
+      {
+        "name": "cli-output-completion.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "cli-output-completion.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "cli-output-completion.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "cli-output-completion.test.ts.original",
+        "sha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+        "bytes": 7646
+      },
+      {
+        "name": "cli-output-completion.test.ts.time",
+        "sha256": "69d7319acd16c91611bfe65474fba620e4dbbe72b64be87ae9e33abf0c7ff706",
+        "bytes": 861
+      },
+      {
+        "name": "embedded-integrity.json",
+        "sha256": "b6dc8ccab8ec44bdaa61bfc4beb766ef3a803d5c433348d512aae7842f1cdf51",
+        "bytes": 595
+      },
+      {
+        "name": "integrity.json",
+        "sha256": "3d7a67bfa3abde0463513d608e866c6233f78cada326af78c5c763a52a0c9e5d",
+        "bytes": 547
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "2140e8afe8d456ecd34702cf2a0b30916819cf5ae4369faff209781becc3a4f4",
+        "bytes": 3509
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "e2fe8599ab6a8bcebb3318d71c03df0a4488fe341ca1ce30c48667ca372df915",
+        "bytes": 679
+      },
+      {
+        "name": "rtk.test.ts.instrumented",
+        "sha256": "9851f05911206f612dadc7835d57c6b2cf3899d64a6f3d821b10040aab25a543",
+        "bytes": 5039
+      },
+      {
+        "name": "rtk.test.ts.log",
+        "sha256": "1b5d7386fe4a21df318c31068c408e9defe1c2eb5697ce6b371b1724612f5919",
+        "bytes": 531
+      },
+      {
+        "name": "rtk.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "rtk.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "rtk.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "rtk.test.ts.original",
+        "sha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+        "bytes": 4611
+      },
+      {
+        "name": "rtk.test.ts.time",
+        "sha256": "4d38c17d23c8f2f4c18f0cb60330100fa5ca780c874fcb0e33399c1bb754e0b2",
+        "bytes": 869
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.instrumented",
+        "sha256": "b62f6f2d026114e9ca1d43bde3c494d2b0225bb9280c47c79b1d8929da207fcf",
+        "bytes": 6405
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.log",
+        "sha256": "a9292925fb873c07b996db969276a95adb891b94823fd8ab7818eaa3501c7a12",
+        "bytes": 543
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.original",
+        "sha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009",
+        "bytes": 4844
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.time",
+        "sha256": "894be2d870ac2d03ae8e7e7352e41fc96daa890f6971db7d0a18c2a3608e4254",
+        "bytes": 889
+      }
+    ],
+    "ledger": [
+      {
+        "name": "integrity.json",
+        "sha256": "c4a7fd6bee507caa117766e3869239999b02fd566459247a82aea587fc6da6e8",
+        "bytes": 299
+      },
+      {
+        "name": "maintenance-temp-budget.test.ts.instrumented",
+        "sha256": "a8057457e03ac1cde4b6e62671a00013e6826a241895c13c831feedc14d0531b",
+        "bytes": 13148
+      },
+      {
+        "name": "maintenance-temp-budget.test.ts.original",
+        "sha256": "2709f90de2fb7bb8c38c9d7f93e33baf8ebb4fe4326da59269c1e04115de39a6",
+        "bytes": 12803
+      },
+      {
+        "name": "maintenance-temp-ledger-protocol.ts.instrumented",
+        "sha256": "9568d4227e6d19749d6a923ad661da59a9d8d21de6d5cba3889b354d778518b5",
+        "bytes": 2122
+      },
+      {
+        "name": "maintenance-temp-ledger-protocol.ts.original",
+        "sha256": "da54d47a446ed7034331a583f5fcf49c98f3323e3bbcb814347c3e182bd7e9b4",
+        "bytes": 864
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "73e93ba9d94b0cacd20f1b4ca3b77523c96371d82625921ac61eecab37bd47cf",
+        "bytes": 1332
+      },
+      {
+        "name": "processes/exit-1753166.json",
+        "sha256": "04d36a9dff149554d94086757e6da6c9fe13f2e7b67da7d919dd26784d9fc2d6",
+        "bytes": 164
+      },
+      {
+        "name": "processes/exit-1753168.json",
+        "sha256": "4e59f064d0ea9a37286b0040335d624fafd9b5030f68a7966f6a08e1773f6764",
+        "bytes": 164
+      },
+      {
+        "name": "processes/parent-afterAll-1753153.json",
+        "sha256": "398ef368bbb03a800bf422941971099407819f212531b03060dee9507ba4f966",
+        "bytes": 499
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "c3779061fff5224115b2327af2788ab0b3a7d626f5df9610b702ac6981088313",
+        "bytes": 379
+      },
+      {
+        "name": "run.log",
+        "sha256": "def19202132de1bd7748c029ecf815763b9f929c4626f2272de137616e6d7e90",
+        "bytes": 569
+      },
+      {
+        "name": "run.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "run.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "run.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "run.time",
+        "sha256": "f99267efaba4b835c567e87414554988481a985dd4560d7c5dac3b054e82cf99",
+        "bytes": 904
+      }
+    ],
+    "gateAndCompletion": [
+      {
+        "name": "children/12-1772579.json",
+        "sha256": "47c240413616e3b93261ec920aedc401fa8b65f35d9144688a60990867d667e7",
+        "bytes": 1055
+      },
+      {
+        "name": "children/359-1772748.json",
+        "sha256": "a70b0cf4dd4d96de2fe21e71e733fb8bb66526bdf8c3964ac34ca704605b7c8b",
+        "bytes": 84
+      },
+      {
+        "name": "cron-run-job.test.ts.instrumented",
+        "sha256": "e469c438675e009ba99f0c0b31015066c02092aaf94df1ef1d0baa1051864842",
+        "bytes": 20665
+      },
+      {
+        "name": "cron-run-job.test.ts.log",
+        "sha256": "96d9f68889ce5338cb04397d2c1811820467bdb5964dec379a3f4719e49e0d09",
+        "bytes": 516
+      },
+      {
+        "name": "cron-run-job.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "cron-run-job.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "cron-run-job.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "cron-run-job.test.ts.original",
+        "sha256": "817720a5f607f6cb4c23327b815d27e53ab9fc0f529c8c4db7967f12fbed1a44",
+        "bytes": 19572
+      },
+      {
+        "name": "cron-run-job.test.ts.time",
+        "sha256": "c22e43ffc50db01eac06a5356d6b422de42510552b243004f355dff1f58e7ec5",
+        "bytes": 862
+      },
+      {
+        "name": "integrity.json",
+        "sha256": "eac73ea443277731db559436fa4a3b65d4c218a6c587f8c65c865d678aee343d",
+        "bytes": 279
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "22d68f5bae2447c3fd3f63bffef0841e4ec8375360bf2a2a8b60a7fe6c8e1931",
+        "bytes": 2022
+      },
+      {
+        "name": "module-mcp-tools.test.ts.instrumented",
+        "sha256": "f7b05406516f8dec7220ccd301e7443637ec3514a5dad095fdf0946f0572417f",
+        "bytes": 23399
+      },
+      {
+        "name": "module-mcp-tools.test.ts.log",
+        "sha256": "446ddea0712d297e68585ec0e11f22116198a13b1f0952b710103d898e8eaf8c",
+        "bytes": 549
+      },
+      {
+        "name": "module-mcp-tools.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "module-mcp-tools.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "module-mcp-tools.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "module-mcp-tools.test.ts.original",
+        "sha256": "6001041f999417297c7f817e8751801e7f5d0900cad3204ee8787bd6d6b40ec5",
+        "bytes": 23013
+      },
+      {
+        "name": "module-mcp-tools.test.ts.time",
+        "sha256": "4396b87f43a7db72b3ecb029ea91918130a0f33b422fb3493571b7eef7c0e476",
+        "bytes": 882
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "611475232b25bd29d2c4f53f18153701c9ab245b815c953dc6ac7313a71be23c",
+        "bytes": 358
+      }
+    ],
+    "inboxAndSchedule": [
+      {
+        "name": "children/1815445.json",
+        "sha256": "55a89f5880b4a004cd9401c02b3750d7052f9a2069b65e78e814af4260d3faee",
+        "bytes": 271
+      },
+      {
+        "name": "children/1815446.json",
+        "sha256": "c1211219e46db942b665dd9250e2281c6d20f964170aacf007e9f272dfe7e7eb",
+        "bytes": 271
+      },
+      {
+        "name": "children/1815657.json",
+        "sha256": "246c4fd59f5621f5bd171b667e18a6b8a2bf14ae62bcff4af396db4ead14b306",
+        "bytes": 453
+      },
+      {
+        "name": "children/1815658.json",
+        "sha256": "e30e968c1c42c95a12f736d949f4733db18fb2be2ad620057c5ca4de4da03867",
+        "bytes": 181
+      },
+      {
+        "name": "children/1815803.json",
+        "sha256": "c0c683638c1a18ce293926b544014efbcf3f47f88c9bf5267854ce7a64ebbd96",
+        "bytes": 274
+      },
+      {
+        "name": "children/1815912.json",
+        "sha256": "0938fc471538a2349bc223e2f4a7bda57a444e5391ccf9b2d8b70490fbddbc51",
+        "bytes": 459
+      },
+      {
+        "name": "children/1816111.json",
+        "sha256": "8b36699db1b06fa5ee37c1020addc470368b090073387e1d6743830b3877ead6",
+        "bytes": 368
+      },
+      {
+        "name": "children/1816450.json",
+        "sha256": "75f6389387007bc9ce3ff0624deef81983c17f534bc8106d0cc99f109001bbd2",
+        "bytes": 188
+      },
+      {
+        "name": "children/1816451.json",
+        "sha256": "cbf981df243b60daa93286e777c0e6e814a0386d037cd87bf510074f5ddd6a85",
+        "bytes": 188
+      },
+      {
+        "name": "inbox-actions-worker.ts.instrumented",
+        "sha256": "f40ffe296dd61baf3aa16281e29bdd74a4ec828ab4f1bd9fd4568e2aef06cf17",
+        "bytes": 2699
+      },
+      {
+        "name": "inbox-actions-worker.ts.original",
+        "sha256": "2c108ecdff5080933790a1e197676c3b327451be5dc758aaa25e7b94750a1476",
+        "bytes": 2124
+      },
+      {
+        "name": "inbox-resolve.test.ts.log",
+        "sha256": "e36d54544edf827f12b8c5a92912e5fd468dc9b0a951f64d553df603e97fa327",
+        "bytes": 516
+      },
+      {
+        "name": "inbox-resolve.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "inbox-resolve.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "inbox-resolve.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "inbox-resolve.test.ts.time",
+        "sha256": "7d550376a14299318362ba8392338a8db24304581f73edf02c8ac94f2844771b",
+        "bytes": 877
+      },
+      {
+        "name": "inbox-runtime-worker.ts.instrumented",
+        "sha256": "273af03c4e6c31a2dde1280ac23abcc9e6e9050a4fd6892921984948533a3c48",
+        "bytes": 4432
+      },
+      {
+        "name": "inbox-runtime-worker.ts.original",
+        "sha256": "1c8264ca1925adeed523968d78a8dafdbfd00f7075b1478e1a9fb0dac4eb1647",
+        "bytes": 3111
+      },
+      {
+        "name": "inbox-runtime.test.ts.log",
+        "sha256": "672b8c004261941267ba1de24362ae3601e5793c791f00701a64467d82181c2c",
+        "bytes": 949
+      },
+      {
+        "name": "inbox-runtime.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "inbox-runtime.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "inbox-runtime.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "inbox-runtime.test.ts.time",
+        "sha256": "468d1adc970724da52cc7df511ca7142ea0f00215e0a37f764eafb05dc5e766c",
+        "bytes": 1045
+      },
+      {
+        "name": "integrity.json",
+        "sha256": "3122d21363a8f5931ac14076991c466fea024a5200310278dba80e7edd96de53",
+        "bytes": 420
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "29694c8a6516f0b468072a2f8f6c5d19d6a44235f988c8678594edc26f2e4c3a",
+        "bytes": 3355
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "44cc441d1734ec14b00b4002925d3e1fedb66cebe62a2775ed890f721a970218",
+        "bytes": 578
+      },
+      {
+        "name": "schedule-admission-worker.ts.instrumented",
+        "sha256": "4981422cd76ed42c8c0453eb8e5669e0ad4736a1a468c093d04d82c15eacc13b",
+        "bytes": 2315
+      },
+      {
+        "name": "schedule-admission-worker.ts.original",
+        "sha256": "70463bbf3fb3c68a24648fb095726194d14fecca5dfeb064c4c81a6c28516d90",
+        "bytes": 1735
+      },
+      {
+        "name": "schedule-admission.test.ts.log",
+        "sha256": "04071ee0f93afec12148fa6813827ba7c3869b3ffca2f10ba66eab98fe87316a",
+        "bytes": 580
+      },
+      {
+        "name": "schedule-admission.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "schedule-admission.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "schedule-admission.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "schedule-admission.test.ts.time",
+        "sha256": "78aee09000c87fbfd1b69f6d15eaa8c4ceced96c2c90dc4e48f8ddba38815907",
+        "bytes": 911
+      }
+    ],
+    "races": [
+      {
+        "name": "0.instrumented",
+        "sha256": "881ef218d613ccd80224bf24c396d35d14de70c00230b4060ae415abc8a0f84d",
+        "bytes": 32591
+      },
+      {
+        "name": "0.log",
+        "sha256": "d8972e27f30f1cd0989295b0285a308bfa2a2fdd3b7d73d44747ce92938abe8a",
+        "bytes": 802
+      },
+      {
+        "name": "0.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "0.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "0.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "0.original",
+        "sha256": "20f2be32410f8a3a443fd8ccd606605508344c764b0ade3ade0eb78f347c6beb",
+        "bytes": 31829
+      },
+      {
+        "name": "0.time",
+        "sha256": "eac6a25f669f2b2846bb2bfd801a3113bd300eb1dc0301770534ccad10c31bc8",
+        "bytes": 911
+      },
+      {
+        "name": "1.instrumented",
+        "sha256": "35dba8cb105e65fd8b7dcbef352778196d4d3a1d460a258104c8bb84916ed3bf",
+        "bytes": 27132
+      },
+      {
+        "name": "1.log",
+        "sha256": "e08dd43c3a59b416a4a0d0e6844f8d2b589af7d744ed98f3fb9a242cf08bce33",
+        "bytes": 642
+      },
+      {
+        "name": "1.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "1.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "1.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "1.original",
+        "sha256": "fe4f7a55d2bdfd7915f7a6415b6fab23e37162d2a36eb5f53502a0e918e24872",
+        "bytes": 26400
+      },
+      {
+        "name": "1.time",
+        "sha256": "11628caf8ee37b5edb2aeb8d47c61275f9c9924381f8aed86bf1eb17e3e506fd",
+        "bytes": 866
+      },
+      {
+        "name": "2.instrumented",
+        "sha256": "5f8733f1a84ca2ec7cb9853cf7a54e5688189768a2902a9363437ff3d525048c",
+        "bytes": 35656
+      },
+      {
+        "name": "2.log",
+        "sha256": "e38541c20600be9c9a559c0341927b82be22d0ea9fe5457ed90c9a5c5367a499",
+        "bytes": 586
+      },
+      {
+        "name": "2.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "2.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "2.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "2.original",
+        "sha256": "feef00415fc8c4150af76dabcdabecccf58238f0d903679814f21bc109c8bda1",
+        "bytes": 34924
+      },
+      {
+        "name": "2.time",
+        "sha256": "e41086928256fd3b8f6525eabfa01f95a8e98d2847657cbec9bc8ef9ce6abcac",
+        "bytes": 850
+      },
+      {
+        "name": "ast-auth-passkey-identity.log",
+        "sha256": "7b74eba03592e548cef508b558f976da0d7fabdc8cd26c893013cbd41659cc12",
+        "bytes": 100
+      },
+      {
+        "name": "ast-identity.log",
+        "sha256": "396c455f5b0640453a49ce75fffa79ea720d6ccea38b0f63a9470a586e9a93a3",
+        "bytes": 48
+      },
+      {
+        "name": "ast-strict-first-attempt.log",
+        "sha256": "4a5f2fb70007750174510cf4655f9a3806b325c189f84d9a9b1c33c668c0fd9b",
+        "bytes": 1663
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "f63c54a5ad0789f909cf9534dc0f3511319bd1576ad5830791397eb4e1006a93",
+        "bytes": 1148
+      },
+      {
+        "name": "report.json",
+        "sha256": "a31b042e4f0c5cf40d45ee6e8c8a758a765bff052117a1ff21c567199123690c",
+        "bytes": 5529
+      },
+      {
+        "name": "results.json",
+        "sha256": "e4c3a4c03fb4a44399943f7e10d2d7b8501f52e898246572a007bfa1b8ba6db2",
+        "bytes": 1605
+      }
+    ],
+    "correctedPricing": [
+      {
+        "name": "0.instrumented",
+        "sha256": "888493178dcb815abe02f487b1b6aed356c9accf91166d1c0d6b0f8049e72156",
+        "bytes": 27201
+      },
+      {
+        "name": "0.log",
+        "sha256": "d6be33b5fbb1124212782c809e40de652f64f03a66a68d84bb890643aedc387f",
+        "bytes": 642
+      },
+      {
+        "name": "0.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "0.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "0.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "0.original",
+        "sha256": "fe4f7a55d2bdfd7915f7a6415b6fab23e37162d2a36eb5f53502a0e918e24872",
+        "bytes": 26400
+      },
+      {
+        "name": "0.time",
+        "sha256": "af45d9cb4515a6e7f0ee1cef7cfe0b8bde0301e9fd0be0976e019878063280de",
+        "bytes": 866
+      },
+      {
+        "name": "ast-identity.log",
+        "sha256": "3f71d06016afd31ee35aa61a1583d184d3a8b746e72dbe6e446df4193ec82152",
+        "bytes": 57
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "cd4a1cdd053c975233b729aa6d69eb9e4bd355db8da0e39c23b9227d554de84e",
+        "bytes": 373
+      },
+      {
+        "name": "results.json",
+        "sha256": "73f00f442693702c98bf72c103c4f66a2d33347f03a2c94565dd1a6c2bbaa624",
+        "bytes": 540
+      }
+    ],
+    "unwind": [
+      {
+        "name": "0.instrumented",
+        "sha256": "c666c975925f05d3d84b64ea8081af783048a7d7d785c26ee4fc3b8c18bbcb4d",
+        "bytes": 3630
+      },
+      {
+        "name": "0.original",
+        "sha256": "d36502b26dbe1610110128854a40c6cd60dfc454f0ac9ac699fd02d6e8f552eb",
+        "bytes": 3294
+      },
+      {
+        "name": "ast-identity.log",
+        "sha256": "063152a1fbc6eabe9116ec7e4bf2c6be66e19f6c4076f162752347f4a9cd9e50",
+        "bytes": 63
+      },
+      {
+        "name": "children/1768759.json",
+        "sha256": "e37f097420f8c704b51e3d0a657c92357c6cce66a48caccff12e5483e3cc4308",
+        "bytes": 123
+      },
+      {
+        "name": "children/1768945.json",
+        "sha256": "d0db3fc2f7674d1611b7913ce4015bd4bf1cb70544d4300d539c42ae7e08bf8b",
+        "bytes": 111
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "4fccb046c19527bef40d62dd21fc7666155d9822c4ff5005b991a952e93b50ae",
+        "bytes": 267
+      },
+      {
+        "name": "parent-source.json",
+        "sha256": "f1e5a89880b2255d5eb7bafc42496c06f81f1ad425dad9ff14e998aec0bc28ec",
+        "bytes": 142
+      },
+      {
+        "name": "report.json",
+        "sha256": "89f983da2fc37dc3983bc60a349526dbe42fbe7ac6c1d9664548fab425d1ba61",
+        "bytes": 2700
+      },
+      {
+        "name": "results.json",
+        "sha256": "e289cdb0772c64a936c2dd1a9be333904962932914b8904a338a4eaa423dc7b3",
+        "bytes": 578
+      },
+      {
+        "name": "run.log",
+        "sha256": "bc537a7acd71a8b9b577c6027a61836d2cf9b5e576e3ac25905f78c212d65287",
+        "bytes": 731
+      },
+      {
+        "name": "run.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "run.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "run.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "run.time",
+        "sha256": "7f4272cd9ab4e6967ad876875a49714e91e43c311ef4938eab813bfc473836f2",
+        "bytes": 974
+      }
+    ],
+    "excludedRecursiveObserver": [
+      {
+        "name": "children/1728125.json",
+        "sha256": "1b2c9b53380d8b4af84de07d3afb013ded88469b8fab097b18734e7d56fa2457",
+        "bytes": 1518526
+      },
+      {
+        "name": "ci-runner.test.ts.instrumented",
+        "sha256": "bd0760dcc4751fb05e939631d8f0a2569846deb22581b527378c3b67a903e092",
+        "bytes": 7549
+      },
+      {
+        "name": "ci-runner.test.ts.original",
+        "sha256": "2aabde0f1e340cf7c1f7bdc3a373767c7d6f93d0e63e84106008fb56daa17736",
+        "bytes": 4485
+      },
+      {
+        "name": "cli-output-completion.test.ts.instrumented",
+        "sha256": "13f4c5b8890b439ac1a7dd715894e909ca3b0517412cd910c20bd808ee89377d",
+        "bytes": 9177
+      },
+      {
+        "name": "cli-output-completion.test.ts.original",
+        "sha256": "020eed0ae7b435fca7803b46a80e94f9100ea686bfcb8b1f377fa312ce96de6a",
+        "bytes": 7646
+      },
+      {
+        "name": "embedded-integrity.json",
+        "sha256": "b6dc8ccab8ec44bdaa61bfc4beb766ef3a803d5c433348d512aae7842f1cdf51",
+        "bytes": 595
+      },
+      {
+        "name": "integrity.json",
+        "sha256": "3d7a67bfa3abde0463513d608e866c6233f78cada326af78c5c763a52a0c9e5d",
+        "bytes": 547
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "4c304c4e4343c0623a8f27553284c7c10c7d174654f906bd2e1c91f2f7900a02",
+        "bytes": 1952
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "e2fe8599ab6a8bcebb3318d71c03df0a4488fe341ca1ce30c48667ca372df915",
+        "bytes": 679
+      },
+      {
+        "name": "rtk.test.ts.instrumented",
+        "sha256": "d44e4984d002c7938f4f1a8a6d7b54472cfdd0a9a16d76dc69e6a57e42057e27",
+        "bytes": 5036
+      },
+      {
+        "name": "rtk.test.ts.original",
+        "sha256": "13d527e15d69cf26a1f1a782f97a1189ca25c5dadc555c1f594b4d19070b6a35",
+        "bytes": 4611
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.instrumented",
+        "sha256": "56ae26aa510190c1d6b64e8c4dbbc48f9de785afa71364cbfb79acb278509ed3",
+        "bytes": 6374
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.log",
+        "sha256": "e56b34632897edbce404533a84e1097f87ef6e2bda299c92e960fda059ec79d6",
+        "bytes": 1154
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.original",
+        "sha256": "1c836518f65d2475ee74717792a1cfd28ae7b33a5c1fd4d25835b0c9017fa009",
+        "bytes": 4844
+      },
+      {
+        "name": "turn-surface-stdout.test.ts.time",
+        "sha256": "1ae812fbaf605088c1eaee9f71b89b2f3d5de23159e478a1f26dddeb95db010b",
+        "bytes": 931
+      }
+    ],
+    "rawLoadBoundary": [
+      {
+        "name": "ast-proof.json",
+        "sha256": "ed7a9eeb5ea50c9d942bfcc1dc6b8250f6a25fb71a658211c33595c28508cb06",
+        "bytes": 251
+      },
+      {
+        "name": "baseline.log",
+        "sha256": "4be440219d1aed391b224971f9be1c699c5d49efd7824e5100e409aae5ee3af8",
+        "bytes": 666
+      },
+      {
+        "name": "baseline.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "baseline.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "baseline.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "baseline.time",
+        "sha256": "e612b8ff1ace1e0aac99d3cc49a360c4115bee2fcd7f324ba219d295aaf710ba",
+        "bytes": 872
+      },
+      {
+        "name": "files.ts.mutation",
+        "sha256": "1019dea95a122ac9bf44de1a072a269f4df9e865c9e46d195362b0a0c16e3f1e",
+        "bytes": 11217
+      },
+      {
+        "name": "files.ts.original",
+        "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+        "bytes": 11189
+      },
+      {
+        "name": "html-preview-runtime.test.ts.candidate",
+        "sha256": "1c2294f4951f01f3f085f1f724d5d14329232966bcc7818869cac1d11ffedff8",
+        "bytes": 24278
+      },
+      {
+        "name": "html-preview-runtime.test.ts.original",
+        "sha256": "98babb2fa1fee82e3f29be329b19b4b75fa3841d9094bf8ddd5a018d9c4880e1",
+        "bytes": 24268
+      },
+      {
+        "name": "mutation.log",
+        "sha256": "0e942cec2d03a6b80271256d0ee2ef42fd658467677ff1a22b8d8070e16f7f29",
+        "bytes": 1446
+      },
+      {
+        "name": "mutation.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "mutation.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "mutation.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "mutation.time",
+        "sha256": "e54204dd1dabf47701d1735704fdef259a9c26e48d8dc4084839385bae812b56",
+        "bytes": 910
+      },
+      {
+        "name": "originals.json",
+        "sha256": "4296c65289811404f5745e7b3450891bcf86ea63c02af59095f5db44f73d0a3f",
+        "bytes": 425
+      },
+      {
+        "name": "report.json",
+        "sha256": "8ed7982d85d5c5ecd7fa668dcb26ba9a710d5de6eb3ffe8addb609d54b747105",
+        "bytes": 4712
+      },
+      {
+        "name": "restored-candidate.log",
+        "sha256": "1195f6829bc12bcfeccda22b0d71786cdd8f1977914e8950a0a23ef05e97077a",
+        "bytes": 647
+      },
+      {
+        "name": "restored-candidate.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "restored-candidate.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "restored-candidate.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "restored-candidate.time",
+        "sha256": "3679fccb037f00f35e7b5975b185812bc66f7694ad7a50e5a2acd3af688d1b8e",
+        "bytes": 871
+      },
+      {
+        "name": "verify-ast.ts",
+        "sha256": "f55e17a949ce5452f394fc4463a9a93e95d1f40476cf3339f3e2c74294d8d35c",
+        "bytes": 1562
+      }
+    ],
+    "canvasWork": [
+      {
+        "name": "canvas-encoding-load.ts.original",
+        "sha256": "aff4e4b6de52a40464b7a88d732df285523b14172aad2e3276ffe27ac500acfc",
+        "bytes": 2127
+      },
+      {
+        "name": "command.json",
+        "sha256": "76a588e5f931ca9665f5aa093b3cd8d6dbd24410b564e0da07255e94bb41eec0",
+        "bytes": 1174
+      },
+      {
+        "name": "image-identity.json",
+        "sha256": "b2430a9c8784340649092bf80c5fbb97c326f8a81a73a03c1bad494e00005f12",
+        "bytes": 217
+      },
+      {
+        "name": "report.json",
+        "sha256": "47f1640dc9d5bbe2f2e61df828d3c43475aac3e0c695731c6ef1bc530f3a2852",
+        "bytes": 2221
+      },
+      {
+        "name": "restoration.json",
+        "sha256": "04339537dd56ae3fcbae98603af9c58515746f177cfcc4798a5f74680af7cb63",
+        "bytes": 318
+      },
+      {
+        "name": "run.log",
+        "sha256": "3d42769a59cbfee10a275eed4e39dd044fd08f6103605d9e4392f36e74d85f08",
+        "bytes": 16738
+      },
+      {
+        "name": "run.time",
+        "sha256": "4022b9b85453ff95ef36fa442fd6fc1fa7a92df39b0a2cbd3b8bf14c81e97cfa",
+        "bytes": 1060
+      },
+      {
+        "name": "run.vitest.json",
+        "sha256": "e5199fe0fc7247dfa3ef6477169a1e54e3f9161140076707487769f5b4b0687f",
+        "bytes": 2564
+      },
+      {
+        "name": "track-intake.visual.tsx.instrumented",
+        "sha256": "9ec3316c87f6293a9cd8110135125c5129057819b8d8e729038427b6e6e01a1e",
+        "bytes": 17862
+      },
+      {
+        "name": "track-intake.visual.tsx.original",
+        "sha256": "db0f1ea24263cf8e3b33f33a12ad9758bd241abd9e41adb31ed70717dd62029a",
+        "bytes": 17784
+      }
+    ]
+  },
+  "interpretation": [
+    "Failure deadlines cleared before firing have actual lifecycle evidence, not their literal duration as cost.",
+    "Four race promises remain pending at afterAll; no completion by that snapshot is not a zero-cost or process-exit claim.",
+    "Condition poll counts describe only the selected gate interleaving, not a minimum required count or duration.",
+    "Native absence windows still require source-specific failure sensitivity, minimum justified duration and chosen margin; these counters alone establish none.",
+    "Tier policy does not remove independent attribution or equivalence requirements."
+  ],
+  "rawLoadBoundaryExperiment": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "scope": "Source-bound raw HTML load-boundary equivalence experiment, not a delivered optimization or whole-file qualification. Test and production sources restored byte-identical. No inference for 1500 ms native escape windows or 500 ms continuity windows.",
+    "nativeBoundary": "REPORT mutates #ran synchronously before its first await. Explicit native goto waitUntil load replaces the existing implicit load plus 500 ms wait in the candidate only. Installed playwright-core types document load as the goto default. Real Chromium and the actual served app remain.",
+    "mutation": "Only actual raw-route Content-Security-Policy gains script-src unsafe-inline; unchanged original marker matcher fails Expected Script did not run / Received Script ran in the tab. Production CSP restored before passing candidate control.",
+    "guards": "Bun 1.4.2, Google Chrome 140.0.7339.127, original wrapper/preload, explicit ordinary-UID loopback-only namespace with no routes and dropped capabilities, shared benchmark lock and mandatory fixture build for every command.",
+    "comparisonLimit": "One baseline and one passing candidate sample on the same frozen source/environment, with uncontrolled shared-host load. The body and command differences include setup/variance and are not all the 500 ms removal. The actual removed wait was 500.940394 ms. No full hosted candidate proof or shipped savings.",
+    "restoredSources": [
+      {
+        "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "sha256": "98babb2fa1fee82e3f29be329b19b4b75fa3841d9094bf8ddd5a018d9c4880e1"
+      },
+      {
+        "file": "packages/ui-server/src/routes/files.ts",
+        "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+      }
+    ],
+    "ast": {
+      "originalAwaits": 85,
+      "candidateAwaits": 84,
+      "unchangedMatchers": 37,
+      "unchangedTestNameExpressions": 9,
+      "allowedChanges": [
+        "remove raw500ms await",
+        "explicit existing goto load boundary"
+      ],
+      "otherAwaitsByteIdentical": true
+    },
+    "records": [
+      {
+        "stage": "baseline",
+        "testFile": "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "selection": "the non-interactive raw route still runs no script",
+        "passed": 1,
+        "failed": 0,
+        "expects": 1,
+        "filtered": 11,
+        "bodyMs": 1340.94,
+        "bunWallSeconds": 54.24,
+        "resources": {
+          "userSeconds": 90.42,
+          "systemSeconds": 8.18,
+          "maximumRssKiB": 1240320.0,
+          "exitCode": 0.0,
+          "wallSeconds": 54.34
+        },
+        "measure": {
+          "calls": 0,
+          "elapsedMs": 0,
+          "rawCalls": 1,
+          "rawMs": 500.94039400000474,
+          "pollCalls": 0,
+          "pollMs": 0
+        },
+        "logSha256": "4be440219d1aed391b224971f9be1c699c5d49efd7824e5100e409aae5ee3af8",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "--test-name-pattern",
+          "the non-interactive raw route still runs no script"
+        ],
+        "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the non-interactive raw route still runs no script'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        }
+      },
+      {
+        "stage": "mutation",
+        "testFile": "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "selection": "the non-interactive raw route still runs no script",
+        "passed": 0,
+        "failed": 1,
+        "expects": 1,
+        "filtered": 11,
+        "bodyMs": 649.14,
+        "bunWallSeconds": 51.48,
+        "resources": {
+          "userSeconds": 86.48,
+          "systemSeconds": 7.3,
+          "maximumRssKiB": 1246352.0,
+          "exitCode": 1.0,
+          "wallSeconds": 51.57
+        },
+        "measure": {
+          "calls": 0,
+          "elapsedMs": 0,
+          "rawCalls": 0,
+          "rawMs": 0,
+          "pollCalls": 0,
+          "pollMs": 0
+        },
+        "logSha256": "0e942cec2d03a6b80271256d0ee2ef42fd658467677ff1a22b8d8070e16f7f29",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "--test-name-pattern",
+          "the non-interactive raw route still runs no script"
+        ],
+        "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the non-interactive raw route still runs no script'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        }
+      },
+      {
+        "stage": "restored-candidate",
+        "testFile": "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "selection": "the non-interactive raw route still runs no script",
+        "passed": 1,
+        "failed": 0,
+        "expects": 1,
+        "filtered": 11,
+        "bodyMs": 571.14,
+        "bunWallSeconds": 51.13,
+        "resources": {
+          "userSeconds": 85.01,
+          "systemSeconds": 7.77,
+          "maximumRssKiB": 1241916.0,
+          "exitCode": 0.0,
+          "wallSeconds": 51.21
+        },
+        "measure": {
+          "calls": 0,
+          "elapsedMs": 0,
+          "rawCalls": 0,
+          "rawMs": 0,
+          "pollCalls": 0,
+          "pollMs": 0
+        },
+        "logSha256": "1195f6829bc12bcfeccda22b0d71786cdd8f1977914e8950a0a23ef05e97077a",
+        "commandArgs": [
+          "bun",
+          "run",
+          "test",
+          "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "--test-name-pattern",
+          "the non-interactive raw route still runs no script"
+        ],
+        "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the non-interactive raw route still runs no script'",
+        "namespace": {
+          "interfaces": [
+            "lo"
+          ],
+          "routes": [],
+          "addressSha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "routesSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "uidMapSha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f"
+        },
+        "environment": {
+          "BRAIN_REQUIRE_CHROME": "1"
+        }
+      }
+    ],
+    "totals": {
+      "commands": 3,
+      "passedCases": 2,
+      "expectedMutationFailures": 1,
+      "expects": 3,
+      "wallSeconds": 157.12,
+      "scope": "Separate experiment, excluded from the 14-command attribution total."
+    }
+  },
+  "canvasWorkObservation": {
+    "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "sourceRows": [
+      614,
+      615
+    ],
+    "test": "packages/ui-kit/tests/visual/track-intake.visual.tsx",
+    "helper": "packages/ui-kit/tests/visual/canvas-encoding-load.ts",
+    "selection": "offline mixed picker keeps its preview and complete multipart flow when encoding has no idle time",
+    "project": "visual",
+    "passed": 1,
+    "filtered": 6,
+    "failed": 0,
+    "bodyMs": 979.3999999761581,
+    "resources": {
+      "userSeconds": 5.48,
+      "systemSeconds": 2.08,
+      "maximumRssKiB": 1252484.0,
+      "exitCode": 0.0,
+      "wallSeconds": 5.23
+    },
+    "actualReturnedWork": {
+      "frames": 22,
+      "workMs": 396
+    },
+    "method": "One console.info after the original await canvasEncodingLoad(false). The helper, original returned values, native frame CPU loop, real held pointer, bitmap/toBlob callbacks, poll, cleanup and every matcher remain byte-identical. All source restored.",
+    "limits": "One selected execution, overlapping earlier full-file qualification. frames counts completed CPU-work frames; not an independently observed total callback or registration count. The initial rAF and per-work-frame rearm counts remain source-control-flow inferences, not added native telemetry. workMs is elapsed main-thread work and overlaps body/command time. No numerical minimum/margin or delivered optimization claimed.",
+    "harness": "Pinned mcr.microsoft.com/playwright:v1.63.0-noble with exact local image identity recorded, existing visual project/provider and offline guards, docker --network=none, ordinary UID, locked font cache, original workspace lease and shared benchmark lock. Original NoIdleEncodingForWebTests provider flag retained.",
+    "restoration": {
+      "fileSha256": "db0f1ea24263cf8e3b33f33a12ad9758bd241abd9e41adb31ed70717dd62029a",
+      "helperSha256": "aff4e4b6de52a40464b7a88d732df285523b14172aad2e3276ffe27ac500acfc",
+      "onlyChange": "one console.info after original load await; all original source bytes retained in order; helper untouched",
+      "restored": true
+    },
+    "rawLogSha256": "3d42769a59cbfee10a275eed4e39dd044fd08f6103605d9e4392f36e74d85f08",
+    "vitestJsonSha256": "e5199fe0fc7247dfa3ef6477169a1e54e3f9161140076707487769f5b4b0687f",
+    "sourceFiles": [
+      {
+        "file": "packages/ui-kit/tests/visual/track-intake.visual.tsx",
+        "sha256": "db0f1ea24263cf8e3b33f33a12ad9758bd241abd9e41adb31ed70717dd62029a"
+      },
+      {
+        "file": "packages/ui-kit/tests/visual/canvas-encoding-load.ts",
+        "sha256": "aff4e4b6de52a40464b7a88d732df285523b14172aad2e3276ffe27ac500acfc"
+      }
+    ],
+    "imageIdentity": {
+      "id": "sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+      "repoDigests": [
+        "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27"
+      ]
+    },
+    "vitestSelectionArgs": [
+      "--project=visual",
+      "--browser.fileParallelism=false",
+      "track-intake.visual.tsx",
+      "--testNamePattern",
+      "offline mixed picker keeps its preview and complete multipart flow when encoding has no idle time"
+    ],
+    "commandScope": "Arguments passed through the original pinned browser runner. Exact wrapper argv is checksum-addressed in the raw index; local bind paths are omitted here. Docker network none, ordinary UID, font-cache bind and original provider settings retained.",
+    "totalsScope": "One separate selected work observation, excluded from the 14-command child attribution and three-command raw-load experiment totals."
+  }
+}

@@ -253,6 +253,29 @@ describe("tool-permission routes + settings persistence", () => {
     closeDb();
   });
 
+  test("revoking a Settings grant makes the next real bridge request ask again", async () => {
+    const db = getDb();
+    setAutoAllowedTools(db, ["web_search"]);
+    const { backend, controls } = permissionBackend();
+    setBackendForTests(backend);
+    setToolPermissionsForTests({
+      isAutoAllowed: name => getAutoAllowedTools(db).includes(name),
+      add: name => setAutoAllowedTools(db, [...getAutoAllowedTools(db), name]),
+    });
+    const { host, client } = await startTurn(controls);
+    try {
+      const first = await controls[0]!.request({ toolName: "web_search", input: {}, kind: "tool" }, "before-revoke");
+      expect(first.behavior).toBe("allow");
+      expect(host.coordinator.pendingApprovals.size).toBe(0);
+      const response = await createToolPermissionRoutes({ db }).request("/tool-permissions/web_search", { method: "DELETE" });
+      expect(response.status).toBe(200);
+      let nextDecision: PermissionDecision | null = null;
+      void controls[0]!.request({ toolName: "web_search", input: {}, kind: "tool" }, "after-revoke").then(decision => { nextDecision = decision; });
+      await waitFor(() => nextDecision !== null || client.sent.some(message => message.type === "tool_approval_request"));
+      expect(host.coordinator.pendingApprovals.size, "REVOKED_SETTINGS_GRANT_ASKS_AGAIN").toBe(1);
+    } finally { controls[0]!.finish(); }
+  });
+
   test("settings round-trip dedupes and sorts", () => {
     const db = getDb();
     setAutoAllowedTools(db, ["b_tool", "a_tool", "b_tool", ""]);

@@ -130,3 +130,38 @@ The controls delay first-token dispatch, delay final observation after removal,
 and retain the native outgoing ghost for 800ms to prove the cap still rejects
 a genuinely slow handoff. Both themes retain the story's layout, geometry,
 nonempty token/tail and rendered-opacity assertions; the approved fade stays 600ms.
+
+
+`focus-frames.visual.tsx` captures actual focus paint in dark and paper at
+320px and 1280px. The query's upper arcs, filter top edge, slash-menu first/last
+arcs, grouped Surface rows and locked-model action's sides have pixel assertions
+rather than only computed-style checks. Query Tab/End, filter End, no horizontal
+overflow and unchanged field height keep the geometry repair tied to usable
+controls. The review inventory includes padded Surface, Composer and Other
+fields, Settings tool rows and graph form rows. It writes PNGs under
+`.vitest-attachments/focus-frames/`, included in the hosted browser artifacts.
+
+The recording-tray disclosure's existing native-pointer tests additionally
+capture expanded top corners and all collapsed corners in both themes at 320px
+and 1280px. Space still collapses the tray, and its name, 44px target and visible
+2px focus assertions remain. `focus-pixels.ts` decodes actual Chromium PNGs;
+`focus-browser.ts` captures them at CSS pixel scale without changing focus or
+injecting a replacement focus style.
+
+Native Tab additionally reveals the last no-wrap suggestion with the 4px space
+needed for its outside ring; both the visible bounds and real edge ink are
+asserted. The original keyboard callback and native panning cases remain in
+`nowrap-scroll.visual.tsx`, including labels wider than the viewport.
+
+The destination navigation oracle in `overlay-pointer.ts` compares exact repeated
+navigation crops with the destination visible and hidden. A temporary zero-depth
+navigation transform keeps the fixed, already z-indexed navigation's rendering
+layer stable while destination visibility changes (#1938). The original
+visibility reference and `caret: "initial"` remain in use. Both states must be
+internally coherent, their PNGs must match exactly, and the navigation transform
+is restored before the test continues. The original animation, pointer, theme,
+viewport and safe-area matrix remains enabled. Disabling destination clipping
+must still fail the paint assertion. Four compared PNGs and bounded state are
+retained on failures and at dark-320 Sessions/Files 0ms and 150ms under
+`.vitest-attachments/destination-paint/`. The pinned source control and immutable
+review captures live in [paint-review](paint-review/README.md).

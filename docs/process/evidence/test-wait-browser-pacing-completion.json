@@ -1,0 +1,983 @@
+{
+  "sourceCommit": "ec381c941cb1d891853f782780aa66330e2d2689",
+  "scope": "Replace only pacing case 1300 ms observation/eligibility wait. Preserve real native pacing registration and cancellation, 300 ms page budget, Chrome/HTTP, all original case names and matchers; add seven explicit assertions. Robots completion helper is generalized to correlate the exact matching main-frame target after the earlier successful first load.",
+  "sourceFiles": [
+    {
+      "file": "packages/scrape/src/browser/session.ts",
+      "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+    },
+    {
+      "file": "packages/scrape/tests/browser-politeness.test.ts",
+      "sha256": "bed6073f0a3fe9c0f66727278ff3e83f0dffd3b54067c1da3c77f61ad2a0be6b"
+    },
+    {
+      "file": "packages/scrape/src/politeness/robots.ts",
+      "sha256": "a8b54539813ba9b267fda7b55af9057851c9db6ab82e00135f25a3b6ac03fc64"
+    },
+    {
+      "file": "packages/scrape/src/politeness/policy.ts",
+      "sha256": "3fcc7b54882aa86842273c5efdb5767c673d2d36d4cd0d9b823674ca36b317f0"
+    },
+    {
+      "file": "packages/scrape/src/politeness/abort.ts",
+      "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+    },
+    {
+      "file": "packages/scrape/src/politeness/rate-limit.ts",
+      "sha256": "2e249635a3b2e33e3bb3bf5068df388882fd9d5825a10b3e05355dd4f49b137c"
+    },
+    {
+      "file": "bun.lock",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+    }
+  ],
+  "finalTestSha256": "4fa40e1de3599c3aaa072e0dc631e63e33aff82be9a5053f614ef8211889195f",
+  "method": "Six finite commands in one owned checkout with unchanged dependencies and original production promises, native timer handles and callbacks. Timing inside serialized benchmark lock. Full original and restored files include all 14 cases.",
+  "runtime": {
+    "bun": "1.4.2 (744846f84)",
+    "chrome": "Google Chrome 140.0.7339.127",
+    "puppeteerCore": "25.12.0",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64",
+    "isolation": "Required Chrome flag and original preload plus explicit ordinary-UID user/network namespace with loopback only, no external route, and capabilities dropped before test process. Native launch flags unchanged. No app build required by this file.",
+    "resources": "GNU time inside shared benchmark lock after namespace setup. Shared-host background load uncontrolled; peak RSS is not summed memory. Setup and original 1300 ms span not separately measured."
+  },
+  "completion": {
+    "native": [
+      "Original matching robots policy promise settles.",
+      "Original matching main-frame interception handler settles.",
+      "Same attached connection reports destruction of the exact matching native page target.",
+      "Original production native pacing sleep settles after its actual timer cancellation."
+    ],
+    "escape": "Actual matching forbidden HTTP arrival returns to the original second no-hit assertion before native cancellation checks. No absent event or timeout qualifies as completion.",
+    "timer": "Case-local synchronous setTimeout/clearTimeout forwarding preserves actual native handles, callback this/arguments, and full global descriptors. Only registrations made inside the original production sleep call are counted. The real requested remainder plus preceding clock read minus actual first grant is exactly 1200 ms.",
+    "eligibility": "After original no-hit and explicit native cancellation assertions, only the supplied RateLimiterClock.now offset moves past the actual first grant plus 1200 ms. Global Date, browser timers and production page budget remain native.",
+    "cleanup": "Outstanding owned native handles are cleared only in finally, after assertions. Experimental cleanupClears is separate from observed production clearCalls. Full property descriptors always restore.",
+    "minimum": "No empirical minimum or global browser/network drain is inferred. The original 1300 ms combined a negative window with subsequent eligibility; target destruction alone does not replace eligibility."
+  },
+  "runs": [
+    {
+      "variant": "baseline-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "bed6073f0a3fe9c0f66727278ff3e83f0dffd3b54067c1da3c77f61ad2a0be6b"
+        },
+        {
+          "file": "packages/scrape/src/politeness/abort.ts",
+          "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 14,
+        "fail": 0,
+        "expects": 66
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone initial disallow never reaches the fixture origin",
+          "bodyMs": 182.46
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /same is refused before its target is sent",
+          "bodyMs": 79.94
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /cross is refused before its target is sent",
+          "bodyMs": 26.29
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > subsequent main-frame navigation during a load is refused",
+          "bodyMs": 84.51
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission covers its original origin and never persists",
+          "bodyMs": 1051.93
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission cannot authorize a disallowed cross-origin redirect",
+          "bodyMs": 28.65
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > robots matches the custom user agent actually sent by Chrome",
+          "bodyMs": 28.1
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone Chrome uses the package default identity",
+          "bodyMs": 26.84
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > HTTP and concurrent browser requests share Crawl-delay and cached robots",
+          "bodyMs": 3013.73
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > generic runner shares its supplied HTTP client's policy state",
+          "bodyMs": 1013.56
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > ordinary scripts, images, frames and page API calls are outside coverage",
+          "bodyMs": 194.06
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 847.39
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 1664.57
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > invalid URLs and selector timeouts release capacity for the next load",
+          "bodyMs": 330.94
+        }
+      ],
+      "bodyMs": 8572.97,
+      "bunSeconds": 8.86,
+      "resources": {
+        "userSeconds": 1.22,
+        "systemSeconds": 0.65,
+        "maxRssKiB": 192036.0,
+        "wallSeconds": 8.93
+      },
+      "observations": []
+    },
+    {
+      "variant": "original-guards-disabled",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "b98266edeb3da8c38d804d59d42f5d0898c49d9ea536a58e31713de8566cdc9c"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "bed6073f0a3fe9c0f66727278ff3e83f0dffd3b54067c1da3c77f61ad2a0be6b"
+        },
+        {
+          "file": "packages/scrape/src/politeness/abort.ts",
+          "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 5
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 2858.79
+        }
+      ],
+      "bodyMs": 2858.79,
+      "bunSeconds": 3.12,
+      "resources": {
+        "userSeconds": 0.43,
+        "systemSeconds": 0.21,
+        "maxRssKiB": 186368.0,
+        "wallSeconds": 3.19
+      },
+      "observations": []
+    },
+    {
+      "variant": "omitted-eligibility",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "a34a7adac0a39331a788e05f8068515e287bb74c609f1375c92ffc95a9e31482"
+        },
+        {
+          "file": "packages/scrape/src/politeness/abort.ts",
+          "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 11
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 860.21
+        }
+      ],
+      "bodyMs": 860.21,
+      "bunSeconds": 1.134,
+      "resources": {
+        "userSeconds": 0.42,
+        "systemSeconds": 0.25,
+        "maxRssKiB": 188156.0,
+        "wallSeconds": 1.2
+      },
+      "observations": [
+        {
+          "kind": "PACING_BOUNDARY",
+          "observation": {
+            "elapsedMs": 0.047760999999923115,
+            "offset": 0,
+            "firstGrant": 1792025735536,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1098,
+                "grantMs": 1792025735536,
+                "clockReadMs": 1792025735638,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1098
+              }
+            ]
+          }
+        },
+        {
+          "kind": "PACING_ELIGIBILITY",
+          "observation": {
+            "offset": 0,
+            "firstGrant": 1792025735536,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1098,
+                "grantMs": 1792025735536,
+                "clockReadMs": 1792025735638,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1098
+              }
+            ]
+          }
+        },
+        {
+          "kind": "PACING_CLEANUP",
+          "observation": {
+            "offset": 0,
+            "firstGrant": 1792025735536,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1098,
+                "grantMs": 1792025735536,
+                "clockReadMs": 1792025735638,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1098
+              },
+              {
+                "requestedMs": 789,
+                "grantMs": 1792025735536,
+                "clockReadMs": 1792025735947,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 789
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "variant": "removed-native-clear",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "6fff9c255f7dcd2ef33b7e0541cbc18e2122cb283d0f623ad7f8eed7d946c02d"
+        },
+        {
+          "file": "packages/scrape/src/politeness/abort.ts",
+          "sha256": "83e524a9f41717a054b5e1c768a631abff60a98eccdc51bd30d3eb5a9d118a0c"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 9
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 580.88
+        }
+      ],
+      "bodyMs": 580.88,
+      "bunSeconds": 0.841,
+      "resources": {
+        "userSeconds": 0.36,
+        "systemSeconds": 0.19,
+        "maxRssKiB": 186848.0,
+        "wallSeconds": 0.91
+      },
+      "observations": [
+        {
+          "kind": "PACING_BOUNDARY",
+          "observation": {
+            "elapsedMs": 0.04286899999999605,
+            "offset": 0,
+            "firstGrant": 1792025736933,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1089,
+                "grantMs": 1792025736933,
+                "clockReadMs": 1792025737044,
+                "active": true,
+                "clearCalls": 0,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1089
+              }
+            ]
+          }
+        },
+        {
+          "kind": "PACING_CLEANUP",
+          "observation": {
+            "offset": 0,
+            "firstGrant": 1792025736933,
+            "cleanupClears": 1,
+            "waits": [
+              {
+                "requestedMs": 1089,
+                "grantMs": 1792025736933,
+                "clockReadMs": 1792025737044,
+                "active": false,
+                "clearCalls": 0,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1089
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "variant": "candidate-guards-disabled",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*a timed-out pacing wait sends no late request and releases page capacity$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "b98266edeb3da8c38d804d59d42f5d0898c49d9ea536a58e31713de8566cdc9c"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "6fff9c255f7dcd2ef33b7e0541cbc18e2122cb283d0f623ad7f8eed7d946c02d"
+        },
+        {
+          "file": "packages/scrape/src/politeness/abort.ts",
+          "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 6
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 2401.85
+        }
+      ],
+      "bodyMs": 2401.85,
+      "bunSeconds": 2.68,
+      "resources": {
+        "userSeconds": 0.41,
+        "systemSeconds": 0.26,
+        "maxRssKiB": 187956.0,
+        "wallSeconds": 2.75
+      },
+      "observations": [
+        {
+          "kind": "PACING_BOUNDARY",
+          "observation": {
+            "elapsedMs": 807.8537719999999,
+            "offset": 0,
+            "firstGrant": 1792025737972,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1091,
+                "grantMs": 1792025737972,
+                "clockReadMs": 1792025738081,
+                "active": false,
+                "clearCalls": 0,
+                "callbackCalls": 1,
+                "outcome": "fulfilled",
+                "registeredMs": 1091
+              }
+            ]
+          }
+        },
+        {
+          "kind": "PACING_CLEANUP",
+          "observation": {
+            "offset": 0,
+            "firstGrant": 1792025737972,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1091,
+                "grantMs": 1792025737972,
+                "clockReadMs": 1792025738081,
+                "active": false,
+                "clearCalls": 0,
+                "callbackCalls": 1,
+                "outcome": "fulfilled",
+                "registeredMs": 1091
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "variant": "restored-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "6fff9c255f7dcd2ef33b7e0541cbc18e2122cb283d0f623ad7f8eed7d946c02d"
+        },
+        {
+          "file": "packages/scrape/src/politeness/abort.ts",
+          "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 14,
+        "fail": 0,
+        "expects": 73
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone initial disallow never reaches the fixture origin",
+          "bodyMs": 183.38
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /same is refused before its target is sent",
+          "bodyMs": 58.57
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /cross is refused before its target is sent",
+          "bodyMs": 23.79
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > subsequent main-frame navigation during a load is refused",
+          "bodyMs": 81.17
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission covers its original origin and never persists",
+          "bodyMs": 1062.87
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission cannot authorize a disallowed cross-origin redirect",
+          "bodyMs": 24.8
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > robots matches the custom user agent actually sent by Chrome",
+          "bodyMs": 30.02
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone Chrome uses the package default identity",
+          "bodyMs": 29.17
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > HTTP and concurrent browser requests share Crawl-delay and cached robots",
+          "bodyMs": 3013.78
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > generic runner shares its supplied HTTP client's policy state",
+          "bodyMs": 1014.42
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > ordinary scripts, images, frames and page API calls are outside coverage",
+          "bodyMs": 192.9
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 846.39
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 366.44
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > invalid URLs and selector timeouts release capacity for the next load",
+          "bodyMs": 330.54
+        }
+      ],
+      "bodyMs": 7258.24,
+      "bunSeconds": 7.55,
+      "resources": {
+        "userSeconds": 1.27,
+        "systemSeconds": 0.54,
+        "maxRssKiB": 192472.0,
+        "wallSeconds": 7.63
+      },
+      "observations": [
+        {
+          "kind": "PACING_BOUNDARY",
+          "observation": {
+            "elapsedMs": 0.020529000000351516,
+            "offset": 0,
+            "firstGrant": 1792025747327,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1175,
+                "grantMs": 1792025747327,
+                "clockReadMs": 1792025747352,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1175
+              }
+            ]
+          }
+        },
+        {
+          "kind": "PACING_ELIGIBILITY",
+          "observation": {
+            "offset": 879,
+            "firstGrant": 1792025747327,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1175,
+                "grantMs": 1792025747327,
+                "clockReadMs": 1792025747352,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1175
+              }
+            ]
+          }
+        },
+        {
+          "kind": "PACING_CLEANUP",
+          "observation": {
+            "offset": 879,
+            "firstGrant": 1792025747327,
+            "cleanupClears": 0,
+            "waits": [
+              {
+                "requestedMs": 1175,
+                "grantMs": 1792025747327,
+                "clockReadMs": 1792025747352,
+                "active": false,
+                "clearCalls": 1,
+                "callbackCalls": 0,
+                "outcome": "rejected",
+                "registeredMs": 1175
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "baseline": {
+      "userSeconds": 1.22,
+      "systemSeconds": 0.65,
+      "maxRssKiB": 192036.0,
+      "wallSeconds": 8.93
+    },
+    "restored": {
+      "userSeconds": 1.27,
+      "systemSeconds": 0.54,
+      "maxRssKiB": 192472.0,
+      "wallSeconds": 7.63
+    },
+    "bodyMs": [
+      8572.97,
+      7258.24
+    ],
+    "pacingBodyMs": [
+      1664.57,
+      366.44
+    ],
+    "commandSecondsAllSix": 24.61,
+    "limits": "Single matched pair; body and whole-command differences include uncontrolled host variation. Setup and baseline wait were not separately measured; logical eligibility offset is not elapsed savings."
+  },
+  "controls": {
+    "originalCompoundFault": "Remove actual policy signal forwarding, post-policy abort guard and finally page.close. Original second no-hit fails on actual /late-paced request; independent afterEach also finds three pages instead of one.",
+    "omittedEligibility": "Original /next load fails on real production 300 ms page budget, with zero eligibility offset; not the runner watchdog.",
+    "removedClear": "Actual production clearTimeout removed. Original no-hit passes, then explicit native clearCalls expects 1 and receives 0. Finally cleanup clears the still-active original native handle once.",
+    "candidateCompoundFault": "Same production fault makes actual native timer fire and produces the original second no-hit failure, plus the separate leaked-target failure.",
+    "restored": "All 14 cases pass with 73 expectations. Observed pacing timer registers 1175 ms, is cleared once, never fires, and its original promise rejects. The native clock read is 25 ms after the first grant, preserving 1200 ms eligibility."
+  },
+  "finalSource": {
+    "observedTestSha256": "6fff9c255f7dcd2ef33b7e0541cbc18e2122cb283d0f623ad7f8eed7d946c02d",
+    "candidateBeforeDiagnosticCleanupSha256": "8827ba42852099023ca189efd6109a15694ebf31de0fefe3c02f4e4881e0ff66",
+    "finalTestSha256": "4fa40e1de3599c3aaa072e0dc631e63e33aff82be9a5053f614ef8211889195f",
+    "removedDiagnostics": "Synchronous console output and boundary timing were experimental only. Final source additionally removes unused snapshot(), cleanupClears declaration/increment; actual cleanup and all seven assertions remain.",
+    "ast": {
+      "originalMatcherExpressions": 45,
+      "finalMatcherExpressions": 52,
+      "originalNames": 13,
+      "finalNames": 13,
+      "originalAwaits": 31,
+      "finalAwaits": 31,
+      "missingOriginalMatchers": 0,
+      "missingOriginalNames": 0
+    }
+  },
+  "rawReceiptIndexes": {
+    "stage1": [
+      {
+        "name": "original-guards-disabled.log",
+        "sha256": "4578d0f80327bcc0ea851da20145147e96428e4642b97583415f7249db69a8d3",
+        "bytes": 1968
+      },
+      {
+        "name": "baseline-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "original-guards-disabled.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "baseline-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "baseline-full.time",
+        "sha256": "1adf0fc2622a1f0977430202022185f47cc898812809fe30d041b82158c57166",
+        "bytes": 789
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "34f538dd1ee4134cf58799bdd8b8e505336e36dcc19ba3fbcabef89b8f5d0920",
+        "bytes": 3214
+      },
+      {
+        "name": "baseline-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "original-guards-disabled.time",
+        "sha256": "c6a4a86c6acb18a48c795fc0192ccaab844c69eca0e6cb31cc8a76bad46ccad9",
+        "bytes": 950
+      },
+      {
+        "name": "mutation.patch",
+        "sha256": "99c76fa575827db47de28732a2ddfa16620812663692abcee705bc04ded9eb27",
+        "bytes": 1224
+      },
+      {
+        "name": "baseline-full.log",
+        "sha256": "4a2cdcdb0435a822a543616fcf409c34895be5aea70deb5288eb6cc3ea0ab45b",
+        "bytes": 2320
+      },
+      {
+        "name": "original-guards-disabled.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "mutant-session.ts",
+        "sha256": "b98266edeb3da8c38d804d59d42f5d0898c49d9ea536a58e31713de8566cdc9c",
+        "bytes": 12226
+      },
+      {
+        "name": "original-session.ts",
+        "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec",
+        "bytes": 12128
+      },
+      {
+        "name": "report.json",
+        "sha256": "55bbc61ace35e9a92b201bd127e809cbce88cbae86320df8a4ced50f83a233b5",
+        "bytes": 10188
+      },
+      {
+        "name": "original-guards-disabled.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "original-browser-politeness.test.ts",
+        "sha256": "bed6073f0a3fe9c0f66727278ff3e83f0dffd3b54067c1da3c77f61ad2a0be6b",
+        "bytes": 15652
+      },
+      {
+        "name": "1855-politeness-pacing-stage1.py",
+        "sha256": "8b7172055c857f612782c9d7f94c7212ee5aa901c1f64b5e4b901dd1e1f406d6",
+        "bytes": 3587
+      }
+    ],
+    "stage2": [
+      {
+        "name": "candidate-browser-politeness.test.ts",
+        "sha256": "8827ba42852099023ca189efd6109a15694ebf31de0fefe3c02f4e4881e0ff66",
+        "bytes": 20937
+      },
+      {
+        "name": "candidate-guards-disabled.log",
+        "sha256": "ce7af9c191b5b5311bd0b2d58ec58f1e64c230e62832fd7d989fdea7fd9986f4",
+        "bytes": 2532
+      },
+      {
+        "name": "candidate-guards-disabled.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "candidate-guards-disabled.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "candidate-guards-disabled.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "candidate-guards-disabled.time",
+        "sha256": "e04ec22a4295ea272c022f9e9b82827adb3a93e8fe43b7d05d1473ffb5665fc7",
+        "bytes": 950
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "3f05679c815cee927c8e2e3e25cffa153aa057103f2cfe7786e4b2f9572d9ac5",
+        "bytes": 5490
+      },
+      {
+        "name": "observed-browser-politeness.test.ts",
+        "sha256": "6fff9c255f7dcd2ef33b7e0541cbc18e2122cb283d0f623ad7f8eed7d946c02d",
+        "bytes": 21271
+      },
+      {
+        "name": "omitted-eligibility-browser-politeness.test.ts",
+        "sha256": "a34a7adac0a39331a788e05f8068515e287bb74c609f1375c92ffc95a9e31482",
+        "bytes": 21298
+      },
+      {
+        "name": "omitted-eligibility.log",
+        "sha256": "0896ac26121381f3f1075c3e502331ec5875f4a0695c124eae1e430d6b58ab90",
+        "bytes": 2185
+      },
+      {
+        "name": "omitted-eligibility.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "omitted-eligibility.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "omitted-eligibility.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "omitted-eligibility.time",
+        "sha256": "e90b0916b4555e029d6204fc23c192b8b98834307bb7c75715abf6d76e2c9bcc",
+        "bytes": 950
+      },
+      {
+        "name": "original-abort.ts",
+        "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed",
+        "bytes": 1019
+      },
+      {
+        "name": "removed-clear-abort.ts",
+        "sha256": "83e524a9f41717a054b5e1c768a631abff60a98eccdc51bd30d3eb5a9d118a0c",
+        "bytes": 1052
+      },
+      {
+        "name": "removed-native-clear.log",
+        "sha256": "85f71f553d3f9354d95075146d69bbb68946106c85dd20d631e8994d7f752fa6",
+        "bytes": 1841
+      },
+      {
+        "name": "removed-native-clear.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "removed-native-clear.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "removed-native-clear.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "removed-native-clear.time",
+        "sha256": "fe605a9a42d9f1b9727a356c06ee0f67780467975af7f9ca98768e740b9f48d5",
+        "bytes": 950
+      },
+      {
+        "name": "restored-full.log",
+        "sha256": "524bdfd455bed0b234b2fae1055143a998103cba09a24bda6d796af9233c9c8d",
+        "bytes": 3096
+      },
+      {
+        "name": "restored-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "restored-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "restored-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "restored-full.time",
+        "sha256": "2d5fc9152fad6f5ade97e491a1586c3e890316ab236a8290d0bf793542dfa70a",
+        "bytes": 789
+      }
+    ]
+  }
+}

@@ -60,6 +60,7 @@ type Snapshot = Record<Adapter, Record<SnapshotName, SnapshotEntry>>;
 const VALID_INPUTS: Record<ToolName, unknown> = {
   inbox_list: { view: "queue" }, inbox_get: { itemId: "harbor" }, inbox_add: { text: "Odysseus", idempotencyKey: "harbor" },
   resolve_action: { sessionId: "harbor", itemId: "harbor", optionId: "approve", expectedVersion: 1 },
+  complete_share: { receiptIds: ["harbor-receipt"], files: [] },
   ask_user: {
     questions: [
       {
@@ -141,7 +142,7 @@ function makeAdapters(root: string) {
     }),
     requestMask: async () => new Uint8Array([1, 2, 3]),
     queryActivity: async () => ({ running: [] }),
-    inboxList: async () => ({ items: [], threads: [] }), inboxGet: async () => ({}), inboxAdd: async () => ({}), resolveAction: async () => ({}),
+    inboxList: async () => ({ items: [], threads: [] }), inboxGet: async () => ({}), inboxAdd: async () => ({}), resolveAction: async () => ({}), completeShare: async () => ({ itemId: "harbor", status: "done", replay: false }),
   };
   const noGeocode = {
     enabled: false,
@@ -328,7 +329,7 @@ describe("bridge tool adapter identity", () => {
     }
   });
 
-  test("Claude preserves migration receipts except the additive roadblocks definition", async () => {
+  test("Claude preserves migration receipts except the additive roadblocks/remedy definition", async () => {
     const before = readSnapshot("before");
     const after = readSnapshot("after");
     for (const name of SNAPSHOT_NAMES) {
@@ -477,6 +478,7 @@ describe("bridge tool adapter validation", () => {
     inbox_list: [{ view: "all" }, { view: "queue", limit: 0 }], inbox_get: [{ itemId: "" }],
     inbox_add: [{ text: "Odysseus", idempotencyKey: "k", origin: "trusted" }],
     resolve_action: [{ sessionId: "harbor", itemId: "harbor", optionId: "approve" }],
+    complete_share: [{ receiptIds: [], files: [] }, { receiptIds: ["harbor-receipt"], files: [], itemId: "unrelated" }],
     ask_user: [
       {
         questions: [
@@ -781,7 +783,7 @@ describe("bridge tool loading posture", () => {
     return (await client.listTools()).tools;
   }
 
-  /** Every handler supplied, so the full thirteen-tool roster is registered. */
+  /** Every handler supplied, so the full bridge-tool roster is registered. */
   function fullServer() {
     const unreachable = () => Promise.reject(new Error("not called in this test"));
     return claudeAsk.createBrainUiMcpServer({
@@ -792,7 +794,7 @@ describe("bridge tool loading posture", () => {
       getLocation: unreachable as never,
       requestMask: unreachable as never,
       queryActivity: unreachable as never,
-      inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never },
+      inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never, completeShare: unreachable as never },
       turnTemp: claudeTurnTemp.createTurnTempTool(turnTemp("/nonexistent")),
       brainPath: "/nonexistent",
     });

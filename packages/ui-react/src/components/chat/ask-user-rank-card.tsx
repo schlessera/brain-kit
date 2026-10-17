@@ -17,6 +17,7 @@ export function AskUserRankExchangeCard(p: {
   order?: string[];
   unchanged?: boolean;
   cancelled?: boolean;
+  lapsedNote?: string;
   answeredAt?: number;
   onSubmit?: (requestId: string, order: string[], unchanged: boolean) => void;
   onCancel: (requestId: string) => void;
@@ -28,7 +29,7 @@ export function AskUserRankExchangeCard(p: {
   const base = { id: `askrank-${p.requestId}`, question: p.rank.prompt, items: p.rank.items, cutoff: p.rank.cutoff };
   if (p.order) return <AskUserRankCard {...base} state="answered" recordHead={p.record?.head} recordIcon={p.record?.icon} order={p.order} unchanged={p.unchanged}
     answerMeta={`you ${p.unchanged ? "kept this order" : `ranked ${p.rank.cutoff ?? p.order.length}`}${p.answeredAt === undefined ? "" : ` · ${formatRelativeTime(p.answeredAt)}`}`} />;
-  if (p.cancelled && !reopened) return <AskUserRankCard {...base} state="dismissed" lapsedNote={DISMISSED_NOTE} onAskAgain={p.onReask ? () => setReopened(true) : undefined} />;
+  if (p.cancelled && !reopened) return <AskUserRankCard {...base} state="dismissed" lapsedNote={p.lapsedNote ?? DISMISSED_NOTE} onAskAgain={p.onReask ? () => setReopened(true) : undefined} />;
   return <AskUserRankCard {...base} key={reopened ? "reopened" : "live"} singleKeys={singleKeys} prompt={`${root.config.assistantName} needs your input`}
     onSubmit={({ order, unchanged }) => {
       if (reopened) {

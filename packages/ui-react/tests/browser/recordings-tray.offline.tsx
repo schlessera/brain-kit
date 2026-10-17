@@ -1,4 +1,5 @@
 /// <reference types="@vitest/browser-playwright" />
+import { pixels, cornerInk } from "../../../ui-kit/tests/visual/focus-pixels.js";
 import { beforeAll, afterAll, expect, test, vi, type TestContext } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";
 import { StrictMode } from "react";
@@ -1060,11 +1061,11 @@ for (const phase of ["transcript input", "recording read"])
   });
 
 
-for (const theme of ["dark", "light"]) test(`batch5 recordings disclosure target and focus ${theme}`, async ctx => {
+for (const theme of ["dark", "light"]) for (const width of [320, 1280]) test(`batch5 recordings disclosure target and focus ${theme} ${width}`, async ctx => {
   const viewport = { width: innerWidth, height: innerHeight };
   const previousTheme = document.documentElement.dataset.theme;
-  const outer = await commands.formViewport(320, 800);
-  await page.viewport(320, 800); document.documentElement.dataset.theme = theme;
+  const outer = await commands.formViewport(width, 800);
+  await page.viewport(width, 800); document.documentElement.dataset.theme = theme;
   ctx.onTestFinished(async () => {
     if (previousTheme === undefined) delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = previousTheme;
@@ -1081,6 +1082,13 @@ for (const theme of ["dark", "light"]) test(`batch5 recordings disclosure target
     header.contains(document.elementFromPoint(rect.left + 2, rect.top + rect.height / 2)),
     css.outlineStyle === "solid", css.outlineWidth === "2px"],
   "recordings disclosure has a name, 44px reach and visible row focus").toEqual([true, true, true, true, true]);
+  const expanded = await pixels(await commands.focusCapture("[data-recordings-tray]", `${theme}-${width}-tray-expanded`));
+  expect.soft(cornerInk(expanded, theme, false, false, 12), "TRAY_TOP_LEFT_CONTINUOUS_INK").toBeGreaterThan(3);
+  expect.soft(cornerInk(expanded, theme, true, false, 12), "TRAY_TOP_RIGHT_CONTINUOUS_INK").toBeGreaterThan(3);
   await userEvent.keyboard(" ");
+  const collapsed = await pixels(await commands.focusCapture("[data-recordings-tray]", `${theme}-${width}-tray-collapsed`));
+  for (const right of [false, true]) for (const bottom of [false, true]) {
+    expect.soft(cornerInk(collapsed, theme, right, bottom, 12), "TRAY_COLLAPSED_CONTINUOUS_INK").toBeGreaterThan(3);
+  }
   expect(header.getAttribute("aria-expanded"), "recordings disclosure Space collapses the tray").toBe("false");
 });

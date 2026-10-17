@@ -24,7 +24,11 @@ for (const mode of ["subscriber", "queued"]) test(`worker snapshot overflow send
     const stdout = readFileSync(output, "utf8"), stderr = readFileSync(diagnostic, "utf8");
     expect(code).toBe(0);
     expect(stderr).toBe("");
-    const frames = stdout.trim().split("\n").map(line => JSON.parse(line));
+    const received = stdout.trim().split("\n").map(line => JSON.parse(line));
+    expect(received.filter(frame => frame.type === "startup_timing").map(frame => frame.phase))
+      // The snapshot fixture substitutes the session runtime, so no resources load.
+      .toEqual(["worker_started", "session", "initialize"]);
+    const frames = received.filter(frame => frame.type !== "startup_timing");
     expect(frames[0].type).toBe("ready");
     expect(frames.filter(f => ["error", "done", "snapshot"].includes(f.type))).toEqual([
       { type: "error", errorClass: "session_too_large",

@@ -19,8 +19,8 @@ retaining their context and vector when they match
 For a force rebuild, carried-vector reuse hashes the exact formatted input,
 including context, and applies only within the matching provider and
 dimensions
-(`embeddingTextKey`, `packages/core/src/lib/indexer/vectors.ts:57-59`),
-(`carryMarkdownVectors`, `packages/core/src/lib/indexer/vectors.ts:73-97`).
+(`embeddingTextKey`, `packages/core/src/lib/indexer/vectors.ts:59-61`),
+(`carryMarkdownVectors`, `packages/core/src/lib/indexer/vectors.ts:75-99`).
 
 A metadata prefix would make a routine status, tag or date edit change the
 embedding input of every chunk in the document. Reusing those old vectors
@@ -44,12 +44,12 @@ fields, and status, relevance and updated as lifecycle attributes
 These paths can use current metadata without serializing it into every
 chunk's vector input. Stored vector filter columns are also synchronized
 with type and archived status
-(`syncVectorFilters`, `packages/core/src/lib/indexer/vectors.ts:142-159`).
+(`syncVectorFilters`, `packages/core/src/lib/indexer/vectors.ts:145-162`).
 
 The decision does not strip metadata words from prose or context. Uncached
 context falls back to the frontmatter summary for a single-chunk document
 or a run without enrichment, and generated context can also use the summary
-(`generateChunkContexts`, `packages/core/src/lib/indexer/contexts.ts:36-87`).
+(`generateChunkContexts`, `packages/core/src/lib/indexer/contexts.ts:38-93`).
 It does not promise that every metadata edit leaves context or vector
 eligibility unchanged; [type eligibility](embedding-eligibility.md) remains
 a separate policy.

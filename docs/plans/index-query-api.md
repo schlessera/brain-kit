@@ -152,7 +152,7 @@ callback, `.sql`/`.prepare`/`.execute` escape or native handle. It holds neither
 a persistent connection nor a transaction spanning callbacks. Each synchronous
 operation opens/closes its own core-owned read snapshot. Module callbacks may
 return synchronously or asynchronously; core keeps awaiting them and reporting
-failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1062-1075`).
+failed checks (`const found = await check`, `packages/core/src/lib/auditor.ts:1089-1102`).
 A typed query failure must propagate into that lifecycle rather than being
 converted to an empty candidate list or successful hygiene result.
 
@@ -308,7 +308,7 @@ mid-query failure and success. Compatibility/availability does not masquerade
 as a valid empty result. No caller holds a handle, transaction or statement.
 
 The indexer currently opens/writes the existing database; `--force` is not a
-promise of atomic file replacement (`indexAll`, `packages/core/src/lib/indexer/run.ts:155-165`). A read transaction provides one
+promise of atomic file replacement (`indexAll`, `packages/core/src/lib/indexer/run.ts:162-172`). A read transaction provides one
 committed SQLite snapshot, not a promise that every stage of a multi-stage index
 run is a single publication. Compare graph provenance against newest indexed
 data to report stale state. A rename/replacement can happen externally: an

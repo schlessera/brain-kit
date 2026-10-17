@@ -1,5 +1,17 @@
 # @schlessera/brain-backend-pi
 
+## 0.43.1
+
+### Patch Changes
+
+- 2a8e676: Route Pi SDK agent state to each worker's existing bounded private directory before initialization, preserving read-only HOME, copied credentials and session resume.
+
+  Reuse stable prepared global npm resources read-only instead of reinstalling them for each turn. Missing or mismatched configured packages report a setup error while parent settings and credentials remain private.
+
+  - @schlessera/brain@0.43.1
+  - @schlessera/brain-ui-sdk@0.43.1
+  - @schlessera/brain-common@0.43.1
+
 ## 0.43.0
 
 ### Minor Changes

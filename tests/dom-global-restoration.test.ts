@@ -44,7 +44,7 @@ afterAll(() => {
         new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
       ]);
       expect(exitCode, stdout + stderr).toBe(0);
-      expect(stderr).toMatch(/\b59 pass\b/);
+      expect(stderr).toMatch(/\b63 pass\b/);
       const receipts = stdout.split("\n").filter(line => line.startsWith("DOM_DESCRIPTOR_RECEIPT "));
       expect(receipts).toHaveLength(1);
       expect(JSON.parse(receipts[0]!.slice("DOM_DESCRIPTOR_RECEIPT ".length))).toEqual(keys.map(key => ({ key, equal: true })));

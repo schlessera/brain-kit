@@ -40,7 +40,13 @@ function validatePath(path: string): void {
     refuse("policy_denied", "Agent applications cannot change context/policies or its ancestors or aliases.");
   // The privileged route accepts documents, not executable configuration,
   // databases, images, directories, device files or repository metadata.
-  if (!path.endsWith(".md") || parts.some(p => p.startsWith(".")))
+  const hiddenSegment = parts.find(p => p.startsWith("."));
+  if (hiddenSegment) {
+    const scratchHint = parts[0] === ".brain" && parts[1] === "scratch"
+      ? " Use the worker shell for scratch files when that area is writable." : "";
+    refuse("unsupported_kind", `Hidden path segment "${hiddenSegment}" is not supported. Hidden files and directories are not written by this route.${scratchHint}`);
+  }
+  if (!path.endsWith(".md"))
     refuse("unsupported_kind", "Only ordinary UTF-8 Markdown document files are supported by this route.");
 }
 function openDirectory(path: string): Directory {

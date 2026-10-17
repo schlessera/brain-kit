@@ -91,7 +91,8 @@ export function judge(
  * the same range — a feature-plus-release push nets to zero .md files and
  * failed the gate on the 0.17.0 cut. So also walk the commits: a file ever
  * added under .changeset/ counts as contributed, whatever happened to it
- * afterwards.
+ * afterwards. Full history retains merge-side additions even when consumed
+ * before the merge, leaving its changeset tree identical to the base parent.
  */
 export function contributedChangesets(
   runGit: (args: string[]) => string[],
@@ -107,6 +108,7 @@ export function contributedChangesets(
   ]);
   const everAdded = runGit([
     "log",
+    "--full-history",
     "--diff-filter=A",
     "--format=",
     "--name-only",

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { reserveMaintenanceTemp, type MaintenanceTempReservation } from "../src/server/maintenance-temp-budget";
 import { hostMaintenanceTempLimits } from "../src/server/maintenance-temp-limits";
 import { resolveMaintenanceTempLimits } from "../src/server/worker-state-limits";
-import { ledgerLine } from "./maintenance-temp-ledger-protocol";
+import { ledgerChildLine } from "./maintenance-temp-ledger-protocol";
 
 const DEFAULT = 268435456;
 const CHILD = join(import.meta.dir, "maintenance-temp-ledger-child.ts");
@@ -34,14 +34,14 @@ async function spawn(role: string, allowanceBytes = DEFAULT, budgetBytes = DEFAU
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   children.push(child);
-  const receipt = JSON.parse(await ledgerLine(child.stdout)) as Receipt;
+  const receipt = JSON.parse(await ledgerChildLine(child, role)) as Receipt;
   if (receipt.worker?.attached) detached.push({ pid: receipt.worker.pid, start: start(receipt.worker.pid)! });
   return { child, receipt };
 }
 async function attach(reservation: MaintenanceTempReservation) {
   const child = Bun.spawn([process.execPath, CHILD, "attach", JSON.stringify(reservation)], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   children.push(child);
-  return { child, receipt: JSON.parse(await ledgerLine(child.stdout)) as Receipt };
+  return { child, receipt: JSON.parse(await ledgerChildLine(child, "attach")) as Receipt };
 }
 function rows(reservation: MaintenanceTempReservation) {
   const db = new Database(join(reservation.directory, "reservations.db"));
@@ -98,7 +98,7 @@ test("simultaneous admissions from two owned processes atomically admit at most 
   const callers = await Promise.all([spawn("race-reserve"), spawn("race-reserve")]);
   expect(callers.map(caller => caller.receipt.waiting)).toEqual([true, true]);
   await Promise.all(callers.map(async caller => { await caller.child.stdin!.write("go\n"); await caller.child.stdin!.flush(); }));
-  const receipts = await Promise.all(callers.map(async caller => JSON.parse(await ledgerLine(caller.child.stdout)) as Receipt));
+  const receipts = await Promise.all(callers.map(async caller => JSON.parse(await ledgerChildLine(caller.child, "race reserve")) as Receipt));
   expect(receipts.filter(receipt => receipt.admitted), "SIMULTANEOUS_MAINTENANCE_ADMISSION").toHaveLength(1);
   expect(receipts.filter(receipt => receipt.errorClass === "worker_state_busy")).toHaveLength(1);
   for (const caller of callers) caller.child.stdin!.end();

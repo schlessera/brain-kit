@@ -111,6 +111,7 @@ describe("availability + listProfiles", () => {
       { id: "claude", label: "Claude", vendor: "anthropic" },
       {
         id: "gated",
+        model: "odysseus-main",
         label: "Gated",
         vendor: "openrouter",
         authTokenEnv: "OPENROUTER_API_KEY",
@@ -124,7 +125,7 @@ describe("availability + listProfiles", () => {
     process.env.OPENROUTER_API_KEY = "sk";
     expect(listProfiles(profiles)).toEqual([
       { id: "claude", label: "Claude", vendor: "anthropic" },
-      { id: "gated", label: "Gated", vendor: "openrouter" },
+      { id: "gated", label: "Gated", vendor: "openrouter", model: "odysseus-main" },
     ]);
   });
 

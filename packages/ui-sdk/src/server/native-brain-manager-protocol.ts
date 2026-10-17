@@ -1,4 +1,4 @@
-/** Concrete host-only protocol. No request accepts paths, commands or mount authority. */
+/** Concrete host-only protocol. No request accepts host paths, commands, caller-selected UIDs or mount authority. */
 import { z } from "zod";
 
 export const nativeCheckpointId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -9,8 +9,20 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("delta"), from: nativeCheckpointId, to: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listRecovery"), after: nativeCheckpointId.nullable() }).strict(),
   z.object({ operation: z.literal("prepareStage"), id: nativeCheckpointId, checkpointId: nativeCheckpointId, allowanceBytes: z.number().int().positive() }).strict(),
+  z.object({ operation: z.literal("attestStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("inspectStage"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("releaseStage"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("readCheckpoint"), id: nativeCheckpointId,
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    maximum: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({ operation: z.literal("readStage"), id: nativeCheckpointId,
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    maximum: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({ operation: z.literal("cancelCheckpointRead"), id: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
 export type NativeManagerErrorCode = "unsupported" | "capacity" | "unavailable" | "unknown" | "released" | "invalid";

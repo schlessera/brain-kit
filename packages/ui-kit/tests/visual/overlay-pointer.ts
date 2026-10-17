@@ -32,24 +32,35 @@ export const destinationPaint: BrowserCommand<[string, string, string], { same: 
   if (!/^[a-zA-Z0-9-]+$/.test(label)) throw new Error("Invalid destination paint label");
   const nav = ctx.iframe.locator(navigation);
   const overlay = ctx.iframe.locator(panel);
-  // This crop has no editable field. Playwright's default caret hiding mutates
-  // inputs outside it and alternates an LCD glyph-edge pixel in the tab labels
-  // (#1910), even in consecutive captures with unchanged overlay visibility.
-  // Keep the real opening animations and exact byte comparison intact.
-  const painted = await nav.screenshot({ animations: "allow", caret: "initial" });
-  const paintedAgain = await nav.screenshot({ animations: "allow", caret: "initial" });
-  const visibility = await overlay.evaluate(element => {
+  // Keep this fixed, already z-indexed navigation on a stable rendering layer.
+  // Removing a destination otherwise changes one Files glyph-edge sample at
+  // its paused 150ms transform (#1938). A zero-depth transform changes neither
+  // navigation geometry nor stacking order; clipping mutations still leak.
+  const transform = await nav.evaluate(element => {
     const node = element as HTMLElement;
-    const value = node.style.visibility;
-    node.style.visibility = "hidden";
+    const value = node.style.transform;
+    node.style.transform = "translateZ(0)";
     return value;
   });
+  let visibility: string | undefined;
   try {
+    // This crop has no editable field. Playwright's default caret hiding mutates
+    // inputs outside it and alternates an LCD glyph-edge pixel in the tab labels
+    // (#1910), even in consecutive captures with unchanged overlay visibility.
+    // Keep the real opening animations and exact byte comparison intact.
+    const painted = await nav.screenshot({ animations: "allow", caret: "initial" });
+    const paintedAgain = await nav.screenshot({ animations: "allow", caret: "initial" });
+    visibility = await overlay.evaluate(element => {
+      const node = element as HTMLElement;
+      const value = node.style.visibility;
+      node.style.visibility = "hidden";
+      return value;
+    });
     const clear = await nav.screenshot({ animations: "allow", caret: "initial" });
     const clearAgain = await nav.screenshot({ animations: "allow", caret: "initial" });
     const same = painted.equals(clear);
     const stable = painted.equals(paintedAgain) && clear.equals(clearAgain);
-    if (!same || !stable || /^dark-320-(Sessions|Files)-0$/.test(label)) {
+    if (!same || !stable || /^dark-320-(Sessions|Files)-(0|150)$/.test(label)) {
       // Collect diagnostics only after the original comparison. Reading layout
       // or writing files between successful captures can change the race.
       const afterComparison = await nav.evaluate((nav, panelSelector) => {
@@ -59,7 +70,7 @@ export const destinationPaint: BrowserCommand<[string, string, string], { same: 
             tag: element.tagName, class: element.className,
             text: element.textContent?.slice(0, 100),
             rect: element.getBoundingClientRect().toJSON(),
-            transform: css.transform, opacity: css.opacity, visibility: css.visibility,
+            transform: css.transform, opacity: css.opacity, visibility: css.visibility, zIndex: css.zIndex, position: css.position,
             color: css.color, background: css.backgroundColor, font: css.font,
             hovered: element.matches(":hover"), focused: element.matches(":focus"),
           };
@@ -83,12 +94,24 @@ export const destinationPaint: BrowserCommand<[string, string, string], { same: 
       await writeFile(resolve(directory, "painted-again.png"), paintedAgain);
       await writeFile(resolve(directory, "clear.png"), clear);
       await writeFile(resolve(directory, "clear-again.png"), clearAgain);
-      await writeFile(resolve(directory, "state.json"), JSON.stringify({ label, same, stable, navigation, panel, paintedBytes: painted.length, clearBytes: clear.length, afterComparison }, null, 2));
+      await writeFile(resolve(directory, "state.json"), JSON.stringify({ label, same, stable, reference: "visibility:hidden; navigation:translateZ(0)", navigation, panel, paintedBytes: painted.length, clearBytes: clear.length, afterComparison }, null, 2));
     }
     return { same, stable };
   } finally {
-    await overlay.evaluate((element, value) => { (element as HTMLElement).style.visibility = value; }, visibility);
+    try {
+      if (visibility !== undefined) await overlay.evaluate((element, value) => { (element as HTMLElement).style.visibility = value; }, visibility);
+    } finally {
+      await nav.evaluate((element, value) => { (element as HTMLElement).style.transform = value; }, transform);
+    }
   }
+};
+
+/** Failure-only state captured in the test task, before the command round trip. */
+export const destinationMotion: BrowserCommand<[string, unknown], void> = async (ctx, label, state) => {
+  if (!/^[a-zA-Z0-9-]+$/.test(label)) throw new Error("Invalid destination motion label");
+  const directory = resolve(".vitest-attachments/destination-motion", ctx.project.name.replace(/[^a-z0-9-]/gi, "-"));
+  await mkdir(directory, { recursive: true });
+  await writeFile(resolve(directory, `${label}.json`), JSON.stringify(state, null, 2));
 };
 
 /** Exercise Chromium's real env() values, rather than replacing CSS geometry. */
@@ -101,6 +124,7 @@ export const destinationSafeArea: BrowserCommand<[number], void> = async (ctx, b
 declare module "vitest/browser" {
   interface BrowserCommands {
     destinationPaint(navigation: string, panel: string, label: string): Promise<{ same: boolean; stable: boolean }>;
+    destinationMotion(label: string, state: unknown): Promise<void>;
     destinationSafeArea(bottom: number): Promise<void>;
   }
 }

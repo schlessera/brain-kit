@@ -34,7 +34,7 @@ function fixture(version = "0.42.0") {
   const native = createNativeAppFixture(root); closeNative.push(native.close);
   config.nativeBrain = native.nativeBrain;
   const nativeManager = createNativeBrainManagerClient(native.nativeBrain);
-  const boundary = (exec: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig = {}) => createHostBoundary({ brainPath: root, exec, nativeManager });
+  const boundary = (exec: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig = {}) => createHostBoundary({ brainPath: root, dbPath: config.dbPath, exec, nativeManager });
   const observability = createRecordingObservability();
   const registry = createStaticBackendRegistry([makeFakeBackend({ id: "fake" })]);
   const invocations = () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").map(line => JSON.parse(line) as string[]) : [];

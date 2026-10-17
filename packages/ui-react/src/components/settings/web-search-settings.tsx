@@ -1,3 +1,4 @@
+import { Callout } from "@schlessera/brain-ui-kit";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WebSearchConfig } from "../../lib/api-client.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -16,9 +17,9 @@ import { WebSearchChain } from "./web-search-chain.js";
  * This is the container (S6): it owns the load, the update round-trip, the
  * per-root lifetime guards and the "saved" flash, and hands everything on
  * screen to `WebSearchChain`. Renders nothing when the server reports pi as
- * not configured, so the Models tab is unchanged for Claude-only deployments.
+ * not configured, so Accounts can show its combined empty state.
  */
-export function WebSearchSection({ active }: { active: boolean }) {
+export function WebSearchSection({ active, onPresence }: { active: boolean; onPresence?: (present: boolean | null) => void }) {
   const root = useBrainUiRoot();
   const api = root.api;
   const lifetime = useRef(0);
@@ -36,15 +37,17 @@ export function WebSearchSection({ active }: { active: boolean }) {
       const next = await api.webSearchConfig();
       if (generation !== lifetime.current) return;
       setConfig(next);
+      onPresence?.(next.configured);
       setError(null);
     } catch (err) {
-      if (generation === lifetime.current) setError(err instanceof Error ? err.message : "Could not load web-search settings");
+      if (generation === lifetime.current) { setError(err instanceof Error ? err.message : "Could not load web-search settings"); onPresence?.(true); }
     }
-  }, [api]);
+  }, [api, onPresence]);
 
   useEffect(() => {
     lifetime.current++;
     setConfig(null);
+    onPresence?.(null);
     setError(null);
     setBusy(false);
     setOpenKey(null);
@@ -56,7 +59,7 @@ export function WebSearchSection({ active }: { active: boolean }) {
       if (flashTimer.current !== null) clearTimeout(flashTimer.current);
     };
     return invalidate;
-  }, [active, root, reload]);
+  }, [active, root, reload, onPresence]);
 
   async function update(change: {
     enabled?: Record<string, boolean>;
@@ -85,7 +88,7 @@ export function WebSearchSection({ active }: { active: boolean }) {
     }
   }
 
-  if (!config || !config.configured) return null;
+  if (!config || !config.configured) return error ? <div role="alert"><Callout tone="red" variant="banner" icon="failed" text={error} /></div> : null;
 
   return (
     <WebSearchChain

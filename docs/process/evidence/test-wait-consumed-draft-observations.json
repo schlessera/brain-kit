@@ -1,0 +1,905 @@
+{
+  "schemaVersion": 1,
+  "scope": "Selected consumed-draft equivalence investigation; supplemental registered-clock test, unchanged native observation window. No speedup claim.",
+  "historicalSource": "04a659593379a0c8da9c049fa649124d6fd54f70",
+  "candidateBase": "4db852bb7482877d2e72eb3d23078bdd591023cf",
+  "sources": [
+    {
+      "file": "packages/ui-react/src/lib/draft-client.ts",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+    },
+    {
+      "file": "packages/ui-react/src/stores/draft-state.ts",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+    },
+    {
+      "file": "packages/ui-react/tests/draft-runtime.test.ts",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84"
+    },
+    {
+      "file": "packages/ui-react/src/lib/local-work.ts",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+    },
+    {
+      "file": "packages/ui-react/tests/draft-client.test.ts",
+      "source": "4db852bb7482877d2e72eb3d23078bdd591023cf",
+      "sha256": "4518f2a7c29345b4b5fed7a2cf378232049d0e4732c5bc88541d217f453446b3"
+    },
+    {
+      "file": "packages/ui-react/tests/fixtures/draft-runtime-client.ts",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c"
+    },
+    {
+      "file": "bun.lock",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+    }
+  ],
+  "candidateTestSha256": "589f05b9b2d479e07a305bdde84c6b33190745cda313891604e608bb51ea6061",
+  "harness": {
+    "namespaceArgs": [
+      "unshare",
+      "--user",
+      "--map-current-user",
+      "--net",
+      "--keep-caps"
+    ],
+    "isolation": "Existing explicit harness enables loopback only, verifies no external routes, preserves ordinary uid, and drops inherited/ambient/bounding capabilities before GNU time and the unchanged test wrapper. Native cases require Chrome and include their mandatory build. Existing preload remains active.",
+    "serialization": "All commands serialize on the shared benchmark lock; GNU time starts inside that lock. Shared host load is uncontrolled.",
+    "observerLimit": "Native baseline/mutant add synchronous console observations and request-response logging, which can add overhead. Restored native control is uninstrumented. Separate page time origins are not compared.",
+    "unitLimit": "Existing registered-clock harness controls actual timer registrations and advances real pending IO between boundaries; storage is null and the host is a test double.",
+    "runtimeMetadata": {
+      "bun": "1.4.2 (744846f84), recorded by each test command",
+      "chrome": "Google Chrome 140.0.7339.127",
+      "chromeVersionBasis": "Installed executable selected by the unchanged runtime candidate order, inspected after the runs; the run itself did not log browser.version().",
+      "platform": {
+        "system": "Linux",
+        "release": "6.18.33.2-microsoft-standard-WSL2",
+        "architecture": "x86_64"
+      },
+      "resources": "Per-run command wall, user/system CPU seconds and process-family peak RSS are GNU time observations, not reserved host capacity. No exclusive CPU allocation; other shared-host load uncontrolled.",
+      "sourceIdentity": [
+        {
+          "file": "packages/ui-react/src/lib/draft-client.ts",
+          "historicalSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "candidateBaseSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+          "restoredWorkingFileSha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1"
+        },
+        {
+          "file": "packages/ui-react/src/stores/draft-state.ts",
+          "historicalSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "candidateBaseSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+          "restoredWorkingFileSha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0"
+        },
+        {
+          "file": "packages/ui-react/tests/draft-runtime.test.ts",
+          "historicalSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+          "candidateBaseSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+          "restoredWorkingFileSha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84"
+        },
+        {
+          "file": "packages/ui-react/src/lib/local-work.ts",
+          "historicalSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+          "candidateBaseSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+          "restoredWorkingFileSha256": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc"
+        },
+        {
+          "file": "packages/ui-react/tests/fixtures/draft-runtime-client.ts",
+          "historicalSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+          "candidateBaseSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c",
+          "restoredWorkingFileSha256": "6a5526ef9ae3c6fba9a877091bb63987e870c1662eb68bcfca85a1a52b02e05c"
+        },
+        {
+          "file": "bun.lock",
+          "historicalSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+          "candidateBaseSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0",
+          "restoredWorkingFileSha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+        }
+      ]
+    }
+  },
+  "mutation": {
+    "original": "const text = d.text === consumedText ? \"\" : d.text;",
+    "mutant": "const text = d.text === consumedText && d.sessionId === null ? \"\" : d.text;",
+    "effect": "Bound-session beginSend retains the consumed text; acceptance rotates it and schedules a new default 800 ms save. Initial unbound send remains unaffected.",
+    "nativeFailure": "Original final host-absence assertion after the retained 1500 ms window: expected false, received true.",
+    "lowerFailure": "Additional PUT under a rotated draft id at the 799 + 1 ms boundary, on the named any-id PUT assertion.",
+    "restoration": "All production/native sources restored byte-identically before passing controls."
+  },
+  "runs": [
+    {
+      "id": "native-observed-baseline",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "testVariant": "original with observation only",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/draft-runtime.test.ts",
+        "--test-name-pattern",
+        "390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision"
+      ],
+      "command": "bun run test packages/ui-react/tests/draft-runtime.test.ts --test-name-pattern '390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "outcome": {
+        "pass": 1,
+        "fail": 0,
+        "filtered": 2,
+        "expects": 28
+      },
+      "bodyMilliseconds": [
+        17235.76
+      ],
+      "bunSeconds": 67.05,
+      "resources": {
+        "commandSeconds": 67.13,
+        "userSeconds": 86.39,
+        "systemSeconds": 8.16,
+        "maxRssKiB": 1243684,
+        "exitCode": 0
+      },
+      "rawReceipts": [
+        {
+          "receipt": "native-observed-baseline/run.log",
+          "sha256": "81c8432f907731d17530230d418c3157d4c6437c56b92010ce4b10003f8c0ede",
+          "bytes": 34786
+        },
+        {
+          "receipt": "native-observed-baseline/run.time",
+          "sha256": "4eaa4dd140a2eaab6e0793283cee724f26e22bac694b9acd39ab85d4d76c1cfd",
+          "bytes": 956
+        },
+        {
+          "receipt": "native-observed-baseline/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "native-observed-baseline/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "native-observed-baseline/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        }
+      ]
+    },
+    {
+      "id": "native-clearing-mutant",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "testVariant": "original with observation and production clearing mutation",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/draft-runtime.test.ts",
+        "--test-name-pattern",
+        "390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision"
+      ],
+      "command": "bun run test packages/ui-react/tests/draft-runtime.test.ts --test-name-pattern '390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "outcome": {
+        "pass": 0,
+        "fail": 1,
+        "filtered": 2,
+        "expects": 26
+      },
+      "bodyMilliseconds": [
+        16392.73
+      ],
+      "bunSeconds": 65.6,
+      "resources": {
+        "commandSeconds": 65.69,
+        "userSeconds": 85.47,
+        "systemSeconds": 7.8,
+        "maxRssKiB": 1239948,
+        "exitCode": 1
+      },
+      "rawReceipts": [
+        {
+          "receipt": "native-clearing-mutant/run.log",
+          "sha256": "a09c8f791c50c9a62dc34664a66bdaf456915d2372a39c787af8a001053a52b6",
+          "bytes": 39741
+        },
+        {
+          "receipt": "native-clearing-mutant/run.time",
+          "sha256": "1177c6822af283be14b2c70ee4d123f5f1f0a735231942338e2b4b7890819019",
+          "bytes": 995
+        },
+        {
+          "receipt": "native-clearing-mutant/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "native-clearing-mutant/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "native-clearing-mutant/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        }
+      ]
+    },
+    {
+      "id": "native-restored-control",
+      "source": "04a659593379a0c8da9c049fa649124d6fd54f70",
+      "testVariant": "original",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/draft-runtime.test.ts",
+        "--test-name-pattern",
+        "390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision"
+      ],
+      "command": "bun run test packages/ui-react/tests/draft-runtime.test.ts --test-name-pattern '390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "outcome": {
+        "pass": 1,
+        "fail": 0,
+        "filtered": 2,
+        "expects": 28
+      },
+      "bodyMilliseconds": [
+        16699.02
+      ],
+      "bunSeconds": 65.49,
+      "resources": {
+        "commandSeconds": 65.57,
+        "userSeconds": 84.56,
+        "systemSeconds": 7.77,
+        "maxRssKiB": 1235576,
+        "exitCode": 0
+      },
+      "rawReceipts": [
+        {
+          "receipt": "native-restored-control/run.log",
+          "sha256": "887d39e17ac19d289389461962e283d70c08fc1ea140c09535e24b6f751fec73",
+          "bytes": 674
+        },
+        {
+          "receipt": "native-restored-control/run.time",
+          "sha256": "20d698312db481c1b1c0c89d5d2ae861c7b34b8bd29e3cb6681ba7b2a4bf1598",
+          "bytes": 957
+        },
+        {
+          "receipt": "native-restored-control/run.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "native-restored-control/run.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "native-restored-control/run.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        }
+      ]
+    },
+    {
+      "id": "lower-clearing-mutant",
+      "source": "4db852bb7482877d2e72eb3d23078bdd591023cf",
+      "testVariant": "additive candidate with production clearing mutation",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/draft-client.test.ts",
+        "--test-name-pattern",
+        "an accepted bound send never uploads its consumed words again across save and retry deadlines"
+      ],
+      "command": "bun run test packages/ui-react/tests/draft-client.test.ts --test-name-pattern 'an accepted bound send never uploads its consumed words again across save and retry deadlines'",
+      "environment": {},
+      "outcome": {
+        "pass": 0,
+        "fail": 1,
+        "filtered": 41,
+        "expects": 9
+      },
+      "bodyMilliseconds": [
+        11.49
+      ],
+      "bunSeconds": 0.085,
+      "resources": {
+        "commandSeconds": 0.15,
+        "userSeconds": 0.12,
+        "systemSeconds": 0.06,
+        "maxRssKiB": 82000,
+        "exitCode": 1
+      },
+      "rawReceipts": [
+        {
+          "receipt": "lower-clearing-mutant/mutation.log",
+          "sha256": "ef39caa02c7ea3eede55930360875313944b47e1711a0ad60101a3eca777c8f1",
+          "bytes": 1744
+        },
+        {
+          "receipt": "lower-clearing-mutant/mutation.time",
+          "sha256": "15d4481b9599b4962726d225761c34304c3bd4dd2e2634a95dc37ce473f556dd",
+          "bytes": 930
+        },
+        {
+          "receipt": "lower-clearing-mutant/mutation.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "lower-clearing-mutant/mutation.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "lower-clearing-mutant/mutation.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        }
+      ]
+    },
+    {
+      "id": "lower-restored-full",
+      "source": "4db852bb7482877d2e72eb3d23078bdd591023cf",
+      "testVariant": "additive candidate",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/draft-client.test.ts"
+      ],
+      "command": "bun run test packages/ui-react/tests/draft-client.test.ts",
+      "environment": {},
+      "outcome": {
+        "pass": 42,
+        "fail": 0,
+        "filtered": 0,
+        "expects": 205
+      },
+      "bodyMilliseconds": [
+        10.43,
+        1.49,
+        0.47,
+        5.17,
+        0.99,
+        1.26,
+        0.89,
+        0.64,
+        0.68,
+        1.21,
+        0.84,
+        0.85,
+        3.39,
+        1.05,
+        0.66,
+        0.71,
+        0.54,
+        1.12,
+        0.97,
+        1.52,
+        1.04,
+        1.19,
+        0.51,
+        1.08,
+        1.15,
+        1.28,
+        1.37,
+        1.18,
+        1.53,
+        1.98,
+        0.84,
+        1.31,
+        1.31,
+        1.23,
+        0.93,
+        1.01,
+        1.24,
+        0.71,
+        0.9,
+        0.64,
+        1.25,
+        0.49
+      ],
+      "bunSeconds": 0.134,
+      "resources": {
+        "commandSeconds": 0.2,
+        "userSeconds": 0.13,
+        "systemSeconds": 0.13,
+        "maxRssKiB": 90344,
+        "exitCode": 0
+      },
+      "rawReceipts": [
+        {
+          "receipt": "lower-restored-full/restored-full.log",
+          "sha256": "3898610d546b702fd425298faa1b01ce1e6486c781c2eaed5c133e9552a18bfd",
+          "bytes": 4748
+        },
+        {
+          "receipt": "lower-restored-full/restored-full.time",
+          "sha256": "1074a5c234dfa3ca7052430139122952f0282c1ec0e1f9b6fcd8b8d4020159cc",
+          "bytes": 777
+        },
+        {
+          "receipt": "lower-restored-full/restored-full.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "lower-restored-full/restored-full.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "lower-restored-full/restored-full.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        }
+      ]
+    },
+    {
+      "id": "lower-original-full",
+      "source": "4db852bb7482877d2e72eb3d23078bdd591023cf",
+      "testVariant": "original",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/draft-client.test.ts"
+      ],
+      "command": "bun run test packages/ui-react/tests/draft-client.test.ts",
+      "environment": {},
+      "outcome": {
+        "pass": 41,
+        "fail": 0,
+        "filtered": 0,
+        "expects": 169
+      },
+      "bodyMilliseconds": [
+        9.95,
+        1.53,
+        4.11,
+        1.3,
+        1.01,
+        1.41,
+        0.87,
+        0.73,
+        0.77,
+        1.26,
+        0.82,
+        0.69,
+        3.11,
+        0.92,
+        0.61,
+        0.58,
+        0.49,
+        1.01,
+        0.66,
+        1.13,
+        0.97,
+        1.15,
+        0.49,
+        1.08,
+        1.03,
+        1.29,
+        1.2,
+        1.35,
+        1.91,
+        0.63,
+        1.4,
+        1.03,
+        0.59,
+        1.33,
+        0.94,
+        1.25,
+        0.64,
+        0.66,
+        0.59,
+        1.28,
+        0.5
+      ],
+      "bunSeconds": 0.13,
+      "resources": {
+        "commandSeconds": 0.2,
+        "userSeconds": 0.19,
+        "systemSeconds": 0.07,
+        "maxRssKiB": 91056,
+        "exitCode": 0
+      },
+      "rawReceipts": [
+        {
+          "receipt": "lower-original-full/original-full.log",
+          "sha256": "c6bec8c92e7018c0e41e5adafb3b76503c468ab1cca82f9b1f1b0547ee42aa47",
+          "bytes": 4629
+        },
+        {
+          "receipt": "lower-original-full/original-full.time",
+          "sha256": "dd76e8d174a78534996d2d53e6f447865cf1134afa79d6bb8fc6d6e0d5047588",
+          "bytes": 777
+        },
+        {
+          "receipt": "lower-original-full/original-full.namespace-address.json",
+          "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+          "bytes": 518
+        },
+        {
+          "receipt": "lower-original-full/original-full.namespace-route.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        {
+          "receipt": "lower-original-full/original-full.namespace-uid-map.txt",
+          "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+          "bytes": 33
+        }
+      ]
+    }
+  ],
+  "observations": {
+    "baseline": "Acceptance registered zero-delay retired-draft work; it fired approximately 4.1 ms later and found no live draft, before the host-consumed marker. This is not proof of a global async drain.",
+    "nativeMutant": "Acceptance scheduled a new 800 ms save; its actual callback fired about 800.2 ms later and a real PUT recreated the draft during the retained observation window.",
+    "lowerCandidate": "Checks no additional PUT under any id and no live session draft after 0, 799, and 1 ms, then on both sides of successive backoff-sized horizons. It observes acceptance zero-delay registration and firing. No failing request is induced here, so advancing backoff-sized horizons is not evidence that retry callbacks registered or fired. Existing retry cases own those callbacks.",
+    "nativeWindow": "All original native matchers, 1500 ms observation windows, pointer contexts and mandatory build remain unchanged. The selected restored phone control does not qualify the two filtered contexts.",
+    "nativeStorage": "The default 250 ms local-write timer leads to a real IndexedDB commit; later keepDeviceBranch/adoptDeviceRecord calls can trigger draft subscriptions. The unit harness storage:null cannot establish equivalence for these browser-only producers.",
+    "minimum": "This mutation establishes a concrete failure detected by the retained native window. It does not establish 1500 ms as the minimum or any numerical margin; no 1500-minus-800 inference.",
+    "savings": "Zero native-window reduction; additive lower test and audit evidence only."
+  },
+  "rawSnapshotIndex": [
+    {
+      "receipt": "native-observed-baseline/run.log",
+      "sha256": "81c8432f907731d17530230d418c3157d4c6437c56b92010ce4b10003f8c0ede",
+      "bytes": 34786
+    },
+    {
+      "receipt": "native-observed-baseline/run.time",
+      "sha256": "4eaa4dd140a2eaab6e0793283cee724f26e22bac694b9acd39ab85d4d76c1cfd",
+      "bytes": 956
+    },
+    {
+      "receipt": "native-observed-baseline/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "native-observed-baseline/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "native-observed-baseline/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "native-clearing-mutant/run.log",
+      "sha256": "a09c8f791c50c9a62dc34664a66bdaf456915d2372a39c787af8a001053a52b6",
+      "bytes": 39741
+    },
+    {
+      "receipt": "native-clearing-mutant/run.time",
+      "sha256": "1177c6822af283be14b2c70ee4d123f5f1f0a735231942338e2b4b7890819019",
+      "bytes": 995
+    },
+    {
+      "receipt": "native-clearing-mutant/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "native-clearing-mutant/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "native-clearing-mutant/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "native-restored-control/run.log",
+      "sha256": "887d39e17ac19d289389461962e283d70c08fc1ea140c09535e24b6f751fec73",
+      "bytes": 674
+    },
+    {
+      "receipt": "native-restored-control/run.time",
+      "sha256": "20d698312db481c1b1c0c89d5d2ae861c7b34b8bd29e3cb6681ba7b2a4bf1598",
+      "bytes": 957
+    },
+    {
+      "receipt": "native-restored-control/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "native-restored-control/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "native-restored-control/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "lower-clearing-mutant/mutation.log",
+      "sha256": "ef39caa02c7ea3eede55930360875313944b47e1711a0ad60101a3eca777c8f1",
+      "bytes": 1744
+    },
+    {
+      "receipt": "lower-clearing-mutant/mutation.time",
+      "sha256": "15d4481b9599b4962726d225761c34304c3bd4dd2e2634a95dc37ce473f556dd",
+      "bytes": 930
+    },
+    {
+      "receipt": "lower-clearing-mutant/mutation.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "lower-clearing-mutant/mutation.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "lower-clearing-mutant/mutation.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "lower-restored-full/restored-full.log",
+      "sha256": "3898610d546b702fd425298faa1b01ce1e6486c781c2eaed5c133e9552a18bfd",
+      "bytes": 4748
+    },
+    {
+      "receipt": "lower-restored-full/restored-full.time",
+      "sha256": "1074a5c234dfa3ca7052430139122952f0282c1ec0e1f9b6fcd8b8d4020159cc",
+      "bytes": 777
+    },
+    {
+      "receipt": "lower-restored-full/restored-full.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "lower-restored-full/restored-full.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "lower-restored-full/restored-full.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "lower-original-full/original-full.log",
+      "sha256": "c6bec8c92e7018c0e41e5adafb3b76503c468ab1cca82f9b1f1b0547ee42aa47",
+      "bytes": 4629
+    },
+    {
+      "receipt": "lower-original-full/original-full.time",
+      "sha256": "dd76e8d174a78534996d2d53e6f447865cf1134afa79d6bb8fc6d6e0d5047588",
+      "bytes": 777
+    },
+    {
+      "receipt": "lower-original-full/original-full.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "lower-original-full/original-full.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "lower-original-full/original-full.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "baseline/draft-client.ts.instrumented",
+      "sha256": "2933a8282b68a9bce1e2d7808884a4696f4f20766f4f321b5fdb07d9570a395e",
+      "bytes": 30043
+    },
+    {
+      "receipt": "baseline/draft-client.ts.original",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "baseline/draft-runtime.test.ts.instrumented",
+      "sha256": "e4d84322b3d8ac284548e74b6656f9552632e01e95121c9b697cde79457b86e5",
+      "bytes": 20967
+    },
+    {
+      "receipt": "baseline/draft-runtime.test.ts.original",
+      "sha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+      "bytes": 20326
+    },
+    {
+      "receipt": "baseline/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "baseline/manifest.json",
+      "sha256": "ea05006afe5af98db86f4dc8f4a3b95ee1bdbd7aeebbb75991fbd45186639489",
+      "bytes": 1345
+    },
+    {
+      "receipt": "baseline/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "native-mutation/draft-client.ts.instrumented",
+      "sha256": "2933a8282b68a9bce1e2d7808884a4696f4f20766f4f321b5fdb07d9570a395e",
+      "bytes": 30043
+    },
+    {
+      "receipt": "native-mutation/draft-client.ts.original",
+      "sha256": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "bytes": 28849
+    },
+    {
+      "receipt": "native-mutation/draft-runtime.test.ts.instrumented",
+      "sha256": "e4d84322b3d8ac284548e74b6656f9552632e01e95121c9b697cde79457b86e5",
+      "bytes": 20967
+    },
+    {
+      "receipt": "native-mutation/draft-runtime.test.ts.original",
+      "sha256": "66276c07073e74cff24900201a190c306bab5a7e5b378c9ef42d2a82b65e0c84",
+      "bytes": 20326
+    },
+    {
+      "receipt": "native-mutation/draft-state.ts.instrumented",
+      "sha256": "189a782d1d9ab10603a5a3dde9242b03d28948392325684d487828d3af827e1b",
+      "bytes": 45285
+    },
+    {
+      "receipt": "native-mutation/draft-state.ts.original",
+      "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+      "bytes": 45261
+    },
+    {
+      "receipt": "native-mutation/exit.json",
+      "sha256": "e153f5bd2ee7416d77570b30ba1de5bb9196c55f8d145e34df9dab12190ffe43",
+      "bytes": 16
+    },
+    {
+      "receipt": "native-mutation/manifest.json",
+      "sha256": "6fff45a5f3ecb9af2aaac5eb906015c4e5a9930b3997e78336d482f634d28805",
+      "bytes": 1606
+    },
+    {
+      "receipt": "native-mutation/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "lower-final/draft-client.test.candidate",
+      "sha256": "589f05b9b2d479e07a305bdde84c6b33190745cda313891604e608bb51ea6061",
+      "bytes": 62501
+    },
+    {
+      "receipt": "lower-final/draft-client.test.original",
+      "sha256": "4518f2a7c29345b4b5fed7a2cf378232049d0e4732c5bc88541d217f453446b3",
+      "bytes": 60079
+    },
+    {
+      "receipt": "lower-final/draft-state.mutation",
+      "sha256": "189a782d1d9ab10603a5a3dde9242b03d28948392325684d487828d3af827e1b",
+      "bytes": 45285
+    },
+    {
+      "receipt": "lower-final/draft-state.original",
+      "sha256": "22019ce9a58d8d6c0823bd8512879ff8f3ae0ad3747dd444e63aacd03c648ac0",
+      "bytes": 45261
+    },
+    {
+      "receipt": "lower-final/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "harness/1855-completion-unprivileged-namespace.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "harness/1855-check-completion-namespace.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "native-baseline/ast-proof.log",
+      "sha256": "5c0f855f208ea6ebb7f9e31ca4859d74dabca44bea952d8a7b08ffef77238359",
+      "bytes": 70
+    },
+    {
+      "receipt": "native-mutation/ast-proof.log",
+      "sha256": "5c0f855f208ea6ebb7f9e31ca4859d74dabca44bea952d8a7b08ffef77238359",
+      "bytes": 70
+    },
+    {
+      "receipt": "runtime-metadata.json",
+      "sha256": "2b96fa689daab790e739fac2ec4774aa2ed678a5933189f932a1b126c9cfedbf",
+      "bytes": 2819
+    }
+  ],
+  "exploratoryIterations": {
+    "notAdditionalFinalProof": true,
+    "runs": [
+      {
+        "id": "positive",
+        "commandSeconds": 0.16,
+        "purpose": "Earlier case before acceptance-local zero-delay registration/firing assertions were finalized; excluded from final candidate proof.",
+        "receipts": [
+          {
+            "receipt": "exploratory/positive.log",
+            "sha256": "0700a98e22505374bc72b411354052cdac209aabc5950de19a8af844fb02c00e",
+            "bytes": 554
+          },
+          {
+            "receipt": "exploratory/positive.time",
+            "sha256": "157dce3515db7eb6405d1d08d83e62b4023d4d715e909f8a69f0528dc6ac3dba",
+            "bytes": 892
+          }
+        ]
+      },
+      {
+        "id": "mutation",
+        "commandSeconds": 0.15,
+        "purpose": "Earlier case before acceptance-local zero-delay registration/firing assertions were finalized; excluded from final candidate proof.",
+        "receipts": [
+          {
+            "receipt": "exploratory/mutation.log",
+            "sha256": "fa9b065b715f45f870b8d524d48bdab4b5821c68b29de6a7ea0da879992390c4",
+            "bytes": 1822
+          },
+          {
+            "receipt": "exploratory/mutation.time",
+            "sha256": "e321fc3d1244cb62f9285389bbba07e00438b72a0e70bb1d1707a797275e4f0f",
+            "bytes": 930
+          }
+        ]
+      },
+      {
+        "id": "restored-full",
+        "commandSeconds": 0.19,
+        "purpose": "Earlier case before acceptance-local zero-delay registration/firing assertions were finalized; excluded from final candidate proof.",
+        "receipts": [
+          {
+            "receipt": "exploratory/restored-full.log",
+            "sha256": "a31301e66e334adb69756a155c9d31c2dbdd44c4bad552551c9d7b9aff09afab",
+            "bytes": 4747
+          },
+          {
+            "receipt": "exploratory/restored-full.time",
+            "sha256": "224e96fa86523b96ee27310beb07cb1b0285da375e71885a7bbae86d01c86489",
+            "bytes": 777
+          }
+        ]
+      }
+    ],
+    "originalIndex": {
+      "receipt": "exploratory/snapshot-index.json",
+      "sha256": "c58755da74872799a6e600a83edb2e5c9e567a8927c6e7ef4da04e3caaf8ee64",
+      "bytes": 2657
+    }
+  }
+}

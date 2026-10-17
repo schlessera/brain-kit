@@ -8,6 +8,40 @@ import { ChatPage } from "../../src/components/chat/chat-page.js";
 import { installFaultNetwork } from "./offline/fault-network.ts";
 
 const frame = () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+// These roots have no local-work restore and never open a tracked session.
+// The three preparation operations commit synchronously; only their finite
+// rendering remains. Motion's JS height animation is not a native Animation.
+async function replayCardReady(host: HTMLElement, phase: "summary" | "header" | "expanded") {
+  await document.fonts.ready;
+  await expect.poll(async () => {
+    await frame();
+    // Resolve again on every painted sample, including after cancellation or
+    // replacement. No rejected Animation.finished promise is swallowed.
+    const column = host.querySelector("[data-reading-column]");
+    const messages = [...(column?.children ?? [])] as HTMLElement[];
+    const header = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent?.includes("check rope"));
+    const detail = header?.parentElement?.querySelector<HTMLElement>(".whitespace-pre-wrap");
+    const expansion = detail?.closest<HTMLElement>(".overflow-hidden");
+    const visible = (el: HTMLElement | undefined | null) => !!el?.isConnected
+      && el.getClientRects().length > 0 && el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().width > 0
+      && getComputedStyle(el).visibility === "visible";
+    const summary = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => /^\d+ steps?/.test(b.textContent ?? ""));
+    const finite = host.getAnimations({ subtree: true }).filter(a =>
+      a.effect?.getComputedTiming().endTime !== Infinity && (a.pending || a.playState === "running" || a.playState === "paused"));
+    return {
+      transcript: messages.length === 2 && messages.every(message => {
+        const style = getComputedStyle(message);
+        return style.opacity === "1" && new DOMMatrixReadOnly(style.transform).isIdentity;
+      }),
+      target: phase === "summary" ? visible(summary) : visible(header),
+      expanded: phase !== "expanded" || (visible(detail) && expansion?.style.height === "auto"
+        && getComputedStyle(expansion).opacity === "1"),
+      finiteAnimations: finite.length,
+    };
+  }, { interval: 16, timeout: 2_000, message: `replay ${phase}: committed card and finite rendering` })
+    .toEqual({ transcript: true, target: true, expanded: true, finiteAnimations: 0 });
+}
+
 // Recovery geometry is relative to the drawn baseline, not a theme-size
 // comparison. Keep both native widths; consumer composer parity lives in
 // Storybook. See docs/process/theme-parity.md for the assertion ownership map.
@@ -93,19 +127,32 @@ for (const { theme, width } of [{ theme: "dark", width: 320 }, { theme: "light",
 for (const finished of [false, true]) for (const splitRun of [false, true]) for (const theme of ["dark", "light"] as const) for (const width of [320, 1280]) {
   test(`${theme} ${width} ${finished ? "finished" : "live"}: recovery ${splitRun ? "splits a drawn tool run" : "splits text"} without remounting an expanded live card`, async (ctx) => {
     const before = { width: innerWidth, height: innerHeight, theme: document.documentElement.dataset.theme };
-    const outer = await commands.formViewport(width, 800);
+    const cleanup: Array<() => unknown | Promise<unknown>> = [];
+    ctx.onTestFinished(async () => {
+      const failures: unknown[] = [];
+      for (const clean of [...cleanup].reverse()) {
+        try { await clean(); } catch (error) { failures.push(error); }
+      }
+      if (failures.length) throw new AggregateError(failures, "replay fixture cleanup failed");
+    });
+    let outer: { width: number; height: number } | undefined;
+    cleanup.push(async () => {
+      try { await page.viewport(before.width, before.height); }
+      finally { if (outer) await commands.formViewport(outer.width - 100, outer.height - 120); }
+    });
+    cleanup.push(() => { if (before.theme === undefined) delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = before.theme; });
+    outer = await commands.formViewport(width, 800);
     await page.viewport(width, 800);
     document.documentElement.dataset.theme = theme;
     const net = installFaultNetwork({ routes: () => Response.json({ entries: [], providers: [], backends: {}, slugs: {}, models: [], sessions: [] }) });
+    cleanup.push(() => net.restore());
     const ui = createBrainUiRoot({ storage: null, request: net.request });
-    const style = document.createElement("style"); style.textContent = await commands.formConsumerStyles(); document.head.append(style);
-    const host = document.createElement("div"); host.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column"; document.body.append(host);
-    const renderer = createRoot(host);
-    ctx.onTestFinished(async () => {
-      flushSync(() => renderer.unmount()); ui.dispose(); net.restore(); host.remove(); style.remove();
-      document.documentElement.dataset.theme = before.theme;
-      await page.viewport(before.width, before.height); await commands.formViewport(outer.width - 100, outer.height - 120);
-    });
+    cleanup.push(() => ui.dispose());
+    const style = document.createElement("style"); cleanup.push(() => style.remove());
+    style.textContent = await commands.formConsumerStyles(); document.head.append(style);
+    const host = document.createElement("div"); cleanup.push(() => host.remove());
+    host.style.cssText = "position:fixed;inset:0;display:flex;flex-direction:column"; document.body.append(host);
+    const renderer = createRoot(host); cleanup.push(() => flushSync(() => renderer.unmount()));
     ui.connection.connect(); await expect.poll(() => net.socket()?.readyState).toBe(1);
     const chat = ui.stores.chat.getState(); chat.setActiveSession("ithaca");
     const user = { role: "user", content: "Hold: Sail past the Sirens", toolCalls: [] };
@@ -120,15 +167,15 @@ for (const finished of [false, true]) for (const splitRun of [false, true]) for 
     chat.appendText("ithaca", finished ? " Rope held." : " Rope held. Live oars.");
     if (finished) chat.finishAssistantMessage("ithaca");
     flushSync(() => renderer.render(<BrainUiProvider root={ui}><ChatPage /></BrainUiProvider>));
-    await new Promise((done) => setTimeout(done, 500)); await frame();
+    await replayCardReady(host, finished ? "summary" : "header");
     if (finished) {
       await page.getByRole("button", { name: /^\d+ steps?/ }).click();
-      await new Promise((done) => setTimeout(done, 500)); await frame();
+      await replayCardReady(host, "header");
     }
     const header = [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("check rope"))!;
     expect(header, "a real live tool card is present").toBeDefined();
     await page.getByRole("button", { name: /check rope/ }).click();
-    await new Promise((done) => setTimeout(done, 500)); await frame();
+    await replayCardReady(host, "expanded");
     const detail = header.parentElement!.querySelector(".whitespace-pre-wrap");
     expect(detail, "the card is expanded before the fault").not.toBeNull();
     const field = host.querySelector<HTMLTextAreaElement>("textarea[data-composer]")!; field.focus(); await frame();
@@ -154,3 +201,22 @@ for (const finished of [false, true]) for (const splitRun of [false, true]) for 
     expect(document.activeElement).toBe(field);
   });
 }
+
+// A real finite effect can be cancelled and replaced between native frames.
+// This control tests the readiness helper, not replay behavior or Motion duration.
+test("expanded readiness follows a cancelled animation's replacement", async (ctx) => {
+  const host = document.createElement("div");
+  host.innerHTML = '<div data-reading-column><div style="opacity:1;transform:none"></div><div style="opacity:1;transform:none"><div><button>check rope</button><div class="overflow-hidden" style="height:auto;opacity:1"><span class="whitespace-pre-wrap">check rope</span></div></div></div></div>';
+  document.body.append(host);
+  const owner = host.querySelector<HTMLElement>(".overflow-hidden")!;
+  const first = owner.animate([{ transform: "translateY(6px)" }, { transform: "none" }], { duration: 500 });
+  let replacement: Animation | undefined;
+  const raf = requestAnimationFrame(() => {
+    first.cancel();
+    replacement = owner.animate([{ transform: "translateY(6px)" }, { transform: "none" }], { duration: 180 });
+  });
+  ctx.onTestFinished(() => { cancelAnimationFrame(raf); first.cancel(); replacement?.cancel(); host.remove(); });
+  await replayCardReady(host, "expanded");
+  expect(replacement, "the cancelled effect was replaced").toBeDefined();
+  expect(replacement!.playState, "the actual replacement finished before readiness").toBe("finished");
+});

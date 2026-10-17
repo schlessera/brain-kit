@@ -1,0 +1,1081 @@
+{
+  "sourceCommit": "60da0afe28112b2526161a235bf3155899072acc",
+  "method": "Five bounded native commands on a frozen combined popup/form candidate with own dependencies and mandatory builds. Original pointer/click/hit gates, matcher/name/await expressions and the uncaught native location setter remain. A passive Page pageerror observer records actual SecurityError with the exact destination; actual changed app URL returns the escape result. No fixture try/catch, new return marker, detached-frame completion or hit-only success. Only the denied frame-to-top window changes; both download windows and all other native completion boundaries remain.",
+  "runtime": {
+    "chrome": "Google Chrome 140.0.7339.127",
+    "bun": "1.4.2",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "cpuCount": 32,
+    "resourceLimit": "No additional CPU/RSS cap; serialized benchmark lock; uncontrolled shared-host load. GNU time in namespace after setup capabilities dropped.",
+    "playwright": {
+      "version": "1.63.0",
+      "source": "node_modules/playwright-core/lib/coreBundle.js",
+      "sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+      "bytes": 3477183
+    },
+    "isolation": "Existing preload, BRAIN_REQUIRE_CHROME=1 and ordinary-UID user/network namespace with only loopback and no external routes; setup capabilities dropped before tests. GNU time runs inside the shared benchmark lock after namespace setup. Address/route/UID-map receipts retained.",
+    "limits": "Single paired observations on a shared host; setup/body/poll/completion spans overlap command time. RSS is GNU time maximum, not summed concurrent memory. Installed browser and Playwright source are explicit, not universal version claims."
+  },
+  "nativeBoundary": {
+    "fixture": "Exactly one original uncaught window.top.location.href = A + \"/top?ctx=\" + ctx assignment, after the original click mark. Temporary delayed controls wrap that same assignment in one 2-second timer, including the tab positive half; final source leaves the action byte-identical.",
+    "completion": "Initiating app Page emits native SecurityError with exact attacker/top?ctx=frame and permission-denial text. No generic error, quiet DOM, hit or detachment alone qualifies. Actual app URL change returns to the original app-stability assertion.",
+    "upstreamSource": {
+      "url": "https://raw.githubusercontent.com/chromium/chromium/140.0.7339.127/third_party/blink/renderer/core/frame/location.cc",
+      "basis": "Location::SetLocation checks CanNavigate and throws the destination-correlated SecurityError at 258\u2013266, returning before request construction and Navigate at 287\u2013296."
+    },
+    "installedTransport": "Playwright 1.63.0 exceptionToError preserves the native exception name; Runtime.exceptionThrown is forwarded to the owning Page pageerror event. Full installed source hash and immutable bytes retained.",
+    "scope": "Only the single synchronous denied top assignment. The positive tab navigation still requires its existing actual hit and exact native destination completion. This is not a global browser drain."
+  },
+  "runs": [
+    {
+      "variant": "baseline",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+          "observedSha256": "68c7cd7d3fdef04e82026b3c12dbb063cc2506421ac95689c02d046ff00fa4b8"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 0,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 95,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": []
+      },
+      "nativeActionIdentity": {
+        "nativeAssignments": [
+          "window.top.location.href = A + \"/top?ctx=\" + ctx"
+        ],
+        "noFixtureCatch": true,
+        "originalClickMarker": true
+      },
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "filtered": 0,
+        "expects": 134
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, dark, 320px)",
+          "bodyMs": 720.68
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, light, 1280px)",
+          "bodyMs": 569.59
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, dark, 320px)",
+          "bodyMs": 566.74
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, light, 1280px)",
+          "bodyMs": 545.4
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > control: in the none auth mode the server would answer the same request",
+          "bodyMs": 1.45
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > window.open is blocked in both contexts",
+          "bodyMs": 721.21
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > form submission is blocked in both contexts",
+          "bodyMs": 732.39
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > downloads are blocked in both contexts",
+          "bodyMs": 3833.62
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 2236.57
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 777.73
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): the new tab shows untrusted content under the app's host",
+          "bodyMs": 508.58
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the non-interactive raw route still runs no script",
+          "bodyMs": 471.4
+        }
+      ],
+      "timing": {
+        "commandSeconds": 62.07,
+        "setupMs": 49843.454857000004,
+        "bodyTotalMs": 11685.36,
+        "cpuUserSeconds": 88.0,
+        "cpuSystemSeconds": 7.99,
+        "peakRssKiB": 1243320.0,
+        "bunReportedSeconds": 61.97
+      },
+      "waitMetrics": {
+        "calls": 3,
+        "elapsedMs": 4503.989287999997,
+        "pollCalls": 5,
+        "pollMs": 125.57674500000576
+      },
+      "observations": {
+        "HTML_TOP_BEFORE": [],
+        "HTML_TOP_AFTER": [],
+        "HTML_TOP_COMPLETION": []
+      }
+    },
+    {
+      "variant": "delayed",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "--test-name-pattern",
+        "the preview cannot navigate the app's window"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the preview cannot navigate the app'\"'\"'s window'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+          "observedSha256": "c9da3b8ccf3b74177609500a6f989ee28d3424711d7fa3421e5934e7ef8010e4"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 0,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 95,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": [
+          "expect(denied()).toBe(false)",
+          "expect(denied()).toBe(true)"
+        ]
+      },
+      "nativeActionIdentity": {
+        "nativeAssignments": [
+          "window.top.location.href = A + \"/top?ctx=\" + ctx"
+        ],
+        "noFixtureCatch": true,
+        "originalClickMarker": true
+      },
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "filtered": 11,
+        "expects": 5
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 4926.5
+        }
+      ],
+      "timing": {
+        "commandSeconds": 54.82,
+        "setupMs": 49359.163106,
+        "bodyTotalMs": 4926.5,
+        "cpuUserSeconds": 84.28,
+        "cpuSystemSeconds": 7.45,
+        "peakRssKiB": 1244744.0,
+        "bunReportedSeconds": 54.74
+      },
+      "waitMetrics": {
+        "calls": 0,
+        "elapsedMs": 0,
+        "pollCalls": 161,
+        "pollMs": 4050.810690999984
+      },
+      "observations": {
+        "HTML_TOP_BEFORE": [
+          {
+            "denied": false,
+            "errors": []
+          }
+        ],
+        "HTML_TOP_AFTER": [
+          {
+            "denied": true,
+            "errors": [
+              {
+                "name": "SecurityError",
+                "message": "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'http://127.0.0.1:46501/top?ctx=frame'.",
+                "stack": "",
+                "at": 52507.032422
+              }
+            ]
+          }
+        ],
+        "HTML_TOP_COMPLETION": [
+          {
+            "elapsedMs": 2015.8131070000018,
+            "denied": true,
+            "errors": [
+              {
+                "name": "SecurityError",
+                "message": "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'http://127.0.0.1:46501/top?ctx=frame'.",
+                "stack": "",
+                "at": 52507.032422
+              }
+            ],
+            "appUrl": "http://127.0.0.1:39063/?file=voyage%2Ftop.html&theme=dark",
+            "actualAppUrl": "http://127.0.0.1:39063/?file=voyage%2Ftop.html&theme=dark"
+          }
+        ]
+      }
+    },
+    {
+      "variant": "premature",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "--test-name-pattern",
+        "the preview cannot navigate the app's window"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the preview cannot navigate the app'\"'\"'s window'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+          "observedSha256": "275835c5940d527955ce4998646a019d78216a58aa2663fa9f114aa25fe161b3"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 1,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 95,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": [
+          "expect(denied()).toBe(false)",
+          "expect(denied()).toBe(true)"
+        ]
+      },
+      "nativeActionIdentity": {
+        "nativeAssignments": [
+          "window.top.location.href = A + \"/top?ctx=\" + ctx"
+        ],
+        "noFixtureCatch": true,
+        "originalClickMarker": true
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "filtered": 11,
+        "expects": 2
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 696.8
+        }
+      ],
+      "timing": {
+        "commandSeconds": 50.92,
+        "setupMs": 49690.519816,
+        "bodyTotalMs": 696.8,
+        "cpuUserSeconds": 85.18,
+        "cpuSystemSeconds": 7.29,
+        "peakRssKiB": 1252520.0,
+        "bunReportedSeconds": 50.83
+      },
+      "waitMetrics": {
+        "calls": 0,
+        "elapsedMs": 0,
+        "pollCalls": 0,
+        "pollMs": 0
+      },
+      "observations": {
+        "HTML_TOP_BEFORE": [
+          {
+            "denied": false,
+            "errors": []
+          }
+        ],
+        "HTML_TOP_AFTER": [
+          {
+            "denied": false,
+            "errors": []
+          }
+        ],
+        "HTML_TOP_COMPLETION": []
+      }
+    },
+    {
+      "variant": "guard-disabled",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts",
+        "--test-name-pattern",
+        "the preview cannot navigate the app's window"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts --test-name-pattern 'the preview cannot navigate the app'\"'\"'s window'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+          "observedSha256": "b31a7d73490b3fc76262e3e1791dd9c21c8a793b9a179c85985d00fffb0bd7d4"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "7542f623841722ee39bfa1de10a8329105a0262f183408ea96d0be8c61ec2fb1"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "46b18e75d06631e3c4f0da721a94a6695b0b2560f02afbf0af7f4e4b35221547"
+        }
+      ],
+      "exitCode": 1,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 95,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": []
+      },
+      "nativeActionIdentity": {
+        "nativeAssignments": [
+          "window.top.location.href = A + \"/top?ctx=\" + ctx"
+        ],
+        "noFixtureCatch": true,
+        "originalClickMarker": true
+      },
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "filtered": 11,
+        "expects": 1
+      },
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 769.91
+        }
+      ],
+      "timing": {
+        "commandSeconds": 51.62,
+        "setupMs": 50352.904499000004,
+        "bodyTotalMs": 769.91,
+        "cpuUserSeconds": 86.48,
+        "cpuSystemSeconds": 7.49,
+        "peakRssKiB": 1245336.0,
+        "bunReportedSeconds": 51.53
+      },
+      "waitMetrics": {
+        "calls": 0,
+        "elapsedMs": 0,
+        "pollCalls": 1,
+        "pollMs": 25.112309000003734
+      },
+      "observations": {
+        "HTML_TOP_BEFORE": [],
+        "HTML_TOP_AFTER": [],
+        "HTML_TOP_COMPLETION": [
+          {
+            "elapsedMs": 25.162899000002653,
+            "denied": false,
+            "errors": [],
+            "appUrl": "http://127.0.0.1:42991/?file=voyage%2Ftop.html&theme=dark",
+            "actualAppUrl": "http://127.0.0.1:34839/top?ctx=frame"
+          }
+        ]
+      }
+    },
+    {
+      "variant": "restored",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/ui-react/tests/html-preview-runtime.test.ts"
+      ],
+      "command": "bun run test packages/ui-react/tests/html-preview-runtime.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+          "originalSha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+          "observedSha256": "b31a7d73490b3fc76262e3e1791dd9c21c8a793b9a179c85985d00fffb0bd7d4"
+        },
+        {
+          "file": "packages/ui-react/src/components/files/file-viewer-html.tsx",
+          "originalSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+          "observedSha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0"
+        },
+        {
+          "file": "packages/ui-server/src/routes/files.ts",
+          "originalSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+          "observedSha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3"
+        }
+      ],
+      "exitCode": 0,
+      "restored": true,
+      "astIdentity": {
+        "originalMatchers": 37,
+        "originalNames": 9,
+        "originalAwaits": 95,
+        "retainedOriginalMatchers": true,
+        "retainedOriginalNames": true,
+        "retainedOriginalAwaitExpressions": true,
+        "addedDiagnosticMatchers": []
+      },
+      "nativeActionIdentity": {
+        "nativeAssignments": [
+          "window.top.location.href = A + \"/top?ctx=\" + ctx"
+        ],
+        "noFixtureCatch": true,
+        "originalClickMarker": true
+      },
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "filtered": 0,
+        "expects": 134
+      },
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, dark, 320px)",
+          "bodyMs": 813.24
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (password auth, light, 1280px)",
+          "bodyMs": 565.27
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, dark, 320px)",
+          "bodyMs": 591.69
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > iframe preview and new tab are isolated (none auth, light, 1280px)",
+          "bodyMs": 554.74
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > control: in the none auth mode the server would answer the same request",
+          "bodyMs": 1.77
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > window.open is blocked in both contexts",
+          "bodyMs": 778.26
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > form submission is blocked in both contexts",
+          "bodyMs": 774.49
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > downloads are blocked in both contexts",
+          "bodyMs": 3850.24
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the preview cannot navigate the app's window",
+          "bodyMs": 768.04
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): self-navigation carries the page's own content to any URL",
+          "bodyMs": 714.59
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > accepted risk (#1084 ruling): the new tab shows untrusted content under the app's host",
+          "bodyMs": 539.37
+        },
+        {
+          "outcome": "pass",
+          "name": "the interactive HTML preview runs scripts in an opaque origin > the non-interactive raw route still runs no script",
+          "bodyMs": 475.95
+        }
+      ],
+      "timing": {
+        "commandSeconds": 60.44,
+        "setupMs": 49462.642175,
+        "bodyTotalMs": 10427.65,
+        "cpuUserSeconds": 87.02,
+        "cpuSystemSeconds": 8.27,
+        "peakRssKiB": 1246396.0,
+        "bunReportedSeconds": 60.35
+      },
+      "waitMetrics": {
+        "calls": 2,
+        "elapsedMs": 3002.7949389999994,
+        "pollCalls": 5,
+        "pollMs": 125.54157599998871
+      },
+      "observations": {
+        "HTML_TOP_BEFORE": [],
+        "HTML_TOP_AFTER": [],
+        "HTML_TOP_COMPLETION": [
+          {
+            "elapsedMs": 0.03668600000673905,
+            "denied": true,
+            "errors": [
+              {
+                "name": "SecurityError",
+                "message": "Failed to set a named property 'href' on 'Location': The current window does not have permission to navigate the target frame to 'http://127.0.0.1:42385/top?ctx=frame'.",
+                "stack": "",
+                "at": 58365.150031
+              }
+            ],
+            "appUrl": "http://127.0.0.1:35999/?file=voyage%2Ftop.html&theme=dark",
+            "actualAppUrl": "http://127.0.0.1:35999/?file=voyage%2Ftop.html&theme=dark"
+          }
+        ]
+      }
+    }
+  ],
+  "interpretation": {
+    "pairedResult": "Both full runs pass 12 cases and 134 expectations. Three windows totaling 4503.989288 ms become two totaling 3002.794939 ms. Top case 2236.57 to 768.04 ms. Command 62.07 to 60.44 s; bodies 11685.36 to 10427.65 ms; setup 49843.454857 to 49462.642175 ms. Setup variance is not wait-removal savings.",
+    "resources": "CPU user plus system 95.99 to 95.29 s; maximum RSS increases 1243320 to 1246396 KiB. Five commands cost 279.87 s including builds and deliberate failures.",
+    "controls": "Delayed actual setter has no matching native error before and has exact SecurityError after 2015.813107 ms. Omitting the wait fails the added expected-true denial assertion with false, not a timeout. Enabling top navigation in both actual sandbox guards fails the original app-URL assertion after committed attacker navigation. All sources restored.",
+    "remaining": "Two native download windows remain at 1500 ms. No universal minimum, whole-CI speedup, global drain or completed acceptance for issue 1855 follows."
+  },
+  "rawReceiptIndex": [
+    {
+      "receipt": "baseline/ast-proof.log",
+      "sha256": "30667ec5d89ff99fd6c8844d882372ce27316908108d0847de49e85151cdcf56",
+      "bytes": 221
+    },
+    {
+      "receipt": "baseline/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "baseline/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "baseline/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "baseline/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "baseline/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "baseline/html-preview-runtime.test.ts.observed",
+      "sha256": "68c7cd7d3fdef04e82026b3c12dbb063cc2506421ac95689c02d046ff00fa4b8",
+      "bytes": 29917
+    },
+    {
+      "receipt": "baseline/html-preview-runtime.test.ts.original",
+      "sha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+      "bytes": 29795
+    },
+    {
+      "receipt": "baseline/manifest.json",
+      "sha256": "41884a587e191410a1c32173f94ddb85af4fe6ccdfed77f6a1ad24d0c485fd03",
+      "bytes": 1899
+    },
+    {
+      "receipt": "baseline/native-action-proof.json",
+      "sha256": "5959d2914252b0a0becfcd67a36fed2dc371ee5d45e667b89eb9237db92e78d1",
+      "bytes": 147
+    },
+    {
+      "receipt": "baseline/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "baseline/run.log",
+      "sha256": "2f7711322e3558b8bb8ee4b45adce128e19de532e601fd8f68640cdd057e67b5",
+      "bytes": 2198
+    },
+    {
+      "receipt": "baseline/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "baseline/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "baseline/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "baseline/run.time",
+      "sha256": "cdeea652bbd06a9104243b49030f6a406e0d31aa650e6e0fae4be73fc77dc152",
+      "bytes": 802
+    },
+    {
+      "receipt": "delayed/ast-proof.log",
+      "sha256": "746cb65ca7ee06fbb31b901d91747b54f70ecacec1d1d28eea9005cb0dbaf2fd",
+      "bytes": 294
+    },
+    {
+      "receipt": "delayed/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "delayed/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "delayed/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "delayed/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "delayed/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "delayed/html-preview-runtime.test.ts.observed",
+      "sha256": "c9da3b8ccf3b74177609500a6f989ee28d3424711d7fa3421e5934e7ef8010e4",
+      "bytes": 31344
+    },
+    {
+      "receipt": "delayed/html-preview-runtime.test.ts.original",
+      "sha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+      "bytes": 29795
+    },
+    {
+      "receipt": "delayed/manifest.json",
+      "sha256": "43aa5c06a51a6e43e91708dfc7632d800f78abe1a925be14943e1eb10d902e46",
+      "bytes": 1976
+    },
+    {
+      "receipt": "delayed/native-action-proof.json",
+      "sha256": "5959d2914252b0a0becfcd67a36fed2dc371ee5d45e667b89eb9237db92e78d1",
+      "bytes": 147
+    },
+    {
+      "receipt": "delayed/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "delayed/run.log",
+      "sha256": "0bcc2d5198abd9272dacc5b672a9145fefead063c36f376ad0b90919e898ddb0",
+      "bytes": 1441
+    },
+    {
+      "receipt": "delayed/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "delayed/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "delayed/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "delayed/run.time",
+      "sha256": "cd6081d390821185392fe8f298c53e61837721ee7e8603c1eec056dda551297e",
+      "bytes": 865
+    },
+    {
+      "receipt": "driver-final.py",
+      "sha256": "ffd0895d96fd3b61f4783c0b99d428e8bca9a01a8a3445492fb12e086e0753bd",
+      "bytes": 6018
+    },
+    {
+      "receipt": "guard-disabled/ast-proof.log",
+      "sha256": "30667ec5d89ff99fd6c8844d882372ce27316908108d0847de49e85151cdcf56",
+      "bytes": 221
+    },
+    {
+      "receipt": "guard-disabled/exit.json",
+      "sha256": "e153f5bd2ee7416d77570b30ba1de5bb9196c55f8d145e34df9dab12190ffe43",
+      "bytes": 16
+    },
+    {
+      "receipt": "guard-disabled/file-viewer-html.tsx.observed",
+      "sha256": "7542f623841722ee39bfa1de10a8329105a0262f183408ea96d0be8c61ec2fb1",
+      "bytes": 1250
+    },
+    {
+      "receipt": "guard-disabled/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "guard-disabled/files.ts.observed",
+      "sha256": "46b18e75d06631e3c4f0da721a94a6695b0b2560f02afbf0af7f4e4b35221547",
+      "bytes": 11210
+    },
+    {
+      "receipt": "guard-disabled/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "guard-disabled/html-preview-runtime.test.ts.observed",
+      "sha256": "b31a7d73490b3fc76262e3e1791dd9c21c8a793b9a179c85985d00fffb0bd7d4",
+      "bytes": 31138
+    },
+    {
+      "receipt": "guard-disabled/html-preview-runtime.test.ts.original",
+      "sha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+      "bytes": 29795
+    },
+    {
+      "receipt": "guard-disabled/manifest.json",
+      "sha256": "9a7fa59344bc7c2510ffdafc2d5f96a1a8de46eba91bc2d9c29e1bdd7fefd028",
+      "bytes": 1990
+    },
+    {
+      "receipt": "guard-disabled/native-action-proof.json",
+      "sha256": "5959d2914252b0a0becfcd67a36fed2dc371ee5d45e667b89eb9237db92e78d1",
+      "bytes": 147
+    },
+    {
+      "receipt": "guard-disabled/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "guard-disabled/run.log",
+      "sha256": "e59b7d6313fe1381385945e256ffde20b33addb9ea9a3a3d788a025ceb7f807b",
+      "bytes": 1510
+    },
+    {
+      "receipt": "guard-disabled/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "guard-disabled/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "guard-disabled/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "guard-disabled/run.time",
+      "sha256": "389b851d111636e101bbd546bb8c1229045d68eba7bdd940316a5b6b147bbc30",
+      "bytes": 904
+    },
+    {
+      "receipt": "namespace-check.py",
+      "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+      "bytes": 180
+    },
+    {
+      "receipt": "namespace-wrapper.sh",
+      "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+      "bytes": 438
+    },
+    {
+      "receipt": "playwright-coreBundle.js",
+      "sha256": "549070af3acabb3efcc4f55bfe6210f9f7c2fcf633cf7eaa59bfe60719969171",
+      "bytes": 3477183
+    },
+    {
+      "receipt": "playwright-package.json",
+      "sha256": "f061c58427e47e843e26d201f0a57076c734e57c734ecbbd87d4a23b7a20db9b",
+      "bytes": 876
+    },
+    {
+      "receipt": "playwright-source.json",
+      "sha256": "cc2723ba3baad18530c11079b22259df3f6249638597b0d1c71a66feb63c0ff9",
+      "bytes": 188
+    },
+    {
+      "receipt": "premature/ast-proof.log",
+      "sha256": "746cb65ca7ee06fbb31b901d91747b54f70ecacec1d1d28eea9005cb0dbaf2fd",
+      "bytes": 294
+    },
+    {
+      "receipt": "premature/exit.json",
+      "sha256": "e153f5bd2ee7416d77570b30ba1de5bb9196c55f8d145e34df9dab12190ffe43",
+      "bytes": 16
+    },
+    {
+      "receipt": "premature/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "premature/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "premature/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "premature/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "premature/html-preview-runtime.test.ts.observed",
+      "sha256": "275835c5940d527955ce4998646a019d78216a58aa2663fa9f114aa25fe161b3",
+      "bytes": 31219
+    },
+    {
+      "receipt": "premature/html-preview-runtime.test.ts.original",
+      "sha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+      "bytes": 29795
+    },
+    {
+      "receipt": "premature/manifest.json",
+      "sha256": "d663a0a5e68717a93dddb4701effd69ac61214804c8afe918b5d89b50f6d209d",
+      "bytes": 1980
+    },
+    {
+      "receipt": "premature/native-action-proof.json",
+      "sha256": "5959d2914252b0a0becfcd67a36fed2dc371ee5d45e667b89eb9237db92e78d1",
+      "bytes": 147
+    },
+    {
+      "receipt": "premature/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "premature/run.log",
+      "sha256": "18af33aeae92fe541da576d927ec45644bd24eb225fa09d18b2ada30590ef2a5",
+      "bytes": 1713
+    },
+    {
+      "receipt": "premature/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "premature/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "premature/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "premature/run.time",
+      "sha256": "0fff8e08308d93293479e67f23e688cbf8123b01c779c458e10e688a9fc35dc0",
+      "bytes": 903
+    },
+    {
+      "receipt": "restored/ast-proof.log",
+      "sha256": "30667ec5d89ff99fd6c8844d882372ce27316908108d0847de49e85151cdcf56",
+      "bytes": 221
+    },
+    {
+      "receipt": "restored/exit.json",
+      "sha256": "982b9e9bfb10ffe83cad665807abcfd3fa97b37822db5ab7831157a499548a9e",
+      "bytes": 16
+    },
+    {
+      "receipt": "restored/file-viewer-html.tsx.observed",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "restored/file-viewer-html.tsx.original",
+      "sha256": "254aeafb5812b1d313c628c336565bc91eb3be304bcccb0748b86bb3545b58c0",
+      "bytes": 1229
+    },
+    {
+      "receipt": "restored/files.ts.observed",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "restored/files.ts.original",
+      "sha256": "c32319c7fff99f22419bd2a1beba9d415ac1455b0ec007263d0177b548cf53e3",
+      "bytes": 11189
+    },
+    {
+      "receipt": "restored/html-preview-runtime.test.ts.observed",
+      "sha256": "b31a7d73490b3fc76262e3e1791dd9c21c8a793b9a179c85985d00fffb0bd7d4",
+      "bytes": 31138
+    },
+    {
+      "receipt": "restored/html-preview-runtime.test.ts.original",
+      "sha256": "f2a9be9ed63f68e8280190bd6cb908d13594258a4aa41738888bd96988fae494",
+      "bytes": 29795
+    },
+    {
+      "receipt": "restored/manifest.json",
+      "sha256": "a2c8c6f42c13c320c8e637d60be91ba032e3816a3d440effdf01bf7a8f5fdd21",
+      "bytes": 1899
+    },
+    {
+      "receipt": "restored/native-action-proof.json",
+      "sha256": "5959d2914252b0a0becfcd67a36fed2dc371ee5d45e667b89eb9237db92e78d1",
+      "bytes": 147
+    },
+    {
+      "receipt": "restored/restoration.json",
+      "sha256": "4b6ee7a2edc0cf9e8a62646773fc63a36b7b7759cfd213a48efe9bd4851215bc",
+      "bytes": 19
+    },
+    {
+      "receipt": "restored/run.log",
+      "sha256": "ac7cb46d4f8bd6431628e1c8e7185318400e4296e317f987c1f122c919714743",
+      "bytes": 2650
+    },
+    {
+      "receipt": "restored/run.namespace-address.json",
+      "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+      "bytes": 518
+    },
+    {
+      "receipt": "restored/run.namespace-route.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    },
+    {
+      "receipt": "restored/run.namespace-uid-map.txt",
+      "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+      "bytes": 33
+    },
+    {
+      "receipt": "restored/run.time",
+      "sha256": "3ada39a720b0a3d286af79a13a1cf7f4c8538cde828db22507ecb0d2df40be07",
+      "bytes": 801
+    },
+    {
+      "receipt": "runtime.json",
+      "sha256": "263fc7998ab4c15ebf47d5f20a868b9b23fa3dcb4a9bd461c87cfe23a15d8a7c",
+      "bytes": 325
+    },
+    {
+      "receipt": "summarize.py",
+      "sha256": "6303c4aebd8b5caa43f16bc631a92bfa5ab11c3190efc89749c5a95c705f8d0e",
+      "bytes": 2990
+    },
+    {
+      "receipt": "verify-native-action.ts",
+      "sha256": "90528ceb24e271d6295ba4b6ffa6937829b5a2bc222f785cebf9f958d3ad5ed2",
+      "bytes": 1694
+    },
+    {
+      "receipt": "verify.ts",
+      "sha256": "a7fb74cd966aa9ee09ff3570bced01d9a3cbfb23cb53b5ee93ce948cddf5c31f",
+      "bytes": 1499
+    }
+  ]
+}

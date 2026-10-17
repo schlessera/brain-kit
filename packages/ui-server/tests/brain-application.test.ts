@@ -114,6 +114,33 @@ describe("server-owned application boundary", () => {
   test("unsupported file kind refuses", async () => {
     await denied(write("notes/raft.ts", "Untrusted code", null), "unsupported_kind");
   });
+  test.each([
+    ["voyages/.drafts/ithaca-return.md", ".drafts"],
+    ["voyages/.ithaca-return.md", ".ithaca-return.md"],
+    [".git/notes.md", ".git"],
+    [".brain/scratch/ithaca-return.md", ".brain"],
+    ["voyages/.drafts/ithaca-return.txt", ".drafts"],
+  ])("hidden path segment has a precise diagnostic: %s", async (target, segment) => {
+    const result = await application()(request(write(target, "Odysseus returns.\n", null)));
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("unsupported_kind");
+    expect(result.message).toContain(`Hidden path segment "${segment}"`);
+    expect(result.message).toContain("Hidden files and directories are not written by this route.");
+    expect(result.changes).toEqual([]);
+    expect(receipts).toEqual([result]);
+    expect(existsSync(join(root, target))).toBe(false);
+    policyUnchanged();
+    if (target.startsWith(".brain/scratch/")) expect(result.message).toContain("worker shell");
+  });
+  test("non-Markdown path keeps the Markdown diagnostic", async () => {
+    const result = await application()(request(write("voyages/ithaca.txt", "Odysseus returns.\n", null)));
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe("unsupported_kind");
+    expect(result.message).toBe("Only ordinary UTF-8 Markdown document files are supported by this route.");
+    expect(result.changes).toEqual([]);
+    expect(existsSync(join(root, "voyages"))).toBe(false);
+    policyUnchanged();
+  });
   test("directory file kind refuses", async () => {
     mkdirSync(join(root, "notes/directory.md"));
     await denied(write("notes/directory.md", "Wrong kind", null), "alias_denied");

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ServerMessage, SessionHistoryMessage, TurnFailure } from "@schlessera/brain-ui-sdk/protocol";
 import { buildSessionHistory } from "../../ui-backend-claude/src/history";
 import { normalizeMessages } from "../../ui-backend-pi/src/history";
@@ -8,8 +11,15 @@ import type { WSContext } from "../src/ws/clients";
 import type { BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 const TEST_DB = `/tmp/brain-ui-failure-replay-${process.pid}.db`;
-beforeEach(() => { resetForTests(); closeDb(); removeDbFile(TEST_DB); useTestDb(TEST_DB); });
-afterEach(() => { resetForTests(); closeDb(); removeDbFile(TEST_DB); });
+let brainPath: string;
+beforeEach(() => {
+  brainPath = mkdtempSync(join(tmpdir(), "odysseus-failure-replay-"));
+  resetForTests(); closeDb(); removeDbFile(TEST_DB); useTestDb(TEST_DB);
+});
+afterEach(() => {
+  resetForTests(); closeDb(); removeDbFile(TEST_DB);
+  rmSync(brainPath, { recursive: true, force: true });
+});
 
 /** Replay without the host-proven turn ids (#964), which these failure assertions are not about. */
 function unlinked(messages: SessionHistoryMessage[]): SessionHistoryMessage[] {
@@ -64,7 +74,7 @@ function harness(id: "claude" | "pi") {
       historyHold = undefined;
       await hold;
       return id === "claude"
-        ? buildSessionHistory("s1", async () => raw, "/fixture")
+        ? buildSessionHistory("s1", async () => raw, brainPath)
         : normalizeMessages(raw);
     },
   });

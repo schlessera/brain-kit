@@ -4,4 +4,4 @@
  * version. See docs/decisions/public-export-boundary.md.
  */
 export { mapViewBounds } from "./blocks/MapView.js";
-export { LIGHT_TOKENS, TOKENS, canvas, printThemeCss, type TokenName } from "./tokens.js";
+export { LIGHT_TOKENS, PRINT_TOKENS, TOKENS, canvas, printThemeCss, type TokenName } from "./tokens.js";

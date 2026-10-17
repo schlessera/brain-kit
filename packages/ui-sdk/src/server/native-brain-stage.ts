@@ -1,4 +1,5 @@
 /** Fixed privileged OverlayFS setup and metadata inspection for the native broker. */
+import { NATIVE_CHECKPOINT_READER_PROGRAM, type NativeCheckpointReadRequest } from "./native-checkpoint-reader.js";
 import { readFileSync } from "node:fs";
 import { NativeBrainManagerError, NATIVE_CONTROL_BYTES, type NativeStage, type NativeStageChange } from "./native-brain-manager-protocol.js";
 
@@ -8,8 +9,9 @@ const STAGE_PROGRAM = String.raw`import ctypes,json,os,pathlib,stat,subprocess,s
 libc=ctypes.CDLL(None,use_errno=True)
 parent=os.getppid()
 if libc.prctl(1,9,0,0,0)!=0 or os.getppid()!=parent:raise RuntimeError("stage parent-death containment failed")
-mount,lower,uid,gid,allowance=sys.argv[1:]
-uid=int(uid);gid=int(gid);allowance=int(allowance)
+mount,lower,uid,gid,allowance,worker_uid,reader_program,reader_timeout=sys.argv[1:]
+readers={}
+uid=int(uid);gid=int(gid);allowance=int(allowance);stage_uid=int(worker_uid) or uid
 if os.geteuid()!=0 or open("/proc/self/uid_map").read().split()!=["0","0","4294967295"]:
  raise RuntimeError("trusted stage setup requires root in the initial user namespace")
 def command(argv):
@@ -19,18 +21,33 @@ def identity(pid):
  text=open("/proc/"+str(pid)+"/stat").read();return text[text.rfind(")")+2:].split()[19]
 command(["/usr/bin/mount","-i","-n","-t","tmpfs","-o","size="+str(allowance)+",mode=700,uid="+str(uid)+",gid="+str(gid)+",nosuid,nodev","tmpfs",mount])
 for name in ("upper","work","merged"):
- os.mkdir(mount+"/"+name,0o700);os.chown(mount+"/"+name,uid,gid)
+ os.mkdir(mount+"/"+name,0o700);os.chown(mount+"/"+name,stage_uid,gid)
 command(["/usr/bin/mount","-i","-n","-t","overlay","overlay","-o","lowerdir="+lower+",upperdir="+mount+"/upper,workdir="+mount+"/work,redirect_dir=nofollow,metacopy=off,index=off",mount+"/merged"])
-keeper_program="import os,sys,json; print(json.dumps({'pid':os.getpid()}),flush=True);sys.stdin.buffer.read()"
+keeper_program="import os,sys,json; print(json.dumps({'pid':os.getpid(),'mountNamespaceInode':str(os.stat('/proc/self/ns/mnt').st_ino)}),flush=True);sys.stdin.buffer.read()"
 keeper=subprocess.Popen(["/usr/bin/setpriv","--reuid="+str(uid),"--regid="+str(gid),"--clear-groups","--inh-caps=-all","--ambient-caps=-all","--no-new-privs","--pdeathsig=KILL","/usr/bin/unshare","--user","--map-root-user","--mount","--net","--ipc","--uts","--fork","--kill-child=SIGKILL","/usr/bin/python3","-I","-S","-c",keeper_program],env={},stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
 try:
  line=keeper.stdout.readline(65537)
  if not line or len(line)>65536:raise RuntimeError("stage keeper did not prove readiness")
- pid=json.loads(line)["pid"];info=os.stat(mount);space=os.statvfs(mount)
+ keeper_identity=json.loads(line);pid=keeper_identity["pid"];info=os.stat(mount);space=os.statvfs(mount);merged=os.stat(mount+"/merged")
  if space.f_blocks*space.f_frsize!=allowance:raise RuntimeError("stage allowance differs from actual tmpfs capacity")
- print(json.dumps({"pid":pid,"start":identity(pid),"device":str(info.st_dev),"inode":str(info.st_ino)}),flush=True)
+ print(json.dumps({"pid":pid,"start":identity(pid),"device":str(info.st_dev),"inode":str(info.st_ino),"mountNamespaceInode":keeper_identity["mountNamespaceInode"],"mergedDevice":str(merged.st_dev),"mergedInode":str(merged.st_ino)}),flush=True)
  for line in sys.stdin.buffer:
   if line==b"release\n":break
+  if line.startswith(b"reader "):
+   request=json.loads(line[7:]);key=request["id"]
+   if len(readers)>=8 or key in readers:raise RuntimeError("stage reader slots unavailable")
+   root=os.open(mount+"/merged",os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+   try:
+    job=subprocess.Popen(["/usr/bin/python3","-I","-S","-c",reader_program,request["socketPath"],request["token"],str(uid),worker_uid,str(gid),reader_timeout,json.dumps(request["request"]),str(root)],env={},stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,pass_fds=(root,))
+   finally:os.close(root)
+   readers[key]=job
+   if job.stdout.readline(1025)!=b'{"ready": true}\n':raise RuntimeError("stage reader readiness failed")
+   print(json.dumps({"reader":key}),flush=True);continue
+  if line.startswith(b"cancel-reader "):
+   key=line[14:].strip().decode();job=readers.pop(key,None)
+   if job:
+    job.terminate();job.wait(timeout=5)
+   print(json.dumps({"closed":key}),flush=True);continue
   if line!=b"inspect\n":raise RuntimeError("invalid fixed stage control")
   count=0
   def emit(parts,kind):
@@ -75,6 +92,10 @@ try:
   finally:os.close(fd)
   print(json.dumps({"done":True,"entries":count}),flush=True)
 finally:
+ for job in readers.values():
+  if job.poll() is None:job.terminate()
+  try:job.wait(timeout=5)
+  except subprocess.TimeoutExpired:job.kill();job.wait()
  keeper.stdin.close()
  try:keeper.wait(timeout=5)
  except subprocess.TimeoutExpired:keeper.kill();keeper.wait()
@@ -88,11 +109,11 @@ function processStart(pid: number): string {
 
 /** The response identifies a fixed keeper, never a requester-selected PID or mount. */
 export async function startNativeStage(options: { id: string; checkpointId: string; checkpointUuid: string; sourceUuid: string;
-  path: string; lower: string; appUid: number; appGid: number; allowanceBytes: number; timeoutMs: number; signal?: AbortSignal }) {
+  path: string; lower: string; appUid: number; appGid: number; workerUid?: number; allowanceBytes: number; timeoutMs: number; signal?: AbortSignal }) {
   if (/[,:\\]/.test(options.path) || /[,:\\]/.test(options.lower))
     throw new NativeBrainManagerError("unsupported", "Trusted OverlayFS requires managed paths without mount-option delimiters.");
   const child = Bun.spawn(["/usr/bin/unshare", "--mount", "/usr/bin/python3", "-I", "-S", "-c", STAGE_PROGRAM,
-    options.path, options.lower, String(options.appUid), String(options.appGid), String(options.allowanceBytes)], {
+    options.path, options.lower, String(options.appUid), String(options.appGid), String(options.allowanceBytes), String(options.workerUid ?? 0), NATIVE_CHECKPOINT_READER_PROGRAM, String(options.timeoutMs / 1000)], {
     cwd: "/", env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   const reader = child.stdout.getReader(); let pending = new Uint8Array(0), closed = false, failed = false;
@@ -117,18 +138,33 @@ export async function startNativeStage(options: { id: string; checkpointId: stri
     try { return await Promise.race([fn(), failure]); }
     finally { clearTimeout(timer); if (stop) signal?.removeEventListener("abort", stop); }
   }
-  let stage: NativeStage;
+  let stage: NativeStage, mountNamespaceInode: string, mergedDevice: string, mergedInode: string;
   try {
     const ready = JSON.parse(await bounded(line, options.signal));
     if (!Number.isSafeInteger(ready.pid) || ready.pid <= 0 || !/^[1-9][0-9]*$/.test(ready.start) || processStart(ready.pid) !== ready.start)
       throw new NativeBrainManagerError("unavailable", "Stage keeper identity could not be verified in this PID namespace.");
-    if (!/^[1-9][0-9]*$/.test(ready.device) || !/^[1-9][0-9]*$/.test(ready.inode))
+    if (!/^[1-9][0-9]*$/.test(ready.mergedDevice) || !/^[1-9][0-9]*$/.test(ready.mergedInode) || !/^[1-9][0-9]*$/.test(ready.mountNamespaceInode) || !/^[1-9][0-9]*$/.test(ready.device) || !/^[1-9][0-9]*$/.test(ready.inode))
       throw new NativeBrainManagerError("unknown", "Stage helper did not return its fixed mounted-root identity.");
+    mountNamespaceInode = ready.mountNamespaceInode; mergedDevice = ready.mergedDevice; mergedInode = ready.mergedInode;
     stage = { id: options.id, checkpointId: options.checkpointId, checkpointUuid: options.checkpointUuid, sourceUuid: options.sourceUuid,
       path: options.path, namespacePid: ready.pid, namespaceStart: ready.start, appUid: options.appUid, appGid: options.appGid,
       allowanceBytes: options.allowanceBytes, rootDevice: ready.device, rootInode: ready.inode };
   } catch (error) { child.kill("SIGKILL"); await child.exited; throw error; }
-  return { stage,
+  return { stage, mountNamespaceInode, mergedDevice, mergedInode,
+    async read(request: { id: string; token: string; socketPath: string; request: NativeCheckpointReadRequest }, signal?: AbortSignal) {
+      if (!options.workerUid || closed || failed || processStart(stage.namespacePid) !== stage.namespaceStart)
+        throw new NativeBrainManagerError("unavailable", "Stage reader requires a live owned stage and fixed worker identity.");
+      await child.stdin.write("reader " + JSON.stringify(request) + "\n");
+      const receipt = JSON.parse(await bounded(line, signal));
+      if (receipt.reader !== request.id) throw new NativeBrainManagerError("unknown", "Stage reader identity differs from its request.");
+      let stopped = false;
+      return { async close() {
+        if (stopped || closed || failed) return; stopped = true;
+        await child.stdin.write("cancel-reader " + request.id + "\n");
+        const receipt = JSON.parse(await bounded(line));
+        if (receipt.closed !== request.id) throw new NativeBrainManagerError("unknown", "Stage reader cleanup identity differs.");
+      } };
+    },
     async *inspect(signal?: AbortSignal): AsyncGenerator<NativeStageChange> {
       if (closed || failed || processStart(stage.namespacePid) !== stage.namespaceStart)
         throw new NativeBrainManagerError("unavailable", "Trusted stage keeper is unavailable; discard outputs and reconcile its ownership.");

@@ -279,9 +279,10 @@ export function CommandPalette(p: CommandPaletteProps) {
           gap: 10,
           padding: "13px 14px",
           borderBottom: `1px solid ${color.line}`,
+          borderRadius: "15px 15px 0 0",
         }}
         // The ring is on the ROW, not the input, and inside it: the row is the
-        // dialog's top strip, and the dialog clips.
+        // dialog's top strip. Its radii follow the inside of the dialog border.
         className="bk-field bk-field-inset"
       >
         <Icon icon="search" size={16} color={color.inkMute} />

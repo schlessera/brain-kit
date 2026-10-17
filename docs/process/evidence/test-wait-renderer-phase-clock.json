@@ -1,0 +1,527 @@
+{
+  "issue": 1947,
+  "date": "2026-10-16",
+  "base": "4e4a663f98054d86f2dc90154b42ffbe8f8b7692",
+  "environment": {
+    "bun": "1.4.2 (744846f84)",
+    "platform": "Linux WSL2 x86_64 glibc 2.39",
+    "visibleCPUs": 32,
+    "affinityCPUs": 32,
+    "resources": "Shared host; no dedicated CPU or memory limit asserted. No Chrome, child fixture process, build or network channel in this all-double file. Existing offline test preload retained.",
+    "setup": "One frozen copyfile install, installer reported 9.57 seconds for 923 packages; excluded from every paired command. Tests import live TypeScript. Command wall/CPU/RSS include wrapper, preload and module load. Per-case bodies exclude those costs."
+  },
+  "sources": [
+    {
+      "path": "packages/ui-render-puppeteer/tests/phase-budgets.test.ts",
+      "sha256": "ddc231552dafaad39078ea6cdfb5c481723999d56c3191b9cd7304d1e65b2b5a"
+    },
+    {
+      "path": "packages/ui-render-puppeteer/src/renderer.ts",
+      "sha256": "75b0710f96dc5b4705ef6c1ffd501c9075ce0377e9a9b2fbc9ce3e9f490ccb08"
+    },
+    {
+      "path": "packages/ui-render-puppeteer/src/semaphore.ts",
+      "sha256": "b3d88b07eab70f4066c9f2754d5a5ea86e129f498163626d9c65a34da435ca5a"
+    },
+    {
+      "path": "bun.lock",
+      "sha256": "a33ace577ec87f79769d40c3e8e25d637563b5ec8ea25e5ad40bb9b7a593285c"
+    },
+    {
+      "path": "scripts/test.ts",
+      "sha256": "df3f3109ec6e0e92dc21dfeaf80a5bb9bd897fb53941fa52385a4b75dd5d6a23"
+    },
+    {
+      "path": "scripts/test-network-preload.ts",
+      "sha256": "922a8c4f5044164c791220a6d58fc2777200a5f260af9c4fd8b1a5bd013d72bd"
+    }
+  ],
+  "mapping": [
+    "All original 15 case names remain in order, with all original error/status/resource/capacity expectations retained. Original full-file count: 82; candidate: 184 including teardown and the added failure-path control.",
+    "Queue expiry is asserted before releasing the held slot; just-before/due registration checks precede its original error assertion.",
+    "Acquisition and page creation/rendering retain separate timers; the 80+80 ms success is driven across logical 160 ms and its 120 ms rendering allowance starts after acquisition. Cleared acquisition/render timers stay retired beyond their prior deadlines.",
+    "Overlapping acquisition and render cases start the second call 50/70 logical ms later. Their actual pending timers remain independent as the first expires; the newer timer clears on success.",
+    "Idle closes at 30 logical ms after completion, remains absent during capture, relaunches and clears/rearms when a new render starts.",
+    "Late launch, page and content resolution drains real promise jobs via a native event-loop turn before original close/configuration/capture assertions. Removing all expiration guards fails the original screenshots == 0 assertion.",
+    "Wedged page close remains detached. Browser cleanup registers 2000, remains pending at 1999 and finishes at 2000 logical ms; the outer 2500 ms failure ceiling remains native.",
+    "Cleanup after a synthetic failure drives real registered callbacks, checks no pending timers and restores complete global descriptors in finally. No public injection seam or production change. This scheduling proof makes no native Chrome duration claim."
+  ],
+  "pairs": [
+    {
+      "scope": "full",
+      "command": "bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts",
+      "baseline": {
+        "exit": 0,
+        "commandWall": "0:03.15",
+        "userSeconds": 0.12,
+        "systemSeconds": 0.09,
+        "maxRSSKiB": 54524,
+        "summedBodiesMs": 3024.55,
+        "cases": 15,
+        "expects": 82
+      },
+      "candidate": {
+        "exit": 0,
+        "commandWall": "0:00.11",
+        "userSeconds": 0.11,
+        "systemSeconds": 0.03,
+        "maxRSSKiB": 56068,
+        "summedBodiesMs": 6.96,
+        "cases": 16,
+        "expects": 184
+      }
+    },
+    {
+      "scope": "cleanup",
+      "command": "bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a wedged page close\"",
+      "baseline": {
+        "exit": 0,
+        "commandWall": "0:02.13",
+        "userSeconds": 0.11,
+        "systemSeconds": 0.08,
+        "maxRSSKiB": 52692,
+        "summedBodiesMs": 2003.22,
+        "cases": 1,
+        "expects": 4
+      },
+      "candidate": {
+        "exit": 0,
+        "commandWall": "0:00.11",
+        "userSeconds": 0.08,
+        "systemSeconds": 0.05,
+        "maxRSSKiB": 54600,
+        "summedBodiesMs": 1.68,
+        "cases": 1,
+        "expects": 10
+      }
+    },
+    {
+      "scope": "phases",
+      "command": "bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a slow launch|one rendering timeout\"",
+      "baseline": {
+        "exit": 0,
+        "commandWall": "0:00.51",
+        "userSeconds": 0.1,
+        "systemSeconds": 0.03,
+        "maxRSSKiB": 53016,
+        "summedBodiesMs": 394.59,
+        "cases": 2,
+        "expects": 7
+      },
+      "candidate": {
+        "exit": 0,
+        "commandWall": "0:00.11",
+        "userSeconds": 0.09,
+        "systemSeconds": 0.04,
+        "maxRSSKiB": 54520,
+        "summedBodiesMs": 2.52,
+        "cases": 2,
+        "expects": 26
+      }
+    }
+  ],
+  "timerObservations": {
+    "baseline": {
+      "NATIVE_TIMERS": {
+        "registrations": 136,
+        "states": {
+          "cleared": 113,
+          "fired": 23
+        },
+        "byRequestedMs": [
+          {
+            "ms": 5,
+            "state": "fired",
+            "count": 4
+          },
+          {
+            "ms": 30,
+            "state": "cleared",
+            "count": 7
+          },
+          {
+            "ms": 30,
+            "state": "fired",
+            "count": 8
+          },
+          {
+            "ms": 50,
+            "state": "fired",
+            "count": 1
+          },
+          {
+            "ms": 60,
+            "state": "fired",
+            "count": 3
+          },
+          {
+            "ms": 70,
+            "state": "fired",
+            "count": 1
+          },
+          {
+            "ms": 80,
+            "state": "fired",
+            "count": 2
+          },
+          {
+            "ms": 100,
+            "state": "cleared",
+            "count": 7
+          },
+          {
+            "ms": 120,
+            "state": "cleared",
+            "count": 1
+          },
+          {
+            "ms": 160,
+            "state": "fired",
+            "count": 1
+          },
+          {
+            "ms": 200,
+            "state": "cleared",
+            "count": 10
+          },
+          {
+            "ms": 200,
+            "state": "fired",
+            "count": 2
+          },
+          {
+            "ms": 300,
+            "state": "cleared",
+            "count": 1
+          },
+          {
+            "ms": 400,
+            "state": "cleared",
+            "count": 28
+          },
+          {
+            "ms": 500,
+            "state": "cleared",
+            "count": 16
+          },
+          {
+            "ms": 2000,
+            "state": "cleared",
+            "count": 14
+          },
+          {
+            "ms": 2000,
+            "state": "fired",
+            "count": 1
+          },
+          {
+            "ms": 2500,
+            "state": "cleared",
+            "count": 1
+          },
+          {
+            "ms": 60000,
+            "state": "cleared",
+            "count": 28
+          }
+        ]
+      },
+      "LOGICAL_TIMERS": {
+        "registrations": 0,
+        "states": {},
+        "byRequestedMs": []
+      }
+    },
+    "candidate": {
+      "NATIVE_TIMERS": {
+        "registrations": 33,
+        "states": {
+          "cleared": 33
+        },
+        "byRequestedMs": [
+          {
+            "ms": 300,
+            "state": "cleared",
+            "count": 1
+          },
+          {
+            "ms": 400,
+            "state": "cleared",
+            "count": 31
+          },
+          {
+            "ms": 2500,
+            "state": "cleared",
+            "count": 1
+          }
+        ]
+      },
+      "LOGICAL_TIMERS": {
+        "registrations": 92,
+        "states": {
+          "cleared": 74,
+          "fired": 18
+        },
+        "byRequestedMs": [
+          {
+            "ms": 30,
+            "state": "cleared",
+            "count": 9
+          },
+          {
+            "ms": 30,
+            "state": "fired",
+            "count": 8
+          },
+          {
+            "ms": 60,
+            "state": "fired",
+            "count": 3
+          },
+          {
+            "ms": 80,
+            "state": "fired",
+            "count": 2
+          },
+          {
+            "ms": 100,
+            "state": "cleared",
+            "count": 6
+          },
+          {
+            "ms": 120,
+            "state": "cleared",
+            "count": 1
+          },
+          {
+            "ms": 160,
+            "state": "fired",
+            "count": 1
+          },
+          {
+            "ms": 200,
+            "state": "cleared",
+            "count": 11
+          },
+          {
+            "ms": 200,
+            "state": "fired",
+            "count": 2
+          },
+          {
+            "ms": 500,
+            "state": "cleared",
+            "count": 2
+          },
+          {
+            "ms": 2000,
+            "state": "cleared",
+            "count": 14
+          },
+          {
+            "ms": 2000,
+            "state": "fired",
+            "count": 2
+          },
+          {
+            "ms": 30000,
+            "state": "cleared",
+            "count": 1
+          },
+          {
+            "ms": 60000,
+            "state": "cleared",
+            "count": 30
+          }
+        ]
+      }
+    }
+  },
+  "mutations": [
+    {
+      "name": "early-deadline",
+      "exit": 1,
+      "case": "renderer phase budgets > a never-resolving launch times out and the next render launches again",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "late-deadline",
+      "exit": 1,
+      "case": "renderer phase budgets > a never-resolving launch times out and the next render launches again",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "wrong-phase",
+      "exit": 1,
+      "case": "renderer phase budgets > a slow launch leaves the full rendering allowance available",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "missing-cancel",
+      "exit": 1,
+      "case": "renderer phase budgets > a slow launch leaves the full rendering allowance available",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "missing-rearm",
+      "exit": 1,
+      "case": "renderer phase budgets > idle closure waits for active renders and the next call relaunches",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "late-capture-guards",
+      "exit": 1,
+      "case": "renderer phase budgets > a timed-out content operation cannot later start a capture",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "double-close-call",
+      "exit": 1,
+      "case": "renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "restore-descriptor",
+      "exit": 1,
+      "case": "renderer phase budgets > failed assertion cleanup drains owned callbacks and restores complete descriptors",
+      "failure": "expect(received).toEqual(expected)"
+    },
+    {
+      "name": "early-fire",
+      "exit": 1,
+      "case": "renderer phase budgets > a never-resolving launch times out and the next render launches again",
+      "failure": "expect(received).toBe(expected)"
+    },
+    {
+      "name": "late-fire",
+      "exit": 1,
+      "case": "renderer phase budgets > a never-resolving launch times out and the next render launches again",
+      "failure": "expect(received).toBe(expected)"
+    }
+  ],
+  "limitations": [
+    "One baseline/candidate pair per scope, run serially on a shared host with no fixed CPU allotment. Observer runs are separate and excluded from timing gains. No causal CPU/RSS or whole-CI improvement claim.",
+    "A native setImmediate turn drains ready promise continuations in this finite all-double fixture; it is not an arbitrary native-operation completion barrier. Timer registration and resource effects are also asserted.",
+    "The clock implements only the timeout calls used in this fixture, not a general fake-timer library or production seam.",
+    "A partial late-content mutation deleting only one checkActive call still passed because later checks independently stop capture. Removing closeBrowser memoization alone also passed because that selected scenario invokes the closer once. Those controls are not claimed as detected defects. Actual late capture and duplicate close mutations fail original assertions."
+  ],
+  "baselineTestSha256": "8a876ba637f733b4b27c21ff6d08206e26821403b679523a4b5b845f2a2e18ac",
+  "receipts": [
+    {
+      "name": "baseline-cleanup.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a wedged page close\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [2003.22ms]\n\n 1 pass\n 14 filtered out\n 0 fail\n 4 expect() calls\nRan 1 test across 1 file. [2.07s]\n"
+    },
+    {
+      "name": "baseline-full.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > invalid phase budgets and capacity settings are refused [0.47ms]\n(pass) renderer phase budgets > shutdown racing immediate acquisition cannot start a launch [0.48ms]\n(pass) renderer phase budgets > idle closure waits for active renders and the next call relaunches [183.62ms]\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [164.49ms]\n(pass) renderer phase budgets > queue expiry rejects while the slot is held and removes the expired waiter [30.99ms]\n(pass) renderer phase budgets > a never-resolving launch times out and the next render launches again [31.30ms]\n(pass) renderer phase budgets > a never-resolving newPage times out in rendering and frees capacity [31.41ms]\n(pass) renderer phase budgets > an abandoned late launch is closed without opening a page or replacing the recovery browser [36.30ms]\n(pass) renderer phase budgets > a late page is closed without configuring or capturing it [36.38ms]\n(pass) renderer phase budgets > one acquisition timeout does not abandon a shared launch needed by a newer waiter [201.12ms]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [232.98ms]\n(pass) renderer phase budgets > a timed-out content operation cannot later start a capture [36.35ms]\n(pass) renderer phase budgets > shutdown rejects queued calls and drains a wedged acquisition within its phase bound [36.31ms]\n(pass) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [0.34ms]\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [2002.01ms]\n\n 15 pass\n 0 fail\n 82 expect() calls\nRan 15 tests across 1 file. [3.09s]\n"
+    },
+    {
+      "name": "baseline-phases.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a slow launch|one rendering timeout\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [163.37ms]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [231.22ms]\n\n 2 pass\n 13 filtered out\n 0 fail\n 7 expect() calls\nRan 2 tests across 1 file. [456.00ms]\n"
+    },
+    {
+      "name": "baseline-timers.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts --preload \"/tmp/1947-evidence/observe.ts\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > invalid phase budgets and capacity settings are refused [0.42ms]\n(pass) renderer phase budgets > shutdown racing immediate acquisition cannot start a launch [0.55ms]\n(pass) renderer phase budgets > idle closure waits for active renders and the next call relaunches [182.40ms]\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [161.90ms]\n(pass) renderer phase budgets > queue expiry rejects while the slot is held and removes the expired waiter [31.11ms]\n(pass) renderer phase budgets > a never-resolving launch times out and the next render launches again [30.94ms]\n(pass) renderer phase budgets > a never-resolving newPage times out in rendering and frees capacity [31.03ms]\n(pass) renderer phase budgets > an abandoned late launch is closed without opening a page or replacing the recovery browser [36.05ms]\n(pass) renderer phase budgets > a late page is closed without configuring or capturing it [36.00ms]\n(pass) renderer phase budgets > one acquisition timeout does not abandon a shared launch needed by a newer waiter [200.90ms]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [233.52ms]\n(pass) renderer phase budgets > a timed-out content operation cannot later start a capture [35.71ms]\n(pass) renderer phase budgets > shutdown rejects queued calls and drains a wedged acquisition within its phase bound [35.73ms]\n(pass) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [0.35ms]\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [2001.51ms]\nNATIVE_TIMERS [{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"fixture\",\"ms\":60,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":80,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":120,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":80,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"queue\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"fixture\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"queue\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":5,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":5,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":50,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"fired\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":70,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"fired\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":160,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":5,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":30,\"state\":\"fired\"},{\"owner\":\"queue\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":300,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":5,\"state\":\"fired\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":200,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":100,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":60000,\"state\":\"cleared\"},{\"owner\":\"renderer\",\"ms\":2000,\"state\":\"fired\"},{\"owner\":\"fixture\",\"ms\":2500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":500,\"state\":\"cleared\"}]\n\n 15 pass\n 0 fail\n 82 expect() calls\nRan 15 tests across 1 file. [3.08s]\n"
+    },
+    {
+      "name": "baseline.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > invalid phase budgets and capacity settings are refused [0.44ms]\n(pass) renderer phase budgets > shutdown racing immediate acquisition cannot start a launch [0.53ms]\n(pass) renderer phase budgets > idle closure waits for active renders and the next call relaunches [181.35ms]\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [160.79ms]\n(pass) renderer phase budgets > queue expiry rejects while the slot is held and removes the expired waiter [30.82ms]\n(pass) renderer phase budgets > a never-resolving launch times out and the next render launches again [30.57ms]\n(pass) renderer phase budgets > a never-resolving newPage times out in rendering and frees capacity [30.65ms]\n(pass) renderer phase budgets > an abandoned late launch is closed without opening a page or replacing the recovery browser [35.56ms]\n(pass) renderer phase budgets > a late page is closed without configuring or capturing it [35.58ms]\n(pass) renderer phase budgets > one acquisition timeout does not abandon a shared launch needed by a newer waiter [200.58ms]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [232.53ms]\n(pass) renderer phase budgets > a timed-out content operation cannot later start a capture [36.47ms]\n(pass) renderer phase budgets > shutdown rejects queued calls and drains a wedged acquisition within its phase bound [35.55ms]\n(pass) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [0.31ms]\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [2001.12ms]\n\n 15 pass\n 0 fail\n 82 expect() calls\nRan 15 tests across 1 file. [3.08s]\n"
+    },
+    {
+      "name": "candidate-cleanup.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a wedged page close\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [1.68ms]\n\n 1 pass\n 15 filtered out\n 0 fail\n 10 expect() calls\nRan 1 test across 1 file. [61.00ms]\n"
+    },
+    {
+      "name": "candidate-full.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > invalid phase budgets and capacity settings are refused [0.71ms]\n(pass) renderer phase budgets > shutdown racing immediate acquisition cannot start a launch [0.45ms]\n(pass) renderer phase budgets > idle closure waits for active renders and the next call relaunches [1.34ms]\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [0.48ms]\n(pass) renderer phase budgets > queue expiry rejects while the slot is held and removes the expired waiter [0.53ms]\n(pass) renderer phase budgets > a never-resolving launch times out and the next render launches again [0.38ms]\n(pass) renderer phase budgets > a never-resolving newPage times out in rendering and frees capacity [0.44ms]\n(pass) renderer phase budgets > an abandoned late launch is closed without opening a page or replacing the recovery browser [0.27ms]\n(pass) renderer phase budgets > a late page is closed without configuring or capturing it [0.27ms]\n(pass) renderer phase budgets > one acquisition timeout does not abandon a shared launch needed by a newer waiter [0.34ms]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [0.45ms]\n(pass) renderer phase budgets > a timed-out content operation cannot later start a capture [0.24ms]\n(pass) renderer phase budgets > shutdown rejects queued calls and drains a wedged acquisition within its phase bound [0.29ms]\n(pass) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [0.17ms]\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [0.31ms]\n(pass) renderer phase budgets > failed assertion cleanup drains owned callbacks and restores complete descriptors [0.29ms]\n\n 16 pass\n 0 fail\n 184 expect() calls\nRan 16 tests across 1 file. [68.00ms]\n"
+    },
+    {
+      "name": "candidate-phases.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a slow launch|one rendering timeout\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [1.87ms]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [0.65ms]\n\n 2 pass\n 14 filtered out\n 0 fail\n 26 expect() calls\nRan 2 tests across 1 file. [62.00ms]\n"
+    },
+    {
+      "name": "candidate-timers.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts --preload \"/tmp/1947-evidence/observe.ts\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\nLOGICAL_TIMERS []\n(pass) renderer phase budgets > invalid phase budgets and capacity settings are refused [0.64ms]\nLOGICAL_TIMERS []\n(pass) renderer phase budgets > shutdown racing immediate acquisition cannot start a launch [0.53ms]\nLOGICAL_TIMERS [{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":200,\"ms\":200,\"state\":\"cleared\"},{\"at\":60,\"ms\":60,\"state\":\"fired\"},{\"at\":90,\"ms\":30,\"state\":\"fired\"},{\"at\":2090,\"ms\":2000,\"state\":\"cleared\"},{\"at\":60090,\"ms\":60000,\"state\":\"cleared\"},{\"at\":290,\"ms\":200,\"state\":\"cleared\"},{\"at\":150,\"ms\":60,\"state\":\"fired\"},{\"at\":180,\"ms\":30,\"state\":\"cleared\"},{\"at\":60150,\"ms\":60000,\"state\":\"cleared\"},{\"at\":350,\"ms\":200,\"state\":\"cleared\"},{\"at\":210,\"ms\":60,\"state\":\"fired\"},{\"at\":240,\"ms\":30,\"state\":\"cleared\"},{\"at\":2210,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > idle closure waits for active renders and the next call relaunches [1.83ms]\nLOGICAL_TIMERS [{\"at\":200,\"ms\":200,\"state\":\"cleared\"},{\"at\":80,\"ms\":80,\"state\":\"fired\"},{\"at\":200,\"ms\":120,\"state\":\"cleared\"},{\"at\":160,\"ms\":80,\"state\":\"fired\"},{\"at\":60160,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2360,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > a slow launch leaves the full rendering allowance available [0.54ms]\nLOGICAL_TIMERS [{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":500,\"ms\":500,\"state\":\"cleared\"},{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":60,\"ms\":30,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":530,\"ms\":500,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > queue expiry rejects while the slot is held and removes the expired waiter [0.69ms]\nLOGICAL_TIMERS [{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":60,\"ms\":30,\"state\":\"cleared\"},{\"at\":130,\"ms\":100,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > a never-resolving launch times out and the next render launches again [0.50ms]\nLOGICAL_TIMERS [{\"at\":200,\"ms\":200,\"state\":\"cleared\"},{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":230,\"ms\":200,\"state\":\"cleared\"},{\"at\":60,\"ms\":30,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > a never-resolving newPage times out in rendering and frees capacity [0.53ms]\nLOGICAL_TIMERS [{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":60,\"ms\":30,\"state\":\"cleared\"},{\"at\":130,\"ms\":100,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"},{\"at\":60,\"ms\":30,\"state\":\"cleared\"},{\"at\":130,\"ms\":100,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > an abandoned late launch is closed without opening a page or replacing the recovery browser [0.34ms]\nLOGICAL_TIMERS [{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":60,\"ms\":30,\"state\":\"cleared\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > a late page is closed without configuring or capturing it [0.41ms]\nLOGICAL_TIMERS [{\"at\":200,\"ms\":200,\"state\":\"fired\"},{\"at\":250,\"ms\":200,\"state\":\"cleared\"},{\"at\":400,\"ms\":200,\"state\":\"cleared\"},{\"at\":60200,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2250,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > one acquisition timeout does not abandon a shared launch needed by a newer waiter [0.41ms]\nLOGICAL_TIMERS [{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":200,\"ms\":200,\"state\":\"fired\"},{\"at\":60070,\"ms\":60000,\"state\":\"cleared\"},{\"at\":270,\"ms\":200,\"state\":\"cleared\"},{\"at\":230,\"ms\":160,\"state\":\"fired\"},{\"at\":60230,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2230,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > one rendering timeout does not close another active render's browser [0.55ms]\nLOGICAL_TIMERS [{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":60030,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > a timed-out content operation cannot later start a capture [0.27ms]\nLOGICAL_TIMERS [{\"at\":30,\"ms\":30,\"state\":\"fired\"},{\"at\":200,\"ms\":200,\"state\":\"cleared\"},{\"at\":2030,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > shutdown rejects queued calls and drains a wedged acquisition within its phase bound [0.33ms]\nLOGICAL_TIMERS [{\"at\":200,\"ms\":200,\"state\":\"cleared\"},{\"at\":100,\"ms\":100,\"state\":\"cleared\"},{\"at\":2000,\"ms\":2000,\"state\":\"cleared\"}]\n(pass) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [0.19ms]\nLOGICAL_TIMERS [{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":100,\"ms\":100,\"state\":\"cleared\"},{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":100,\"ms\":100,\"state\":\"cleared\"},{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2000,\"ms\":2000,\"state\":\"fired\"}]\n(pass) renderer phase budgets > a wedged page close cannot retain capacity or block shutdown [0.35ms]\nLOGICAL_TIMERS [{\"at\":30,\"ms\":30,\"state\":\"cleared\"},{\"at\":30000,\"ms\":30000,\"state\":\"cleared\"},{\"at\":60000,\"ms\":60000,\"state\":\"cleared\"},{\"at\":2000,\"ms\":2000,\"state\":\"fired\"}]\n(pass) renderer phase budgets > failed assertion cleanup drains owned callbacks and restores complete descriptors [0.32ms]\nNATIVE_TIMERS [{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":300,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":2500,\"state\":\"cleared\"},{\"owner\":\"fixture\",\"ms\":400,\"state\":\"cleared\"}]\n\n 16 pass\n 0 fail\n 184 expect() calls\nRan 16 tests across 1 file. [69.00ms]\n"
+    },
+    {
+      "name": "double-close-call.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"shutdown lets an active shared\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n410 |     const shutdown = r.shutdown();\n411 |     launched.resolve(browser.asBrowser());\n412 |     expect((await active).status).toBe(\"ok\");\n413 |     expect((await outcome(shutdown)).status).toBe(\"ok\");\n414 |     expect(browser.pages).toBe(1);\n415 |     expect(browser.closes).toBe(1);\n                                 ^\nerror: expect(received).toBe(expected)\n\nExpected: 1\nReceived: 2\n\n      at <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:415:28)\n(fail) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [2.24ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 6 expect() calls\nRan 1 test across 1 file. [65.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "double-close.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"shutdown lets an active shared\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > shutdown lets an active shared launch/render finish and closes the browser once [1.50ms]\n\n 1 pass\n 15 filtered out\n 0 fail\n 7 expect() calls\nRan 1 test across 1 file. [65.00ms]\n"
+    },
+    {
+      "name": "early-deadline.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a never-resolving launch\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n36 |     });\n37 |   }\n38 |   pending(ms: number) { return this.timers.filter(t => t.state === \"pending\" && t.ms === ms); }\n39 |   async registered(ms: number, count = 1) {\n40 |     await turn();\n41 |     expect(this.pending(ms).length).toBe(count);\n                                         ^\nerror: expect(received).toBe(expected)\n\nExpected: 1\nReceived: 0\n\n      at registered (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:41:37)\n      at async expire (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:80:32)\n      at async <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:265:18)\n(fail) renderer phase budgets > a never-resolving launch times out and the next render launches again [1.80ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 3 expect() calls\nRan 1 test across 1 file. [70.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "early-fire.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a never-resolving launch\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n77 | async function expire<T>(promise: Promise<T>, ms: number) {\n78 |   let settled = false;\n79 |   const result = outcome(promise).then(value => { settled = true; return value; });\n80 |   const deadline = await clock.registered(ms);\n81 |   await clock.advance(ms - 1);\n82 |   expect(deadline.state).toBe(\"pending\");\n                              ^\nerror: expect(received).toBe(expected)\n\nExpected: \"pending\"\nReceived: \"fired\"\n\n      at expire (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:82:26)\n      at async <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:265:18)\n(fail) renderer phase budgets > a never-resolving launch times out and the next render launches again [1.76ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 4 expect() calls\nRan 1 test across 1 file. [63.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "late-capture-guards.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a timed-out content\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n371 |     browser.open = async () => page;\n372 |     const r = renderer({ renderTimeoutMs: 30, launch: async () => browser.asBrowser() });\n373 |     expect((await expire(r.renderPng(html), 30)).status).toBe(\"error\");\n374 |     content.resolve();\n375 |     await turn();\n376 |     expect(page.screenshots).toBe(0);\n                                   ^\nerror: expect(received).toBe(expected)\n\nExpected: 0\nReceived: 1\n\n      at <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:376:30)\n(fail) renderer phase budgets > a timed-out content operation cannot later start a capture [2.00ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 8 expect() calls\nRan 1 test across 1 file. [66.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "late-capture.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a timed-out content\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n(pass) renderer phase budgets > a timed-out content operation cannot later start a capture [1.85ms]\n\n 1 pass\n 15 filtered out\n 0 fail\n 9 expect() calls\nRan 1 test across 1 file. [64.00ms]\n"
+    },
+    {
+      "name": "late-deadline.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a never-resolving launch\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n36 |     });\n37 |   }\n38 |   pending(ms: number) { return this.timers.filter(t => t.state === \"pending\" && t.ms === ms); }\n39 |   async registered(ms: number, count = 1) {\n40 |     await turn();\n41 |     expect(this.pending(ms).length).toBe(count);\n                                         ^\nerror: expect(received).toBe(expected)\n\nExpected: 1\nReceived: 0\n\n      at registered (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:41:37)\n      at async expire (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:80:32)\n      at async <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:265:18)\n(fail) renderer phase budgets > a never-resolving launch times out and the next render launches again [1.73ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 3 expect() calls\nRan 1 test across 1 file. [67.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "late-fire.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a never-resolving launch\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n80 |   const deadline = await clock.registered(ms);\n81 |   await clock.advance(ms - 1);\n82 |   expect(deadline.state).toBe(\"pending\");\n83 |   expect(settled).toBe(false);\n84 |   await clock.advance(1);\n85 |   expect(deadline.state).toBe(\"fired\");\n                              ^\nerror: expect(received).toBe(expected)\n\nExpected: \"fired\"\nReceived: \"pending\"\n\n      at expire (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:85:26)\n      at async <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:265:18)\n(fail) renderer phase budgets > a never-resolving launch times out and the next render launches again [1.74ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 6 expect() calls\nRan 1 test across 1 file. [66.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "missing-cancel.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a slow launch\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n218 |     const r = renderer({ browserTimeoutMs: 200, renderTimeoutMs: 120, launch: async () => { await delay(80); return browser.asBrowser(); } });\n219 |     const pending = outcome(r.renderPng(html));\n220 |     const acquisition = await clock.registered(200);\n221 |     await clock.registered(80);\n222 |     await clock.advance(80);\n223 |     expect(acquisition.state).toBe(\"cleared\");\n                                    ^\nerror: expect(received).toBe(expected)\n\nExpected: \"cleared\"\nReceived: \"pending\"\n\n      at <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:223:31)\n136 |       await turn();\n137 |       const next = clock.timers.filter(t => t.state === \"pending\").sort((a,b) => a.at - b.at)[0];\n138 |       if (next) await clock.advance(next.at - clock.now);\n139 |     }\n140 |     expect(done).toBe(true);\n141 |     expect(clock.timers.filter(t => t.state === \"pending\")).toEqual([]);\n                                                                  ^\nerror: expect(received).toEqual(expected)\n\n- []\n+ [\n+   {\n+     \"at\": 200,\n+     \"callback\": [Function],\n+     \"ms\": 200,\n+     \"state\": \"pending\",\n+   },\n+   {\n+     \"at\": 200,\n+     \"callback\": [Function],\n+     \"ms\": 120,\n+     \"state\": \"pending\",\n+   },\n+   {\n+     \"at\": 2160,\n+     \"callback\": [Function],\n+     \"ms\": 2000,\n+     \"state\": \"pending\",\n+   },\n+ ]\n\n- Expected  - 1\n+ Received  + 20\n\n      at dispose (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:141:61)\n(fail) renderer phase budgets > a slow launch leaves the full rendering allowance available [2.08ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 5 expect() calls\nRan 1 test across 1 file. [65.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "missing-rearm.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"idle closure\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n36 |     });\n37 |   }\n38 |   pending(ms: number) { return this.timers.filter(t => t.state === \"pending\" && t.ms === ms); }\n39 |   async registered(ms: number, count = 1) {\n40 |     await turn();\n41 |     expect(this.pending(ms).length).toBe(count);\n                                         ^\nerror: expect(received).toBe(expected)\n\nExpected: 1\nReceived: 0\n\n      at registered (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:41:37)\n      at async <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:191:30)\n(fail) renderer phase budgets > idle closure waits for active renders and the next call relaunches [2.04ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 7 expect() calls\nRan 1 test across 1 file. [64.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "restore-descriptor.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"failed assertion cleanup\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n451 |     } finally {\n452 |       await dispose();\n453 |     }\n454 |     expect(browser.closes).toBe(1);\n455 |     expect(clock.timers.some(t => t.ms === 2_000 && t.state === \"fired\")).toBe(true);\n456 |     expect(Object.getOwnPropertyDescriptor(globalThis, \"setTimeout\")).toEqual(clock.descriptors.setTimeout);\n                                                                            ^\nerror: expect(received).toEqual(expected)\n\n  {\n    \"configurable\": true,\n    \"enumerable\": true,\n-   \"value\": [Function: setTimeout],\n+   \"value\": [Function],\n    \"writable\": true,\n  }\n\n- Expected  - 1\n+ Received  + 1\n\n      at <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:456:71)\n(fail) renderer phase budgets > failed assertion cleanup drains owned callbacks and restores complete descriptors [2.02ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 9 expect() calls\nRan 1 test across 1 file. [65.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "wrong-phase.log",
+      "text": "$ bun scripts/test.ts --timeout 30000 packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t \"a slow launch\"\nAcquiring exclusive workspace output access; overlapping commands wait.\nbun test v1.4.2 (744846f84)\n\npackages/ui-render-puppeteer/tests/phase-budgets.test.ts:\n36 |     });\n37 |   }\n38 |   pending(ms: number) { return this.timers.filter(t => t.state === \"pending\" && t.ms === ms); }\n39 |   async registered(ms: number, count = 1) {\n40 |     await turn();\n41 |     expect(this.pending(ms).length).toBe(count);\n                                         ^\nerror: expect(received).toBe(expected)\n\nExpected: 1\nReceived: 0\n\n      at registered (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:41:37)\n      at async <anonymous> (<checkout>/packages/ui-render-puppeteer/tests/phase-budgets.test.ts:224:35)\n(fail) renderer phase budgets > a slow launch leaves the full rendering allowance available [2.24ms]\n\n 0 pass\n 15 filtered out\n 1 fail\n 6 expect() calls\nRan 1 test across 1 file. [68.00ms]\nerror: script \"test\" exited with code 1\n"
+    },
+    {
+      "name": "baseline-cleanup.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t a wedged page close\"\n\tUser time (seconds): 0.11\n\tSystem time (seconds): 0.08\n\tPercent of CPU this job got: 9%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:02.13\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 52692\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 14031\n\tVoluntary context switches: 1571\n\tInvoluntary context switches: 1\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 0\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "baseline-full.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts\"\n\tUser time (seconds): 0.12\n\tSystem time (seconds): 0.09\n\tPercent of CPU this job got: 7%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:03.15\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 54524\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 14071\n\tVoluntary context switches: 1950\n\tInvoluntary context switches: 2\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 0\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "baseline-phases.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t a slow launch|one rendering timeout\"\n\tUser time (seconds): 0.10\n\tSystem time (seconds): 0.03\n\tPercent of CPU this job got: 28%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:00.51\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 53016\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 13488\n\tVoluntary context switches: 260\n\tInvoluntary context switches: 1\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 0\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "baseline.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts\"\n\tUser time (seconds): 0.09\n\tSystem time (seconds): 0.12\n\tPercent of CPU this job got: 6%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:03.13\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 55808\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 14825\n\tVoluntary context switches: 2304\n\tInvoluntary context switches: 0\n\tSwaps: 0\n\tFile system inputs: 2352\n\tFile system outputs: 8\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "candidate-cleanup.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t a wedged page close\"\n\tUser time (seconds): 0.08\n\tSystem time (seconds): 0.05\n\tPercent of CPU this job got: 122%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:00.11\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 54600\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 13508\n\tVoluntary context switches: 244\n\tInvoluntary context switches: 1\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 0\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "candidate-full.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts\"\n\tUser time (seconds): 0.11\n\tSystem time (seconds): 0.03\n\tPercent of CPU this job got: 126%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:00.11\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 56068\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 13849\n\tVoluntary context switches: 392\n\tInvoluntary context switches: 1\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 0\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "candidate-phases.time",
+      "text": "\tCommand being timed: \"bun run test packages/ui-render-puppeteer/tests/phase-budgets.test.ts -t a slow launch|one rendering timeout\"\n\tUser time (seconds): 0.09\n\tSystem time (seconds): 0.04\n\tPercent of CPU this job got: 122%\n\tElapsed (wall clock) time (h:mm:ss or m:ss): 0:00.11\n\tAverage shared text size (kbytes): 0\n\tAverage unshared data size (kbytes): 0\n\tAverage stack size (kbytes): 0\n\tAverage total size (kbytes): 0\n\tMaximum resident set size (kbytes): 54520\n\tAverage resident set size (kbytes): 0\n\tMajor (requiring I/O) page faults: 0\n\tMinor (reclaiming a frame) page faults: 13528\n\tVoluntary context switches: 277\n\tInvoluntary context switches: 1\n\tSwaps: 0\n\tFile system inputs: 0\n\tFile system outputs: 0\n\tSocket messages sent: 0\n\tSocket messages received: 0\n\tSignals delivered: 0\n\tPage size (bytes): 4096\n\tExit status: 0\n"
+    },
+    {
+      "name": "observe.ts",
+      "text": "import {afterAll} from \"bun:test\";\nconst originalSet = globalThis.setTimeout;\nconst originalClear = globalThis.clearTimeout;\nconst timers = new Map();\nglobalThis.setTimeout = ((callback, ms, ...args) => {\n const stack = new Error().stack ?? \"\";\n const owner = stack.includes(\"semaphore.ts\") ? \"queue\" : stack.includes(\"renderer.ts\") ? \"renderer\" : stack.includes(\"phase-budgets.test.ts\") ? \"fixture\" : \"other\";\n const row = {owner, ms, state:\"pending\"};\n const handle = originalSet(() => {row.state=\"fired\"; callback(...args)}, ms);\n timers.set(handle,row);\n return handle;\n}) as typeof setTimeout;\nglobalThis.clearTimeout = ((handle) => {\n const row=timers.get(handle);\n if(row?.state===\"pending\") row.state=\"cleared\";\n originalClear(handle);\n}) as typeof clearTimeout;\nafterAll(() => console.log(\"NATIVE_TIMERS\",JSON.stringify([...timers.values()])));\n"
+    }
+  ]
+}

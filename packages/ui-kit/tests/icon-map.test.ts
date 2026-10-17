@@ -5,7 +5,7 @@
  * of failure into a red build.
  *
  * It also pins the key and glyph counts (the port shipped 78 over 76, then 79 over 77; D52 added
- * eight session-state keys, 87 over 85) — so a key lost in a merge is caught, and the
+ * eight session-state keys, 87 over 85; Discovery adds loading, 88 over 86) — so a key lost in a merge is caught, and the
  * two deprecated aliases stay repointed at their canonical exports.
  */
 
@@ -23,12 +23,13 @@ describe("icon map", () => {
     expect(unresolved).toEqual([]);
   });
 
-  test("all 87 keys survive, over 85 distinct glyphs", () => {
+  test("all 88 keys survive, over 86 distinct glyphs", () => {
     // Two pairs are aliases — deny/dismiss and settings/filter. They render
     // identically today but mean different things, and collapsing them would
     // leave a future icon set unable to tell them apart.
-    expect(entries.length).toBe(87);
-    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(85);
+    expect(entries.length).toBe(88);
+    expect(new Set(entries.map(([, glyph]) => glyph)).size).toBe(86);
+    expect(ICONS.loading).toBe(lucide.LoaderCircle);
     expect(ICONS.deny).toBe(ICONS.dismiss);
     expect(ICONS.settings).toBe(ICONS.filter);
   });

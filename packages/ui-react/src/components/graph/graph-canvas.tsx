@@ -16,7 +16,7 @@ import {
   type NodeHoverDrawingFunction,
   type NodeLabelDrawingFunction,
 } from "sigma/rendering";
-import { floatColor } from "sigma/utils";
+import { colorToArray, floatColor } from "sigma/utils";
 import type { NodeDisplayData } from "sigma/types";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type {
@@ -69,7 +69,10 @@ void main() {
     }
     override processVisibleItem(nodeIndex: number, startIndex: number, data: NodeDisplayData): void {
       super.processVisibleItem(nodeIndex, startIndex, data);
-      this.array[startIndex + 5] = floatColor(background());
+      const opacity = (data as NodeDisplayData & { expansionOpacity?: number }).expansionOpacity ?? 1;
+      const color = background();
+      const [r, g, b, a] = colorToArray(color);
+      this.array[startIndex + 5] = floatColor(opacity < 1 ? `rgba(${r},${g},${b},${(a / 254) * opacity})` : color);
     }
   };
 }
@@ -87,6 +90,8 @@ export interface GraphCanvasProps {
   rings?: number;
   /** Root/depth/filter identity; data-only updates keep the camera. */
   sceneKey?: string;
+  /** Applied deliberate expansion identity; refetch/reset results leave this null. */
+  expansionTransition?: number | null;
   /** Mode-specific node color (community, distance, …). */
   nodeColor: (node: GraphNodePayload) => string;
   /** Optional per-edge color override (e.g. backlinks into the local center). */
@@ -231,6 +236,7 @@ export default function GraphCanvas({
   sizeBy = "degree",
   rings = 0,
   sceneKey,
+  expansionTransition,
   nodeColor,
   edgeColor,
   onSelect,
@@ -313,6 +319,13 @@ export default function GraphCanvas({
           // Search highlight: non-matches recede at half the hover fade, so
           // the amber matches pop without the rest of the scene vanishing.
           out.color = mixColors((attrs.color as string) ?? theme.node, theme.edge, 0.5);
+        }
+        const opacity = (attrs.expansionOpacity as number | undefined) ?? 1;
+        if (opacity < 1) {
+          const [r, g, b, a] = colorToArray(out.color as string);
+          out.color = `rgba(${r},${g},${b},${(a / 254) * opacity})`;
+          out.label = undefined;
+          out.forceLabel = false;
         }
         return out;
       },
@@ -402,6 +415,10 @@ export default function GraphCanvas({
     const renderer = sigmaRef.current;
     if (!renderer) return;
     const graph = renderer.getGraph();
+    const identity = JSON.stringify([sceneKey ?? null, discoveryRootIdentity(data.nodes)]);
+    const motion = matchMedia("(prefers-reduced-motion: reduce)");
+    const animate = layout === "radial" && expansionTransition !== null && expansionTransition !== undefined &&
+      radialRoot.current === identity && graph.order > 0 && !motion.matches;
 
     // Keep positions of survivors so expansion merges don't reshuffle the scene.
     const previous = new Map<string, { x: number; y: number }>();
@@ -411,6 +428,7 @@ export default function GraphCanvas({
     graph.clear();
 
     const radial = layout === "radial" ? radialLayout(data.nodes, 1, data.edges) : null;
+    const targets = new Map<string, { x: number; y: number }>();
 
     data.nodes.forEach((node, i) => {
       let x: number;
@@ -433,9 +451,12 @@ export default function GraphCanvas({
           y = Math.sin(angle);
         }
       }
-      graph.addNode(String(node.id), {
-        x,
-        y,
+      const key = String(node.id);
+      targets.set(key, { x, y });
+      const survivor = previous.get(key);
+      graph.addNode(key, {
+        ...(animate && survivor ? survivor : { x, y }),
+        expansionOpacity: animate && !survivor ? 0 : 1,
         // Size and color are (re)applied by the restyle effect below; seeding
         // them here just avoids a one-frame flash of defaults.
         size: displayNodeSize(node, sizes, data.nodes.length, containerRef.current!.clientWidth, containerRef.current!.clientHeight),
@@ -474,7 +495,6 @@ export default function GraphCanvas({
     }
     appliedSizes.current = sizes;
 
-    const identity = JSON.stringify([sceneKey ?? null, discoveryRootIdentity(data.nodes)]);
     if (layout !== "radial" || radialRoot.current !== identity) {
       // Discovery scene changes cut; same-root refetches preserve the camera.
       if (layout === "radial") renderer.getCamera().setState({ x: 0.5, y: 0.5, ratio: 1, angle: 0 });
@@ -482,9 +502,29 @@ export default function GraphCanvas({
     }
     radialRoot.current = layout === "radial" ? identity : null;
     renderer.refresh();
+    let frame: number | undefined;
+    if (animate) {
+      const started = performance.now();
+      const tick = (now: number) => {
+        const progress = motion.matches ? 1 : Math.min(1, (now - started) / 200);
+        const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+        graph.updateEachNodeAttributes((key, attrs) => {
+          const target = targets.get(key)!;
+          const source = previous.get(key);
+          return { ...attrs, x: source && progress < 1 ? source.x + (target.x - source.x) * eased : target.x,
+            y: source && progress < 1 ? source.y + (target.y - source.y) * eased : target.y,
+            expansionOpacity: source ? 1 : progress };
+        });
+        renderer.refresh();
+        if (progress < 1) frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+    }
+    return () => { if (frame !== undefined) cancelAnimationFrame(frame); };
     // Styling props (nodeColor/edgeColor/sizeBy) are deliberately NOT deps:
     // the restyle effect below reapplies them in place, so a display-only
-    // change never re-runs layout or resets the camera.
+    // change never re-runs layout or resets the camera. The transition belongs
+    // to this data update; clearing a notice/loading state does not rebuild it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, layout, sceneKey]);
 

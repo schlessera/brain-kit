@@ -1,8 +1,8 @@
 import type { CSSProperties } from "react";
 import { color, font, token } from "../tokens.js";
 
-/** The single card keeps its uncontrolled Enter-to-submit field; a group
- * supplies a controlled value so leaving a section cannot lose its answer. */
+/** Cards supply controlled drafts so pointer submission and Enter read the
+ * same current text, and leaving a section cannot lose its answer. */
 export function AskOtherField(p: {
   label?: string;
   placeholder?: string;

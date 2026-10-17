@@ -1,7 +1,7 @@
 import { Button, Chip, IconButton, Placeholder } from "@schlessera/brain-ui-kit";
 import { Fingerprint, Pencil, Trash2, X } from "lucide-react";
 import type { PasskeySummary } from "@schlessera/brain-ui-sdk/protocol";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * The Security tab's surface, rendered from props (S6). `PasskeyTab` is the
@@ -35,12 +35,14 @@ export interface PasskeyListProps {
   onRename: (id: string, label: string) => void;
   onDelete: (id: string) => void;
   onSignOut: () => void;
+  /** Existing standing tool grants, between passkeys and sign-out. */
+  sections?: ReactNode;
 }
 
 export function PasskeyList(p: PasskeyListProps) {
   const canAdd = p.status === "ready" && p.supported;
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex-1 overflow-y-auto p-4">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Passkeys
@@ -98,6 +100,7 @@ export function PasskeyList(p: PasskeyListProps) {
               : "This browser does not support passkeys."}
           </p>
         )}
+        {p.sections}
       </div>
 
       {/* Sign out everywhere */}

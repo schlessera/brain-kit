@@ -30,10 +30,15 @@ for (const adapter of ["claude", "pi"] as const)
       await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
       await mkdir(resolve(brain, "context/policies"), { recursive: true });
       await writeFile(resolve(brain, "context/policies/governance.md"), "---\nschema_version: 1\nbudgets: { turn: { warn_usd: 5, block_usd: 10, block_tokens: 10 }, session: { block_tokens: 100 }, day: { block_tokens: 100 } }\n---\nAthena reviews inference limits.\n");
-      let called = 0, aborted = false, maxBudget: number | undefined;
-      const backend = makeFakeBackend({ id: `budget-${adapter}`, startTurn: async (req) => {
+      let called = 0, aborted = false, maxBudget: number | undefined, receivedPrompt: string | undefined, receivedLimits: string | undefined, receivedContext: string | undefined;
+      let admissionModel: string | null | undefined;
+      const backend = makeFakeBackend({ id: `budget-${adapter}`, profiles: [{ id: `budget-${adapter}`, label: "Athena", model: "configured-main" }], startTurn: async (req) => {
           called++;
+          admissionModel = app.wsHost.journal!.summary(req.turnId!).model;
           maxBudget = req.maxBudgetUsd;
+          receivedPrompt = req.prompt;
+          receivedLimits = req.sessionBudgetLimits;
+          receivedContext = req.budgetContext;
           await writeFile(resolve(brain, "notes/partial.md"), "# Odysseus\nPartial work remains.\n");
           if (adapter === "claude") {
             req.bridge.emit({ type: "session_info", sessionId: "ithaca", isNew: true });
@@ -54,7 +59,7 @@ for (const adapter of ["claude", "pi"] as const)
           }
           else {
             let listener: (event: AgentSessionEvent) => void = () => { };
-            const session: PiSessionLike = { sessionId: "ithaca", subscribe: fn => { listener = fn; return () => { }; }, abort: async () => { }, dispose() { }, getSessionStats: () => ({ cost: 0 }),
+            const session: PiSessionLike = { sessionId: "ithaca", model: { id: "pi-runtime-main" } as PiSessionLike["model"], subscribe: fn => { listener = fn; return () => { }; }, abort: async () => { }, dispose() { }, getSessionStats: () => ({ cost: 0 }),
               async prompt() {
                 listener({ type: "message_end", message: { role: "assistant", model: "unknown-model", stopReason: "toolUse", content: [], usage: { input: 5, output: 1, cacheRead: 3, cacheWrite: 1, cost: { total: 0 } } } } as unknown as AgentSessionEvent);
                 if (!req.signal.aborted)
@@ -84,6 +89,10 @@ for (const adapter of ["claude", "pi"] as const)
             throw Error(JSON.stringify(frames()));
           await Bun.sleep(5);
         }
+        expect(admissionModel, "MODEL_CONFIGURED_JOURNAL_ADMISSION").toBe("configured-main");
+        expect(receivedPrompt, "GOVERNED_PROMPT_PRESERVES_USER_BYTES").toBe("Record Ithaca");
+        expect(receivedLimits, "STATIC_BUDGET_LIMITS_STILL_TRANSPORTED").toContain("turn: warn $5; stop $10");
+        expect(receivedContext, "NO_ROUTINE_BUDGET_TAIL_AT_ADMISSION").toBeUndefined();
         expect(called, "BUDGET_ACTUAL_ADAPTER_LAUNCHED").toBe(1);
         expect(aborted, "BUDGET_HOST_ABORTS_ACTUAL_ADAPTER").toBe(true);
         expect(maxBudget).toBe(10);
@@ -99,6 +108,7 @@ for (const adapter of ["claude", "pi"] as const)
         expect(await readFile(resolve(brain, "notes/partial.md"), "utf8")).toContain("Partial work remains");
         if (priced && !backstop && !unavailable) {
           expect(app.db.query("SELECT COUNT(*) AS n FROM governance_events WHERE kind='budget_warning' AND turn_id=?").get(failure.turnId!), "BUDGET_WARNING_ONE_HOST_EVENT").toEqual({ n: 1 });
+          expect(app.db.query("SELECT model FROM governance_events WHERE kind='budget_warning' AND turn_id=?").get(failure.turnId!), "MODEL_CONFIGURED_BUDGET_WARNING").toEqual({ model: adapter === "pi" ? "pi-runtime-main" : "configured-main" });
           app.db.query("INSERT INTO activity_run_rollups(run_id,origin,name,session_id,started_at,cost_usd,effective_cost_usd,input_tokens) VALUES('retained','session','invoke_agent','ithaca',?,4000,0,1)").run(Date.now());
           handlers.onMessage({ data: JSON.stringify({ type: "chat_message", sessionId: "ithaca", text: "Continue the return", requestId: "admission-request" }) } as MessageEvent, ws);
           const until = Date.now() + 5000;
@@ -108,6 +118,7 @@ for (const adapter of ["claude", "pi"] as const)
             await Bun.sleep(5);
           }
           expect(called, "BUDGET_RETAINED_ACTIVITY_REFUSES_BEFORE_BACKEND").toBe(1);
+          expect(app.db.query("SELECT model FROM governance_events WHERE kind='budget_block' AND json_extract(payload,'$.stage')='admission' ORDER BY id DESC LIMIT 1").get(), "MODEL_CONFIGURED_ADMISSION_REFUSAL").toEqual({model: "configured-main"});
           expect(frames().findLast(frame => frame.type === "error")).toMatchObject({ failure: { errorClass: "budget_exceeded", budgetScope: "session" } });
         }
       }

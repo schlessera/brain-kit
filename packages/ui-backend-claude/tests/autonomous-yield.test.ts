@@ -44,7 +44,9 @@ test("Claude's actual hook/runner yields a long autonomous write and releases it
     autonomous: { origin: "autonomous", persistence: "none", allowedTools: ["Write"], systemPromptAppend: "",
       onYield: () => { signals++; expect(lock.locked).toBe(true); } } });
   await acquired;
-  const foreground = backend.startTurn(request);
+  const foreground = backend.startTurn({ ...request,
+    workerSandbox: { brain: root, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
+  });
   await Bun.sleep(0);
   try {
     time = 19_999;

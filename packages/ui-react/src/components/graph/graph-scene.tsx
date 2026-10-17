@@ -58,16 +58,26 @@ export function SceneBody() {
   const clustersSizeBy = useGraphStore((s) => s.clustersSizeBy);
   const discoveryColorBy = useGraphStore((s) => s.discoveryColorBy);
   const discovery = useGraphStore(s => s.discovery);
+  const expansion = useGraphStore(s => s.discoveryExpansion);
   const theme = useGraphTheme();
   const [listOpen, setListOpen] = useState(false);
   const listButton = useRef<HTMLButtonElement>(null);
   const previousSelection = useRef(selectedId);
+  const selectedPath = subgraph.nodes.find(n => n.id === selectedId)?.path;
+  const previousSelectedPath = useRef(selectedPath);
+  const previousExpansionCount = useRef(expansion.intents.length);
+  const sceneIdentity = JSON.stringify([mode, discovery.root, discovery.maxDepth]);
+  const previousSceneIdentity = useRef(sceneIdentity);
   const closeList = () => { setListOpen(false); listButton.current?.focus(); };
   useEffect(() => {
-    if (listOpen && previousSelection.current !== null && selectedId === null &&
-        !subgraph.nodes.some(n => n.id === previousSelection.current)) listButton.current?.focus();
+    if ((listOpen || previousExpansionCount.current > 0) && previousSceneIdentity.current === sceneIdentity &&
+        previousSelection.current !== null && selectedId === null &&
+        !subgraph.nodes.some(n => n.id === previousSelection.current && n.path === previousSelectedPath.current)) listButton.current?.focus();
     previousSelection.current = selectedId;
-  }, [listOpen, selectedId, subgraph]);
+    previousSelectedPath.current = selectedPath;
+    previousExpansionCount.current = expansion.intents.length;
+    previousSceneIdentity.current = sceneIdentity;
+  }, [listOpen, selectedId, selectedPath, subgraph, expansion.intents.length, sceneIdentity]);
   const packing = useMemo(() => mode === "discovery" ? discoveryLayout(subgraph.nodes, subgraph.edges) : null, [mode, subgraph]);
   // From `wide:` the D6 right rail draws the selected node; the floating
   // card would double it.
@@ -203,6 +213,7 @@ export function SceneBody() {
             sizeBy={mode === "clusters" ? clustersSizeBy : "degree"}
             rings={mode === "discovery" ? maxDistance : 0}
             sceneKey={mode === "discovery" ? `${discovery.root ?? "default"}|${discovery.maxDepth}` : undefined}
+            expansionTransition={mode === "discovery" ? expansion.transition : null}
             nodeColor={nodeColor}
             edgeColor={edgeColor}
             onSelect={select}
@@ -552,7 +563,7 @@ function UnreachableTray({ count }: { count: number | undefined }) {
               : "Count only — pick the default root for the full list."}
           </div>
           {isDefaultRoot && (
-            <div className="flex-1 overflow-y-auto">
+            <div className="bk-focus-clip min-h-0 flex-1 overflow-y-auto rounded-b-[inherit]">
               {(nodes ?? []).map((node) => (
                 <button style={{ "--hv-bg": "var(--bk-color-raised)" } as CSSProperties} /* raw-button: row — Unreachable note list entry on the graph. */
                   key={node.id}
@@ -691,7 +702,7 @@ function NodeList({ onClose }: { onClose: () => void }) {
         </span>
         <IconButton size="sm" name="Close list" glyph={<X className="h-3.5 w-3.5" />} onClick={onClose} />
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="bk-focus-clip min-h-0 flex-1 overflow-y-auto rounded-b-[inherit]">
         {discovery && <div className="p-3 laptop:hidden"><DiscoveryExplanation /></div>}
         {sorted.map((node, index) => (
           <Fragment key={node.id}>

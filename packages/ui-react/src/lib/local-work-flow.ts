@@ -4,6 +4,7 @@ import { accountPartition } from "./local-partitions.js";
 import { hasContent } from "../stores/draft-state.js";
 import { disposeTracks, stagedTrackViews } from "./draft-tracks.js";
 import { registerUpdateHold } from "./update-holds.js";
+import { boundStoredShares, clearBoundStoredShares } from "@schlessera/brain-ui-sdk/internal/client";
 
 export interface SignOutLoss {
   account: string | null;
@@ -14,6 +15,7 @@ export interface SignOutLoss {
   accepted: number;
   drafts: number;
   tracks: number;
+  shares: number;
   review: boolean;
   unassigned: number;
   unknown: boolean;
@@ -131,8 +133,13 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
     async loss(): Promise<SignOutLoss> {
       const account = root.stores.connection.getState().accountKey;
       const epoch = root.authLock.epoch();
-      const result: SignOutLoss = { account, epoch, recordings: 0, bytes: 0, transcripts: 0, accepted: 0, drafts: 0, tracks: 0, review: false, unassigned: 0, unknown: false, otherTabs: false, otherUnknown: false };
+      const result: SignOutLoss = { account, epoch, recordings: 0, bytes: 0, transcripts: 0, accepted: 0, drafts: 0, tracks: 0, shares: 0, review: false, unassigned: 0, unknown: false, otherTabs: false, otherUnknown: false };
       const ids = new Set<string>();
+      const shares = new Set<string>();
+      if (account && typeof indexedDB !== "undefined") {
+        try { for (const row of await boundStoredShares(account)) shares.add(row.id); }
+        catch { result.unknown = true; }
+      }
       if (account && root.partitions) {
         try {
           const locks = await navigator.locks.query();
@@ -153,12 +160,13 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
         try { snapshot = await root.partitions.snapshot(["unassigned", ...(accountId ? [accountId] : [])]); }
         catch {
           const cleared = accountId ? await root.partitions.isSignOutCleared(accountId).catch(() => false) : false;
-          result.unknown = !cleared;
+          result.unknown ||= !cleared;
           try { snapshot = await root.partitions.snapshot(["unassigned"]); } catch { result.unknown = true; }
         }
         result.unassigned = snapshot.filter(row => row.partition === "unassigned" && row.key.startsWith("recording:index:")).length;
         const records = snapshot.filter(row => row.partition === accountId);
         for (const { key, value } of records) {
+          if (key.startsWith("share:review:")) shares.add(key.slice("share:review:".length));
           const row = value as { state?: string; bytes?: number; transcript?: string; draftId?: string; text?: string; attachments?: unknown[]; reviewText?: string };
           if (key.startsWith("recording:index:")) {
             if (row.state === "accepted" || records.some(r => r.key === `recording:accepted:${key.slice("recording:index:".length)}`)) result.accepted++;
@@ -176,6 +184,7 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
       const voice = root.stores.voice.getState();
       result.review ||= [voice.reviewText, voice.finalText, voice.partial].some(text => !!text.trim());
       result.drafts = ids.size;
+      result.shares = shares.size;
       return result;
     },
     signOut(loss: SignOutLoss, alsoUnassigned: boolean, canNavigate: () => boolean = () => !disposed): Promise<void> {
@@ -186,7 +195,13 @@ export function createLocalWorkFlow(root: BrainUiRoot, prefix: string) {
       signingOut = (async () => {
         let failed = false;
         try {
+          let bound: Awaited<ReturnType<typeof boundStoredShares>> = [];
+          try { if (loss.account && typeof indexedDB !== "undefined") bound = await boundStoredShares(loss.account); }
+          catch { failed = true; }
+          const generations = [...new Set([...bound.map(row => row.generation), ...(loss.account && root.partitions ? [root.partitions.writerGeneration(accountPartition(loss.account))] : [])])];
           const clearAccount = loss.account ? root.partitions?.prepareSignOut(accountPartition(loss.account)) : undefined;
+          try { if (loss.account && typeof indexedDB !== "undefined") await clearBoundStoredShares(loss.account, generations); }
+          catch { failed = true; }
           await root.localWork?.quiesce();
           if (loss.account) {
             if (root.recordings) await root.recordings.clearForSignOut(accountPartition(loss.account), alsoUnassigned, clearAccount);

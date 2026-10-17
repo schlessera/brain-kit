@@ -1,0 +1,1308 @@
+{
+  "sourceCommit": "bb4578a71953ed8130c9d6a8a929e75f1530d4fd",
+  "scope": "Private query deadline tests retain real SQLite, provider promises, fallback/fusion and cancellation. Production settings and public contracts are unchanged.",
+  "method": "Eight test commands in a dedicated checkout/dependencies, serialized shared benchmark lock. All92 original matcher expressions and32 test-name expressions retained; candidate104 matchers/33 names with a separate default-duration case. Source55 awaits become60 through controlled deadline and explicit cleanup/continuation fences. All production mutations restored byte-identically.",
+  "sourceFiles": [
+    {
+      "path": "packages/core/src/lib/search-engine.ts",
+      "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5"
+    },
+    {
+      "path": "packages/core/tests/search-reliability.test.ts",
+      "sha256": "fc84fb59a6da7ee76814806d004cf7050d77c6b53c9a1a289a6d29502a8b8d0b"
+    },
+    {
+      "path": "docs/extending/embeddings.md",
+      "sha256": "c3ea9b7f41720c2d7e76ddce9eee80b39429630a139a6e48685c83a99af7773b"
+    },
+    {
+      "path": "bun.lock",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+    }
+  ],
+  "runtime": {
+    "bun": "1.4.2 (744846f84)",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64",
+    "isolation": "Original bun run test preload plus explicit ordinary-UID user/network namespace; loopback enabled, no external route; capabilities dropped before test process. No browser or build. Namespace address/route/UID-map receipts retained.",
+    "resources": "GNU time inside shared benchmark lock after namespace setup; shared-host background load uncontrolled. RSS is the command process-tree maximum, not a sum. Setup spans were not separately instrumented."
+  },
+  "clockBoundary": {
+    "configuredMs": 20,
+    "configuredAdvancesMs": [
+      19,
+      1
+    ],
+    "defaultMs": 3000,
+    "defaultAdvancesMs": [
+      2999,
+      1
+    ],
+    "lateCompletionDeadlineMs": 20,
+    "fastCancellationAdvanceMs": 30,
+    "nativeTurns": "Three source-scoped setImmediate fences in each full candidate: two pre-deadline pending checks and one late-provider continuation. Their individual elapsed spans were not measured.",
+    "registration": "Each case asserts the actual timeout argument registered by production. The clock invokes the original callback; early/late registration and removed cancellation faults fail. Full property descriptors restore in finally.",
+    "database": "The late case closes real SQLite, forwards prepare with original this/arguments, resolves the original provider, then awaits one native event-loop turn. The inspected continuation has no intervening timer/IO before synchronous prepare. This is not a global drain.",
+    "logicalTotalMs": 3070,
+    "logicalTotalBasis": "Sum of separate case advances by source arithmetic, not wall time or separately instrumented callback count."
+  },
+  "runs": [
+    {
+      "variant": "baseline-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "fc84fb59a6da7ee76814806d004cf7050d77c6b53c9a1a289a6d29502a8b8d0b"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 34,
+        "fail": 0,
+        "expects": 145
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a failing chunk match keeps the results, each with no chunks, and says why",
+          "bodyMs": 10.75
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of spaces has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 3.3
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of a tab has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 2.78
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of punctuation has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 3.06
+        },
+        {
+          "outcome": "pass",
+          "name": "widens duplicate-heavy KNN results to fill the document limit with one embedding",
+          "bodyMs": 3.26
+        },
+        {
+          "outcome": "pass",
+          "name": "widens after tag filtering and still excludes archived and other-type documents",
+          "bodyMs": 6.67
+        },
+        {
+          "outcome": "pass",
+          "name": "a post-KNN date filter widens the window to fill the limit",
+          "bodyMs": 3.81
+        },
+        {
+          "outcome": "pass",
+          "name": "a vector-lane date sort chooses the limit by date, beyond the nearest document's chunks",
+          "bodyMs": 3.57
+        },
+        {
+          "outcome": "pass",
+          "name": "a full-text date sort considers exactly the best max(limit x 20, 500) documents",
+          "bodyMs": 20.88
+        },
+        {
+          "outcome": "pass",
+          "name": "stops at exhaustion when filters leave too few results",
+          "bodyMs": 3.67
+        },
+        {
+          "outcome": "pass",
+          "name": "keeps the 500-chunk work cap on a pathological long document",
+          "bodyMs": 19.68
+        },
+        {
+          "outcome": "pass",
+          "name": "a stalled embedder yields FTS results and receives cancellation",
+          "bodyMs": 23.59
+        },
+        {
+          "outcome": "pass",
+          "name": "late embedding completion never accesses the database after timeout",
+          "bodyMs": 32.96
+        },
+        {
+          "outcome": "pass",
+          "name": "fast embeddings retain hybrid fusion and cancel the deadline timer",
+          "bodyMs": 33.52
+        },
+        {
+          "outcome": "pass",
+          "name": "a sliced embedding uses only its own bytes",
+          "bodyMs": 2.75
+        },
+        {
+          "outcome": "pass",
+          "name": "recency reranking measures from the pinned now, not the wall clock",
+          "bodyMs": 3.39
+        },
+        {
+          "outcome": "pass",
+          "name": "an invalid now is refused rather than scoring every result NaN",
+          "bodyMs": 2.46
+        },
+        {
+          "outcome": "pass",
+          "name": "every lane returns the document's deadline",
+          "bodyMs": 4.16
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a question matches the document that holds its content words but not its question words",
+          "bodyMs": 4.46
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > an exact multi-word keyword query still ranks the one document holding every word first",
+          "bodyMs": 3.22
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a query made only of stopwords keeps the AND of all its terms",
+          "bodyMs": 3.21
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a query that is one quoted phrase stays a phrase",
+          "bodyMs": 2.54
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a quoted phrase holding FTS5 doubled-quote escapes stays one phrase",
+          "bodyMs": 2.55
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a mixed query matches only what its content words match",
+          "bodyMs": 4.87
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > tokens carrying FTS5 syntax characters never raise a syntax error",
+          "bodyMs": 10.08
+        },
+        {
+          "outcome": "pass",
+          "name": "an invalid date filter is refused rather than matching nothing",
+          "bodyMs": 2.66
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > a thin full-text lane counts for less: in the issue's example, vector's first place outranks the overlap",
+          "bodyMs": 6.2
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > with a full full-text pool, a document both lanes rank still wins",
+          "bodyMs": 4.93
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > with a full pool, a full-text-only first place ranks below a vector-only second place",
+          "bodyMs": 5.84
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a historical first place and a primary second place swap",
+          "bodyMs": 3.27
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a primary doc at rank 30 does not overtake a historical doc at rank 1",
+          "bodyMs": 5.12
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a lone result is scored like a first place among several",
+          "bodyMs": 3.22
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a result filtered down to one keeps the same score",
+          "bodyMs": 3.54
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > with rerank none, every mode keeps the retrieval order",
+          "bodyMs": 6.61
+        }
+      ],
+      "bodyMs": 256.58,
+      "bunMs": 434.0,
+      "resources": {
+        "wallSeconds": 0.5,
+        "userSeconds": 0.41,
+        "systemSeconds": 0.12,
+        "maxRssKiB": 121520.0
+      },
+      "expectedFailureFragments": null,
+      "interpretation": "Restored or baseline complete file."
+    },
+    {
+      "variant": "original-late-whole-vector-race",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts",
+        "--test-name-pattern",
+        "^late embedding completion never accesses the database after timeout$"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts --test-name-pattern '^late embedding completion never accesses the database after timeout$'",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "b86512c8f15f4e49fc2012fabc07a804e42a2582a0948b524dabaa15f07b15f9"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "fc84fb59a6da7ee76814806d004cf7050d77c6b53c9a1a289a6d29502a8b8d0b"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "expects": 3
+      },
+      "filtered": 33,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "late embedding completion never accesses the database after timeout",
+          "bodyMs": 36.24
+        }
+      ],
+      "bodyMs": 36.24,
+      "bunMs": 99.0,
+      "resources": {
+        "wallSeconds": 0.17,
+        "userSeconds": 0.1,
+        "systemSeconds": 0.07,
+        "maxRssKiB": 65492.0
+      },
+      "expectedFailureFragments": null,
+      "interpretation": "The unchanged original test survives the whole-vector race fault; no late-prepare counter was present."
+    },
+    {
+      "variant": "candidate-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 35,
+        "fail": 0,
+        "expects": 158
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a failing chunk match keeps the results, each with no chunks, and says why",
+          "bodyMs": 9.47
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of spaces has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 3.2
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of a tab has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 2.73
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of punctuation has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 2.82
+        },
+        {
+          "outcome": "pass",
+          "name": "widens duplicate-heavy KNN results to fill the document limit with one embedding",
+          "bodyMs": 3.09
+        },
+        {
+          "outcome": "pass",
+          "name": "widens after tag filtering and still excludes archived and other-type documents",
+          "bodyMs": 7.26
+        },
+        {
+          "outcome": "pass",
+          "name": "a post-KNN date filter widens the window to fill the limit",
+          "bodyMs": 3.82
+        },
+        {
+          "outcome": "pass",
+          "name": "a vector-lane date sort chooses the limit by date, beyond the nearest document's chunks",
+          "bodyMs": 3.25
+        },
+        {
+          "outcome": "pass",
+          "name": "a full-text date sort considers exactly the best max(limit x 20, 500) documents",
+          "bodyMs": 18.47
+        },
+        {
+          "outcome": "pass",
+          "name": "stops at exhaustion when filters leave too few results",
+          "bodyMs": 5.3
+        },
+        {
+          "outcome": "pass",
+          "name": "keeps the 500-chunk work cap on a pathological long document",
+          "bodyMs": 20.0
+        },
+        {
+          "outcome": "pass",
+          "name": "a stalled embedder yields FTS results and receives cancellation",
+          "bodyMs": 3.27
+        },
+        {
+          "outcome": "pass",
+          "name": "the default query deadline fires at 3000 ms",
+          "bodyMs": 2.95
+        },
+        {
+          "outcome": "pass",
+          "name": "late embedding completion never accesses the database after timeout",
+          "bodyMs": 2.81
+        },
+        {
+          "outcome": "pass",
+          "name": "fast embeddings retain hybrid fusion and cancel the deadline timer",
+          "bodyMs": 2.92
+        },
+        {
+          "outcome": "pass",
+          "name": "a sliced embedding uses only its own bytes",
+          "bodyMs": 2.65
+        },
+        {
+          "outcome": "pass",
+          "name": "recency reranking measures from the pinned now, not the wall clock",
+          "bodyMs": 3.43
+        },
+        {
+          "outcome": "pass",
+          "name": "an invalid now is refused rather than scoring every result NaN",
+          "bodyMs": 2.32
+        },
+        {
+          "outcome": "pass",
+          "name": "every lane returns the document's deadline",
+          "bodyMs": 3.51
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a question matches the document that holds its content words but not its question words",
+          "bodyMs": 4.19
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > an exact multi-word keyword query still ranks the one document holding every word first",
+          "bodyMs": 2.79
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a query made only of stopwords keeps the AND of all its terms",
+          "bodyMs": 3.29
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a query that is one quoted phrase stays a phrase",
+          "bodyMs": 2.52
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a quoted phrase holding FTS5 doubled-quote escapes stays one phrase",
+          "bodyMs": 2.7
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a mixed query matches only what its content words match",
+          "bodyMs": 5.32
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > tokens carrying FTS5 syntax characters never raise a syntax error",
+          "bodyMs": 9.78
+        },
+        {
+          "outcome": "pass",
+          "name": "an invalid date filter is refused rather than matching nothing",
+          "bodyMs": 2.41
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > a thin full-text lane counts for less: in the issue's example, vector's first place outranks the overlap",
+          "bodyMs": 5.21
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > with a full full-text pool, a document both lanes rank still wins",
+          "bodyMs": 4.34
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > with a full pool, a full-text-only first place ranks below a vector-only second place",
+          "bodyMs": 4.24
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a historical first place and a primary second place swap",
+          "bodyMs": 2.73
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a primary doc at rank 30 does not overtake a historical doc at rank 1",
+          "bodyMs": 4.95
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a lone result is scored like a first place among several",
+          "bodyMs": 3.19
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a result filtered down to one keeps the same score",
+          "bodyMs": 2.86
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > with rerank none, every mode keeps the retrieval order",
+          "bodyMs": 5.09
+        }
+      ],
+      "bodyMs": 168.88,
+      "bunMs": 343.0,
+      "resources": {
+        "wallSeconds": 0.41,
+        "userSeconds": 0.42,
+        "systemSeconds": 0.1,
+        "maxRssKiB": 123200.0
+      },
+      "expectedFailureFragments": null,
+      "interpretation": "Restored or baseline complete file."
+    },
+    {
+      "variant": "removed-clear",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts",
+        "--test-name-pattern",
+        "^fast embeddings retain hybrid fusion and cancel the deadline timer$"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts --test-name-pattern '^fast embeddings retain hybrid fusion and cancel the deadline timer$'",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "a0a9dfbb5695038d413cea4c39986ea444978d577723ef42d11bbf100a95d9a7"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 5
+      },
+      "filtered": 34,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "fast embeddings retain hybrid fusion and cancel the deadline timer",
+          "bodyMs": 8.99
+        }
+      ],
+      "bodyMs": 8.99,
+      "bunMs": 74.0,
+      "resources": {
+        "wallSeconds": 0.14,
+        "userSeconds": 0.13,
+        "systemSeconds": 0.05,
+        "maxRssKiB": 67280.0
+      },
+      "expectedFailureFragments": [
+        "Expected: false",
+        "Received: true",
+        "expect(signal?.aborted).toBe(false)"
+      ],
+      "interpretation": "Deliberate guard/registration fault failed at the named assertion."
+    },
+    {
+      "variant": "early-deadline",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts",
+        "--test-name-pattern",
+        "^(a stalled embedder yields FTS results and receives cancellation|the default query deadline fires at 3000 ms)$"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts --test-name-pattern '^(a stalled embedder yields FTS results and receives cancellation|the default query deadline fires at 3000 ms)$'",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "7b811c78aecd78289e91640a8b297f1433aad1a657b76cfa9af7393fae3aadab"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 2,
+        "expects": 4
+      },
+      "filtered": 33,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "a stalled embedder yields FTS results and receives cancellation",
+          "bodyMs": 8.4
+        },
+        {
+          "outcome": "fail",
+          "name": "the default query deadline fires at 3000 ms",
+          "bodyMs": 4.02
+        }
+      ],
+      "bodyMs": 12.42,
+      "bunMs": 75.0,
+      "resources": {
+        "wallSeconds": 0.14,
+        "userSeconds": 0.12,
+        "systemSeconds": 0.04,
+        "maxRssKiB": 66852.0
+      },
+      "expectedFailureFragments": [
+        "expect(clock.delays).toEqual",
+        "2 fail"
+      ],
+      "interpretation": "Deliberate guard/registration fault failed at the named assertion."
+    },
+    {
+      "variant": "late-deadline",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts",
+        "--test-name-pattern",
+        "^(a stalled embedder yields FTS results and receives cancellation|the default query deadline fires at 3000 ms)$"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts --test-name-pattern '^(a stalled embedder yields FTS results and receives cancellation|the default query deadline fires at 3000 ms)$'",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "53b80fef2af39f725225b1987132f6397b9b1a58cc540957463bca3dea5995f2"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 2,
+        "expects": 4
+      },
+      "filtered": 33,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "a stalled embedder yields FTS results and receives cancellation",
+          "bodyMs": 9.43
+        },
+        {
+          "outcome": "fail",
+          "name": "the default query deadline fires at 3000 ms",
+          "bodyMs": 4.38
+        }
+      ],
+      "bodyMs": 13.809999999999999,
+      "bunMs": 77.0,
+      "resources": {
+        "wallSeconds": 0.14,
+        "userSeconds": 0.12,
+        "systemSeconds": 0.05,
+        "maxRssKiB": 67300.0
+      },
+      "expectedFailureFragments": [
+        "expect(clock.delays).toEqual",
+        "2 fail"
+      ],
+      "interpretation": "Deliberate guard/registration fault failed at the named assertion."
+    },
+    {
+      "variant": "late-access-whole-vector-race",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts",
+        "--test-name-pattern",
+        "^late embedding completion never accesses the database after timeout$"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts --test-name-pattern '^late embedding completion never accesses the database after timeout$'",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "b86512c8f15f4e49fc2012fabc07a804e42a2582a0948b524dabaa15f07b15f9"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 5
+      },
+      "filtered": 34,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "late embedding completion never accesses the database after timeout",
+          "bodyMs": 7.73
+        }
+      ],
+      "bodyMs": 7.73,
+      "bunMs": 71.0,
+      "resources": {
+        "wallSeconds": 0.14,
+        "userSeconds": 0.1,
+        "systemSeconds": 0.06,
+        "maxRssKiB": 65764.0
+      },
+      "expectedFailureFragments": [
+        "expect(latePrepareCalls).toBe(0)",
+        "Expected: 0",
+        "Received: 2"
+      ],
+      "interpretation": "Actual forwarded native prepare calls: expected zero, observed two; the original KNN catch attempts the fallback prepare."
+    },
+    {
+      "variant": "restored-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/core/tests/search-reliability.test.ts"
+      ],
+      "command": "bun run test packages/core/tests/search-reliability.test.ts",
+      "environment": {},
+      "sourceFiles": [
+        {
+          "file": "packages/core/src/lib/search-engine.ts",
+          "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5"
+        },
+        {
+          "file": "packages/core/tests/search-reliability.test.ts",
+          "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 35,
+        "fail": 0,
+        "expects": 158
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a failing chunk match keeps the results, each with no chunks, and says why",
+          "bodyMs": 10.3
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of spaces has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 3.44
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of a tab has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 2.83
+        },
+        {
+          "outcome": "pass",
+          "name": "chunk matching degrades like a lane > a query of punctuation has no word to match: the vector results stand, with no chunks",
+          "bodyMs": 3.28
+        },
+        {
+          "outcome": "pass",
+          "name": "widens duplicate-heavy KNN results to fill the document limit with one embedding",
+          "bodyMs": 3.57
+        },
+        {
+          "outcome": "pass",
+          "name": "widens after tag filtering and still excludes archived and other-type documents",
+          "bodyMs": 7.34
+        },
+        {
+          "outcome": "pass",
+          "name": "a post-KNN date filter widens the window to fill the limit",
+          "bodyMs": 3.95
+        },
+        {
+          "outcome": "pass",
+          "name": "a vector-lane date sort chooses the limit by date, beyond the nearest document's chunks",
+          "bodyMs": 3.51
+        },
+        {
+          "outcome": "pass",
+          "name": "a full-text date sort considers exactly the best max(limit x 20, 500) documents",
+          "bodyMs": 20.44
+        },
+        {
+          "outcome": "pass",
+          "name": "stops at exhaustion when filters leave too few results",
+          "bodyMs": 5.56
+        },
+        {
+          "outcome": "pass",
+          "name": "keeps the 500-chunk work cap on a pathological long document",
+          "bodyMs": 21.45
+        },
+        {
+          "outcome": "pass",
+          "name": "a stalled embedder yields FTS results and receives cancellation",
+          "bodyMs": 3.79
+        },
+        {
+          "outcome": "pass",
+          "name": "the default query deadline fires at 3000 ms",
+          "bodyMs": 3.33
+        },
+        {
+          "outcome": "pass",
+          "name": "late embedding completion never accesses the database after timeout",
+          "bodyMs": 2.64
+        },
+        {
+          "outcome": "pass",
+          "name": "fast embeddings retain hybrid fusion and cancel the deadline timer",
+          "bodyMs": 3.62
+        },
+        {
+          "outcome": "pass",
+          "name": "a sliced embedding uses only its own bytes",
+          "bodyMs": 3.13
+        },
+        {
+          "outcome": "pass",
+          "name": "recency reranking measures from the pinned now, not the wall clock",
+          "bodyMs": 4.28
+        },
+        {
+          "outcome": "pass",
+          "name": "an invalid now is refused rather than scoring every result NaN",
+          "bodyMs": 2.45
+        },
+        {
+          "outcome": "pass",
+          "name": "every lane returns the document's deadline",
+          "bodyMs": 3.66
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a question matches the document that holds its content words but not its question words",
+          "bodyMs": 4.25
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > an exact multi-word keyword query still ranks the one document holding every word first",
+          "bodyMs": 2.96
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a query made only of stopwords keeps the AND of all its terms",
+          "bodyMs": 4.37
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a query that is one quoted phrase stays a phrase",
+          "bodyMs": 3.01
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a quoted phrase holding FTS5 doubled-quote escapes stays one phrase",
+          "bodyMs": 2.74
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > a mixed query matches only what its content words match",
+          "bodyMs": 5.77
+        },
+        {
+          "outcome": "pass",
+          "name": "full-text lane over fixtures/corpus > tokens carrying FTS5 syntax characters never raise a syntax error",
+          "bodyMs": 10.02
+        },
+        {
+          "outcome": "pass",
+          "name": "an invalid date filter is refused rather than matching nothing",
+          "bodyMs": 2.62
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > a thin full-text lane counts for less: in the issue's example, vector's first place outranks the overlap",
+          "bodyMs": 5.5
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > with a full full-text pool, a document both lanes rank still wins",
+          "bodyMs": 4.95
+        },
+        {
+          "outcome": "pass",
+          "name": "hybrid fusion > with a full pool, a full-text-only first place ranks below a vector-only second place",
+          "bodyMs": 4.7
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a historical first place and a primary second place swap",
+          "bodyMs": 3.03
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a primary doc at rank 30 does not overtake a historical doc at rank 1",
+          "bodyMs": 4.81
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a lone result is scored like a first place among several",
+          "bodyMs": 3.63
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > in vector mode, a result filtered down to one keeps the same score",
+          "bodyMs": 3.15
+        },
+        {
+          "outcome": "pass",
+          "name": "lifecycle reranking > with rerank none, every mode keeps the retrieval order",
+          "bodyMs": 6.15
+        }
+      ],
+      "bodyMs": 184.23,
+      "bunMs": 366.0,
+      "resources": {
+        "wallSeconds": 0.43,
+        "userSeconds": 0.44,
+        "systemSeconds": 0.12,
+        "maxRssKiB": 122788.0
+      },
+      "expectedFailureFragments": null,
+      "interpretation": "Restored or baseline complete file."
+    }
+  ],
+  "comparison": {
+    "baselineVariant": "baseline-full",
+    "candidateVariant": "restored-full",
+    "originalThreeCaseBodyMs": {
+      "before": 90.07,
+      "after": 10.05
+    },
+    "additionalDefaultCaseBodyMs": 3.33,
+    "commandSeconds": {
+      "before": 0.5,
+      "after": 0.43
+    },
+    "summedBodyMs": {
+      "before": 256.58,
+      "after": 184.23
+    },
+    "cpuSeconds": {
+      "before": 0.53,
+      "after": 0.56
+    },
+    "maxRssKiB": {
+      "before": 121520,
+      "after": 122788
+    },
+    "allEightCommandSeconds": 2.17,
+    "limits": "Single matched pair; CPU and RSS increased. No whole-CI saving or native scheduler minimum claim. The original three cases lose two native20 ms expiries and10/30 ms observations; actual wait spans were not separately instrumented in this pair."
+  },
+  "diagnosticPreparation": "After candidate-full and removed-clear passed their expected outcomes, a replacement precondition found two timeout suffixes and stopped before command5. Source restored. Resumption targeted the unique embedding-controller callback and executed only the remaining four commands. This was a stopped preparation check, not a test failure or an additional test run.",
+  "rawReceiptIndexes": {
+    "stage1": [
+      {
+        "name": "baseline-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "baseline-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "mutant-search-engine.ts",
+        "sha256": "b86512c8f15f4e49fc2012fabc07a804e42a2582a0948b524dabaa15f07b15f9",
+        "bytes": 51228
+      },
+      {
+        "name": "baseline-full.time",
+        "sha256": "e9ef2f121ca65fae46292e7a5badcfecc233ce617a02521393a42a5fc4de18b6",
+        "bytes": 784
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "c11cf6c0e304f46fbe293312cfd24c6783298e5b8af09da561909c25e6cc3fa1",
+        "bytes": 2662
+      },
+      {
+        "name": "original-search-reliability.test.ts",
+        "sha256": "fc84fb59a6da7ee76814806d004cf7050d77c6b53c9a1a289a6d29502a8b8d0b",
+        "bytes": 29770
+      },
+      {
+        "name": "baseline-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "original-late-whole-vector-race.time",
+        "sha256": "62c380df513e3d20973971a01458e9ebbea597094ccf82855cfa6e41a3727670",
+        "bytes": 869
+      },
+      {
+        "name": "original-search-engine.ts",
+        "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5",
+        "bytes": 51225
+      },
+      {
+        "name": "mutation.patch",
+        "sha256": "475918e9946f45168691d5c51a2e2c803df4018e758f4c60c169970bd4212e0a",
+        "bytes": 1876
+      },
+      {
+        "name": "original-late-whole-vector-race.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "original-late-whole-vector-race.log",
+        "sha256": "ac4aa8fce52a5518f8178e4865bea495877a55d4682f52b4f449d807099a15f3",
+        "bytes": 500
+      },
+      {
+        "name": "baseline-full.log",
+        "sha256": "153f650077191e08f7eabff675626128ebef69eb03c9607ccdbffdd829ce67ae",
+        "bytes": 3830
+      },
+      {
+        "name": "original-late-whole-vector-race.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "report.json",
+        "sha256": "94bdb56d0b9d58fa4a14c4b90f312bd4feaae855122b65fa0316fd08eef64262",
+        "bytes": 6189
+      },
+      {
+        "name": "original-late-whole-vector-race.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "1855-search-deadline-stage1.py",
+        "sha256": "7a44906cc4c39beda0daf1859ed36d429752fa70578dc694cbcaee6f9793b156",
+        "bytes": 3697
+      },
+      {
+        "name": "1855-completion-unprivileged-namespace.sh",
+        "sha256": "90815bf372410805b4abbd76f14a5328bb0fd60b10a0143b701a5724e2565f92",
+        "bytes": 438
+      },
+      {
+        "name": "1855-check-completion-namespace.py",
+        "sha256": "9a638a49365803a7c306caef18eac986a456210542b059ac3caa8ccffc39b8e5",
+        "bytes": 180
+      }
+    ],
+    "stage2": [
+      {
+        "name": "driver-stopped-before-early.py",
+        "sha256": "ce4e6e1af480d60ec5a1c8e62ffb8ace05b930ef41606b954673926a08d013f8",
+        "bytes": 3601
+      },
+      {
+        "name": "late-deadline.time",
+        "sha256": "28e5e90a530a0a533f1269064a1aa307b2423bfc931c9e7951bdb19e0764ba70",
+        "bytes": 949
+      },
+      {
+        "name": "late-access-whole-vector-race.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "final-source.patch",
+        "sha256": "ae466a914e11cb8b0d10b79bd9adc4b75cd216793b5566bc88c175a8aa620b95",
+        "bytes": 7771
+      },
+      {
+        "name": "late-access-whole-vector-race.log",
+        "sha256": "71946a58120c5150d6123bc49e95e99a1e7f64f045323be53feeabe8b21c09bc",
+        "bytes": 978
+      },
+      {
+        "name": "removed-clear.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "removed-clear-search-engine.ts",
+        "sha256": "a0a9dfbb5695038d413cea4c39986ea444978d577723ef42d11bbf100a95d9a7",
+        "bytes": 51255
+      },
+      {
+        "name": "candidate-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "late-deadline.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "restored-full-search-engine.ts",
+        "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5",
+        "bytes": 51225
+      },
+      {
+        "name": "restored-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "late-deadline.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "candidate-full.time",
+        "sha256": "d6ee5dfd382125f1ff10d1b76e23e392b490f3ffaeed3907d1b7400d14cd205c",
+        "bytes": 783
+      },
+      {
+        "name": "late-deadline.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "candidate-full-search-engine.ts",
+        "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5",
+        "bytes": 51225
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "58a2b01283bbd1f43eda445bd83a4f0836cd63dc34354c5c2237daaa7cafe8bf",
+        "bytes": 6296
+      },
+      {
+        "name": "candidate-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "removed-clear.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "late-access-whole-vector-race-search-engine.ts",
+        "sha256": "b86512c8f15f4e49fc2012fabc07a804e42a2582a0948b524dabaa15f07b15f9",
+        "bytes": 51228
+      },
+      {
+        "name": "late-deadline-search-engine.ts",
+        "sha256": "53b80fef2af39f725225b1987132f6397b9b1a58cc540957463bca3dea5995f2",
+        "bytes": 51229
+      },
+      {
+        "name": "original-search-engine.ts",
+        "sha256": "23333340ed464438d8dcb1bcdf780fd60152abfaaab9bee0aa54fbc74ae96fd5",
+        "bytes": 51225
+      },
+      {
+        "name": "removed-clear.time",
+        "sha256": "bfc8c1aa639c2b1f0effec5923354260ad30ab3c86a341585576c2225c685094",
+        "bytes": 906
+      },
+      {
+        "name": "ast-proof.json",
+        "sha256": "6be817a3cb0c5584ca70ffd2123f775d90033b52c25a22c76d72bed347f3b575",
+        "bytes": 239
+      },
+      {
+        "name": "restored-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "early-deadline.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "restored-full.time",
+        "sha256": "152037793db02e9ef7c336435e03490794ebb7942b638939dc40bfd79195d27b",
+        "bytes": 783
+      },
+      {
+        "name": "restored-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "removed-clear.log",
+        "sha256": "c486c95e0d6a4c08c9527d3cd95369276e0a9afcad38a47bb655d389c6b7e452",
+        "bytes": 1123
+      },
+      {
+        "name": "candidate-full.log",
+        "sha256": "4a5a5af04216511c1814d121e03ba02371973460510f4d29cd15aca3a613688f",
+        "bytes": 3885
+      },
+      {
+        "name": "late-access-whole-vector-race.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "early-deadline.time",
+        "sha256": "45d693d065c7a65f7ad1d38e0dc991188d90b2fb6003b47fdec8dae68ef8e81b",
+        "bytes": 949
+      },
+      {
+        "name": "early-deadline.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "late-deadline.log",
+        "sha256": "811d6475858b44b9cb4dc2499acc2812479cd68b53effe9cc3b7a65c0eaf5b9d",
+        "bytes": 1820
+      },
+      {
+        "name": "early-deadline.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "early-deadline.log",
+        "sha256": "4fbd1710a9e1f034a2ea03de87837f424a576e9797c1e6bcd0829505233aab9b",
+        "bytes": 1820
+      },
+      {
+        "name": "late-access-whole-vector-race.time",
+        "sha256": "a02b6e69d410e5fea4b2ee5c118b694b77f6ae53415333b22ce67acfb34ffb8a",
+        "bytes": 906
+      },
+      {
+        "name": "restored-full.log",
+        "sha256": "e5d6bf2eaeaaa81ab233694fa11e6f009ebf767dc64d94460e22a5d959bfbefc",
+        "bytes": 3887
+      },
+      {
+        "name": "removed-clear.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "preparation-stop.txt",
+        "sha256": "6816ec93b77c70dff315e16e6ad43a5b910d18cfb5a3398293cf4e24c318b66b",
+        "bytes": 425
+      },
+      {
+        "name": "early-deadline-search-engine.ts",
+        "sha256": "7b811c78aecd78289e91640a8b297f1433aad1a657b76cfa9af7393fae3aadab",
+        "bytes": 51229
+      },
+      {
+        "name": "candidate-search-reliability.test.ts",
+        "sha256": "2dd8217d10471ee407cad422c5bc486a4d1fa5710efc4e1f1c2320e78d0939e4",
+        "bytes": 34147
+      },
+      {
+        "name": "report.json",
+        "sha256": "95d33d6565e79c77abd2e4768a1e546ea3ec0c3c109c9e6d02457112992b87ac",
+        "bytes": 31740
+      },
+      {
+        "name": "candidate-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "late-access-whole-vector-race.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "1855-search-deadline-stage2.py",
+        "sha256": "12dfd20e327b87a21dbc6ad2c70ab6b9f7774b1c4fbddde54fedcbcd6474ba5c",
+        "bytes": 3194
+      },
+      {
+        "name": "1855-search-source-proof.ts",
+        "sha256": "48cc5b4b8ed5ee01ea2a0244e66c9b63d022554cda14f62de712b71a09b24559",
+        "bytes": 1843
+      }
+    ]
+  }
+}

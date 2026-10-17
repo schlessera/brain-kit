@@ -1,3 +1,6 @@
+import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../ui-react/tests/browser/diagram-export-command.ts";
+import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
+import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
@@ -18,15 +21,17 @@ import { formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixtu
 import { dictationThemeStyles, dictationMotion } from "./tests/visual/dictation-motion.ts";
 import { moduleSettingsScreenshot, moduleSettingsImportGate } from "./tests/visual/module-settings-browser.ts";
 import { dictationPointer } from "./tests/visual/dictation-pointer.ts";
+import { focusCapture } from "./tests/visual/focus-browser.ts";
 import { buttonPointer, buttonCapture } from "./tests/visual/button-browser.ts";
 import { ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace } from "./tests/visual/ghost-browser.ts";
 import { rankTap, rankTouch } from "./tests/visual/rank-pointer.ts";
 import { sheetInput } from "./tests/visual/sheet-pointer.ts";
-import { overlayMouse, destinationPaint, destinationSafeArea } from "./tests/visual/overlay-pointer.ts";
+import { overlayMouse, destinationPaint, destinationMotion, destinationSafeArea } from "./tests/visual/overlay-pointer.ts";
 import { rankFooterFonts, rankFooterDrag, rankFooterCapture } from "./tests/visual/rank-footer-browser.ts";
 import { designFontUsage } from "./tests/visual/design-font-browser.ts";
 import { canvasEncodingLoad } from "./tests/visual/canvas-encoding-load.ts";
 import { coldCapture } from "../ui-react/tests/browser/offline/cold-capture/commands.ts";
+import { shareReview } from "../ui-react/tests/browser/share-review/commands.ts";
 import { offlineScene } from "../ui-react/tests/browser/offline/scene-commands.ts";
 import { fakeMicrophoneFile } from "../ui-react/tests/browser/offline/fake-microphone-file.ts";
 import viteConfig from "./vite.config.ts";
@@ -91,7 +96,7 @@ const railProject = (mode: "fine" | "coarse" | "mixed") => ({
     provide: { railPointer: mode, keyboardHintsLive: false },
     browser: {
       enabled: true,
-      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, overlayMouse, destinationPaint, destinationSafeArea, dictationMotion },
+      commands: { sheetInput, rankTouch, rankTap, formViewport, formConsumerStyles, htmlPreviewFixture, overlayImageFixture, overlayImageRelease, buttonPointer, focusCapture, overlayMouse, destinationPaint, destinationMotion, destinationSafeArea, dictationMotion },
       provider: playwright({
         launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required", `--blink-settings=availablePointerTypes=${mode === "mixed" ? 6 : mode === "coarse" ? 2 : 4},primaryPointerType=${mode === "coarse" ? 2 : 4}`] },
         contextOptions: { reducedMotion: "reduce" },
@@ -116,20 +121,77 @@ export default mergeConfig(
     }],
     test: {
       sequence: { sequencer: MeasuredBrowserSequencer },
-      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      provide: { proofWorkerMode: "selected-zero-v1" },
+      setupFiles: ["./tests/visual/worker-boundary-setup.ts", "./tests/visual/design-font-setup.ts"],
       browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
           extends: true,
           test: {
+            name: "diagrams-chromium",
+            include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
+            browser: {
+              enabled: true, screenshotFailures: false,
+              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "diagrams-webkit",
+            include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
+            browser: {
+              enabled: true, screenshotFailures: false,
+              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "webkit" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
             name: "ui-react-layout",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
             // Measurements of the real consumer, kept out of Bun's test glob,
             // and the offline fault harness's self-tests (#1016).
             include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
+            exclude: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              // The fake microphone plays the generated 10-second fixture
+              // (#1016). Chromium reads the file at launch, so it is written
+              // when this config loads; the fake UI grants the permission.
+              // Audio contexts start without a gesture, as the injected
+              // microphone and the tone check need.
+              provider: playwright({
+                launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required"] },
+                contextOptions: { reducedMotion: "reduce" },
+              }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "ui-react-endurance",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
+            // Real-time native media proof has its own scheduling and discovery;
+            // keep the same offline launch, commands and lifecycle as layout.
+            include: ["../ui-react/tests/browser/**/*.endurance.tsx"],
+            browser: {
+              enabled: true,
+              screenshotFailures: false,
+              commands: { buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.
@@ -163,7 +225,7 @@ export default mergeConfig(
               enabled: true,
               // The link card's no-request proof reads the network from
               // Playwright (`tests/visual/request-log.ts`).
-              commands: { sheetInput, startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
+              commands: { sheetInput, startRequestLog, requestLog, rankTouch, rankFooterFonts, rankFooterDrag, rankFooterCapture, formViewport, formConsumerStyles, buttonPointer, buttonCapture, focusCapture, ghostMedia, ghostPixels, ghostMaskPixels, ghostTrace, canvasEncodingLoad, dictationMotion },
               // Chromium's own web-test mode retains native encoding without
               // waiting for idle periods that can exceed a functional poll (#940).
               provider: playwright({ launchOptions: { args: ["--enable-blink-features=NoIdleEncodingForWebTests"] } }),

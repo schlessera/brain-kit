@@ -5,6 +5,8 @@ import { constants } from "node:fs";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
+import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
+import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
@@ -89,8 +91,27 @@ function validateDatabase(db: Database): void {
         throw new Error("inbox_snapshot_relations");
     }
     if (row.deleted_at === null && item.queue === "queue" && item.type !== "cleanup_pending" && item.status === "claimed" &&
-        !state.inbox_budget_reservations.some(r => r.run_id === item.runId && r.status === "active"))
+        !state.inbox_budget_reservations.some(r => r.run_id === item.runId && r.status === "active") &&
+        !state.inbox_interactive_shares.some(r => r.item_id === item.id && r.run_id === item.runId && r.completion_json === null))
       throw new Error("inbox_snapshot_reservation");
+  }
+  for (const row of state.inbox_interactive_shares) {
+    const item = items.get(row.item_id), intake = state.inbox_intake_receipts.find(r => r.item_id === row.item_id);
+    if (!item || item.queue !== "queue" || item.type !== "triage" || !intake || intake.source !== "share" ||
+        intake.staging_id !== row.staging_id || intake.principal_id !== row.principal_id ||
+        (item.status === "claimed" && item.runId !== row.run_id) || (row.completion_json !== null && item.status !== "done"))
+      throw new Error("inbox_snapshot_interactive_share");
+    if (row.completion_json !== null) {
+      const completion = COMPLETE_SHARE_INPUT_SCHEMA.parse(JSON.parse(row.completion_json as string));
+      if (!completion.receiptIds.every(id => state.inbox_share_applications.some(r => r.item_id === row.item_id && r.id === id && r.result_json !== null)))
+        throw new Error("inbox_snapshot_interactive_share");
+    }
+  }
+  for (const row of state.inbox_share_applications) {
+    const input = brainApplicationInput.safeParse(JSON.parse(row.input_json as string));
+    if (!state.inbox_interactive_shares.some(r => r.item_id === row.item_id) || !input.success ||
+        row.operation_key !== hash(JSON.stringify(input.data, (key, value) => key === "expectedBaseHash" ? undefined : value)))
+      throw new Error("inbox_snapshot_interactive_share");
   }
   for (const row of state.inbox_action_contexts) {
     const action = items.get(row.item_id);

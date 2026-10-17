@@ -61,7 +61,7 @@ export function CommandPalette({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.15 }}
-      className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-border bg-surface-overlay shadow-2xl"
+      className="bk-focus-clip absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-border bg-surface-overlay shadow-2xl"
       data-command-palette=""
     >
       <span role="status" aria-label="Slash command" className="sr-only">

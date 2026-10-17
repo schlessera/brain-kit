@@ -84,7 +84,7 @@ export function ModelPicker(p: ModelPickerProps) {
         })}
       </div>
     </fieldset>
-    {p.modelLocked && p.lockedAction ? <button type="button" data-locked-action="" className="bk-control"
+    {p.modelLocked && p.lockedAction ? <button type="button" data-locked-action="" className="bk-control bk-control-inset"
       aria-disabled={p.lockedAction.why ? true : undefined}
       onClick={() => { if (!p.lockedAction!.why) p.lockedAction!.onSelect(); }}
       style={{ ...row, width: "100%", border: 0, background: "transparent", textAlign: "left", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 0, padding: "6px 8px", cursor: p.lockedAction.why ? "default" : "pointer", color: p.lockedAction.why ? color.inkMute : accent.teal.ink }}>

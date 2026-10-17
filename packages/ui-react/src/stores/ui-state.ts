@@ -21,7 +21,7 @@ function isThemePreference(value: unknown): value is ThemePreference {
  * input) is a section column row from `laptop:` up only; the phone strip
  * keeps those controls above its tabs and folds the value to `models`.
  */
-export type SettingsTab = "appearance" | "models" | "skills" | "security" | "devices" | "modules";
+export type SettingsTab = "appearance" | "accounts" | "models" | "skills" | "security" | "devices" | "modules";
 
 /** Full-screen surface currently shown inside the AppShell. */
 export type ActiveView = "chat" | "graph" | "activity";

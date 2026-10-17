@@ -14,8 +14,8 @@
  * glyph directly, so swapping `icon` swaps the glyph, with no imperative
  * escape hatch and no timer.
  *
- * 87 keys, 85 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
- * render an x, `settings`/`filter` both render sliders — and all 87 are kept.
+ * 88 keys, 86 distinct glyphs. Two pairs are aliases — `deny`/`dismiss` both
+ * render an x, `settings`/`filter` both render sliders — and all 88 are kept.
  * They render identically today but mean different things, and collapsing them
  * would leave a future icon set unable to tell them apart.
  *
@@ -37,6 +37,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleDashed,
+  LoaderCircle,
   CircleEllipsis,
   CircleMinus,
   CircleSlash,
@@ -213,6 +214,7 @@ export const ICONS = {
   unheard: CircleEllipsis,
   working: Contrast,
   unproven: CircleDashed,
+  loading: LoaderCircle,
   unreachable: CircleSlash,
   finished: CircleCheck,
   withdrawn: CircleMinus,

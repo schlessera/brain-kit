@@ -1,0 +1,703 @@
+{
+  "sourceCommit": "a2b0cdb2536cd1ad475cc569d5de070c75093669",
+  "scope": "Only the robots-policy 820 ms observation is replaced. The original 800 ms native fetch, 250 ms page budget, concurrency 1, all real Chrome/HTTP paths and all original 14 cases/66 expectations remain. The pacing 1300 ms window is unchanged.",
+  "sourceFiles": [
+    {
+      "file": "packages/scrape/src/browser/session.ts",
+      "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+    },
+    {
+      "file": "packages/scrape/tests/browser-politeness.test.ts",
+      "sha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef"
+    },
+    {
+      "file": "packages/scrape/src/politeness/robots.ts",
+      "sha256": "a8b54539813ba9b267fda7b55af9057851c9db6ab82e00135f25a3b6ac03fc64"
+    },
+    {
+      "file": "packages/scrape/src/politeness/policy.ts",
+      "sha256": "3fcc7b54882aa86842273c5efdb5767c673d2d36d4cd0d9b823674ca36b317f0"
+    },
+    {
+      "file": "packages/scrape/src/politeness/abort.ts",
+      "sha256": "8554fda2c0bbbba286a701fea1e5f9a524ceeb832bc4fb8dae56b0b76360d0ed"
+    },
+    {
+      "file": "packages/scrape/src/politeness/rate-limit.ts",
+      "sha256": "2e249635a3b2e33e3bb3bf5068df388882fd9d5825a10b3e05355dd4f49b137c"
+    },
+    {
+      "file": "bun.lock",
+      "sha256": "92a734b4d010bb85631c9bc03b47102660afa722c3039db165ed9aa3c042c7c0"
+    }
+  ],
+  "finalTestSha256": "bed6073f0a3fe9c0f66727278ff3e83f0dffd3b54067c1da3c77f61ad2a0be6b",
+  "method": "Five bounded commands, shared benchmark lock, own checkout/dependencies. No native operation promise is replaced: synchronous case-local forUrl/newPage/request-listener forwarding returns each exact original result. Same attached connection and exact native target object correlate destruction. Actual forbidden HTTP arrival is an escape to the original no-hit oracle. Original 45 matcher/13 name expressions retained; 31 awaits remain, with only the 820 ms await replaced.",
+  "runtime": {
+    "bun": "1.4.2 (744846f84)",
+    "chrome": "Google Chrome 140.0.7339.127",
+    "puppeteerCore": "25.12.0",
+    "platform": "Linux 6.18.33.2-microsoft-standard-WSL2 x86_64",
+    "isolation": "Required Chrome flag and original preload plus explicit ordinary-UID user/network namespace with loopback only, no external route, and capabilities dropped before test process. Native launch flags unchanged. No app build required by this file.",
+    "resources": "GNU time inside shared benchmark lock, after namespace setup. Shared-host background load uncontrolled; process-tree peak RSS is not summed memory. Setup and original820 ms elapsed span were not separately measured."
+  },
+  "completion": {
+    "allRequired": [
+      "The original matching robots.forUrl promise settles, including parsing/cache completion.",
+      "The original matching main-frame interception listener promise settles, including continue/abort await.",
+      "The same native page target emits targetdestroyed on the same attached Browser connection."
+    ],
+    "escape": "Only an actual matching /late HTTP arrival lets the original no-hit assertion decide before missing destruction. No null/quiet/timeout fallback.",
+    "fault": "Remove cancellation forwarding into actual clearToFetch, its post-policy abort guard, and actual finally page.close together. Budget controller and actual native dispatch remain. Each guard is independently protective; this compound fault does not inject a request.",
+    "limits": "Completion is for this original load and its shared policy work, not all browser/network activity. The native 800 ms fetch remains. The 1300 ms pacing window also permits actual 1200 ms eligibility before the next 300 ms budget; target/handler completion alone does not replace it."
+  },
+  "runs": [
+    {
+      "variant": "baseline-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 14,
+        "fail": 0,
+        "expects": 66
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone initial disallow never reaches the fixture origin",
+          "bodyMs": 189.82
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /same is refused before its target is sent",
+          "bodyMs": 70.17
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /cross is refused before its target is sent",
+          "bodyMs": 25.51
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > subsequent main-frame navigation during a load is refused",
+          "bodyMs": 84.28
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission covers its original origin and never persists",
+          "bodyMs": 1055.45
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission cannot authorize a disallowed cross-origin redirect",
+          "bodyMs": 27.13
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > robots matches the custom user agent actually sent by Chrome",
+          "bodyMs": 29.87
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone Chrome uses the package default identity",
+          "bodyMs": 26.96
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > HTTP and concurrent browser requests share Crawl-delay and cached robots",
+          "bodyMs": 3014.37
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > generic runner shares its supplied HTTP client's policy state",
+          "bodyMs": 1011.46
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > ordinary scripts, images, frames and page API calls are outside coverage",
+          "bodyMs": 192.26
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 1105.38
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 1660.77
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > invalid URLs and selector timeouts release capacity for the next load",
+          "bodyMs": 331.52
+        }
+      ],
+      "bodyMs": 8824.95,
+      "bunMs": 9210.0,
+      "resources": {
+        "wallSeconds": 9.28,
+        "userSeconds": 1.33,
+        "systemSeconds": 0.54,
+        "maxRssKiB": 191952.0
+      },
+      "boundaryObservations": [],
+      "expectedFailure": null
+    },
+    {
+      "variant": "original-guards-disabled",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*policy waits time out, close pages and release capacity without a late request$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*policy waits time out, close pages and release capacity without a late request$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "b98266edeb3da8c38d804d59d42f5d0898c49d9ea536a58e31713de8566cdc9c"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 4
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 2095.64
+        }
+      ],
+      "bodyMs": 2095.64,
+      "bunMs": 2400.0,
+      "resources": {
+        "wallSeconds": 2.47,
+        "userSeconds": 0.35,
+        "systemSeconds": 0.26,
+        "maxRssKiB": 187128.0
+      },
+      "boundaryObservations": [],
+      "expectedFailure": "Original second no-hit assertion received one actual /late request; afterEach separately received two native pages instead of one."
+    },
+    {
+      "variant": "premature-completion",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*policy waits time out, close pages and release capacity without a late request$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*policy waits time out, close pages and release capacity without a late request$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "cbab56fb83d9e0306792cb5e51e3d3e79e1790de717d2b6884474d2d724b3d95"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 5
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 261.71
+        }
+      ],
+      "bodyMs": 261.71,
+      "bunMs": 532.0,
+      "resources": {
+        "wallSeconds": 0.6,
+        "userSeconds": 0.3,
+        "systemSeconds": 0.18,
+        "maxRssKiB": 183944.0
+      },
+      "boundaryObservations": [
+        {
+          "kind": "ROBOTS_PREMATURE",
+          "observation": {
+            "robotsStarted": true,
+            "robotsSettled": false,
+            "handlerSettled": true,
+            "targetDestroyed": true
+          }
+        }
+      ],
+      "expectedFailure": "Original forUrl was invoked and still pending: actual robotsStarted=true and robotsSettled=false. Explicit diagnostic completion assertion fails; handler and target already completed."
+    },
+    {
+      "variant": "candidate-guards-disabled",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts",
+        "--test-name-pattern",
+        "^browser main-frame politeness.*policy waits time out, close pages and release capacity without a late request$"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts --test-name-pattern '^browser main-frame politeness.*policy waits time out, close pages and release capacity without a late request$'",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "b98266edeb3da8c38d804d59d42f5d0898c49d9ea536a58e31713de8566cdc9c"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "4b6f09a811080e5c187f1523082f6167ea10eec4ac158700a7573083e072e82c"
+        }
+      ],
+      "exitCode": 1,
+      "counts": {
+        "pass": 0,
+        "fail": 1,
+        "expects": 4
+      },
+      "filtered": 13,
+      "cases": [
+        {
+          "outcome": "fail",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 2052.37
+        }
+      ],
+      "bodyMs": 2052.37,
+      "bunMs": 2320.0,
+      "resources": {
+        "wallSeconds": 2.39,
+        "userSeconds": 0.35,
+        "systemSeconds": 0.23,
+        "maxRssKiB": 185956.0
+      },
+      "boundaryObservations": [
+        {
+          "kind": "ROBOTS_BOUNDARY",
+          "observation": {
+            "elapsedMs": 765.906255,
+            "robotsStarted": true,
+            "robotsSettled": true,
+            "handlerSettled": true,
+            "targetDestroyed": false
+          }
+        }
+      ],
+      "expectedFailure": "Original second no-hit assertion received one actual /late request; afterEach separately received two native pages instead of one."
+    },
+    {
+      "variant": "restored-full",
+      "commandArgs": [
+        "bun",
+        "run",
+        "test",
+        "packages/scrape/tests/browser-politeness.test.ts"
+      ],
+      "command": "bun run test packages/scrape/tests/browser-politeness.test.ts",
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "sourceFiles": [
+        {
+          "file": "packages/scrape/src/browser/session.ts",
+          "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec"
+        },
+        {
+          "file": "packages/scrape/tests/browser-politeness.test.ts",
+          "sha256": "4b6f09a811080e5c187f1523082f6167ea10eec4ac158700a7573083e072e82c"
+        }
+      ],
+      "exitCode": 0,
+      "counts": {
+        "pass": 14,
+        "fail": 0,
+        "expects": 66
+      },
+      "filtered": 0,
+      "cases": [
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone initial disallow never reaches the fixture origin",
+          "bodyMs": 179.74
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /same is refused before its target is sent",
+          "bodyMs": 67.92
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > redirect /cross is refused before its target is sent",
+          "bodyMs": 31.13
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > subsequent main-frame navigation during a load is refused",
+          "bodyMs": 91.15
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission covers its original origin and never persists",
+          "bodyMs": 1060.39
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > per-call permission cannot authorize a disallowed cross-origin redirect",
+          "bodyMs": 30.85
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > robots matches the custom user agent actually sent by Chrome",
+          "bodyMs": 34.31
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > standalone Chrome uses the package default identity",
+          "bodyMs": 33.07
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > HTTP and concurrent browser requests share Crawl-delay and cached robots",
+          "bodyMs": 3015.98
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > generic runner shares its supplied HTTP client's policy state",
+          "bodyMs": 1015.39
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > ordinary scripts, images, frames and page API calls are outside coverage",
+          "bodyMs": 201.1
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > policy waits time out, close pages and release capacity without a late request",
+          "bodyMs": 844.33
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > a timed-out pacing wait sends no late request and releases page capacity",
+          "bodyMs": 1657.86
+        },
+        {
+          "outcome": "pass",
+          "name": "browser main-frame politeness (real Chrome, local origins) > invalid URLs and selector timeouts release capacity for the next load",
+          "bodyMs": 330.11
+        }
+      ],
+      "bodyMs": 8593.33,
+      "bunMs": 8890.0,
+      "resources": {
+        "wallSeconds": 8.98,
+        "userSeconds": 1.34,
+        "systemSeconds": 0.67,
+        "maxRssKiB": 193836.0
+      },
+      "boundaryObservations": [
+        {
+          "kind": "ROBOTS_BOUNDARY",
+          "observation": {
+            "elapsedMs": 561.2247470000002,
+            "robotsStarted": true,
+            "robotsSettled": true,
+            "handlerSettled": true,
+            "targetDestroyed": true
+          }
+        }
+      ],
+      "expectedFailure": null
+    }
+  ],
+  "comparison": {
+    "baseline": "baseline-full",
+    "candidate": "restored-full",
+    "commandSeconds": {
+      "before": 9.28,
+      "after": 8.98
+    },
+    "summedBodyMs": {
+      "before": 8824.95,
+      "after": 8593.33
+    },
+    "selectedCaseBodyMs": {
+      "before": 1105.38,
+      "after": 844.33
+    },
+    "candidateCompletionMs": 561.2247470000002,
+    "cpuSeconds": {
+      "before": 1.87,
+      "after": 2.01
+    },
+    "maxRssKiB": {
+      "before": 191952,
+      "after": 193836
+    },
+    "allFiveCommandSeconds": 23.72,
+    "limits": "One matched pair; CPU/RSS increase. The original 820 ms is not an 820 ms saving: part of the original 800 ms fetch remains outstanding after budget expiry. No whole-CI speedup or numerical native minimum claim."
+  },
+  "finalSource": "After measured restoration, remove only diagnostic booleans/snapshot accessor, console output and stopwatch. Functional completion promises, forwarded operations, escape condition and all original assertions remain; final source has no extra diagnostics. Selected hosted qualification still applies.",
+  "rawReceiptIndexes": {
+    "stage1": [
+      {
+        "name": "original-guards-disabled.log",
+        "sha256": "96545c83247cd04b8e9ad02c0d261c2060eb8e3c1d78bd4a9738589a7f183ebc",
+        "bytes": 1944
+      },
+      {
+        "name": "installed-cdp-Browser.js",
+        "sha256": "1511281b1bee2cdffe552b8e2754ca85054dbd70ffed57196bf8cc464aa28db6",
+        "bytes": 20204
+      },
+      {
+        "name": "baseline-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "original-guards-disabled.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "baseline-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "baseline-full.time",
+        "sha256": "a40fb4eb64a82c504bc3b2e5ab0515f70ee2c1cdec32f36d9730806e0c0a54c1",
+        "bytes": 790
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "9bd81766c5b0d89f94f4134351906d19ed8188217a380f567ecc4c20d65345ba",
+        "bytes": 3226
+      },
+      {
+        "name": "baseline-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "installed-api-Page.js",
+        "sha256": "f2eb972c3f0326fa5e2b584bd90dc34bb7997820f9b64ad78d7f199268f77156",
+        "bytes": 69540
+      },
+      {
+        "name": "original-guards-disabled.time",
+        "sha256": "72c1ec5371fa073ca2110c2f254f9e90b030138bcac8948062835a58d5739c36",
+        "bytes": 957
+      },
+      {
+        "name": "mutation.patch",
+        "sha256": "99c76fa575827db47de28732a2ddfa16620812663692abcee705bc04ded9eb27",
+        "bytes": 1224
+      },
+      {
+        "name": "chrome-version.txt",
+        "sha256": "8b5adff5392a2e0c4268bfa42de6ff0f2f281175c4299194a5a5716fd980c3c0",
+        "bytes": 30
+      },
+      {
+        "name": "baseline-full.log",
+        "sha256": "552a9c8fe3167da2e09f921033c54df3b4991479668f610eb866116f7db96adf",
+        "bytes": 2321
+      },
+      {
+        "name": "original-guards-disabled.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "mutant-session.ts",
+        "sha256": "b98266edeb3da8c38d804d59d42f5d0898c49d9ea536a58e31713de8566cdc9c",
+        "bytes": 12226
+      },
+      {
+        "name": "original-session.ts",
+        "sha256": "dca7fe666be9def50372b478bf888649ca34245db139b509e3be4aaa4b76c3ec",
+        "bytes": 12128
+      },
+      {
+        "name": "installed-puppeteer-package.json",
+        "sha256": "36cd46fb83780172e647da7825579a8701baf6bb36ef8fb9146a5db370b152d7",
+        "bytes": 4068
+      },
+      {
+        "name": "report.json",
+        "sha256": "9edb06e1b09de5781c1791c9cb045764513e1b16a5cd908cd0635704ad1340dc",
+        "bytes": 10243
+      },
+      {
+        "name": "original-guards-disabled.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "original-browser-politeness.test.ts",
+        "sha256": "2408cc1713fdeb2aaec3dab60e74743c44bba59f43a59bc5ed975be6bc66bdef",
+        "bytes": 10534
+      },
+      {
+        "name": "1855-politeness-robots-stage1.py",
+        "sha256": "7bcb3cc341e66d2cdc8729d23fad9a0a75545d9b6ae2cb23d7c8c0c328b3d76e",
+        "bytes": 3488
+      }
+    ],
+    "stage2": [
+      {
+        "name": "candidate-guards-disabled.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "restored-full.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "premature-completion.time",
+        "sha256": "2cbac2bea641e5afe6045ed555f092af29eba61b88d26717fb825e3d4deefa32",
+        "bytes": 956
+      },
+      {
+        "name": "premature-completion.log",
+        "sha256": "716711c25c13b8426b499ad4c0e1489615cfd69e6939934c109e54127e4f6e81",
+        "bytes": 1418
+      },
+      {
+        "name": "premature-browser-politeness.test.ts",
+        "sha256": "cbab56fb83d9e0306792cb5e51e3d3e79e1790de717d2b6884474d2d724b3d95",
+        "bytes": 16303
+      },
+      {
+        "name": "manifest.json",
+        "sha256": "6826726ea9dfca2102e9ab58ec268b16a417f5db1c82795a30e02e2836132b28",
+        "bytes": 3921
+      },
+      {
+        "name": "candidate-guards-disabled.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "candidate-browser-politeness.test.ts",
+        "sha256": "39b0dc3726a2b57d667f1f5e1b97c830ac7c03ee52d099bb786f8a4441cf322b",
+        "bytes": 15887
+      },
+      {
+        "name": "candidate-guards-disabled.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "candidate-guards-disabled.log",
+        "sha256": "72071dda49d9ebc27f2a18aa2f426f246bce29203877dd0b53d8969aeb356d09",
+        "bytes": 2114
+      },
+      {
+        "name": "restored-full.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "restored-full.time",
+        "sha256": "825ac6260c75ebb41a0714b842e1fbcc61c74362aa27e99f5372e4766e0477d4",
+        "bytes": 789
+      },
+      {
+        "name": "premature-completion.namespace-address.json",
+        "sha256": "e063e539b0a018f08357e45678ddc362aebbc8ad88c5e341c21be9b6331ceea9",
+        "bytes": 518
+      },
+      {
+        "name": "restored-full.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "premature-completion.namespace-uid-map.txt",
+        "sha256": "bdef0d05ff5d9e89386bd857acfcd0372922c5536d08b9ab00396a2e1611ab2f",
+        "bytes": 33
+      },
+      {
+        "name": "premature-completion.namespace-route.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bytes": 3
+      },
+      {
+        "name": "restored-full.log",
+        "sha256": "ccf23cddddffabd299a45e7f82c8c40c6a429d802daeb288bbc98d7baad72b34",
+        "bytes": 2455
+      },
+      {
+        "name": "report.json",
+        "sha256": "f85095ed85bdf3aeb7b89893e8014f32fa8e9ec04d49d73828a885da7095fcb4",
+        "bytes": 14730
+      },
+      {
+        "name": "candidate-guards-disabled.time",
+        "sha256": "956eab7bf13349b3f32ad9895b8b1ff3432ee6710140e9ddf2016c9a00e61009",
+        "bytes": 956
+      },
+      {
+        "name": "observed-browser-politeness.test.ts",
+        "sha256": "4b6f09a811080e5c187f1523082f6167ea10eec4ac158700a7573083e072e82c",
+        "bytes": 16133
+      },
+      {
+        "name": "1855-politeness-robots-stage2.py",
+        "sha256": "93eb9607c65439e1776f5781f278aa87f7a2b714364e17762fe42218b8789b12",
+        "bytes": 4213
+      }
+    ]
+  }
+}

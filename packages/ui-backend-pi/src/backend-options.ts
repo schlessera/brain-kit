@@ -18,6 +18,11 @@ import type { TurnContext } from "./turn-context.js";
  * surface for the cross-backend contract tests (no live model needed).
  */
 export interface PiSessionLike {
+  readonly reportsPromptPrefix?: boolean;
+  /** Native assembly state; absent in older injected sessions means unknown coverage. */
+  readonly systemPrompt?: string;
+  readonly agent?: { state: { tools: ReadonlyArray<{ name: string; description: string; parameters: unknown }> } };
+
   /** Production worker's actual admitted resumed-state observation; absent in older doubles. */
   readonly stateRoom?: import("@schlessera/brain-ui-sdk/protocol").StateRoomObservation;
   readonly sessionId: string;
@@ -120,10 +125,10 @@ export interface CreatePiBackendOptions {
    */
   loadExtensions?: boolean;
   /**
-   * Text appended to the system prompt describing the chat surface the answer
-   * renders on. Defaults to `buildSystemPromptAppend()` fed with the
-   * session-opening turn's client environment and the host's bridge
-   * capabilities; pass an empty string to append nothing.
+   * Optional override for the session-stable chat-surface brief. The first
+   * value stays exact across fresh/resumed workers. Current device, sandbox
+   * and handler facts use new tail context instead. An empty string omits
+   * this brief; it does not suppress current host context.
    */
   systemPromptAppend?: string;
   /**
@@ -165,7 +170,7 @@ export interface CreatePiBackendOptions {
   sessionFactory?: PiSessionFactory;
 }
 
-/** The host bridge capabilities one session's tool surface is built for. */
+/** Capability shape shared by the deployment roster and current-handler advisory facts. */
 export interface SessionCaps {
   policyChange?: boolean;
   askUser: boolean;
@@ -182,6 +187,9 @@ export interface SessionCaps {
 
 /** What one session's system prompt and toolset are conditioned on. */
 export interface SessionEnv {
+  /** Internal static limits and current actionable budget context. */
+  sessionBudgetLimits?: string;
+  budgetContext?: string;
   /** Trusted host acquisition cancellation; removed before worker serialization. */
   workerSignal?: AbortSignal;
   workerStartupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView;
@@ -190,7 +198,13 @@ export interface SessionEnv {
   workerLock?: import("@schlessera/brain-ui-sdk/server").KeyedLock;
   autonomous?: AutonomousTurnOptions;
   client?: ClientEnvironment;
+  /** Deployment-owned advertised roster; never live handler authority. */
   caps: SessionCaps;
+  /** Current handler availability, separate from the stable advertised roster. */
+  currentCaps?: SessionCaps;
+  /** Advisory current-turn posture; never tool authority. */
+  currentSurface?: { posture: string; noGrantSurface: boolean;
+    inbox?: { list: boolean; get: boolean; add: boolean; resolveAction: boolean; completeShare: boolean } };
   turnBudgetMs?: number;
 }
 
@@ -207,3 +221,9 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     mask: Boolean(bridge.requestMask),
   };
 }
+
+/** Deployment-owned tools exist even when this turn has no matching handler. */
+export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
+  policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
+  location: true, activity: true, inbox: true, mask: true, turnTemp: true,
+});

@@ -6,6 +6,7 @@ import type { V1ResolutionEffect } from "@schlessera/brain-ui-sdk/protocol";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import type { InboxIntake } from "./intake.js";
 import { createInboxStore } from "./store.js";
+import { createInteractiveShares } from "./interactive-share.js";
 import type { createInboxResolver } from "./resolve.js";
 
 export interface InboxBridgeContext {
@@ -21,9 +22,11 @@ export interface InboxBridgeContext {
   /** Server-held exact approval only. V1 never creates a discuss binding. */
   approvedAction?: { sessionId: string; itemId: string; optionId: string; expectedVersion: number; effect: V1ResolutionEffect };
 }
-export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolver: ReturnType<typeof createInboxResolver>) {
+export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolver: ReturnType<typeof createInboxResolver>, brainRoot?: string) {
   const store = createInboxStore(db);
+  const shares = brainRoot ? createInteractiveShares(db, brainRoot) : undefined;
   return {
+    shares,
     forTurn(context: InboxBridgeContext): Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction"> {
       const { principalId, turnId, isCurrent, sessionId, membership } = context;
       const threadId = context.origin === "interactive" ? undefined : context.origin.threadId;

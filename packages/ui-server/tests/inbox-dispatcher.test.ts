@@ -20,6 +20,8 @@ import { createInboxStore } from "../src/inbox/store.js";
 import { createInboxRuntime } from "../src/inbox/runtime.js";
 import { createInboxResolver } from "../src/inbox/resolve.js";
 import { createInboxDispatcher } from "../src/inbox/dispatcher.js";
+import { createHostBoundary } from "../src/brain/host-boundary.js";
+import { boundaryPlanner } from "../src/brain/application.js";
 import { createInboxOperationEnvelope, inboxOperationAllowed } from "../src/inbox/envelope.js";
 import type { FetchLike } from "../src/classification/jev-client.js";
 
@@ -64,7 +66,7 @@ function fixture(route = "needs_agent") {
     pricing: { resolve: () => ({ input: 0.000001, output: 0.000001, cacheRead: null, cacheWrite: null, estimate: true, source: "snapshot" as const }) } };
   const native = createNativeAppFixture(root), nativeManager = createNativeBrainManagerClient(native.nativeBrain);
   const activity = createActivityStore(db, { writer: "dispatch-test" });
-  const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, budget, classification: { apiKey: "fixture-key" }, fetch, store: activity,
+  const dispatcher = createInboxDispatcher(db, { brainRoot: root, nativeManager, applicationPlanner: boundaryPlanner(createHostBoundary({ brainPath: root, dbPath, nativeManager })), budget, classification: { apiKey: "fixture-key" }, fetch, store: activity,
     select: async () => ({ backend, profileId: "fixture", model: "fixture-model", billingMode: "subscription" }) });
   const runtime = createInboxRuntime(db, { log: silentLog, brainRoot: root, budget,
     timers: { setInterval: () => 0 as never, clearInterval: () => {} }, ...dispatcher });

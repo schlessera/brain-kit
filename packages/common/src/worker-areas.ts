@@ -14,6 +14,13 @@
  * paths it actually resolved rather than from a copy of them.
  */
 
+import { join } from "node:path";
+
+/** The brain's packaged commands precede the otherwise unchanged worker PATH. */
+export function brainWorkerPath(brain: string, previous: string | undefined): string {
+  return `${join(brain, "node_modules", ".bin")}:${previous ?? "/usr/local/bin:/usr/bin:/bin"}`;
+}
+
 /** Repo-relative persistent scratch directory: kept across turns, gitignored, the place to link. */
 export const BRAIN_SCRATCH_DIR = ".brain/scratch";
 /** Repo-relative directory for clones of other repositories; never indexed. */

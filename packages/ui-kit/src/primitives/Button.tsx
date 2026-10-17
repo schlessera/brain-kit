@@ -58,6 +58,8 @@ export interface ButtonProps {
    * to a screen reader, so a decision bar names each one after its target.
    */
   ariaLabel?: string;
+  /** IDs of the caller's explanation, such as a disabled-action reason. */
+  ariaDescribedBy?: string;
   /** Full width. On by default. */
   block?: boolean;
   /** Centres the content even when `block`. */
@@ -236,6 +238,7 @@ export function Button(p: ButtonProps) {
       tabIndex={interactive ? (disabled ? -1 : 0) : undefined}
       aria-disabled={interactive && (disabled || p.ariaDisabled === true) ? true : undefined}
       aria-label={p.ariaLabel}
+      aria-describedby={p.ariaDescribedBy}
       // `pointer-events: none` stops a real pointer, not a programmatic
       // `.click()` or a test's synthetic event — and a disabled button that
       // still fires is worse than one that merely looks dim. Inert means

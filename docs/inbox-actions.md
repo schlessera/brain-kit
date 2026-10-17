@@ -95,7 +95,7 @@ Dismissing that Action terminates its source and journals cleanup. Cleanup failu
 retains the failed compensation record for inspection/recovery.
 
 `cleanup_pending` is server-owned work, not a model effect. Its compensation
-(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-83`) counts no model
+(`createInboxCleanup`, `packages/ui-server/src/inbox/cleanup.ts:14-84`) counts no model
 operation and takes no spend reservation. Compensation claims it before I/O,
 removes the server-selected staging directory and partial directory
 idempotently, then acknowledges `done` in a separate transaction. A crash

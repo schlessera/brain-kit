@@ -9,6 +9,9 @@ import type { InboxActionItem, InboxOperation } from "@schlessera/brain-ui-sdk/p
 import { createClaudeSdkTurn } from "../../ui-backend-claude/src/sdk-options.js";
 import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import type { SessionToolkit } from "../../ui-backend-pi/src/backend-options.js";
+import { createInteractiveShares } from "../src/inbox/interactive-share.js";
+import { createBrainApplication } from "../src/brain/application.js";
+import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createInboxStore } from "../src/inbox/store.js";
@@ -37,12 +40,12 @@ function setup() {
   const service = createInboxBridgeTools(db, intake, resolver);
   const base: InboxBridgeContext = { principalId: principal.id, turnId: "harbor-turn", origin: "interactive", membership: "interactive", isCurrent: () => current, sessionId: () => session };
   const binding = { sessionId: session, itemId: action.id, optionId: "approve", expectedVersion: 1, effect: action.options[0]!.effect } as InboxBridgeContext["approvedAction"];
-  return { root, db, store, principal, service, base, binding, resolver, action,
+  return { root, db, store, principal, intake, service, base, binding, resolver, action,
     expire: () => { current = false; }, session: (id: string) => { session = id; }, restrict: () => { allowed = []; } };
 }
 function data(text: string): any { return JSON.parse(text.split("\n")[2]!); }
-async function attached(kind: "claude" | "pi", f: ReturnType<typeof setup>, context: InboxBridgeContext) {
-  const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "No authority from a tool alone" }), ...f.service.forTurn(context) };
+async function attached(kind: "claude" | "pi", f: ReturnType<typeof setup>, context: InboxBridgeContext, extra: Partial<BackendBridge> = {}) {
+  const bridge: BackendBridge = { emit() {}, requestPermission: async () => ({ behavior: "deny", message: "No authority from a tool alone" }), ...f.service.forTurn(context), ...extra };
   if (kind === "claude") {
     const { options } = createClaudeSdkTurn({ backend: { brainPath: f.root }, req: { prompt: "Read the inbox", bridge, signal: new AbortController().signal },
       profile: { requiredEnvKeys: [], buildEnv: () => ({}) } as never, abortController: new AbortController(), allowedTools: [], confirmPatterns: [], turnLock: { acquire() {}, release() {} } as never, log() {} });
@@ -177,5 +180,33 @@ for (const kind of ["claude", "pi"] as const) {
     f.db.query("UPDATE inbox_items SET data_json = ? WHERE id = 'decision'").run(JSON.stringify({ ...f.action, options: [{ id: "approve", label: "Discuss", effect: { kind: "open_session", seed: { prompt: "Discuss" } } }] }));
     await expect(a.call("resolve_action", request)).rejects.toThrow("Invalid or unavailable");
     expect(f.db.query("SELECT COUNT(*) AS n FROM inbox_resolutions").get()).toEqual({ n: 0 });
+  });
+}
+
+for (const kind of ["claude", "pi"] as const) {
+  test(`${kind} attached completion executor verifies a real bound application and replays its durable terminal receipt`, async () => {
+    const f = setup();
+    const intake = await f.intake.share({ text: "Odysseus studies the harbor", files: [] }, f.principal);
+    const shares = createInteractiveShares(f.db, f.root), sid = f.base.sessionId()!;
+    shares.start(f.principal.id, f.base.turnId, sid, intake.result.id, f.base.isCurrent);
+    try {
+      const input = { operation: "write" as const, path: "notes/harbor-share.md", expectedBaseHash: null,
+        content: `Odysseus studies the harbor.\n<!-- share-source:${intake.result.id} -->\n` };
+      const apply = createBrainApplication({ root: f.root, principalId: f.principal.id, turnId: f.base.turnId,
+        signal: new AbortController().signal, isAuthorized: f.base.isCurrent, approve: async () => false, record() {},
+        policy: { autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() },
+        planner: { planAdd: async () => { throw Error("No capture here"); }, index: async () => {} } });
+      const application = await shares.apply(f.principal.id, f.base.turnId, sid, f.base.isCurrent, input,
+        () => apply({ principalId: f.principal.id, turnId: f.base.turnId, input }));
+      expect(application.ok).toBe(true);
+      const a = await attached(kind, f, f.base, { completeShare: raw => shares.complete(f.principal.id, f.base.turnId, sid, f.base.isCurrent, raw, async () => false, createKeyedLock()) });
+      const request = { receiptIds: [application.shareReceiptId], files: [] };
+      await expect(a.call("complete_share", { ...request, itemId: "work-share" })).rejects.toThrow();
+      const first = await a.call("complete_share", request), repeated = await a.call("complete_share", request);
+      expect(first).toEqual({ itemId: intake.itemId, status: "done", replay: false });
+      expect(repeated).toEqual({ ...first, replay: true });
+      expect(f.store.getItem(intake.itemId)!.status).toBe("done");
+      f.expire(); await expect(a.call("complete_share", request)).rejects.toThrow("no longer authorized");
+    } finally { shares.end(f.base.turnId); }
   });
 }

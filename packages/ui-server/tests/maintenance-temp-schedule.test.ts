@@ -6,11 +6,11 @@ import { createHostBoundary } from "../src/brain/host-boundary";
 import { gitCheckIgnored } from "../src/schedules/service";
 import { createNativeHostInputFixture } from "./helpers/native-host-input-fixture";
 test("schedule Git checks use the configured maintenance domain and refuse busy capacity instead of assuming unignored",async()=>{
- const fixture=createNativeHostInputFixture();const brain=fixture.brain,state=join(brain,"..","state");
+ const fixture=createNativeHostInputFixture();const brain=fixture.brain;
  try{
-  mkdirSync(state);mkdirSync(join(brain,".brain/scratch"),{recursive:true});writeFileSync(join(brain,".gitignore"),".brain/scratch/\n");
+  mkdirSync(join(brain,".brain/scratch"),{recursive:true});writeFileSync(join(brain,".gitignore"),".brain/scratch/\n");
   expect(Bun.spawnSync(["git","init","-q",brain],{env:{PATH:"/usr/bin:/bin"}}).exitCode).toBe(0);
-  const tempLimits={allowanceBytes:8388608,budgetBytes:8388608};const boundary=createHostBoundary({brainPath:brain,nativeManager:fixture.manager,dbPath:join(state,"ui.db"),maintenanceTemp:tempLimits});
+  const tempLimits={allowanceBytes:8388608,budgetBytes:8388608};const boundary=createHostBoundary({brainPath:brain,nativeManager:fixture.manager,dbPath:fixture.statePath,maintenanceTemp:tempLimits});
   expect((await boundary.prepare()).available).toBe(true);
   expect(boundary.isolated()).toBe(true);const ignored=gitCheckIgnored(brain,boundary);
   const held=reserveMaintenanceTemp(tempLimits,boundary.maintenance!.tempDomain);

@@ -3,10 +3,16 @@ import type {
   GraphMetaResponse,
   GraphSubgraphResponse,
   GraphMaintenanceResponse,
+  GraphNodePayload,
 } from "@schlessera/brain-ui-sdk/protocol";
 import type { StoreEnvironment } from "./store-environment.js";
 import { discoveryFingerprint, discoveryRootIdentity } from "../lib/discovery-layout.js";
 import { buildQuery, mergeSubgraphs } from "../lib/graph-helpers.js";
+import {
+  discoveryExpansionAction, emptyDiscoveryExpansion, preservesDiscoveryBase,
+  requiredDiscoveryDepth, revealDiscovery, revalidateDiscoveryIntents,
+  type DiscoveryEvidence, type DiscoveryExpansionAction, type DiscoveryExpansionState,
+} from "../lib/discovery-expansion.js";
 
 export type GraphMode = "clusters" | "discovery" | "local" | "maintenance";
 
@@ -23,6 +29,11 @@ interface GraphError {
   kind: GraphErrorKind;
   reason?: "schema" | "not_computed" | "core_unavailable";
   message: string;
+}
+class DiscoveryIntegrityFailure extends Error {
+  constructor(limited: boolean) {
+    super("Could not apply expansion to the current graph; refresh and retry." + (limited ? " The fetched scene is limited." : ""));
+  }
 }
 
 export interface LocalParams {
@@ -94,6 +105,7 @@ export interface GraphState {
 
   /** Once-per-changed-scene status identity, cleared by selection/scene changes. */
   layoutNotice: number | null;
+  discoveryExpansion: DiscoveryExpansionState;
   selectedId: number | null;
   hoveredId: number | null;
 
@@ -112,8 +124,10 @@ export interface GraphState {
   fetchMeta: (force?: boolean) => Promise<void>;
   /** Fetch the scene for the current mode + params (cached per query + computedAt). */
   fetchScene: () => Promise<void>;
-  /** Local mode: pull the depth-1 ego of a node and merge it into the scene. */
+  /** Local merges a depth-1 ego; Discovery reveals bounded original-root outgoing targets. */
   expandNode: (path: string) => Promise<void>;
+  discoveryExpansionFor: (node: GraphNodePayload) => DiscoveryExpansionAction;
+  resetDiscoveryExpanded: () => Promise<void>;
   reset: () => void;
 }
 
@@ -148,6 +162,161 @@ export function createGraphStore(env: StoreEnvironment) {
   let disposed = false;
   let sceneRequestToken = 0;
   let metaRequestToken = 0;
+  let expansionGeneration = 0;
+  let discoveryEpoch = 0;
+  let discoveryBase: GraphSubgraphResponse | null = null;
+  let evidence: DiscoveryEvidence | null = null;
+  const discoveryRequests = new Map<string, Promise<GraphSubgraphResponse>>();
+  const discoveryControllers = new Map<string, AbortController>();
+  let expansionWorker: { generation: number; promise: Promise<void> } | null = null;
+
+  function invalidateExpansion(clearIntent: boolean, fresh = false) {
+    ++expansionGeneration;
+    expansionWorker = null;
+    for (const controller of discoveryControllers.values()) controller.abort();
+    discoveryControllers.clear();
+    discoveryRequests.clear();
+    if (fresh) { ++discoveryEpoch; sceneCache.clear(); }
+    discoveryBase = null;
+    evidence = null;
+    const prior = store.getState().discoveryExpansion;
+    store.setState({ discoveryExpansion: clearIntent ? emptyDiscoveryExpansion() : {
+      ...prior, loading: [], errors: {}, notice: null, transition: null, stale: store.getState().subgraph !== null,
+    } });
+  }
+
+  async function discoveryAt(depth: number, state: GraphState): Promise<GraphSubgraphResponse> {
+    const query = buildQuery({ root: state.discovery.root, maxDepth: depth });
+    const key = `/discovery?${query}|${state.meta?.computedAt ?? ""}|${discoveryEpoch}`;
+    const cached = sceneCache.get(key);
+    if (cached) return cached as GraphSubgraphResponse;
+    const shared = discoveryRequests.get(key);
+    if (shared) return shared;
+    const controller = new AbortController();
+    const request = fetchGraphJson<GraphSubgraphResponse>(`/discovery?${query}`, controller.signal).then(data => {
+      if (!disposed) cachePut(key, data);
+      return data;
+    });
+    discoveryRequests.set(key, request);
+    discoveryControllers.set(key, controller);
+    try { return await request; }
+    finally {
+      if (discoveryRequests.get(key) === request) discoveryRequests.delete(key);
+      if (discoveryControllers.get(key) === controller) discoveryControllers.delete(key);
+    }
+  }
+
+  function expansionCurrent(generation: number, initial: GraphState): boolean {
+    const current = store.getState();
+    return !disposed && generation === expansionGeneration && current.mode === "discovery" &&
+      current.meta?.computedAt === initial.meta?.computedAt && current.meta?.stale === initial.meta?.stale &&
+      current.discovery.root === initial.discovery.root && current.discovery.maxDepth === initial.discovery.maxDepth;
+  }
+
+  async function rebuildDiscovery(token: number) {
+    const initial = store.getState();
+    invalidateExpansion(false);
+    const generation = expansionGeneration;
+    store.setState({ dataState: "loading", error: null, layoutNotice: null });
+    try {
+      const base = await discoveryAt(initial.discovery.maxDepth, initial);
+      if (!expansionCurrent(generation, initial) || token !== sceneRequestToken) return;
+      let intents = store.getState().discoveryExpansion.intents;
+      const oldRoot = initial.subgraph?.nodes.find(n => n.virtual || n.distance === 0);
+      const nextRoot = base.nodes.find(n => n.virtual || n.distance === 0);
+      if (oldRoot && nextRoot && (oldRoot.path !== nextRoot.path || Boolean(oldRoot.virtual) !== Boolean(nextRoot.virtual))) intents = [];
+      let depth = requiredDiscoveryDepth(initial.discovery.maxDepth, intents);
+      let data = depth === initial.discovery.maxDepth ? base : await discoveryAt(depth, initial);
+      if (!expansionCurrent(generation, initial) || token !== sceneRequestToken) return;
+      let validated = revalidateDiscoveryIntents(intents, { data, depth }, initial.meta?.stale === true);
+      const needed = requiredDiscoveryDepth(initial.discovery.maxDepth, validated.intents);
+      // A moved/omitted path cannot be revalidated from its old shallow distance.
+      // Depth eight is the existing bounded evidence path, never a cap bypass.
+      if (intents.length && (validated.unresolved.length || needed > depth) && depth < 8) {
+        depth = validated.unresolved.length ? 8 : needed;
+        data = await discoveryAt(depth, initial);
+        if (!expansionCurrent(generation, initial) || token !== sceneRequestToken) return;
+        validated = revalidateDiscoveryIntents(intents, { data, depth }, initial.meta?.stale === true);
+      }
+      if (!preservesDiscoveryBase(base, data)) throw new DiscoveryIntegrityFailure(data.truncated);
+      discoveryBase = base;
+      evidence = { data, depth };
+      const scene = revealDiscovery(data, validated.intents, initial.discovery.maxDepth);
+      store.setState({ ...sceneResult(scene), error: null, discoveryExpansion: {
+        ...emptyDiscoveryExpansion(), intents: validated.intents, unresolved: validated.unresolved,
+      } });
+    } catch (err) {
+      if (!expansionCurrent(generation, initial) || token !== sceneRequestToken) return;
+      sceneCache.clear();
+      const error = toGraphError(err);
+      store.setState({ ...(error.reason === "core_unavailable" ? { subgraph: null, findings: null } : {}),
+        dataState: "error", error, layoutNotice: null,
+        discoveryExpansion: { ...store.getState().discoveryExpansion, stale: true, loading: [], notice: null, transition: null } });
+    }
+  }
+
+  function actionFor(node: GraphNodePayload): DiscoveryExpansionAction {
+    const current = store.getState();
+    if (current.mode !== "discovery") return { enabled: false, loading: false };
+    if (current.metaState === "loading" || current.dataState === "loading") return { enabled: false, loading: false, reason: "Graph refresh in progress." };
+    // A base injected by a consumer or already displayed by the page is valid
+    // evidence only at its actual depth; no degree-based estimate is used.
+    const known = evidence ?? (current.subgraph && !current.discoveryExpansion.intents.length
+      ? { data: current.subgraph, depth: current.discovery.maxDepth } : null);
+    return discoveryExpansionAction(node, current.subgraph, known, current.discoveryExpansion, current.meta?.stale === true);
+  }
+
+  async function expandDiscovery(path: string): Promise<void> {
+    const initial = store.getState();
+    const node = initial.subgraph?.nodes.find(n => n.path === path);
+    if (!node || !actionFor(node).enabled || disposed || initial.metaState === "loading") return;
+    const generation = expansionGeneration;
+    if (!discoveryBase) discoveryBase = revealDiscovery(initial.subgraph!, [], initial.discovery.maxDepth);
+    const errors = { ...initial.discoveryExpansion.errors }; delete errors[path];
+    const intents = initial.discoveryExpansion.intents.filter(n => n.path !== path);
+    intents.push({ id: node.id, path, distance: node.distance! });
+    intents.sort((a, b) => a.path.localeCompare(b.path));
+    store.setState({ discoveryExpansion: { ...initial.discoveryExpansion, intents,
+      loading: [...new Set([...initial.discoveryExpansion.loading, path])].sort(), errors, notice: null, transition: null }, layoutNotice: null });
+    if (expansionWorker?.generation === generation) return expansionWorker.promise;
+    const worker = { generation, promise: Promise.resolve() };
+    worker.promise = Promise.resolve().then(async () => {
+      try {
+        while (expansionCurrent(generation, initial)) {
+          const requested = store.getState().discoveryExpansion.intents;
+          const depth = requiredDiscoveryDepth(initial.discovery.maxDepth, requested);
+          const data = await discoveryAt(depth, initial);
+          if (!expansionCurrent(generation, initial)) return;
+          const current = store.getState();
+          if (requiredDiscoveryDepth(initial.discovery.maxDepth, current.discoveryExpansion.intents) > depth) continue;
+          if (!discoveryBase || !preservesDiscoveryBase(discoveryBase, data)) {
+            throw new DiscoveryIntegrityFailure(data.truncated);
+          }
+          const validated = revalidateDiscoveryIntents(current.discoveryExpansion.intents, { data, depth }, current.meta?.stale === true);
+          const scene = revealDiscovery(data, validated.intents, initial.discovery.maxDepth);
+          const before = new Set(current.subgraph?.nodes.map(n => n.id));
+          const added = scene.nodes.filter(n => !n.virtual && !before.has(n.id)).length;
+          const sequence = ++noticeSequence;
+          evidence = { data, depth };
+          store.setState({ ...sceneResult(scene), layoutNotice: null, error: null,
+            discoveryExpansion: { ...emptyDiscoveryExpansion(), intents: validated.intents, unresolved: validated.unresolved,
+              transition: sequence, notice: { sequence, text: added ? `${added} note${added === 1 ? "" : "s"} added · Layout updated` : "No new notes added" } } });
+          return;
+        }
+      } catch (err) {
+        if (!expansionCurrent(generation, initial)) return;
+        sceneCache.clear();
+        const current = store.getState().discoveryExpansion;
+        const errors = { ...current.errors };
+        const needsRefresh = err instanceof DiscoveryIntegrityFailure;
+        const message = needsRefresh ? err.message : "Couldn't load more links.";
+        for (const path of current.loading) errors[path] = { message, needsRefresh };
+        store.setState({ discoveryExpansion: { ...current, loading: [], errors, notice: null, transition: null }, layoutNotice: null });
+      } finally { if (expansionWorker === worker) expansionWorker = null; }
+    });
+    expansionWorker = worker;
+    return worker.promise;
+  }
 
   function cachePut(key: string, value: GraphSubgraphResponse | GraphMaintenanceResponse) {
     if (sceneCache.size >= SCENE_CACHE_MAX) {
@@ -157,8 +326,8 @@ export function createGraphStore(env: StoreEnvironment) {
     sceneCache.set(key, value);
   }
 
-  async function fetchGraphJson<T>(pathAndQuery: string): Promise<T> {
-    const res = await fetch(`${apiBase()}/graph${pathAndQuery}`);
+  async function fetchGraphJson<T>(pathAndQuery: string, signal?: AbortSignal): Promise<T> {
+    const res = await fetch(`${apiBase()}/graph${pathAndQuery}`, signal ? { signal } : undefined);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}) as Record<string, unknown>);
       const err = new Error(
@@ -227,10 +396,11 @@ export function createGraphStore(env: StoreEnvironment) {
 
   function sceneResult(data: GraphSubgraphResponse): Partial<GraphState> {
     const current = store.getState();
+    const selectedPath = current.subgraph?.nodes.find(n => n.id === current.selectedId)?.path;
     const rootChanged = current.mode === "discovery" && current.subgraph !== null &&
       discoveryRootIdentity(current.subgraph.nodes) !== discoveryRootIdentity(data.nodes);
     const selectedId = current.mode === "discovery"
-      ? !rootChanged && data.nodes.some(n => n.id === current.selectedId) ? current.selectedId : null
+      ? !rootChanged && data.nodes.some(n => n.id === current.selectedId && (selectedPath === undefined || n.path === selectedPath)) ? current.selectedId : null
       : current.selectedId;
     const changed = current.mode === "discovery" && current.subgraph !== null &&
       discoveryFingerprint(current.subgraph) !== discoveryFingerprint(data);
@@ -271,11 +441,13 @@ export function createGraphStore(env: StoreEnvironment) {
     discoveryColorBy: "distance",
     maintenanceFilters: { orphans: true, unreachable: true, broken: true, stale: true },
     layoutNotice: null,
+    discoveryExpansion: emptyDiscoveryExpansion(),
     selectedId: null,
     hoveredId: null,
 
     setMode: (mode) => {
       if (mode === get().mode) return;
+      invalidateExpansion(true);
       const error = graphServerUnavailable(get()) ? get().error : null;
       set({ mode, subgraph: null, findings: null, dataState: "idle", error, layoutNotice: null, selectedId: null, hoveredId: null, sceneQuery: "" });
       void get().fetchScene();
@@ -285,6 +457,7 @@ export function createGraphStore(env: StoreEnvironment) {
       if (get().mode === "local") void get().fetchScene();
     },
     setDiscoveryParams: (params) => {
+      invalidateExpansion(true);
       set((s) => ({ discovery: { ...s.discovery, ...params }, subgraph: s.mode === "discovery" ? null : s.subgraph, selectedId: null, layoutNotice: null }));
       if (get().mode === "discovery") void get().fetchScene();
     },
@@ -300,7 +473,16 @@ export function createGraphStore(env: StoreEnvironment) {
     setDiscoveryColorBy: (colorBy) => set({ discoveryColorBy: colorBy }),
     setMaintenanceFilters: (filters) =>
       set((s) => ({ maintenanceFilters: { ...s.maintenanceFilters, ...filters } })),
-    setSceneQuery: (q) => set({ sceneQuery: q }),
+    setSceneQuery: (q) => {
+      if (get().mode === "discovery" && q !== get().sceneQuery) {
+        const base = discoveryBase;
+        const stale = get().discoveryExpansion.stale;
+        invalidateExpansion(true);
+        if (base && !stale) { discoveryBase = base; evidence = { data: base, depth: get().discovery.maxDepth }; set(sceneResult(base)); }
+        else void get().fetchScene();
+      }
+      set({ sceneQuery: q });
+    },
     select: (id) => set(s => ({ selectedId: id, layoutNotice: s.selectedId === id ? s.layoutNotice : null })),
     hover: (id) => set({ hoveredId: id }),
 
@@ -309,11 +491,15 @@ export function createGraphStore(env: StoreEnvironment) {
       const { metaState } = get();
       if (!force && (metaState === "loading" || metaState === "done")) return;
       const token = ++metaRequestToken;
+      if (get().mode === "discovery") { ++sceneRequestToken; invalidateExpansion(false, true); }
       set({ metaState: "loading" });
       try {
         const meta = await fetchGraphJson<GraphMetaResponse>("/meta");
         if (token !== metaRequestToken) return;
         const error = graphServerUnavailable(get()) ? null : get().error;
+        const previousRoot = get().meta?.defaultRoot;
+        if (get().mode === "discovery" && get().discovery.root === null &&
+            (previousRoot?.path !== meta.defaultRoot?.path || previousRoot?.virtual !== meta.defaultRoot?.virtual)) invalidateExpansion(true);
         set({ meta, metaState: "done", error });
       } catch (err) {
         if (token !== metaRequestToken) return;
@@ -332,6 +518,7 @@ export function createGraphStore(env: StoreEnvironment) {
       const state = get();
       if (graphServerUnavailable(state)) return;
       const token = ++sceneRequestToken;
+      if (state.mode === "discovery") { await rebuildDiscovery(token); return; }
       const req = sceneRequest(state);
       if (!req) {
         // Local mode without a center: nothing to fetch, the page shows the picker.
@@ -377,6 +564,7 @@ export function createGraphStore(env: StoreEnvironment) {
 
     expandNode: async (path) => {
       const state = get();
+      if (!disposed && state.mode === "discovery") { await expandDiscovery(path); return; }
       if (disposed || state.mode !== "local" || !state.subgraph) return;
       try {
         const ego = await fetchGraphJson<GraphSubgraphResponse>(
@@ -398,7 +586,23 @@ export function createGraphStore(env: StoreEnvironment) {
       }
     },
 
-    reset: () =>
+    discoveryExpansionFor: actionFor,
+    resetDiscoveryExpanded: async () => {
+      if (disposed || get().mode !== "discovery") return;
+      const base = discoveryBase;
+      const stale = get().discoveryExpansion.stale;
+      ++sceneRequestToken;
+      invalidateExpansion(true);
+      if (base && !stale) {
+        discoveryBase = base;
+        evidence = { data: base, depth: get().discovery.maxDepth };
+        set(sceneResult(base));
+      } else { await get().fetchScene(); }
+    },
+    reset: () => {
+      ++sceneRequestToken;
+      ++metaRequestToken;
+      invalidateExpansion(true);
       set({
         subgraph: null,
         findings: null,
@@ -408,8 +612,13 @@ export function createGraphStore(env: StoreEnvironment) {
         selectedId: null,
         hoveredId: null,
         sceneQuery: "",
-      }),
+      });
+    },
   }));
 
-  return Object.assign(store, { clearSceneCache: clearGraphSceneCache, dispose() { disposed = true; sceneRequestToken++; metaRequestToken++; sceneCache.clear(); } });
+  return Object.assign(store, { clearSceneCache: clearGraphSceneCache, dispose() {
+    disposed = true; sceneRequestToken++; metaRequestToken++; expansionGeneration++; expansionWorker = null;
+    for (const controller of discoveryControllers.values()) controller.abort();
+    discoveryControllers.clear(); discoveryRequests.clear(); sceneCache.clear();
+  } });
 }

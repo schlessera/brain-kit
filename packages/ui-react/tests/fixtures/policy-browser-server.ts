@@ -47,9 +47,33 @@ const governedTurns = createGovernedTurns({ nativeManager: native.client, brainP
 governedTurns.facts();
 const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: root, dbPath, objectsRoot: join(state, "objects") });
 const decisions: unknown[] = [];
+// These milliseconds use the server process clock, independently of browser scene time.
+const receiptTimeline: Array<Record<string, unknown>> = [];
+const publicationTimeline: Array<Record<string, unknown>> = [];
+function recordPublication(stage: string, detail: Record<string, unknown> = {}) {
+  if (publicationTimeline.length === 128) publicationTimeline.shift();
+  publicationTimeline.push({ stage, ms: performance.now(), principal: principal.id, ...detail });
+}
+let receiptSequence = 0;
+function recordReceipt(detail: Record<string, unknown>) {
+  if (receiptTimeline.length === 128) receiptTimeline.shift();
+  receiptTimeline.push({ ms: performance.now(), ...detail });
+}
 let mode = "", principalNow = principal, writes = 0, proposals = 0, reads = 0;
 const lock = createKeyedLock();
-const service = createPolicyProposals({ root, db, lock, observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, () => { write(); writes++; }),
+const service = createPolicyProposals({ root, db, lock, observeUserPolicy: (turnId, write) => {
+  recordPublication("observation-start", { turnId });
+  const result = journal.observeUserPolicy(turnId, () => {
+    recordPublication("write-start", { turnId }); write(); writes++;
+    recordPublication("write-complete", { turnId, writes });
+  });
+  // Observe settlement while retaining the original journal promise.
+  void result.then(
+    () => recordPublication("observation-settled", { turnId, outcome: "complete" }),
+    error => recordPublication("observation-settled", { turnId, outcome: "error", error: String(error) }),
+  ).catch(() => {});
+  return result;
+},
   validate: bytes => mode === "invalid" && proposals > 0 ? parseGovernancePolicy(Buffer.from("---\nschema_version: 9\n---\n")) : parseGovernancePolicy(bytes),
   recordEvent: (review, turn) => recordGovernanceEvent(db, { kind: "policy_change", actor: "user", sessionId: turn.sessionId(), turnId: turn.turnId, model: null, profile: null,
     payload: { requestId: review.requestId, baseHash: review.baseHash, proposedHash: review.proposedHash, sections: review.sections, outcome: "updated" }, dedupeKey: `${turn.turnId}:${review.requestId}` }),
@@ -70,7 +94,14 @@ const host = new WsHost({ brainPath: root, registry: createStaticBackendRegistry
 const handlers = createWsHandlers(host, principal);
 const app = new Hono<AppEnv>();
 app.use("*", cors());
-app.use("*", async (c, next) => { c.set("principal", principalNow); if (c.req.path.startsWith("/api/policy-proposals")) reads++; await next(); });
+app.use("*", async (c, next) => {
+  c.set("principal", principalNow);
+  const receipt = c.req.path.startsWith("/api/policy-proposals")
+    ? { requestId: ++receiptSequence, method: c.req.method, path: c.req.path, principal: principalNow.id } : undefined;
+  if (receipt) { reads++; recordReceipt({ stage: "request", ...receipt }); }
+  await next();
+  if (receipt) recordReceipt({ stage: "response", ...receipt, status: c.res.status });
+});
 app.route("/api", createPolicyProposalRoutes(host));
 app.route("/api", createAgentPolicyRoutes(host, () => launchLimits({}).status));
 app.post("/fixture", async c => {
@@ -79,17 +110,21 @@ app.post("/fixture", async c => {
   if (patch.account) principalNow = testPrincipal("telemachus");
   if (patch.invalidFile) writeFileSync(path, "---\nschema_version: 9\n---\nInvalid outside-turn edit.\n");
   if (patch.missingFile) { const { unlinkSync } = await import("node:fs"); unlinkSync(path); }
-  return c.json({ bytes: (await import("node:fs")).existsSync(path) ? readFileSync(path, "utf8") : null, original, proposed, writes, proposals, reads, decisions, journalChanges: db.query("SELECT path,actor,class FROM turn_journal_changes").all(), journalPolicies: db.query("SELECT policy_hash FROM turn_journal_turns ORDER BY started_at").all(), admitted, policy: governedTurns.facts().policy, events: db.query("SELECT actor, kind, payload FROM governance_events").all() });
+  return c.json({ bytes: (await import("node:fs")).existsSync(path) ? readFileSync(path, "utf8") : null, original, proposed, writes, proposals, reads, decisions, receiptTimeline, publicationTimeline, journalChanges: db.query("SELECT path,actor,class FROM turn_journal_changes").all(), journalPolicies: db.query("SELECT policy_hash FROM turn_journal_turns ORDER BY started_at").all(), admitted, policy: governedTurns.facts().policy, events: db.query("SELECT actor, kind, payload FROM governance_events").all() });
 });
 const contexts = new WeakMap<object, { send(data: string): void; close(code?: number, reason?: string): void }>();
 const context = (ws: any) => {
   let value = contexts.get(ws);
-  if (!value) { value = { send: (data: string) => { const frame = JSON.parse(data); if (mode === "drop-result" && frame.type === "tool_result") return; ws.send(data); }, close: (code, reason) => ws.close(code, reason) }; contexts.set(ws, value); }
+  if (!value) { value = { send: (data: string) => { const frame = JSON.parse(data); const suppressed = mode === "drop-result" && frame.type === "tool_result";
+    recordPublication("outgoing-frame", { type: frame.type, sessionId: frame.sessionId, turnId: frame.turnId, policyState: frame.policyChange?.state, suppressed });
+    if (suppressed) return; ws.send(data); }, close: (code, reason) => ws.close(code, reason) }; contexts.set(ws, value); }
   return value;
 };
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
   fetch(req, server) { if (new URL(req.url).pathname === "/ws" && server.upgrade(req)) return; return app.fetch(req); },
-  websocket: { open(ws) { void handlers.onOpen(undefined as never, context(ws) as never); }, message(ws, data) { handlers.onMessage({ data: String(data) } as MessageEvent, context(ws) as never); }, close(ws) { handlers.onClose({ code: 1000 } as CloseEvent, context(ws) as never); } },
+  websocket: { open(ws) { void handlers.onOpen(undefined as never, context(ws) as never); }, message(ws, data) { const frame = JSON.parse(String(data));
+    recordPublication("incoming-frame", { type: frame.type, toolUseId: frame.toolUseId, turnId: frame.turnId });
+    handlers.onMessage({ data: String(data) } as MessageEvent, context(ws) as never); }, close(ws) { handlers.onClose({ code: 1000 } as CloseEvent, context(ws) as never); } },
 });
 console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
 process.on("SIGTERM", async () => { restoreAcquisition(); workerHostBoundary.probe = originalProbe; host.close(); server.stop(true); await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); rmSync(state, { recursive: true, force: true }); process.exit(0); });

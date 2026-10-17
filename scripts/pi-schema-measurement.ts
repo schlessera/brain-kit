@@ -1,4 +1,5 @@
 /** Private instrumentation for #563; production keeps its shipped form. */
+import { createHash } from "node:crypto";
 import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
 import type { SchemaArm } from "./show-block-schema-forms.ts";
 import { appendFileSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
@@ -16,14 +17,40 @@ export const PI_SCHEMA_ARMS = {
 
 export const PI_SCHEMA_PROMPT = "Compare daily journal entries, topic notes and project notes for organizing a personal knowledge base. Give the strengths and trade-offs of each.";
 /** Capture the actual admission receipt; never replace the reviewed user bytes. */
-export function measurementHostedPrompt(userPrompt: string, budget: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt | undefined,
-  renderNote: (receipt: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt) => string): string {
+export function measurementHostedPrompt(userPrompt: string, budget: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt | undefined): string {
   if (userPrompt !== PI_SCHEMA_PROMPT || !budget) throw new Error("Measurement requires the reviewed user prompt and admitted budget receipt.");
-  const effectivePrompt = `${userPrompt}\n\n${renderNote(budget)}`;
+  const effectivePrompt = userPrompt;
   process.env.BRAIN_MEASURE_PI_HOST_PROMPT = JSON.stringify({ userPrompt, effectivePrompt, budget: structuredClone(budget) });
   return effectivePrompt;
 }
-export function measurementPromptReceipt(): { userPrompt: string; effectivePrompt: string; budget: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt } {
+interface MeasurementPromptReceipt {
+  userPrompt: string;
+  effectivePrompt: string;
+  budget: import("../packages/ui-sdk/src/turn-budgets.ts").TurnBudgetReceipt;
+  ownership?: { id: string; original: string; wireSha256: string };
+}
+const promptDigest = (text: string) => createHash("sha256").update(text).digest("hex");
+/** Observe the host-owned prepare result directly; never rebuild or strip its facts. */
+export function measurementPreparedPrompt(original: string, prepared: { id: string; text: string } | undefined): MeasurementPromptReceipt {
+  const receipt = measurementPromptReceipt();
+  if (original !== receipt.effectivePrompt || original !== receipt.userPrompt || !prepared || !/^[0-9a-f-]{36}$/.test(prepared.id) || typeof prepared.text !== "string")
+    throw new Error("Measurement prepared prompt does not own the exact admitted original.");
+  const result = { ...receipt, effectivePrompt: prepared.text, ownership: { id: prepared.id, original, wireSha256: promptDigest(prepared.text) } };
+  process.env.BRAIN_MEASURE_PI_HOST_PROMPT = JSON.stringify(result);
+  return result;
+}
+/** Measurement-only host-to-worker receipt, injected by the existing preload. */
+export function adoptMeasurementPreparedPrompt(value: unknown): void {
+  const admitted = measurementPromptReceipt();
+  const receipt = value as MeasurementPromptReceipt | undefined;
+  const owned = receipt?.ownership;
+  if (!receipt || receipt.userPrompt !== admitted.userPrompt || !owned || owned.original !== admitted.effectivePrompt
+    || !/^[0-9a-f-]{36}$/.test(owned.id) || typeof receipt.effectivePrompt !== "string" || owned.wireSha256 !== promptDigest(receipt.effectivePrompt)
+    || JSON.stringify(receipt.budget) !== JSON.stringify(admitted.budget))
+    throw new Error("Measurement worker prompt receipt does not match admitted host ownership.");
+  process.env.BRAIN_MEASURE_PI_HOST_PROMPT = JSON.stringify(receipt);
+}
+export function measurementPromptReceipt(): MeasurementPromptReceipt {
   const receipt = JSON.parse(process.env.BRAIN_MEASURE_PI_HOST_PROMPT ?? "null");
   if (!receipt || receipt.userPrompt !== PI_SCHEMA_PROMPT || typeof receipt.effectivePrompt !== "string" || !receipt.budget)
     throw new Error("Measurement admitted host prompt receipt is missing.");

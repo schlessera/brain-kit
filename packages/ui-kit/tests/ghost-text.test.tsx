@@ -4,7 +4,7 @@
  * the handoff's timing in a real browser are the stories' (`States/Placeholder`
  * and each component's `LoadingToReady`), in Chromium.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StreamingAnswer } from "../src/conversation/StreamingAnswer.js";
 import { ActionCard } from "../src/decisions/ActionCard.js";
 import { SearchResultCard } from "../src/evidence/SearchResultCard.js";
-import { GhostText, HANDOFF_MS, ghostBlur, ghostString } from "../src/internal/GhostText.js";
+import { GhostText, HANDOFF_MS, ghostBlur, ghostString, useArrival } from "../src/internal/GhostText.js";
 import { FileRow } from "../src/rows/FileRow.js";
 import { QueueItemRow } from "../src/rows/QueueItemRow.js";
 import { Placeholder } from "../src/states/Placeholder.js";
@@ -213,30 +213,94 @@ describe("Placeholder loading", () => {
 
 /* ── The handoff, rendered for real ─────────────────────────────────────── */
 
-const saved = new Map<string, PropertyDescriptor | undefined>();
-const GLOBALS = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+/** Only this file's timeout callbacks are logical. React's scheduler, act,
+ * promises and commits remain native; CSS/elapsed animation proof stays in
+ * LoadingToReady and ghost-handoff.visual.tsx. Do not select by a 600ms delay:
+ * a wrong production registration must be captured and fail the literal oracle. */
+class ArrivalClock {
+  now = 0;
+  private nextId = 1;
+  readonly registered: { id: number; delay: number; at: number }[] = [];
+  readonly delivered: number[] = [];
+  readonly cancelled: number[] = [];
+  private timers = new Map<number, { at: number; callback: () => void }>();
 
-beforeAll(() => {
-  const win = new Window();
-  for (const key of GLOBALS) saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-  const values = {
-    window: win,
-    document: win.document,
-    navigator: win.navigator,
-    HTMLElement: win.HTMLElement,
-    IS_REACT_ACT_ENVIRONMENT: true,
+  setTimeout = (callback: (...args: unknown[]) => void, delay = 0, ...args: unknown[]) => {
+    const id = this.nextId++;
+    this.registered.push({ id, delay, at: this.now + delay });
+    this.timers.set(id, { at: this.now + delay, callback: () => callback(...args) });
+    return id;
   };
-  for (const [key, value] of Object.entries(values)) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  clearTimeout = (id: number) => {
+    if (this.timers.delete(id)) this.cancelled.push(id);
+  };
+  get pending() { return [...this.timers.keys()]; }
+  async advance(ms: number) {
+    if (ms < 0) throw new Error("arrival clock cannot move backwards");
+    const end = this.now + ms;
+    for (;;) {
+      const next = [...this.timers].filter(([, timer]) => timer.at <= end)
+        .sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+      if (!next) break;
+      this.now = next[1].at;
+      this.timers.delete(next[0]);
+      this.delivered.push(next[0]);
+      // Each callback and the resulting render/effects commit before the next
+      // logical deadline; a promise turn alone does not establish DOM state.
+      await act(async () => next[1].callback());
+    }
+    this.now = end;
+    await act(async () => {});
   }
-});
+  discard() { this.timers.clear(); }
+}
 
-afterAll(() => {
-  for (const [key, descriptor] of saved) {
-    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-    else Reflect.deleteProperty(globalThis, key);
+const GLOBALS = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "setTimeout", "clearTimeout"] as const;
+
+class HandoffEnvironment {
+  readonly saved = new Map(GLOBALS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  readonly clock = new ArrivalClock();
+  readonly roots = new Set<() => Promise<void>>();
+  private win = new Window();
+  private disposed = false;
+  constructor() {
+    const values = {
+      window: this.win, document: this.win.document, navigator: this.win.navigator,
+      HTMLElement: this.win.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true,
+      setTimeout: this.clock.setTimeout, clearTimeout: this.clock.clearTimeout,
+    };
+    for (const [key, value] of Object.entries(values)) {
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    }
   }
-});
+  async dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    try {
+      for (const unmount of this.roots) await unmount();
+      const delivered = this.clock.delivered.length;
+      // Cross every outstanding deadline after unmount. Missing cancellation
+      // must expose a stale callback, even when React silently drops its update.
+      const last = Math.max(this.clock.now, ...this.clock.registered.map(timer => timer.at));
+      await this.clock.advance(last - this.clock.now + 600);
+      expect(this.clock.delivered.length, "NO_CALLBACK_AFTER_UNMOUNT").toBe(delivered);
+      expect(this.clock.pending, "NO_TIMER_AFTER_CLEANUP").toEqual([]);
+    } finally {
+      this.clock.discard();
+      try { await this.win.happyDOM.close(); }
+      finally {
+        for (const [key, descriptor] of this.saved) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+          else Reflect.deleteProperty(globalThis, key);
+        }
+      }
+    }
+  }
+}
+
+let environment: HandoffEnvironment;
+beforeEach(() => { environment = new HandoffEnvironment(); });
+afterEach(async () => { await environment.dispose(); });
 
 /** Mounts `render(flag)` under StrictMode — double renders and double effects
  * included — and returns a way to flip the flag and read the DOM. */
@@ -253,6 +317,13 @@ async function mount(render: (loading: boolean, n: number) => ReactElement) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  const owner = environment;
+  const unmount = async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    owner.roots.delete(unmount);
+  };
+  owner.roots.add(unmount); // Own it before render, including render/assertion failure.
   await act(async () =>
     root.render(
       <StrictMode>
@@ -266,8 +337,26 @@ async function mount(render: (loading: boolean, n: number) => ReactElement) {
     reload: () => act(async () => set(true)),
     /** Lands the next value: a re-render with new data while still ready. */
     next: () => act(async () => bump()),
-    settle: () => act(async () => void (await new Promise((r) => setTimeout(r, HANDOFF_MS + 40)))),
-    unmount: () => act(async () => root.unmount()),
+    clock: owner.clock,
+    settle: async () => {
+      const timer = owner.clock.registered.at(-1)!;
+      expect(timer.delay, "ARRIVAL_REGISTRATION_600MS").toBe(600);
+      expect(owner.clock.pending, "ONE_LIVE_ARRIVAL").toEqual([timer.id]);
+      const out = [...host.querySelectorAll(".bk-ghost-out")];
+      const incoming = [...host.querySelectorAll(".bk-ghost-in")];
+      expect(out.length).toBeGreaterThan(0);
+      expect(incoming.length).toBeGreaterThan(0);
+      await owner.clock.advance(timer.at - owner.clock.now - 1);
+      const currentOut = [...host.querySelectorAll(".bk-ghost-out")];
+      const currentIn = [...host.querySelectorAll(".bk-ghost-in")];
+      expect(currentOut.length === out.length && currentOut.every((node, i) => node === out[i]), "OUTGOING_AT_599MS").toBe(true);
+      expect(currentIn.length === incoming.length && currentIn.every((node, i) => node === incoming[i]), "INCOMING_AT_599MS").toBe(true);
+      expect(owner.clock.delivered).not.toContain(timer.id);
+      await owner.clock.advance(1);
+      expect(owner.clock.delivered).toContain(timer.id);
+      expect(host.querySelectorAll(".bk-ghost-in, .bk-ghost-out"), "HANDOFF_AT_600MS").toHaveLength(0);
+    },
+    unmount,
   };
 }
 
@@ -320,12 +409,14 @@ describe("Placeholder `arrived`", () => {
     ));
     await m.land();
     const before = mounts;
+    const button = m.host.querySelector("button");
     await act(async () => m.host.querySelector("button")!.click());
     expect(m.host.querySelector("button")!.textContent).toBe("count 1");
     await m.settle();
     expect(m.host.querySelectorAll(".bk-ghost")).toHaveLength(0);
     expect(m.host.querySelector("button")!.textContent).toBe("count 1");
     expect(mounts).toBe(before);
+    expect(m.host.querySelector("button"), "CONTENT_IDENTITY_AFTER_HANDOFF").toBe(button);
     await m.unmount();
   });
 
@@ -351,6 +442,94 @@ describe("Placeholder `arrived`", () => {
     );
     expect(doc.querySelectorAll(".bk-ghost-in, .bk-ghost-out, .bk-ghost")).toHaveLength(0);
     expect(doc.body.textContent).toBe("cached");
+  });
+});
+
+describe("arrival clock lifecycle", () => {
+  test("mid-handoff reload cancels the old deadline and the next arrival gets 600ms", async () => {
+    const m = await mount((loading) => (
+      <Placeholder variant="loading" arrived={!loading}><p>Penelope's reply</p></Placeholder>
+    ));
+    await m.land();
+    const first = m.clock.registered[0]!;
+    expect(first.delay).toBe(600);
+    await m.clock.advance(300);
+    await m.reload();
+    await m.clock.advance(100);
+    await m.land();
+    const second = m.clock.registered[1]!;
+    expect(second).toEqual({ id: 2, delay: 600, at: 1000 });
+    const content = m.host.querySelector("p")!;
+    await m.clock.advance(200); // The first arrival's original 600ms deadline.
+    expect(outgoing(m.host), "OLD_DEADLINE_CANNOT_END_NEW_ARRIVAL").toBeGreaterThan(0);
+    expect(incoming(m.host)).toBeGreaterThan(0);
+    expect(m.host.querySelector("p")).toBe(content);
+    expect(m.clock.delivered, "CANCELLED_DEADLINE_NOT_DELIVERED").toEqual([]);
+    expect(m.clock.cancelled).toEqual([first.id]);
+    await m.settle(); // 999ms and 1000ms, relative to this new arrival.
+    expect(m.host.querySelector("p"), "CONTENT_IDENTITY_AFTER_RESTART").toBe(content);
+    expect(m.host.textContent).toBe("Penelope's reply");
+    expect(m.clock.delivered).toEqual([second.id]);
+    await m.unmount();
+  });
+
+  test("StrictMode effect replay cancels its first callback and unmount cancels the second", async () => {
+    function ArrivingOnMount() {
+      const [loading, setLoading] = useState(true);
+      const arriving = useArrival(loading);
+      // A render-phase loading transition makes the actual arrival effect live
+      // on its first commit, so StrictMode replays that effect's cleanup/setup.
+      if (loading) setLoading(false);
+      return <p data-arriving={String(arriving)}>Odysseus arrives</p>;
+    }
+    const m = await mount(() => <ArrivingOnMount />);
+    expect(m.clock.registered.map(timer => timer.delay), "STRICT_EFFECT_SETUP_TWICE").toEqual([600, 600]);
+    expect(m.clock.cancelled, "STRICT_EFFECT_CLEANUP").toEqual([1]);
+    expect(m.clock.pending).toEqual([2]);
+    await m.clock.advance(599);
+    expect(m.host.querySelector("p")!.dataset.arriving).toBe("true");
+    await m.unmount();
+    await m.clock.advance(601);
+    expect(m.clock.cancelled, "UNMOUNT_CANCELS_LIVE_ARRIVAL").toEqual([1, 2]);
+    expect(m.clock.delivered, "NO_STRICT_OR_UNMOUNTED_CALLBACK").toEqual([]);
+    expect(m.clock.pending).toEqual([]);
+    expect(m.host.childNodes).toHaveLength(0);
+  });
+
+  test("failed assertion cleanup restores every descriptor and the successor starts clean", async () => {
+    const failed = environment;
+    let host!: HTMLElement;
+    await expect((async () => {
+      try {
+        const m = await mount((loading) => <FileRow view={loading ? "loading" : "ready"} label="omens" />);
+        host = m.host;
+        await m.land();
+        expect(m.clock.pending).toEqual([1]);
+        expect("fixture", "INTENTIONAL_ASSERTION_FAILURE").toBe("failure");
+      } finally {
+        await failed.dispose();
+      }
+    })()).rejects.toThrow("INTENTIONAL_ASSERTION_FAILURE");
+    expect(failed.roots.size).toBe(0);
+    expect(host.isConnected).toBe(false);
+    expect(host.childNodes).toHaveLength(0);
+    expect(failed.clock.pending).toEqual([]);
+    expect(failed.clock.cancelled).toEqual([1]);
+    expect(failed.clock.delivered).toEqual([]);
+    for (const [key, descriptor] of failed.saved) {
+      expect(Object.getOwnPropertyDescriptor(globalThis, key), `RESTORED_${key}`).toEqual(descriptor);
+    }
+    environment = new HandoffEnvironment();
+    const successor = await mount((loading) => <FileRow view={loading ? "loading" : "ready"} label="loom" />);
+    expect(successor.clock.now).toBe(0);
+    expect(successor.clock.registered).toEqual([]);
+    expect(document.body.children).toHaveLength(1);
+    await successor.land();
+    await successor.settle();
+    expect(successor.host.textContent).toContain("loom");
+    expect(successor.clock.delivered).toEqual([1]);
+    expect(failed.clock.delivered).toEqual([]);
+    await successor.unmount();
   });
 });
 
