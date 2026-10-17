@@ -61,7 +61,7 @@ function gitObservation(root: string) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null", GIT_OPTIONAL_LOCKS: "0" });
   const run = (args: string[]) => {
-    const child = Bun.spawnSync(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+    const child = Bun.spawnSync(["git", "--no-lazy-fetch", "--no-replace-objects", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
       "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, env, stdin: "ignore", stdout: "pipe", stderr: "pipe",
       timeout: 2000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 });
     if (child.exitCode !== 0 || child.signalCode) throw Error("Git object observation unavailable");
