@@ -1,4 +1,4 @@
-import "../src/server/worker-launcher.js";
+import { verifiedWorkerIdentity } from "../src/server/worker-launcher.js";
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { join } from "node:path";
@@ -130,4 +130,51 @@ test("a process admission refusal never releases an unrequested stage or masks t
   try {await expect(prepareNativeWorkerOutput(f.brain,{startupView:view}),"NATIVE_UNREQUESTED_STAGE_NEVER_RELEASED").rejects.toMatchObject({errorClass:"worker_state_busy"});
     expect(stages).toBe(0);expect(releases).toBe(0);
   } finally {held.release();await view.cleanup();f.cleanup();}
+});
+
+test("no-helper production publisher copies real readable output without requiring a separate identity", async () => {
+  const f = fixture(), previousHelper = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+  delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+  let checkpointId = "", stagePath = "", stageReleases = 0;
+  // Only acquisition/inspection is an owned ordinary-directory fixture. The
+  // production publisher opens, hashes, copies and commits the actual bytes;
+  // this does not qualify Btrfs or namespace behavior.
+  const manager = { ...f.manager,
+    async prepareStage(id: string, lower: string, allowanceBytes: number) {
+      checkpointId = lower; stagePath = join(f.brain, "..", ".brain-native", "stages", id);
+      fs.mkdirSync(join(stagePath, "merged"), { recursive: true });
+      const root = fs.lstatSync(stagePath, { bigint: true });
+      const start = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ")[19]!;
+      return { id, checkpointId: lower, checkpointUuid: "00000000000000000000000000000002", sourceUuid: "0123456789abcdef0123456789abcdef",
+        path: stagePath, namespacePid: process.pid, namespaceStart: start, appUid: process.getuid!(), appGid: process.getgid!(),
+        allowanceBytes, rootDevice: String(root.dev), rootInode: String(root.ino) };
+    },
+    async inspectStage() {
+      return { checkpointId, checkpointUuid: "00000000000000000000000000000002",
+        changes: (async function* () { yield { pathHex: Buffer.from("voyage.md").toString("hex"), kind: "entry" as const }; })(),
+        completed: Promise.resolve({ exitCode: 0 as const, bytes: 0 }) };
+    },
+    async releaseStage(id: string) { stageReleases++; fs.rmSync(stagePath, { recursive: true, force: true }); return { id, state: "deleted" as const }; },
+  };
+  const held = processStateLedger().outputStagingHeld;
+  let view: Awaited<ReturnType<typeof prepareNativeWorkerStartupView>> | undefined;
+  let output: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
+  try {
+    view = await prepareNativeWorkerStartupView(f.brain, manager);
+    output = await prepareNativeWorkerOutput(f.brain, { startupView: view });
+    expect(verifiedWorkerIdentity(f.brain), "NO_HELPER_FRESH_BRAIN_HAS_NO_QUALIFIED_IDENTITY").toBeUndefined();
+    const writer = Bun.spawnSync([process.execPath, "--config=/dev/null", "--no-env-file", "-e",
+      'require("node:fs").writeFileSync(process.argv[1],"Odysseus returns to Ithaca.\\n");', join(output.output.source, "voyage.md")],
+      { stdout: "pipe", stderr: "pipe" });
+    expect(writer.exitCode, writer.stderr.toString()).toBe(0);
+    const publication = await output.publish().then(() => undefined, error => error);
+    expect(publication, "NO_HELPER_READABLE_OUTPUT_PUBLISHED_WITHOUT_IDENTITY_READER").toBeUndefined();
+    expect(fs.readFileSync(join(f.brain, "voyage.md"), "utf8"), "NO_HELPER_REAL_OUTPUT_BYTES_COMMITTED").toBe("Odysseus returns to Ithaca.\n");
+    await output.cleanup(); output = undefined;
+    expect(stageReleases, "NO_HELPER_OWNED_STAGE_RELEASED").toBe(1);
+    expect(processStateLedger().outputStagingHeld).toBe(held);
+  } finally {
+    try { await output?.cleanup(); await view?.cleanup(); }
+    finally { if (previousHelper === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER; else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = previousHelper; f.cleanup(); }
+  }
 });

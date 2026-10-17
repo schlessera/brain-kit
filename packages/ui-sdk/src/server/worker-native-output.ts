@@ -300,6 +300,7 @@ export async function prepareNativeWorkerOutput(brain: string, options: { startu
       return { entry: { type: "file", mode: info.mode, hash: hash.digest("hex") }, stamp: version };
     }
     async function validateGitScaffolds(signal?: AbortSignal, live = false) {
+      if (!gitParentInode && gitScaffolds.size === 0) return;
       const uid = await readerUid();
       if (gitParentInode) {
         const parent = await native.manager.statStage(id, ".git", uid, signal);
