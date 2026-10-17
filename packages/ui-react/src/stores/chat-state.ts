@@ -1,3 +1,4 @@
+import type { VoicePermissionReceipt } from "../voice/conversation-permissions.js";
 import { POLICY_CHANGE_REVIEW_SCHEMA, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createStore } from "zustand/vanilla";
 import { rewriteLinkDestinations } from "@schlessera/brain-ui-sdk/internal/client";
@@ -139,6 +140,8 @@ export interface MessageAttachment {
 }
 
 export interface ToolCall {
+  /** Local voice dispatch and host-confirmed permission evidence. */
+  voicePermission?: VoicePermissionReceipt;
   policyChange?: PolicyChangeReview;
   id: string;
   name: string;
@@ -495,6 +498,7 @@ export interface ChatState {
     /** The host turn the request belongs to, from the frame. */
     turnId?: string
   ) => void;
+  applyVoicePermission: (receipt: VoicePermissionReceipt) => void;
   resolveToolApproval: (key: ChatKey, toolUseId: string, approved: boolean) => void;
   /**
    * Make restored approval cards read-only, each with the host fact that
@@ -1072,7 +1076,7 @@ export function pendingApprovals(state: Pick<ChatState, "buffers" | "draft">): A
  * closure (#1072) has made it read-only.
  */
 export function awaitsDecision(tool: ToolCall): boolean {
-  return tool.status === "pending_approval" && !tool.readOnly;
+  return tool.status === "pending_approval" && !tool.readOnly && (!tool.voicePermission || tool.voicePermission.phase === "pending");
 }
 
 /** Evict least-recently-touched non-active buffers beyond MAX_BUFFERS. */
@@ -1559,6 +1563,20 @@ export function createChatStore(env: StoreEnvironment, provider: StoreApi<Provid
           msgs[index] = { ...last, toolCalls: tools, parts };
           return { messages: msgs };
         }),
+
+      applyVoicePermission: (receipt) => {
+        const key = receipt.sessionId;
+        const chat = get().buffers[key];
+        const owns = (m: ChatMessage, t: ToolCall) => t.id === receipt.toolUseId && (t.approvalTurnId ?? m.turnId ?? m.streamTurnId) === receipt.turnId;
+        if (!chat?.messages.some(m => m.toolCalls.some(t => owns(m, t) && t.voicePermission !== receipt))) return;
+        mutateBuffer(key, current => ({ messages: current.messages.map(m => ({ ...m, toolCalls: m.toolCalls.map(t => {
+          if (!owns(m, t)) return t;
+          // Receipt state locks decisions through awaitsDecision. Preserve the
+          // transcript status so ordinary result/recovery routing can still
+          // recognize an unanswered restored card and record its closure.
+          return { ...t, voicePermission: receipt };
+        }) })) }));
+      },
 
       resolveToolApproval: (key, toolUseId, approved) =>
         mutateToolHolder(key, toolUseId, (last) => ({

@@ -118,6 +118,7 @@ export function createConversationPlayback(report: (outputId: string, state: Con
     quiet(value: boolean) { blocked = !value; pump(); },
     pending: () => waiting.length > 0 || live.size > 0,
     playing: () => live.size > 0,
+    playingIds: () => [...new Set(live.values())],
     cut() {
       generation++;
       const ids = new Set([...live.values(), ...waiting.map((chunk) => chunk.outputId)]);

@@ -1,3 +1,4 @@
+import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { Button, Overlay } from "@schlessera/brain-ui-kit";
@@ -8,6 +9,8 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
   const root = useBrainUiRoot();
   const client = root.connection.conversation;
   const s = useStore(client.state);
+  const permission = useStore(client.permissions.state);
+  const shortScreen = useMediaQuery("(max-height: 580px)");
   const chat = useStore(root.stores.connection, (state) => state.wsStatus);
   const needsScreen = useStore(root.stores.chat, (state) => {
     const exchange = (s.sessionId === null ? state.draft : state.buffers[s.sessionId])?.askUser;
@@ -53,7 +56,8 @@ export function ConversationStrip({ backend, onLeave }: { backend: string; onLea
         <Button label="Discard" tone="ghost" style={button} onClick={client.discard} />
       </div>
     </div>}
-    <div style={{ height: 52, display: "flex", alignItems: "center", gap: 4 }}>
+    {permission.line && <div data-voice-refusal-window="" className="text-destructive" style={{ height: 40, fontSize: 12 }}>{permission.line}</div>}
+    <div style={{ height: permission.line && s.text && shortScreen ? 44 : 52, display: "flex", alignItems: "center", gap: 4 }}>
       <Button label={s.micOn ? "Mute mic" : s.connection === "Connected" ? "Unmute mic" : "Resume"} ariaLabel={s.micOn ? "Mute mic" : "Resume microphone"} tone="ghost" style={button} onClick={s.micOn ? client.mute : client.resume} />
       {s.playing && <Button label="Stop reply" tone="ghost" style={button} onClick={client.stopReply} />}
       <Button label="Leave voice" tone="ghost" style={button} onClick={leave} />
