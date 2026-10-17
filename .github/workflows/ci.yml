@@ -137,7 +137,7 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - run: bun run build
+      - run: bun run build --jobs=2
       - name: Pack, install and probe every publishable package
         # One table-driven script (scripts/ci-pack.ts): workspace pins first,
         # then each package's tarball entries, Bun and Node consumer imports

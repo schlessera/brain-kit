@@ -33,7 +33,7 @@ beforeAll(async () => {
   if (!executablePath) return;
   // Browser imports use the published default exports. Rebuild from source
   // on every run so a marker mutation cannot be hidden by stale dist output.
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await hook.child("package-build", build);
   if (code !== 0) throw new Error(`Focus fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-chat-focus-"));

@@ -10,6 +10,19 @@ import { checkout } from "../scripts/proof-inputs";
 
 const ROOT = resolve(import.meta.dir, "..");
 const directories: string[] = [];
+test("only hosted single-workspace pack and browser builds opt into two compilers", async () => {
+  const plan = planChecks(["package.json"], workspaces(ROOT));
+  for (const category of ["browser", "layout", "endurance"] as const) {
+    const commands = categoryCommands(category, plan, ROOT);
+    expect(commands.filter(command => command.argv.includes("--jobs=2")).map(command => command.name))
+      .toEqual(["workspace build for real browser checks"]);
+  }
+  expect(localChecks(plan, true).some(command => command.argv.includes("--jobs=2"))).toBe(false);
+  for (const category of ["unit", "runtime", "runtime_host", "captures"] as const) {
+    expect(categoryCommands(category, plan, ROOT).some(command => command.argv.includes("--jobs=2"))).toBe(false);
+  }
+  expect(await Bun.file(join(ROOT, "scripts/unit-workers.ts")).text()).not.toContain("--jobs=2");
+});
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function receipt(selected = true): { changeset: { result: string; outputs: Record<string, string> } } & Record<string, { result: string; outputs?: Record<string, string> }> {
   return { changeset: { result: "success", outputs: { ...Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])), reuse: JSON.stringify({ version: 1, checkout: checkout(ROOT), retained: {} }) } },
@@ -78,7 +91,7 @@ test("hosted global commands retain the full local inventory and real offline na
   expect(Object.values(proofSelections(plan, true)).every(value => !value)).toBe(true);
   const cmds = ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"].flatMap(category => categoryCommands(category as "unit", plan, ROOT));
   const argv = cmds.map(command => command.argv.join(" ")).join("\n");
-  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts", "scripts/prove-worker-identity.ts"]) expect(argv).toContain(phase);
+  for (const phase of ["test:browser", "test:layout", "test:endurance", "capture:verify", "measure-claude-runtime.ts", "measure-claude-enforcement.ts", "measure-claude-delegation.ts", "measure-claude-capability.ts", "measure-claude-haiku.ts", "tests/measurement-isolation.test.ts", "experiments/turn-surface-runtime-placement.test.ts", "--map-current-user --keep-caps --net", "chat-focus-runtime.test.ts", "external-speech-runtime.test.ts", "scripts/prove-native-host.ts", "scripts/prove-worker-identity.ts"]) expect(argv).toContain(phase);
   const unit = cmds.find(command => command.name === "complete affected unit and integration suite")!;
   expect(unit.env?.BRAIN_REQUIRE_CHROME).toBe("1");
   expect(unit.argv).toContain(join(ROOT, "scripts/unit-workers.ts"));
