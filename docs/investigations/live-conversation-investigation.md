@@ -288,13 +288,13 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1786-1791`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1800-1805`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.
 
 Voice question binding retains the existing one-question rule
-(`questionForTypedAnswer`, `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`).
+(`questionForTypedAnswer`, `packages/ui-react/src/lib/ask-user-typed.ts:33-35`).
 Multi-question, list, rank, form and permission-card interactions keep their
 visual boundaries. Under `noGrantSurface`, tools requiring those surfaces
 remain withheld. Starting voice on an ordinary turn does not erase its cards.
