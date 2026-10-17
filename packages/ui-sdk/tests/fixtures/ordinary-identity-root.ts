@@ -75,7 +75,7 @@ if (process.argv[2] === "--index-child") {
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);
   }
-  if (sharedPhase === "fresh-app") await import("./ordinary-identity-ws.js?shared-git=1&app-only=1");
+  if (sharedPhase === "fresh-app") await import("./ordinary-identity-ws.js" + "?shared-git=1&app-only=1");
   if (!sharedPhase || sharedPhase === "fresh") await import("./ordinary-identity-ws.js" + (sharedGit ? "?shared-git=1" : ""));
   if (!sharedPhase || sharedPhase === "warm") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=governed&warm=1&shared-git=1" : "?profile=governed&warm=1"));
   if (!sharedPhase || sharedPhase === "strict") await import("./ordinary-identity-ws.js" + (sharedGit ? "?profile=strict&shared-git=1" : "?profile=strict"));
