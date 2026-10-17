@@ -184,7 +184,8 @@ def main():
     network_interfaces = [line.split(":")[0].strip() for line in pathlib.Path("/proc/net/dev").read_text().splitlines()[2:]]
     if args.require_offline:
         assert network_interfaces == ["lo"], "Benchmark must own an offline network namespace"
-        assert len(pathlib.Path("/proc/net/route").read_text().splitlines()) == 1, "Benchmark has an IPv4 route"
+        routes = pathlib.Path("/proc/net/route").read_text().splitlines()
+        assert not routes or (len(routes) == 1 and routes[0].split()[:2] == ["Iface", "Destination"]), "Benchmark has an IPv4 route"
     head = command(["git", "rev-parse", "HEAD"])
     original = (ROOT / "scripts/build.ts").read_text()
     dependency_paths = [ROOT / "node_modules", *[package / "node_modules" for package in (ROOT / "packages").iterdir() if package.is_dir()]]
