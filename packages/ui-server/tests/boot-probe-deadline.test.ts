@@ -58,8 +58,8 @@ async function cleanupDescendant(dir: string, terminate: (pid: number) => void =
     inheritedEndpoints(dir, pid);
     terminate(pid);
   }
-  const until = Date.now() + 1_000;
-  while (existsSync(entry) && Date.now() < until) await Bun.sleep(10);
+  const until = performance.now() + 1_000;
+  while (existsSync(entry) && performance.now() < until) await Bun.sleep(10);
   // This observes non-child disappearance; it is not a direct-child wait/reap.
   expect(existsSync(entry), "owned inherited-pipe descendant disappears after teardown").toBe(false);
 }
@@ -188,8 +188,8 @@ class PrimaryDeadline {
     return work;
   }
   async ready(): Promise<void> {
-    const until = Date.now() + 2_000;
-    while (Date.now() < until) {
+    const until = performance.now() + 2_000;
+    while (performance.now() < until) {
       const pipeReady = this.stdout.includes(this.f.output) && this.reads[0]! >= 2 && this.pending.every(n => n === 1) && this.eof.every(done => !done);
       let nativeReady = false;
       if (this.target && pipeReady) {
@@ -234,7 +234,7 @@ class PrimaryDeadline {
     await Promise.resolve();
     expect(this.primary!.fired, "no primary delivery at 4999").toBe(0);
     expect(this.settled, "no probe completion at 4999").toBe(false);
-    const started = Date.now();
+    const started = performance.now();
     this.advance(5_000);
     this.advance(5_001);
     expect(this.primary!.fired, "one primary delivery at 5000").toBe(1);
@@ -290,7 +290,7 @@ async function probe(kind: "brain" | "claude", f: ReturnType<typeof fixture>, ki
   controller = clock;
   const observability = createRecordingObservability();
   let error: unknown;
-  const started = Date.now();
+  const started = performance.now();
   const work = clock.track((async () => {
     try {
       // The host path of the probe, which a server takes where no governed turn can run (#1648).
@@ -302,8 +302,8 @@ async function probe(kind: "brain" | "claude", f: ReturnType<typeof fixture>, ki
   const settlementStarted = controlled ? await clock.deadline() : started;
   await work;
   // Controlled elapsed is explicit logical primary time plus native settlement.
-  // The three native controls continue to measure the whole wall-clock interval.
-  return { elapsed: (controlled ? 5_000 : 0) + Date.now() - settlementStarted, error, logs: observability.logs.find({ severity: "WARN" }) };
+  // Native controls measure the whole interval with a monotonic clock.
+  return { elapsed: (controlled ? 5_000 : 0) + performance.now() - settlementStarted, error, logs: observability.logs.find({ severity: "WARN" }) };
 }
 
 // 1.5 s permits loaded CI scheduling, not the fixture's eight-second lifetime.
@@ -338,9 +338,9 @@ describe("boot probe deadline", () => {
         if (mode === "hung") {
           const pid = Number(readFileSync(join(f.dir, "helper.pid"), "utf8"));
           expect(pid).toBeGreaterThan(0);
-          const until = Date.now() + 500;
+          const until = performance.now() + 500;
           let alive = true;
-          while (alive && Date.now() < until) {
+          while (alive && performance.now() < until) {
             try { process.kill(pid, 0); await Bun.sleep(10); } catch { alive = false; }
           }
           expect(alive).toBe(false);
@@ -371,8 +371,8 @@ describe("boot probe deadline", () => {
       const result = await probe(kind, f, killer);
       const pid = readFileSync(join(f.dir, "probe.pid"), "utf8").trim();
       const record = join(f.dir, "killer.log");
-      const until = Date.now() + 500;
-      while (!existsSync(record) && Date.now() < until) await Bun.sleep(10);
+      const until = performance.now() + 500;
+      while (!existsSync(record) && performance.now() < until) await Bun.sleep(10);
       expect(existsSync(record)).toBe(true);
       expect(readFileSync(record, "utf8").trim()).toBe(`${pid} KILL alive`);
       expect(result.elapsed).toBeGreaterThanOrEqual(4_950);
@@ -443,3 +443,71 @@ test("assertion failure joins pending native work before restoring the clock", a
   }
   expect(String(failure)).toContain("passing control");
 });
+
+// Move only the timestamp source: native timers, IO, signals and five-second
+// deadlines remain untouched in these controls.
+for (const [direction, shift] of [["forward", 20_000], ["backward", -20_000]] as const) {
+  test(`native probe elapsed survives a ${direction} wall-clock jump`, async () => {
+    const f = fixture("0.42.0");
+    delete f.wrapper;
+    const dateDescriptor = Object.getOwnPropertyDescriptor(Date, "now")!;
+    const spawnDescriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!;
+    const nativeNow = Date.now;
+    const nativeSpawn = Bun.spawn;
+    let offset = 0;
+    let target: Bun.Subprocess | undefined;
+    let work: ReturnType<typeof probe> | undefined;
+    try {
+      Object.defineProperty(Date, "now", { ...dateDescriptor, value: () => nativeNow() + offset });
+      Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: ((...args: Parameters<typeof Bun.spawn>) => {
+        const proc = Reflect.apply(nativeSpawn, Bun, args) as Bun.Subprocess;
+        if (args[0].includes(f.path)) target = proc;
+        return proc;
+      }) as typeof Bun.spawn });
+      const nativeStarted = performance.now();
+      work = probe("brain", f, undefined, false);
+      const until = performance.now() + 2_000;
+      let ready = false;
+      while (!ready && performance.now() < until) {
+        try { ready = !!target && readlinkSync(`/proc/${target.pid}/exe`).endsWith("/sleep"); } catch { /* Await native exec. */ }
+        if (!ready) await Bun.sleep(1);
+      }
+      expect(ready, "native target completed its TERM trap and version output before the jump").toBe(true);
+      expect(Number(readFileSync(join(f.dir, "probe.pid"), "utf8"))).toBe(target!.pid);
+      offset = shift;
+      expect(Math.abs(Date.now() - nativeNow()), "the timestamp really jumped").toBeGreaterThanOrEqual(19_000);
+      expect(Math.sign(Date.now() - nativeNow())).toBe(Math.sign(shift));
+      const result = await work;
+      const nativeElapsed = performance.now() - nativeStarted;
+      expect(nativeElapsed, "wall-jump control retains actual native five-second delivery").toBeGreaterThanOrEqual(4_950);
+      expect(nativeElapsed, "native delivery retains its settlement bound").toBeLessThan(5_000 + SETTLEMENT_MARGIN_MS);
+      expect(result.logs.map(log => String(log.body)).join("\n")).toContain("within 5 s");
+      expect(result.elapsed, "native elapsed retains its lower bound despite wall-clock adjustment").toBeGreaterThanOrEqual(4_950);
+      expect(result.elapsed, "native elapsed retains its upper bound despite wall-clock adjustment").toBeLessThan(5_000 + SETTLEMENT_MARGIN_MS);
+    } finally {
+      try {
+        if (target) {
+          if (target.exitCode === null) { try { target.kill("SIGKILL"); } catch { /* Already exited. */ } }
+          await target.exited;
+        }
+        await work?.catch(() => {});
+        if (target) expect(existsSync(`/proc/${target.pid}`), "owned direct child disappears after awaited exit").toBe(false);
+      } finally {
+        // Unwind the pass-through native observer before restoring its outer
+        // spawn descriptor; these controls never replace primary timers.
+        const active = controller;
+        controller = undefined;
+        try {
+          try { if (active) await active.dispose(async () => {}); }
+          finally { active?.assertRestored(); }
+        } finally {
+          // A failed elapsed or disappearance assertion cannot retain either patch.
+          try { Object.defineProperty(Date, "now", dateDescriptor); }
+          finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); }
+          expect(Object.getOwnPropertyDescriptor(Date, "now")).toEqual(dateDescriptor);
+          expect(Object.getOwnPropertyDescriptor(Bun, "spawn")).toEqual(spawnDescriptor);
+        }
+      }
+    }
+  });
+}

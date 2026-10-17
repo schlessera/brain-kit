@@ -125,8 +125,15 @@ export async function validateSource(root: string, category: Reusable, source: S
 export async function findRetained(root: string, selected: Record<string, boolean>, context: Context, api: API,
   inventory: ReturnType<typeof normalizeInventory>, runner: string): Promise<Ledger["retained"]> {
   const retained: Ledger["retained"] = {};
-  const targets = REUSABLE.filter(category => selected[category]);
-  if (!targets.length || !runner) return retained;
+  const candidates = REUSABLE.filter(category => selected[category]);
+  if (!candidates.length || !runner) return retained;
+  const currentInputs = new Map<Reusable, Inputs>();
+  for (const category of candidates) {
+    try { currentInputs.set(category, proofInputs(root, category, inventory, runner)); }
+    catch { /* Unresolved current ownership requires fresh execution without API lookup. */ }
+  }
+  const targets = candidates.filter(category => currentInputs.has(category));
+  if (!targets.length) return retained;
   const page = await api.json(`actions/workflows/ci.yml/runs?event=pull_request&status=success&branch=${encodeURIComponent(context.branch)}&per_page=3`);
   if (!Array.isArray(page.workflow_runs) || page.workflow_runs.length > 3) throw new Error("Unbounded source runs");
   for (const run of page.workflow_runs) {
@@ -138,7 +145,7 @@ export async function findRetained(root: string, selected: Record<string, boolea
         const pair = [1, 2].map(shard => jobs.jobs.find((j: any) => j.name === `${category} (${shard})` && j.conclusion === "success"));
         if (pair.some(j => !j)) continue; // Never form transitive chains through skipped/reused jobs.
         const first = receiptFromLog(await api.log(pair[0].id), category, 1);
-        const inputs = proofInputs(root, category, inventory, runner);
+        const inputs = currentInputs.get(category)!;
         const source: Source = { run: run.id, attempt: run.run_attempt, jobs: pair.map(j => j.id), checkout: first.checkout, inputs: first.inputs };
         await validateSource(root, category, source, inputs, context, api);
         retained[category] = source;

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "title": "Raft preparation",
+  "desc": "Odysseus prepares the raft before setting sail on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "timber",
+      "label": "Gather timber"
+    },
+    {
+      "id": "build",
+      "label": "Build raft",
+      "role": "focal"
+    },
+    {
+      "id": "provisions",
+      "label": "Pack supplies"
+    }
+  ],
+  "edges": [],
+  "type": "gantt",
+  "axis": {
+    "kind": "gantt",
+    "phases": [
+      {
+        "id": "preparation",
+        "label": "PREPARATION"
+      }
+    ],
+    "tasks": [
+      {
+        "node": "timber",
+        "start": "2026-07-08",
+        "end": "2026-07-09",
+        "phase": "preparation"
+      },
+      {
+        "node": "build",
+        "start": "2026-07-09",
+        "end": "2026-07-12",
+        "phase": "preparation"
+      },
+      {
+        "node": "provisions",
+        "start": "2026-07-11",
+        "end": "2026-07-12",
+        "phase": "preparation"
+      }
+    ],
+    "marker": "2026-07-12"
+  }
+}

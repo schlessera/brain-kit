@@ -783,6 +783,8 @@ const sampleRangeSchema = z
 
 export const clientConversationStartSchema = z.looseObject({
   type: z.literal("conversation_start"),
+  requestId: id.optional(),
+  agentProviderId: id.optional(),
   conversationId: id.optional(),
   sessionId: id.optional(),
 }) satisfies z.ZodType<ClientConversationStart>;
@@ -827,6 +829,7 @@ export const clientConversationPlaybackSchema = z.looseObject({
 export const clientConversationStopSchema = z.looseObject({
   type: z.literal("conversation_stop"),
   conversationId: id,
+  resumable: z.boolean().optional(),
 }) satisfies z.ZodType<ClientConversationStop>;
 
 const clientScopeDecisionSchema = z.strictObject({ type: z.literal("scope_decision"), sessionId: id, turnId: id,
@@ -1029,6 +1032,7 @@ export const turnScopeSummarySchema = z.looseObject({
     state: z.enum(["paused", "continued", "stopped", "voice_stopped", "ended_before_answer"]), submissionId: id.optional(), reason: z.string().optional() })),
 }) satisfies z.ZodType<import("./protocol.js").TurnScopeSummary>;
 export const turnJournalSummarySchema = z.looseObject({
+  configurationCoverage: z.enum(["incomplete", "complete", "unknown"]).optional(),
   scope: turnScopeSummarySchema.optional(),
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
   changedFiles: z.number().int().nonnegative().nullable(),
@@ -1732,6 +1736,8 @@ export const conversationLimitsSchema = z.looseObject({
 
 export const serverConversationOpenedSchema = z.looseObject({
   type: z.literal("conversation_opened"),
+  requestId: id.optional(),
+  agentProviderId: id.optional(),
   conversationId: id,
   epoch: conversationEpoch,
   sessionId: id.optional(),
@@ -1744,6 +1750,7 @@ export const serverConversationOpenedSchema = z.looseObject({
 
 export const serverConversationClosedSchema = z.looseObject({
   type: z.literal("conversation_closed"),
+  requestId: id.optional(),
   conversationId: id,
   epoch: conversationEpoch,
   reason: z.enum(["stopped", "replaced", "disconnected", "provider_closed", "provider_error", "backpressure", "correlation", "refused"]),

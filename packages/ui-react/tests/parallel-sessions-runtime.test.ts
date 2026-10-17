@@ -220,7 +220,7 @@ async function restartHost() {
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
   if (code !== 0) throw new Error(`Parallel-sessions fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-parallel-"));
@@ -469,6 +469,12 @@ async function newChat(run: Run, page: Page) {
 /** Sends what the composer holds, with the keyboard's Enter (or the send button on a phone). */
 async function send(run: Run, page: Page, text: string) {
   await composer(page).fill(text);
+  await page.waitForFunction(() => {
+    const send = document.querySelector('[role="button"][aria-label="Send"]');
+    // An admitted streaming session still accepts Enter while showing Stop.
+    return (send !== null && send.getAttribute("aria-disabled") !== "true")
+      || document.querySelector('[role="button"][aria-label="Stop generating"]') !== null;
+  });
   if (phone(run)) await press(run, button(page, "Send"));
   else await composer(page).press("Enter");
 }

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { closureSelects, discoverInputClosure, discoverBrowserClosures, type InputDeclaration } from "../scripts/browser-input-closure";
@@ -201,4 +201,103 @@ test("CSS root scan reproduction resolves and declarations cannot waive unsuppor
     expect(invalid.unresolved.length).toBeGreaterThan(0);
     expect(closureSelects(["unrelated.ts"], invalid, true)).toBe(true);
   }
+});
+
+
+test("a declared file read can retain exact result transformation calls without stale ownership", () => {
+  const inner = `readFileSync(target, "utf8")`, outer = inner + `.replace("boat", "raft")`;
+  const root = fixture({ "spec.ts": `import {readFileSync} from "node:fs"; ${outer};`, "data.md": "boat" });
+  const closure = discoverInputClosure(root, ["spec.ts"], [{ owner: "spec.ts", inputs: [{ expression: inner, targets: ["data.md"] }, { expression: outer, targets: ["data.md"] }] }]);
+  expect(closure.unresolved).toEqual([]);
+  expect(closure.files).toContain("data.md");
+});
+
+test("type-only imported files are hashed without executing their unrelated runtime inputs", () => {
+  const root = fixture({ "spec.ts": `import type { Shape } from "./types.js"; export type { Shape } from "./types.js";`, "types.ts": `import {readFileSync} from "node:fs"; export type Shape = string; readFileSync(unknown);` });
+  const closure = discoverInputClosure(root, ["spec.ts"]);
+  expect(closure.files).toContain("types.ts");
+  expect(closure.unresolved).toEqual([]);
+  writeFileSync(join(root, "spec.ts"), `import "./types.js";`);
+  expect(discoverInputClosure(root, ["spec.ts"]).unresolved).toContain("Undeclared input types.ts: readFileSync(unknown)");
+});
+
+
+test("exact lexical scopes bind duplicate kernel identity observations without hiding another read", () => {
+  const expression = `readFileSync("/proc/sys/kernel/random/boot_id", "utf8")`;
+  const root = fixture({ "spec.ts": `import {readFileSync} from "node:fs"; function identity(){return ${expression}} function alive(){return ${expression}}` });
+  const declaration: InputDeclaration = { owner: "spec.ts", inputs: ["identity", "alive"].map(scope => ({ expression, scope, observation: "linux-proc-self-identity", targets: [] })) };
+  expect(discoverInputClosure(root, ["spec.ts"], [declaration]).unresolved).toEqual([]);
+  expect(discoverInputClosure(root, ["spec.ts"], [{ ...declaration, inputs: declaration.inputs.slice(0, 1) }]).unresolved).toContain(`Undeclared input spec.ts: ${expression}`);
+  writeFileSync(join(root, "spec.ts"), `import {readFileSync} from "node:fs"; function identity(){return readFileSync("/tmp/provider-data.json", "utf8")} function alive(){return ${expression}}`);
+  expect(discoverInputClosure(root, ["spec.ts"], [declaration]).unresolved.length).toBeGreaterThan(0);
+});
+
+test("runner observation declarations cannot waive arbitrary files, dynamic imports, CSS or descriptor paths", () => {
+  for (const expression of [`readFileSync("/tmp/provider-data.json", "utf8")`, `readFileSync(path, "utf8")`, `readFileSync("/proc/self/fd/5", "utf8")`, `import(target)`, `new Bun.Glob("**/*")`]) {
+    const root = fixture({ "spec.ts": `import {readFileSync} from "node:fs"; ${expression};` });
+    const closure = discoverInputClosure(root, ["spec.ts"], [{ owner: "spec.ts", inputs: [{ expression, observation: "linux-proc-self-identity", targets: [] }] }]);
+    expect(closure.unresolved.some(item => item.startsWith("Invalid runner observation"))).toBe(true);
+  }
+  const css = fixture({ "entry.css": `@import "tailwindcss" source(none);` });
+  expect(discoverInputClosure(css, ["entry.css"], [{ owner: "entry.css", inputs: [{ expression: `@import "tailwindcss" source(none);`, observation: "linux-proc-self-identity", targets: [] }] }]).unresolved.length).toBeGreaterThan(0);
+});
+
+
+test("declared Linux self identity paths read actual kernel metadata with no repository payload", () => {
+  const boot = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+  expect(boot).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+  expect(readlinkSync("/proc/self/ns/pid")).toMatch(/^pid:\[[0-9]+\]$/);
+  expect(readFileSync("/proc/self/status", "utf8")).toContain(`Pid:\t${process.pid}`);
+});
+
+
+test("shadowed or non-filesystem reader aliases cannot claim a kernel observation", () => {
+  const expression = `readFileSync("/proc/sys/kernel/random/boot_id", "utf8")`;
+  for (const source of [`import {readFileSync} from "node:fs"; function local(readFileSync: any) { return ${expression}; }`, `import {readFileSync} from "node:child_process"; ${expression};`]) {
+    const root = fixture({ "spec.ts": source });
+    expect(discoverInputClosure(root, ["spec.ts"], [{ owner: "spec.ts", inputs: [{ expression, observation: "linux-proc-self-identity", targets: [] }] }]).unresolved.some(item => item.startsWith("Invalid runner observation"))).toBe(true);
+  }
+});
+
+test("Git environment reads stay unknown while literal UI copy and local GitHub names are source bytes", () => {
+  const root=fixture({"entry.ts":`const GITHUB_ITEM=/path/; const message="GITHUB_TOKEN"; console.log(GITHUB_ITEM,message);`});
+  expect(discoverInputClosure(root,["entry.ts"]).unresolved).toEqual([]);
+  writeFileSync(join(root,"entry.ts"),`console.log(process.env.GITHUB_SHA,process.env["GITHUB_RUN_ID"]);`);
+  expect(discoverInputClosure(root,["entry.ts"]).unresolved).toContain("Git-dependent execution input: entry.ts");
+});
+
+test("EXPLICIT_JAVASCRIPT_RUNTIME_IS_NOT_ITS_DECLARATION: actual Bun reader remains an unresolved runtime input",()=>{
+ for(const [extension,declaration]of [["mjs","d.mts"],["js","d.ts"],["cjs","d.cts"]]){
+  const common=extension==="cjs";
+  const root=fixture({"entry.ts":`import{readFixture}from"./reader.${extension}";console.log(readFixture("fixture.txt"));`,[`reader.${extension}`]:common?'const{readFileSync}=require("node:fs");exports.readFixture=path=>readFileSync(path,"utf8");':'import{readFileSync}from"node:fs";export function readFixture(path){return readFileSync(path,"utf8");}',[`reader.${declaration}`]:'export function readFixture(path:string):string;',"fixture.txt":"Odysseus"});
+  const child=Bun.spawnSync([process.execPath,join(root,"entry.ts")],{cwd:root,stdout:"pipe",stderr:"pipe"});
+  expect(child.exitCode,new TextDecoder().decode(child.stderr)).toBe(0);expect(new TextDecoder().decode(child.stdout).trim()).toBe("Odysseus");
+  const closure=discoverInputClosure(root,["entry.ts"]);
+  expect(closure.files,"EXECUTED_JAVASCRIPT_MUST_BE_DISCOVERED").toContain(`reader.${extension}`);
+  expect(closure.unresolved.some(input=>input.includes(`reader.${extension}`))).toBe(true);
+ }
+});
+test("type-only JavaScript declarations do not activate their neighboring runtime readers",()=>{
+ const root=fixture({"entry.ts":'import type{readFixture}from"./reader.mjs";export type Shape=typeof readFixture;',"reader.mjs":'import{readFileSync}from"node:fs";export function readFixture(path){return readFileSync(path,"utf8");}',"reader.d.mts":'export function readFixture(path:string):string;'});
+ const closure=discoverInputClosure(root,["entry.ts"]);expect(closure.files).toContain("reader.d.mts");expect(closure.files).not.toContain("reader.mjs");expect(closure.unresolved).toEqual([]);
+});
+
+test("missing explicit JavaScript cannot turn a declaration into runtime proof",()=>{
+ for(const [extension,declaration]of [["mjs","d.mts"],["js","d.ts"],["cjs","d.cts"]]){
+  const root=fixture({"entry.ts":`import{readFixture}from"./reader.${extension}";readFixture("Odysseus");`,[`reader.${declaration}`]:'export function readFixture(path:string):string;'});
+  expect(discoverInputClosure(root,["entry.ts"]).unresolved.some(input=>input.includes(`reader.${extension}`))).toBe(true);
+ }
+});
+test("explicit JavaScript aliases and outside roots remain unsupported despite declaration neighbors",()=>{
+ const outside=fixture({"reader.mjs":"export const value='Odysseus';"});
+ const root=fixture({"entry.ts":'import "./reader.mjs";',"reader.d.mts":"export {};"});symlinkSync(join(outside,"reader.mjs"),join(root,"reader.mjs"));expect(discoverInputClosure(root,["entry.ts"]).unresolved.length).toBeGreaterThan(0);
+ writeFileSync(join(root,"entry.ts"),`import ${JSON.stringify(join(outside,"reader.mjs"))};`);expect(discoverInputClosure(root,["entry.ts"]).unresolved.length).toBeGreaterThan(0);
+});
+
+test("missing JavaScript still preserves real Bun TypeScript source-extension substitution",()=>{
+ for(const [extension,source]of [["js","ts"],["mjs","mts"],["cjs","cts"]]){
+  const root=fixture({"entry.ts":`import{world}from"./reader.${extension}";console.log(world);`,[`reader.${source}`]:'export const world="Odysseus";'});
+  const child=Bun.spawnSync([process.execPath,join(root,"entry.ts")],{cwd:root,stdout:"pipe",stderr:"pipe"});expect(child.exitCode,new TextDecoder().decode(child.stderr)).toBe(0);expect(new TextDecoder().decode(child.stdout).trim()).toBe("Odysseus");
+  const closure=discoverInputClosure(root,["entry.ts"]);expect(closure.files).toContain(`reader.${source}`);expect(closure.unresolved).toEqual([]);
+ }
 });

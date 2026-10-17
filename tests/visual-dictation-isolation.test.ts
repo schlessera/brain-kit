@@ -40,6 +40,8 @@ async function wrapper(...args: string[]) {
     await mkdir(resolve(root, "node_modules/vitest"), { recursive: true });
     await copyFile(resolve(import.meta.dir, "../scripts/visual.mjs"), resolve(root, "scripts/visual.mjs"));
     await copyFile(resolve(import.meta.dir, "../scripts/workspace-lease.mjs"), resolve(root, "scripts/workspace-lease.mjs"));
+    for (const file of ["prepare-diagram-export-source.mjs", "diagram-export-source.mjs"])
+      await copyFile(resolve(import.meta.dir, "../scripts", file), resolve(root, "scripts", file));
     await writeFile(resolve(root, "node_modules/vitest/vitest.mjs"), "console.log(JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()}));\n");
     const result = Bun.spawnSync(["node", resolve(root, "scripts/visual.mjs"), "--inside", ...args], {
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
@@ -58,7 +60,7 @@ test("the default browser wrapper includes isolated dictation in each sharded in
     const argv = await wrapper(`--shard=${shard}`, "--update");
     expect(argv, "the default matrix cannot silently omit 65 incumbent dictation cases").toEqual([
       "run", "--project=storybook", "--project=storybook-light", "--project=visual",
-      "--project=rank-footer-touch", "--project=module-settings", "--project=subjects", "--project=dictation", "--project=rail-fine", "--project=rail-coarse", "--project=rail-mixed", "--project=keyboard-hints-live",
+      "--project=rank-footer-touch", "--project=module-settings", "--project=subjects", "--project=dictation", "--project=rail-fine", "--project=rail-coarse", "--project=rail-mixed", "--project=keyboard-hints-live", "--project=diagrams-chromium", "--project=diagrams-webkit",
       "--browser.fileParallelism=false", "--update", `--shard=${shard}`,
     ]);
   }

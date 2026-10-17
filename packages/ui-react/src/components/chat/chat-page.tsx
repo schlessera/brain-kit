@@ -1,3 +1,5 @@
+import { useStore } from "zustand";
+import { ConversationOutputs } from "../voice/conversation-outputs.js";
 import { replyToToolApproval } from "../../lib/tool-approval.js";
 import type { AskUserFormAnswers } from "@schlessera/brain-ui-sdk/protocol";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -108,7 +110,10 @@ export function ChatPage() {
   const { send } = useWebSocket();
 
   const messages = useChatStore((s) => activeChat(s).messages);
+  const voiceOutputs = useStore(root.connection.conversation.state, (s) => s.outputs);
   const sessionId = useChatStore((s) => s.activeSessionId);
+  const hasVoiceOutput = voiceOutputs.some((output) => output.sessionId === sessionId && output.generated);
+
   const clearMessages = useChatStore((s) => s.clearMessages);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
 
@@ -661,7 +666,7 @@ export function ChatPage() {
                 <div className="px-4 md:px-6"><div {...{ [READING_COLUMN_ATTR]: "" }} className="mx-auto max-w-3xl"><UnconfirmedSends /></div></div>
                 <RestorationState onNewChat={clearMessages} />
               </div>
-            ) : messages.length === 0 ? (
+            ) : messages.length === 0 && !hasVoiceOutput ? (
               <div ref={welcomeRef} className="h-full overflow-y-auto" data-welcome="">
                 <div className="px-4 pt-3 md:px-6">
                   <DigestCard />
@@ -721,6 +726,7 @@ export function ChatPage() {
                         .map((link) => <HandoffMarker key={link.sessionId} sessionId={link.sessionId} backendId={link.backendId} title={link.title} />)}
                     </Fragment>
                   ))}
+                  <ConversationOutputs sessionId={sessionId} />
                   {unlinked && <MarkAsSeen onMark={markSeen} />}
                   {/* Live frames drawn before the history arrived (#1328). */}
                   {restoring && <RestorationState onNewChat={clearMessages} />}

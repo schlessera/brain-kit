@@ -1,11 +1,19 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { browserInventory, checkout, git, normalizeInventory, proofInputs, type Inputs, type Spec } from "../scripts/proof-inputs";
+import { dirname, join, resolve } from "node:path";
+import { browserInventory, checkout, git, normalizeInventory, proofInputs, runnerIdentity, type Inputs, type Spec } from "../scripts/proof-inputs";
 import { boundedLedger, contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
 import { proofProblems, PROOF_JOBS } from "../scripts/ci-proof";
+import * as workerAudit from "../scripts/browser-worker-audit";
 const roots: string[] = [];
+// These are synthetic receipt/API protocol fixtures, not browser execution
+// qualification. Keep real immutable fingerprint/source recomputation while
+// modeling an admitted capability. Actual capability/refusal/native controls
+// live in the worker-audit, inclusion and real browser proof tests.
+let capability:ReturnType<typeof spyOn<typeof workerAudit,"hasAuditedWorkerBoundary">>;
+beforeEach(()=>{capability=spyOn(workerAudit,"hasAuditedWorkerBoundary").mockReturnValue(true);});
+afterEach(()=>capability.mockRestore());
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const runner = "ubuntu-24.04/fixed/Linux/X64/bun-1.4.2";
 const layout = "packages/ui-react/tests/browser/one.layout.tsx";
@@ -27,6 +35,11 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "proof-reuse-")); roots.push(root); git(root, "init", "-q");
   git(root, "config", "commit.gpgsign", "false");
   for (const file of [layout, secondLayout, visual, secondVisual, shared]) write(root, file, "export {};\n");
+  write(root, ".gitignore", "node_modules\n"); symlinkSync(resolve(import.meta.dir, "../node_modules"), join(root, "node_modules"), "dir");
+  for (const path of ["package.json", "bun.lock", "tsconfig.json"]) write(root, path, "{}\n");
+  for (const path of ["bunfig.toml", "packages/ui-kit/vitest.config.ts", "packages/ui-kit/vite.config.ts", "packages/ui-kit/.storybook/main.ts", "packages/ui-kit/.storybook/preview.ts", "scripts/visual.mjs", "scripts/build.ts", "scripts/workspace-lease.mjs", "packages/ui-kit/src/styles.css", "packages/ui-react/src/styles.css"]) write(root, path, "");
+  write(root, "packages/ui-kit/tests/proof-inputs.json", "[]"); write(root, "scripts/css-proof-inputs.json", "[]");
+  write(root, visual, `import "../../../core/fixtures/corpus/input.md";\n`);
   write(root, "scripts/browser-shard-costs.json", JSON.stringify({ seconds: { [`visual::${visual}`]: 1 } }));
   write(root, "scripts/ci-proof.ts", "// unchanged proof harness\n");
   write(root, ".github/workflows/ci.yml", "name: CI\n");
@@ -62,20 +75,20 @@ function evidence(root: string, inputs: Inputs) {
 }
 test("a changed foreign leaf retains browser inputs; shared specs and every source/fixture/harness invalidate them", () => {
   const root = fixture(); const first = proofInputs(root, "browser", inventory, runner);
-  expect(first.excluded).toContain(layout); expect(first.excluded).not.toContain(shared);
+  expect(first.version).toBe(2); expect(first.excluded).toEqual([]);
   write(root, layout, "// changed layout-only assertion\n"); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).fingerprint).toBe(first.fingerprint);
   const baseline = checkout(root).sha;
-  for (const file of [visual, shared, "scripts/ci-proof.ts", "packages/core/fixtures/corpus/input.md", "bun.lock", "unknown/new-input.bin"]) {
+  for (const file of [visual, shared, "scripts/ci-proof.ts", "packages/core/fixtures/corpus/input.md", "bun.lock"]) {
     write(root, file, "changed\n"); commit(root);
     expect(proofInputs(root, "browser", inventory, runner).fingerprint, file).not.toBe(first.fingerprint);
     git(root, "reset", "--hard", baseline); git(root, "clean", "-fd");
   }
   expect(proofInputs(root, "browser", inventory, runner + "/changed").fingerprint).not.toBe(first.fingerprint);
 });
-test("referenced foreign leaves join input closure; new discovery and partition ownership cannot disappear", () => {
-  const root = fixture(); write(root, "scripts/helper.ts", `import "../${layout}";\n`); commit(root);
-  const inputs = proofInputs(root, "browser", inventory, runner); expect(inputs.excluded).not.toContain(layout);
+test("imported foreign leaves join input closure; new discovery and partition ownership cannot disappear", () => {
+  const root = fixture(); write(root, visual, `import "../../../core/fixtures/corpus/input.md"; import "../../../ui-react/tests/browser/one.layout.tsx";\n`); commit(root);
+  const inputs = proofInputs(root, "browser", inventory, runner); expect(inputs.version).toBe(2);
   write(root, layout, "changed\n"); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).fingerprint).not.toBe(inputs.fingerprint);
   write(root, "packages/ui-kit/tests/visual/new.visual.tsx", "export {};\n"); commit(root);
@@ -122,7 +135,7 @@ test("changed source blobs cannot use a forged matching fingerprint or an old re
   original.source.inputs = changed;
   original.logs = original.logs.map(log => log.replace(JSON.stringify(inputs), JSON.stringify(changed)));
   const api: API = { json: original.api.json, async log(id) { return original.logs[id - 101]!; } };
-  await expect(validateSource(root, "browser", original.source, changed, context, api)).rejects.toThrow("Immutable source inputs");
+  await expect(validateSource(root, "browser", original.source, changed, context, api)).rejects.toThrow("immutable algorithm or dependency");
 });
 test("missing, invalid or stale current ledger cannot bless skipped selected proof", async () => {
   const root = fixture();
@@ -182,12 +195,12 @@ test("Git-derived, unknown dynamic module selection and exported foreign helpers
   const root = fixture();
   for (const name of ["GITHUB_SHA", "GITHUB_RUN_ID"]) {
     write(root, visual, `const input = process.env.${name};\n`); commit(root);
-    expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
+    expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Unresolved immutable");
   }
   write(root, visual, "const input = await import(modulePath);\n"); commit(root);
-  expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
+  expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Unresolved immutable");
   write(root, visual, 'const input = Bun.spawn(["git", "rev-parse", "HEAD"]);\n'); commit(root);
-  expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Git-dependent or unknown");
+  expect(() => proofInputs(root, "browser", inventory, runner)).toThrow("Unresolved immutable");
   write(root, visual, "export {};\n"); write(root, layout, "export const helper = 1;\n"); commit(root);
   expect(proofInputs(root, "browser", inventory, runner).excluded).not.toContain(layout);
 });
@@ -204,4 +217,18 @@ test("large receipts fall back to fresh proof before crossing the native environ
   });
   const [out, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
   expect(code).toBe(0); expect(out.trim()).toBe("fresh"); expect(bounded.checkout).toEqual(ledger.checkout);
+});
+
+
+test("root-redirect environment overrides refuse retention before generated fixture binding", () => {
+  const env = { ImageVersion: "fixed", RUNNER_OS: "Linux", RUNNER_ARCH: "X64" };
+  expect(runnerIdentity(env)).toContain("brain-roots-absent-v1");
+  for (const name of ["BRAIN_ROOT", "BRAIN_WORKER_DATA_ROOT", "BRAIN_WORKER_CONFIG_ROOT"]) {
+    expect(runnerIdentity({ ...env, [name]: "/untrusted/redirect" })).toBe("");
+    expect(runnerIdentity({ ...env, [name]: "" })).toBe("");
+  }
+});
+
+test("distinct Chromium and WebKit projects keep separate normalized proof identities",()=>{
+ expect(normalizeInventory([{projectName:"diagrams-chromium (chromium)",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"},{projectName:"diagrams-webkit (webkit)",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"}])).toEqual([{project:"diagrams-chromium",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"},{project:"diagrams-webkit",file:"packages/ui-react/tests/browser/diagrams-renderer.layout.tsx"}]);
 });

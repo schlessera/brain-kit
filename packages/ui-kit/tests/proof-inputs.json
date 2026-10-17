@@ -89,5 +89,67 @@
         ]
       }
     ]
+  },
+  {
+    "owner": "packages/ui-sdk/src/server/maintenance-temp-budget.ts",
+    "inputs": [
+      {
+        "expression": "readFileSync(\"/proc/sys/kernel/random/boot_id\", \"utf8\")",
+        "scope": "identity",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      },
+      {
+        "expression": "readFileSync(\"/proc/sys/kernel/random/boot_id\", \"utf8\")",
+        "scope": "alive",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      },
+      {
+        "expression": "readlinkSync(\"/proc/self/ns/pid\")",
+        "scope": "alive",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-kit/tests/visual/dictation-theme.css",
+    "inputs": [
+      {
+        "expression": "@import \"tailwindcss\" source(none);",
+        "targets": [
+          "package.json",
+          "bun.lock",
+          "packages/ui-kit/package.json"
+        ]
+      },
+      {
+        "expression": "@import \"@schlessera/brain-ui-react/theme.css\";",
+        "targets": [
+          "packages/ui-react/src/theme.css",
+          "packages/ui-react/package.json",
+          "packages/ui-kit/package.json"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
+    "inputs": [
+      {
+        "expression": "readFile(resolve(name?`../../packages/module-diagrams/skills/diagram/references/examples/${name}.diagram.yaml`:\"../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml\"),\"utf8\")",
+        "targets": [
+          "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/architecture.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/flowchart.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/state-machine.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/tree.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/er.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/dependency.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/architecture-containment.diagram.yaml"
+        ]
+      }
+    ]
   }
 ]

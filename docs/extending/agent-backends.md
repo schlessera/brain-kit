@@ -513,7 +513,7 @@ promises.
   or an explicit name admits it.
 - **Shell commands.** `bashLockKey` picks the lock a command must hold
   (`BRAIN_LOCK_KEY` for document writes), `rtkRewriteCommand` applies the
-  optional rtk rewrite, and `DEFAULT_CONFIRM_BASH_PATTERNS` is the bundled
+  optional rtk rewrite inside the command's execution environment, and `DEFAULT_CONFIRM_BASH_PATTERNS` is the bundled
   confirmation policy for when configuration is missing. Its entries may
   evolve between releases; compile it with `compileConfirmPatterns` like any
   other source.
@@ -690,3 +690,16 @@ server never interprets an npm specifier from configuration.
 - [agent-runners.md](agent-runners.md) — the CLI-oriented agent seam in core.
 - [../integration-contract.md](../integration-contract.md) — protocol revisions
   and stability guarantees.
+
+
+Claude's host-side hook requires fresh evidence from its actual live worker
+before using an installed RTK oracle. It checks the worker's kernel process
+identity, effective PATH, UID/groups and exact executable inode. Only an
+unaliased, read-only system installation with a supported static native ELF (including dependency-free static PIE)
+qualifies; scripts, dynamic loaders, opaque exec wrappers, unreadable helper
+identities, masked paths and repository or writable-area executables remain
+unknown and preserve the original command. The oracle gets a clean environment
+and `/` as its working directory, without provider credentials or repository
+configuration. Pi already invokes the shared helper inside its worker. The
+shared availability probe is not cached across commands or environments.
+RTK rewriting retains the existing permission and outward-action checks.

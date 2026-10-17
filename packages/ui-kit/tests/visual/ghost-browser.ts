@@ -2,6 +2,7 @@
 import type { BrowserCommand } from "vitest/node";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { zeroRequestReplay } from "./zero-request-replay.js";
 
 /** Chromium evaluates the real media queries: no matchMedia stub, no class. */
 export const ghostMedia: BrowserCommand<["reduce" | "no-preference", "screen" | "print"]> = async (ctx, reducedMotion, media) => {
@@ -31,10 +32,7 @@ export const ghostTrace: BrowserCommand<[], { paint: number; raster: number; bro
     css: [...document.styleSheets].flatMap((sheet) => { try { return [...sheet.cssRules].map((r) => r.cssText); } catch { return []; } }).join("\n"),
   }));
   const page = await ctx.page.context().newPage();
-  await page.route("**/*", (route) => {
-    const url = new URL(route.request().url());
-    return ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ? route.continue() : route.abort();
-  });
+  const replay = await zeroRequestReplay(page);
   await page.setViewportSize({ width: 412, height: 915 });
   const session = await page.context().newCDPSession(page);
   const events: Record<string, unknown>[] = [];
@@ -42,14 +40,18 @@ export const ghostTrace: BrowserCommand<[], { paint: number; raster: number; bro
   try {
     await session.send("Emulation.setDeviceMetricsOverride", { width: 412, height: 915, deviceScaleFactor: 2.625, mobile: false });
     await page.setContent(`<html data-theme="${fixture.theme}"><head><base href="${fixture.base}"><style>${fixture.css}</style><style>body{margin:0;padding:16px;box-sizing:border-box;background:var(--bk-color-canvas)}</style></head><body>${fixture.html}</body></html>`);
+    replay.assert("document load");
     await page.evaluate(() => document.fonts.ready);
+    replay.assert("fonts ready");
     await session.send("Emulation.setCPUThrottlingRate", { rate: 6 });
     await page.waitForTimeout(5200); // rasterise each swept region before steady state
+    replay.assert("before trace");
     await session.send("Tracing.start", { categories: "devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.frame", transferMode: "ReportEvents" });
     await page.waitForTimeout(3000);
     const complete = new Promise<void>((r) => session.once("Tracing.tracingComplete", () => r()));
     await session.send("Tracing.end");
     await complete;
+    replay.assert("after trace");
     const msPerSecond = (name: string) => events.filter((e) => e.ph === "X" && e.name === name).reduce((n, e) => n + Number(e.dur ?? 0), 0) / 1000 / 3;
     const result = { paint: msPerSecond("Paint"), raster: msPerSecond("RasterTask"), browser: ctx.page.context().browser()!.version() };
     const directory = resolve(".vitest-attachments/ghost-sweep");

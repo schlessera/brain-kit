@@ -85,6 +85,12 @@ export "." (./src/index.ts)
   useVoiceStore
   useWebSocket
 
+export "./content-figures" (./src/content-figures.ts)
+  StaticDiagramShareMenu
+  ZoomViewer
+  type ZoomViewerProps
+  useWikiLinkNavigation
+
 export "./package.json" (./package.json) [asset]
 
 export "./styles.css" (./dist/styles.css) [asset]
@@ -153,6 +159,7 @@ signatures (every public export and the types it is made of)
   AskUserExchange (packages/ui-react/src/stores/chat-state.ts)
     export interface AskUserExchange {
         requestId: string;
+        terminal?: true;
         turnId?: string;
         questions: AskUserQuestion[];
         list?: AskUserListSpec;
@@ -324,6 +331,30 @@ signatures (every public export and the types it is made of)
     export function ConnectionGate({ children }: {
         children: ReactNode;
     }): import("react").JSX.Element;
+  ConversationClientOutput (packages/ui-react/src/voice/conversation-client.ts)
+    export interface ConversationClientOutput extends ConversationOutputRecord {
+        conversationId: string;
+        sessionId: string | null;
+    }
+  ConversationClientState (packages/ui-react/src/voice/conversation-client.ts)
+    export interface ConversationClientState {
+        available: boolean;
+        active: boolean;
+        token: number;
+        connection: "Connecting" | "Connected" | "Reconnecting" | "Speech lost";
+        micOn: boolean;
+        interaction: "Listening" | "Sending soon" | "Review before sending" | "Working" | "Speaking" | "Checking whether the reply stopped" | "Answering question";
+        disclosureOpen: boolean;
+        profile: ServerConversationOpened | null;
+        sessionId: string | null;
+        agentProviderId: string | null;
+        text: string;
+        notice: string;
+        announcement: string;
+        playing: boolean;
+        work: Record<string, ConversationWorkReceipt>;
+        outputs: ConversationClientOutput[];
+    }
   CorpusStats (packages/ui-react/src/lib/api-client.ts)
     export interface CorpusStats {
         trends?: CorpusStatsTrends;
@@ -731,6 +762,11 @@ signatures (every public export and the types it is made of)
         onAudioLevel?: (level: number) => void;
         signal?: AbortSignal;
     }
+  StaticDiagramShareMenu (packages/ui-react/src/components/chat/static-diagram-share.tsx)
+    export function StaticDiagramShareMenu({ svg, filename = "diagram" }: {
+        svg: () => Promise<string>;
+        filename?: string;
+    }): import("react").JSX.Element;
   StatsSection (packages/ui-react/src/lib/stats/compose-stats.ts)
     export type StatsSection = {
         kind: "software";
@@ -864,6 +900,18 @@ signatures (every public export and the types it is made of)
         costNote: string;
         blurb: string;
     }
+  ZoomViewer (packages/ui-react/src/components/viewer/zoom-viewer.tsx)
+    export function ZoomViewer({ children, onClose, actions, refitKey, maxFitScale = 2.5, minScale = MIN_SCALE, label = "Zoomed view", }: ZoomViewerProps): import("react").ReactPortal;
+  ZoomViewerProps (packages/ui-react/src/components/viewer/zoom-viewer.tsx)
+    export interface ZoomViewerProps {
+        children: React.ReactNode;
+        onClose: () => void;
+        actions?: React.ReactNode;
+        refitKey?: unknown;
+        maxFitScale?: number;
+        minScale?: number;
+        label?: string;
+    }
   activeChat (packages/ui-react/src/stores/chat-state.ts)
     export function activeChat(state: ChatShellState): SessionChat;
   anyStreaming (packages/ui-react/src/stores/chat-state.ts)
@@ -878,6 +926,8 @@ signatures (every public export and the types it is made of)
     function cancel(requestId: string): Promise<void>;
   checkRetryDelivery (packages/ui-react/src/connection.ts)
     function checkRetryDelivery(sessionId: string): boolean;
+  commit (packages/ui-react/src/voice/conversation-client.ts)
+    function commit(own: number): boolean;
   configureBrainUi (packages/ui-react/src/config.ts)
     export function configureBrainUi(overrides: Partial<BrainUiConfig>): void;
   connect (packages/ui-react/src/connection.ts)
@@ -1216,6 +1266,20 @@ signatures (every public export and the types it is made of)
         };
         checkRetryDelivery: (sessionId: string) => boolean;
         connect: () => () => void;
+        conversation: {
+            commit: (own: number) => boolean;
+            details(): void;
+            discard(): void;
+            dispose(): void;
+            enter(): void;
+            frame: (message: ServerMessage) => ServerMessage | null;
+            leave: () => void;
+            mute(): void;
+            resume(): void;
+            start(): void;
+            state: import("zustand").StoreApi<import("./voice/conversation-client.js").ConversationClientState>;
+            stopReply: () => void;
+        };
         dispose(): void;
         drafts: {
             check: (requestId: string) => Promise<void>;
@@ -1241,6 +1305,8 @@ signatures (every public export and the types it is made of)
     function edit(requestId: string): void;
   flushChatDeltas (packages/ui-react/src/connection.ts)
     function flushChatDeltas(): void;
+  frame (packages/ui-react/src/voice/conversation-client.ts)
+    function frame(message: ServerMessage): ServerMessage | null;
   handleServerMessage (packages/ui-react/src/connection.ts)
     function handleServerMessage(msg: ServerMessage): void;
   hasPendingShare (packages/ui-react/src/stores/share-state.ts)
@@ -1249,6 +1315,8 @@ signatures (every public export and the types it is made of)
     export function hasUnsentText(): boolean;
   inlineMermaidDiagrams (packages/ui-react/src/lib/mermaid.ts)
     export function inlineMermaidDiagrams(markdown: string, theme?: MermaidTheme): Promise<string>;
+  leave (packages/ui-react/src/voice/conversation-client.ts)
+    function leave(): void;
   logout (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function logout(): Promise<void>;
   receipt (packages/ui-react/src/lib/answer-delivery/manager.ts)
@@ -1294,6 +1362,8 @@ signatures (every public export and the types it is made of)
     function start(): Promise<void>;
   startLocalCapture (packages/ui-react/src/voice/local-capture.ts)
     export function startLocalCapture(options: StartLocalCaptureOptions): Promise<LocalCapture>;
+  stopReply (packages/ui-react/src/voice/conversation-client.ts)
+    function stopReply(): void;
   submit (packages/ui-react/src/lib/answer-delivery/manager.ts)
     function submit(input: SubmitAnswer): Promise<"admitted" | "refused" | "ignored">;
   useBrainApi (packages/ui-react/src/root-context.tsx)
@@ -1618,4 +1688,9 @@ signatures (every public export and the types it is made of)
   useWebSocket (packages/ui-react/src/hooks/use-websocket.ts)
     export function useWebSocket(): {
         send: (message: ClientMessage) => boolean;
+    };
+  useWikiLinkNavigation (packages/ui-react/src/components/chat/brain-markdown-links.tsx)
+    export function useWikiLinkNavigation(): {
+        resolve(target: string): string | null;
+        open(target: string, opener: HTMLElement | SVGElement, keyboard: boolean): boolean;
     };
