@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "title": "Voyage milestones",
+  "desc": "The voyage runs from Ogygia to the homecoming.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "departure",
+      "label": "Leave Ogygia",
+      "role": "focal"
+    },
+    {
+      "id": "scheria",
+      "label": "Reach Scheria"
+    },
+    {
+      "id": "ithaca",
+      "label": "Reach Ithaca"
+    }
+  ],
+  "edges": [],
+  "type": "timeline",
+  "axis": {
+    "kind": "timeline",
+    "events": [
+      {
+        "node": "departure",
+        "date": "2026-07-12"
+      },
+      {
+        "node": "scheria",
+        "date": "2026-07-29"
+      },
+      {
+        "node": "ithaca",
+        "date": "2026-08-01"
+      }
+    ]
+  }
+}

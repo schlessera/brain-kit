@@ -1,3 +1,8 @@
+import { buildAxisDiagram } from "./axis-layout.js";
+import { AXIS_TYPES } from "./spec.js";
+
+import { checkNodeLink } from "./node-link-check.js";
+import { checkContainment } from "./containment.js";
 import { buildDiagram, DiagramGeometryError, type DiagramTree } from "./geometry.js";
 import { checkDiagramSkin } from "./skin.js";
 import { FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
@@ -12,6 +17,7 @@ export function diagramLayout(spec: DiagramSpec, name: "default" | "narrow" = "d
 }
 /** One deterministic tree with the exact authored 320px frame; never reflow. */
 export function buildDiagramLayout(spec: DiagramSpec, name: "default" | "narrow" = "default"): DiagramTree {
+ if ((AXIS_TYPES as readonly string[]).includes(spec.type)) return buildAxisDiagram(spec, name === "narrow" ? 320 : 720);
  const findings = checkDiagramLayouts(spec);
  if (findings.length) throw Error(findings.map(item => item.message).join("; "));
  const tree = buildDiagram(diagramLayout(spec, name));
@@ -35,6 +41,8 @@ export function checkDiagramLayouts(spec: DiagramSpec): DiagramLayoutFinding[] {
  for (const id of expected) if (!seen.has(id)) error("$.layouts.narrow.nodes", `Missing authored placement for '${id}'`);
  if (findings.length) return findings;
  const placed = diagramLayout(spec, "narrow");
+ const semantic=[...checkNodeLink(placed).errors,...(placed.type==="architecture"?checkContainment(placed).errors:[])];
+ semantic.forEach(item=>error(item.path.replace("$.nodes","$.layouts.narrow.nodes"),item.message));
  findings.push(...checkDiagramSkin(placed).map(item => ({ ...item, path: item.path.replace("$.nodes", "$.layouts.narrow.nodes") })));
  if (!findings.length) try {
   const tree = buildDiagram(placed);

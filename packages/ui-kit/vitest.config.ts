@@ -1,3 +1,4 @@
+import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../ui-react/tests/browser/diagram-export-command.ts";
 import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
 import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
@@ -121,17 +122,18 @@ export default mergeConfig(
     }],
     test: {
       sequence: { sequencer: MeasuredBrowserSequencer },
-      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      provide: { proofWorkerMode: "selected-zero-v1" },
+      setupFiles: ["./tests/visual/worker-boundary-setup.ts", "./tests/visual/design-font-setup.ts"],
       browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
           extends: true,
           test: {
             name: "diagrams-chromium",
-            include: ["../ui-react/tests/browser/diagrams-renderer.layout.tsx"],
+            include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true, screenshotFailures: false,
-              commands: { diagramCapture, diagramFixture, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
               provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "chromium" }],
@@ -142,10 +144,10 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "diagrams-webkit",
-            include: ["../ui-react/tests/browser/diagrams-renderer.layout.tsx"],
+            include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true, screenshotFailures: false,
-              commands: { diagramCapture, diagramFixture, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
               provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
               headless: true,
               instances: [{ browser: "webkit" }],
@@ -156,10 +158,11 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "ui-react-layout",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
             // Measurements of the real consumer, kept out of Bun's test glob,
             // and the offline fault harness's self-tests (#1016).
             include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
-            exclude: ["../ui-react/tests/browser/diagrams-renderer.layout.tsx"],
+            exclude: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
             browser: {
               enabled: true,
               screenshotFailures: false,
@@ -182,6 +185,7 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "ui-react-endurance",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
             // Real-time native media proof has its own scheduling and discovery;
             // keep the same offline launch, commands and lifecycle as layout.
             include: ["../ui-react/tests/browser/**/*.endurance.tsx"],

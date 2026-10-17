@@ -4,7 +4,7 @@ import type { DiagramBox, DiagramConnector, DiagramLabelMask, DiagramPoint, Diag
 const tolerance = 1e-6;
 export function connectors(tree: DiagramTree) { return tree.elements.filter((item): item is DiagramConnector => item.kind === "connector"); }
 export function masks(tree: DiagramTree) { return tree.elements.filter((item): item is DiagramLabelMask => item.kind === "label-mask"); }
-function boxes(spec: DiagramSpec) { return spec.nodes.map(node => { if (!("at" in node)) throw Error("Free-layout fixture required"); return { id: node.id, x: node.at[0], y: node.at[1], width: node.size[0], height: node.size[1] }; }); }
+function boxes(spec: DiagramSpec) { return spec.nodes.map(node => { if (!("at" in node)) throw Error("Free-layout fixture required"); return { shape: "shape" in node ? node.shape : undefined, id: node.id, x: node.at[0], y: node.at[1], width: node.size[0], height: node.size[1] }; }); }
 const overlap = (a: DiagramBox, b: DiagramBox) => a.x < b.x + b.width - tolerance && a.x + a.width > b.x + tolerance && a.y < b.y + b.height - tolerance && a.y + a.height > b.y + tolerance;
 function hit(a: DiagramPoint, b: DiagramPoint, box: DiagramBox) {
   return Math.abs(a.y - b.y) < tolerance ? a.y > box.y + tolerance && a.y < box.y + box.height - tolerance && Math.max(a.x, b.x) > box.x + tolerance && Math.min(a.x, b.x) < box.x + box.width - tolerance : a.x > box.x + tolerance && a.x < box.x + box.width - tolerance && Math.max(a.y, b.y) > box.y + tolerance && Math.min(a.y, b.y) < box.y + box.height - tolerance;
@@ -24,6 +24,10 @@ export function assertOrthogonal(spec: DiagramSpec, tree: DiagramTree) {
       const horizontal = port.side === "left" || port.side === "right";
       expect(horizontal ? Math.abs(next.y - port.y) : Math.abs(next.x - port.x), "RULE_1_PERPENDICULAR_PORT").toBeLessThan(tolerance);
       const offset = horizontal ? port.y - box.y : port.x - box.x, extent = horizontal ? box.height : box.width;
+      if(box.shape && ["merge","initial","final"].includes(box.shape)){
+        expect(offset,"MARKER_PORT_IS_TRUE_CARDINAL_BOUNDARY").toBeCloseTo(extent/2,6);
+        continue;
+      }
       expect(offset, "RULE_1_PORT_CLEAR_OF_CORNER").toBeGreaterThanOrEqual(8 - tolerance);
       expect(extent - offset, "RULE_1_PORT_CLEAR_OF_OTHER_CORNER").toBeGreaterThanOrEqual(8 - tolerance);
     }

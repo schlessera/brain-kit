@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "type": "dependency",
+  "title": "Raft readiness dependencies",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "ready",
+      "label": "Raft ready",
+      "at": [
+        240,
+        48
+      ],
+      "size": [
+        176,
+        64
+      ],
+      "rank": 0
+    },
+    {
+      "id": "timber",
+      "label": "Timber",
+      "at": [
+        48,
+        208
+      ],
+      "size": [
+        176,
+        64
+      ],
+      "rank": 1
+    },
+    {
+      "id": "sail",
+      "label": "Sail",
+      "at": [
+        432,
+        208
+      ],
+      "size": [
+        176,
+        64
+      ],
+      "rank": 1
+    },
+    {
+      "id": "stores",
+      "label": "Provisions",
+      "at": [
+        240,
+        368
+      ],
+      "size": [
+        176,
+        64
+      ],
+      "rank": 2
+    }
+  ],
+  "edges": [
+    {
+      "id": "replan",
+      "from": "stores",
+      "to": "ready",
+      "cycle": true,
+      "label": "CYCLE"
+    },
+    {
+      "to": "timber",
+      "from": "ready"
+    },
+    {
+      "to": "sail",
+      "from": "ready"
+    },
+    {
+      "to": "stores",
+      "from": "timber"
+    },
+    {
+      "to": "stores",
+      "from": "sail"
+    }
+  ]
+}

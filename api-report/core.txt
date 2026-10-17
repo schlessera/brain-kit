@@ -140,6 +140,7 @@ export "./internal/graph" (./src/internal-graph.ts)
 export "./module" (./src/module.ts)
   GEMINI_FLASH_MODEL
   type GeminiCompletionConfig
+  type MarkdownFence
   type RegistryProblem
   type RegistryRun
   SCRATCH_DIR
@@ -156,7 +157,9 @@ export "./module" (./src/module.ts)
   inertGeneratedText
   isInScratch
   isWriteRefusal
+  markdownFences
   pruneScratch
+  renderHtmlArtifact
   resolveCompletionProvider
   resolveWritable
   rewriteGeneratedRegion
@@ -556,6 +559,15 @@ signatures (every public export and the types it is made of)
             updated: string;
         })[];
         staleDays: number;
+    }
+  MarkdownFence (packages/core/src/lib/markdown-code.ts)
+    export interface MarkdownFence {
+        language: string;
+        meta: string;
+        value: string;
+        line: number;
+        start: number;
+        end: number;
     }
   ModuleContribution (packages/core/src/lib/module-types.ts)
     export interface ModuleContribution<C = unknown> {
@@ -1470,6 +1482,8 @@ signatures (every public export and the types it is made of)
         relevance?: string;
         limit?: number;
     }): QueryResult<ListedDocument[]>;
+  markdownFences (packages/core/src/lib/markdown-code.ts)
+    export function markdownFences(text: string): MarkdownFence[];
   mergeWithheld (packages/core/src/lib/reranker.ts)
     export function mergeWithheld<T>(ranked: readonly T[], withheld: Map<number, T>, total: number): T[];
   partitionForRerank (packages/core/src/lib/reranker.ts)
@@ -1540,6 +1554,12 @@ signatures (every public export and the types it is made of)
     }): QueryResult<VoiceVocabulary>;
   removeStorageAttachment (packages/core/src/lib/storage-attachments.ts)
     export function removeStorageAttachment(root: string, path: string, expected: StorageAttachmentVersion, signal?: AbortSignal, assertCurrent?: () => void): Promise<void>;
+  renderHtmlArtifact (packages/core/src/lib/render-artifact.ts)
+    export function renderHtmlArtifact(input: {
+        html: string;
+        format: "png" | "pdf";
+        width?: number;
+    }): Promise<Uint8Array>;
   repoRelativePathSchema (packages/core/src/lib/config.ts)
     const repoRelativePathSchema: z.ZodString;
   resolveCompletionProvider (packages/core/src/lib/registry.ts)

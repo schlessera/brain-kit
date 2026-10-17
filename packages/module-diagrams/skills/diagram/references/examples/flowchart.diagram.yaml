@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "type": "flowchart",
+  "title": "Choose a safe homecoming",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "start",
+      "label": "Depart",
+      "at": [
+        240,
+        40
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "start"
+    },
+    {
+      "id": "choice",
+      "label": "Safe route?",
+      "at": [
+        200,
+        160
+      ],
+      "size": [
+        240,
+        144
+      ],
+      "shape": "decision",
+      "role": "focal"
+    },
+    {
+      "id": "shelter",
+      "label": "Seek shelter",
+      "at": [
+        40,
+        400
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "step"
+    },
+    {
+      "id": "sail",
+      "label": "Sail to Ithaca",
+      "at": [
+        440,
+        400
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "step"
+    },
+    {
+      "id": "merge",
+      "label": "Routes meet",
+      "at": [
+        316,
+        536
+      ],
+      "size": [
+        8,
+        8
+      ],
+      "shape": "merge"
+    },
+    {
+      "id": "end",
+      "label": "Arrive",
+      "at": [
+        240,
+        640
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "shape": "end"
+    }
+  ],
+  "edges": [
+    {
+      "to": "choice",
+      "from": "start"
+    },
+    {
+      "to": "sail",
+      "label": "YES",
+      "kind": "primary",
+      "from": "choice"
+    },
+    {
+      "to": "shelter",
+      "label": "NO",
+      "from": "choice"
+    },
+    {
+      "to": "merge",
+      "from": "shelter"
+    },
+    {
+      "to": "merge",
+      "from": "sail"
+    },
+    {
+      "to": "end",
+      "from": "merge"
+    }
+  ]
+}

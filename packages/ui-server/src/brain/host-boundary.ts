@@ -31,7 +31,7 @@ import {
   acquireHostCredentialExclusion, type HostCredentialDomain,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import type { GateHold, GateMode, WriterGate } from "./writer-gate.js";
+import { markUnpinnedHostWriter, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
@@ -269,8 +269,8 @@ function credentialOutput(stream: ReadableStream<Uint8Array>, kill: () => void) 
 }
 
 /** Process exit alone need not mean its descendants released inherited output descriptors. */
-function retainCredentialExclusion(execution: StreamingExecution,
-  hold: Awaited<ReturnType<typeof acquireHostCredentialExclusion>> | undefined): StreamingExecution {
+function retainExecutionAdmission(execution: StreamingExecution,
+  hold: { release(): void } | undefined): StreamingExecution {
   if (!hold) return execution;
   const kill = () => execution.kill("SIGKILL");
   const stdout = credentialOutput(execution.stdout, kill), stderr = credentialOutput(execution.stderr, kill);
@@ -489,65 +489,86 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     async run(execution) {
       execution.signal?.throwIfAborted();
       execution.assertAuthorized?.();
-      if (!isolated()) return credentialed(execution, async () => {
-        if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
-        execution.assertAuthorized?.();
-        execution.onExecute?.();
-        const proc = hostSpawn(execution);
-        const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
-        try {
-          const [stdout, stderr, exitCode] = await Promise.all(completion);
-          execution.signal?.throwIfAborted();
-          return { stdout, stderr, exitCode };
-        } catch (error) {
-          // A read can reject without a caller signal. Kill the command and
-          // settle every native pipe/exit before releasing credential access;
-          // descendants may still own the other inherited output descriptor.
-          try { killWrapped(proc, exec, "SIGKILL"); }
-          finally { await Promise.allSettled(completion); }
-          throw error;
-        }
-      });
-      return gated(execution, hold => credentialed(execution, async () => {
-        if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-          ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
-        const run = async () => {
-          execution.assertAuthorized?.();
-          const view = await prepareInput(execution.signal);
-          let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
-          try {
+      return gated(execution, async hold => {
+        execution.signal?.throwIfAborted();
+        if (!isolated()) {
+          const result = await credentialed(execution, async () => {
             execution.signal?.throwIfAborted();
-            outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
-            const launch = command(execution);
-            const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
-            execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
+            // Another shared turn can establish sticky worker history while
+            // credential exclusion waits. Release credentials before rerouting.
+            if (isolated()) return undefined;
+            if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
+            execution.assertAuthorized?.();
+            if (hold) markUnpinnedHostWriter(hold);
             execution.onExecute?.();
-            const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
-              ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) });
-            if (!result.killed && execution.publish !== false) {
-              execution.assertAuthorized?.();
-              if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
-              else await outputs.publish();
+            const proc = hostSpawn(execution);
+            const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
+            try {
+              const [stdout, stderr, exitCode] = await Promise.all(completion);
+              execution.signal?.throwIfAborted();
+              return { stdout, stderr, exitCode };
+            } catch (error) {
+              // A read can reject without a caller signal. Kill the command and
+              // settle every native pipe/exit before releasing credential access;
+              // descendants may still own the other inherited output descriptor.
+              try { killWrapped(proc, exec, "SIGKILL"); }
+              finally { await Promise.allSettled(completion); }
+              throw error;
             }
-            return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
-          } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
-        };
-        return outputLock.withLock(brain, () => execution.lock
-          ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run(), { signal: execution.signal });
-      }, execution.sync === true));
+          });
+          if (result) return result;
+        }
+        return credentialed(execution, async () => {
+          if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
+          const run = async () => {
+            execution.assertAuthorized?.();
+            const view = await prepareInput(execution.signal);
+            let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
+            try {
+              execution.signal?.throwIfAborted();
+              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
+              const launch = command(execution);
+              const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+              execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
+              execution.onExecute?.();
+              const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
+                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) });
+              if (!result.killed && execution.publish !== false) {
+                execution.assertAuthorized?.();
+                if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
+                else await outputs.publish();
+              }
+              return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
+            } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
+          };
+          return outputLock.withLock(brain, () => execution.lock
+            ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run(), { signal: execution.signal });
+        }, execution.sync === true);
+      });
     },
     async launch(execution) {
       execution.signal?.throwIfAborted();
-      if (!isolated()) {
-        if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
-        const credential = await credentialHold(execution);
-        try {
-          const proc = hostSpawn(execution);
-          return retainCredentialExclusion({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
-            get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") }, credential);
-        } catch (error) { credential?.release(); throw error; }
-      }
       const hold = execution.gate === "none" ? null : await holdGate(execution.gate, execution.purpose, execution.signal);
+      let hostFallback: boolean;
+      try { execution.signal?.throwIfAborted(); hostFallback = !isolated(); }
+      catch (error) { hold?.release(); throw error; }
+      if (hostFallback) {
+        let credential: Awaited<ReturnType<typeof acquireHostCredentialExclusion>> | undefined;
+        try {
+          credential = await credentialHold(execution);
+          execution.signal?.throwIfAborted();
+          if (isolated()) { credential?.release(); credential = undefined; }
+          else {
+            if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
+            if (hold) markUnpinnedHostWriter(hold);
+            const proc = hostSpawn(execution);
+            return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
+              get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") },
+              credential || hold ? { release() { try { credential?.release(); } finally { hold?.release(); } } } : undefined);
+          }
+        } catch (error) { try { credential?.release(); } finally { hold?.release(); } throw error; }
+      }
       let credential: Awaited<ReturnType<typeof acquireHostCredentialExclusion>> | undefined;
       let releaseOutput: () => void;
       try {
@@ -609,7 +630,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         .finally(async () => { try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
-      return retainCredentialExclusion({ stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill }, credential);
+      return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill }, credential);
     },
     runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");

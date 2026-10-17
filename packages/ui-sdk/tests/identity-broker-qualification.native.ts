@@ -2,7 +2,7 @@
 import { expect } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { launchAgentWorker, probeWorkerHost, WORKER_STATE, type LaunchedWorker } from "../src/server/worker-launcher.js";
+import { launchAgentWorker, prepareWorkerSandbox, probeWorkerHost, WORKER_STATE, type LaunchedWorker } from "../src/server/worker-launcher.js";
 import { prepareRecoveredWorkerFile, prepareRecoveredWorkerFiles, recoveredWorkerFile, recoveredWorkerFiles } from "../src/server/worker-identity-reader.js";
 import { processStateLedger } from "../src/server/worker-state-budget.js";
 import { hostOutputStagingLimits } from "../src/server/worker-state-limits.js";
@@ -69,6 +69,16 @@ print(json.dumps(dict(uid=os.getuid(),value=value)))`, {sandbox:{brain,profile:"
   });
   await check("real host probes qualify separate UID, sentinel and positive controls in governed and strict",async()=>{
     for(const profile of ["governed","strict"] as const)expect(probeWorkerHost(brain,{profile,stateBytes:MIB,turnTempBytes:MIB})).toMatchObject({ok:true,identity:"separate_uid",workerUid:21002});
+  });
+  await check("unobservable separate-UID folder mounts keep the payload gate closed", async () => {
+    mkdirSync(join(brain, "group/private"), { recursive: true, mode: 0o2775 });
+    const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+    expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+    const marker = join(brain, "unqualified-folder-payload");
+    expect(() => launch(`open('${marker}','w').write('unexpected')`, { sandbox }),
+      "UNOBSERVABLE_SECOND_UID_FOLDERS_KEEP_GATE_CLOSED").toThrow("provider folder topology could not be qualified before payload start");
+    expect(existsSync(marker)).toBe(false);
+    await until(() => workerPids().length === 0, "UNQUALIFIED_FOLDER_LEFT_WORKER");
   });
   await check("a non-dropping helper cannot start a same-UID payload", async () => {
     const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
@@ -430,5 +440,8 @@ await worker.exited;`;
       await stdout;expect(await stderr).toBe("");
     } finally { if(server.exitCode===null)server.kill("SIGKILL");await server.exited; }
   });
+  await import("./egress-identity-qualification.native.js");
   console.log(JSON.stringify({ identityQualification: "pass", cases, serverUid: process.getuid(), workerUid: 21002, limits: "owned-tree cleanup and best-effort observed-byte recovery; external references are not globally excluded" }));
 } finally { rmSync(root, { recursive: true, force: true }); }
+
+await import("../../ui-backend-claude/tests/sdk-host-relay-identity.native.js");

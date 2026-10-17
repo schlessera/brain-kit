@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:500`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:336`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:350`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:86-289`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:86-291`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -454,9 +454,9 @@ into them.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
-  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:70-76`,
+  additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:409`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:423`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -604,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:280`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:294`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1169,7 +1169,7 @@ never through host shell evaluation.
 
 The bounded server-only implementation reads the trusted host config directory,
 not a public request path (`resolveClaudeHostOAuth`,
-`packages/ui-backend-claude/src/host-oauth.ts:75-195`). It rereads the record for
+`packages/ui-backend-claude/src/host-oauth.ts:100-221`). It rereads the record for
 every resolution, respects an explicitly supplied setup token, and refreshes
 stored OAuth within five minutes of expiry. The measured production protocol is
 JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
@@ -1239,3 +1239,170 @@ concurrent refresh and cancellation, and prove that worker environment, files,
 logs and reachable sockets contain no provider credential. The broader network,
 policy, socket masking and first-party tool qualification in #1665 also remains
 required. No acceptance criterion is waived by delivering this resolver first.
+
+
+### First-party host-relay native protocol qualification (2026-10-16)
+
+The installed SDK `0.3.293` / selected CLI `2.1.293` can use the existing Unix
+relay with a placeholder in its environment while the host resolves stored OAuth
+for each dispatch. The offline control composes the existing resolver and relay
+directly; it adds no production factory or ordinary-worker activation
+(`const relay = startInferenceRelay`,
+`packages/ui-backend-claude/tests/fixtures/host-relay-probe.ts:79-80`).
+The test verifies the selected binary's checksum and every actual native
+process's executable, and runs the entire fixture with an empty ambient
+environment in fresh network and PID namespaces. Native inference and refresh
+reach real loopback HTTP through the Unix relay. Only the host's lowest fetch
+method maps the asserted production inference/token authorities to that
+fictional server; no live-provider or TLS interception claim is involved.
+
+Three new/resumed native turns preserve prior message counts of one, three
+and five and select Haiku, Sonnet and Haiku respectively. Their upstream
+requests receive the initial, changed and refreshed host login, with no API-key
+header (`expect(result.requests,`,
+`packages/ui-backend-claude/tests/host-relay-native.test.ts:29-33`). A fourth
+native query is cancelled while its host refresh is pending: the real upstream
+request closes, exact host bytes remain and credential exclusion becomes
+available again. Native process environments, worker-owned files and stderr
+contain no fictional host access/refresh token; the native environments contain
+the placeholder. Mutations which cache the first credential, forward the
+placeholder upstream, or discard the native request's cancellation signal each
+fail their corresponding native control.
+
+The unaugmented native initialize observations report
+`tokenSource: CLAUDE_CODE_OAUTH_TOKEN` and `apiProvider: firstParty`. They do not
+report the stored account's email, organization or subscription tier under this
+Unix transport. The proof does not invent those fields, validate a real
+subscription, establish live billing or show provider cache hits. It qualifies
+this protocol composition, not the ordinary launcher, credential-free startup
+projection, managed/project endpoint precedence, host-file or socket isolation,
+or command-sourced credential compatibility. Those remain prerequisites for
+ordinary activation and completion of #1665/#1666.
+
+### Host authority for OAuth inference recipients (2026-10-16)
+
+The maintainer approved explicit host-owned origin authorization in #1665
+(comment 6224536886) and #1666 (comment 6224537286). The production first-party
+inference origin, `https://api.anthropic.com`, remains implicit. A custom origin
+must have explicit authorization in trusted host configuration for this
+credential. Native project or managed endpoint settings select a route; they
+cannot authorize disclosure of a host-held bearer. An unauthorized selected
+origin refuses before reading the credential or attempting refresh. The host
+must preserve the selected route rather than silently substitute first-party
+inference. Matching uses a canonical scheme, hostname and port, with no suffix
+or wildcard match, userinfo, path, query or fragment. Redirects remain refused.
+The refresh token still goes only to the qualified production token authority.
+
+The internal resolver requires the actual dispatch origin. The relay supplies
+its immutable configured target to the existing credential resolver for each
+request. The callback receives a copy: it cannot change that request's route.
+Only trusted host configuration may supply the explicit authorized-origin list;
+no request, worker state, native account label, model or cost hint supplies it.
+This amendment changes recipient authority and leaves native endpoint
+precedence as a routing fact. It does not authorize TLS interception, live calls,
+or fabrication of native billing or account observations.
+
+The relay can also consume the concrete turn proxy's existing admission,
+shared byte counter and redacted recorder. Inference records carry an internal
+`inference: true` tag so later taint enforcement can distinguish that transport;
+the tag grants no destination permission. Request bodies are bounded while
+reading, before provider contact. Response bodies are charged while streaming,
+remain open until EOF, and cancel on limit or client/turn cancellation. Parallel
+inference and generic proxy traffic share the same turn counter. The inference
+counter bounds HTTP application bytes and framing before provider TLS. It does
+not measure TLS ciphertext, handshakes or DNS traffic. Generic CONNECT continues
+to count opaque tunneled bytes. Records exclude headers, credentials, bodies
+and query strings.
+
+Offline native controls compose these internal components and preserve the
+three-turn login/model/history observations above, with a fourth-query refresh
+cancellation. This is qualified composition, not ordinary default activation.
+Credential-free projection of existing native stores, managed/project dispatch
+binding in ordinary consumers, all first-party tool paths, reachable-socket
+inventory and retained governance events remain required by #1665/#1666.
+
+### Ordinary spawn consumes a host-prepared inference transport
+
+The existing ordinary spawn adapter can explicitly consume the turn proxy's
+private directory. It passes that transport to the actual worker launcher and
+selects state projection without `.credentials.json` (`const settings =`,
+`packages/ui-backend-claude/src/worker-state.ts:181`). It retains exact native
+settings, account metadata, shared auto-memory and the resumed transcript;
+copy-out still publishes only the existing transcript/memory domains. The host
+resolver reads and refreshes the original credential store instead of placing
+it in the worker. Default ordinary callers do not select this input yet.
+
+The offline qualification calls the production spawn adapter directly in both
+strict and governed profiles, with the installed SDK/CLI and the real proxy,
+relay and host resolver (`const spawner = createWorkerSpawn`,
+`packages/ui-backend-claude/tests/fixtures/ordinary-host-relay-probe.ts:132-138`).
+It checks actual native executable/environment,
+three-turn history/model/current-login continuity, a fourth-query refresh
+cancellation, shared charged destination records, native-store absence and
+reservation cleanup. Removing the adapter's projection selection fails the
+named native credential-file assertion (`expect(result.workerCredentialFile`,
+`packages/ui-backend-claude/tests/ordinary-host-relay.test.ts:51`). Its strict startup input is the
+explicit copied-storage test fixture; this is not native managed/Btrfs storage
+qualification.
+
+This explicit composition is an inference prerequisite for the ordinary
+cutover. It does not remove other CLI provider credentials, sanitize every
+native settings file, establish command-sourced auth admission, activate the
+ordinary SDK/turn lifecycle, or complete first-party transport/socket/privacy
+qualification. Those limits remain open and do not create a dependency on
+closing every other acceptance criterion of #1665 before #1666 can consume
+this concrete delivered prerequisite.
+
+
+### Prepared transport through ordinary SDK assembly
+
+The existing SDK turn builder accepts the same concrete host-prepared proxy
+directory as the ordinary spawn adapter (`hostInference?:`,
+`packages/ui-backend-claude/src/sdk-options.ts:85`). The explicit selection pins
+the inference OAuth placeholder and Unix socket in both the child environment
+and native flag settings, using the existing subscription credential-clearing
+policy. It does not remove other providers' CLI command environment. Only an
+ordinary subscription turn can select this input; API and autonomous turns
+retain their existing paths (`const inferenceEnv`,
+`packages/ui-backend-claude/src/sdk-options.ts:218-224`). The worker note derives
+its active-proxy description from that same selection and retains per-use
+outward approvals.
+
+The native qualification now constructs the full SDK turn, including its MCP
+server, system prompt, per-turn context and permission hooks, rather than
+constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:205-226`).
+Strict and governed controls retain history, model changes, host login
+rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
+call still reaches the existing per-use refusal: removing the assembled
+PreToolUse hook creates the refused file. Native managed Unix-socket overrides
+and project API credentials withhold the prompt through the existing
+subscription settings check, before provider contact or host credential
+resolution (`settingsRefusal(settings`,
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:238-243`).
+The actual process state ledger is observed admitted while the worker is live
+and empty after teardown.
+
+The disposable identity qualification also composes these full SDK paths with
+the configured identity helper: server UID 21001 launches native inference as
+worker UID 21002 in both governed and strict profiles. A fixed fixture wrapper
+records kernel identity and credential-presence booleans in held worker state,
+then replaces itself with the selected installed native executable. The actual
+requests retain model/history, host refresh, account observations and shared
+proxy accounting. The worker cannot read the server-private sentinel and has
+neither the host credential file nor its tokens. Cancelled recovery keeps its
+explicit AbortError copy-out refusal; cleanup still releases the held ledger,
+helper records and workers. Strict input here is an explicitly shared copied
+fixture, not managed Btrfs admission or ordinary server dispatch enablement.
+
+This input supplies transport, not destination authority or automatic ordinary
+selection. Its trusted caller must bind the actual native-selected upstream,
+its host authorization and the relay lifetime before releasing a prompt. A
+fresh native settings report is not evidence of the client's cached startup
+endpoint: the qualified runtime can report changed project settings while
+still dispatching to its earlier endpoint. Project/managed endpoint precedence
+and live changes therefore require dispatch binding before activation; the
+assembly control does not claim that problem solved. Default turn-runner
+selection remains unchanged. Complete credentialed-command compatibility,
+ordinary credential cutover and remaining socket/privacy qualification stay
+separate from this explicit prepared SDK composition.

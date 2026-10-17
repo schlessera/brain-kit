@@ -25,7 +25,7 @@ interface Login extends Json {
 
 /** Fixed messages only: upstream replies and filesystem errors may contain secrets. */
 export class ClaudeHostAuthError extends Error {
-  constructor(readonly reason: "unavailable" | "invalid" | "busy" | "changed" | "refresh" | "cancelled") {
+  constructor(readonly reason: "unavailable" | "invalid" | "busy" | "changed" | "refresh" | "cancelled" | "destination") {
     super(`Host Claude authentication ${reason}.`);
     this.name = "ClaudeHostAuthError";
   }
@@ -72,10 +72,36 @@ function credential(value: Login): ClaudeHostOAuth {
  * serialize an independently launched native CLI. The kernel releases the
  * held descriptor on process exit; no stale owner is inferred or removed.
  */
+export interface ClaudeHostOAuthDestination {
+  /** Actual dispatch origin, supplied by the host relay, never a model/vendor label. */
+  origin: string;
+  /** Trusted host configuration only; native project/managed settings are not authority. */
+  authorizedOrigins?: readonly string[];
+}
+function canonicalOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    if (!(["https:", "http:"].includes(url.protocol)) || url.username || url.password
+      || url.hostname.includes("*") || url.pathname !== "/" || url.search || url.hash || value.trim() !== value
+      || !/^https?:\/\/[^/?#]+\/?$/i.test(value)
+      || /[\\\s\x00-\x1f\x7f]/.test(value)) throw new Error();
+    return url.origin;
+  } catch { throw new ClaudeHostAuthError("destination"); }
+}
+function authorizeDestination(destination: ClaudeHostOAuthDestination): void {
+  const origin = canonicalOrigin(destination.origin);
+  // Only the measured first-party inference authority is implicit. No suffix,
+  // redirect, OAuth refresh authority or native account label widens this set.
+  const authorized = (destination.authorizedOrigins ?? []).map(canonicalOrigin);
+  if (origin !== "https://api.anthropic.com" && !authorized.includes(origin)) {
+    throw new ClaudeHostAuthError("destination");
+  }
+}
 export async function resolveClaudeHostOAuth(configDirectory: string,
-  environment: Readonly<Record<string, string | undefined>>, signal?: AbortSignal,
+  environment: Readonly<Record<string, string | undefined>>, destination: ClaudeHostOAuthDestination, signal?: AbortSignal,
   credentialDomain?: HostCredentialDomain): Promise<ClaudeHostOAuth> {
   cancelled(signal);
+  authorizeDestination(destination);
   // This measured protocol is production Claude OAuth only. Never send a
   // configured alternate authority's refresh token to the production endpoint.
   if (environment.CLAUDE_CODE_CUSTOM_OAUTH_URL) {

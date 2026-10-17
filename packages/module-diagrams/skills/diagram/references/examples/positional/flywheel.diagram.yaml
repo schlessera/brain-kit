@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "type": "flywheel",
+  "title": "The crew practice flywheel",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "memory",
+      "label": "Crew ledger"
+    },
+    {
+      "id": "notice",
+      "label": "Notice"
+    },
+    {
+      "id": "brief",
+      "label": "Brief"
+    },
+    {
+      "id": "practice",
+      "label": "Practice"
+    },
+    {
+      "id": "sail",
+      "label": "Sail"
+    },
+    {
+      "id": "reflect",
+      "label": "Reflect"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "loop": {
+      "hub": "memory",
+      "stations": [
+        "notice",
+        "brief",
+        "practice",
+        "sail",
+        "reflect"
+      ]
+    }
+  }
+}

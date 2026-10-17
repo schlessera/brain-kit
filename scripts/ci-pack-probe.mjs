@@ -155,6 +155,22 @@ async function diagramsStatic() {
       const source=JSON.stringify({schema_version:1,type:"architecture",title:"Raft",desc:"Odysseus prepares the raft.",size:"fit",nodes:[{id:"raft",label:"Raft",role:"input",at:[32,32],size:[128,64]}],edges:[]});
       const svg=await renderer.toStatic(source,{theme:"print"});
       assert(svg.startsWith("<svg "));assert(svg.includes('data-theme="print"'));assert(svg.includes("Odysseus prepares the raft."));assert.equal(renderer.diagramsStaticPack.renderers[0].needsBrowser,false);
+      const { readFileSync }=require("node:fs"),{dirname,join}=require("node:path"),packageRoot=dirname(require.resolve("@schlessera/brain-module-diagrams/package.json"));
+      for(const name of ["architecture","flowchart","state-machine","tree","er","dependency","architecture-containment"]){
+        const example=readFileSync(join(packageRoot,"skills/diagram/references/examples/"+name+".diagram.yaml"),"utf8");
+        for(const theme of ["light","dark","print"]){const drawn=await renderer.toStatic(example,{theme});assert(drawn.includes('data-theme="'+theme+'"'));assert(drawn.includes(JSON.parse(example).title));}
+      }
+
+      const fs=require("node:fs"),path=require("node:path"),url=require("node:url"),crypto=require("node:crypto");
+      const directory=path.dirname(require.resolve("@schlessera/brain-module-diagrams/package.json"));
+      const fonts=await import(url.pathToFileURL(path.join(directory,typeof Bun === "undefined"?"dist/fonts.js":"src/fonts.ts")).href);
+      assert.equal((fonts.diagramFontCss().match(/@font-face/g)||[]).length,4);
+      assert(fonts.embedDiagramFonts(svg).includes("data:font/ttf;base64,"));
+      const hashes={2:"44ce4a84f20d60f24539bd0cef11f79c29e38609e0f8adf18551c9794a5d9dc3",4:"df54dbfafba61d4911eb3dab9bba2d20531fb009f01d64dd42fa96ab862584d8",6:"b4fc14ec283d54236fd302cdb92546f98ae0ff061ca5ee23453a02bdf4628791",7:"50357df108c5d297ec4ece76aeddf49561f3794f67af077cfc2c711b7a75b439"};
+      for(const [number,hash] of Object.entries(hashes))assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(directory,"assets/fonts/"+number+".ttf"))).digest("hex"),hash);
+      for(const family of ["jetbrainsmono","plusjakartasans"])assert(fs.readFileSync(path.join(directory,"assets/licenses/"+family+".txt"),"utf8").includes("SIL OPEN FONT LICENSE"));
+      if(typeof Bun !== "undefined"){const helpers=await import("@schlessera/brain/module");assert.equal(typeof helpers.markdownFences,"function");assert.equal(typeof helpers.renderHtmlArtifact,"function");}
+
     }).catch(error=>{console.error(error);process.exitCode=1;});
   `;
   const child=spawnSync(process.execPath,["-e",code],{encoding:"utf8"});

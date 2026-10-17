@@ -78,20 +78,36 @@ test("320px viewer brings an offscreen linked keyboard target into view before n
  const stage=node.closest("svg")!.parentElement!.parentElement!;const before=node.getBoundingClientRect(),bounds=stage.getBoundingClientRect();expect(before.left<bounds.left||before.right>bounds.right,"CONTROL_NODE_STARTS_OFFSCREEN").toBe(true);
  node.focus();await expect.poll(()=>{const target=node.getBoundingClientRect(),frame=stage.getBoundingClientRect();return target.left>=frame.left&&target.right<=frame.right&&target.top>=frame.top&&target.bottom<=frame.bottom;}).toBe(true);
  fontFloor(node.closest("svg")!);expect(getComputedStyle(node.querySelector('.bk-diagram-node-focus')!).visibility).toBe("visible");await userEvent.keyboard("{Enter}");expect(paths).toEqual(["notes/raft-build.md"]);await userEvent.keyboard("{Escape}");
- }finally{await commands.formViewport(previous.width,previous.height);}
+ }finally{await commands.formViewport(previous.width-100,previous.height-120);}
 });
 
-test("the exact adopted eight-node relay fits both authored layouts with real font bounds",async()=>{
- setup(720);const adopted=await commands.diagramFixture();
- for(const width of [720,320])for(const theme of ["light","dark","print"] as const){
+// Each capture has the ordinary test deadline. Preserve each adjacent live
+// update from the former single matrix, with fresh ownership for every case.
+const adoptedLayouts = [
+ {width:720,theme:"light"},{width:720,theme:"dark"},{width:720,theme:"print"},
+ {width:320,theme:"light"},{width:320,theme:"dark"},{width:320,theme:"print"},
+] as const;
+for(const [index,{width,theme}] of adoptedLayouts.entries())test(`the exact adopted eight-node relay fits ${width}px ${theme} with real font bounds`,async()=>{
+ const previous=adoptedLayouts[index-1];setup(previous?.width??width);const adopted=await commands.diagramFixture();
+ if(previous){
+  document.documentElement.dataset.theme=previous.theme;mount(<DiagramContent source={adopted} theme={previous.theme} mode="chat"/>);await ready();
+  await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(previous.width===320?"320":"716");
+ }
  document.documentElement.dataset.theme=theme;host.style.width=`${width}px`;mount(<DiagramContent source={adopted} theme={theme} mode="chat"/>);await ready();await expect.poll(()=>screenSvg()?.getAttribute("width")).toBe(width===320?"320":"716");const svg=screenSvg()!;
  expect(svg.querySelectorAll("[data-diagram-node]").length,"ADOPTED_EIGHT_DISTINCT_NODES").toBe(8);expect(svg.querySelectorAll("[data-diagram-edge]").length).toBe(7);fontFloor(svg);
  for(const group of svg.querySelectorAll("[data-diagram-node]")){const box=group.querySelector<SVGRectElement>("rect")!.getBBox();for(const label of group.querySelectorAll("text")){const bounds=label.getBBox();expect(bounds.x,"NODE_TEXT_LEFT_FIT").toBeGreaterThanOrEqual(box.x);expect(bounds.x+bounds.width,"NODE_TEXT_RIGHT_FIT").toBeLessThanOrEqual(box.x+box.width);expect(bounds.y,"NODE_TEXT_TOP_FIT").toBeGreaterThanOrEqual(box.y);expect(bounds.y+bounds.height,"NODE_TEXT_BOTTOM_FIT").toBeLessThanOrEqual(box.y+box.height);}}
  for(const label of svg.querySelectorAll<SVGTextElement>("[data-edge-label]")){const mask=svg.querySelector<SVGRectElement>(`[data-edge-mask="${label.dataset.edgeLabel}"]`)!.getBBox(),bounds=label.getBBox();expect(bounds.x).toBeGreaterThanOrEqual(mask.x);expect(bounds.x+bounds.width,"ACTUAL_LABEL_FITS_OPAQUE_MASK").toBeLessThanOrEqual(mask.x+mask.width);expect(bounds.y).toBeGreaterThanOrEqual(mask.y);expect(bounds.y+bounds.height).toBeLessThanOrEqual(mask.y+mask.height);}
  const legend=svg.querySelector<SVGGElement>("[data-diagram-legend]")!;expect(Number(legend.dataset.footerTop),"LEGEND_CLEARS_CONTENT").toBeGreaterThanOrEqual(Number(legend.dataset.contentBottom)+8);expect([...svg.querySelectorAll("[data-legend-key]")].map(item=>item.textContent)).toContain("FOCAL");expect([...svg.querySelectorAll("[data-legend-key]")].map(item=>item.textContent)).toContain("STORE");
  expect(host.scrollWidth).toBeLessThanOrEqual(width);await commands.diagramCapture('[data-content-renderer="diagram"]',`relay-${width}-${theme}`);
- }
- for(const theme of ["light","dark"] as const){const missing=JSON.parse(adopted);delete missing.layouts;document.documentElement.dataset.theme=theme;host.style.width="320px";mount(<DiagramContent source={JSON.stringify(missing)} theme={theme} mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();expect(getComputedStyle(host.querySelector("figure")!).backgroundColor,"FALLBACK_FOLLOWS_THEME").toBe(theme==="dark"?"rgb(20, 22, 25)":"rgb(248, 245, 239)");await commands.diagramCapture('[data-content-renderer="diagram"]',`relay-320-absent-narrow-${theme}`);}
+});
+for(const theme of ["light","dark"] as const)test(`the exact adopted eight-node relay uses the 320px semantic fallback in ${theme}`,async()=>{
+ setup(320);const adopted=await commands.diagramFixture(),missing=JSON.parse(adopted);delete missing.layouts;
+ // Retain authored print → missing light and missing light → missing dark.
+ const previousTheme=theme==="light"?"print":"light";
+ document.documentElement.dataset.theme=previousTheme;
+ mount(<DiagramContent source={theme==="light"?adopted:JSON.stringify(missing)} theme={previousTheme} mode="chat"/>);
+ if(theme==="light")await ready();else await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();
+ document.documentElement.dataset.theme=theme;host.style.width="320px";mount(<DiagramContent source={JSON.stringify(missing)} theme={theme} mode="chat"/>);await expect.poll(()=>host.querySelector("[data-diagram-summary]")).not.toBeNull();expect(getComputedStyle(host.querySelector("figure")!).backgroundColor,"FALLBACK_FOLLOWS_THEME").toBe(theme==="dark"?"rgb(20, 22, 25)":"rgb(248, 245, 239)");await commands.diagramCapture('[data-content-renderer="diagram"]',`relay-320-absent-narrow-${theme}`);
 });
 
 test("a no-link diagram exposes its focusable node groups as a figure",async()=>{

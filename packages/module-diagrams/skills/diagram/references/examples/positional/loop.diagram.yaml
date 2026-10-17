@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "type": "loop",
+  "title": "The voyage learning loop",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "memory",
+      "label": "Voyage notes"
+    },
+    {
+      "id": "capture",
+      "label": "Capture"
+    },
+    {
+      "id": "read",
+      "label": "Read"
+    },
+    {
+      "id": "decide",
+      "label": "Decide"
+    },
+    {
+      "id": "act",
+      "label": "Act"
+    },
+    {
+      "id": "learn",
+      "label": "Learn"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "loop": {
+      "hub": "memory",
+      "stations": [
+        "capture",
+        "read",
+        "decide",
+        "act",
+        "learn"
+      ],
+      "spokeLabels": [
+        {
+          "station": "capture",
+          "text": "SIGNALS"
+        },
+        {
+          "station": "learn",
+          "text": "LESSONS"
+        }
+      ]
+    }
+  }
+}

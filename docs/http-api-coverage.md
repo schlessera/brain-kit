@@ -149,8 +149,9 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **H — Liveness.**
 
-- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:80-86`)
-- `a dead SQLite handle turns /api/health into 503 unhealthy` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`a dead SQLite handle turns /api/health into 503 unhealthy`, `packages/ui-server/tests/app-wiring.test.ts:687-702`)
+- `/api/health is public and carries no version/SHA` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`/api/health is public and carries no version/SHA`, `packages/ui-server/tests/app-wiring.test.ts:81-87`)
+- `shutdown refuses health before touching the closed database` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`shutdown refuses health before touching the closed database`, `packages/ui-server/tests/app-wiring.test.ts:688-702`).
+- `the public health route reports only unhealthy for a dead SQLite handle` ([source](../packages/ui-server/tests/app-wiring.test.ts)), (`the public health route reports only unhealthy for a dead SQLite handle`, `packages/ui-server/tests/app-wiring.test.ts:704-715`).
 
 **T — Operational status.**
 

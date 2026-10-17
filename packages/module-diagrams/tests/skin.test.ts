@@ -69,7 +69,8 @@ test("narrow layout refuses missing, duplicate, extra, out-of-bounds, non-grid, 
 test("no module source contains hand-authored color literals", () => {
  for (const file of new Bun.Glob("**/*.{ts,tsx,css}").scanSync({ cwd: new URL("../src", import.meta.url).pathname, absolute: true })) {
   if (file.endsWith("skin.generated.ts")) continue;
-  const literals = readFileSync(file, "utf8").match(/#[\da-f]{3,8}\b|(?:rgb|hsl)a?\(/ig) ?? [];
+  // Computed RGB serialization from canonical tokens is not an authored color.
+  const literals = readFileSync(file, "utf8").match(/#[\da-f]{3,8}\b|(?:rgb|hsl)a?\((?!\$\{)/ig) ?? [];
   expect({ file: file.split("/").at(-1), literals }).toEqual({ file: file.split("/").at(-1), literals: [] });
  }
 });

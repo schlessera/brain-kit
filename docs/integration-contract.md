@@ -50,7 +50,7 @@ commands retain their original availability versions.
 
 - [Package API and extensions](integration-contract/package-api.md).
 - [CLI](integration-contract/cli.md).
-- [Diagram spec v1 and check](integration-contract/diagrams.md).
+- [Diagram spec v1, check, export/build, hygiene, geometry and additive positional families](integration-contract/diagrams.md).
 - [Governance policy check](integration-contract/cli.md#governance-policy-check-additive-1650)
   and [governance policy schema v1](supported-inputs.md#governance-policy) are
   additive supported inputs and output in 0.42.0 (#1650).

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "type": "venn",
+  "title": "Ready for the voyage",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "crew",
+      "label": "Crew"
+    },
+    {
+      "id": "raft",
+      "label": "Raft"
+    },
+    {
+      "id": "route",
+      "label": "Route"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "venn": {
+      "sets": [
+        {
+          "node": "crew"
+        },
+        {
+          "node": "raft"
+        },
+        {
+          "node": "route"
+        }
+      ],
+      "intersections": [
+        {
+          "members": [
+            "crew",
+            "raft",
+            "route"
+          ],
+          "label": "READY",
+          "focal": true
+        }
+      ]
+    }
+  }
+}

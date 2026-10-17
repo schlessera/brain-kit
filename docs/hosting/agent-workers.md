@@ -71,6 +71,18 @@ masks the helper-side source paths. Runtime directories use group access
 `0750` and relay/proxy sockets `0660`. Shared brain/scratch/workspace
 directories require the host's setgid ownership arrangement.
 
+The explicitly prepared ordinary egress proxy follows that same helper
+selection. Its directory and socket remain owned by the server and use its
+shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
+cannot choose another IPC group (`const separateIdentity`,
+`packages/ui-sdk/src/server/egress-proxy.ts:57-63`). Without a helper they retain
+owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
+canonical paths, server ownership, the expected helper group, exact modes and
+socket type. Missing entries, symlinks and widened permissions refuse before
+the payload starts (`if (input.egress)`,
+`packages/ui-sdk/src/server/worker-launcher.ts:515-530`). This does not select
+the ordinary inference route or enable the proxy by default.
+
 Native output stages use the existing manager's active stage identity. The
 manager transfers a root-owned sealed metadata descriptor containing the
 keeper PID/start identity, mount namespace identity, authorized merged and
@@ -705,7 +717,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:61-147`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:64-243`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -1193,3 +1205,31 @@ Ordinary backend defaults and their existing unrecorded-egress disclosure remain
 unchanged. In particular, this transport does not replace native account login
 with a setup token or grant a network connection from a tool-classification
 observation alone.
+
+## Paid CLI provider qualification
+
+The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
+qualifies existing first-party request shapes. It does not activate CLI relaying
+or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+
+| CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
+| --- | --- | --- | --- |
+| `index --embeddings`, hybrid `search` / Gemini embeddings | `apiKeyEnv`, default `GEMINI_API_KEY`; SDK client initialized lazily | Installed Google SDK; `GOOGLE_GEMINI_BASE_URL` override; POST model embed/batchEmbed; text/query and inline image/PDF | Vectors only; raw HTTP usage is lost by the installed SDK converter |
+| `process`, enrichment, asset descriptions / Gemini completions | `apiKeyEnv`, default `GEMINI_API_KEY`; lazy SDK client | Same SDK endpoint resolution; POST generateContent; image/PDF inline; video uses Files upload, polling and deletion | Completion text only |
+| Completion consumers / Anthropic | `apiKeyEnv`, default `ANTHROPIC_API_KEY`; lookup per call | Fixed `https://api.anthropic.com/v1/messages`; POST JSON with `x-api-key` | Completion text only; raw response usage is discarded |
+| `image <prompt>` / OpenAI | `OPENAI_API_KEY` | `OPENAI_BASE_URL`, default `https://api.openai.com/v1`; JSON generations or multipart edits with references/mask | Internal raw usage; estimated cost when the current model table supports it |
+| `image <prompt>` / Gemini | `GEMINI_API_KEY` | `GEMINI_BASE_URL`, default `https://generativelanguage.googleapis.com/v1beta`; POST Interactions | Internal raw usage; model/resolution estimate, not a provider invoice |
+| Reranked search / JeV (unqualified by this audit) | Configured `apiKeyEnv`, default `TYPESAFE_API_KEY` | Configured `baseUrl`, default `https://api.typesafe.ai/v1/systemone`; POST JSON | Separate usage-bearing direct request; no CLI relay coverage inferred |
+
+The factories and concrete recipient provenance are implemented at
+(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:58-221`),
+(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:55-133`),
+(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:62-146`)
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-346`).
+Configured model labels, endpoint overrides and key-variable names select native
+routing; none grants permission to release a host-held credential.
+
+The [qualification and proposed integration contract](paid-cli-provider-qualification.md)
+records actual offline controls, SDK accounting loss, media lifecycle constraints
+and the host-side admission/receipt design needed before activation. Existing
+CLI JSON envelopes and ordinary backend defaults remain unchanged.

@@ -104,8 +104,22 @@ Initial inspection of an absent, linked, special or unverifiable folder selects
 strict fallback without creating a placeholder. A changed inspected identity
 refuses launch. Folder mount qualification stays private to the resolver and binds
 the frozen layout to its exact brain identity; copied or caller-constructed
-layouts cannot authorize retained-folder mounts. Native output publication refuses staged removal/replacement of
+layouts cannot authorize retained-folder mounts. The live governed launcher also
+checks each retained root/ancestor mount point and its exact inode in the
+authenticated worker namespace before opening the payload gate. A changed or
+unobservable view refuses launch. This requires host access to the held worker
+namespace; the current separate-UID broker only attests runtime-state/temp roots,
+so it cannot qualify retained provider folders. Such launches refuse until that
+concrete boundary is qualified; ordinary separate-UID launches without retained
+folders retain their existing behavior. Native output publication refuses staged removal/replacement of
 admitted roots or ancestors through strict-area, maintenance and local sync.
+
+Before admitting a governed live writer with retained folders, the gate refuses
+an active peer with an unaccounted plan or a plan missing a required root pin.
+A peer's descendant root also retains its ancestors; retaining an ancestor alone
+does not retain each child inside it. An unknown peer-plan checker refuses too.
+This check does not wait for or stop an older writer and does not block nested
+shared maintenance, explicitly strict turns or strict inspection fallback.
 
 The gate stores planned root sets, not proof of mounted namespace identities;
 legacy rows remain unaccounted. These primitives do not activate inference-worker

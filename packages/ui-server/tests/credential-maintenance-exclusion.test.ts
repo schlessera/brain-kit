@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { acquireHostCredentialExclusion, createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { resolveClaudeHostOAuth } from "../../ui-backend-claude/src/host-oauth.js";
 import { createHostBoundary, hostExecution, type StreamingExecution } from "../src/brain/host-boundary.js";
+import { createUiDb } from "../src/db/client.js";
+import { createWriterGate } from "../src/brain/writer-gate.js";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
 
 const roots: string[] = [];
@@ -59,13 +61,13 @@ test("real isolated credentialed maintenance admits its writer before waiting, e
   const observed = JSON.parse(new TextDecoder().decode(first.value));
   expect(observed).toMatchObject({ entered: true, access: "odysseus-maintenance-only-token" });
   expect(observed.mount, "ACTUAL_MAINTENANCE_NAMESPACE").not.toBe(readlinkSync("/proc/self/ns/mnt"));
-  await expect(resolveClaudeHostOAuth(f.config, {}, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
+  await expect(resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
   writeFileSync(release, "Odysseus maintenance complete");
   while (!(await reader.read()).done) { /* Preserve the native EOF barrier. */ }
   const stderr = await new Response(child.stderr).text();
   expect(await child.exited).toBe(0); expect(stderr).toBe("");
   const next = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); next.release();
-  expect((await resolveClaudeHostOAuth(f.config, {}, undefined, f.domain)).source).toBe("stored-login");
+  expect((await resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).source).toBe("stored-login");
   expect(writerHeld).toBe(false);
 });
 
@@ -125,7 +127,7 @@ test("asynchronous credentialed run excludes refresh until the actual command an
   const deadline = performance.now() + 5000;
   while (!existsSync(entered) && performance.now() < deadline) await Bun.sleep(5);
   expect(existsSync(entered), "ACTUAL_CREDENTIAL_COMMAND_ENTERED").toBe(true);
-  await expect(resolveClaudeHostOAuth(f.config, {}, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
+  await expect(resolveClaudeHostOAuth(f.config, {}, { origin: "https://api.anthropic.com" }, undefined, f.domain)).rejects.toMatchObject({ reason: "busy" });
   writeFileSync(release, "released");
   expect(await running).toMatchObject({ stdout: "Odysseus maintenance complete\n", stderr: "", exitCode: 0 });
   const hold = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); hold.release();
@@ -135,7 +137,9 @@ test("a failed native output read kills the credentialed run and retains exclusi
   const f = fixture();
   const probe = spyOn(hostExecution, "probe").mockReturnValue({ ok: false, requirement: "fictional legacy fixture" });
   cleanup.push(() => probe.mockRestore());
-  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: join(f.root, "state/ui.db"), credentialDomain: f.domain });
+  const db = createUiDb(join(f.root, "state/ui.db")); cleanup.push(() => db.close());
+  const gate = createWriterGate(db, f.brain);
+  const boundary = createHostBoundary({ brainPath: f.brain, dbPath: join(f.root, "state/ui.db"), credentialDomain: f.domain, gate: () => gate, requireGate: true });
   const entered = join(f.root, "descendant-entered"), release = join(f.root, "release");
   const descendant = `import {existsSync,writeFileSync} from "node:fs";writeFileSync(${JSON.stringify(entered)},"entered");
     console.error("Odysseus descendant");while(!existsSync(${JSON.stringify(release)}))await Bun.sleep(10);`;
@@ -164,7 +168,7 @@ test("a failed native output read kills the credentialed run and retains exclusi
   cleanup.push(() => spawn.mockRestore());
   let settled = false;
   const running = boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", script],
-    env: { PATH: "/usr/bin:/bin" }, credentials: true, gate: "none", purpose: "Odysseus failed output" });
+    env: { PATH: "/usr/bin:/bin" }, credentials: true, gate: "shared", purpose: "Odysseus failed output" });
   const outcome = running.then(() => { settled = true; return undefined; }, error => { settled = true; return error; });
   cleanup.push(async () => { writeFileSync(release, "released"); actual?.kill("SIGKILL"); await outcome; });
   const deadline = performance.now() + 5000;
@@ -172,9 +176,11 @@ test("a failed native output read kills the credentialed run and retains exclusi
   expect(existsSync(entered), "ACTUAL_DESCENDANT_ENTERED").toBe(true);
   expect(killed, "FAILED_OUTPUT_KILLS_NATIVE_COMMAND_WITHOUT_SIGNAL_OPTION").toBe(true);
   expect(settled, "REJECTION_WAITS_FOR_REMAINING_NATIVE_OUTPUT").toBe(false);
+  expect(gate.holders(), "FAILED_HOST_OUTPUT_RETAINS_WRITER_ADMISSION").toMatchObject([{ mode: "shared" }]);
   await expect(acquireHostCredentialExclusion({ domain: f.domain })).rejects.toMatchObject({ reason: "busy" });
   writeFileSync(release, "released");
   expect(await outcome).toBe(injected);
+  expect(gate.holders()).toEqual([]);
   const hold = await acquireHostCredentialExclusion({ domain: f.domain, timeoutMs: 1000 }); hold.release();
 });
 
