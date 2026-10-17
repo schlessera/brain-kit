@@ -10,6 +10,19 @@ import { checkout } from "../scripts/proof-inputs";
 
 const ROOT = resolve(import.meta.dir, "..");
 const directories: string[] = [];
+test("only hosted single-workspace pack and browser builds opt into two compilers", async () => {
+  const plan = planChecks(["package.json"], workspaces(ROOT));
+  for (const category of ["browser", "layout", "endurance"] as const) {
+    const commands = categoryCommands(category, plan, ROOT);
+    expect(commands.filter(command => command.argv.includes("--jobs=2")).map(command => command.name))
+      .toEqual(["workspace build for real browser checks"]);
+  }
+  expect(localChecks(plan, true).some(command => command.argv.includes("--jobs=2"))).toBe(false);
+  for (const category of ["unit", "runtime", "runtime_host", "captures"] as const) {
+    expect(categoryCommands(category, plan, ROOT).some(command => command.argv.includes("--jobs=2"))).toBe(false);
+  }
+  expect(await Bun.file(join(ROOT, "scripts/unit-workers.ts")).text()).not.toContain("--jobs=2");
+});
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function receipt(selected = true): { changeset: { result: string; outputs: Record<string, string> } } & Record<string, { result: string; outputs?: Record<string, string> }> {
   return { changeset: { result: "success", outputs: { ...Object.fromEntries(PROOF_JOBS.map(name => [name, String(selected)])), reuse: JSON.stringify({ version: 1, checkout: checkout(ROOT), retained: {} }) } },

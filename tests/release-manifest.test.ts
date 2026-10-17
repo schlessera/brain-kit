@@ -358,7 +358,7 @@ describe("the publishable package list", () => {
       jobs: { pack: { steps: { run?: string }[] } };
     };
     const commands = workflow.jobs.pack.steps.map((step) => step.run ?? "");
-    const build = commands.indexOf("bun run build");
+    const build = commands.indexOf("bun run build --jobs=2");
     expect(build).toBeGreaterThan(commands.indexOf("bun install --frozen-lockfile"));
     expect(commands.slice(build + 1)).toEqual(["bun scripts/ci-pack.ts"]);
   });
