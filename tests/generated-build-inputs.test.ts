@@ -6,7 +6,7 @@ import { generatedCssInputs, generatedCssReadInputs } from "../scripts/generated
 import { discoverInputClosure } from "../scripts/browser-input-closure";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
-const producer=["scripts/build.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json"];
+const producer=["scripts/build.ts","scripts/build-receipt.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json"];
 function fixture(){
   const root=mkdtempSync(join(tmpdir(),"generated-css-"));roots.push(root);
   const write=(file:string,bytes:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),bytes);};

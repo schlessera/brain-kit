@@ -80,6 +80,12 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
         const path = join(worker.root, `tmp/unit-${suffix}`);
         if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
       }
+      const workerTmp = join(worker.root, "tmp");
+      if (existsSync(workerTmp)) for (const name of readdirSync(workerTmp)) {
+        if (/^build-\d+-[0-9a-f-]{36}-probe\.json$/.test(name)) {
+          copyFileSync(join(workerTmp, name), join(reportDir, `unit-worker-${index + 1}-${name}`));
+        }
+      }
       git(root, "worktree", "remove", worker.root);
     }
     rmdirSync(container);

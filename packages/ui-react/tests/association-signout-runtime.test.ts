@@ -99,8 +99,8 @@ beforeAll(() => hook.phase("setup", async () => {
     await writeFile(resolve(assets, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
   }
 
-  await writeFile(resolve(scratch, "ithaca.gpx"), '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Approaching Ithaca</name><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>');
-  await writeFile(resolve(scratch, "microphone.wav"), generateWav(AUDIO_FIXTURES.note10s));
+  await writeFile(resolve(scratch!, "ithaca.gpx"), '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Approaching Ithaca</name><trkseg><trkpt lat="0" lon="0"/><trkpt lat="0" lon="0.001"/></trkseg></trk></gpx>');
+  await writeFile(resolve(scratch!, "microphone.wav"), generateWav(AUDIO_FIXTURES.note10s));
   passwordHash = await Bun.password.hash(PASSWORD);
   });
   host = await hook.phase("host-start", () => startHost("ithaca.db"));
