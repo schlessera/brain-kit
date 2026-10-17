@@ -12,9 +12,9 @@ const enforcement:Record<string,string>={
   "scripts/browser-worker-boundary.ts":"fe7b63742370e3a6f2d8f99a77d23ce538d905744ad34d34e99ce342ff62d31b",
   "packages/ui-kit/tests/visual/worker-boundary-setup.ts":"80ba88b24fc1f0269d0f8a6b58520d715375b8af21ca636112f3294ffd7ad60f"
 };
-function workerAuditMaterial(root:string,closure:InputClosure,selected:readonly Spec[]){
+function workerAuditMaterial(root:string,closure:InputClosure,selected:readonly Spec[],diagnosticOnly=false){
   try{
-    if(!selected.length||selected.some(spec=>["ui-react-layout","ui-react-endurance"].includes(spec.project))||closure.unresolved.some(input=>input!==pdfWorkerInput)||!guards.every(file=>closure.files.includes(file))||closure.files.includes(workerAuditFile))return;
+    if(!selected.length||selected.some(spec=>["ui-react-layout","ui-react-endurance"].includes(spec.project))||(!diagnosticOnly&&closure.unresolved.some(input=>input!==pdfWorkerInput))||!guards.every(file=>closure.files.includes(file))||closure.files.includes(workerAuditFile))return;
     const files=closure.files.map(file=>{
       const absolute=resolve(root,file),path=relative(root,absolute).replaceAll("\\","/");
       if(path!==file||isAbsolute(path)||path.startsWith("../")||realpathSync(absolute)!==absolute)throw new Error("Unowned worker audit input");
@@ -36,17 +36,27 @@ export function workerAuditIdentity(root:string,closure:InputClosure,selected:re
 export function inspectWorkerAudit(root:string,closure:InputClosure,selected:readonly Spec[]){
   const material=workerAuditMaterial(root,closure,selected);
   const actualIdentity=material?createHash("sha256").update(JSON.stringify(material)).digest("hex"):undefined;
+  const diagnosticMaterial=material??workerAuditMaterial(root,closure,selected,true);
   let audit:any;
   try{
     const path=resolve(root,workerAuditFile);
     if(realpathSync(path)===path&&lstatSync(path).isFile())audit=JSON.parse(readFileSync(path,"utf8"));
   }catch{ /* Missing or malformed evidence cannot qualify the domain. */ }
   const expectedIdentity=typeof audit?.identity==="string"&&/^[a-f0-9]{64}$/.test(audit.identity)?audit.identity:undefined;
-  const enforcementValid=material&&Object.entries(enforcement).every(([path,hash])=>material.files.some(file=>file[0]===path&&file[2]===hash));
+  const enforcementValid=diagnosticMaterial&&Object.entries(enforcement).every(([path,hash])=>diagnosticMaterial.files.some(file=>file[0]===path&&file[2]===hash));
   const qualified=Boolean(actualIdentity&&enforcementValid&&audit?.version===2&&audit.category==="browser"&&expectedIdentity===actualIdentity&&audit.guardedFreshProofRequired===true&&
     audit.sourceAudit?.version===1&&audit.sourceAudit?.selected===selected.length&&audit.sourceAudit?.files===closure.files.length&&
     Number.isSafeInteger(audit.historicalDiagnostic?.observed)&&audit.historicalDiagnostic.observed>0&&audit.historicalDiagnostic.workerAttempts===0);
-  const diagnostic={version:1,expectedIdentity,actualIdentity,enforcementValid:Boolean(enforcementValid),selected:selected.length,files:closure.files.length,material};
+  // Unknowns never gain admission material. A separate bounded inspection may
+  // still report public path/mode/blob identities without granting ownership.
+  const labels=closure.unresolved.slice(0,64).map(input=>{
+    const prefixes:[[string,string],...Array<[string,string]>]=[["Undeclared constructed input ","undeclared-constructed-input"],["Undeclared input ","undeclared-input"],["Unresolved import ","unresolved-import"],["Unsupported input alias ","unsupported-input-alias"]];
+    const prefix=prefixes.find(([text])=>input.startsWith(text));
+    const owner=prefix?input.slice(prefix[0].length).split(":")[0]:undefined;
+    return{code:prefix?.[1]??"unsupported-input",...(owner&&owner.length<256&&/^[A-Za-z0-9_./@-]+$/.test(owner)&&closure.files.includes(owner)?{owner}:{})};
+  });
+  const expectedNative=Object.fromEntries(["source","installation","runtime"].flatMap(key=>typeof audit?.sourceAudit?.native?.[key]==="string"&&/^[a-f0-9]{64}$/.test(audit.sourceAudit.native[key])?[[key,audit.sourceAudit.native[key]]]:[]));
+  const diagnostic={version:1,expectedIdentity,actualIdentity,enforcementValid:Boolean(enforcementValid),admissionSupported:Boolean(material),selected:selected.length,files:closure.files.length,unresolvedCount:closure.unresolved.length,unresolved:labels,expectedNative,native:closure.nativeDiagramDiagnostic,material:diagnosticMaterial};
   if(JSON.stringify(diagnostic).length>768*1024)return{qualified:false,diagnostic:{version:1,expectedIdentity,actualIdentity,reason:"bounded manifest exceeded"}};
   return{qualified,diagnostic};
 }

@@ -5,7 +5,7 @@ import { builtinModules } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { auditCommandActivation, type CommandCandidate } from "./browser-command-activation";
-import { nativeDiagramInputs, type NativeDiagramIdentity } from "./native-diagram-inputs";
+import { nativeDiagramInputs, type NativeDiagramIdentity, type NativeDiagramDiagnostic } from "./native-diagram-inputs";
 import { generatedThemeInputs } from "./generated-theme-inputs";
 import { sourceBrowserDispatch } from "./source-browser-dispatch";
 import { boundBrowserDocuments, type BrowserDocumentInputs } from "./bound-browser-documents";
@@ -27,7 +27,7 @@ export interface IndirectInput {
   observation?: "linux-proc-self-identity";
 }
 export interface InputDeclaration { owner: string; inputs: IndirectInput[]; }
-export interface InputClosure { files: string[]; directories?: string[]; external?: LockedBrowserAsset[]; nativeDiagram?:NativeDiagramIdentity; unresolved: string[]; }
+export interface InputClosure { files: string[]; directories?: string[]; external?: LockedBrowserAsset[]; nativeDiagram?:NativeDiagramIdentity; nativeDiagramDiagnostic?:NativeDiagramDiagnostic; unresolved: string[]; }
 const builtins = new Set(builtinModules.flatMap(name => [name, `node:${name}`]));
 const sourceExtension = /\.[cm]?[jt]sx?$/;
 const readOperations = new Set(["readFile", "readFileSync", "readdir", "readdirSync", "readlink", "readlinkSync", "createReadStream", "open", "openSync", "opendir", "opendirSync", "access", "accessSync", "existsSync", "stat", "statSync", "lstat", "lstatSync", "watch", "watchFile", "spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]);
@@ -48,6 +48,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   let dispatchBindings = new Map<string, Set<string>>();
   let documentBindings = new Map<string, Map<string,BrowserDocumentInputs>>();
   let nativeBinding:ReturnType<typeof nativeDiagramInputs>;
+  let nativeDiagramDiagnostic:NativeDiagramDiagnostic|undefined;
   let themeBinding: ReturnType<typeof generatedThemeInputs>;
   if (activation) {
     const audit = auditCommandActivation(root, activation.config, activation.selected, activation.candidates);
@@ -59,7 +60,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       dispatchBindings = sourceBrowserDispatch(root, audit.files, importers);
       documentBindings = boundBrowserDocuments(root, audit.files, importers);
       themeBinding = generatedThemeInputs(root, audit.files, importers);
-      nativeBinding = nativeDiagramInputs(root, audit.files, importers);
+      nativeBinding = nativeDiagramInputs(root, audit.files, importers,value=>{nativeDiagramDiagnostic=value;});
     }
     if (!audit.unresolved.length) for (const candidate of audit.candidates) {
       const names = inactive.get(candidate.owner) ?? new Set<string>();
@@ -309,7 +310,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   };
   for (const file of [...entrypoints,...executionRoots]) visit(file);
   for (const owner of declared.keys()) if (!files.has(owner)) unresolved.add(`Unused declaration owner: ${owner}`);
-  return { ...(nativeBinding?{nativeDiagram:nativeBinding.identity}:{}), files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
+  return { ...(nativeBinding?{nativeDiagram:nativeBinding.identity}:{}), ...(nativeDiagramDiagnostic?{nativeDiagramDiagnostic}:{}), files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
 }
 export function closureSelects(changed: readonly string[], closure: InputClosure, broad: boolean): boolean {
   const inputs = new Set(closure.files);

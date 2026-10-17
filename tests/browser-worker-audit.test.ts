@@ -51,3 +51,18 @@ test("covered byte drift stays unavailable and the bounded manifest names only t
  expect(JSON.stringify(after.diagnostic)).not.toContain("Penelope");
  expect(JSON.stringify(after.diagnostic).length).toBeLessThan(768*1024);
 });
+
+test("unknown native inputs expose bounded evidence without admission material",()=>{
+ const {root,closure,selected}=fixture();
+ const unknown={...closure,unresolved:[pdfWorkerInput,"Undeclared input spec.ts: readFile(secretSourceContents)"],nativeDiagramDiagnostic:{version:1 as const,status:"source-mismatch",stage:"runtime",expected:{source:"a".repeat(64),installation:"b".repeat(64)},actual:{source:"c".repeat(64),installation:"b".repeat(64),runtime:"d".repeat(64)}}};
+ expect(workerAuditIdentity(root,unknown,selected),"UNSUPPORTED_INPUT_HAS_NO_ADMISSION_IDENTITY").toBeUndefined();
+ const inspected=inspectWorkerAudit(root,unknown,selected),diagnostic=inspected.diagnostic as any;
+ expect(inspected.qualified,"UNKNOWN_NATIVE_INPUT_ALWAYS_REQUIRES_FRESH").toBe(false);
+ expect(diagnostic.admissionSupported).toBe(false);
+ expect(diagnostic.native?.status,"UNKNOWN_NATIVE_DIAGNOSTIC_IS_NON_NULL").toBe("source-mismatch");
+ expect(diagnostic.native.actual.source).toBe("c".repeat(64));
+ expect(diagnostic.material.files.some((entry:any)=>entry[0]==="data.json")).toBe(true);
+ expect(diagnostic.unresolved).toContainEqual({code:"undeclared-input",owner:"spec.ts"});
+ expect(JSON.stringify(diagnostic)).not.toContain(root);
+ expect(JSON.stringify(diagnostic)).not.toContain("secretSourceContents");
+});
