@@ -722,7 +722,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:1007-1035`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:1034-1062`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1341,7 +1341,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1636`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1663`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1349,6 +1349,31 @@ and file by file, with the same resolution the restricted envelope uses
 
 This keeps a Bun or package install under a home directory or `/srv` working,
 without exposing that whole directory again.
+
+### Private-state masks beneath inaccessible parents — 2026-10-17
+
+A separate-UID worker cannot create an empty mask mount target below a
+server-owned directory that it cannot search. The launcher covers the highest
+such ancestor with empty tmpfs instead; it never binds that ancestor's real
+contents. Search permission uses the helper's primary shared group class when
+that group owns the directory, including when only the other class has execute
+permission. Existing canonical aliases and nested masks fold into that cover
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:333-392`).
+
+This supports disjoint private-state layouts, including a nested operational
+database below a server-owned `0700` parent. New ancestor coverage that would
+intersect the brain or a required read-only runtime refuses before payload
+start. Existing no-helper masks, runtime aliases and read-only mask retention
+remain in place. It grants no broader HOME access or shared-group permissions.
+
+The real-helper controls exercise private file/socket refusal, group-class
+`0701` search, canonical aliases and brain/runtime overlap refusal. Actual
+managed-server/native SDK/WS turns also complete with the nested database.
+Their recorded admission is strict: requested-governed admission still falls
+back because of the independent credential-free maintenance qualification
+failure tracked in #2300. Direct actual governed helper launch is separately
+qualified; these receipts do not claim governed createApp admission or default
+OAuth activation.
 
 ### Owned runtime placement beneath `/tmp` — 2026-10-14
 
@@ -1371,9 +1396,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:669-675`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:676-715`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:716-734`).
+`packages/ui-sdk/src/server/worker-launcher.ts:696-702`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:703-742`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:743-761`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -1671,11 +1696,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:974-1002`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1001-1029`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1007-1033`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1034-1060`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1166-1225`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1193-1252`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
