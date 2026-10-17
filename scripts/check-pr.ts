@@ -49,10 +49,19 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): 
   return checks;
 }
 
-export function requireRuntimeTools(plan: CheckPlan, full = true, readMountinfo = () => readFileSync("/proc/self/mountinfo", "utf8")): string | undefined {
+function probeSandboxSetup(): number {
+  const start = performance.now();
+  const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 });
+  const elapsed = performance.now() - start;
+  if (namespace.exitCode !== 0) throw new Error("Local checks require bwrap and permitted user/network namespaces; sandbox setup probe failed");
+  return elapsed;
+}
+
+export function requireRuntimeTools(plan: CheckPlan, full = true, readMountinfo = () => readFileSync("/proc/self/mountinfo", "utf8"), probeTimer = probeSandboxSetup): string | undefined {
   if (process.platform === "linux") {
-    const entries = readMountinfo().split("\n").filter(line => line.trim().length > 0);
-    if (entries.length >= 1000) {
+    const fastest = Math.min(...Array.from({ length: 3 }, () => probeTimer()));
+    if (fastest >= 250) {
+      const entries = readMountinfo().split("\n").filter(line => line.trim().length > 0);
       // Group mount points by their immediate parent, so individually named
       // leaked bind mounts report their containing directory rather than `/`.
       const prefixes = new Map<string, number>();
@@ -63,8 +72,10 @@ export function requireRuntimeTools(plan: CheckPlan, full = true, readMountinfo 
         const prefix = dirname(decoded);
         prefixes.set(prefix, (prefixes.get(prefix) ?? 0) + 1);
       }
-      const [prefix, count] = [...prefixes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]!;
-      throw new Error(`Local checks refuse ${entries.length} mount entries (limit: fewer than 1000); dominant mount-point prefix: ${prefix} (${count} entries). Restart Docker Desktop, or on WSL2 run wsl --shutdown; then retry local preflight.`);
+      const [prefix, count] = [...prefixes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? ["(none)", 0];
+      const version = Bun.spawnSync(["bwrap", "--version"], { timeout: 5000 });
+      const versionText = version.exitCode === 0 ? new TextDecoder().decode(version.stdout).trim() : "bubblewrap version unavailable";
+      throw new Error(`Local checks refuse slow sandbox setup: fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms); ${versionText}; ${entries.length} mount entries; dominant mount-point prefix: ${prefix} (${count} entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown; then retry local preflight.`);
     }
   }
   if (!full) return undefined;

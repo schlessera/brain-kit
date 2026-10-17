@@ -251,13 +251,15 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   For an upper stack layer, substitute its verified immediate parent ref;
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
-  On Linux, every local preflight mode requires fewer than 1,000 entries in
-  `/proc/self/mountinfo`. Larger mount tables make sandbox setup exceed its
-  fixed runtime deadlines. Preflight refuses before checks run and reports
-  the count and dominant mount-point parent prefix. Docker Desktop can leave
-  bind mounts behind after containers exit: restart Docker Desktop, or on
-  WSL2 run `wsl --shutdown`, then retry. The guard never unmounts host paths
-  or requires root. `--plan` remains inspection only.
+  On Linux, every executing local preflight mode times three real sandbox
+  setup probes and requires the fastest to take less than 250 ms. Slow setup
+  can consume the workers' fixed runtime deadlines. Refusal reports the fastest
+  time, bubblewrap version, mount count and dominant mount-point parent prefix.
+  Use bubblewrap 0.13 or newer to avoid the older per-mount remount cost, or
+  restart Docker Desktop (on WSL2, `wsl --shutdown`) to clear leaked bind mounts.
+  Mount count alone does not decide whether setup is affordable. The guard
+  never unmounts host paths or requires root. Linux focused checks now require
+  `bwrap` and permitted user/network namespaces; `--plan` stays inspection only.
   This is local preflight and affected fast feedback, including working-tree
   inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
   through the offline wrapper as import-graph affected feedback. Bun includes
