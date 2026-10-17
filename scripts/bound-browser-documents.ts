@@ -178,16 +178,30 @@ const declarations:DocumentDeclaration[]=[{
   }
 }];
 export interface BrowserDocumentInputs {runtime:string[];bytes:string[];}
+/** The reviewed declarations, read-only, for the producer-closure guard in tests (#2348). */
+export const reviewedBrowserDocuments:readonly Readonly<DocumentDeclaration>[]=declarations;
 /** Requires a successful complete activation audit; aliases/loaders are checked
  * there. All producers/dependencies retain normal input traversal here.
  */
 export function boundBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters):Map<string,Map<string,BrowserDocumentInputs>>{
-  const result=new Map<string,Map<string,BrowserDocumentInputs>>();
+  return evaluateBrowserDocuments(root,files,importers).bound;
+}
+/** Why each declared document owner did not bind, naming the first offending file (#2348). */
+export function browserDocumentRefusals(root:string,files:readonly string[],importers:BrowserImporters):Map<string,string>{
+  return evaluateBrowserDocuments(root,files,importers).refusals;
+}
+function evaluateBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters){
+  const result=new Map<string,Map<string,BrowserDocumentInputs>>(),refusals=new Map<string,string>();
   const matches=(file:string,hash:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===hash;};
-  if(!matches(config,"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db"))return result;
+  if(!matches(config,"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db")){for(const declaration of declarations)refusals.set(declaration.owner,`unreviewed configuration ${config}`);return {bound:result,refusals};}
   for(const declaration of declarations){
     const callers=new Map<string,{hash:string;calls:number}>([[declaration.caller,{hash:declaration.callerHash,calls:declaration.calls}],...Object.entries(declaration.additionalCallers??{})]);
-    if(![config,declaration.owner,...callers.keys()].every(file=>files.includes(file))||!matches(declaration.owner,declaration.ownerHash)||[...callers].some(([file,entry])=>!matches(file,entry.hash))||Object.entries(declaration.producers).some(([file,hash])=>!matches(file,hash))||[...(importers.get(declaration.owner)??[])].some(file=>file!==config))continue;
+    const absent=[config,declaration.owner,...callers.keys()].find(file=>!files.includes(file));
+    const drifted=!matches(declaration.owner,declaration.ownerHash)?declaration.owner:
+      [...callers].find(([file,entry])=>!matches(file,entry.hash))?.[0]??Object.entries(declaration.producers).find(([file,hash])=>!matches(file,hash))?.[0];
+    const importer=[...(importers.get(declaration.owner)??[])].find(file=>file!==config);
+    const refusal=absent?`not selected: ${absent}`:drifted?`stale reviewed pin: ${drifted}`:importer?`direct command-owner importer: ${importer}`:undefined;
+    if(refusal){refusals.set(declaration.owner,refusal);continue;}
     const counts=new Map([...callers.keys()].map(file=>[file,0]));let unsafe=false;
     for(const file of files){
       if(!/\.[cm]?[jt]sx?$/.test(file))continue;
@@ -205,7 +219,7 @@ export function boundBrowserDocuments(root:string,files:readonly string[],import
       };bindings(source);
       const walk=(node:ts.Node)=>{
         if(ts.isPropertyAccessExpression(node)&&ts.isIdentifier(node.expression)&&names.has(node.expression.text)&&node.name.text===declaration.command){
-          if(!callers.has(file)||!ts.isCallExpression(node.parent)||node.parent.expression!==node)unsafe=true;else counts.set(file,counts.get(file)!+1);
+          if(!callers.has(file)||!ts.isCallExpression(node.parent)||node.parent.expression!==node){unsafe=true;refusals.set(declaration.owner,`${callers.has(file)?"unchecked command use":"unreviewed caller"}: ${file}`);}else counts.set(file,counts.get(file)!+1);
         }
         ts.forEachChild(node,walk);
       };walk(source);
@@ -214,7 +228,9 @@ export function boundBrowserDocuments(root:string,files:readonly string[],import
     // Ghost: argument-free call immediately after the exact Performance story;
     // all replay network attempts abort and fail before/after fonts and trace.
     const producers=Object.keys(declaration.producers);
-    if(!unsafe&&[...callers].every(([file,entry])=>counts.get(file)===entry.calls))result.set(declaration.owner,new Map([[declaration.sink,{runtime:[...callers.keys(),...producers.filter(file=>/\.[cm]?[jt]sx?$/.test(file))],bytes:producers.filter(file=>!/\.[cm]?[jt]sx?$/.test(file))}]]));
+    const miscounted=[...callers].find(([file,entry])=>counts.get(file)!==entry.calls)?.[0];
+    if(!unsafe&&miscounted)refusals.set(declaration.owner,`reviewed call count changed: ${miscounted}`);
+    if(!unsafe&&!miscounted)result.set(declaration.owner,new Map([[declaration.sink,{runtime:[...callers.keys(),...producers.filter(file=>/\.[cm]?[jt]sx?$/.test(file))],bytes:producers.filter(file=>!/\.[cm]?[jt]sx?$/.test(file))}]]));
   }
-  return result;
+  return {bound:result,refusals};
 }
