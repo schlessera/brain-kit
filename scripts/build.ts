@@ -2,7 +2,6 @@ import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
 import { buildReceipt } from "./build-receipt.ts";
 import { markBinsExecutable } from "./bin-modes.ts";
-import { buildDecision, buildInputs, clearStamp, recordBuild } from "./build-stamp.ts";
 import { selectBuildPackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -22,9 +21,9 @@ import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 // --jobs=2 opts a single CI workspace into bounded dependency-level builds.
 // The default stays serial, including two concurrent private unit workspaces.
 //
-// A package whose complete build inputs and dist are unchanged since its last
-// successful build is reported up to date instead of being recompiled
-// (scripts/build-stamp.ts, #2319). --force always rebuilds every package.
+// Rebuild every selected package. Persistent reuse is unavailable until effective
+// configuration, installed producers and runtime inputs are qualified (#2319).
+// --force remains accepted; ordinary builds already follow the same safe path.
 const args = process.argv.slice(2);
 let dryRun = false, force = false, dryRoot: string | undefined, directories: string[] | undefined;
 let jobs = 1, jobsSeen = false;
@@ -68,9 +67,6 @@ if (!bunx) {
 }
 
 const compilerLauncher = bunx;
-// Read under the write lease, before any package is touched.
-const input = buildInputs(root);
-
 class PackageBuildFailure extends Error {
   constructor(readonly packageName: string, readonly code: number, detail: string) {
     super(`Build failed: packages/${packageName}: ${detail}`);
@@ -80,7 +76,6 @@ class PackageBuildFailure extends Error {
 async function buildPackageBody({ dir: packageName, manifest }: (typeof packages)[number]): Promise<void> {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");
-  clearStamp(root, packageName);
   rmSync(distDir, { recursive: true, force: true });
 
   console.log(`Building packages/${packageName}...`);
@@ -155,15 +150,9 @@ async function buildPackageBody({ dir: packageName, manifest }: (typeof packages
 
 
 async function buildPackage(pkg: (typeof packages)[number]): Promise<void> {
-  if (buildDecision(root, pkg.dir, input, force) === "up-to-date") {
-    console.log(`Up to date packages/${pkg.dir}`);
-    receipt.packageUpToDate(pkg.dir);
-    return;
-  }
   receipt.packageStart(pkg.dir);
   try {
     await buildPackageBody(pkg);
-    recordBuild(root, pkg.dir, input);
     receipt.packageEnd(pkg.dir, true);
   } catch (error) {
     receipt.packageEnd(pkg.dir, false);

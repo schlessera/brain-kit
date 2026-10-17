@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 type Compiler = "tsc" | "css";
 type Child = { compiler: Compiler; pid: number; startedAt: number; elapsedMs?: number; code?: number };
-type Package = { name: string; state: "pending" | "running" | "complete" | "failed" | "up-to-date"; startedAt?: number; elapsedMs?: number; children: Child[] };
+type Package = { name: string; state: "pending" | "running" | "complete" | "failed"; startedAt?: number; elapsedMs?: number; children: Child[] };
 
 export function buildReceipt(root: string, options: { jobs: number; subset: boolean; packages: readonly string[] }) {
   let available = true;
@@ -47,8 +47,6 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
     mkdirSync(directory, { recursive: true });
   });
   return {
-    /** Skipped by the build stamp (#2319): no compiler ran for this package. */
-    packageUpToDate(name: string) { observe(() => { const value = pkg(name); value.state = "up-to-date"; value.startedAt = elapsed(); value.elapsedMs = 0; }); },
     packageStart(name: string) { observe(() => { const value = pkg(name); value.state = "running"; value.startedAt = elapsed(); }); },
     childStart(name: string, compiler: Compiler, pid: number) {
       observe(() => { pkg(name).children.push({ compiler, pid, startedAt: elapsed() }); });
