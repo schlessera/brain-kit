@@ -7,7 +7,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
   "scripts/build.ts": "025ca01230e8dc9737d96e2d6f31f4d70da7aefb6e53930044ea7a0d2d7df756",
-  "scripts/build-receipt.ts": "e5f732c2f7cadbf7f389114e7141795e2d4f2fc4862383d60afa8d9c5551f1fe",
+  "scripts/build-receipt.ts": "567c3d13b5e3e1295f597e4f57a9d0d9912685f2669cf3872daa26c2931bd1e6",
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
   "scripts/workspace-lease.mjs": "dc6dc975e6abdb3fb193b368b79544bc98c60c624f0fd9c9985358284bb07df0",

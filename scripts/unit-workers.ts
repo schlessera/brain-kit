@@ -21,6 +21,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
   const head = git(root, "rev-parse", "HEAD");
   const partitions = balanceTests([...files], Math.min(2, files.length));
   const workers: { root: string; files: string[]; checkout: string }[] = [];
+  let primaryFailure: unknown;
   try {
     for (const [index, selected] of partitions.entries()) {
       const workspace = join(container, String(index + 1));
@@ -72,23 +73,28 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     validateUnitReports(files, xml, timings);
     await Bun.write(join(reportDir, "unit-report.xml"), xml);
     await Bun.write(join(reportDir, "unit-timings.json"), JSON.stringify(timings, null, 2));
-  } finally {
+  } catch (error) { primaryFailure = error; throw error; } finally {
     // runCommands waits for stopped children. Preserve every partial report
     // before removing only this invocation's clean, inactive worktrees.
+    const cleanupFailures: unknown[] = [];
     for (const [index, worker] of workers.entries()) {
-      for (const suffix of ["report.xml", "timings.json"]) {
-        const path = join(worker.root, `tmp/unit-${suffix}`);
-        if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
-      }
-      const workerTmp = join(worker.root, "tmp");
-      if (existsSync(workerTmp)) for (const name of readdirSync(workerTmp)) {
-        if (/^build-\d+-[0-9a-f-]{36}-probe\.json$/.test(name)) {
-          copyFileSync(join(workerTmp, name), join(reportDir, `unit-worker-${index + 1}-${name}`));
+      try {
+        for (const suffix of ["report.xml", "timings.json"]) {
+          const path = join(worker.root, `tmp/unit-${suffix}`);
+          if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
         }
-      }
-      git(root, "worktree", "remove", worker.root);
+        const workerTmp = join(worker.root, "tmp");
+        if (existsSync(workerTmp)) for (const name of readdirSync(workerTmp)) {
+          if (/^build-\d+-[0-9a-f-]{36}-probe\.json$/.test(name)) {
+            copyFileSync(join(workerTmp, name), join(reportDir, `unit-worker-${index + 1}-${name}`));
+          }
+        }
+      } catch (error) { cleanupFailures.push(error); }
+      try { git(root, "worktree", "remove", worker.root); } catch (error) { cleanupFailures.push(error); }
     }
-    rmdirSync(container);
+    try { rmdirSync(container); } catch (error) { cleanupFailures.push(error); }
+    if (cleanupFailures.length) throw new AggregateError(primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
+      "Unit worker report preservation or cleanup failed");
   }
 }
 

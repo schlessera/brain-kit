@@ -8,13 +8,14 @@ type Child = { compiler: Compiler; pid: number; startedAt: number; elapsedMs?: n
 type Package = { name: string; state: "pending" | "running" | "complete" | "failed"; startedAt?: number; elapsedMs?: number; children: Child[] };
 
 export function buildReceipt(root: string, options: { jobs: number; subset: boolean; packages: readonly string[] }) {
-  if (![1, 2].includes(options.jobs) || options.packages.length > 128 ||
-      new Set(options.packages).size !== options.packages.length ||
-      options.packages.some(name => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))) {
-    throw new Error("Invalid bounded build receipt inventory");
+  let available = true;
+  function unavailable() {
+    if (!available) return;
+    available = false;
+    // Diagnostics never replace the builder's exit or abandon its live child.
+    try { console.error(JSON.stringify({ kind: "workspace-build-receipt-unavailable", pid: process.pid })); } catch {}
   }
   const directory = join(root, "tmp");
-  mkdirSync(directory, { recursive: true });
   const path = join(directory, `build-${process.pid}-${randomUUID()}-probe.json`);
   const started = performance.now();
   const packages: Package[] = options.packages.map(name => ({ name, state: "pending", children: [] }));
@@ -33,21 +34,36 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
     if (!value) throw new Error("Unknown build receipt package");
     return value;
   }
-  save();
+  function observe(update: () => void) {
+    if (!available) return;
+    try { update(); save(); } catch { unavailable(); }
+  }
+  observe(() => {
+    if (![1, 2].includes(options.jobs) || packages.length > 128 ||
+        new Set(options.packages).size !== packages.length ||
+        options.packages.some(name => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))) {
+      throw new Error("Invalid bounded build receipt inventory");
+    }
+    mkdirSync(directory, { recursive: true });
+  });
   return {
-    packageStart(name: string) { const value = pkg(name); value.state = "running"; value.startedAt = elapsed(); save(); },
+    packageStart(name: string) { observe(() => { const value = pkg(name); value.state = "running"; value.startedAt = elapsed(); }); },
     childStart(name: string, compiler: Compiler, pid: number) {
-      pkg(name).children.push({ compiler, pid, startedAt: elapsed() }); save();
+      observe(() => { pkg(name).children.push({ compiler, pid, startedAt: elapsed() }); });
     },
     childExit(name: string, compiler: Compiler, code: number) {
-      const child = pkg(name).children.find(child => child.compiler === compiler && child.code === undefined);
-      if (!child) throw new Error("Missing build receipt child");
-      child.code = code; child.elapsedMs = elapsed() - child.startedAt; save();
+      observe(() => {
+        const child = pkg(name).children.find(child => child.compiler === compiler && child.code === undefined);
+        if (!child) throw new Error("Missing build receipt child");
+        child.code = code; child.elapsedMs = elapsed() - child.startedAt;
+      });
     },
     packageEnd(name: string, success: boolean) {
-      const value = pkg(name); value.state = success ? "complete" : "failed";
-      value.elapsedMs = elapsed() - value.startedAt!; save();
+      observe(() => {
+        const value = pkg(name); value.state = success ? "complete" : "failed";
+        value.elapsedMs = elapsed() - value.startedAt!;
+      });
     },
-    finish(code: number) { receipt.state = "complete"; receipt.success = code === 0; receipt.code = code; save(); },
+    finish(code: number) { observe(() => { receipt.state = "complete"; receipt.success = code === 0; receipt.code = code; }); },
   };
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, mkdtempSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { runUnitWorkers } from "../scripts/unit-workers";
 import { validateUnitReports } from "../scripts/unit-proof-report";
 import { unitWorkerFixture } from "./helpers/unit-worker-fixture";
@@ -48,4 +48,42 @@ test("failed private prebuild preserves its partial receipt before cleanup", asy
     const workers = JSON.parse(readFileSync(join(reports, "unit-worker-checkouts.json"), "utf8"));
     for (const worker of workers) expect(existsSync(join(root, worker.workspace))).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test("receipt copy failure stays explicit and still removes every owned worker", async () => {
+  const { root, files } = unitWorkerFixture({ failBuild: true });
+  const reports = mkdtempSync(join(root, "tmp/unit-worker-test-reports-"));
+  try {
+    const preload = join(root, "copy-storage-preload.ts");
+    writeFileSync(preload, `import fs from "node:fs";
+import {mock} from "bun:test";
+const copy=fs.copyFileSync;mock.module("node:fs",()=>({...fs,copyFileSync:(source,target,...args)=>{
+  if(/unit-worker-.*-build-.*-probe\\.json$/.test(String(target)))fs.mkdirSync(target);
+  return copy(source,target,...args);
+}}));\n`);
+    const child = Bun.spawn([process.execPath, "--preload", preload, "-e", `
+      import {runUnitWorkers} from ${JSON.stringify(join(import.meta.dir, "../scripts/unit-workers.ts"))};
+      let failure; try { await runUnitWorkers(${JSON.stringify(root)},${JSON.stringify(files)},undefined,${JSON.stringify(reports)}); } catch(error) { failure=error; }
+      if(!(failure instanceof AggregateError) || !failure.errors.some(error=>String(error).includes("private package build"))) throw Error("ORIGINAL_PREBUILD_FAILURE_RETAINED");
+      console.log("COLLECTOR_FAILURE_EXPLICIT",failure.errors.length);
+    `], { stdout: "pipe", stderr: "pipe" });
+    const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const workers = JSON.parse(readFileSync(join(reports, "unit-worker-checkouts.json"), "utf8"));
+    for (const worker of workers) expect(existsSync(join(root, worker.workspace)), "OWNED_WORKER_REMOVED_AFTER_RECEIPT_COPY_ERROR").toBe(false);
+    expect(code, out + err).toBe(0); expect(out).toContain("COLLECTOR_FAILURE_EXPLICIT");
+  } finally {
+    // A cleanup-regression mutant may leave these stopped fixture worktrees.
+    // Remove only roots recorded by this invocation before deleting their Git owner.
+    const checkouts = join(reports, "unit-worker-checkouts.json");
+    const containers = new Set<string>();
+    if (existsSync(checkouts)) for (const worker of JSON.parse(readFileSync(checkouts, "utf8"))) {
+      containers.add(dirname(join(root, worker.workspace)));
+      if (!existsSync(join(root, worker.workspace))) continue;
+      const clean = Bun.spawnSync(["git", "-C", root, "worktree", "remove", join(root, worker.workspace)], { stdout: "pipe", stderr: "pipe" });
+      expect(clean.exitCode, new TextDecoder().decode(clean.stderr)).toBe(0);
+    }
+    for (const container of containers) if (existsSync(container)) rmdirSync(container);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
