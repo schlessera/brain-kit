@@ -25,7 +25,7 @@ export function ownedPruneVariant(cronSource: string, boundarySource: string) {
   const mark = (before: string, start: string, done: string) => { run = replace("boundary", run, before, `            fixtureStage("${start}");\n${before}\n            fixtureStage("${done}");`); };
   run = replace("boundary", run, "            const view = await prepareInput(execution.signal);", '            const view = await prepareInput(execution.signal);\n            fixtureStage("view:done");');
   mark("              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });", "output:start", "output:done");
-  mark("              const git = await prepareMaintenanceGit(launch, outputs, execution.signal);", "git:start", "git:done");
+  mark("              const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);", "git:start", "git:done");
   mark(`              const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
                 ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });`, "worker:start", "worker:done");
   run = replace("boundary", run, "              if (!result.killed) {", '              if (!result.killed) {\n                fixtureStage("publish:start");');

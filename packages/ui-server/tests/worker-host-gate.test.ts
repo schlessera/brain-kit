@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -19,6 +19,7 @@ import { WsHost } from "../src/ws/host";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import type { ConnectionState } from "../src/ws/dispatch";
+import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 
 let probe: ReturnType<typeof spyOn> | undefined;
 afterEach(() => { probe?.mockRestore(); probe = undefined; });
@@ -205,11 +206,8 @@ describe("pre-initialization worker host gate", () => {
 test("interactive, handoff and memory autonomous callers carry trusted probe placement before refusal", async () => {
   const directory = mkdtempSync(join(tmpdir(), "odysseus-turn-probe-"));
   const previous = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
-  // Hosted coreutils can expose /usr/bin/true as an alias. Supply its
-  // concrete root-owned target; the production no-alias guard stays intact.
-  const helperAlias = join(directory, "helper-alias");
-  symlinkSync(realpathSync("/usr/bin/true"), helperAlias);
-  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = realpathSync(helperAlias);
+  const helper = mockQualifiedIdentityHelper();
+  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = helper.path;
   const f = setup("claude", undefined, directory); unsupported();
   try {
     await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [] });
@@ -235,6 +233,7 @@ test("interactive, handoff and memory autonomous callers carry trusted probe pla
     expect(f.starts()).toBe(0);
   } finally {
     try { f.cleanup(); } finally {
+      helper.restore();
       if (previous === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
       else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = previous;
       rmSync(directory, { recursive: true, force: true });

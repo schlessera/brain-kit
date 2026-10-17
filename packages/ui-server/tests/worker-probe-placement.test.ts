@@ -1,11 +1,12 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import { probeWorkerHostRecorded, requireWorkerHostRecorded } from "../src/agent/worker-host";
 import { hostExecution } from "../src/brain/host-boundary";
 import { workerIdentitySentinelDirectory } from "../src/brain/operational-state";
+import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 
 const original = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
 const roots: string[] = [];
@@ -20,9 +21,10 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-probe-placement-")); roots.push(root);
   const brain = join(root, "brain"), state = join(root, "state");
   mkdirSync(brain); mkdirSync(state);
-  // Trusted configuration validation remains real; execution is intercepted at
-  // the SDK probe boundary. Native proof separately qualifies the actual helper.
-  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = realpathSync("/usr/bin/true");
+  // Only the already-qualified marker is synthetic. Invalid helper settings
+  // still use the real lookup; native proof qualifies actual executable custody.
+  const helper = mockQualifiedIdentityHelper(); restore.push(helper.restore);
+  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = helper.path;
   return { root, brain, state, dbPath: join(state, "ui.sqlite") };
 }
 function observingProbe() {

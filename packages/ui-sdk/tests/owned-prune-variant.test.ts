@@ -79,20 +79,28 @@ test("real original and variant boundary methods preserve owned operation order,
   Object.defineProperty(console, "log", { ...descriptor, value: (line: string) => diagnostics.push(JSON.parse(line)) });
   const failure = Error("Odysseus owned operation refusal");
   async function execute(source: string, fail: boolean) {
+    const signal = new AbortController().signal, logger = { emit() {} }, launch = { command: ["/bin/true"] };
     const calls: string[] = [], view = { async cleanup() { calls.push("view-cleanup"); } };
     const output = { view, output: {}, async publish() { calls.push("publish"); }, async cleanup() { calls.push("output-cleanup"); } };
     const dependencies = {
       gated: async (_: unknown, work: (hold: null) => unknown) => { calls.push("gate"); return work(null); }, isolated: () => true,
       credentialed: async (_: unknown, work: () => unknown) => { calls.push("credential"); return work(); },
       prepareInput: async () => { calls.push("view"); return view; }, prepareMaintenanceOutput: async () => { calls.push("output"); return output; },
-      command: () => ({ command: ["/bin/true"] }), prepareMaintenanceGit: async () => { calls.push("git"); return undefined; },
+      options: { log: logger }, command: () => launch, prepareMaintenanceGit: async (...args: unknown[]) => {
+        expect(args.length, "OWNED_PRUNE_GIT_ARGUMENT_COUNT_PRESERVED").toBe(4);
+        expect(args[0], "OWNED_PRUNE_GIT_COMMAND_IDENTITY_PRESERVED").toBe(launch);
+        expect(args[1], "OWNED_PRUNE_GIT_OUTPUT_IDENTITY_PRESERVED").toBe(output);
+        expect(args[2], "OWNED_PRUNE_GIT_SIGNAL_IDENTITY_PRESERVED").toBe(signal);
+        expect(args[3], "OWNED_PRUNE_GIT_LOGGER_IDENTITY_PRESERVED").toBe(logger);
+        calls.push("git"); return undefined;
+      },
       runMaintenanceWorker: async () => { calls.push("worker"); if (fail) throw failure; return { stdout: "Odysseus", stderr: "", exitCode: 0, killed: false }; },
       outputLock: { async withLock(_brain: string, work: () => unknown) { calls.push("output-lock"); return work(); } }, brain: "Odysseus brain",
     };
     const start = source.indexOf("    async run(execution) {"), end = source.indexOf("    async launch(execution) {", start);
     const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync("const operation = {" + source.slice(start, end) + "}; return operation.run;");
     const operation = new Function(...Object.keys(dependencies), javascript)(...Object.values(dependencies));
-    try { return { result: await operation({ purpose: "brain scratch prune" }), calls }; }
+    try { return { result: await operation({ purpose: "brain scratch prune", signal }), calls }; }
     catch (error) { return { error, calls }; }
   }
   try {
