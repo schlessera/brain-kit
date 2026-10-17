@@ -40,7 +40,7 @@ const declarations=[
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/connection.ts",
         "name": "connectionFrameHandlers",
-        "source": "cddde70fb099b570cd6ef20a3bf310ae7edf61ce008d1165a48184bb109fd06c"
+        "source": "6f3e3171dea2792f5cb5d30f268ff471d1d34a062f2e0dbd916c847a8a8f143b"
       },
       {
         "owner": "packages/ui-react/src/hooks/websocket-handlers/handoff.ts",

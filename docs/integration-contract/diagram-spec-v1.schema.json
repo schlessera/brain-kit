@@ -229,6 +229,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -663,6 +672,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -1008,6 +1026,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -1351,6 +1378,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -1715,6 +1751,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -2083,6 +2128,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -2423,6 +2477,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [
@@ -3026,6 +3089,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 2048
+              },
+              "side": {
+                "type": "string",
+                "enum": [
+                  "below",
+                  "above",
+                  "right",
+                  "left"
+                ]
               }
             },
             "required": [

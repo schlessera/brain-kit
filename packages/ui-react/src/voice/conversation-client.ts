@@ -1,3 +1,4 @@
+import { createConversationPermissions } from "./conversation-permissions.js";
 import { createStore } from "zustand/vanilla";
 import type { ClientMessage, ServerMessage, ServerConversationOpened, ConversationWireEvent, ConversationWorkReceipt, ConversationOutputRecord } from "@schlessera/brain-ui-sdk/protocol";
 import type { BrainUiServices } from "../root.js";
@@ -60,8 +61,18 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   const scope = () => state.getState().profile;
   const current = (own: number) => !disposed && state.getState().active && own === generation;
   const announce = (announcement: string) => state.setState({ announcement });
+  const localTones = new Set<string>();
   let playback = makePlayback();
+  const permissions = createConversationPermissions(root, send, () => ({ active: state.getState().active, sessionId: state.getState().sessionId, micOn: state.getState().micOn, isolated: scope()?.capabilities.echoIsolatedInput === "supported", quiet: !state.getState().micOn || ended && !hold }), () => {
+    playback.cut();
+    const outputId = crypto.randomUUID(); localTones.add(outputId);
+    const bytes = new Uint8Array(12000); const view = new DataView(bytes.buffer);
+    for (let i = 0; i < bytes.length / 2; i++) view.setInt16(i * 2, Math.sin(i * 2 * Math.PI * 660 / 24000) * 1600 * Math.sin(i * Math.PI / (bytes.length / 2)), true);
+    playback.enqueue(outputId, bytes, { encoding: "pcm16", channels: 1, sampleRate: 24000 });
+    playback.quiet(true);
+  }, () => { pause(); state.setState({ notice: "Too many pending approvals. Use Deny on screen." }); });
   function makePlayback() { return createConversationPlayback((outputId, playbackState) => {
+    if (localTones.has(outputId)) return;
     const profile = scope();
     if (profile) {
       updateOutput(profile.epoch, outputId, { playback: playbackState });
@@ -90,8 +101,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     const question = buffer?.askUser;
     const answering = question && !question.cancelled && !question.answers && !question.order && !question.formAnswers && question.questions.length === 1 && !question.list && !question.rank && !question.form;
     if (stopFence && ready && resync === 0 && !working) stopFence = false;
-    state.setState({ playing: playback.playing(), interaction: stopFence ? "Checking whether the reply stopped"
-      : playback.playing() ? "Speaking" : answering ? "Answering question" : s.text ? (hold ? "Sending soon" : "Review before sending") : working || playback.pending() ? "Working" : "Listening" });
+    const playing = playback.playingIds().some(id => !localTones.has(id));
+    state.setState({ playing, interaction: stopFence ? "Checking whether the reply stopped"
+      : playing ? "Speaking" : answering ? "Answering question" : s.text ? (hold ? "Sending soon" : "Review before sending") : working || playback.pending() ? "Working" : "Listening" });
   }
   function clearTimers() { clearTimeout(silence); clearTimeout(hold); clearTimeout(finalization); silence = hold = finalization = undefined; }
   function stopMic() { mic?.stop(); mic = undefined; state.setState({ micOn: false }); }
@@ -118,6 +130,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   function pause(lost = false, resumable = true, notify = true) {
     generation++; state.setState({ token: generation });
+    permissions.lost();
     clearTimers();
     stopMic();
     saveDraft();
@@ -156,7 +169,8 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
         finalAfterSpeech = false;
         lastSpeech = performance.now();
         clearTimeout(hold); hold = undefined;
-        if (playback.playing()) { stopReply(); return; }
+        if (playback.playingIds().some(id => !localTones.has(id))) { stopReply(); return; }
+        if (playback.playing()) playback.cut();
         playback.quiet(false);
         if (!utterance || ended) { if (capturedInputs.size >= 4096) { pause(true); state.setState({ notice: "Restart voice to continue this long conversation." }); return; } utterance = crypto.randomUUID(); capturedInputs.add(utterance); ended = false; }
         clearTimeout(silence);
@@ -181,6 +195,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     send({ type: "conversation_endpoint", conversationId: profile.conversationId, epoch: profile.epoch, utteranceId: utterance });
     playback.quiet(!trustworthy());
     maybeHold(own);
+    permissions.quiet();
     const endedUtterance = utterance;
     finalization = setTimeout(() => {
       if (!current(own)) return;
@@ -232,6 +247,7 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   }
   let inputFormat: Extract<ConversationWireEvent, { kind: "ready" }>["input"] | undefined;
   function frame(message: ServerMessage): ServerMessage | null {
+    permissions.frame(message);
     if (message.type === "server_hello") state.setState({ available: message.capabilities?.liveConversation === true && message.capabilities?.conversationPause === true });
     if (message.type === "session_info" && message.requestId && requests.has(message.requestId)) {
       const request = requests.get(message.requestId)!;
@@ -306,6 +322,11 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
     if (!ready) return null;
     if (event.kind === "input_fragment") {
       if (!capturedInputs.has(event.utteranceId) || retiredInputs.has(event.utteranceId)) return null;
+      if (permissions.input(event)) {
+        retiredInputs.add(event.utteranceId); fragments.delete(event.utteranceId); lastInput = undefined;
+        state.setState({ text: [...fragments.values()].flatMap(items => [...items.values()].map(f => f.text)).join(" ").trim() });
+        saveDraft(); refresh(); return null;
+      }
       const items = fragments.get(event.utteranceId) ?? new Map();
       if (event.certainty !== "known" || event.origin !== "user" || (event.confidence ?? 0) < 0.9) manualReview.add(event.utteranceId);
       finalAfterSpeech = event.finalization === "final";
@@ -338,9 +359,9 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
   });
   const hidden = () => { if (document.hidden && state.getState().active) pause(); else if (state.getState().active && !requested) startEpoch(); };
   if (typeof document !== "undefined") document.addEventListener("visibilitychange", hidden);
-  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; stopFence = false; state.setState({ profile: null, work: {}, outputs: [], available: false }); });
+  const unwatchAuth = root.authLock.registerStop(async () => { leave(); requests.clear(); restoredRequests.clear(); openingId = undefined; requested = false; agreedDisclosure = undefined; stopFence = false; permissions.clear(); localTones.clear(); state.setState({ profile: null, work: {}, outputs: [], available: false }); });
   return {
-    state, frame,
+    state, frame, permissions,
     enter() {
       if (disposed || state.getState().active || root.stores.voice.getState().mode !== "idle" || root.stores.voice.getState().local !== "idle") return;
       const sessionId = root.stores.chat.getState().activeSessionId;
@@ -350,12 +371,12 @@ export function createConversationClient(root: BrainUiServices, send: (message: 
       state.setState({ active: true, sessionId, agentProviderId, profile: null, work: {}, connection: "Connecting", disclosureOpen: true, text: "", notice: "", interaction: "Listening" });
       stopFence = false;
       root.stores.voice.getState().setMode("conversation");
-      consent = false; startEpoch();
+      consent = false; startEpoch(); permissions.refresh();
     },
     start() { const profile = scope(); if (!profile) return; agreedDisclosure = disclosureKey(profile); consent = true; state.setState({ disclosureOpen: false }); void capture(); },
     details() { state.setState({ disclosureOpen: true }); },
     resume() { if (state.getState().disclosureOpen) return; if (ready && !stopFence) { consent = true; state.setState({ interaction: "Listening" }); void capture(); } else startEpoch(); },
-    mute() { clearTimers(); endpoint(generation); stopMic(); playback.quiet(true); announce("Microphone off"); },
+    mute() { clearTimers(); endpoint(generation); stopMic(); playback.quiet(true); permissions.refresh(); announce("Microphone off"); },
     commit,
     discard() { clearTimers(); removeSavedDraft(); fragments.clear(); lastInput = undefined; state.setState({ text: "" }); refresh(); },
     stopReply, leave,
