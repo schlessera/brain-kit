@@ -36,7 +36,7 @@ import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brai
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { operationalStateMasks, operationalStateRefusal, type OperationalStateLayout } from "./operational-state.js";
+import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
 
 /** Why `governed` cannot run on this server. */
@@ -131,7 +131,12 @@ export function cronJobClass(jobName: string): { credentials: boolean; gate: Gat
 /** Concrete probe object permits test spies, with no production disable flag. */
 export const hostExecution = {
   /** The same probe a turn's gate runs, so a test double stands in for both. */
-  probe: (brainPath: string): WorkerHostProbe => workerHostBoundary.probe(brainPath),
+  probe: (brainPath: string, state?: WorkerProbeState): WorkerHostProbe => {
+    let directory: string | undefined;
+    try { directory = workerIdentitySentinelDirectory(brainPath, state); }
+    catch { return { ok: false, requirement: "Worker identity qualification requires trusted server state outside the brain" }; }
+    return workerHostBoundary.probe(brainPath, directory ? { identitySentinelDirectory: directory } : undefined);
+  },
   /** A credential-free maintenance worker, network namespace included, which the ordinary probe does not cover. */
   maintenanceProbe: (brainPath: string, tempLimits: WorkerStateLimits, tempDomain: MaintenanceCommand["tempDomain"] | undefined, startupView: WorkerStartupView, signal?: AbortSignal): WorkerHostProbe | Promise<WorkerHostProbe> => probeNativeMaintenanceWorker(brainPath, tempLimits, tempDomain, startupView, signal),
   cwd: () => process.cwd(),
@@ -177,6 +182,8 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
+  /** @internal Trusted server-state placement passed by the autonomous owner. */
+  identitySentinelDirectory?: string;
   /** Trusted shared host credential state; omitted server/cron instances use the per-UID domain. */
   credentialDomain?: HostCredentialDomain;
   /** The one configured host manager; never discovered through the repository. */
@@ -318,7 +325,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const maintenanceKey = JSON.stringify([brain, tempDomain ? real(tempDomain.statePath) : null,
     maintenanceTemp.allowanceBytes, maintenanceTemp.budgetBytes]);
   const workerHost = (startupView?: WorkerStartupView): WorkerHostProbe => {
-    const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+    const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
     if (!ordinary.ok) return ordinary;
     if (!maintenance || (!maintenance.probe.ok && Date.now() - maintenance.at > 60_000)) {
       try {
@@ -436,7 +443,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (passedMaintenanceProbes.has(maintenanceKey)) return governed();
       return outputLock.withLock(brain, async () => {
       signal?.throwIfAborted();
-      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       if (!ordinary.ok) return governed();
       if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();
       const view = preparedView ?? await prepareInput(signal);
@@ -460,7 +467,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     status: () => {
       const availability = governed();
-      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       let configuredIdentity = false;
       try { configuredIdentity = Boolean(workerIdentityHelper()); } catch { configuredIdentity = true; }
       const identity = ordinary.ok && ordinary.identity === "separate_uid"

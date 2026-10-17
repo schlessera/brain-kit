@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
@@ -23,7 +26,7 @@ function unsupported() {
   probe = spyOn(workerHostBoundary, "probe").mockReturnValue({ ok: false, requirement: "unprivileged user namespaces are disabled" });
 }
 
-function setup(backendId = "claude", governedTurns?: ConstructorParameters<typeof WsHost>[0]["governedTurns"]) {
+function setup(backendId = "claude", governedTurns?: ConstructorParameters<typeof WsHost>[0]["governedTurns"], identitySentinelDirectory?: string) {
   const db = createUiDb(":memory:");
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const authorization = testAuthorization(principal.id);
@@ -38,7 +41,7 @@ function setup(backendId = "claude", governedTurns?: ConstructorParameters<typeo
   const catalog = createSessionCatalog(() => db);
   const frames: ServerMessage[] = [];
   const ws = { send: (data: string) => { frames.push(JSON.parse(data)); } };
-  const host = new WsHost({ brainPath: process.cwd(), registry: createStaticBackendRegistry([backend], backend.id), catalog, governedTurns,
+  const host = new WsHost({ identitySentinelDirectory, brainPath: process.cwd(), registry: createStaticBackendRegistry([backend], backend.id), catalog, governedTurns,
     activity: { store, stream: { pump() {} } as never, runtime } });
   host.clients.add(ws, principal.id);
   return { db, principal, authorization, store, runtime, backend, catalog, frames, ws, host, starts: () => starts,
@@ -196,4 +199,41 @@ describe("pre-initialization worker host gate", () => {
       expect((rejection as Error).message).toContain("missing, expired or revoked");
     } finally { f.cleanup(); }
   });
+});
+
+
+test("interactive, handoff and memory autonomous callers carry trusted probe placement before refusal", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "odysseus-turn-probe-"));
+  const previous = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+  process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = "/usr/bin/true";
+  const f = setup("claude", undefined, directory); unsupported();
+  try {
+    await runSession(f.host, { authorization: f.authorization, text: "Odysseus fixture", attachments: [] });
+    noRuntime(f);
+    f.catalog.persistSessionStub("source", "Odysseus fixture", "claude", "claude");
+    await prepareHandoff(f.host, f.ws, { type: "handoff_prepare", handoffId: "placement", sourceSessionId: "source", turns: 1 },
+      { authorization: f.authorization, principal: f.principal, closed: false } as ConnectionState);
+    const now = Date.now();
+    createInboxStore(f.db).ingest({ threadId: "odysseus", itemId: "odysseus", dedupKey: "odysseus", stagingId: "odysseus",
+      source: "share", stakes: 2, expiresAt: now + 86_400_000 });
+    const budget = createInboxBudget(f.db, { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0,
+      timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => ({ input: 0.003, output: 0.003,
+        cacheRead: 0.003, cacheWrite: 0.003, estimate: false, source: "snapshot" }) } });
+    budget.claim("odysseus", { runId: "placement", principalId: f.principal.id, model: "fixture",
+      billingMode: "subscription", purpose: "execute" }, now + 600_000);
+    const rejection = await runAutonomousTurn({ db: f.db, brainPath: process.cwd(), identitySentinelDirectory: directory,
+      backend: f.backend, store: f.store, runtime: f.runtime, checkpoint() {} },
+      { turnId: "placement", principalId: f.principal.id, prompt: "Odysseus fixture", allowedTools: [],
+        systemPromptAppend: "No effects", signal: new AbortController().signal }).catch(error => error as Error);
+    missingRequirement((rejection as Error).message);
+    expect(probe).toHaveBeenCalledTimes(3);
+    for (const [, options] of probe!.mock.calls) expect(options.identitySentinelDirectory, "TURN_CALLER_TRUSTED_PLACEMENT").toBe(directory);
+    expect(f.starts()).toBe(0);
+  } finally {
+    try { f.cleanup(); } finally {
+      if (previous === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+      else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = previous;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
 });
