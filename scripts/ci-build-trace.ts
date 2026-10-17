@@ -1,4 +1,6 @@
 /** Diagnostic observer for this build only; it grants no reuse authority. */
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 import { buildRead } from "./ci-build-files";
@@ -12,13 +14,31 @@ export function prepareBuildTrace(directory: string) {
     writeFileSync(join(source, path!), captured.bytes, { flag: "wx", mode }); chmodSync(join(source, path!), mode);
     records.push({ path: path!, sha256: digest(captured.bytes), mode });
   }
+  // Metadata-only preflight of the exact captured observer, before any build
+  // arm. No tracee is launched. Missing flags or outside-library fallbacks fail.
+  const inspect = (args: string[]) => {
+    const child = spawnSync(join(source, "loader"), ["--library-path", join(source, "lib"), ...args], { env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" }, timeout: 5_000, killSignal: "SIGKILL", maxBuffer: 1024 * 1024 });
+    assert(!child.error && child.status === 0, "CI_BUILD_CAPTURED_TRACE_METADATA_SUPPORTED"); return child.stdout.toString("utf8");
+  };
+  const listed = inspect(["--list", join(source, "strace")]), resolved = new Set<string>();
+  for (const line of listed.trim().split("\n").map(line => line.trim())) {
+    if (/^linux-vdso\.so\.1 \(0x[0-9a-f]+\)$/.test(line)) continue;
+    const match = /^(\S+) => (\S+) \(0x[0-9a-f]+\)$/.exec(line);
+    if (match?.[1] === "/lib64/ld-linux-x86-64.so.2" && match[2] === join(source, "loader")) continue;
+    assert(match && libraries.some(path => basename(path) === match[1]) && match[2] === join(source, "lib", match[1]!), "CI_BUILD_TRACE_LIBRARIES_ARE_CAPTURED");
+    resolved.add(match[1]!);
+  }
+  assert.equal(resolved.size, libraries.length, "CI_BUILD_COMPLETE_TRACE_LIBRARY_SET");
+  const help = inspect([join(source, "strace"), "--help"]);
+  for (const option of ["--kill-on-exit", "--syscall-limit=LIMIT", "--follow-forks", "--quiet", "--decode-fds=all", "--absolute-timestamps=unix,us", "--string-limit=STRSIZE", "--output=FILE", "%file", "%process", "%net", "%clock"]) assert(help.includes(option), "CI_BUILD_EXACT_TRACE_OPTIONS_SUPPORTED");
+  const preflight = { help: digest(help), libraries: [...resolved].sort(), vdso: "unqualified-kernel-input", inspectedCommand: "captured-loader-and-strace-help-only" };
   // The observer's loader applies its own library path only to strace. It is
   // not LD_LIBRARY_PATH inherited by Bun, Node or the actual compiler children.
   const command = ["/trace/loader", "--library-path", "/trace/lib", "/trace/strace", "--kill-on-exit", "-f", "-q", "--syscall-limit=1000000", "-yy", "-ttt", "-s", "256", "-o", "/repo/tmp/qualification-syscalls.log", "-e", "trace=%file,%process,%net,%clock,getrandom,uname,sysinfo,sched_getaffinity", "/bin/sh", "/tool/entry.sh"];
   const script = "#!/bin/sh\nset -eu\nulimit -f 524288\nexec " + command.map(arg => "'" + arg.replaceAll("'", "'\\''") + "'").join(" ") + "\n";
   writeFileSync(join(source, "observe.sh"), script, { flag: "wx", mode: 0o700 }); chmodSync(join(source, "observe.sh"), 0o700);
   records.push({ path: "observe.sh", sha256: digest(script), mode: 0o700 });
-  return { source, identity: identity(records), records, command: ["/bin/sh", "/trace/observe.sh"] };
+  return { source, identity: identity(records), records, preflight, command: ["/bin/sh", "/trace/observe.sh"] };
 }
 const pathCalls = new Set(["open", "openat", "openat2", "stat", "lstat", "newfstatat", "statx", "access", "faccessat", "faccessat2", "readlink", "readlinkat", "execve", "execveat", "chdir", "mkdir", "mkdirat", "unlink", "unlinkat", "rename", "renameat", "renameat2", "chmod", "fchmodat", "chown", "lchown", "utimensat"]);
 const ambientCalls = new Set(["clock_gettime", "clock_gettime64", "gettimeofday", "time", "getrandom", "uname", "sysinfo", "sched_getaffinity"]);

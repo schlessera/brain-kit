@@ -365,6 +365,8 @@ async function qualifyPrivateBuild(root: string): Promise<number> {
     // Validate the fixed offline consumer prerequisite before any expensive arm.
     const { prepareBuildConsumers } = await import("./ci-build-consumers");
     const consumerInputs = prepareBuildConsumers(root, directory);
+    const { prepareBuildTrace, classifyBuildTrace } = await import("./ci-build-trace");
+    const traceInputs = prepareBuildTrace(directory);
     const cold = await run("cold", { jobs: 1, force: true }); assert.equal(cold.compiled.length, 19); assert.equal(cold.reused.length, 0);
     const outputs = Object.fromEntries(source.packages.map(pkg => [pkg, identity(outputFiles(join(workspace, "packages", pkg, "dist")))]));
     const repeat = await run("unchanged"); assert.equal(repeat.compiled.length, 0, "CI_BUILD_UNCHANGED_HAS_NO_COMPILER_CHILDREN"); assert.equal(repeat.reused.length, 19);
@@ -430,8 +432,7 @@ async function qualifyPrivateBuild(root: string): Promise<number> {
     assert.equal(identity(outputFiles(join(workspace, "packages/ui-react/dist"))), outputs["ui-react"], "CI_BUILD_ORIGINAL_STYLESHEET_RESTORED");
     // Diagnostic modes use the same actual engine/boundary but cannot seed
     // either production or ordinary private-repeat receipts.
-    const { prepareBuildTrace, classifyBuildTrace } = await import("./ci-build-trace");
-    proof.trace = prepareBuildTrace(directory);
+    proof.trace = traceInputs;
     try { await run("diagnostic-trace", { jobs: 1, force: true }); } finally { delete proof.trace; }
     const traced = proof.results.at(-1), trace = classifyBuildTrace(buildRead(join(traced.artifactDirectory, "diagnostics/qualification-syscalls.log"), undefined, 256 * 1024 * 1024).bytes.toString("utf8"));
     for (const pkg of source.packages) assert.equal(traced.outputs[pkg], outputs[pkg], "CI_BUILD_TRACE_ARM_PRESERVES_OUTPUT");

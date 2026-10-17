@@ -113,3 +113,19 @@ cache and no install scripts. Before consumer imports, installed payload bytes
 must equal verified archived bytes. Missing cache artifacts, integrity or
 unsupported install shapes fail; they do not fall back to an online installer.
 Preparation does not change project dependencies or the workspace lock.
+
+The private packed-consumer policy supports physical hoisted package trees,
+including independently verified package-root dependencies. Hidden install
+stores such as `.bun`, package aliases, unknown sidecars and archive payload
+links are unsupported. Hidden package files and every bundled or vendor
+`node_modules` byte remain part of the verified archive payload; there is no
+blanket directory-name exclusion. Installed `.bin` aliases must resolve to
+verified bytes declared by a package manifest. This policy does not add direct
+dependencies or overrides to flatten the consumer graph.
+
+Consumer cache, archive extraction and installer scratch use the private
+disk-backed diagnostics mount. They do not enlarge the producer's `/tmp` tmpfs,
+memory allowance or deadline. The outer qualification harness must also
+kernel-isolate networking for ordinary fallback compiler children; the Docker
+producer boundary alone does not cover those host-side children. Registry
+prefill is a separate preparation step outside that proof harness.
