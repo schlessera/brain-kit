@@ -53,6 +53,18 @@ jobs:
             }
             process.exitCode=1;
           }
+          const original=readFileSync("scripts/diagram-export-installation.mjs","utf8");
+          const from="const hash=createHash(\"sha256\");let files";
+          const to="const records=[];const nativeHash=createHash(\"sha256\");const hash={update(value){records.push(JSON.parse(value));nativeHash.update(value);return this;},digest(...args){return nativeHash.digest(...args);}};let files";
+          if(!original.includes(from))throw Error("INSTALLATION_DIAGNOSTIC_SHAPE_CHANGED");
+          const observed=original.replace(from,to).replace("sha256:hash.digest(\"hex\")","sha256:hash.digest(\"hex\"),records");
+          await Bun.write("tmp/worker-installation-audit.mjs",observed);
+          const {diagramInstallationIdentity}=await import("./tmp/worker-installation-audit.mjs");
+          const installation=diagramInstallationIdentity(root);
+          const serialized=JSON.stringify(installation);
+          if(serialized.length>32*1024*1024)throw Error("INSTALLATION_DIAGNOSTIC_BOUND_EXCEEDED");
+          await Bun.write("tmp/worker-audit-installation.json",serialized);
+          console.log("INSTALLATION_DIAGNOSTIC_RECORDED "+JSON.stringify({sha256:installation.sha256,records:installation.records.length,bytes:serialized.length}));
           '
       - uses: actions/upload-artifact@v7
         if: always()
