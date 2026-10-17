@@ -105,7 +105,9 @@ function pinBindings(source: ts.SourceFile, name: string): ts.Node[] {
 }
 function pinConstant(source: ts.SourceFile, name: string, exported = false): ts.Expression {
   const competingExport = exported && source.statements.filter(ts.isExportDeclaration).some(statement =>
-    statement.exportClause && ts.isNamedExports(statement.exportClause) && statement.exportClause.elements.some(element => element.name.text === name));
+    statement.exportClause && (ts.isNamedExports(statement.exportClause)
+      ? statement.exportClause.elements.some(element => element.name.text === name)
+      : ts.isNamespaceExport(statement.exportClause) && statement.exportClause.name.text === name));
   const bindings = pinBindings(source, name);
   const declaration = bindings.length === 1 && ts.isVariableDeclaration(bindings[0]!) ? bindings[0]! : undefined;
   const list = declaration?.parent, statement = list?.parent;

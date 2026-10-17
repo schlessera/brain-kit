@@ -46,5 +46,10 @@ test("declared or installed version disagreement remains refused",async()=>{
 test("producer pin rejects explicit competing export aliases",()=>{
  for(const name of ["diagramProducerImage","diagramProducerImageIdentity"]){
   expect(()=>parseBrowserPin(runner,producer+`\nconst other="invalid"; export {other as ${name}};`)).toThrow(`exactly one static ${name} pin`);
+  expect(()=>parseBrowserPin(runner,producer+`\nexport * as ${name} from "./other.mjs";`)).toThrow(`exactly one static ${name} pin`);
  }
+});
+
+test("generic export-star does not replace the producer's explicit pin declarations",()=>{
+ expect(parseBrowserPin(runner,producer+'\nexport * from "./other.mjs";')).toEqual({image,playwright:"1.63.0"});
 });
