@@ -22,6 +22,30 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
   const partitions = balanceTests([...files], Math.min(2, files.length));
   const workers: { root: string; files: string[]; checkout: string }[] = [];
   let primaryFailure: unknown;
+  async function preserveReportsAndRemoveWorkers() {
+    // runCommands waits for stopped children. Preserve every partial report
+    // before removing only this invocation's clean, inactive worktrees.
+    const cleanupFailures: unknown[] = [];
+    for (const [index, worker] of workers.entries()) {
+      try {
+        for (const suffix of ["report.xml", "timings.json"]) {
+          const path = join(worker.root, `tmp/unit-${suffix}`);
+          if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
+        }
+        const workerTmp = join(worker.root, "tmp");
+        if (existsSync(workerTmp)) for (const name of readdirSync(workerTmp)) {
+          if (/^build-\d+-[0-9a-f-]{36}-probe\.json$/.test(name)) {
+            copyFileSync(join(workerTmp, name), join(reportDir, `unit-worker-${index + 1}-${name}`));
+          }
+        }
+      } catch (error) { cleanupFailures.push(error); }
+      try { git(root, "worktree", "remove", worker.root); } catch (error) { cleanupFailures.push(error); }
+    }
+    try { rmdirSync(container); } catch (error) { cleanupFailures.push(error); }
+    if (cleanupFailures.length) throw new AggregateError(primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
+      "Unit worker report preservation or cleanup failed");
+  }
+
   try {
     for (const [index, selected] of partitions.entries()) {
       const workspace = join(container, String(index + 1));
@@ -74,27 +98,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     await Bun.write(join(reportDir, "unit-report.xml"), xml);
     await Bun.write(join(reportDir, "unit-timings.json"), JSON.stringify(timings, null, 2));
   } catch (error) { primaryFailure = error; throw error; } finally {
-    // runCommands waits for stopped children. Preserve every partial report
-    // before removing only this invocation's clean, inactive worktrees.
-    const cleanupFailures: unknown[] = [];
-    for (const [index, worker] of workers.entries()) {
-      try {
-        for (const suffix of ["report.xml", "timings.json"]) {
-          const path = join(worker.root, `tmp/unit-${suffix}`);
-          if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
-        }
-        const workerTmp = join(worker.root, "tmp");
-        if (existsSync(workerTmp)) for (const name of readdirSync(workerTmp)) {
-          if (/^build-\d+-[0-9a-f-]{36}-probe\.json$/.test(name)) {
-            copyFileSync(join(workerTmp, name), join(reportDir, `unit-worker-${index + 1}-${name}`));
-          }
-        }
-      } catch (error) { cleanupFailures.push(error); }
-      try { git(root, "worktree", "remove", worker.root); } catch (error) { cleanupFailures.push(error); }
-    }
-    try { rmdirSync(container); } catch (error) { cleanupFailures.push(error); }
-    if (cleanupFailures.length) throw new AggregateError(primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
-      "Unit worker report preservation or cleanup failed");
+    await preserveReportsAndRemoveWorkers();
   }
 }
 
