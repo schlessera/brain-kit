@@ -1436,8 +1436,10 @@ transaction, read-only flag, parent UUID and filesystem ID to the actual
 checkpoint receipt. The lexical checkpoint must still identify the held root
 before each dispatch. The existing native output preparation independently
 binds the worker's stage to the same checkpoint UUID. Forged/closed views,
-replacement subvolumes and closed/reused descriptors refuse; a descriptor
-whose number was reused by unrelated host work is not closed as owned state.
+replacement subvolumes and closed/reused descriptors refuse. The foreign-object
+reuse control preserves the unrelated descriptor when its device/inode differs
+from the retained checkpoint; it does not establish descriptor provenance for
+another handle reopened to the same inode.
 Checkpoint descendants and mutable managed inputs retain their normal alias,
 content and kernel-event checks. No inaccessible lexical ancestor receives a
 general trust exception.
