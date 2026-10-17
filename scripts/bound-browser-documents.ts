@@ -103,7 +103,7 @@ const declarations:DocumentDeclaration[]=[{
 {
   "command": "diagramRasterComparison",
   "owner": "packages/ui-react/tests/browser/diagram-export-command.ts",
-  "ownerHash": "f65c2316973e5e6ee276deda2f02a2b81d22e28ded653f9b1703108dba51db37",
+  "ownerHash": "0709672bae97566093473c1a9af5b307091aa9fcbe1b022436351268a6c1cb42",
   "caller": "packages/ui-react/tests/browser/diagrams-export.layout.tsx",
   "callerHash": "2730c38d2b808280c8798cc33adceee54f3c3b7e0a6beff2d2066552d8fceb9f",
   "calls": 3,

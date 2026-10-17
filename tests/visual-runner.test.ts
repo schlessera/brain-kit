@@ -21,10 +21,15 @@ async function invoke(args: string[], exit = 0) {
     await mkdir(resolve(root, path), { recursive: true });
   }
   // Run the real source preparer as well as the wrapper. Its tiny tracked
-  // fixture owns every Git/configuration input; no native export is simulated.
+  // fixture owns every Git/configuration input. Docker below records routing;
+  // actual native exports have separate pinned-container runtime proof.
   for (const file of [...diagramSourceSetup, ...diagramSourceDomains.map(name => `packages/${name}/package.json`)]) {
     await mkdir(dirname(resolve(root, file)), { recursive: true });
     await copyFile(resolve(import.meta.dir, "..", file), resolve(root, file));
+  }
+  for (const domain of diagramSourceDomains) {
+    const manifest = JSON.parse(await readFile(resolve(root, `packages/${domain}/package.json`), "utf8"));
+    const alias = resolve(root, "node_modules", manifest.name);await mkdir(dirname(alias), {recursive:true});await symlink(resolve(root, "packages", domain), alias);
   }
   const git = Bun.which("git");
   if (!git) throw new Error("visual runner source preparation requires Git");
@@ -52,7 +57,6 @@ async function invoke(args: string[], exit = 0) {
     const docker = command === "docker" ? `
       import { spawnSync } from "node:child_process";
       import { dirname, resolve } from "node:path";
-import { diagramSourceSetup, diagramSourceDomains } from "../scripts/diagram-export-source.mjs";
       const argv = process.argv.slice(2);
       const image = argv.findIndex((arg) => arg.startsWith("mcr.microsoft.com/playwright:"));
       if (image < 0 || argv[image + 1] !== "node" || argv[image + 2] !== "scripts/visual.mjs") process.exit(91);
@@ -60,7 +64,18 @@ import { diagramSourceSetup, diagramSourceDomains } from "../scripts/diagram-exp
         [resolve(process.env.RUNNER_ROOT, "scripts/visual.mjs"), ...argv.slice(image + 3)],
         {env: process.env, stdio: "inherit"});
       process.exit(child.status ?? 92);` : "";
-    await writeFile(script, `#!${node}\n` + record.replace("COMMAND", JSON.stringify(command)) + docker);
+    const nativeRouting = command === "docker" ? `
+      import {mkdirSync,writeFileSync} from "node:fs";
+      import {join} from "node:path";
+      const nativeArgs=process.argv.slice(2);
+      if(nativeArgs[0]==="image"){console.log("sha256:"+"a".repeat(64));process.exit(0);}
+      if(nativeArgs.includes("sha256:"+"a".repeat(64))){
+        const mount=nativeArgs.find(value=>value.endsWith(":/proof"));const output=mount.slice(0,-7);mkdirSync(output,{recursive:true});
+        for(const format of ["svg","png","pdf"])writeFileSync(join(output,"release."+format),"owned wrapper routing output");
+        console.log("[]");process.exit(0);
+      }
+    ` : "";
+    await writeFile(script, `#!${node}\n` + nativeRouting + record.replace("COMMAND", JSON.stringify(command)) + docker);
     await chmod(script, 0o755);
   }
   const child = Bun.spawn([node!, resolve(root, "scripts/visual.mjs"), ...args], {

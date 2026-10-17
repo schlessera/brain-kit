@@ -40,7 +40,7 @@ async function wrapper(...args: string[]) {
     await mkdir(resolve(root, "node_modules/vitest"), { recursive: true });
     await copyFile(resolve(import.meta.dir, "../scripts/visual.mjs"), resolve(root, "scripts/visual.mjs"));
     await copyFile(resolve(import.meta.dir, "../scripts/workspace-lease.mjs"), resolve(root, "scripts/workspace-lease.mjs"));
-    for (const file of ["prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs"])
+    for (const file of ["prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"])
       await copyFile(resolve(import.meta.dir, "../scripts", file), resolve(root, "scripts", file));
     await writeFile(resolve(root, "node_modules/vitest/vitest.mjs"), "console.log(JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd()}));\n");
     const result = Bun.spawnSync(["node", resolve(root, "scripts/visual.mjs"), "--inside", ...args], {

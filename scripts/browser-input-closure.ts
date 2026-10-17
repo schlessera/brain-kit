@@ -97,7 +97,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
       for (const entry of readdirSync(absolute).sort()) visit(normalized ? `${normalized}/${entry}` : entry, scanOnly, sourceOnly);
       return;
     }
-    if (scanOnly) return; // Tailwind scans bytes; it does not execute/import scanned source.
+    if (scanOnly) return; // Byte inventories: Tailwind text or exact mount-bound native inputs.
     if (file.endsWith(".css")) {
       const css = cssInputs(readFileSync(absolute, "utf8"));
       const uses = new Set<string>();

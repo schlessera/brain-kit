@@ -14,7 +14,7 @@ test("fixed native qualification binds all owned source, importers, caller and i
  mkdirSync(join(root,"node_modules"));
  for(const top of readdirSync(join(repo,"node_modules"))){if(top.startsWith("."))continue;const names=top.startsWith("@")?readdirSync(join(repo,"node_modules",top)).map(name=>`${top}/${name}`):[top];for(const name of names){if(name.startsWith("@schlessera/"))continue;const target=join(root,"node_modules",name);mkdirSync(dirname(target),{recursive:true});symlinkSync(realpathSync(join(repo,"node_modules",name)),target,"dir");}}
  const importers=new Map([[owner,new Set([caller])]]),bind=()=>nativeDiagramInputs(root,[owner,caller],importers);
- expect(bind()?.files.length,"COMPLETE_NATIVE_SOURCE_AND_INSTALLATION_QUALIFICATION").toBe(849);
+ expect(bind()?.files.length,"COMPLETE_NATIVE_SOURCE_AND_INSTALLATION_QUALIFICATION").toBe(853);
  importers.get(owner)!.add("new-caller.ts");expect(bind()).toBeUndefined();importers.get(owner)!.delete("new-caller.ts");
  const original=readFileSync(join(root,owner));writeFileSync(join(root,owner),original.toString()+"\n// changed native operation\n");expect(bind()).toBeUndefined();writeFileSync(join(root,owner),original);
  const added="packages/core/src/unused-native-probe.ts";writeFileSync(join(root,added),"export const Odysseus=1;");expect(bind(),"NATIVE_SOURCE_ADDITION_REQUIRES_REQUALIFICATION").toBeUndefined();rmSync(join(root,added));

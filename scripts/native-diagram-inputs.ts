@@ -1,19 +1,21 @@
-/** One fixed native SVG/PNG/PDF operation; drift keeps complete fresh proof. */
+/** One fixed mount-bound native SVG/PNG/PDF operation; drift keeps fresh proof. */
 import {createHash} from "node:crypto";
 import {existsSync,lstatSync,readFileSync,readdirSync,realpathSync} from "node:fs";
 import {join,resolve} from "node:path";
 import {diagramSourceDomains,diagramSourceSetup,diagramSourceIdentity} from "./diagram-export-source.mjs";
 import {diagramInstallationIdentity} from "./diagram-export-installation.mjs";
+import {diagramProducerRuntime} from "./diagram-export-producer.mjs";
 import type {BrowserImporters} from "./bound-browser-runtime-inputs";
-export interface NativeDiagramIdentity {source:string;installation:string;}
+export interface NativeDiagramIdentity {source:string;installation:string;runtime:string;}
 // Candidate qualification is exact: all source/installation drift requires fresh
-// execution and requalification; generated roots never select existing data.
-const qualified:NativeDiagramIdentity={source:"44f113e83e053361071d2bd10aff6b340c88c126f685c200ce27b57969e1e947",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
+// execution and requalification. The separate Docker mount boundary closes
+// active initialization/shared-library reads; byte hashes alone do not.
+const qualified:Omit<NativeDiagramIdentity,"runtime">={source:"66f531f9da79309053d35ccea1b42a2ecd3830c53fdff55dd1b663df46848fbf",installation:"2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05"};
 const caller="packages/ui-kit/vitest.config.ts",owner="packages/ui-react/tests/browser/diagram-export-command.ts";
 const sourcePins:Record<string,string>={
   "packages/ui-kit/vitest.config.ts": "e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db",
-  "packages/ui-react/tests/browser/diagram-export-command.ts": "f65c2316973e5e6ee276deda2f02a2b81d22e28ded653f9b1703108dba51db37",
-  "scripts/ci-proof.ts": "9107b355e0402ebdb2f3a8bc737b1cb803a56dc9cc03c0601f5e365e9030219b"
+  "packages/ui-react/tests/browser/diagram-export-command.ts": "0709672bae97566093473c1a9af5b307091aa9fcbe1b022436351268a6c1cb42",
+  "scripts/ci-proof.ts": "dec94a5b3af083feb1b167afc93bdea79f520facd77dfbc7ff08d5d582a3a7ca"
 };
 /** The same complete source family the trusted host preparer enumerates. */
 export function nativeDiagramSourceInventory(root:string){
@@ -32,14 +34,27 @@ export function nativeDiagramInputs(root:string,files:readonly string[],importer
  if(!qualified.source||!qualified.installation||![caller,owner].every(path=>files.includes(path))||[...(importers.get(owner)??[])].some(path=>path!==caller))return;
  try{
   for(const[path,hash]of Object.entries(sourcePins)){const absolute=resolve(root,path);if(!existsSync(absolute)||realpathSync(absolute)!==absolute||createHash("sha256").update(readFileSync(absolute)).digest("hex")!==hash)return;}
-  const source=nativeDiagramSourceInventory(root),installation=diagramInstallationIdentity(root);
+  const source=nativeDiagramSourceInventory(root),installation=diagramInstallationIdentity(root),runtime=diagramProducerRuntime();
   if(source.sha256!==qualified.source||installation.sha256!==qualified.installation)return;
   const sites=new Map<string,Set<string>>([
    [owner,new Set([
-    'readFileSync(resolve(directory,"release.svg"),"utf8")','readFileSync(resolve(directory,"release.png"))',
-    'page.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0}svg{display:block}</style></head><body>${svg}</body></html>`)',
-    'spawn("/usr/local/bin/bun",["--preload",resolve(producer,"scripts/test-network-child-preload.ts"),"--preload",resolve(producer,"packages/module-diagrams/tests/fixtures/export-native-boundary.ts"),resolve(producer,"packages/module-diagrams/tests/fixtures/export-artifact-probe.ts"),directory],{cwd:producer,env:{PATH:"/usr/local/bin:/usr/bin:/bin",LANG:"C.UTF-8",TZ:"UTC",HOME:home,TMPDIR:temp,PUPPETEER_EXECUTABLE_PATH:chromium.executablePath()},stdio:["ignore","pipe","pipe"]})'
-   ])],
+    "readFileSync(resolve(prepared,\"producer.json\"),\"utf8\")",
+    "readFileSync(resolve(prepared,name))",
+    "readFileSync(resolve(directory,\"release.svg\"),\"utf8\")",
+    "readFileSync(resolve(directory,\"release.png\"))",
+    "page.setContent(`<!doctype html><html><head><meta charset=\"utf-8\"><style>html,body{margin:0}svg{display:block}</style></head><body>${svg}</body></html>`)"
+])],
+   ["scripts/diagram-export-producer.mjs",new Set([
+    "accessSync(path,constants.X_OK)",
+    "statSync(path)",
+    "spawnSync(\"docker\",[\"image\",\"inspect\",\"--format\",\"{{.Id}}\",diagramProducerImage],{encoding:\"utf8\"})",
+    "readFileSync(executable)",
+    "readFileSync(join(repo,\"tmp/diagram-export-source.json\"),\"utf8\")",
+    "readdirSync(join(repo,\"node_modules\"))",
+    "readdirSync(join(repo,\"node_modules\",top))",
+    "spawnSync(\"docker\",[\"run\",\"--rm\",\"--pull=never\",\"--read-only\",\"--network=none\",\"--shm-size=256m\",\"--user\",`${process.getuid()}:${process.getgid()}`,\"--tmpfs\",\"/tmp:rw,exec,nosuid,nodev,mode=1777\",\"-v\",`${source}:${source}:ro`,\"-v\",`${modules}:${join(repo,\"node_modules\")}:ro`,\"-v\",`${runtime.executable}:/usr/local/bin/bun:ro`,\"-v\",`${output}:/proof`,\"-w\",source,\"-e\",\"HOME=/tmp/home\",runtime.image,\"/usr/local/bin/bun\",\"-e\",program],{encoding:\"utf8\",maxBuffer:4*1024*1024})",
+    "readFileSync(join(output,name))"
+])],
    ["scripts/diagram-export-source.mjs",new Set([
     'readFileSync(archivePath(repo))','existsSync(target)','lstatSync(source)','readFileSync(source)',
     'readFileSync(join(target,"packages",name,"package.json"),"utf8")','existsSync(installed)',
@@ -50,6 +65,6 @@ export function nativeDiagramInputs(root:string,files:readonly string[],importer
     'readdirSync(join(repo,"node_modules"))','readdirSync(join(repo,"node_modules",top))','readFileSync(join(base,"package.json"),"utf8")'
    ])]
   ]);
-  return{identity:{source:source.sha256,installation:installation.sha256},files:source.inputs.map(entry=>entry.path),sites};
+  return{identity:{source:source.sha256,installation:installation.sha256,runtime:runtime.sha256},files:source.inputs.map(entry=>entry.path),sites};
  }catch{return;}
 }

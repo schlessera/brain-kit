@@ -46,6 +46,7 @@ import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 import { prepareDiagramExportSource } from "./prepare-diagram-export-source.mjs";
+import { prepareDiagramNativeArtifacts } from "./diagram-export-producer.mjs";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
  * pinned offline browser image used by local proof, and D10. */
@@ -136,8 +137,11 @@ const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resol
 if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
 const scratch = tmpdir();
 // Each native invocation materializes these tracked inputs in its own state.
-if (projects.some(project => project.startsWith("diagrams-")))
+let nativePrepared;
+if (projects.some(project => project.startsWith("diagrams-"))) {
   prepareDiagramExportSource(REPO, argv.includes("--proof-report"), process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS ? JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS) : undefined);
+  nativePrepared = prepareDiagramNativeArtifacts(REPO, projects, process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS ? JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS) : undefined);
+}
 // Worktree .git indirection points outside the container mount. Capture on the
 // host and check again after exit; the reporter must not guess an identity.
 const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
@@ -165,6 +169,7 @@ const status = run("docker", [
   "HOME=/tmp",
   ...(proofCheckout ? ["-e", `BRAIN_PROOF_CASE_CHECKOUT=${proofCheckout}`,
     "-e", "BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS", "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
+  ...(nativePrepared ? ["-e", `BRAIN_NATIVE_DIAGRAM_PREPARED=${nativePrepared}`] : []),
   IMAGE,
   "node",
   "scripts/visual.mjs",

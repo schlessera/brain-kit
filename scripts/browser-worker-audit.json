@@ -1,20 +1,21 @@
 {
   "version": 2,
   "category": "browser",
-  "identity": "2d2e170d38c692701c89646ad0cc065fe5dfe1ce50f8136f9101b1bb39819d95",
+  "identity": "af237f6d2941e1366fdee2e36ec39d77914b3d8b3f33d44b9c572494156fee56",
   "enforcement": "Earliest selected-project setup; afterEach plus outer aroundAll finally covers returned and file-fixture cleanup. Fresh registered job success remains mandatory.",
   "sourceAudit": {
     "version": 1,
-    "base": "da32703b519df3c04e535640bed85772746a31c6",
+    "base": "41a00e0ab38937d752d320e932ba240bf2a19770",
     "selected": 307,
-    "files": 2276,
-    "scope": "Complete 307-pair selected source/import/configuration/command inventory, including the fixed native SVG/PNG/PDF producer. All six source families, actual installed package bytes/modes/alias origins, native entry/configuration/core-dispatch guards and exact generated SVG/reference consumers join current identity. Imported initialization and shared helpers remain active. Exact source or installation drift makes the native binding unavailable. All resource/Worker guards and complete fresh same-PR two-shard plus whole-workflow success remain mandatory; metadata is not passing proof. Historical observations retain their own scope and source.",
+    "files": 2280,
+    "scope": "Complete 307-pair selected source/import/configuration/command inventory, including the separate network-disabled read-only-root native Docker producer. All six source families and preparation inputs, copied external installation membership/bytes/modes/internal aliases, actual immutable image ID and mounted Bun bytes join current identity. The producer mounts only private source/install/Bun and initially empty owned output; HOME/tmp/shared-memory are fresh container filesystems. Host checkout/state mount counterfactuals fail the named absent-data assertions. Imported initialization and shared helpers remain active inside this finite filesystem boundary. Fresh per-launch output session, artifact hashes, exact native entry/configuration/core-dispatch guards and original generated SVG/reference consumers remain enforced. Source or installation drift makes the binding unavailable; runtime drift changes its fingerprint. All resource/Worker guards, complete fresh same-PR two-shard proof and whole-workflow success remain mandatory. Metadata is not passing proof; historical observations retain their scope and source.",
     "native": {
-      "source": "44f113e83e053361071d2bd10aff6b340c88c126f685c200ce27b57969e1e947",
+      "source": "66f531f9da79309053d35ccea1b42a2ecd3830c53fdff55dd1b663df46848fbf",
       "installation": "2357aba0ba81c9d7e91f5906708c13a9c5f71c931f70022a078100c60b496f05",
-      "trackedInputs": 849,
+      "trackedInputs": 853,
       "packages": 843,
-      "installedBytes": 1833832361
+      "installedBytes": 1833832361,
+      "runtime": "f1624cf02fb647bcdc01e4143d32c409d4f29e43ffd289ed6a6b7495ff8e2201"
     }
   },
   "historicalDiagnostic": {

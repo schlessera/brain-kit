@@ -9,6 +9,7 @@ import type { CheckPlan } from "./ci-plan";
 import { balanceTests, discoverTests } from "./test-shards";
 import { resolveBrowserPin } from "./captures/provenance";
 import { diagramInstallationIdentity } from "./diagram-export-installation.mjs";
+import { diagramProducerRuntime } from "./diagram-export-producer.mjs";
 import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable, type Inputs } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
@@ -159,7 +160,7 @@ if (import.meta.main) {
         await Bun.write(join(root, "tmp/unit-report-summary.json"), JSON.stringify({ checkout: { sha, tree, parents }, shard, unitWorkers, ...report }, null, 2));
       }
       if (inputs) {
-        if(inputs.nativeDiagram&&diagramInstallationIdentity(root).sha256!==inputs.nativeDiagram.installation)throw Error("Native diagram installed inputs changed during reusable execution");
+        if(inputs.nativeDiagram&&(diagramInstallationIdentity(root).sha256!==inputs.nativeDiagram.installation||diagramProducerRuntime().sha256!==inputs.nativeDiagram.runtime))throw Error("Native diagram installed or runtime inputs changed during reusable execution");
         if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Reusable execution changed tracked inputs");
         console.log(RECEIPT_MARKER + JSON.stringify({ version: 1, category, shard, checkout: checkout(root), inputs }));
       }

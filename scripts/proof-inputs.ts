@@ -10,7 +10,7 @@ export interface Checkout { sha: string; tree: string; parents: string[]; }
 export interface Inputs {
   version: 2; category: Reusable; fingerprint: string; runner: string;
   inventory: Spec[]; partitions: string[][]; excluded: string[];
-  nativeDiagram?:{source:string;installation:string};
+  nativeDiagram?:{source:string;installation:string;runtime:string};
 }
 export function git(root: string, ...args: string[]): string {
   const p = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
