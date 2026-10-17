@@ -70,26 +70,31 @@ for (const kind of ["zero-attribute", "zero-directory", "attribute-alias", "fore
   if (kind === "zero-attribute") await worker(String.raw`import os;p=${JSON.stringify(brain)}+"/private/.gitattributes";os.unlink(p);open(p,"w").write("*.md odysseus=ithaca\n");os.chmod(p,0)`);
   if (kind === "zero-directory") await worker(String.raw`import os;os.mkdir(${JSON.stringify(brain)}+"/odysseus-unknown",0)`);
   if (kind === "attribute-alias") await worker(String.raw`import os;os.symlink("private/.gitattributes",${JSON.stringify(brain)}+"/.gitattributes")`);
-  const view = await prepareNativeWorkerStartupView(brain, manager), outputs = await prepareMaintenanceOutput(brain, { startupView: view });
-  const descriptor = Object.getOwnPropertyDescriptor(outputs.view, "root")!, spawnDescriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!, spawn = Bun.spawn;
-  const command = base(); let changed = false, consumer = false;
+  const view = await prepareNativeWorkerStartupView(brain, manager);
   try {
-    if (kind === "foreign-root") Object.defineProperty(outputs.view, "root", { ...descriptor, value: "/tmp" });
-    if (kind === "closed") await outputs.cleanup();
-    if (kind === "changed-context") Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]) => {
-      const options = Array.isArray(args[0]) ? args[1] : args[0], launch = options?.env?.BRAIN_WORKER_LAUNCH;
-      const payload = launch ? JSON.parse(launch) : undefined;
-      if (payload?.command?.some((part: string) => part.includes("maintenance-git-entry"))) consumer = true;
-      const result = Reflect.apply(spawn, Bun, args);
-      if (payload?.command?.some((part: string) => part.includes("maintenance-git-source"))) { command.command = ["/bin/false"]; changed = true; }
-      return result;
-    } });
-    await expect(prepareMaintenanceGit(command, outputs), `PRIVATE_GIT_INPUT_REFUSED_${kind}`).rejects.toThrow();
-    if (kind === "changed-context") { expect(changed, "PRIVATE_GIT_CONTEXT_MUTATION_EXECUTED").toBe(true); expect(consumer, "PRIVATE_GIT_NO_CONSUMER_AFTER_CONTEXT_CHANGE").toBe(false); }
-    console.log(JSON.stringify({ actualPrivateGitInputRefusal: kind }));
+    const outputs = await prepareMaintenanceOutput(brain, { startupView: view });
+    const descriptor = Object.getOwnPropertyDescriptor(outputs.view, "root")!, spawnDescriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!, spawn = Bun.spawn;
+    const command = base(); let changed = false, consumer = false;
+    try {
+      if (kind === "foreign-root") Object.defineProperty(outputs.view, "root", { ...descriptor, value: "/tmp" });
+      if (kind === "closed") await outputs.cleanup();
+      if (kind === "changed-context") Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]) => {
+        const options = Array.isArray(args[0]) ? args[1] : args[0], launch = options?.env?.BRAIN_WORKER_LAUNCH;
+        const payload = launch ? JSON.parse(launch) : undefined;
+        if (payload?.command?.some((part: string) => part.includes("maintenance-git-entry"))) consumer = true;
+        const result = Reflect.apply(spawn, Bun, args);
+        if (payload?.command?.some((part: string) => part.includes("maintenance-git-source"))) { command.command = ["/bin/false"]; changed = true; }
+        return result;
+      } });
+      await expect(prepareMaintenanceGit(command, outputs), `PRIVATE_GIT_INPUT_REFUSED_${kind}`).rejects.toThrow();
+      if (kind === "changed-context") { expect(changed, "PRIVATE_GIT_CONTEXT_MUTATION_EXECUTED").toBe(true); expect(consumer, "PRIVATE_GIT_NO_CONSUMER_AFTER_CONTEXT_CHANGE").toBe(false); }
+      console.log(JSON.stringify({ actualPrivateGitInputRefusal: kind }));
+    } finally {
+      Object.defineProperty(Bun, "spawn", spawnDescriptor); Object.defineProperty(outputs.view, "root", descriptor);
+      await outputs.cleanup();
+    }
   } finally {
-    Object.defineProperty(Bun, "spawn", spawnDescriptor); Object.defineProperty(outputs.view, "root", descriptor);
-    try { await outputs.cleanup(); } finally { await view.cleanup(); }
+    await view.cleanup();
     if (kind === "zero-attribute") await worker(String.raw`import os;p=${JSON.stringify(brain)}+"/private/.gitattributes";os.unlink(p);open(p,"w").write("*.md odysseus=ithaca\n");os.chmod(p,0o600)`);
     if (kind === "zero-directory") await worker(String.raw`import os;os.rmdir(${JSON.stringify(brain)}+"/odysseus-unknown")`);
     if (kind === "attribute-alias") await worker(String.raw`import os;os.unlink(${JSON.stringify(brain)}+"/.gitattributes")`);
