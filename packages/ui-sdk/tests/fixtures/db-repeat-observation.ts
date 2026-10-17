@@ -49,6 +49,8 @@ export function installDbRepeatObservation() {
     complete() {
       current();
       if (!firstPublished || !secondPublished || active || observed.length !== 2) throw Error("DB_REPEAT_TWO_PUBLISHED_INDEXES_REQUIRED");
+      console.log(JSON.stringify({ dbRepeatPhysicalObservation: { physicalStages: observed.map(receipt => ({ ...receipt })),
+        checkpointEqual: observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical, stageEqual: observed[0]!.stagePhysical === observed[1]!.stagePhysical } }));
       if (observed[0]!.checkpointPhysical === observed[1]!.checkpointPhysical || observed[0]!.stagePhysical === observed[1]!.stagePhysical) throw Error("DB_REPEAT_DISTINCT_PHYSICAL_IDENTITIES_REQUIRED");
       return observed.map(receipt => ({ ...receipt }));
     },

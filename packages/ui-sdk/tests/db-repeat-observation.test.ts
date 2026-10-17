@@ -69,11 +69,19 @@ test("real second loopback HTTP request follows first publication and retains di
 test("different path/ordinal IDs cannot replace distinct physical checkpoint and stage facts", () => {
   for (const reused of ["sameStage", "sameCheckpoint", "sameStageDifferentOwner"] as const) {
     const f = fixture(), observation = installDbRepeatObservation();
+    const logDescriptor = Object.getOwnPropertyDescriptor(console, "log")!, diagnostic: string[] = [];
     try {
+      Object.defineProperty(console, "log", { ...logDescriptor, value: (line: string) => { diagnostic.push(line); } });
       observation.begin(1); observation.observe(f.physical(1)); observation.published(1, 200, { success: true });
       observation.begin(2); observation.observe(f.physical(2, reused === "sameStageDifferentOwner" ? { sameStage: true, differentOwner: true } : { [reused]: true })); observation.published(2, 200, { success: true });
       expect(() => observation.complete(), reused === "sameStageDifferentOwner" ? "DB_REPEAT_DIFFERENT_OWNER_SAME_INODE_REFUSES" : reused).toThrow("DB_REPEAT_DISTINCT_PHYSICAL_IDENTITIES_REQUIRED");
-    } finally { try { observation.restore(); } finally { f.cleanup(); } }
+      expect(diagnostic.length, "DB_REPEAT_FAILURE_OBSERVATIONS_RETAINED").toBe(1);
+      const receipt = JSON.parse(diagnostic[0]!).dbRepeatPhysicalObservation;
+      expect(receipt.physicalStages).toHaveLength(2);
+      expect(receipt.checkpointEqual).toBe(reused === "sameCheckpoint");
+      expect(receipt.stageEqual).toBe(reused !== "sameCheckpoint");
+      expect(JSON.stringify(receipt)).not.toContain("namespacePid"); expect(JSON.stringify(receipt)).not.toContain("/proc/");
+    } finally { try { Object.defineProperty(console, "log", logDescriptor); } finally { try { observation.restore(); } finally { f.cleanup(); } } }
   }
 });
 
