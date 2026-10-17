@@ -1,6 +1,6 @@
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
-import { lstatSync, mkdirSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, statSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createApp } from "../../../ui-server/src/app.js";
 import { resolveServerConfig } from "../../../ui-server/src/config/env.js";
@@ -58,6 +58,20 @@ Object.defineProperty(Bun, "spawn", { ...spawnDescriptor, value: (...args: any[]
   }
   return Reflect.apply(spawn, Bun, args);
 } });
+// Local diagnostic artifact only: fixed disposable fixture root, no contents or recursion.
+function recordFixtureRootMetadata(phase: "before-app" | "after-app") {
+  if (!sharedGit) return;
+  const names = readdirSync("/brain-fixture/brain");
+  if (names.length > 512) throw Error("FIXTURE_ROOT_METADATA_ENTRY_BOUND");
+  const entries = names.sort().map(name => {
+    const info = lstatSync(join("/brain-fixture/brain", name));
+    return { name, uid: info.uid, gid: info.gid, mode: info.mode & 0o7777, dev: String(info.dev), ino: String(info.ino),
+      type: info.isDirectory() ? "directory" : info.isFile() ? "file" : info.isSymbolicLink() ? "symlink" : "other" };
+  });
+  const receipt = JSON.stringify({ localFixtureRootMetadata: { phase, entries } });
+  if (Buffer.byteLength(receipt) > 65536) throw Error("FIXTURE_ROOT_METADATA_BYTE_BOUND");
+  console.log(receipt);
+}
 async function until(check: () => boolean, label: string) {
   const deadline = Date.now() + 30000;
   while (!check()) { if (Date.now() > deadline) throw Error(label); await Bun.sleep(10); }
@@ -71,6 +85,7 @@ try {
     const { captureMaintenanceStage } = await import("../maintenance-stage-provenance.native.js");
     await captureMaintenanceStage(brain);
   }
+  recordFixtureRootMetadata("before-app");
   app = await createApp({ workerProfile: profile, config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: secret,
     HOST: "127.0.0.1", DB_PATH: join(data, "ui.db"), BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: "claude",
     BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", BRAIN_UI_TURN_TIMEOUT_MS: "30000",
@@ -108,6 +123,7 @@ try {
   const unavailable = observability.logs.records().filter(log => String(log.body).includes("the governed profile is unavailable"));
   expect(unavailable, "ACTUAL_MANAGED_GOVERNED_MAINTENANCE_STAGE_READY").toEqual([]);
 } finally { try { socket?.close(); server?.stop(true); await app?.close();
+  recordFixtureRootMetadata("after-app");
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   provider.stop(true);
   if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),
