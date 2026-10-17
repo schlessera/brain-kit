@@ -1,4 +1,5 @@
 /** Exact reader/default/verified-data bindings under a complete runner inventory. */
+import {resolveRuntimeModule} from "./runtime-module-resolution";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -44,7 +45,7 @@ const declarations = [
   "owner": "packages/module-diagrams/src/fonts.ts",
   "caller": "packages/ui-react/tests/browser/diagram-export-command.ts",
   "ownerHash": "e575dbabbaa452f22389e61770b02200e78b965018f61662573f985024801419",
-  "callerHash": "b843768923dac96fc7a4c49042e1f1a36bd7bc53744545f381044f6d72a3e779",
+  "callerHash": "a1533cf6b257b92344c4f388d570f74b38e221e7c1e7517756a742f0d5060164",
   "data": {
     "packages/module-diagrams/assets/fonts/2.ttf": "44ce4a84f20d60f24539bd0cef11f79c29e38609e0f8adf18551c9794a5d9dc3",
     "packages/module-diagrams/assets/fonts/4.ttf": "df54dbfafba61d4911eb3dab9bba2d20531fb009f01d64dd42fa96ab862584d8",
@@ -75,7 +76,7 @@ export function browserImporters(root:string,files:readonly string[]):BrowserImp
     if(!/\.[cm]?[jt]sx?$/.test(file))continue;
     const source=ts.createSourceFile(file,readFileSync(join(root,file),"utf8"),ts.ScriptTarget.Latest,true);
     const edge=(specifier:string)=>{
-      const target=ts.resolveModuleName(specifier,join(root,file),options,ts.sys).resolvedModule?.resolvedFileName;
+      const target=resolveRuntimeModule(specifier,join(root,file),options)?.resolvedFileName;
       if(!target)return;const normalized=relative(root,target).replaceAll("\\","/");
       const sources=result.get(normalized)??new Set<string>();sources.add(file);result.set(normalized,sources);
     };

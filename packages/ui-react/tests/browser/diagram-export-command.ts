@@ -4,6 +4,7 @@ import {diagramFontCss} from "../../../module-diagrams/src/fonts.ts";
 import {readFileSync,writeFileSync,mkdirSync,mkdtempSync,rmSync} from "node:fs";
 import {spawn} from "node:child_process";
 import {resolve,join} from "node:path";
+import {materializeDiagramExportSource} from "../../../../scripts/diagram-export-source.mjs";
 import {zeroRequestReplay} from "../../../ui-kit/tests/visual/zero-request-replay.ts";
 import {chromium} from "playwright";
 import type {BrowserCommand} from "vitest/node";
@@ -15,9 +16,12 @@ export const diagramArtifact:BrowserCommand<[],unknown>=async(ctx)=>{
  const directory=mkdtempSync(join(base,"native-")),state=mkdtempSync("/tmp/odysseus-export-");
  const home=join(state,"home"),temp=join(state,"tmp");mkdirSync(home);mkdirSync(temp);
  try{
+ const checkout=process.env.BRAIN_PROOF_CASE_CHECKOUT?JSON.parse(process.env.BRAIN_PROOF_CASE_CHECKOUT).sha:undefined;
+ if(process.env.BRAIN_PROOF_CASE_CHECKOUT!==undefined)assert(typeof checkout==="string"&&/^[0-9a-f]{40}$/.test(checkout),"NATIVE_EXPORT_ACTUAL_CHECKOUT");
+ const producer=materializeDiagramExportSource(repo,state,checkout);
  // The pinned browser launcher mounts this exact Bun executable. No ambient
  // BUN_OPTIONS, credentials, configuration roots or executable override enter.
- const child=spawn("/usr/local/bin/bun",["--preload",resolve(repo,"scripts/test-network-child-preload.ts"),resolve(repo,"packages/module-diagrams/tests/fixtures/export-artifact-probe.ts"),directory],{cwd:repo,env:{PATH:"/usr/local/bin:/usr/bin:/bin",LANG:"C.UTF-8",TZ:"UTC",HOME:home,TMPDIR:temp,PUPPETEER_EXECUTABLE_PATH:chromium.executablePath()},stdio:["ignore","pipe","pipe"]});
+ const child=spawn("/usr/local/bin/bun",["--preload",resolve(producer,"scripts/test-network-child-preload.ts"),"--preload",resolve(producer,"packages/module-diagrams/tests/fixtures/export-native-boundary.ts"),resolve(producer,"packages/module-diagrams/tests/fixtures/export-artifact-probe.ts"),directory],{cwd:producer,env:{PATH:"/usr/local/bin:/usr/bin:/bin",LANG:"C.UTF-8",TZ:"UTC",HOME:home,TMPDIR:temp,PUPPETEER_EXECUTABLE_PATH:chromium.executablePath()},stdio:["ignore","pipe","pipe"]});
  let out="",err="";child.stdout.on("data",b=>{out+=String(b);});child.stderr.on("data",b=>{err+=String(b);});const artifacts=await new Promise<{format:string;bytes:number;pixelEquivalent?:boolean}[]>((res,reject)=>{child.once("error",reject);child.once("close",(code,signal)=>{if(code!==0||signal)reject(Error(`Diagram native CLI failed ${code}/${signal}: ${err}\n${out}`));else{try{res(JSON.parse(out));}catch(error){reject(error);}}});});
  const svg=readFileSync(resolve(directory,"release.svg"),"utf8"),width=Number(/width="([0-9.]+)"/.exec(svg)![1]),height=Number(/height="([0-9.]+)"/.exec(svg)![1]);
  const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:["--disable-gpu"]});const context=await browser.newContext({viewport:{width,height},deviceScaleFactor:2});const page=await context.newPage();const replay=await zeroRequestReplay(page);

@@ -126,3 +126,13 @@ test("registered selected-project callback stays dormant only with a complete se
  expect(audit().unresolved,"ACTUAL_DORMANT_CALLBACK_ACTIVATION_REQUIRES_FRESH").toContain("Selected command invocation spec.ts: heavy");
  expect(discoverInputClosure(root,["config.ts"],[],activation).unresolved.length).toBeGreaterThan(0);
 });
+
+test("explicit JavaScript hooks cannot hide command activation behind declaration files",()=>{
+ const{write,audit}=fixture();write("spec.ts",'import "./hook.mjs";');write("hook.mjs",'import{commands}from"vitest/browser";commands.heavy();');write("hook.d.mts","export {};");
+ const result=audit();expect(result.files).toContain("hook.mjs");expect(result.unresolved.some(input=>input.includes("Selected command invocation hook.mjs: heavy"))).toBe(true);
+});
+test("dormant explicit JavaScript imports still retain actual runtime source bytes",()=>{
+ const{root,write}=fixture();write("command.ts",'import type{BrowserCommand}from"vitest/node";export const heavy:BrowserCommand<[],unknown>=async()=>await import("./dormant.mjs");');write("dormant.mjs",'import{readFileSync}from"node:fs";readFileSync(process.env.INPUT,"utf8");');write("dormant.d.mts","export {};");
+ const activation={config:"config.ts",selected:[{project:"browser",file:"spec.ts"}],candidates:[{owner:"command.ts",name:"heavy"}]};
+ const closure=discoverInputClosure(root,["config.ts"],[],activation);expect(closure.files).toContain("dormant.mjs");expect(closure.unresolved).toEqual([]);
+});
