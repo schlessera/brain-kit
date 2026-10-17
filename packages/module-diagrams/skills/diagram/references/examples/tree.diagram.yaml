@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "type": "tree",
+  "title": "Homecoming responsibilities",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "homecoming",
+      "label": "Homecoming",
+      "at": [
+        240,
+        40
+      ],
+      "size": [
+        160,
+        48
+      ],
+      "role": "focal"
+    },
+    {
+      "id": "voyage",
+      "label": "Voyage",
+      "at": [
+        40,
+        192
+      ],
+      "size": [
+        160,
+        48
+      ]
+    },
+    {
+      "id": "ithaca",
+      "label": "Ithaca",
+      "at": [
+        440,
+        192
+      ],
+      "size": [
+        160,
+        48
+      ]
+    },
+    {
+      "id": "raft",
+      "label": "Raft",
+      "at": [
+        40,
+        344
+      ],
+      "size": [
+        160,
+        48
+      ]
+    },
+    {
+      "id": "welcome",
+      "label": "Welcome",
+      "at": [
+        440,
+        344
+      ],
+      "size": [
+        160,
+        48
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "to": "voyage",
+      "from": "homecoming"
+    },
+    {
+      "to": "ithaca",
+      "from": "homecoming"
+    },
+    {
+      "to": "raft",
+      "from": "voyage"
+    },
+    {
+      "to": "welcome",
+      "from": "ithaca"
+    }
+  ],
+  "hierarchy": true
+}

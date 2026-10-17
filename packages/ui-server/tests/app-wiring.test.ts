@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -14,6 +14,7 @@ import { bundledClaudeBinary } from "./helpers/claude-binary";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createUiDb } from "../src/db/client";
+import { createHealthRoutes } from "../src/routes/health";
 import {
   resolveAmbientPrincipal,
   resolvePrincipal,
@@ -683,21 +684,33 @@ describe("app wiring — request logging", () => {
   });
 });
 
-describe("app wiring — health probes the database", () => {
-  test("a dead SQLite handle turns /api/health into 503 unhealthy", async () => {
+describe("app wiring — health and shutdown", () => {
+  test("shutdown refuses health before touching the closed database", async () => {
     const wired = await createApp();
     const send = () => wired.fetch(new Request("http://localhost/api/health"));
+    try {
+      expect((await send()).status).toBe(200);
+      await wired.close();
+      const query = spyOn(wired.db, "query");
+      try {
+        const res = await send();
+        expect(res.status).toBe(503);
+        expect(await res.json(), "SHUTDOWN_REFUSES_BEFORE_HEALTH_DISPATCH").toEqual({ error: "Server shutting down" });
+        expect(query, "SHUTDOWN_NEVER_QUERIES_CLOSED_STATE").not.toHaveBeenCalled();
+      } finally { query.mockRestore(); }
+    } finally { await wired.close(); }
+  });
 
-    expect((await send()).status).toBe(200);
-
-    // close() releases the handle — the same state a wedged database presents.
-    // Awaited: the handle goes only once the scratch prune pass has ended.
-    await wired.close();
-    const res = await send();
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    // Fails minimal: the route is public, so the body says unhealthy and
-    // nothing else.
-    expect(body).toEqual({ status: "unhealthy" });
+  test("the public health route reports only unhealthy for a dead SQLite handle", async () => {
+    const db = createUiDb(":memory:");
+    const route = createHealthRoutes({ db });
+    let closed = false;
+    try {
+      expect((await route.request("/health")).status).toBe(200);
+      db.close(); closed = true;
+      const res = await route.request("/health");
+      expect(res.status, "HEALTH_PROBES_REAL_DATABASE").toBe(503);
+      expect(await res.json(), "PUBLIC_UNHEALTHY_RESPONSE_IS_MINIMAL").toEqual({ status: "unhealthy" });
+    } finally { if (!closed) db.close(); }
   });
 });

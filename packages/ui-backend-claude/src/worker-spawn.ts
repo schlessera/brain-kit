@@ -88,7 +88,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
   outputLock?: KeyedLock, workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"],
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
-  persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"]) {
+  persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
+  /** Host-prepared ordinary transport; selecting it keeps native credentials on the host. */
+  egress?: { proxyDir: string }) {
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));
@@ -123,7 +125,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
         state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, limits: stateLimits, turnTempLimits,
-          ephemeral: Boolean(restricted) });
+          ephemeral: Boolean(restricted), hostInference: Boolean(egress) });
       } catch (error) { record(error); throw error; }
       const emitter = new EventEmitter();
       let worker: LaunchedWorker;
@@ -146,7 +148,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }
@@ -270,7 +272,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       const deferred = deferredWorkerSpawn(async signal => {
         if (!startupView) throw new Error("Strict writable workers require a prepared native startup view.");
         let output: PreparedWorkerOutput;
-        try { output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, signal }); }
+        try { output = await prepareNativeWorkerOutput(brainPath, { startupView, areas, folderPaths: sandbox?.retainedFolders, signal }); }
         catch (error) { record(error); throw error; }
         try {
           signal.throwIfAborted();

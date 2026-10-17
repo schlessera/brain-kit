@@ -17,8 +17,8 @@
  *
  * Because those drift, and a visual suite that drifts from what CI runs is
  * worse than none: it fails locally for reasons nobody can reproduce. Locally
- * this script starts the container; in CI the job already runs inside the same
- * image and calls this script with `--inside`. Both paths reach the identical
+ * this script starts the container; hosted proof uses this same launcher. The
+ * inner process calls this script with `--inside`. Both paths reach the identical
  * vitest invocation, which is the point.
  *
  * ## Why `.mjs` when every other script in this repo is TypeScript run by bun
@@ -45,6 +45,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
+import { prepareDiagramExportSource } from "./prepare-diagram-export-source.mjs";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
  * pinned offline browser image used by local proof, and D10. */
@@ -77,7 +78,7 @@ const gitCheckout = () => {
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live", "diagrams-chromium", "diagrams-webkit"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -134,6 +135,9 @@ const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resol
 });
 if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
 const scratch = tmpdir();
+// Each native invocation materializes these tracked inputs in its own state.
+if (projects.some(project => project.startsWith("diagrams-")))
+  prepareDiagramExportSource(REPO, argv.includes("--proof-report"));
 // Worktree .git indirection points outside the container mount. Capture on the
 // host and check again after exit; the reporter must not guess an identity.
 const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;

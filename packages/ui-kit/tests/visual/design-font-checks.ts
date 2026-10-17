@@ -57,3 +57,14 @@ export async function verifyDesignFonts() {
     return observations;
   } finally { host.remove(); }
 }
+
+/** WebKit has no CDP platform-font API: prove locked faces paint distinct glyphs. */
+export async function verifyWebkitDesignFonts(): Promise<void> {
+ const canvas=document.createElement("canvas");canvas.width=640;canvas.height=64;const context=canvas.getContext("2d")!;
+ const pixels=(font:string)=>{context.clearRect(0,0,640,64);context.font=font;context.fillText("Odysseus 09:12 accepted",0,48);return context.getImageData(0,0,640,64).data;};
+ for(const {family,weight,style} of previewFaces){
+  const custom=pixels(`${style} ${weight} 32px '${family}'`);
+  expect(custom.some(value=>value!==0),`${family} paints glyphs`).toBe(true);
+  for(const fallback of ["serif","sans-serif","monospace"]){const ordinary=pixels(`${style} ${weight} 32px ${fallback}`);expect(custom.some((value,index)=>value!==ordinary[index]),`WEBKIT_LOCKED_${family}_${weight}_${style}_DIFFERS_FROM_${fallback}`).toBe(true);}
+ }
+}

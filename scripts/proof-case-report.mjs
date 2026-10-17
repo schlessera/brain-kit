@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const file = (path) => relative(root, path).replaceAll("\\", "/");
-const spec = (value) => ({ project: value.project.name.replace(/ \(chromium\)$/, ""), file: file(value.moduleId) });
+const spec = (value) => ({ project: value.project.name.replace(/ \((?:chromium|webkit)\)$/, ""), file: file(value.moduleId) });
 const checkout = () => {
   // The outer visual wrapper captures/rechecks host identity for mounted
   // worktrees. Direct Node runs can read their own repository instead.

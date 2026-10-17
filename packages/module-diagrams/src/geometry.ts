@@ -1,5 +1,8 @@
+import { buildPositionalDiagram } from "./positional-layout.js";
 import { typeWidthBudget } from "./skin.js";
-import { diagramSpecSchema, FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
+import { buildAxisDiagram } from "./axis-layout.js";
+import type { DiagramShape } from "./shape.js";
+import { diagramSpecSchema, FREE_LAYOUT_TYPES, AXIS_TYPES, type DiagramSpec } from "./spec.js";
 
 export interface DiagramPoint { x: number; y: number }
 export interface DiagramBox { x: number; y: number; width: number; height: number }
@@ -13,10 +16,11 @@ export interface DiagramConnector {
 }
 export interface DiagramLabelMask extends DiagramBox { kind: "label-mask"; edge: number; opaque: true; gap: 8; segment: number }
 export interface DiagramEdgeLabel extends DiagramBox { kind: "edge-label"; edge: number; text: string; fontSize: number }
-export interface DiagramNode extends DiagramBox { kind: "node"; id: string; label: string; focal: boolean; sub?: string; tag?: string; role?: string; link?: string }
-export interface DiagramGroup extends DiagramBox { kind: "group"; id: string; label: string; focal: boolean }
-export type DiagramElement = DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
-export interface DiagramTree { schema_version: 1; type: DiagramSpec["type"]; title: string; desc: string; viewBox: DiagramBox; elements: DiagramElement[] }
+export interface DiagramNode extends DiagramBox { nodeKind?: "compute" | "endpoint" | "managed"; parent?: string; target?: string; shape?: "start" | "end" | "step" | "decision" | "merge" | "state" | "initial" | "final"; fields?: Array<{ name: string; type?: string; key?: "PK" | "FK" }>; rank?: number; fanIn?: number; kind: "node"; id: string; label: string; focal: boolean; sub?: string; tag?: string; role?: string; link?: string }
+export interface DiagramGroup extends DiagramBox { scopeKind?: "admin" | "traffic"; parent?: string; kind: "group"; id: string; label: string; focal: boolean }
+export interface DiagramCardinality extends DiagramBox { kind: "cardinality"; edge: number; end: "from" | "to"; text: string }
+export type DiagramElement = DiagramShape | DiagramCardinality | DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
+export interface DiagramTree { schema_version: 1; type: DiagramSpec["type"]; grammar?: "architecture-containment"; title: string; desc: string; viewBox: DiagramBox; elements: DiagramElement[] }
 export interface DiagramGeometryOptions { labelFontSize?: number; labelLineHeight?: number }
 export interface DiagramGeometryFinding { path: string; code: "unroutable"; message: string }
 export class DiagramGeometryError extends Error {
@@ -31,6 +35,14 @@ const center = (box: DiagramBox): DiagramPoint => ({ x: box.x + box.width / 2, y
 const normal = (side: DiagramSide): DiagramPoint => ({ x: side === "left" ? -1 : side === "right" ? 1 : 0, y: side === "top" ? -1 : side === "bottom" ? 1 : 0 });
 const overlaps = (a: DiagramBox, b: DiagramBox) => a.x < b.x + b.width - EPS && a.x + a.width > b.x + EPS && a.y < b.y + b.height - EPS && a.y + a.height > b.y + EPS;
 const contains = (frame: DiagramBox, box: DiagramBox) => box.x >= frame.x - EPS && box.y >= frame.y - EPS && box.x + box.width <= frame.x + frame.width + EPS && box.y + box.height <= frame.y + frame.height + EPS;
+/** Bound the emitted quarter arc between its two tangent points, not absent quadrants. */
+function cornerBounds(previous: DiagramPoint, corner: DiagramPoint, next: DiagramPoint): DiagramBox {
+  const before = distance(previous, corner), after = distance(corner, next);
+  const start = { x: corner.x + (previous.x - corner.x) / before * RADIUS, y: corner.y + (previous.y - corner.y) / before * RADIUS };
+  const end = { x: corner.x + (next.x - corner.x) / after * RADIUS, y: corner.y + (next.y - corner.y) / after * RADIUS };
+  return { x: Math.min(start.x, end.x) - LABEL_GAP, y: Math.min(start.y, end.y) - LABEL_GAP,
+    width: Math.abs(start.x - end.x) + 2 * LABEL_GAP, height: Math.abs(start.y - end.y) + 2 * LABEL_GAP };
+}
 function segmentHits(a: DiagramPoint, b: DiagramPoint, box: DiagramBox, padding = 0): boolean {
   const left = box.x - padding, right = box.x + box.width + padding, top = box.y - padding, bottom = box.y + box.height + padding;
   return Math.abs(a.y - b.y) < EPS ? a.y > top + EPS && a.y < bottom - EPS && Math.max(a.x, b.x) > left + EPS && Math.min(a.x, b.x) < right - EPS
@@ -109,7 +121,7 @@ function comparePoints(a: DiagramPoint[], b: DiagramPoint[]): number {
   return a.length - b.length;
 }
 function length(points: DiagramPoint[]) { return points.slice(1).reduce((total, point, i) => total + distance(points[i]!, point), 0); }
-function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnector[], frame: DiagramBox): DiagramPoint[] | null {
+function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnector[], frame: DiagramBox, outside = false): DiagramPoint[] | null {
   const a = pair.from, b = pair.to, an = normal(a.side), bn = normal(b.side);
   const start = { x: a.x + an.x * CLEARANCE, y: a.y + an.y * CLEARANCE }, end = { x: b.x + bn.x * CLEARANCE, y: b.y + bn.y * CLEARANCE };
   const xs = new Set([start.x, end.x, (start.x + end.x) / 2, frame.x + CLEARANCE, frame.x + frame.width - CLEARANCE]);
@@ -128,6 +140,12 @@ function routingPoints(pair: Pair, boxes: BoxRecord[], previous: DiagramConnecto
     const aa = { x: a.x + an.x * ad, y: a.y + an.y * ad }, bb = { x: b.x + bn.x * bd, y: b.y + bn.y * bd };
     for (const x of xx) candidates.push([a, aa, { x, y: aa.y }, { x, y: bb.y }, bb, b]);
     for (const y of yy) candidates.push([a, aa, { x: aa.x, y }, { x: bb.x, y }, bb, b]);
+  }
+  if (outside) {
+    const x = Math.max(...boxes.map(box => box.x + box.width)) + CLEARANCE;
+    if(x+8>frame.x+frame.width)return null;
+    const cycle = normalize([a, { x, y: a.y }, { x, y: b.y }, b]);
+    return routeShape(cycle, pair, frame) && clearRoute(cycle, pair, boxes) && crossings(cycle, previous) !== null ? cycle : null;
   }
   const normalized = candidates.map(normalize), preferred = new Set(normalized.slice(0, preferredCount));
   const valid = normalized.filter(points => routeShape(points, pair, frame) && clearRoute(points, pair, boxes) && crossings(points, previous) !== null);
@@ -177,12 +195,15 @@ function pathData(route: DiagramConnector): string {
 /** Pure neutral geometry for a semantically valid free-layout spec. No DOM or paint. */
 export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions = {}): DiagramTree {
   const spec = diagramSpecSchema.parse(input);
+  if (["quadrant", "layer-stack", "pyramid", "funnel", "loop", "flywheel", "venn"].includes(spec.type)) return buildPositionalDiagram(spec);
+  if ((AXIS_TYPES as readonly string[]).includes(spec.type)) return buildAxisDiagram(spec);
   if (!(FREE_LAYOUT_TYPES as readonly string[]).includes(spec.type)) throw new DiagramGeometryError([{ path: "$.type", code: "unroutable", message: `Geometry for '${spec.type}' belongs to its type family; free-layout routing is required here` }]);
   const fontSize = options.labelFontSize ?? 9.5, lineHeight = options.labelLineHeight ?? 12;
   if (![fontSize, lineHeight].every(value => Number.isFinite(value) && value >= 9 && value <= 256) || lineHeight < fontSize) throw Error("Label metrics require finite 9–256px dimensions and a line height at least the font size");
   const source = spec as Extract<DiagramSpec, { type: typeof FREE_LAYOUT_TYPES[number] }>;
   const focal = new Set([...(spec.focal ?? []), ...spec.nodes.filter(item => item.role === "focal").map(item => item.id)]);
-  const nodes: DiagramNode[] = source.nodes.map(({ at, size, ...node }) => ({ ...node, kind: "node", x: at[0], y: at[1], width: size[0], height: size[1], focal: focal.has(node.id) }));
+  const nodes: DiagramNode[] = source.nodes.map(({ at, size, ...node }) => ({ ...node, nodeKind: "kind" in node ? node.kind : undefined, kind: "node", x: at[0], y: at[1], width: size[0], height: size[1], focal: focal.has(node.id) }));
+  if (spec.type === "dependency") nodes.forEach(node => { node.fanIn = new Set(spec.edges.filter(edge => edge.to === node.id).map(edge=>edge.from)).size; });
   const boxes = new Map<string, BoxRecord>(nodes.map(node => [node.id, node]));
   const groups: DiagramGroup[] = (spec.groups ?? []).map(group => {
     const members = group.members.map(id => boxes.get(id));
@@ -190,31 +211,45 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
     const x = Math.min(...members.map(item => item!.x)) - 16, y = Math.min(...members.map(item => item!.y)) - 16;
     return { kind: "group", id: group.id, label: group.label, focal: focal.has(group.id), x, y, width: Math.max(...members.map(item => item!.x + item!.width)) + 16 - x, height: Math.max(...members.map(item => item!.y + item!.height)) + 16 - y };
   });
+  if (spec.type === "architecture" && spec.containment) {
+    groups.push(...spec.containment.scopes.map(scope=>({kind:"group" as const,id:scope.id,label:scope.label,scopeKind:scope.kind,parent:scope.parent,focal:focal.has(scope.id),x:scope.at[0],y:scope.at[1],width:scope.size[0],height:scope.size[1]})));
+  }
   for (const group of groups) boxes.set(group.id, group);
-  const [width, height] = frameSizes[spec.size] ?? [Math.max(96, ...nodes.map(node => node.x + node.width + CLEARANCE)), Math.max(96, ...nodes.map(node => node.y + node.height + CLEARANCE))];
+  const [baseWidth, height] = frameSizes[spec.size] ?? [Math.max(96, ...[...nodes,...groups.filter(group=>group.scopeKind)].map(node => node.x + node.width + CLEARANCE)), Math.max(96, ...[...nodes,...groups.filter(group=>group.scopeKind)].map(node => node.y + node.height + CLEARANCE))];
+  const width=baseWidth+(spec.size==="fit"&&spec.type==="dependency"&&spec.edges.some(edge=>edge.cycle)?24:0);
   const viewBox = { x: 0, y: 0, width, height };
   const fail = (edge: number, message: string): never => { const item = spec.edges[edge]!; throw new DiagramGeometryError([{ path: `$.edges[${edge}]`, code: "unroutable", message: `Edge '${item.id ?? `${item.from} → ${item.to}`}': ${message}` }]); };
   const pairs: Pair[] = [], attachments = new Map<string, { edge: number; end: "from" | "to"; node: string; side: DiagramSide }[]>();
+  const shapePorts=new Map<string,Set<DiagramSide>>();
   for (let edge = 0; edge < spec.edges.length; edge++) {
     const item = spec.edges[edge]!, from = boxes.get(item.from), to = boxes.get(item.to);
     if (!from || !to) fail(edge, "an endpoint does not exist");
     if (!contains(viewBox, from!) || !contains(viewBox, to!)) fail(edge, "an endpoint is outside the selected canvas; move it or use size: fit");
-    const sides = sidePair(from!, to!, item.from === item.to);
+    const sides: [DiagramSide, DiagramSide] = spec.type==="tree"&&(spec.hierarchy||spec.direction) ? spec.direction==="right"?["right","left"]:["bottom","top"] : "cycle" in item && item.cycle ? ["right", "right"] : sidePair(from!, to!, item.from === item.to);
+    for(const [end,id] of [[0,item.from],[1,item.to]] as const){
+      const shape=nodes.find(node=>node.id===id)?.shape;
+      if(shape && ["decision","merge","initial","final","start","end"].includes(shape)){
+        const used=shapePorts.get(id)??new Set<DiagramSide>(), order:DiagramSide[]=[sides[end],"top","right","bottom","left"],side=order.find(side=>!used.has(side));
+        if(!side)fail(edge,"the shaped endpoint has no unused perpendicular cardinal port; split the junction");
+        sides[end]=side!;used.add(side!);shapePorts.set(id,used);
+      }
+    }
     pairs.push({ from: { node: item.from, side: sides[0], x: 0, y: 0 }, to: { node: item.to, side: sides[1], x: 0, y: 0 }, id: item.id ?? `edge:${edge}` });
     for (const [end, side, node] of [["from", sides[0], item.from], ["to", sides[1], item.to]] as const) { const key = `${node}:${side}`; const list = attachments.get(key) ?? []; list.push({ edge, end, node, side }); attachments.set(key, list); }
   }
   for (const list of attachments.values()) list.forEach((attachment, index) => {
     const box = boxes.get(attachment.node)!, vertical = attachment.side === "left" || attachment.side === "right", length = vertical ? box.height : box.width;
     const offset = length * (index + 1) / (list.length + 1), gap = length / (list.length + 1);
-    if (offset < 8 - EPS || length - offset < 8 - EPS || list.length > 1 && gap < (length < 48 ? 8 : 12) - EPS) fail(attachment.edge, "the endpoint edge has no legal fanned port spacing (12px, or 8px below 48px)");
+    const dot = nodes.some(node => node.id === attachment.node && ["merge", "initial", "final"].includes(node.shape ?? ""));
+    if ((!dot && (offset < 8 - EPS || length - offset < 8 - EPS)) || list.length > 1 && gap < (length < 48 ? 8 : 12) - EPS) fail(attachment.edge, "the endpoint edge has no legal fanned port spacing (12px, or 8px below 48px)");
     const port = pairs[attachment.edge]![attachment.end]; port.x = vertical ? box.x + (attachment.side === "right" ? box.width : 0) : box.x + offset; port.y = vertical ? box.y + offset : box.y + (attachment.side === "bottom" ? box.height : 0);
   });
   const connectors: DiagramConnector[] = [];
   for (let edge = 0; edge < spec.edges.length; edge++) {
     const pair = pairs[edge]!, item = spec.edges[edge]!;
-    const obstacles = nodes.filter(node => !groups.some(group => (group.id === pair.from.node || group.id === pair.to.node) && spec.groups!.find(item => item.id === group.id)!.members.includes(node.id)));
+    const obstacles = nodes.filter(node => !groups.some(group => (group.id === pair.from.node || group.id === pair.to.node) && spec.groups?.find(item => item.id === group.id)?.members.includes(node.id)));
     let points: DiagramPoint[] | null;
-    try { points = routingPoints(pair, obstacles, connectors, viewBox); } catch (error) { fail(edge, (error as Error).message); }
+    try { points = routingPoints(pair, obstacles, connectors, viewBox, "cycle" in item && item.cycle === true); } catch (error) { fail(edge, (error as Error).message); }
     let transit: string[] = [];
     if (!points!) {
       const direct = [pair.from, pair.to];
@@ -231,6 +266,17 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
       lower.bridges.push({ x: cross.x, y: cross.y, segment: lower === connector ? cross.segment : cross.otherSegment, radius: 6, over: lower === connector ? cross.other.id : connector.id });
     }
     connectors.push(connector);
+  }
+  const cardinalities: DiagramCardinality[] = [];
+  if (spec.type === "er") for (const connector of connectors) {
+    const edge = spec.edges[connector.edge]!;
+    for (const end of ["from", "to"] as const) {
+      const text = end === "from" ? edge.fromCardinality : edge.toCardinality; if (!text) continue;
+      const port = connector[end], n = normal(port.side), width = Math.ceil((typeWidthBudget(text, "label") + 8) / 4) * 4;
+      const box: DiagramCardinality = {kind:"cardinality",edge:connector.edge,end,text,width,height:16,x:n.x ? port.x + (n.x > 0 ? 12 : -12-width) : port.x+12,y:n.y ? port.y + (n.y>0?12:-28) : port.y-24};
+      if (!contains(viewBox,box) || nodes.some(node=>overlaps(box,node)) || cardinalities.some(other=>overlaps(box,other)) || connectors.some(route=>route.points.slice(1).some((point,index)=>segmentHits(route.points[index]!,point,box,LABEL_GAP)) || route.bridges.some(bridge=>overlaps(box,{x:bridge.x-14,y:bridge.y-14,width:28,height:28})) || route.points.slice(1,-1).some((corner,index)=>overlaps(box,cornerBounds(route.points[index]!,corner,route.points[index+2]!))))) fail(connector.edge,"cardinality has no readable endpoint clearance; move nodes");
+      cardinalities.push(box);
+    }
   }
   const masks: DiagramLabelMask[] = [], labels: DiagramEdgeLabel[] = [];
   for (const connector of connectors) {
@@ -249,11 +295,11 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
         candidates.push({ kind: "label-mask", edge: connector.edge, opaque: true, gap: 8, segment, x, y, width, height });
       }
     }
-    const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
+    const mask = candidates.find(candidate => contains(viewBox, candidate) && !nodes.some(node => overlaps(candidate, node)) && !masks.some(mask => overlaps(candidate, mask)) && !cardinalities.some(label => overlaps(candidate,label)) && !connectors.some(route => route.points.slice(1).some((point, i) => segmentHits(route.points[i]!, point, candidate, LABEL_GAP)) ||
       route.bridges.some(bridge => overlaps(candidate, { x: bridge.x - 6 - LABEL_GAP, y: bridge.y - 6 - LABEL_GAP, width: 12 + 2 * LABEL_GAP, height: 12 + 2 * LABEL_GAP })) ||
-      route.points.slice(1, -1).some(corner => overlaps(candidate, { x: corner.x - RADIUS - LABEL_GAP, y: corner.y - RADIUS - LABEL_GAP, width: 2 * (RADIUS + LABEL_GAP), height: 2 * (RADIUS + LABEL_GAP) }))));
+      route.points.slice(1, -1).some((corner, index) => overlaps(candidate, cornerBounds(route.points[index]!, corner, route.points[index + 2]!)))));
     if (!mask) fail(connector.edge, "the label has no opaque open-canvas mask with an 8px connector gap; move boxes or shorten the label");
     masks.push(mask!); labels.push({ kind: "edge-label", edge: connector.edge, text, fontSize, x: mask!.x, y: mask!.y, width, height });
   }
-  return { schema_version: 1, type: spec.type, title: spec.title, desc: spec.desc, viewBox, elements: [...groups, ...connectors, ...masks, ...labels, ...nodes] };
+  return { schema_version: 1, type: spec.type, grammar: spec.type === "architecture" && spec.containment ? "architecture-containment" : undefined, title: spec.title, desc: spec.desc, viewBox, elements: [...groups, ...connectors, ...masks, ...labels, ...cardinalities, ...nodes] };
 }

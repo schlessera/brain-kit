@@ -22,7 +22,7 @@ import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from ".
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
-import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
+import { resolveWorkerProtection, protectedWorkerMounts, verifyWorkerFolderMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
@@ -513,10 +513,20 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   let egressMounts: string[] = [];
   if (input.egress) {
-    const directory = realpathSync(input.egress.proxyDir);
-    if (directory !== normalize(input.egress.proxyDir) || !lstatSync(directory).isDirectory() || (statSync(directory).mode & 0o077) !== 0
-      || within(brain, directory) || within(directory, brain)
-      || !lstatSync(join(directory, "proxy.sock")).isSocket()) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
+    const separateIdentity = Boolean(workerIdentityHelper());
+    const serverUid = process.getuid?.(), serverGid = process.getgid?.();
+    let directory = "", valid = false;
+    try {
+      directory = realpathSync(input.egress.proxyDir);
+      const directoryInfo = lstatSync(directory), socketInfo = lstatSync(join(directory, "proxy.sock"));
+      valid = directory === normalize(input.egress.proxyDir) && directoryInfo.isDirectory() && socketInfo.isSocket()
+        && directoryInfo.uid === serverUid && socketInfo.uid === serverUid
+        && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+        && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+        && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
+        && !within(brain, directory) && !within(directory, brain);
+    } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+    if (!valid) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
     egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
   }
   if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
@@ -588,7 +598,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
       }),
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
-    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection) : []),
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.
@@ -762,6 +772,8 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
 export interface PrepareWorkerSandboxOptions {
   profile?: "governed" | "strict";
   protectedPaths?: readonly string[];
+  /** Literal existing provider folder roots to retain read-write, with every ancestor. */
+  folderPaths?: readonly string[];
   appearedPaths?: readonly string[];
   readPaths?: readonly string[];
   maskPaths?: readonly string[];
@@ -789,7 +801,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
-    paths: options.protectedPaths, appeared: options.appearedPaths,
+    paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
@@ -811,6 +823,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   // directory on the host, where no size-limited mount can hold it (#1703).
   const home: WorkerHome = { mode: "xdg" };
   return { brain, restricted: false, areas, scratchAliasesRemoved: removed,
+    ...(options.folderPaths?.length ? { retainedFolders: Object.freeze([...options.folderPaths]) } : {}),
     ...(options.profile ? { profile: resolved?.reason ? "strict" as const : options.profile,
       ...(resolved ? { protection: resolved.protection } : {}),
       ...(resolved?.reason ? { fallbackReason: resolved.reason } : {}),
@@ -1246,6 +1259,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       turnTemp = identityBroker ? holdIdentityRoot(tempFd, "temp") : heldTmpfs(tempFd);
       if (identityBroker) tempFd = undefined;
     }
+    if (input.sandbox?.profile === "governed")
+      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline);
     // Release the gate: the worker's command starts only now.
     if (identityBroker) identityBroker.request("release"); else status!.release();
     stateFd = tempFd = undefined;

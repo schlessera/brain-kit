@@ -75,7 +75,7 @@ optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/serve
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:93-454`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:96-471`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:182-190`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
@@ -241,7 +241,7 @@ suppressed-per-model Action; unknown usage cannot become a guessed zero.
 Subscription billing moves the turn counter even when spend is zero. The activity
 sum exposes unpriced runs (`sumEffectiveCost`,
 `packages/ui-server/src/activity/store.ts:179-194`) and settles only after execution
-(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:650`).
+(`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:651`).
 Retrospective totals alone cannot enforce admission.
 
 The maintainer's [2026-10-01 ruling on #678](https://github.com/schlessera/brain-kit/issues/678#issuecomment-5926691626)
@@ -306,7 +306,7 @@ costs or a provider-enforced spend ceiling.
 Narrower per-request relay accounting is not selected for v1. The current
 observer reports method, path, outcome and status, with no trusted token or
 cost bound (`InferenceRelayEvent`,
-`packages/ui-sdk/src/server/inference-relay.ts:37-43`). Completed-response
+`packages/ui-sdk/src/server/inference-relay.ts:40-46`). Completed-response
 snapshots cannot bound a pre-header continuation's input, output, cache usage
 or hidden requests. A smaller fraction, historical average, guessed zero or
 clipping below known spend would invent evidence. Revisit narrower accounting

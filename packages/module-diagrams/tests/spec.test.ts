@@ -15,7 +15,8 @@ test("valid and invalid family fixtures have pinned result envelopes", () => {
 for (const [family, types, source] of [["free", FREE_LAYOUT_TYPES, "free-valid"], ["axis", AXIS_TYPES, "axis-valid"], ["fixed", FIXED_LAYOUT_TYPES, "fixed-valid"]] as const) {
   for (const type of types) test(`v1 common ${family} grammar validates ${type}`, () => {
     const spec = parse(fixture(source)); spec.type = type;
-    expect(check(spec)).toEqual({ schema_version: 1, valid: true, type, errors: [], warnings: [] });
+    const checked=check(spec);expect({...checked,warnings:[]}).toEqual({ schema_version: 1, valid: true, type, errors: [], warnings: [] });
+    expect(checked.warnings.every(item=>item.code==="budget"||item.code==="positional"||item.code==="rank_missing")).toBe(true);
   });
 }
 test("the structural JSON schema is regenerated from the actual strict zod union", () => {

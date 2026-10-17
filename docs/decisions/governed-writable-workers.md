@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-109`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-115`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-109`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-115`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -351,6 +351,24 @@ one command needs. It covers:
   and hygiene;
 - cron's `brain sync` and `brain index`;
 - every git invocation.
+
+Declared writer admission also applies to asynchronous host fallback before
+the first governed turn. Both complete and streaming commands acquire their
+existing shared/exclusive gate before selecting host or worker execution;
+required missing admission refuses before process creation. A streaming host
+command retains admission through process exit and both output EOFs, including
+inherited descendant output. Credential exclusion follows writer admission.
+Optional missing gates and trusted `gate: none` readers retain their existing
+behavior. Before spawning, a concrete host holder records negative provenance
+alongside its advisory folder roots. Such a holder has no physical folder pins,
+even if every requested root is named. Protected governed admission refuses an
+active unpinned host peer; the inverse ordering refuses a new host before spawn
+beside an active peer that may depend on retained folders. Those checks and the
+negative record use the same cross-process gate transaction. Known host peers
+remain concurrent, as do native shared holders; an unknown legacy peer refuses
+protected admission. No existing writer is killed or made exclusive. This
+negative accounting does not qualify a native plan as mounted-writer attestation
+or complete the all-writer proof for provider exclusions.
 
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
@@ -704,7 +722,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:985-1013`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:998-1026`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -999,7 +1017,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:297`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:311`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1248,7 +1266,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:286`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:287`).
 
 **What changes:**
 
@@ -1268,7 +1286,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:34`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:37`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -1323,7 +1341,7 @@ directories with empty read-only tmpfs mounts:
 
 After the masks, the launcher re-binds the runtime the worker needs, read-only
 and file by file, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1591`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1606`):
 
 - the Bun executable;
 - the backend entry and its `node_modules` chains;
@@ -1353,9 +1371,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:650-656`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:657-696`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:697-715`).
+`packages/ui-sdk/src/server/worker-launcher.ts:660-666`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:667-706`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:707-725`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -1436,6 +1454,42 @@ providers:
   - paths: ["me/**", "finance/**"]
     allow: [anthropic]
 ```
+
+**Whole-folder sequencing (maintainer, 2026-10-16).** Whole-folder exclusions
+are qualified first, preserving the live brain and existing shared-writer
+concurrency. Literal `folder/**` selectors need stable roots and ancestors in
+every writer view: a private tmpfs attached to an old directory does not hide a
+replacement directory created by a peer. Newly admitted governed workers retain
+these directories with read-write self-binds; shared gate plans inherit active
+peers' roots across policy removal. Host publication independently refuses root
+or ancestor removal/replacement, since worker mount points cannot constrain host
+syscalls. Contents and permitted siblings remain writable. Missing or aliased
+folder topology is not invented through placeholder creation or overlays.
+Resolver-owned folder qualification is private and tied to the exact brain
+identity; public layout facts or copied layouts cannot mint folder mounts.
+The governed live launcher verifies the actual retained mount points and inode
+identities through its authenticated, still-gated worker view. A host-path check
+before spawning does not prove what bubblewrap subsequently mounted. Unknown
+views refuse before payload start; the existing separate-UID broker does not
+attest these folder mounts, and its state/temp authority is not repurposed into
+generic process inspection. This closes a launch-time check/mount gap without
+claiming complete active-peer or protected-reader admission.
+
+Known-unsafe active peers refuse new governed folder admission: legacy or
+missing-root plans cannot retain the requested topology. A retained descendant
+also pins its ancestors, while an ancestor alone does not pin arbitrary children.
+Unknown checking capability refuses. Existing peers continue, nested shared
+maintenance stays admissible, and strict consumers keep their existing path.
+Successful plan checks remain nonattestation and cannot authorize a protected
+reader; complete active-writer provenance remains required.
+
+These are topology primitives, not complete privacy admission or recipient
+proof. Gate root sets are plans rather than attested mounted identities; legacy
+writers, races with unqualified peers, policy changes, copies in history/indexes
+and server tools all need qualification before worker routing can activate.
+Actual recipients cannot be inferred from cost routes or model/vendor labels.
+Arbitrary type/glob exclusion criteria remain required; this sequencing does not
+waive them or approve different writer concurrency or filtered content overlays.
 
 **Agent turns.** Paths not allowed for the turn's provider are masked in its
 worker. A directory is masked with an empty read-only tmpfs, and a single file
@@ -1541,12 +1595,12 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:61`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:64`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
 - runtime state and turn temp: `0770` directories and `0660` files;
-- the relay directory: `0750`;
+- relay and ordinary egress proxy directories: `0750`;
 - relay and proxy sockets: `0660`.
 
 The launcher's FIFOs stay as they are: already-open, unlinked descriptors with
@@ -1608,11 +1662,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:952-980`;
+`packages/ui-sdk/src/server/worker-launcher.ts:965-993`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:985-1011`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:998-1024`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1144-1203`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1157-1216`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -1845,7 +1899,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:359-370`).
+  `packages/ui-server/src/brain/host-boundary.ts:410-421`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -1854,7 +1908,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:264-281`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:278-295`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -1966,7 +2020,7 @@ and receipt finalization. Staged raw versions remain under the same aggregate
 cap, active pins and completed-turn retention/collection. This is the external
 memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
-boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:201-215`;
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
 retention/finalization is `persistClaudeMemory`,
 `packages/ui-server/src/brain/turn-journal.ts:352-387`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
@@ -2040,7 +2094,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:475-522`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:477-527`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
@@ -2291,3 +2345,16 @@ adapters and bounded offline worker evidence. The
 reserves the executor choice until that comparison is reviewed. Neither this
 amendment nor a successful plain-search prototype selects an executor or grants
 additional host model, UI, browser, shell or credential-command authority.
+
+
+#### Approved host OAuth refresh placement (2026-10-16)
+
+The #1665/#1666 maintainer ruling moves stored-login Claude OAuth refresh to
+the host, replacing the earlier native-worker ownership of that operation.
+The [runtime amendment](claude-code-runtime.md#host-owned-stored-login-refresh-2026-10-16-amendment)
+binds the bounded protocol, credential-maintenance serialization, offline
+qualification and activation gate. Native login acquisition, Pi's supported
+native auth runtime, per-request provider identity and billing, and the ban on
+provider credentials in governed worker files/environment remain binding.
+Delivering the internal resolver does not activate the ordinary worker relay or
+qualify the remaining egress paths and socket isolation.
