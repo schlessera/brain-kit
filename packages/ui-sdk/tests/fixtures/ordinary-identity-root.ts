@@ -1,4 +1,4 @@
-import { APPLICATION_QUALIFICATION_PHASES } from "./application-qualification.js";
+import { APPLICATION_QUALIFICATION_PHASES, APPLICATION_SCENARIOS, applicationQualificationScenario } from "./application-qualification.js";
 import { retainFixtureStream } from "./retained-stream.js";
 import { expect } from "bun:test";
 import { chmodSync, chownSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from "node:fs";
@@ -10,6 +10,8 @@ const sharedGit = process.argv.includes("--shared-git");
 const sharedPhase = sharedGit ? process.argv.find(arg => arg.startsWith("--shared-phase="))?.slice("--shared-phase=".length) : undefined;
 if (sharedPhase && !["private-positive", "fresh-git", "probe-state", "private", "fresh", "fresh-controls", "fresh-app", "warm", "strict"].includes(sharedPhase)) throw Error("Unknown shared Git fixture phase");
 const applicationQualification = process.argv.includes("--application-qualification");
+const bootPruneCapture = process.argv.includes("--boot-prune-capture");
+const applicationScenario = applicationQualificationScenario(process.argv, applicationQualification);
 const probeStatePlacement = process.argv.includes("--probe-state-placement");
 const omitProbeStatePlacement = process.argv.includes("--omit-probe-state-placement");
 const privateGitInputs = process.argv.includes("--private-git-inputs");
@@ -178,12 +180,12 @@ if (process.argv[2] === "--index-child") {
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
   try {
-    const phases = applicationQualification ? APPLICATION_QUALIFICATION_PHASES : probeStatePlacement ? ["probe-state"] : sharedGit && process.argv[2] !== "--index-controls" ? [...(privateGitInputs ? ["private", "fresh-controls", "fresh-app"] : ["fresh"]), "warm", "strict"] : [undefined];
+    const phases = applicationScenario ? APPLICATION_SCENARIOS[applicationScenario] : applicationQualification ? APPLICATION_QUALIFICATION_PHASES : probeStatePlacement ? ["probe-state"] : sharedGit && process.argv[2] !== "--index-controls" ? [...(privateGitInputs ? ["private", "fresh-controls", "fresh-app"] : ["fresh"]), "warm", "strict"] : [undefined];
     let aggregateOutput = "", aggregateErrors = "";
     for (const phase of phases) {
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
-        process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
+        process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(phase ? [`--shared-phase=${phase}`] : [])], {
         env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
       const [capturedOutput, capturedErrors, code] = await Promise.all([
         sharedGit && phase ? retainFixtureStream(child.stdout, `/proof/shared-git-${phase}-server.stdout`) : new Response(child.stdout).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })),

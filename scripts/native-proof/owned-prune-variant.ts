@@ -40,3 +40,21 @@ export function ownedPruneDiagnosticSelected(options: readonly string[], applica
   if (selected && !applicationQualification) throw Error("Owned prune diagnostics require application qualification");
   return selected;
 }
+
+/** One fixed boot-site substitution; no timer, manual tick or product API change. */
+export function bootPruneCaptureVariant(cronSource: string) {
+  const before = "  void tick();";
+  if (!cronSource.includes(before) || cronSource.indexOf(before) !== cronSource.lastIndexOf(before)) throw Error("Boot prune fixture anchor changed");
+  const after = `  const fixtureBootPromise = tick();
+  const fixtureBootSlot = Object.getOwnPropertyDescriptor(globalThis, Symbol.for("brain-kit.fixture.boot-prune"));
+  if (!fixtureBootSlot || !("value" in fixtureBootSlot) || !fixtureBootSlot.value || fixtureBootSlot.value.promise !== undefined)
+    throw Error("BOOT_PRUNE_CAPTURE_OWNER_MISSING");
+  fixtureBootSlot.value.promise = fixtureBootPromise;`;
+  const cron = cronSource.replace(before, after);
+  return { cron, substitution: { before, after }, hashes: { originalCron: hash(cronSource), variantCron: hash(cron) } };
+}
+export function bootPruneCaptureSelected(options: readonly string[], applicationQualification: boolean) {
+  const selected = options.includes("--boot-prune-capture");
+  if (selected && !applicationQualification) throw Error("Boot prune capture requires application qualification");
+  return selected;
+}

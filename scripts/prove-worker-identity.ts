@@ -2,8 +2,8 @@
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
-import { applicationQualificationSelected, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
-import { ownedPruneVariant, ownedPruneDiagnosticSelected } from "./native-proof/owned-prune-variant.js";
+import { applicationQualificationSelected, applicationQualificationScenario, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
+import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVariant, bootPruneCaptureSelected } from "./native-proof/owned-prune-variant.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 import { WORKER_FILESYSTEM_FILTER_PROGRAM } from "../packages/ui-sdk/src/server/worker-filesystem-filter.js";
 
@@ -66,9 +66,11 @@ if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--application-qualification" && arg !== "--owned-prune-diagnostic") || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification] [--owned-prune-diagnostic]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--application-qualification" && arg !== "--owned-prune-diagnostic" && arg !== "--boot-prune-capture" && !/^--application-scenario=(governed|strict)$/.test(arg)) || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification] [--owned-prune-diagnostic] [--boot-prune-capture] [--application-scenario=governed|strict]");
     const applicationQualification = applicationQualificationSelected(options);
     const ownedPruneDiagnostic = ownedPruneDiagnosticSelected(options, applicationQualification);
+    const bootPruneCapture = bootPruneCaptureSelected(options, applicationQualification);
+    const applicationScenario = applicationQualificationScenario(options, applicationQualification);
     const image = options.find(arg=>arg.startsWith("--image="))?.slice("--image=".length) ?? NATIVE_PROOF_IMAGE;
     const sharedGit = options.includes("--shared-git");
     const privateGitInputs = options.includes("--private-git-inputs");
@@ -101,6 +103,11 @@ if (import.meta.main) {
       writeFileSync(join(artifact, "scratch-prune.fixture.ts"), pruneVariant.cron);
       writeFileSync(join(artifact, "host-boundary.fixture.ts"), pruneVariant.boundary);
       writeFileSync(join(artifact, "owned-prune-substitutions.json"), JSON.stringify(pruneVariant.substitutions, null, 2));
+    }
+    const bootVariant = bootPruneCapture ? bootPruneCaptureVariant(pruneVariant?.cron ?? readFileSync(join(source, "packages/ui-server/src/cron/scratch-prune.ts"), "utf8")) : undefined;
+    if (bootVariant) {
+      writeFileSync(join(artifact, "boot-scratch-prune.fixture.ts"), bootVariant.cron);
+      writeFileSync(join(artifact, "boot-prune-substitution.json"), JSON.stringify(bootVariant.substitution, null, 2));
     }
     const helperSource = join(source, "packages/ui-sdk/tests/fixtures/identity-helper.c");
     const helper = join(artifact, "identity-helper");
@@ -156,6 +163,10 @@ if (import.meta.main) {
       writeFileSync(nativeFixturePath, changed(fresh,
         "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", applicationQualification ? "/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts" : probeStatePlacement ? "/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts" : privateGitInputs ? "/repo/packages/ui-sdk/tests/fixtures/private-git-identity-root.ts" : "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
     }
+    if (applicationScenario) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
+      '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', `"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--application-scenario=${applicationScenario}"`));
+    if (bootPruneCapture) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
+      '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--boot-prune-capture"'));
     if (omitProbeStatePlacement) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
       '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts", "--omit-probe-state-placement"'));
     const setup = join(artifact, "setup.sh");
@@ -268,8 +279,9 @@ exit "$case_code"
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, proofScope: ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
-      collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null,
+    const metadata = { image, applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
+      proofScope: applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+      collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null, bootPruneHashes: bootVariant?.hashes ?? null,
       skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls", ...(applicationQualification ? APPLICATION_SKIPPED_CONTROLS : []), ...(probeStatePlacement ? ["private-git-inputs", "fresh-controls", "fresh-app", "warm-app", "strict-app"] : [])] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
       helperSourceSha256: hash(readFileSync(helperSource)), helperSha256: hash(readFileSync(helper)),
@@ -282,7 +294,8 @@ exit "$case_code"
       ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
       "--mount", `type=bind,source=${artifact},target=/proof`,
       "--mount", `type=bind,source=${source},target=/repo,readonly`,
-      ...(pruneVariant ? ["--mount", `type=bind,source=${join(artifact, "scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`,
+      ...(bootVariant ? ["--mount", `type=bind,source=${join(artifact, "boot-scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`] : []),
+      ...(pruneVariant ? [...(!bootVariant ? ["--mount", `type=bind,source=${join(artifact, "scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`] : []),
         "--mount", `type=bind,source=${join(artifact, "host-boundary.fixture.ts")},target=/repo/packages/ui-server/src/brain/host-boundary.ts,readonly`] : []),
       ...(inventoryVariant ? ["--mount", `type=bind,source=${join(artifact, "maintenance-git.fixture.ts")},target=/repo/packages/ui-server/src/brain/maintenance-git.ts,readonly`] : []),
       "--mount", `type=bind,source=${realpathSync(process.execPath)},target=/usr/local/bin/bun,readonly`,

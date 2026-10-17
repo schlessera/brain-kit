@@ -8,3 +8,15 @@ export function applicationQualificationSelected(options: readonly string[]): bo
     throw Error("Application qualification requires its separate shared/private native composition");
   return selected;
 }
+
+export const APPLICATION_SCENARIOS = {
+  governed: ["private-positive", "fresh-git", "fresh-app", "warm"],
+  strict: ["private-positive", "fresh-git", "strict"],
+} as const;
+export function applicationQualificationScenario(options: readonly string[], selected: boolean): keyof typeof APPLICATION_SCENARIOS | undefined {
+  const value = options.find(option => option.startsWith("--application-scenario="))?.slice("--application-scenario=".length);
+  if (value === undefined) return undefined;
+  if (!selected || !options.includes("--boot-prune-capture") || (value !== "governed" && value !== "strict"))
+    throw Error("Application scenario requires named boot-capture application qualification");
+  return value;
+}

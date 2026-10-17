@@ -1,3 +1,4 @@
+import { installBootPruneCapture } from "./boot-prune-capture.js";
 /** Real managed-server admission and native SDK turn; explicit fictional API profile. */
 import { expect } from "bun:test";
 import { lstatSync, mkdirSync, statSync, readdirSync } from "node:fs";
@@ -12,6 +13,8 @@ import { nativeModelReply } from "../../../ui-backend-claude/tests/helpers/nativ
 import { serializeSigned } from "hono/utils/cookie";
 
 const sharedGit = new URL(import.meta.url).searchParams.has("shared-git");
+const bootPruneCapture = sharedGit && process.argv.includes("--boot-prune-capture");
+let ownedBootPrune: ReturnType<typeof installBootPruneCapture> | undefined;
 const appOnly = sharedGit && new URL(import.meta.url).searchParams.has("app-only");
 const warm = new URL(import.meta.url).searchParams.has("warm");
 const profile = new URL(import.meta.url).searchParams.get("profile") === "strict" ? "strict" : "governed";
@@ -93,11 +96,13 @@ try {
     stage("stage-controls:done");
   }
   recordFixtureRootMetadata("before-app");
+  if (bootPruneCapture) ownedBootPrune = installBootPruneCapture();
   stage("app-create:start");
   app = await createApp({ workerProfile: profile, config: resolveServerConfig({ AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: secret,
     HOST: "127.0.0.1", DB_PATH: join(data, "ui.db"), BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: "claude",
     BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0", BRAIN_UI_TURN_TIMEOUT_MS: "30000",
     BRAIN_UI_NATIVE_BRAIN_SOCKET: "/native-runtime/server-ws-manager.sock" }), registry: createStaticBackendRegistry([observedBackend], "claude"), observability });
+  if (ownedBootPrune) { ownedBootPrune.capture(); stage("boot-prune:captured"); }
   stage("app-create:done");
   const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus inference", ttlSeconds: 3600 });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
@@ -139,8 +144,11 @@ try {
   stage("ws:done");
   if (sharedGit) {
     stage("prune-join:start");
-    expect(typeof app.wsHost.scratchPrune, "SHARED_GIT_OWNED_MAINTENANCE_JOIN_AVAILABLE").toBe("function");
-    await app.wsHost.scratchPrune!();
+    if (ownedBootPrune) await ownedBootPrune.join();
+    else {
+      expect(typeof app.wsHost.scratchPrune, "SHARED_GIT_OWNED_MAINTENANCE_JOIN_AVAILABLE").toBe("function");
+      await app.wsHost.scratchPrune!();
+    }
     stage("prune-join:done");
     console.log(JSON.stringify({ actualOwnedScratchPruneJoined: { profile, warm } }));
   }
@@ -156,4 +164,4 @@ try {
   console.log(JSON.stringify({ actualMaintenanceFinalDiagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   if (sharedGit) expect(observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")),
     "SHARED_GIT_FRESH_WARM_CLI_SCRATCH_DIAGNOSTICS_CLEAN").toEqual([]);
-  } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } }
+  } finally { try { ownedBootPrune?.restore(); } finally { Object.defineProperty(Bun, "spawn", spawnDescriptor); } } }
