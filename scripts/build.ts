@@ -2,6 +2,7 @@ import { cpSync, existsSync, rmSync } from "fs";
 import { resolve } from "path";
 import { buildReceipt } from "./build-receipt.ts";
 import { markBinsExecutable } from "./bin-modes.ts";
+import { buildDecision, buildInputs, clearStamp, recordBuild } from "./build-stamp.ts";
 import { selectBuildPackages } from "./publishable-packages.ts";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -14,14 +15,18 @@ import { ensureWorkspaceLease } from "./workspace-lease.mjs";
 // (scripts/publishable-packages.ts), so a future resolution change fails
 // loudly instead of subtly.
 //
-//   bun scripts/build.ts [--for <dir>[,<dir>…]] [--jobs=1|2] [--dry-run [root]]
+//   bun scripts/build.ts [--for <dir>[,<dir>…]] [--jobs=1|2] [--force] [--dry-run [root]]
 //
 // --for includes each named package and its forward workspace dependencies.
 // --dry-run prints that order without building or removing anything.
 // --jobs=2 opts a single CI workspace into bounded dependency-level builds.
 // The default stays serial, including two concurrent private unit workspaces.
+//
+// A package whose complete build inputs and dist are unchanged since its last
+// successful build is reported up to date instead of being recompiled
+// (scripts/build-stamp.ts, #2319). --force always rebuilds every package.
 const args = process.argv.slice(2);
-let dryRun = false, dryRoot: string | undefined, directories: string[] | undefined;
+let dryRun = false, force = false, dryRoot: string | undefined, directories: string[] | undefined;
 let jobs = 1, jobsSeen = false;
 let packages: ReturnType<typeof selectBuildPackages>;
 let root: string;
@@ -29,6 +34,7 @@ try {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === "--dry-run" && !dryRun) dryRun = true;
+    else if (arg === "--force" && !force) force = true;
     else if (/^--jobs=[12]$/.test(arg) && !jobsSeen) { jobs = Number(arg.slice(7)); jobsSeen = true; }
     else if (arg === "--for" && directories === undefined) {
       const value = args[++index];
@@ -62,6 +68,8 @@ if (!bunx) {
 }
 
 const compilerLauncher = bunx;
+// Read under the write lease, before any package is touched.
+const input = buildInputs(root);
 
 class PackageBuildFailure extends Error {
   constructor(readonly packageName: string, readonly code: number, detail: string) {
@@ -72,6 +80,7 @@ class PackageBuildFailure extends Error {
 async function buildPackageBody({ dir: packageName, manifest }: (typeof packages)[number]): Promise<void> {
   const packageDir = resolve(root, "packages", packageName);
   const distDir = resolve(packageDir, "dist");
+  clearStamp(root, packageName);
   rmSync(distDir, { recursive: true, force: true });
 
   console.log(`Building packages/${packageName}...`);
@@ -146,9 +155,15 @@ async function buildPackageBody({ dir: packageName, manifest }: (typeof packages
 
 
 async function buildPackage(pkg: (typeof packages)[number]): Promise<void> {
+  if (buildDecision(root, pkg.dir, input, force) === "up-to-date") {
+    console.log(`Up to date packages/${pkg.dir}`);
+    receipt.packageUpToDate(pkg.dir);
+    return;
+  }
   receipt.packageStart(pkg.dir);
   try {
     await buildPackageBody(pkg);
+    recordBuild(root, pkg.dir, input);
     receipt.packageEnd(pkg.dir, true);
   } catch (error) {
     receipt.packageEnd(pkg.dir, false);
