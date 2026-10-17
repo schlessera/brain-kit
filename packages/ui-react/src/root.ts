@@ -17,6 +17,7 @@ import { createAuthLock } from "./lib/auth-lock.js";
 import { createLocalWork, type LocalWork } from "./lib/local-work.js";
 import { createLocalWorkFlow } from "./lib/local-work-flow.js";
 import { shareNotificationZoneReports } from "./lib/push-registration.js";
+import { registerBuiltinContentRenderers } from "./content-renderers/index.js";
 
 /** One IndexedDB database per app origin holds every root's and every account's partitions (#1014). */
 const LOCAL_PARTITIONS_DB = "brain-ui-local";
@@ -112,6 +113,7 @@ export function createRoot(
   renderers = createToolRendererRegistry(),
   asr = createAsrClientRegistry(),
 ): BrainUiRoot {
+  registerBuiltinContentRenderers();
   const transport = options.request ?? browserRequest;
   let authLock: ReturnType<typeof createAuthLock> | undefined;
   const request = async (url: string, init?: ProgressRequestInit): Promise<Response> => {
@@ -205,6 +207,13 @@ export function createRoot(
   const stopStateRoomHistory = stores.chat.subscribe((next, prior) => {
     if (next.stateRooms !== prior.stateRooms || next.backendIds !== prior.backendIds) reconcileStateRoom();
   });
+  const stopContentRendererScope = stores.connection.subscribe((next, prior) => {
+    if (next.accountKey !== prior.accountKey || next.socketOpens !== prior.socketOpens ||
+      (next.vpnStatus !== prior.vpnStatus && (next.vpnStatus === "unauthorized" || next.vpnStatus === "forbidden"))) {
+      stores.contentRenderers.getState().reset();
+      if (next.vpnStatus === "connected") void stores.contentRenderers.getState().load();
+    }
+  });
   let vpnRecheck: (() => void) | null = null;
   // A root built without persistence (stories, tests, SSR) keeps submitted
   // answers in memory: receipts and live-page recovery still work, a reload
@@ -281,7 +290,8 @@ export function createRoot(
     connection,
     answers: connection.answers,
     dispose() {
-      stopStateRoomRoster(); stopStateRoomHistory();
+      stopStateRoomRoster(); stopStateRoomHistory(); stopContentRendererScope();
+      stores.contentRenderers.getState().reset();
       services.localWorkFlow.dispose();
       services.authLock.dispose();
       connection.dispose();

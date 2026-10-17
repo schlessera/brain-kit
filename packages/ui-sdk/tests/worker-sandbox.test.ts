@@ -333,9 +333,13 @@ describe("worker sandbox writable areas (#1626)", () => {
       expect(workerSandboxNote(restricted)).toContain("restricted (autonomous) turn");
       // A restricted worker's argv is unchanged by its (empty) sandbox.
       const relay = join(f.root, "relay"); mkdirSync(relay, { mode: 0o700 });
-      const envelope = { readPaths: [process.execPath], inferenceDir: relay };
-      expect(workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: envelope, sandbox: restricted }))
-        .toEqual(workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: envelope }));
+      const server = Bun.serve({ unix: join(relay, "relay.sock"), fetch: () => new Response("ithaca") });
+      chmodSync(join(relay, "relay.sock"), 0o600);
+      try {
+        const envelope = { readPaths: [process.execPath], inferenceDir: relay };
+        expect(workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: envelope, sandbox: restricted }))
+          .toEqual(workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: envelope }));
+      } finally { server.stop(true); }
     } finally { f.cleanup(); }
   });
 

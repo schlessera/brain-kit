@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "type": "architecture",
+  "title": "Ithaca relay boundaries",
+  "desc": "Odysseus prepares the homecoming to Ithaca on 2026-07-12.",
+  "size": "fit",
+  "nodes": [
+    {
+      "id": "hermes",
+      "label": "Hermes",
+      "at": [
+        64,
+        128
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "kind": "compute",
+      "parent": "voyage-traffic"
+    },
+    {
+      "id": "endpoint",
+      "label": "Ledger endpoint",
+      "at": [
+        304,
+        128
+      ],
+      "size": [
+        176,
+        64
+      ],
+      "kind": "endpoint",
+      "parent": "voyage-traffic",
+      "target": "ledger"
+    },
+    {
+      "id": "penelope",
+      "label": "Penelope",
+      "at": [
+        608,
+        128
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "kind": "compute",
+      "parent": "ithaca-traffic"
+    },
+    {
+      "id": "ledger",
+      "label": "Voyage ledger",
+      "at": [
+        64,
+        304
+      ],
+      "size": [
+        176,
+        64
+      ],
+      "kind": "managed",
+      "parent": "homecoming",
+      "role": "store"
+    }
+  ],
+  "edges": [
+    {
+      "to": "endpoint",
+      "from": "hermes"
+    },
+    {
+      "to": "ledger",
+      "kind": "link",
+      "from": "endpoint"
+    },
+    {
+      "to": "ithaca-traffic",
+      "peering": true,
+      "label": "PEER",
+      "from": "voyage-traffic"
+    }
+  ],
+  "containment": {
+    "scopes": [
+      {
+        "id": "homecoming",
+        "label": "HOMECOMING",
+        "kind": "admin",
+        "at": [
+          24,
+          24
+        ],
+        "size": [
+          800,
+          400
+        ]
+      },
+      {
+        "id": "voyage-traffic",
+        "label": "VOYAGE",
+        "kind": "traffic",
+        "parent": "homecoming",
+        "at": [
+          40,
+          80
+        ],
+        "size": [
+          464,
+          160
+        ]
+      },
+      {
+        "id": "ithaca-traffic",
+        "label": "ITHACA",
+        "kind": "traffic",
+        "parent": "homecoming",
+        "at": [
+          584,
+          80
+        ],
+        "size": [
+          216,
+          160
+        ]
+      }
+    ]
+  }
+}

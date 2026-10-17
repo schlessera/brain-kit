@@ -25,8 +25,7 @@ import { useUIStore } from "../../src/stores/ui-store.js";
 
 afterEach(cleanup);
 afterAll(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  unregisterDom();
+  await unregisterDom();
 });
 
 const realFetch = globalThis.fetch;

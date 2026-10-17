@@ -8,7 +8,7 @@
 // wrong. The convention (`docs/decisions/README.md`) is to name the symbol and
 // let the range follow it:
 //
-//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:198-227`)
+//   (`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
 //
 // The anchor is the code span immediately before the citation, joined to it by
 // a comma. Each cited range must START on a line containing the anchor, so an
@@ -570,7 +570,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "the global epoch revoke, replaced by per-principal revocation",
   "docs/decisions/session-principals.md|auth.ts:221-237":
     "isWsAuthorized returning a boolean; it now returns a principal",
-  "docs/decisions/session-principals.md|app.ts:278-292":
+  "docs/decisions/session-principals.md|app.ts:280-294":
     "the request log without an actor; it now logs the principal",
   "docs/decisions/session-principals.md|ws/connection.ts:262-264":
     "the upgrade ignoring the request context; it now reads the principal",

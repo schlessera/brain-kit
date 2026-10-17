@@ -13,7 +13,7 @@ export const policyCommand: CoreCommand = {
     emit(cli.json, result, () => {
       console.log(`Governance policy: ${result.status}${result.content_hash ? ` (${result.content_hash})` : ""}`);
       for (const error of result.errors) console.error(error);
-      for (const warning of result.warnings) console.error(`Skipped pattern: ${warning}`);
+      for (const warning of result.warnings) console.error(`Warning: ${warning}`);
     });
     return result.ok ? 0 : 1;
   },

@@ -420,6 +420,7 @@ if (!process.env[CHILD_MARKER]) {
   afterAll(async () => {
     cleanup();
     root.dispose();
+    await act(async () => {});
     await GlobalRegistrator.unregister();
   });
 }

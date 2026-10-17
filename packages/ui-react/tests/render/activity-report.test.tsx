@@ -31,9 +31,8 @@ const render = (node: ReactNode) => renderDom(<BrainUiProvider root={root}>{node
 
 afterEach(cleanup);
 afterAll(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0));
   restoreGeometry();
-  unregisterActivityReportDom();
+  await unregisterActivityReportDom();
 });
 
 const SECRET = "sk-odyssey-0000000000000000";

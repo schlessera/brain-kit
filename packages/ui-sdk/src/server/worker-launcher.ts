@@ -1,7 +1,8 @@
+import { registerWorkerRtk } from "./worker-rtk.js";
 import { createWorkerStatusPipe } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
-import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
+import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
   realpathSync, rmSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
@@ -11,8 +12,9 @@ import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file
 import { createWorkerPipes } from "./worker-pipes.js";
 import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
+import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_DIRS,
+import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_XDG_HOME, WORKER_XDG_DIRS,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
   type WorkerLimitHit, type WorkerLimitReport, type WorkerLimitsPlan } from "./worker-limits.js";
@@ -20,7 +22,7 @@ import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from ".
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
 import { isEnvName } from "./protected-paths.js";
-import { resolveWorkerProtection, protectedWorkerMounts } from "./worker-protection.js";
+import { resolveWorkerProtection, protectedWorkerMounts, verifyWorkerFolderMounts } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
@@ -49,6 +51,9 @@ const STATE_GATE = ["/bin/sh", "-c", 'IFS= read -r go && [ "$go" = go ] || exit 
 const STATE_GATE_OPEN = "go\n";
 /** How long a launch waits for bubblewrap to report and mount, like the probe's bound. */
 const STATE_SETUP_MS = 5_000;
+/** Include the trusted transport wrapper in every start-gate boundary calculation. */
+const payloadCommand = (input: WorkerLaunch): readonly string[] => input.egress
+  ? [process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir), ...input.command] : input.command;
 export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host with bubblewrap and unprivileged user namespaces.";
 
 export interface WorkerLaunch {
@@ -83,6 +88,8 @@ export interface WorkerLaunch {
    * envelope instead of the host root. Absent for interactive and voice turns.
    */
   restricted?: RestrictedEnvelope;
+  /** Explicit measured interactive transport; default activation remains gated by #1665. */
+  egress?: { proxyDir: string };
   /**
    * The writable areas resolved by `prepareWorkerSandbox` for this worker
    * (#1626). The same object renders the agent's sandbox note, so the mounts
@@ -226,10 +233,19 @@ function restrictedMounts(envelope: RestrictedEnvelope, brain: string): string[]
     seen.add(path);
     argv.push("--ro-bind", path, path);
   }
-  const inference = realpathSync(envelope.inferenceDir);
-  if (!lstatSync(inference).isDirectory() || (statSync(inference).mode & 0o077) !== 0) {
-    throw new WorkerHostError("the inference relay directory must be a private directory");
-  }
+  const separateIdentity = Boolean(workerIdentityHelper());
+  let inference = "", valid = false;
+  try {
+    inference = realpathSync(envelope.inferenceDir);
+    const directory = lstatSync(inference), socket = lstatSync(join(inference, "relay.sock"));
+    valid = inference === normalize(envelope.inferenceDir) && directory.isDirectory() && socket.isSocket()
+      && directory.uid === process.getuid?.() && socket.uid === process.getuid?.()
+      && (directory.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+      && (socket.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+      && (!separateIdentity || directory.gid === process.getgid?.() && socket.gid === process.getgid?.())
+      && !within(brain, inference) && !within(inference, brain);
+  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+  if (!valid) throw new WorkerHostError("the inference relay requires its private directory and server-owned socket");
   argv.push("--ro-bind", inference, WORKER_INFERENCE_DIR);
   return argv;
 }
@@ -314,11 +330,34 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
  * credentialed worker, then the brain read-write. A credential-free worker
  * gets the brain's `.env*` files covered, so Bun loads no key into it.
  */
-function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string[] {
+function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressMounts: readonly string[] = []): string[] {
   const masks: string[] = [];
   const fileMasks = new Set<string>();
   // Every mask as asked, before nested ones fold into an ancestor.
   const resolved: string[] = [];
+  const separateIdentity = Boolean(workerIdentityHelper());
+  const serverUid = process.getuid?.(), sharedGid = process.getgid?.();
+  const coverageRoot = (path: string): string => {
+    if (!separateIdentity) return path;
+    let covered = path;
+    for (let parent = dirname(path); parent !== "/"; parent = dirname(parent)) {
+      const info = lstatSync(parent);
+      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+        throw new WorkerHostError("a private mask ancestor changed or is linked");
+      }
+      // The verified helper keeps only the server's primary shared group.
+      // Cover an inaccessible parent with empty tmpfs, never its real contents.
+      const searchable = info.gid === sharedGid ? info.mode & 0o010 : info.mode & 0o001;
+      if (searchable) continue;
+      if (info.uid !== serverUid) throw new WorkerHostError("a private mask ancestor is not server-owned");
+      covered = parent;
+    }
+    if (covered !== path && (within(covered, brain) || within(brain, covered) || envelope.readPaths.some(requested => {
+      const runtime = realpathSync(requested);
+      return within(covered, runtime) || within(runtime, covered);
+    }))) throw new WorkerHostError("a private mask ancestor overlaps the brain or required runtime");
+    return covered;
+  };
   for (const requested of [...HOST_MASKS, ...(envelope.maskPaths ?? [])]) {
     if (!isAbsolute(requested)) throw new WorkerHostError("maintenance worker masks must be absolute paths");
     let path: string;
@@ -331,11 +370,15 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
     // Host /tmp is already absent behind the worker's private tmpfs. A
     // second operational mask would replace its capacity and writable mode.
     if (within(TURN_TEMP_ROOT, path)) continue;
-    if (info.isFile()) { fileMasks.add(path); continue; }
-    resolved.push(path);
+    if (info.isFile()) fileMasks.add(path);
+    else resolved.push(path);
     if (masks.some(mask => within(mask, path))) continue;
-    for (let i = masks.length - 1; i >= 0; i--) if (within(path, masks[i]!)) masks.splice(i, 1);
-    masks.push(path);
+    const covered = coverageRoot(path);
+    if (info.isFile() && covered === path) continue;
+    if (covered !== path) resolved.push(covered);
+    if (masks.some(mask => within(mask, covered))) continue;
+    for (let i = masks.length - 1; i >= 0; i--) if (within(covered, masks[i]!)) masks.splice(i, 1);
+    masks.push(covered);
   }
   const masked = (path: string) => within(TURN_TEMP_ROOT, path) || masks.some(mask => within(mask, path));
   const argv = masks.flatMap(mask => ["--tmpfs", mask]);
@@ -395,6 +438,7 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string): string
   // file mount, not tmpfs. Apply after every permitted bind-back so neither
   // HOME nor a runtime directory can restore their original bytes.
   for (const file of fileMasks) argv.push("--ro-bind", "/dev/null", file);
+  argv.push(...egressMounts);
   if (envelope.readOnlyMasks || envelope.tempBytes !== undefined) {
     for (const mask of readOnlyMasks) argv.push("--remount-ro", mask);
   }
@@ -500,6 +544,27 @@ export function workerCommand(input: WorkerLaunch): string[] {
   }
   const maintenance = input.maintenance;
   const transport = input.transport;
+  if (input.egress && (maintenance || transport || input.restricted || !input.sandbox?.profile || input.sandbox.profile === "restricted")) {
+    throw new WorkerHostError("egress transport belongs only to a governed or strict interactive worker");
+  }
+  let egressMounts: string[] = [];
+  if (input.egress) {
+    const separateIdentity = Boolean(workerIdentityHelper());
+    const serverUid = process.getuid?.(), serverGid = process.getgid?.();
+    let directory = "", valid = false;
+    try {
+      directory = realpathSync(input.egress.proxyDir);
+      const directoryInfo = lstatSync(directory), socketInfo = lstatSync(join(directory, "proxy.sock"));
+      valid = directory === normalize(input.egress.proxyDir) && directoryInfo.isDirectory() && socketInfo.isSocket()
+        && directoryInfo.uid === serverUid && socketInfo.uid === serverUid
+        && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+        && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+        && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
+        && !within(brain, directory) && !within(directory, brain);
+    } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+    if (!valid) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
+    egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
+  }
   if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a transport worker has no brain execution envelope or agent state");
   }
@@ -513,12 +578,32 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
+    MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
+    ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
+  const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
+  const runtimePaths = input.restricted?.readPaths ?? transport?.readPaths ?? maintenance?.readPaths
+    ?? input.sandbox?.readPaths ?? [...restrictedReadPaths(runtimeEntries), ...runtimeEntries];
+  // Validate names before stat/mount planning too: a missing executable under
+  // a reserved mount needs an actionable refusal, never a later exit 127.
+  for (const path of [...runtimePaths, ...(isAbsolute(input.command[0] ?? "") ? [input.command[0]!] : [])]) {
+    validateRuntimePlacement(path, reservedRuntimePaths);
+  }
   const writable = sandboxMounts(input, brain, scratch, input.stateBytes !== undefined ? WORKER_STATE : undefined);
+  const runtimeViewMounts = [
+    ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
+    ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
+      network: true, credentials: false, readOnlyMasks: true,
+      readPaths: [...runtimePaths,
+        ...(input.egress ? restrictedReadPaths([process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir)]) : [])],
+      maskPaths: input.sandbox.maskPaths,
+    }, brain, egressMounts) : ["--ro-bind", brain, brain]),
+  ];
   const argv = [bwrap, "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
     // Explicit maintainer approval on #1708: maintenance commands cannot
     // create nested user namespaces; startup asserts that enforcement.
     ...(maintenance || transport ? ["--disable-userns", "--assert-userns-disabled"] : []),
-    ...(input.restricted || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
+    ...(input.restricted || input.egress || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
     ...(input.restricted || transport ? [] : ["--ro-bind", "/", "/"]),
@@ -526,12 +611,11 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // the host backs it, and no other worker's namespace can see it.
     "--proc", "/proc", ...rootProcCover(), "--dev", "/dev",
     ...(sized ? ["--size", String(tempBytes), "--tmpfs", TURN_TEMP_ROOT] : ["--tmpfs", TURN_TEMP_ROOT]),
-    ...(input.restricted ? restrictedMounts(input.restricted, brain) : []),
-    ...(transport ? transportMounts(transport, brain) : maintenance ? maintenanceMounts(maintenance, brain) : input.sandbox?.profile ? maintenanceMounts({
-      network: true, credentials: false, readOnlyMasks: true,
-      readPaths: input.sandbox.readPaths ?? restrictedReadPaths(input.command.filter(path => isAbsolute(path) && existsSync(path))),
-      maskPaths: input.sandbox.maskPaths,
-    }, brain) : ["--ro-bind", brain, brain]),
+    ...runtimeViewMounts,
+    // Preserve existing masked-file overlays by never rebinding an already
+    // restored runtime. Add only missing temporary paths and explicit aliases.
+    ...temporaryRuntimeMounts(runtimePaths, runtimeViewMounts, Boolean(input.restricted)),
+    ...runtimeMaskOverlays(runtimePaths, maintenance?.maskPaths ?? input.sandbox?.maskPaths ?? []),
     // Strict restores the old read-only brain after the common masks/runtime view.
     ...(input.startupView ? ["--ro-bind", input.startupView.root, brain]
       : !maintenance && input.sandbox?.profile === "strict" ? ["--ro-bind", brain, brain] : []),
@@ -550,7 +634,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
       }),
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
-    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection) : []), "--clearenv"];
+    ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
+    "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
   // secret over an earlier mask. The masks are about reads, not writes.
   if (!maintenance) {
@@ -566,7 +651,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
   for (const [key, value] of Object.entries(input.env)) argv.push("--setenv", key, value);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
-    "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []), ...input.command);
+    "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
+    ...payloadCommand(input));
   const outputStorage = input.areaOutput?.storage ?? maintenance?.output?.storage;
   if (outputStorage) {
     const storage = outputStorage;
@@ -592,6 +678,87 @@ export function workerCommand(input: WorkerLaunch): string[] {
 
 /** Whether `path` is `dir` or lies below it. */
 const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
+
+/** Resolve aliases even when the final installed entry is not present yet. */
+function runtimeCanonicalName(requested: string): string {
+  let parent = normalize(requested);
+  const tail: string[] = [];
+  for (;;) {
+    try { return join(realpathSync(parent), ...tail); }
+    catch (error) {
+      if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      const next = dirname(parent);
+      if (next === parent) throw error;
+      tail.unshift(parent.slice(next === "/" ? 1 : next.length + 1)); parent = next;
+    }
+  }
+}
+function validateRuntimePlacement(requested: string, reserved: readonly string[]): void {
+  if (!isAbsolute(requested)) throw new WorkerHostError("owned runtime paths must be absolute");
+  for (const path of new Set([normalize(requested), runtimeCanonicalName(requested)])) {
+    const conflict = reserved.find(privatePath => within(path, privatePath) || within(privatePath, path));
+    if (conflict) throw new WorkerHostError(`owned runtime path ${requested} (${path}) collides with reserved private worker path ${conflict}; install the runtime in a separate noncolliding directory`);
+  }
+}
+function temporaryRuntimeMounts(paths: readonly string[], existing: readonly string[], explicitAliases: boolean): string[] {
+  const bindings = new Map<string, string>();
+  const restored: Array<{ source: string; target: string }> = [];
+  const aliases: Array<{ source: string; target: string }> = [];
+  for (let index = 0; index < existing.length - 2; index++) {
+    const option = existing[index]!;
+    if (!["--bind", "--ro-bind", "--symlink"].includes(option)) continue;
+    const source = existing[index + 1]!, target = existing[index + 2]!;
+    if (option === "--symlink") aliases.push({ source: isAbsolute(source) ? source : join(dirname(target), source), target });
+    else restored.push({ source, target });
+    index += 2;
+  }
+  const supplied = (requested: string, real: string): boolean => {
+    let path = requested;
+    // Follow only aliases installed in this view, not arbitrary host aliases.
+    for (let depth = 0; depth <= aliases.length; depth++) {
+      const alias = aliases.find(({ target }) => within(target, path));
+      if (!alias) break;
+      path = alias.source + path.slice(alias.target.length);
+      if (depth === aliases.length) return false;
+    }
+    return restored.some(({ source, target }) => {
+      if (!within(target, path)) return false;
+      try { return realpathSync(source + path.slice(target.length)) === real; }
+      catch { return false; }
+    });
+  };
+  for (const requested of paths) {
+    let real: string;
+    try { real = realpathSync(requested); } catch { continue; }
+    for (const path of new Set([real, normalize(requested)])) {
+      if ((within(TURN_TEMP_ROOT, path) || explicitAliases && path !== real) && !supplied(path, real)) {
+        bindings.set(path, real);
+        restored.push({ source: real, target: path });
+      }
+    }
+  }
+  return [...bindings].flatMap(([path, real]) => ["--ro-bind", real, path]);
+}
+/** A narrow runtime bind cannot restore an operational secret beneath it. */
+function runtimeMaskOverlays(paths: readonly string[], masks: readonly string[]): string[] {
+  const overlays = new Map<string, boolean>();
+  for (const requested of paths) {
+    let real: string;
+    try { real = realpathSync(requested); } catch { continue; }
+    for (const mask of masks) {
+      let privatePath: string, directory: boolean;
+      try { privatePath = realpathSync(mask); directory = statSync(privatePath).isDirectory(); } catch { continue; }
+      // Parent masks intentionally permit only the explicit runtime below
+      // them. Private descendants and individual files must remain hidden.
+      if (!within(real, privatePath) || directory && real === privatePath) continue;
+      for (const root of new Set([real, normalize(requested)])) overlays.set(root + privatePath.slice(real.length), directory);
+    }
+  }
+  // Overlay children first so an empty read-only parent never requires a
+  // later mountpoint to be created inside it.
+  return [...overlays].sort(([a], [b]) => b.split("/").length - a.split("/").length).flatMap(([path, directory]) => directory
+    ? ["--tmpfs", path, "--remount-ro", path] : ["--ro-bind", "/dev/null", path]);
+}
 
 /**
  * Whether the worker's command waits behind the start gate: it does whenever
@@ -641,6 +808,8 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
 export interface PrepareWorkerSandboxOptions {
   profile?: "governed" | "strict";
   protectedPaths?: readonly string[];
+  /** Literal existing provider folder roots to retain read-write, with every ancestor. */
+  folderPaths?: readonly string[];
   appearedPaths?: readonly string[];
   readPaths?: readonly string[];
   maskPaths?: readonly string[];
@@ -668,7 +837,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   }
   if (options.restricted) return { brain, restricted: true, areas: [], scratchAliasesRemoved: [] };
   const resolved = options.profile === "governed" ? resolveWorkerProtection(brain, {
-    paths: options.protectedPaths, appeared: options.appearedPaths,
+    paths: options.protectedPaths, appeared: options.appearedPaths, folderPaths: options.folderPaths,
   }) : undefined;
   const areas: WorkerArea[] = [];
   let removed: string[] = [];
@@ -690,6 +859,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
   // directory on the host, where no size-limited mount can hold it (#1703).
   const home: WorkerHome = { mode: "xdg" };
   return { brain, restricted: false, areas, scratchAliasesRemoved: removed,
+    ...(options.folderPaths?.length ? { retainedFolders: Object.freeze([...options.folderPaths]) } : {}),
     ...(options.profile ? { profile: resolved?.reason ? "strict" as const : options.profile,
       ...(resolved ? { protection: resolved.protection } : {}),
       ...(resolved?.reason ? { fallbackReason: resolved.reason } : {}),
@@ -715,7 +885,7 @@ export function workerBootstrap(input: WorkerLaunch, cgroup?: string, status?: {
     argv.splice(bwrap + 1, 0, "--json-status-fd", "3", "--block-fd", "4");
     // Every status-qualified launch waits, including commands without state.
     // The PID cannot exit/recycle before verification and freezer setup.
-    if (gated(input)) argv.splice(argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+    if (gated(input)) argv.splice(argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
     // Bun execve closes descriptors above stdio. Reopen only these host-owned
     // FIFOs after the unchanged bootstrap filter. bubblewrap closes both
     // descriptors in its sandbox child before any payload can run.
@@ -1071,7 +1241,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     const boot = workerBootstrap({ ...input, limits: plan }, cgroup?.path, status);
     if (helper) {
       const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[]; cgroup?: string };
-      if (gated(input)) payload.argv.splice(payload.argv.length - input.command.length - STATE_GATE.length, STATE_GATE.length);
+      if (gated(input)) payload.argv.splice(payload.argv.length - payloadCommand(input).length - STATE_GATE.length, STATE_GATE.length);
       identityBroker = prepareWorkerIdentity(helper, payload.argv, [
         ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
         ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
@@ -1125,6 +1295,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       turnTemp = identityBroker ? holdIdentityRoot(tempFd, "temp") : heldTmpfs(tempFd);
       if (identityBroker) tempFd = undefined;
     }
+    if (input.sandbox?.profile === "governed")
+      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline);
     // Release the gate: the worker's command starts only now.
     if (identityBroker) identityBroker.request("release"); else status!.release();
     stateFd = tempFd = undefined;
@@ -1197,7 +1369,7 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       finally { if (!input.preparedOutput) await startupView?.cleanup(); }
       throw error;
     });
-    return { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
+    const launched = { ...streams, configurationRoot, observeFile, pid: spawned.pid, exited, limits: plan, limitReport: () => report(),
       freeze: () => cgroup ? cgroup.freeze() : freezer.freeze(),
       resume: () => cgroup ? cgroup.resume() : freezer.resume(),
       kill: (signal?: NodeJS.Signals) => { killed = true;
@@ -1205,6 +1377,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
         else spawned.kill(signal);
       }, ...(state ? { state } : {}),
       ...(turnTemp ? { turnTemp } : {}) };
+    registerWorkerRtk(launched, pid, input);
+    return launched;
   } catch (error) {
     identityFinished = false;
     for (const handle of identityHandles) handle.close();
@@ -1296,6 +1470,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   let identitySentinel: string | undefined;
   let verifiedWorkerUid: number | undefined;
   let identityRelay: ReturnType<typeof Bun.spawn> | undefined;
+  let privateRelay: ReturnType<typeof Bun.serve> | undefined;
   try {
     if (process.platform !== "linux") throw new Error("Linux namespaces are required");
     brainPath = realpathSync(brainPath);
@@ -1321,20 +1496,30 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
     } : undefined;
     let restricted: RestrictedEnvelope | undefined;
     if (options.restricted || identityHelper) {
-      relayDir = mkdtempSync(join(tmpdir(), "brain-inference-probe-"));
+      relayDir = mkdtempSync(join(identityHelper ? realpathSync(tmpdir()) : tmpdir(), "brain-inference-probe-"));
+      if (identityHelper) chownSync(relayDir, process.getuid!(), process.getgid!());
       chmodSync(relayDir, identityHelper ? 0o750 : 0o700);
       if (options.restricted) restricted = { readPaths: [process.execPath, ...(identitySentinel ? [identitySentinel] : [])], inferenceDir: relayDir };
       if (identityHelper) {
         const python = ["/usr/bin/python3", "/bin/python3"].find(existsSync);
         if (!python) throw new WorkerHostError("worker_identity_requires_system_python");
-        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
+        identityRelay = Bun.spawn([python, "-I", "-S", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)\ns.bind(sys.argv[1]);os.chmod(sys.argv[1],0o660);s.listen(1)\nready=os.open(sys.argv[1]+'.ready',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);os.close(ready)\nc,_=s.accept();c.recv(4096);c.sendall(b'HTTP/1.1 200 OK\\r\\nContent-Length: 6\\r\\nConnection: close\\r\\n\\r\\nithaca');c.close();s.close()", join(relayDir, "relay.sock")],
           { env: {}, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
         const relayDeadline = Date.now() + STATE_SETUP_MS;
-        while (!existsSync(join(relayDir, "relay.sock"))) {
+        while (!existsSync(join(relayDir, "relay.sock.ready"))) {
           if (Date.now() >= relayDeadline) throw new WorkerHostError("worker_identity_relay_probe_unavailable");
           Bun.sleepSync(1);
         }
+        const directoryInfo = lstatSync(relayDir), socketInfo = lstatSync(join(relayDir, "relay.sock"));
+        if (realpathSync(relayDir) !== relayDir || !directoryInfo.isDirectory()
+          || directoryInfo.uid !== process.getuid!() || directoryInfo.gid !== process.getgid!() || (directoryInfo.mode & 0o7777) !== 0o750
+          || !socketInfo.isSocket() || socketInfo.uid !== process.getuid!() || socketInfo.gid !== process.getgid!() || (socketInfo.mode & 0o7777) !== 0o660) {
+          throw new WorkerHostError("worker_identity_relay_probe_invalid");
+        }
         if (sandbox) (sandbox as { readPaths: readonly string[] }).readPaths = [...sandbox.readPaths!, relayDir];
+      } else {
+        privateRelay = Bun.serve({ unix: join(relayDir, "relay.sock"), fetch: () => new Response("ithaca") });
+        chmodSync(join(relayDir, "relay.sock"), 0o600);
       }
     }
     // The worker must see each rlimit the plan sets, as its hard limit (#1660).
@@ -1382,6 +1567,15 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
       let child: { exitCode: number | null };
       if (identityHelper) {
         const payload = JSON.parse(boot.env.BRAIN_WORKER_LAUNCH!) as { argv: string[] };
+        if (!sandbox && !restricted) {
+          // Only this minted qualification channel is restored over private /tmp.
+          // Do not route it through installed-package closure discovery or change
+          // the no-profile ordinary worker into a governed/strict envelope.
+          const bwrapIndex = payload.argv.indexOf(Bun.which("bwrap")!);
+          const separator = bwrapIndex < 0 ? -1 : payload.argv.indexOf("--", bwrapIndex);
+          if (separator < 0 || !relayDir) throw new WorkerHostError("worker_identity_relay_probe_invalid");
+          payload.argv.splice(separator, 0, "--ro-bind", relayDir, relayDir);
+        }
         if (gated(options)) payload.argv.splice(payload.argv.length - probeCommand.length - STATE_GATE.length, STATE_GATE.length);
         broker = prepareWorkerIdentity(identityHelper, payload.argv, [
           ...(options.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: options.stateBytes }]),
@@ -1439,6 +1633,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
   } finally {
     if (fixture) rmSync(fixture, { recursive: true, force: true });
     identityRelay?.kill("SIGKILL");
+    privateRelay?.stop(true);
     if (relayDir) rmSync(relayDir, { recursive: true, force: true });
     if (identitySentinel) rmSync(identitySentinel, { recursive: true, force: true });
   }
@@ -1487,6 +1682,12 @@ export function restrictedReadPaths(entries: readonly string[]): string[] {
       dir = parent;
     }
     paths.add(owner ?? real);
+    // Retain the installed entry's spelling and any aliased package ancestor
+    // too. Its canonical closure alone cannot execute a name hidden by /tmp.
+    paths.add(normalize(entry));
+    for (let named = dirname(normalize(entry)); named !== "/"; named = dirname(named)) {
+      if (paths.has(realpathSync(named))) paths.add(named);
+    }
   }
   return [...paths];
 }

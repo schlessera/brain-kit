@@ -7,6 +7,6 @@
 @import "./theme.css";
 
 /* The turn receipt keeps the existing disclosure treatment with a full tap target. */
-[data-turn-journal] > div > [role="button"] { min-height: 44px; }
+[data-turn-journal] [role="button"][aria-expanded] { min-height: 44px; }
 
 .brain-scope-card [role="radio"] { min-height: 44px; overflow-wrap: anywhere; }

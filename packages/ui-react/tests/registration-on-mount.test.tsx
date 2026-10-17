@@ -161,7 +161,7 @@ if (!childMode) {
   sdk.defaultAsrClientRegistry.register = registerAsrClient;
 
   const React = await import("react");
-  const { cleanup, render, renderHook } = await import("@testing-library/react");
+  const { act, cleanup, render, renderHook } = await import("@testing-library/react");
   const harness = await import("./registration-on-mount-harness.js");
 
   test("StrictMode renders and explicit repeats register each built-in once", () => {
@@ -216,6 +216,7 @@ if (!childMode) {
 
   afterAll(async () => {
     cleanup();
+    await act(async () => {});
     await GlobalRegistrator.unregister();
   });
 }

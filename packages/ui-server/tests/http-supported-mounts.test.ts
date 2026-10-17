@@ -1,11 +1,15 @@
-import { expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { generateSignedCookie } from "hono/cookie";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { globalAgent } from "node:http";
 import { createActivityStore } from "../src/activity/store";
 import { createPrincipal } from "../src/db/principals";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { CLI_LOG, httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
+import { closeHttpMountFixture, createHttpMountPool } from "./helpers/http-mount-pool";
+import { observeMountTimers } from "./helpers/http-mount-timers";
+import { mountLifetimes } from "./helpers/http-mount-lifetimes";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
 
 const SECRET = "http-contract-fixture-secret-0123456789";
@@ -105,48 +109,166 @@ const checks: Record<string, Check> = {
 
 test("every supported method/path has a named real handler check", () => {
   expect(Object.keys(checks).length).toBeGreaterThan(0);
+  expect(Object.keys(mountLifetimes).sort()).toEqual(Object.keys(checks).sort());
+  for (const lifetime of Object.values(mountLifetimes)) expect(lifetime.effects.length).toBeGreaterThan(0);
   expect([...Object.keys(checks), "GET /ws"].sort()).toEqual(documentedRoutes.filter((r) => r.classification === "S").map((r) => `${r.method} ${r.path}`).sort());
 });
 
-for (const [operation, check] of Object.entries(checks)) {
+async function prepare(operation: string, afterSeed?: (t: HttpContractApp) => void) {
+  const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: SECRET, BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
+  try {
+    const owner = createPrincipal(t.app.db, { authMethod: "password", label: "Odysseus device", ttlSeconds: 3600 });
+    const cookie = (await generateSignedCookie("brain_ui_session", owner.id, SECRET)).split(";")[0]!;
+    t.app.db.query("INSERT INTO passkey_credentials (id, public_key, counter, rp_id, label, created_at) VALUES ('fixture-key', ?, 0, 'localhost', 'Fixture key', 1)").run(new Uint8Array([1, 2, 3]));
+    if (operation === "POST /api/auth/login") t.app.db.exec("DELETE FROM passkey_credentials");
+    if (operation === "DELETE /api/auth/principals/:id") {
+      t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
+    }
+    if (operation.endsWith("/api/sessions/:id/profile")) {
+      createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
+    }
+    const store = createActivityStore(t.app.db, { writer: "http-contract" });
+    store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });
+    store.endSpan("fixture-span", { outcome: "success", usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.5 } });
+    store.rollupRun("fixture-run");
+    mkdirSync(t.app.config.voice.cacheDir, { recursive: true });
+    writeFileSync(join(t.app.config.voice.cacheDir, "keyterms.json"), JSON.stringify({ version: 2, generatedAt: Date.now(), keyterms: ["Odysseus"], count: 1, overrides: [{ match: "Odysseus", replacement: "Odysseus" }] }));
+    afterSeed?.(t);
+    return { t, cookie };
+  } catch (error) {
+    try { await closeHttpMountFixture(t); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], "Mount seed and disposal failed"); }
+    throw error;
+  }
+}
+
+async function checkHandler(operation: string, check: Check, t: HttpContractApp, cookie: string) {
+  const [method, pathPattern] = operation.split(" ");
+  expect(t.routes).toContainEqual({ method, path: pathPattern });
+  const headers = new Headers(check.init?.headers);
+  headers.set("cookie", cookie);
+  headers.set("origin", "http://localhost");
+  headers.set("host", "localhost");
+  let body = check.init?.body;
+  if (operation === "POST /api/share") { const form = new FormData(); form.set("text", "Odysseus reaches the harbor."); body = form; }
+  const path = check.path ?? operation.slice(operation.indexOf(" ") + 1);
+  const response = await t.fetch(path, { ...check.init, headers, body });
+  expect(response.status, await response.clone().text()).toBe(check.status ?? 200);
+  if (check.body !== undefined) { expect(Object.keys(check.body as object).length).toBeGreaterThan(0); expect(await response.clone().json()).toMatchObject(check.body); }
+  await check.verify?.(response, t);
+  if (operation.includes("/api/brain/") && operation !== "POST /api/brain/sync") {
+    const command = operation.split("/").at(-1)!;
+    const args = readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
+    expect(args.some((a) => a[0] === (command === "history" ? "stats" : command))).toBe(true);
+  }
+}
+
+async function checkShared(operation: string, t: HttpContractApp) {
+  // The only mutable authorization record belongs to this case. Earlier
+  // principals stay valid but no admitted handler enumerates or counts them.
+  const owner = createPrincipal(t.app.db, { authMethod: "password", label: "Odysseus device", ttlSeconds: 3600 });
+  const cookie = (await generateSignedCookie("brain_ui_session", owner.id, SECRET)).split(";")[0]!;
+  await checkHandler(operation, checks[operation]!, t, cookie);
+}
+
+const sharedOperations = Object.keys(checks).filter(operation => mountLifetimes[operation]?.shared);
+const makePool = () => createHttpMountPool(async () => (await prepare("")).t);
+
+// Finish this group before creating any incompatible app: native fixture
+// startup observers are process-scoped, and each pool owns its whole lifetime.
+describe("immutable mount readers", () => {
+  const pool = makePool();
+  afterAll(() => pool.close());
+  for (const operation of sharedOperations) {
+    test(`mounted supported handler: ${operation}`, () => pool.run(t => checkShared(operation, t)));
+  }
+});
+
+for (const [operation, check] of Object.entries(checks).filter(([operation]) => !mountLifetimes[operation]?.shared)) {
   test(`mounted supported handler: ${operation}`, async () => {
-    const t = await httpContractApp({ env: { AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "unused-fixture-hash", COOKIE_SECRET: SECRET, BRAIN_UI_ALLOW_LOOPBACK_ORIGIN: "1" } });
-    try {
-      const owner = createPrincipal(t.app.db, { authMethod: "password", label: "Odysseus device", ttlSeconds: 3600 });
-      const cookie = (await generateSignedCookie("brain_ui_session", owner.id, SECRET)).split(";")[0]!;
-      t.app.db.query("INSERT INTO passkey_credentials (id, public_key, counter, rp_id, label, created_at) VALUES ('fixture-key', ?, 0, 'localhost', 'Fixture key', 1)").run(new Uint8Array([1, 2, 3]));
-      if (operation === "POST /api/auth/login") t.app.db.exec("DELETE FROM passkey_credentials");
-      if (operation === "DELETE /api/auth/principals/:id") {
-        t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
-      }
-      if (operation.endsWith("/api/sessions/:id/profile")) {
-        createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
-      }
-      const store = createActivityStore(t.app.db, { writer: "http-contract" });
-      store.startSpan({ spanId: "fixture-span", runId: "fixture-run", name: "Fixture turn", kind: "turn", origin: "session", sessionId: "fixture-session", principalId: owner.id, startedAt: Date.now() - 1000 });
-      store.endSpan("fixture-span", { outcome: "success", usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.5 } });
-      store.rollupRun("fixture-run");
-      mkdirSync(t.app.config.voice.cacheDir, { recursive: true });
-      writeFileSync(join(t.app.config.voice.cacheDir, "keyterms.json"), JSON.stringify({ version: 2, generatedAt: Date.now(), keyterms: ["Odysseus"], count: 1, overrides: [{ match: "Odysseus", replacement: "Odysseus" }] }));
-      const headers = new Headers(check.init?.headers);
-      headers.set("cookie", cookie);
-      headers.set("origin", "http://localhost");
-      headers.set("host", "localhost");
-      let body = check.init?.body;
-      if (operation === "POST /api/share") { const form = new FormData(); form.set("text", "Odysseus reaches the harbor."); body = form; }
-      const path = check.path ?? operation.slice(operation.indexOf(" ") + 1);
-      const response = await t.fetch(path, { ...check.init, headers, body });
-      expect(response.status, await response.clone().text()).toBe(check.status ?? 200);
-      if (check.body !== undefined) { expect(Object.keys(check.body as object).length).toBeGreaterThan(0); expect(await response.clone().json()).toMatchObject(check.body); }
-      await check.verify?.(response, t);
-      if (operation.includes("/api/brain/") && operation !== "POST /api/brain/sync") {
-        const command = operation.split("/").at(-1)!;
-        const args = readFileSync(join(t.brainPath, CLI_LOG), "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
-        expect(args.some((a) => a[0] === (command === "history" ? "stats" : command))).toBe(true);
-      }
-    } finally { await t.close(); }
+    const { t, cookie } = await prepare(operation);
+    try { await checkHandler(operation, check, t, cookie); }
+    finally { await t.close(); }
   });
 }
+
+// These controls execute the same response oracles, never a sampled substitute.
+test("shared mount readers keep their responses in repeated and permuted order", async () => {
+  const pool = makePool();
+  try {
+    for (const order of [sharedOperations, [...sharedOperations].reverse(), [...sharedOperations.slice(5), ...sharedOperations.slice(0, 5)]]) {
+      for (const operation of order) await pool.run(t => checkShared(operation, t));
+    }
+  } finally { await pool.close(); }
+});
+
+test("a dirty failed mount discards its resources before the next independent case", async () => {
+  const timers = observeMountTimers();
+  let failedStartup: HttpContractApp | undefined;
+  let attempts = 0;
+  const pool = createHttpMountPool(async () => (await prepare("", t => {
+    if (attempts++ === 0) { failedStartup = t; throw new Error("injected seed failure"); }
+  })).t);
+  let dirty: HttpContractApp | undefined;
+  try {
+    await expect(pool.run(t => checkShared("GET /api/health", t))).rejects.toThrow("injected seed failure");
+    expect(failedStartup).toBeDefined();
+    expect(existsSync(failedStartup!.root)).toBe(false);
+    expect(existsSync(failedStartup!.app.config.nativeBrain!.socketPath)).toBe(false);
+    expect(() => failedStartup!.app.db.query("SELECT 1").get()).toThrow();
+    expect(timers.pending.size).toBe(0);
+    await expect(pool.run(async t => {
+      dirty = t;
+      expect(timers.pending.size).toBeGreaterThan(0);
+      t.app.db.exec("UPDATE principals SET revoked_at = 1; DELETE FROM passkey_credentials");
+      writeFileSync(join(t.brainPath, "notes/arrival.md"), "dirty case");
+      writeFileSync(join(t.brainPath, CLI_LOG), '["wrong-command"]\n');
+      writeFileSync(join(t.app.config.voice.cacheDir, "keyterms.json"), "dirty cache");
+      throw new Error("injected mount failure");
+    })).rejects.toThrow("injected mount failure");
+    expect(timers.pending.size).toBe(0);
+    const agentKey = globalAgent.getName({ socketPath: dirty!.app.config.nativeBrain!.socketPath });
+    expect(globalAgent.sockets[agentKey] ?? []).toHaveLength(0);
+    expect(globalAgent.freeSockets[agentKey] ?? []).toHaveLength(0);
+    expect(globalAgent.requests[agentKey] ?? []).toHaveLength(0);
+    expect(dirty).toBeDefined();
+    expect(existsSync(dirty!.root)).toBe(false);
+    expect(existsSync(dirty!.app.config.nativeBrain!.socketPath)).toBe(false);
+    expect(dirty!.app.wsHost.turnTasks.size).toBe(0);
+    expect(() => dirty!.app.db.query("SELECT 1").get()).toThrow();
+    for (const operation of sharedOperations) await pool.run(async t => {
+      expect(t.root).not.toBe(dirty!.root);
+      await checkShared(operation, t);
+    });
+    await pool.close();
+    expect(timers.pending.size).toBe(0);
+    // A separate fresh app must also retain its native startup observer after
+    // the failed and rebuilt shared environments have completely shut down.
+    const fresh = await prepare("GET /api/auth/principals");
+    try { await checkHandler("GET /api/auth/principals", checks["GET /api/auth/principals"]!, fresh.t, fresh.cookie); }
+    finally { await fresh.t.close(); }
+    expect(timers.pending.size).toBe(0);
+  } finally {
+    try { await pool.close(); }
+    finally { timers.restore(); }
+  }
+});
+
+test("mount pool preserves the original failure when disposal also fails", async () => {
+  const original = new Error("handler assertion"), cleanup = new Error("disposal failed");
+  const fixture = {
+    app: { config: { nativeBrain: { socketPath: "/tmp/odysseus-unopened.sock" } } },
+    async close() { throw cleanup; },
+  } as unknown as HttpContractApp;
+  const pool = createHttpMountPool(async () => fixture);
+  try {
+    await pool.run(async () => { throw original; });
+    throw new Error("Expected the mount case to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual([original, cleanup]);
+  } finally { await pool.close(); }
+});
 
 test("coverage matrix names every supported operation and its real mounting receipt", () => {
   const rows = [...httpCoverageMatrix.matchAll(/^\| `(GET|POST|PUT|DELETE) ([^`]+)` \| ([^|]+) \|/gm)];

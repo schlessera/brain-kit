@@ -1,0 +1,20 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`one neutral geometry model supplies every serialized static theme 1`] = `
+[
+  {
+    "height": 64,
+    "id": "raft",
+    "width": 148,
+    "x": 40,
+    "y": 120,
+  },
+  {
+    "height": 64,
+    "id": "ithaca",
+    "width": 148,
+    "x": 400,
+    "y": 120,
+  },
+]
+`;

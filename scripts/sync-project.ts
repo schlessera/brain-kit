@@ -65,7 +65,7 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
   ],
   Hardening: [{ epics: [1343, 1636, 1642, 1643, 1644, 1645, 1646, 1647], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347, 2045],
     also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598, 1392],
     repo: "schlessera/brain-kit",
   }],
