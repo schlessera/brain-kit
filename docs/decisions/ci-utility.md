@@ -695,3 +695,5 @@ The exact unit inventory is validated against default Bun discovery. It includes
 owning fast tests once, and uses at most the existing four partitions, reduced
 only when fewer files exist; no empty partition or duplicate execution substitutes
 for coverage. Selected categories remain required by the unchanged aggregate.
+
+<!-- Native #2141 qualification: the upper own diff excludes inherited contract changes. -->
