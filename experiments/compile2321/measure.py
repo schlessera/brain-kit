@@ -211,8 +211,10 @@ def main():
         for name, variant, clean in arms:
             _, outputs = run_arm(workers, name, variant, original, report, args.smoke, clean)
             assert outputs == expected, f"{name}: emitted paths/modes/bytes differ from serial"
+        deleted_output = next(path for path in expected[0]
+                              if path.startswith("packages/common/dist/") and path.endswith(".js"))
         for worker in workers:
-            (worker / "packages/common/dist/index.js").unlink()
+            (worker / deleted_output).unlink()
         _, outputs = run_arm(workers, "incremental-missing-output", "incremental", original, report, args.smoke, False)
         missing = outputs != expected
         final, outputs = run_arm(workers, "serial-after", "serial", original, report, args.smoke, True)
@@ -220,7 +222,9 @@ def main():
         assert inventory(dependency_paths, ROOT) == install, "Parent install changed during measurement"
         summary = {"identity": identity, "serialBeforeSeconds": baseline["wallSeconds"],
                    "serialAfterSeconds": final["wallSeconds"], "incrementalMissingOutputRejected": missing,
-                   "candidateOutputEquality": True, "result": "measurement-complete-not-product-proof"}
+                   "coldAndUnchangedWarmOutputEquality": True, "deletedOutput": deleted_output,
+                   "incrementalEligibleForAdoption": not missing,
+                   "result": "measurement-complete-not-product-proof"}
         (report / "summary.json").write_text(json.dumps(summary, indent=2))
         print(json.dumps(summary), flush=True)
     finally:
