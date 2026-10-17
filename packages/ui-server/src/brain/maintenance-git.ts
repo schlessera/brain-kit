@@ -44,7 +44,7 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   // Git reads work-tree attributes as configuration too. An attributes-only
   // tree pins both existing bytes and absence without blocking checkout writes.
   const refreshInput = async () => {
-    spec = await prepareMaintenanceGitInput({ ...command, startupView: outputs.view, output: outputs.output, git: spec }, signal);
+    if (!command.credentials) spec = await prepareMaintenanceGitInput({ ...command, startupView: outputs.view, output: outputs.output, git: spec }, signal);
   };
   const gitRun = async (args: string[], stdin?: string) => {
     await refreshInput();
