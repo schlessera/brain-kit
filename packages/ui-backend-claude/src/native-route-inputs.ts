@@ -1,5 +1,4 @@
 /** Startup identity guard for the concrete native project/managed settings readers. */
-import { dlopen } from "bun:ffi";
 import { nativeWorkerStartupInput, retainWorkerStartupView, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { createHash } from "node:crypto";
 import { type BigIntStats, closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync } from "node:fs";
@@ -38,9 +37,11 @@ function input(path: string, expectedRealPath = path): string {
 }
 // Linux inotify is read synchronously at the pre-prompt gate. Event-loop watcher
 // callbacks cannot establish that an edit-and-restore was absent before a prompt.
-function loadNativeApi() {
+async function loadNativeApi() {
   if (process.platform !== "linux") throw failed();
-  try { return dlopen("libc.so.6", {
+  try {
+    const { dlopen } = await import("bun:ffi");
+    return dlopen("libc.so.6", {
   ioctl: { args: ["i32", "u64", "ptr"], returns: "i32" },
   inotify_init1: { args: ["i32"], returns: "i32" },
   inotify_add_watch: { args: ["i32", "cstring", "u32"], returns: "i32" },
@@ -50,7 +51,10 @@ let nativeApi: ReturnType<typeof loadNativeApi> | undefined;
 const MUTATIONS = 0x2 | 0x4 | 0x8 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400 | 0x800;
 const LOST = 0x2000 | 0x4000 | 0x8000;
 export async function retainNativeRouteInputs(source: string | WorkerStartupView) {
-  const libc = nativeApi ??= loadNativeApi();
+  const pending = nativeApi ??= loadNativeApi();
+  let libc: Awaited<typeof pending>;
+  try { libc = await pending; }
+  catch (error) { if (nativeApi === pending) nativeApi = undefined; throw error; }
   let owner: WorkerStartupView | undefined, rootFd: number | undefined;
   let openedRoot: BigIntStats | undefined;
   const closeRoot = () => {
