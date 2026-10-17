@@ -1,6 +1,6 @@
 /** Focused local preflight; repeatable full proof is authoritative in hosted CI. */
-import { resolve } from "node:path";
-import { accessSync, constants, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan";
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
@@ -49,7 +49,36 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): 
   return checks;
 }
 
-export function requireRuntimeTools(plan: CheckPlan): string | undefined {
+function probeSandboxSetup(): number {
+  const start = performance.now();
+  const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 });
+  const elapsed = performance.now() - start;
+  if (namespace.exitCode !== 0) throw new Error("Local checks require bwrap and permitted user/network namespaces; sandbox setup probe failed");
+  return elapsed;
+}
+
+export function requireRuntimeTools(plan: CheckPlan, full = true, readMountinfo = () => readFileSync("/proc/self/mountinfo", "utf8"), probeTimer = probeSandboxSetup): string | undefined {
+  if (process.platform === "linux") {
+    const fastest = Math.min(...Array.from({ length: 3 }, () => probeTimer()));
+    if (fastest >= 250) {
+      const entries = readMountinfo().split("\n").filter(line => line.trim().length > 0);
+      // Group mount points by their immediate parent, so individually named
+      // leaked bind mounts report their containing directory rather than `/`.
+      const prefixes = new Map<string, number>();
+      for (const entry of entries) {
+        const mountpoint = entry.split(" ")[4];
+        if (!mountpoint) throw new Error("Cannot read mount point from /proc/self/mountinfo");
+        const decoded = mountpoint.replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(parseInt(octal, 8)));
+        const prefix = dirname(decoded);
+        prefixes.set(prefix, (prefixes.get(prefix) ?? 0) + 1);
+      }
+      const [prefix, count] = [...prefixes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? ["(none)", 0];
+      const version = Bun.spawnSync(["bwrap", "--version"], { timeout: 5000 });
+      const versionText = version.exitCode === 0 ? new TextDecoder().decode(version.stdout).trim() : "bubblewrap version unavailable";
+      throw new Error(`Local checks refuse slow sandbox setup: fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms); ${versionText}; ${entries.length} mount entries; dominant mount-point prefix: ${prefix} (${count} entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown; then retry local preflight.`);
+    }
+  }
+  if (!full) return undefined;
   if (!Bun.semver.satisfies(Bun.version, ">=1.4.0")) throw new Error("Local checks require Bun >=1.4.0 (CI pins 1.4.2)");
   if (!Bun.which("flock")) throw new Error("Local checks require flock for workspace output coordination");
   if (plan.local.browser || plan.local.layout || plan.local.captures || plan.local.endurance) {
@@ -93,7 +122,7 @@ if (import.meta.main) {
     const commands = localChecks(plan, full, mergeBase);
     console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);
-    const chrome = full ? requireRuntimeTools(plan) : undefined;
+    const chrome = requireRuntimeTools(plan, full);
     // Setup/metadata are ordered. Full Bun tests and strict types are the only
     // independent memory-bounded pair; browser jobs stay sequential to retain
     // the measured scheduling/isolation behavior and diagnostic artifacts.

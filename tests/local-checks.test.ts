@@ -15,6 +15,56 @@ function fixture() {
   return dir;
 }
 
+function mountTable(count: number): string {
+  return Array.from({ length: count }, (_, i) => `${i + 1} 0 0:1 / /mnt/fixture/binds/${i} rw - tmpfs tmpfs rw`).join("\n") + "\n";
+}
+
+test("sandbox prerequisite permits 249 ms despite a large mount table", () => {
+  expect(requireRuntimeTools(planChecks([], []), false, () => mountTable(8000), () => 249)).toBeUndefined();
+});
+
+test("sandbox prerequisite refuses 250 ms before downstream checks", () => {
+  const which = spyOn(Bun, "which").mockReturnValue("/fixture/tool");
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0, stdout: new TextEncoder().encode("bubblewrap 0.9.0\n") } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    for (const full of [false, true]) {
+      expect(() => requireRuntimeTools(planChecks([], []), full, () => mountTable(20), () => 250))
+        .toThrow("fastest of three 250.0 ms (requires less than 250 ms); bubblewrap 0.9.0; 20 mount entries; dominant mount-point prefix: /mnt/fixture/binds (20 entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
+    }
+    expect(which).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn).toHaveBeenCalledWith(["bwrap", "--version"], { timeout: 5000 });
+  } finally { which.mockRestore(); spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite compares the fastest of exactly three probes", () => {
+  const samples = [900, 249, 300];
+  const timer = () => samples.shift()!;
+  expect(requireRuntimeTools(planChecks([], []), false, () => mountTable(8000), timer)).toBeUndefined();
+  expect(samples).toEqual([]);
+});
+
+test("sandbox prerequisite reports the largest parent prefix and decodes mountinfo escapes", () => {
+  const table = mountTable(600).replaceAll("/mnt/fixture/binds", "/mnt/fixture/binds\\040here") +
+    mountTable(400).replaceAll("/mnt/fixture/binds", "/other");
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0, stdout: new TextEncoder().encode("bubblewrap fixture") } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    expect(() => requireRuntimeTools(planChecks([], []), false, () => table, () => 300))
+      .toThrow("dominant mount-point prefix: /mnt/fixture/binds here (600 entries)");
+  } finally { spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite runs the real namespace command three times and rejects failed setup", () => {
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0 } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    expect(requireRuntimeTools(planChecks([], []), false)).toBeUndefined();
+    expect(spawn).toHaveBeenCalledTimes(3);
+    expect(spawn).toHaveBeenCalledWith(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 });
+    spawn.mockReturnValue({ exitCode: 1 } as ReturnType<typeof Bun.spawnSync>);
+    expect(() => requireRuntimeTools(planChecks([], []), false)).toThrow("sandbox setup probe failed");
+  } finally { spawn.mockRestore(); }
+});
+
 test("runtime tools reject invalid Chrome paths before launching any child", () => {
   const dir = fixture();
   const file = join(dir, "non-executable"); writeFileSync(file, "fixture"); chmodSync(file, 0o600);
@@ -26,7 +76,7 @@ test("runtime tools reject invalid Chrome paths before launching any child", () 
   try {
     for (const path of [dir, file, join(dir, "absent"), dangling]) {
       process.env.PUPPETEER_EXECUTABLE_PATH = path;
-      expect(() => requireRuntimeTools(plan)).toThrow(`Local runtime proof requires real Chrome; set PUPPETEER_EXECUTABLE_PATH (rejected path: ${path})`);
+      expect(() => requireRuntimeTools(plan, true, () => mountTable(20), () => 1)).toThrow(`Local runtime proof requires real Chrome; set PUPPETEER_EXECUTABLE_PATH (rejected path: ${path})`);
       expect(spawn).not.toHaveBeenCalled();
     }
   } finally {
@@ -47,7 +97,7 @@ test("runtime tools accept executable regular files and symlinks and retain the 
   try {
     for (const path of [file, link]) {
       process.env.PUPPETEER_EXECUTABLE_PATH = path;
-      expect(requireRuntimeTools(plan)).toBe(path);
+      expect(requireRuntimeTools(plan, true, () => mountTable(20), () => 1)).toBe(path);
     }
     expect(spawn).toHaveBeenCalledTimes(2);
     expect(spawn).toHaveBeenCalledWith(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"]);
