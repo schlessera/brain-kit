@@ -64,10 +64,15 @@ if (process.argv[2] === "--child") {
   writeFileSync(join(brain, "notes/voyage.md"), "---\ntype: note\ntitle: Return to Ithaca\nupdated: 2026-07-12\n---\nOdysseus prepares the voyage.\n");
   const cli = join(brain, "node_modules/.bin/brain");
   writeFileSync(cli, '#!/usr/local/bin/bun\nawait import("/repo/packages/core/src/cli/brain.ts");\n'); chmodSync(cli, 0o755);
-  command(["git", "init", "-q", brain]);
-  command(["git", "-C", brain, "add", "."]);
-  command(["git", "-C", brain, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Prepare the Ithaca voyage"]);
-  command(["chown", "-R", "21001:21001", brain]);
+  for (const owned of [brain, join(brain, "notes"), join(brain, ".brain"), join(brain, ".brain/scratch"),
+    join(brain, "node_modules"), join(brain, "node_modules/.bin"), join(brain, "brain.config.ts"),
+    join(brain, ".gitignore"), join(brain, "notes/voyage.md"), cli]) chownSync(owned, 21001, 21001);
+  const git = ["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--clear-groups", "/usr/bin/env", "HOME=/identity-server-private", "/usr/bin/git"];
+  command([...git, "init", "-q", brain]);
+  command([...git, "-C", brain, "add", "--", "brain.config.ts", ".gitignore", "notes/voyage.md"]);
+  const staged = Bun.spawnSync([...git, "-C", brain, "diff", "--cached", "--quiet"], { stdout: "pipe", stderr: "pipe" });
+  expect([0, 1], staged.stderr.toString()).toContain(staged.exitCode);
+  if (staged.exitCode === 1) command([...git, "-C", brain, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Prepare the Ithaca voyage"]);
   chmodSync(brain, 0o2775); chmodSync(join(brain, "notes"), 0o2775); chmodSync(join(brain, ".brain"), 0o2775); chmodSync(join(brain, ".brain/scratch"), 0o2775);
   const show = command(["btrfs", "subvolume", "show", brain]);
   const brainUuid = /^\s*UUID:\s*([0-9a-f-]+)/m.exec(show)![1]!.replaceAll("-", "");
