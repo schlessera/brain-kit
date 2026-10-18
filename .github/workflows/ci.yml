@@ -470,7 +470,7 @@ jobs:
           retention-days: 7
 
   proof:
-    name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}
+    name: ${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}
     # Evaluate even after failures or skips; never interpret missing selected proof as green.
     needs: [changeset, verify, pack, unit, runtime, runtime_host, browser, layout, captures, endurance]
     if: ${{ always() && !cancelled() }}
