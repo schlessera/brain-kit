@@ -38,6 +38,27 @@ test("a real turn proxy durably records bounded connection facts without the que
   } finally { proxy.stop(); origin.stop(true); db.close(); }
 });
 
+test("a zero-byte policy records refusal without contacting the origin", async () => {
+  const db = createUiDb(":memory:"); let calls = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
+  let proxy: Awaited<ReturnType<typeof prepareTurnEgress>> | undefined;
+  try {
+    let admissionError: unknown;
+    try { proxy = await prepareTurnEgress({ ...inputs(new AbortController(), { schema_version: 1, egress: { max_bytes_per_turn: 0 } }),
+      record: event => recordGovernanceEvent(db, event) }); } catch (error) { admissionError = error; }
+    expect(admissionError, "TURN_EGRESS_ZERO_CAP_ADMISSION_VALID").toBeUndefined();
+    expect(await get(proxy!.socketPath, origin.url.href)).toBe(403);
+    expect(calls, "TURN_EGRESS_ZERO_CAP_PREVENTS_CONTACT").toBe(0);
+    expect(queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 })).toMatchObject([
+      { payload: { outcome: "denied", reason: "max_bytes_per_turn", bytes: 0 } },
+    ]);
+    expect(queryGovernanceEvents(db, { kinds: ["egress_denial"], limit: 10 })).toMatchObject([
+      { payload: { reason: "byte_cap", bytes: 0 } },
+    ]);
+    expect(proxy!.usedBytes()).toBe(0);
+  } finally { proxy?.stop(); origin.stop(true); db.close(); }
+});
+
 const refusalCases: Array<[string, NonNullable<GovernancePolicyInput["egress"]>]> = [
   ["denied_host", { mode: "allowlist", allow: ["127.0.0.1"], deny: ["127.0.0.1"] }],
   ["not_allowlisted", { mode: "allowlist", allow: ["ithaca.invalid"] }],

@@ -50,7 +50,7 @@ function headers(message: IncomingMessage): Record<string, string | string[]> {
 }
 
 export async function startEgressProxy(options: EgressProxyOptions) {
-  if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes <= 0) throw new Error("Egress maxBytes must be a finite positive integer");
+  if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) throw new Error("Egress maxBytes must be a finite nonnegative integer");
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts]) {
     if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
