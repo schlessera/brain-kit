@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
@@ -54,7 +55,7 @@ if (mode === "settled-success") { clearTimeout(watchdog); process.exit(0); }
 
 for (const mode of ["success-before-cancel", "error-before-cancel", "no-result", "settled-success"] as const) {
   test(`Claude ${mode}: cancellation, cleanup, Activity and journal agree`, async () => {
-    const root = mkdtempSync("/tmp/odysseus-claude-cancel-"), brain = join(root, "brain"), config = join(root, "claude");
+    const root = mkdtempSync(join(tmpdir(), "odysseus-claude-cancel-")), brain = join(root, "brain"), config = join(root, "claude");
     await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
     mkdirSync(config); writeFileSync(join(config, "settings.json"), "{}");
     const ready = deferred(), frames: ServerMessage[] = [], order: string[] = [];

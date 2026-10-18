@@ -1,5 +1,6 @@
-import { DEFAULT_IDENTITY_PHASES, defaultIdentityPhase } from "./default-identity-phases.js";
-import { APPLICATION_QUALIFICATION_PHASES, APPLICATION_SCENARIOS, applicationQualificationScenario } from "./application-qualification.js";
+import { defaultIdentityPhase } from "./default-identity-phases.js";
+import { applicationQualificationScenario } from "./application-qualification.js";
+import { ordinaryIdentityPhases, IDENTITY_PHASE_TIMEOUT_MS, IDENTITY_CLEANUP_TIMEOUT_MS } from "./ordinary-identity-phases.js";
 import { retainFixtureStream } from "./retained-stream.js";
 import { expect } from "bun:test";
 import { chmodSync, chownSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, lstatSync } from "node:fs";
@@ -189,13 +190,14 @@ if (process.argv[2] === "--index-child") {
   const foreign = Bun.serve({ unix: "/identity-fixture/foreign-relay.sock", fetch() { foreignRequests++; return new Response("ithaca"); } });
   chownSync("/identity-fixture/foreign-relay.sock", 0, 21001); chmodSync("/identity-fixture/foreign-relay.sock", 0o660);
   try {
-    const phases = applicationScenario ? APPLICATION_SCENARIOS[applicationScenario] : applicationQualification ? APPLICATION_QUALIFICATION_PHASES : probeStatePlacement ? ["probe-state"] : sharedGit && process.argv[2] !== "--index-controls" ? [...(privateGitInputs ? ["private", "fresh-controls", "fresh-app"] : ["fresh"]), "warm", "strict"] : process.argv[2] === "--index-controls" ? [undefined] : DEFAULT_IDENTITY_PHASES;
+    const phases = ordinaryIdentityPhases({ applicationScenario, applicationQualification, probeStatePlacement,
+      sharedGit, privateGitInputs, indexControls: process.argv[2] === "--index-controls" });
     let aggregateOutput = "", aggregateErrors = "";
     for (const phase of phases) {
       const started = performance.now();
       const child = Bun.spawn(["/usr/bin/setpriv", "--reuid=21001", "--regid=21001", "--groups=21003", process.execPath, "--preload", "/repo/scripts/test-network-child-preload.ts", import.meta.filename,
         process.argv[2] === "--index-controls" ? "--index-child" : "--child", ...(sharedGit ? ["--shared-git"] : []), ...(omitProbeStatePlacement ? ["--omit-probe-state-placement"] : []), ...(privateGitInputs ? ["--private-git-inputs"] : []), ...(bootPruneCapture ? ["--boot-prune-capture"] : []), ...(applicationScenario === "db-repeat" && phase === "warm" ? ["--db-repeat-index"] : []), ...(phase ? [sharedGit ? `--shared-phase=${phase}` : `--default-phase=${phase}`] : [])], {
-        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: 90000 });
+        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/identity-server-private", BRAIN_UI_WORKER_IDENTITY_HELPER: "/usr/local/bin/identity-helper" }, stdout: "pipe", stderr: "pipe", timeout: IDENTITY_PHASE_TIMEOUT_MS });
       const [capturedOutput, capturedErrors, code] = await Promise.all([
         phase ? retainFixtureStream(child.stdout, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stdout`) : new Response(child.stdout).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })),
         phase ? retainFixtureStream(child.stderr, `/proof/${sharedGit ? "shared-git" : "default"}-${phase}-server.stderr`) : new Response(child.stderr).text().then((text): Awaited<ReturnType<typeof retainFixtureStream>> => ({ text })), child.exited]);
@@ -222,7 +224,7 @@ if (process.argv[2] === "--index-child") {
     }
   } finally {
     foreign.stop(true); for (const relay of restrictedRelays) relay.stop(true); await service.close();
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + IDENTITY_CLEANUP_TIMEOUT_MS;
     for (;;) {
       const records = readdirSync("/run/brain-identity-fixture");
       const sources = existsSync("/run/brain-identity-mounts") ? readdirSync("/run/brain-identity-mounts") : [];

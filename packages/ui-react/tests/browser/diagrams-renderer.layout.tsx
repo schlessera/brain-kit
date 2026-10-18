@@ -18,7 +18,7 @@ function setup(width=1000){root=createBrainUiRoot({storage:null,request:async()=
 function mount(element:React.ReactNode){flushSync(()=>render.render(<BrainUiProvider root={root}>{element}</BrainUiProvider>));}
 function screenSvg(){return host.querySelector<SVGSVGElement>('figure > svg.bk-diagram');}
 async function ready(){await expect.poll(()=>screenSvg()).not.toBeNull();await document.fonts.ready;}
-function fontFloor(svg:SVGSVGElement){for(const text of svg.querySelectorAll("text")){const matrix=text.getScreenCTM()!;const scale=Math.min(Math.hypot(matrix.a,matrix.b),Math.hypot(matrix.c,matrix.d));expect(parseFloat(getComputedStyle(text).fontSize)*scale,"ACTUAL_DISPLAYED_TEXT_FLOOR").toBeGreaterThanOrEqual(9);}}
+function fontFloor(svg:SVGSVGElement){expect(svg.querySelectorAll("text").length,"EXPECTED_DIAGRAM_TEXT_POPULATION").toBeGreaterThan(0);for(const text of svg.querySelectorAll("text")){const matrix=text.getScreenCTM()!;const scale=Math.min(Math.hypot(matrix.a,matrix.b),Math.hypot(matrix.c,matrix.d));expect(parseFloat(getComputedStyle(text).fontSize)*scale,"ACTUAL_DISPLAYED_TEXT_FLOOR").toBeGreaterThanOrEqual(9);}}
 test("registered chat fence renders and follows live light/dark and actual print media",async()=>{
  setup();defaultContentRendererRegistry.register(diagramsContentPack);document.documentElement.dataset.theme="light";root.stores.ui.setState({theme:"light"});
  mount(<BrainMarkdown content={'```diagram\n'+source+'\n```'}/>);await ready();
@@ -34,7 +34,7 @@ test("actual constrained containers select authored layout or semantic fallback,
  for(const width of [320,480,900]){host.style.width=`${width}px`;await expect.poll(()=>screenSvg()?.getBoundingClientRect().width).toBe(320);fontFloor(screenSvg()!);expect(host.scrollWidth).toBeLessThanOrEqual(width);}
  const absent=structuredClone(rendererSpec);delete (absent as {layouts?:unknown}).layouts;host.style.width="320px";mount(<DiagramContent source={JSON.stringify(absent)} mode="chat" theme="dark"/>);await expect.poll(()=>screenSvg()).toBeNull();expect(host.querySelector("[data-diagram-summary]")?.textContent).toBe(rendererSpec.desc);
  const opener=[...host.querySelectorAll<HTMLElement>("[role=button],button")].find(item=>item.textContent==="Open diagram")!;expect(opener.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);await userEvent.click(opener);
- await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] svg')).not.toBeNull();const drawing=document.querySelector<SVGSVGElement>('[aria-label="Diagram viewer"] svg')!;fontFloor(drawing);await userEvent.keyboard("{Escape}");
+ await expect.poll(()=>document.querySelector('[aria-label="Diagram viewer"] svg.bk-diagram')).not.toBeNull();const drawing=document.querySelector<SVGSVGElement>('[aria-label="Diagram viewer"] svg.bk-diagram')!;expect([...drawing.querySelectorAll("[data-diagram-node] text")].map(text=>text.textContent),"EXPECTED_VIEWER_NODE_LABELS").toEqual(expect.arrayContaining(rendererSpec.nodes.map(node=>node.label)));fontFloor(drawing);await userEvent.keyboard("{Escape}");
 });
 test("keyboard nodes navigate like wiki links and incident edges and focus ring remain visible",async()=>{
  setup();const paths:string[]=[];root.stores.file.setState({openFile:async(path)=>{paths.push(path);}});mount(<DiagramContent source={source} theme="light" mode="chat"/>);await ready();
