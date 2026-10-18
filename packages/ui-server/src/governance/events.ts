@@ -60,6 +60,14 @@ function kind<T extends z.ZodType>(version: number, payload: T) {
  * docs/http-api.md ("Governance events"); keep the two in step.
  */
 export const GOVERNANCE_EVENT_SCHEMAS = {
+  /** Completed or refused connection, using the proxy's actual visibility. */
+  egress_connection: kind(1, z.strictObject({
+    host: z.string().min(1).max(255), port: z.number().int().min(1).max(65535),
+    method: z.string().min(1).max(20), path: z.string().max(16384).optional(), bytes: count,
+    accounting: z.enum(["http_wire_bound", "opaque_bytes"]), durationMs: amount,
+    outcome: z.enum(["completed", "denied", "failed", "cancelled"]),
+    inference: z.literal(true).optional(), reason: z.string().max(200).optional(),
+  })),
   steering_change: kind(1, z.strictObject({ path, sequence: count,
     beforeHash: policyHash, afterHash: policyHash, taintSourceEventId: z.number().int().positive().nullable(),
     overlappingTurnIds: z.array(z.string().min(1).max(200)).max(1000) })),
