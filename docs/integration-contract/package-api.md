@@ -3,6 +3,20 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Native maintenance preparation (internal #2300 / #2343)
+
+The SDK's `/internal` entry adds `prepareMaintenanceWorker` and
+`prepareMaintenanceGitInput` for existing first-party asynchronous host owners.
+They prepare one concrete retained-stage command and the existing frozen Git
+adapter; they are not an extension point, arbitrary filesystem reader/writer,
+wire input or supported package API. Synchronous callers cannot substitute a
+stale plan for asynchronous metadata acquisition on a protected stage.
+
+This is internal compatibility wiring under the internal-entry classification
+below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
+frontmatter meaning or credential authority, and requires a patch changeset
+rather than an additive public-contract feature.
+
 ## Prepared ordinary inference transport (internal #1665)
 
 The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete host-created

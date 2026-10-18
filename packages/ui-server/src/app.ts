@@ -301,6 +301,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
     body: `Native storage recovery retained ${nativeRecovery.unknown.length + nativeRecovery.retainedUnverifiable} unresolved checkpoint ownership record(s). Reconcile the native storage service before reclaiming their capacity.` });
   const nativeManager = nativeLeases.client;
+  const probeState = { dbPath: config.dbPath, privateStatePaths };
+  // Select from already validated host state; helper/configuration failures
+  // remain recorded probe refusals rather than a new boot failure.
+  const identitySentinelDirectory = dirname(resolve(config.dbPath && config.dbPath !== ":memory:" ? config.dbPath : nativeLeasePath));
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono<AppEnv>();
@@ -363,7 +367,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const latestOrdinary = (): WorkerHostProbe => {
     const recorded = runtimeStatus?.snapshot().workerHost?.ordinary;
     if (recorded) return recorded.available ? { ok: true, ...(recorded.identity ? { identity: recorded.identity, workerUid: recorded.workerUid } : {}) } : { ok: false, requirement: recorded.requirement };
-    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
+    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes, probeState);
   };
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
@@ -512,6 +516,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const host = new WsHost({
+    identitySentinelDirectory,
     scope,
     policyProposals,
     journal,
@@ -572,7 +577,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
   });
   bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
-  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
+  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
@@ -590,7 +595,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity.runtime.recordWorkerHost(mode, bootOrdinary, "boot");
       activity.runtime.recordWorkerLimits(workerLimitsStatus());
     }
-    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes);
+    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes, probeState);
   }
   runtimeStatus = activity.runtime;
   // Whether governed can run, and where the brain's own code is evaluated
@@ -790,7 +795,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: async () => {
-        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes);
+        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes, probeState);
         await boundary.prepare();
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};

@@ -80,6 +80,8 @@ export const QUEUE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_SESSION_QUEUE = 50;
 
 export interface WsHostOptions {
+  /** @internal Trusted server-state placement for the existing identity probe. */
+  identitySentinelDirectory?: string;
   /** @internal Host-owned observed changes; absent histories remain unrecorded. */
   scope?: import("../brain/turn-scope.js").TurnScope;
   /** @internal Host-owned observed changes; absent histories remain unrecorded. */
@@ -238,6 +240,8 @@ export class WsHost {
   readonly journal?: import("../brain/turn-journal.js").TurnJournal;
   /** @internal Shared across adapters, native tools, curated applications and index refresh. */
   readonly workerLock: KeyedLock = createKeyedLock();
+  /** @internal Trusted server-state placement, revalidated at each turn. */
+  readonly identitySentinelDirectory?: string;
   readonly brainPath?: string;
   /** @internal Host wiring (#1648). */
   readonly applicationPlanner?: ApplicationPlanner;
@@ -327,6 +331,7 @@ export class WsHost {
     this.policyProposals = options.policyProposals;
     this.scope = options.scope;
     this.brainPath = options.brainPath;
+    this.identitySentinelDirectory = options.identitySentinelDirectory;
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
     this.maintenance = options.maintenance;
