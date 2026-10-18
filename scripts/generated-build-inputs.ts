@@ -15,7 +15,7 @@ const auditedProducer: Record<string,string> = {
   "scripts/ci-proof.ts": "c58de06eba788b6b892416ddda3abb28fa1e8e908f25c0800482fbe05e0de678",
   "scripts/check-pr.ts": "ed29d8dbb2e8b9982b502ad663045992339088dd8db766335b0b7ed2ba2436f6",
   "scripts/ci-runner.ts": "e6b9da9fdf92cb7ade402c620a8f58727bf5a09725bed03000a862866a6f9262",
-  ".github/workflows/ci.yml": "0664eae990558d400c8b34b8d1fe9d687ff2b9e82e906ad2480e10bf42d9fc32",
+  ".github/workflows/ci.yml": "d096c232127fa314ca063d35095956fd95c3bc63e71adad939ecb92d841f4100",
   "package.json": "0d2ba2667eed49f4b686e57e54578d5f51e6c1b93605de0e1f5c8d08f8d0b188"
 };
 export function generatedCssInputs(root: string, artifact: string): { entry: string; producer: string[] } | undefined {

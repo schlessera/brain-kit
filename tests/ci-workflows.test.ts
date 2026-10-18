@@ -340,10 +340,12 @@ test("workflow guard rejects an omitted complete proof command and aggregate pre
 });
 
 
-test("workflow cannot check out a different tree or impersonate candidate proof from manual runs", () => {
+test("workflow cannot check out a different tree or impersonate candidate proof from draft or manual runs", () => {
   const text = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
   expect(workflowProblems(text.replace("persist-credentials: false", "persist-credentials: false\n          ref: main"), "ci.yml").join("\n")).toContain("proof checkout must use the event candidate");
-  expect(workflowProblems(text.replace("name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}", "name: proof"), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
+  expect(workflowProblems(text.replace("name: ${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}", "name: proof"), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
+  // A draft run's aggregate keeps a distinct name, so its cheap success never stands as a ready PR's proof (#2363).
+  expect(workflowProblems(text.replace("github.event.pull_request.draft && 'draft gates' || ", ""), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
 });
 
 test("small exact inventories wire bounded planner partitions into actual unit execution", () => {
