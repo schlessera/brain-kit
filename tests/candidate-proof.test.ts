@@ -36,6 +36,20 @@ test("intermediate green feedback cannot satisfy final candidate confirmation", 
   await validateCandidate("", event, env, api(), actual);
 });
 
+test("a draft-mode run cannot pass once the live PR is ready, even when queued after the ready event", async () => {
+  const draft = { ...event, action: "synchronize", pull_request: { ...event.pull_request, draft: true } };
+  const live = { state: "open", draft: true, head: event.pull_request.head };
+  await validateCandidate("", draft, env, api({ "pulls/7": live }), actual);
+  await expect(validateCandidate("", draft, env, api(), actual)).rejects.toThrow("Draft proof is stale");
+  await expect(validateCandidate("", draft, env, api(), actual)).rejects.toThrow("Candidate confirmation required");
+  for (const change of [{ head: { sha: "e".repeat(40) } }, { state: "closed" }, { draft: undefined }])
+    await expect(validateCandidate("", draft, env, api({ "pulls/7": { ...live, ...change } }), actual)).rejects.toThrow("Draft proof is stale");
+  const unreadable: API = { async json() { throw new Error("Proof API refused 503"); }, async log() { throw new Error("Unexpected log"); } };
+  await expect(validateCandidate("", draft, env, unreadable, actual)).rejects.toThrow("Proof API refused 503");
+  await expect(validateCandidate("", draft, env, undefined, actual)).rejects.toThrow("live read-only GitHub readiness");
+  await expect(validateCandidate("", { ...draft, pull_request: { ...draft.pull_request, number: 0 } }, env, api({ "pulls/7": live }), actual)).rejects.toThrow("missing its PR identity");
+});
+
 test("candidate gate rejects changed head, base, readiness, immutable tree and missing evidence", async () => {
   for (const live of [
     { state: "open", draft: false, head: { sha: "e".repeat(40) } },
