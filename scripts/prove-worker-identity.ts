@@ -3,6 +3,8 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFil
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { applicationQualificationSelected, applicationQualificationScenario, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
+import { ordinaryIdentityPhases, IDENTITY_PHASE_TIMEOUT_MS, IDENTITY_CLEANUP_TIMEOUT_MS } from "../packages/ui-sdk/tests/fixtures/ordinary-identity-phases.js";
+import { SDK_RELAY_PROFILE_TIMEOUT_MS, SDK_RELAY_SINGLE_TURN_TIMEOUT_MS } from "../packages/ui-backend-claude/tests/fixtures/sdk-host-relay-limits.js";
 import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVariant, bootPruneCaptureSelected } from "./native-proof/owned-prune-variant.js";
 import { dbRepeatStageVariant } from "./native-proof/db-repeat-variant.js";
 import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
@@ -172,10 +174,17 @@ if (import.meta.main) {
       chmodSync(binary, 0o755);
       faultHashes[name] = { script: hash(script), binary: hash(readFileSync(binary)) };
     }
+    const applicationPhases = ordinaryIdentityPhases({ applicationScenario, applicationQualification,
+      probeStatePlacement, sharedGit, privateGitInputs });
+    const applicationTimeoutMs = applicationPhases.length * IDENTITY_PHASE_TIMEOUT_MS + IDENTITY_CLEANUP_TIMEOUT_MS;
+    // Preserve the existing allowance for other work; account for the additional
+    // sequential application phases and both complete SDK profiles when selected.
+    const containerTimeoutMs = 240_000 + Math.max(0, applicationTimeoutMs - 180_000)
+      + (nativePhaseOnly ? 0 : 2 * (SDK_RELAY_PROFILE_TIMEOUT_MS - SDK_RELAY_SINGLE_TURN_TIMEOUT_MS));
     const nativeFixturePath = join(artifact, "identity-fixture.py");
     writeFileSync(nativeFixturePath, changed(readFileSync(join(source, "scripts/native-proof/fixture.py"), "utf8"),
       'run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=180)',
-      'run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts", "--cleanup-failure"], timeout=180)'));
+      `run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=${applicationTimeoutMs / 1000})\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts", "--cleanup-failure"], timeout=180)`));
     if (sharedGit) {
       // A separate fresh-brain composition: the original default retains the
       // prior worker-private journal/recovery mutations and its failure evidence.
@@ -300,7 +309,8 @@ exit "$case_code"
     if (security.exitCode !== 0) throw Error("Cannot inspect Docker security prerequisites");
     const apparmor = (JSON.parse(security.stdout.toString()) as string[]).some(value => value.startsWith("name=apparmor"));
     const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
-    const metadata = { image, applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" || applicationScenario === "db-repeat" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
+    const metadata = { image, applicationPhases, applicationTimeoutMs, containerTimeoutMs,
+      applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" || applicationScenario === "db-repeat" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
       skippedGitPhases: applicationScenario === "db-repeat" ? ["fresh-standalone", "warm-standalone"] : [],
       proofScope: applicationScenario === "db-repeat" ? "application-scenario-db-repeat-boot-prune-capture-stage-observation-variant" : applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
       collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null, bootPruneHashes: bootVariant?.hashes ?? null, dbRepeatStageHashes: dbVariant?.hashes ?? null,
@@ -317,7 +327,7 @@ exit "$case_code"
     const forward = (signal: NodeJS.Signals) => child.kill(signal);
     for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
     let code: number | undefined, cleanupFailure: Error | undefined, captureFailure: unknown;
-    const timeout = setTimeout(() => child.kill("SIGTERM"), 240000);
+    const timeout = setTimeout(() => child.kill("SIGTERM"), containerTimeoutMs);
     const capture = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => {
       let text = "";
       for await (const chunk of stream) { const current = new TextDecoder().decode(chunk); text += current; if (channel === "stdout") process.stdout.write(current); else process.stderr.write(current); writeFileSync(join(artifact, channel + ".log"), text); }
