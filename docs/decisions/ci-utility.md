@@ -502,13 +502,19 @@ and before/after tracing. Loopback resources receive no exemption. A resource
 attempt fails the actual proof; source, caller, guard or producer drift requires
 a new audit. The scene, visual assertions and trace remain unchanged.
 
-Diagram capture binds all four exact renderer, axis, positional and node-link callers and their complete call-site inventories,
+Diagram capture binds all six exact renderer, axis, positional, node-link,
+callout and scene-bounds callers and their complete call-site inventories,
 closed SVG primitive producers,
 literal adopted fixture, generated consumer CSS and locked inline-font inputs.
 Its additional replay page contains that source-owned document, aborts and records
 HTTP/websocket requests, and checks the zero-request invariant after document and
 font loading and after capture. Unknown DOM or resource origins remain unresolved;
-source or producer drift requires fresh execution and a new audit.
+source or producer drift requires fresh execution and a new audit. The
+scene-bounds caller owns one literal origin-group fixture and two literal
+annotation variants. Its client/static/flattened renderers share the closed
+primitive producer; the fixture, flattening dependency and changed geometry,
+annotation and painter sources are pinned explicitly. This audit does not
+qualify native retention or replace complete fresh runtime proof.
 
 The selected browser capability additionally requires a complete audited
 input-domain identity and an enforced zero-Worker boundary. The native,
