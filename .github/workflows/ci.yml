@@ -306,7 +306,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -323,7 +323,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Complete browser proof
-        run: bun scripts/ci-proof.ts browser --shard=${{ matrix.shard }}/2
+        run: bun scripts/ci-proof.ts browser --shard=${{ matrix.shard }}/3
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7

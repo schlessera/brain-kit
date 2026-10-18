@@ -348,6 +348,14 @@ test("workflow cannot check out a different tree or impersonate candidate proof 
   expect(workflowProblems(text.replace("name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}", "name: proof"), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
 });
 
+test("browser and layout matrices match the shared shard table (#2414)", () => {
+  const text = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+  expect(workflowProblems(text, "ci.yml")).toEqual([]);
+  expect(workflowProblems(text.replace("shard: [1, 2, 3]", "shard: [1, 2]"), "ci.yml").join("\n")).toContain("browser: matrix and shard divisor must match PROOF_SHARDS");
+  expect(workflowProblems(text.replace("browser --shard=${{ matrix.shard }}/3", "browser --shard=${{ matrix.shard }}/2"), "ci.yml").join("\n")).toContain("browser: matrix and shard divisor must match PROOF_SHARDS");
+  expect(workflowProblems(text.replace("layout --shard=${{ matrix.shard }}/2", "layout --shard=${{ matrix.shard }}/3"), "ci.yml").join("\n")).toContain("layout: matrix and shard divisor must match PROOF_SHARDS");
+});
+
 test("small exact inventories wire bounded planner partitions into actual unit execution", () => {
   expect(ci.jobs.unit!.strategy).toEqual({"fail-fast": false, matrix: {shard: "${{ fromJSON(needs.changeset.outputs.unit_shards) }}"}});
   const step = ci.jobs.unit!.steps.find(s => s.name === "Complete unit proof")!;

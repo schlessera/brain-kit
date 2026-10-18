@@ -111,7 +111,8 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout shards, a separate endurance job and captures start independently.
-There are four measured-cost unit partitions and two browser/layout partitions,
+There are four measured-cost unit partitions, three browser and two layout partitions
+(`PROOF_SHARDS`, `scripts/proof-shards.ts`, which the workflow guard matches against the matrices),
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
 still making progress. Completed-file observations in
@@ -142,7 +143,7 @@ fresh job and never becomes an ordinary browser/layout weight. Requalify timing
 inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
 Two layout shards, per-project serial execution and all deadlines remain unchanged.
-Browser jobs have a 20-minute bound. It was raised from 15 minutes after browser
+Browser proof runs in three shards and its jobs have a 20-minute bound. It was raised from 15 minutes after browser
 (2) reached 887 s on main and 917 s on a ready PR ([#2414](https://github.com/schlessera/brain-kit/issues/2414)). A weight refresh still
 qualifies by measured whole-job elapsed time, not by the bound.
 
@@ -343,7 +344,7 @@ and actual merge-result parent/tree validation remain binding.
 
 ### Retaining complete browser domains
 
-Under #1333, ready-PR metadata can retain both shards of a complete browser or
+Under #1333, ready-PR metadata can retain every shard of a complete browser or
 layout domain from up to three recent successful automatic runs of that same
 contribution. Unit, types, packaging, native runtime and editorial checks remain
 fresh: their Git-sensitive or broader process inputs do not have an admitted
