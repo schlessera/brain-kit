@@ -146,6 +146,8 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.jobs.changeset!["timeout-minutes"]).toBe(3);
     expect(ci.jobs.verify!["timeout-minutes"]).toBe(3);
     expect(ci.jobs.pack!["timeout-minutes"]).toBe(5);
+    // Browser shards keep buffer above the measured ~900 s whole-job peak (#2414).
+    expect(ci.jobs.browser!["timeout-minutes"]).toBe(20);
   });
   test("the contract checks exact PR heads and carries title/labels as environment data", () => {
     const contract = workflows.find(w => w.file === "contract.yml")!.workflow;
@@ -347,10 +349,23 @@ test("workflow guard rejects an omitted complete proof command and aggregate pre
 });
 
 
-test("workflow cannot check out a different tree or impersonate candidate proof from manual runs", () => {
+test("workflow cannot check out a different tree or impersonate candidate proof from draft or manual runs", () => {
   const text = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
   expect(workflowProblems(text.replace("persist-credentials: false", "persist-credentials: false\n          ref: main"), "ci.yml").join("\n")).toContain("proof checkout must use the event candidate");
-  expect(workflowProblems(text.replace("name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}", "name: proof"), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
+  expect(workflowProblems(text.replace("name: ${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}", "name: proof"), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
+  // A draft run's aggregate keeps a distinct name, so its cheap success never stands as a ready PR's proof (#2363).
+  expect(workflowProblems(text.replace("github.event.pull_request.draft && 'draft gates' || ", ""), "ci.yml").join("\n")).toContain("must not impersonate candidate confirmation");
+});
+
+test("browser and layout matrices match the shared shard table (#2414)", () => {
+  const text = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+  expect(workflowProblems(text, "ci.yml")).toEqual([]);
+  expect(workflowProblems(text.replace("shard: [1, 2, 3]", "shard: [1, 2]"), "ci.yml").join("\n")).toContain("browser: matrix and shard divisor must match PROOF_SHARDS");
+  expect(workflowProblems(text.replace("browser --shard=${{ matrix.shard }}/3", "browser --shard=${{ matrix.shard }}/2"), "ci.yml").join("\n")).toContain("browser: matrix and shard divisor must match PROOF_SHARDS");
+  expect(workflowProblems(text.replace("layout --shard=${{ matrix.shard }}/2", "layout --shard=${{ matrix.shard }}/3"), "ci.yml").join("\n")).toContain("layout: matrix and shard divisor must match PROOF_SHARDS");
+  const layoutMatrix = text.indexOf("shard: [1, 2]\n", text.indexOf("  layout:\n"));
+  expect(layoutMatrix).toBeGreaterThan(0);
+  expect(workflowProblems(text.slice(0, layoutMatrix) + "shard: [1, 2, 3]\n" + text.slice(layoutMatrix + "shard: [1, 2]\n".length), "ci.yml").join("\n")).toContain("layout: matrix and shard divisor must match PROOF_SHARDS");
 });
 
 test("small exact inventories wire bounded planner partitions into actual unit execution", () => {

@@ -2,6 +2,7 @@ import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Bounded immutable GitHub receipts; no passing-result cache or privileged event. */
 import { appendFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { PROOF_SHARDS, shardNumbers } from "./proof-shards";
 import { browserInventory, checkout, git, normalizeInventory, proofInputs, REUSABLE, runnerIdentity,
   type Checkout, type Inputs, type Reusable } from "./proof-inputs";
 import { proofSelections, type CheckPlan } from "./ci-plan";
@@ -73,7 +74,7 @@ export function receiptFromLog(text: string, category: Reusable, shard: number):
   const rows = clean.split("\n").filter(line => /^\S+ BRAIN_PROOF_RECEIPT /.test(line));
   if (rows.length !== 1) throw new Error("Missing or ambiguous fresh execution receipt");
   const receipt = JSON.parse(rows[0]!.slice(rows[0]!.indexOf(RECEIPT_MARKER) + RECEIPT_MARKER.length)) as FreshReceipt;
-  if (receipt.version !== 1 || receipt.category !== category || receipt.shard !== `${shard}/2` ||
+  if (receipt.version !== 1 || receipt.category !== category || receipt.shard !== `${shard}/${PROOF_SHARDS[category]}` ||
       !SHA.test(receipt.checkout?.sha ?? "") || !SHA.test(receipt.checkout?.tree ?? "") || !receipt.inputs) throw new Error("Wrong fresh execution receipt");
   if (!clean.split("\n").some(line => /^\S+ /.test(line) && line.trim().endsWith(`Z ${receipt.checkout.sha}`))) throw new Error("Receipt is not the actual job checkout");
   return receipt;
@@ -83,7 +84,7 @@ export function receiptFromLog(text: string, category: Reusable, shard: number):
 export async function validateSource(root: string, category: Reusable, source: Source, inputs: Inputs,
   context: Context, api: API): Promise<void> {
   if (!validID(source?.run) || source.run === context.run || !validID(source.attempt) ||
-      !Array.isArray(source.jobs) || source.jobs.length !== 2 || source.jobs.some(id => !validID(id)) || new Set(source.jobs).size !== 2 ||
+      !Array.isArray(source.jobs) || source.jobs.length !== PROOF_SHARDS[category] || source.jobs.some(id => !validID(id)) || new Set(source.jobs).size !== PROOF_SHARDS[category] ||
       source.inputs?.fingerprint !== inputs.fingerprint || JSON.stringify(source.inputs) !== JSON.stringify(inputs)) throw new Error("Missing complete input equivalence");
   const run = await api.json(`actions/runs/${source.run}/attempts/${source.attempt}`);
   if (run.id !== source.run || run.run_attempt !== source.attempt || run.event !== "pull_request" ||
@@ -93,7 +94,7 @@ export async function validateSource(root: string, category: Reusable, source: S
   const page = await api.json(`actions/runs/${source.run}/attempts/${source.attempt}/jobs?per_page=100`);
   if (!Array.isArray(page.jobs) || page.total_count !== page.jobs.length || page.jobs.length > 30) throw new Error("Incomplete source job inventory");
   const found: FreshReceipt[] = [];
-  for (let shard = 1; shard <= 2; shard++) {
+  for (const shard of shardNumbers(category)) {
     const matching = page.jobs.filter((j: any) => j.name === `${category} (${shard})`);
     const job = matching[0];
     if (matching.length !== 1 || job?.id !== source.jobs[shard - 1] || job.run_id !== source.run || job.head_sha !== run.head_sha ||
@@ -120,7 +121,7 @@ export async function validateSource(root: string, category: Reusable, source: S
       git(root, "rev-parse", `${source.checkout.sha}:.github/workflows/ci.yml`).trim() !== git(root, "rev-parse", "HEAD:.github/workflows/ci.yml").trim()) throw new Error("Source workflow or Git identity changed");
   const recomputed = proofInputs(root, category, normalizeInventory(source.inputs.inventory), inputs.runner,
     source.checkout.sha, inputs.excluded);
-  if (recomputed.fingerprint !== inputs.fingerprint || JSON.stringify(recomputed.partitions) !== JSON.stringify(inputs.partitions) || found.length !== 2) throw new Error("Immutable source inputs do not establish input equivalence");
+  if (recomputed.fingerprint !== inputs.fingerprint || JSON.stringify(recomputed.partitions) !== JSON.stringify(inputs.partitions) || found.length !== PROOF_SHARDS[category]) throw new Error("Immutable source inputs do not establish input equivalence");
 }
 
 export async function findRetained(root: string, selected: Record<string, boolean>, context: Context, api: API,
@@ -143,7 +144,7 @@ export async function findRetained(root: string, selected: Record<string, boolea
     for (const category of targets) {
       if (retained[category]) continue;
       try {
-        const pair = [1, 2].map(shard => jobs.jobs.find((j: any) => j.name === `${category} (${shard})` && j.conclusion === "success"));
+        const pair = shardNumbers(category).map(shard => jobs.jobs.find((j: any) => j.name === `${category} (${shard})` && j.conclusion === "success"));
         if (pair.some(j => !j)) continue; // Never form transitive chains through skipped/reused jobs.
         const first = receiptFromLog(await api.log(pair[0].id), category, 1);
         const inputs = currentInputs.get(category)!;

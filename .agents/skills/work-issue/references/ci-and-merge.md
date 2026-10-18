@@ -32,6 +32,9 @@ runtimes, failures/cancellations and unexpected skips leave proof unfinished.
 Keep drafts cheap and batch pushes. Ready synchronize runs fast feedback and
 leaves `proof` nonpassing; convert to draft and mark ready after the final push
 to request candidate confirmation. Open/reopen ready events also request it.
+Draft runs report `draft gates`, not `proof`. A ready PR without a passing
+`proof` from its confirmation run is unconfirmed, even if `draft gates` passed
+or failed because its live read found the PR ready; request confirmation again.
 The candidate gate checks actual merge parents/tree against the live head/base.
 A changed base requires a fresh confirmation event even without a rebase;
 valid immutable browser/layout retention remains available. Endurance is fresh

@@ -3,10 +3,13 @@ import { planFromEnvironment, proofCadence, proofSelections } from "./ci-plan";
 import { checkout, type Checkout } from "./proof-inputs";
 import { GitHubProofAPI, type API } from "./proof-reuse";
 
+const CONFIRMATION_REQUIRED = "Candidate confirmation required: convert this PR to draft, then mark ready for review after the final push.";
+
 export async function validateCandidate(root: string, event: any, env: NodeJS.ProcessEnv,
   api?: API, actual: Checkout = checkout(root)): Promise<void> {
   const cadence = proofCadence(env, event);
-  if (cadence === "feedback") throw new Error("Candidate confirmation required: convert this PR to draft, then mark ready for review after the final push.");
+  if (cadence === "feedback") throw new Error(CONFIRMATION_REQUIRED);
+  if (cadence === "draft") return requireLiveDraft(event, api);
   if (cadence !== "confirmation") return;
   const pr = event.pull_request;
   if (!Number.isSafeInteger(pr?.number) || pr.number < 1 || !pr.base?.ref || !pr.head?.sha || !pr.base?.sha ||
@@ -26,6 +29,19 @@ export async function validateCandidate(root: string, event: any, env: NodeJS.Pr
     throw new Error("Candidate checkout differs from immutable GitHub commit evidence");
   }
   console.log(`BRAIN_CANDIDATE_RECEIPT ${JSON.stringify({ event: event.action, head: pr.head.sha, base: pr.base.sha, checkout: actual })}`);
+}
+
+/** Draft gates pass only while the PR is still a draft at this head. A draft run
+ * queued after the ready event cancels its confirmation run, so the payload alone
+ * cannot tell a cheap draft from a ready PR (#2363). */
+async function requireLiveDraft(event: any, api?: API): Promise<void> {
+  const pr = event.pull_request;
+  if (!Number.isSafeInteger(pr?.number) || pr.number < 1 || !pr.head?.sha) throw new Error("Draft proof is missing its PR identity");
+  if (!api) throw new Error("Draft proof requires live read-only GitHub readiness verification");
+  const live = await api.json(`pulls/${pr.number}`);
+  if (live.state !== "open" || live.draft !== true || live.head?.sha !== pr.head.sha) {
+    throw new Error(`Draft proof is stale: the live PR is ready, closed or at another head. ${CONFIRMATION_REQUIRED}`);
+  }
 }
 
 export function validateSelections(root: string, event: any, env: NodeJS.ProcessEnv, outputs: Record<string, string> | undefined): void {
