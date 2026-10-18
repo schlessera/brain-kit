@@ -35,19 +35,30 @@ async function adapter(kind: "claude" | "pi", voice = false) {
   const policy = backend.brainApplicationPolicy!({ ...(voice ? { posture: "voice", enforceAllowedTools: true, noGrantSurface: true } : {}) });
   const approvals: unknown[] = []; const receipts: BrainApplicationResult[] = [];
   const maintenance: unknown[] = [];
+  const describeError = (error: unknown, seen = new WeakSet<object>()): unknown => {
+    if (!(error instanceof Error)) return typeof error === "string" ? error : { type: typeof error };
+    if (seen.has(error)) return "[already recorded]";
+    seen.add(error);
+    const code: unknown = Reflect.get(error, "code");
+    return { name: error.name, message: error.message, stack: error.stack,
+      ...(typeof code === "string" || typeof code === "number" ? { code } : {}),
+      ...(error.cause instanceof Error ? { cause: describeError(error.cause, seen) } : {}) };
+  };
   const boundary = createFixtureHostBoundary({ brainPath: root, dbPath: join(fixtureRoot, "state/ui.db") });
   const run = boundary.run.bind(boundary);
   boundary.run = async execution => {
-    // Keep the real request, worker and publication boundary unchanged. Retain
-    // diagnostics in memory; successful assertions produce no extra output.
+    // Keep the real request, worker and publication boundary unchanged.
+    // Only this fixture's planner stdin/results enter diagnostics, never its
+    // execution environment or credentials. Successful assertions stay quiet.
     const request = { purpose: execution.purpose, stdin: execution.stdin, timeoutMs: execution.timeoutMs,
-      gate: execution.gate, credentials: execution.credentials };
+      gate: execution.gate };
     try {
       const result = await run(execution);
       maintenance.push({ request, result });
       return result;
     } catch (error) {
-      maintenance.push({ request, error });
+      // Arbitrary error properties/cause objects can carry execution inputs.
+      maintenance.push({ request, error: describeError(error) });
       throw error;
     }
   };
@@ -59,8 +70,6 @@ async function adapter(kind: "claude" | "pi", voice = false) {
       if (value && typeof value === "object") {
         if (seen.has(value)) return "[already recorded]";
         seen.add(value);
-        if (value instanceof Error) return { name: value.name,
-          ...Object.fromEntries(Object.getOwnPropertyNames(value).map(key => [key, Reflect.get(value, key)])) };
       }
       return value;
     });
