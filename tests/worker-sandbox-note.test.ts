@@ -84,11 +84,12 @@ async function claudeContext(sandbox?: worker.WorkerSandbox): Promise<{ append: 
 /** The note pi's server side sends its worker, captured at the launch it would have made. */
 async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: string; text: string }> {
   sandbox ??= worker.prepareWorkerSandbox(brain, { home, maintenance });
+  const stagingBefore = worker.processStateLedger().outputStagingHeld;
   let received: { sandboxNote?: string } | undefined;
   let text: string | undefined;
   const stops: Array<() => void> = [];
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
+  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(input => {
     const stdout = new PassThrough(), stderr = new PassThrough();
     const exited = Promise.withResolvers<number>();
     const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
@@ -105,7 +106,8 @@ async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: st
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    // The real launcher owns prepared output through its exit cleanup.
+    return { stdin, stdout, stderr, exited: exited.promise.finally(() => input.preparedOutput?.cleanup()), kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });
@@ -116,6 +118,7 @@ async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: st
     for (const stop of stops) stop();
     launch.mockRestore(); probe.mockRestore();
   }
+  expect(worker.processStateLedger().outputStagingHeld, "PI_NOTE_FIXTURE_RELEASES_OWNED_OUTPUT").toBe(stagingBefore);
   expect(received?.sandboxNote).toBeString();
   expect(text).toStartWith("Return to Ithaca\n\n[Host context");
   return { note: received!.sandboxNote!, text: text! };
