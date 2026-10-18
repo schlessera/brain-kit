@@ -19,22 +19,14 @@ import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSync } from "./maintenance-worker.js";
+import { WORKER_XDG_HOME } from "./worker-xdg.js";
 
 /**
  * Repo-relative scratch directory (core's `SCRATCH_DIR` names the same path)
  * and workspace directory (always in core's default index exclusions).
  */
 export { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR };
-/**
- * Per-turn XDG directories on the worker's private `/tmp` (#1703). `$HOME`
- * itself stays the host's, read-only.
- */
-export const WORKER_XDG_HOME = "/tmp/brain-worker-home";
-export const WORKER_XDG_DIRS = {
-  XDG_CONFIG_HOME: `${WORKER_XDG_HOME}/config`,
-  XDG_CACHE_HOME: `${WORKER_XDG_HOME}/cache`,
-  XDG_DATA_HOME: `${WORKER_XDG_HOME}/data`,
-} as const;
+export { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 /** Directory entries one walk may visit before the mount counts as unverified. */
 export const WORKER_MOUNT_SCAN_LIMIT = 200_000;
 

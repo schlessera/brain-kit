@@ -404,6 +404,12 @@ binding unavailable. Current `dist` bytes never substitute for source inputs.
 Other generated artifacts, external assets and temporary readers remain unknown
 until their own bindings are validated.
 
+Generated CSS/theme and inclusion self-tests use raw Git blobs from the
+independently pinned audited revision for their positive producer controls.
+They test actual current producer bytes separately: legitimate audit drift
+requires fresh proof and does not redefine the positive fixture. The locked
+offline compiler and installed-asset byte/mode controls remain runtime proof.
+
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's

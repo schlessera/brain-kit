@@ -1,3 +1,4 @@
+import {frozenGeneratedSource} from "./frozen-generated-source";
 import {afterEach,expect,test} from "bun:test";
 import {cpSync,mkdirSync,mkdtempSync,readFileSync,readdirSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -7,7 +8,7 @@ import {generatedThemeInputs} from "../scripts/generated-theme-inputs";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[],owner="packages/ui-kit/tests/visual/dictation-motion.ts",caller="packages/ui-kit/vitest.config.ts",entry="packages/ui-kit/tests/visual/dictation-theme.css";
 const producers=["scripts/build.ts","scripts/build-receipt.ts","scripts/build-repeat-observation.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","bun.lock","packages/ui-react/src/theme.css","packages/ui-react/package.json"];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
-function fixture(){const root=mkdtempSync(join(tmpdir(),"generated-theme-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};for(const file of [...producers,owner,caller,entry])write(file,readFileSync(join(repo,file),"utf8"));symlinkSync(join(repo,"node_modules"),join(root,"node_modules"),"dir");return{root,write};}
+function fixture(){const root=mkdtempSync(join(tmpdir(),"generated-theme-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};for(const file of [...producers,owner,caller,entry])write(file,frozenGeneratedSource(file));symlinkSync(join(repo,"node_modules"),join(root,"node_modules"),"dir");return{root,write};}
 test("temporary theme output binds the audited command, copied theme and installed compiler",()=>{
   const {root}=fixture(),files=[owner,caller],bound=generatedThemeInputs(root,files,browserImporters(root,files));
   expect(bound?.css).toEqual([entry,"packages/ui-react/src/theme.css"]);
