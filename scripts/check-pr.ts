@@ -57,7 +57,7 @@ function probeSandboxSetup(): number {
   return elapsed;
 }
 
-export function requireRuntimeTools(plan: CheckPlan, full = true, readMountinfo = () => readFileSync("/proc/self/mountinfo", "utf8"), probeTimer = probeSandboxSetup): string | undefined {
+export function requireLocalSandbox(readMountinfo = () => readFileSync("/proc/self/mountinfo", "utf8"), probeTimer = probeSandboxSetup): void {
   if (process.platform === "linux") {
     const fastest = Math.min(...Array.from({ length: 3 }, () => probeTimer()));
     if (fastest >= 250) {
@@ -78,7 +78,9 @@ export function requireRuntimeTools(plan: CheckPlan, full = true, readMountinfo 
       throw new Error(`Local checks refuse slow sandbox setup: fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms); ${versionText}; ${entries.length} mount entries; dominant mount-point prefix: ${prefix} (${count} entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown; then retry local preflight.`);
     }
   }
-  if (!full) return undefined;
+}
+
+export function requireRuntimeTools(plan: CheckPlan): string | undefined {
   if (!Bun.semver.satisfies(Bun.version, ">=1.4.0")) throw new Error("Local checks require Bun >=1.4.0 (CI pins 1.4.2)");
   if (!Bun.which("flock")) throw new Error("Local checks require flock for workspace output coordination");
   if (plan.local.browser || plan.local.layout || plan.local.captures || plan.local.endurance) {
@@ -122,7 +124,8 @@ if (import.meta.main) {
     const commands = localChecks(plan, full, mergeBase);
     console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);
-    const chrome = requireRuntimeTools(plan, full);
+    requireLocalSandbox();
+    const chrome = full ? requireRuntimeTools(plan) : undefined;
     // Setup/metadata are ordered. Full Bun tests and strict types are the only
     // independent memory-bounded pair; browser jobs stay sequential to retain
     // the measured scheduling/isolation behavior and diagnostic artifacts.
