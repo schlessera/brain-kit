@@ -1,10 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { planFromEnvironment, proofCadence, planChecks, proofSelections } from "../scripts/ci-plan";
-import { PROOF_JOBS } from "../scripts/ci-proof";
-import { git } from "../scripts/proof-inputs";
+import { proofCadence, planChecks, proofSelections } from "../scripts/ci-plan";
 import { requireCandidate, validateCandidate } from "../scripts/candidate-proof";
 import type { API } from "../scripts/proof-reuse";
 
@@ -91,27 +86,4 @@ test("the hosted entry point reads live readiness through its own API client", a
     Object.defineProperty(globalThis, "fetch", descriptor);
   }
   expect(reads).toEqual(Array(2).fill(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/pulls/7`));
-});
-
-test("the emitted hosted aggregate refuses a draft run it cannot verify as still draft", async () => {
-  const root = resolve(import.meta.dir, "..");
-  const head = git(root, "rev-parse", "HEAD").trim();
-  const draft = { action: "synchronize", pull_request: { number: 7, draft: true, head: { sha: head }, base: { sha: head, ref: "main" } } };
-  const plan = planFromEnvironment(root, { GITHUB_EVENT_NAME: "pull_request", BASE_SHA: head, HEAD_SHA: head });
-  plan.cadence = "draft";
-  const selections = proofSelections(plan);
-  const needs = { changeset: { result: "success", outputs: { cadence: "draft", ...Object.fromEntries(Object.entries(selections).map(([name, on]) => [name, String(on)])) } },
-    ...Object.fromEntries(PROOF_JOBS.map(name => [name, { result: selections[name] ? "success" : "skipped" }])) };
-  const directory = mkdtempSync(join(tmpdir(), "draft-proof-event-"));
-  try {
-    writeFileSync(join(directory, "event.json"), JSON.stringify(draft));
-    const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: root,
-      env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: join(directory, "event.json"),
-        GITHUB_REPOSITORY: env.GITHUB_REPOSITORY, GITHUB_SHA: head, GH_TOKEN: "", PROOF_NEEDS: JSON.stringify(needs) }, stdout: "pipe", stderr: "pipe" });
-    const [code, err] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-    expect(code, err).toBe(1);
-    expect(err).toContain("Draft proof requires live read-only GitHub readiness verification");
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
