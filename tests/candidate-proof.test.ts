@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { proofCadence, planChecks, proofSelections } from "../scripts/ci-plan";
-import { validateCandidate } from "../scripts/candidate-proof";
+import { requireCandidate, validateCandidate } from "../scripts/candidate-proof";
 import type { API } from "../scripts/proof-reuse";
 
 const actual = { sha: "a".repeat(40), tree: "b".repeat(40), parents: ["c".repeat(40), "d".repeat(40)] };
@@ -39,8 +39,10 @@ test("intermediate green feedback cannot satisfy final candidate confirmation", 
 test("a draft-mode run cannot pass once the live PR is ready, even when queued after the ready event", async () => {
   const draft = { ...event, action: "synchronize", pull_request: { ...event.pull_request, draft: true } };
   const live = { state: "open", draft: true, head: event.pull_request.head };
-  await validateCandidate("", draft, env, api({ "pulls/7": live }), actual);
-  await expect(validateCandidate("", draft, env, api(), actual)).rejects.toThrow("Draft proof is stale");
+  for (const action of ["opened", "reopened", "synchronize", "converted_to_draft"]) {
+    await validateCandidate("", { ...draft, action }, env, api({ "pulls/7": live }), actual);
+    await expect(validateCandidate("", { ...draft, action }, env, api(), actual)).rejects.toThrow("Draft proof is stale");
+  }
   await expect(validateCandidate("", draft, env, api(), actual)).rejects.toThrow("Candidate confirmation required");
   for (const change of [{ head: { sha: "e".repeat(40) } }, { state: "closed" }, { draft: undefined }])
     await expect(validateCandidate("", draft, env, api({ "pulls/7": { ...live, ...change } }), actual)).rejects.toThrow("Draft proof is stale");
@@ -48,6 +50,9 @@ test("a draft-mode run cannot pass once the live PR is ready, even when queued a
   await expect(validateCandidate("", draft, env, unreadable, actual)).rejects.toThrow("Proof API refused 503");
   await expect(validateCandidate("", draft, env, undefined, actual)).rejects.toThrow("live read-only GitHub readiness");
   await expect(validateCandidate("", { ...draft, pull_request: { ...draft.pull_request, number: 0 } }, env, api({ "pulls/7": live }), actual)).rejects.toThrow("missing its PR identity");
+  await expect(validateCandidate("", { ...draft, pull_request: { ...draft.pull_request, head: {} } }, env, api({ "pulls/7": live }), actual)).rejects.toThrow("missing its PR identity");
+  // The hosted aggregate's entry point reaches the same live check; without a token it cannot pass.
+  await expect(requireCandidate("", draft, { ...env, GITHUB_ACTIONS: "true", GH_TOKEN: "" })).rejects.toThrow("live read-only GitHub readiness");
 });
 
 test("candidate gate rejects changed head, base, readiness, immutable tree and missing evidence", async () => {
