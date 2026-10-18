@@ -103,6 +103,11 @@ proof and endurance wait for confirmation. Its `proof` check deliberately fails
 with the action needed: convert to draft, finish pushes, then mark ready again.
 Fast feedback being green is useful, but never sufficient merge evidence.
 The request belongs to one event, not a label that can approve later commits.
+A draft run's `proof` passes only while the live PR is still a draft at the
+same head. GitHub can queue a draft push's run after the `ready_for_review`
+run and cancel it, so the event payload alone cannot keep a draft success from
+standing as a ready PR's latest proof
+([#2363](https://github.com/schlessera/brain-kit/issues/2363)).
 Main pushes still execute complete affected proof. Scheduled and manual runs
 execute exhaustive discovery with a distinct aggregate check name, so they
 cannot impersonate a PR's candidate confirmation. Title/label edits run the separate contract gate, not long
