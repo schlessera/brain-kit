@@ -256,6 +256,8 @@ afterAll(async () => {
 type Probe = {
   connected(): boolean;
   received(type: string, sessionId: string): number;
+  queueOnlyUpdate(message: string): boolean;
+  queueReceipts(messages: string[]): number[];
   replayComplete(sessionId: string): boolean;
   wsStatus(): string;
   vpnStatus(): string;
@@ -325,7 +327,7 @@ type Net = {
   /** Every frame the page sent, by type. */
   sent: string[];
   holdQueues: boolean;
-  queues: Array<() => void>;
+  queues: Array<{ message: string; release(): void }>;
   trace: Array<{ at: number; stage: string; frame: ReturnType<typeof describeFrame> }>;
 };
 type Scene = { context: BrowserContext; page: Page; net: Net; A: string; B: string; draft: string };
@@ -435,7 +437,7 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
       };
       record("host-received");
       const send = () => { record("client-forwarded"); socket.send(message); };
-      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push(send);
+      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push({ message, release: send });
       else send();
     });
   });
@@ -1014,9 +1016,22 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           net.holdQueues = false;
           const queueBefore = await probe(page, p => p.received("session_queue", "*"));
           const queued = net.queues.splice(0);
-          for (const release of queued) release();
+          const reports = [...new Set(queued.map(queue => queue.message))];
+          expect(await page.evaluate(messages => messages.every(message => (window as unknown as { __continuity: Probe }).__continuity.queueOnlyUpdate(message)), reports),
+            "released reports only refresh already-accepted queues on held running turns").toBe(true);
+          const receipts = () => page.evaluate(messages => (window as unknown as { __continuity: Probe }).__continuity.queueReceipts(messages), reports);
+          const before = await receipts();
+          const expected = before.map((count, index) => count + queued.filter(queue => queue.message === reports[index]).length);
+          for (const queue of queued) queue.release();
           await until(page, `p.received("session_queue", "*") >= ${queueBefore + queued.length}`);
-          await settle(page);
+          await until(page, `p.queueReceipts(${JSON.stringify(reports)}).every((count, index) => count >= ${JSON.stringify(expected)}[index])`);
+          expect((await receipts()).map((count, index) => count >= expected[index]!),
+            "expected queue payload multiplicities reached their synchronous handlers").toEqual(expected.map(() => true));
+          // This branch only updates the retained keyed pills. Expected payloads
+          // reached synchronous handlers; finish their finite rendering before the
+          // original identity/layout assertions. Recovery's preceding 500ms
+          // window and every drop/final/IME window remain independent.
+          await finishRender(page);
           if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           expect(net.uploads, `cycle ${cycle}: the upload resumed after reconnect`).toBe(uploadsBefore + 1);
