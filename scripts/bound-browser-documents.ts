@@ -32,6 +32,8 @@ const declarations:DocumentDeclaration[]=[{
   // Reviewed against #2295, #2346 and #2228: the origin-group caller renders
   // only its literal fixture and literal annotations through closed primitives.
   // All six callers retain the exact HTML/CSS sink and zero-request replay.
+  // #2386 re-audit: narrow geometry/capture case split preserves all eight
+  // callout capture sites, arguments and unchanged HTML/CSS/font producers.
   // #2241 re-audit: renderer/axis edits only strengthen viewer selection and
   // font assertions; capture arguments, call counts and producer closure stay fixed.
   "command": "diagramCapture",
@@ -46,7 +48,7 @@ const declarations:DocumentDeclaration[]=[{
       "calls": 1
     },
     "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
-      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
+      "hash": "83e34b70e1de6368073d1aa3414f5f42ffd071da6246ce47109397df72206091",
       "calls": 8
     },
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {

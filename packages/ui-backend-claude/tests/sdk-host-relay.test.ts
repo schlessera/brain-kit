@@ -1,3 +1,4 @@
+import { SDK_RELAY_PROFILE_TIMEOUT_MS, SDK_RELAY_SINGLE_TURN_TIMEOUT_MS, SDK_RELAY_CANCELLATION_TIMEOUT_MS } from "./fixtures/sdk-host-relay-limits.js";
 /** Full SDK construction, native startup and prepared ordinary transport; fixture storage is not Btrfs qualification. */
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -17,7 +18,7 @@ test.each(["strict", "governed"] as const)("prepared %s SDK turn preserves nativ
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
   const child = Bun.spawn(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
     "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, profile], {
-    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 25_000,
+    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_PROFILE_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit, stderr).toBe(0);
@@ -69,14 +70,14 @@ test.each(["strict", "governed"] as const)("prepared %s SDK turn preserves nativ
   expect(result.refreshCancelled, "NATIVE_ABORT_CLOSES_ACTUAL_HOST_REFRESH").toBe(true);
   expect(result.cancellationRetainedHostBytes).toBe(true);
   expect(result.cancellationReleasedLock).toBe(true);
-});
+}, SDK_RELAY_PROFILE_TIMEOUT_MS + SDK_RELAY_CANCELLATION_TIMEOUT_MS);
 
 
 test("prepared SDK native auto-allowed Bash still honors the existing per-use refusal", async () => {
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
   const child = Bun.spawn(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
     "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, "governed", "permission"], {
-    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 25_000,
+    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_SINGLE_TURN_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit, stderr).toBe(0);
@@ -95,7 +96,7 @@ test.each(["managed", "project"] as const)("prepared SDK %s credential or transp
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
   const child = Bun.spawn(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
     "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, "governed", source], {
-    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 25_000,
+    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_SINGLE_TURN_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit, stderr).toBe(0);
@@ -112,7 +113,7 @@ test("prepared SDK initializes with no projected host credential store before an
   const fixture = new URL("./fixtures/sdk-host-relay-probe.ts", import.meta.url).pathname;
   const child = Bun.spawn(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--unshare-net", "--unshare-pid", "--die-with-parent",
     "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev", process.execPath, fixture, "governed", "inspect"], {
-    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 25_000,
+    env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: SDK_RELAY_SINGLE_TURN_TIMEOUT_MS,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit, stderr).toBe(0);
