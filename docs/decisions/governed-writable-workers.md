@@ -1393,7 +1393,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:226-290`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:228-292`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1401,7 +1401,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:86-104`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:88-106`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -1992,7 +1992,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:417-428`).
+  `packages/ui-server/src/brain/host-boundary.ts:429-440`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -2115,7 +2115,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:352-387`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:374-409`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits

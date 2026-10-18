@@ -195,7 +195,7 @@ export function browserDocumentRefusals(root:string,files:readonly string[],impo
 function evaluateBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters){
   const result=new Map<string,Map<string,BrowserDocumentInputs>>(),refusals=new Map<string,string>();
   const matches=(file:string,hash:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===hash;};
-  if(!matches(config,"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db")){for(const declaration of declarations)refusals.set(declaration.owner,`unreviewed configuration ${config}`);return {bound:result,refusals};}
+  if(!matches(config,"89ea7a414a191a5624fce2dff8e0434aac5474c4c5b74d13499848cd17e2b257")){for(const declaration of declarations)refusals.set(declaration.owner,`unreviewed configuration ${config}`);return {bound:result,refusals};}
   for(const declaration of declarations){
     const callers=new Map<string,{hash:string;calls:number}>([[declaration.caller,{hash:declaration.callerHash,calls:declaration.calls}],...Object.entries(declaration.additionalCallers??{})]);
     const absent=[config,declaration.owner,...callers.keys()].find(file=>!files.includes(file));
