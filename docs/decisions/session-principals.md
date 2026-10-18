@@ -66,7 +66,7 @@ incident; neither should be the standing answer.
 - **Scopes / least privilege per route.** The one exception is R9's kind check on
   the principal-management routes — a single check on a single route family, the
   same shape as the existing password-disabled guard (`deps.passwordDisabled`,
-  `packages/ui-server/src/middleware/auth.ts:698`), not a scope system.
+  `packages/ui-server/src/middleware/auth.ts:707`), not a scope system.
 - **Multi-user.** One owner, several principals.
 - **Bearer tokens.** Additive later and cheap (see Q5); not in this plan.
 - **Containment of a compromised principal.** See the Summary.
@@ -96,16 +96,16 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:739` | mounted **before** the guard at `authGuard(authMode`, `app.ts:753`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:799`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:763` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:880-897` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:744` | mounted **before** the guard at `authGuard(authMode`, `app.ts:759`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:808`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:769` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:886-903` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:134-142` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:959` | queued entries re-mint `turnId` in the same slot and may come from another socket |
-| Password login | `acquirePasswordVerification(key)`, `auth.ts:740` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
-| Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:442` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
-| Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:540` | inserts a credential; calls **neither** helper |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:956` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Password login | `acquirePasswordVerification(key)`, `auth.ts:749` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
+| Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:448` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
+| Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:547` | inserts a credential; calls **neither** helper |
 | Passkey delete | `passkeys.ts:578-586` | deletes the credential, then a **global** bump |
 | Sockets | `ClientSet`, `ws/clients.ts:41` | `ClientSet` keyed on `ws.raw` — hono mints a fresh `WSContext` per callback |
 | Activity subscriptions | `activity/stream.ts:153` | a **separate** registry keyed on the wrapper, not `ws.raw` |
@@ -172,7 +172,7 @@ instead of everyone's.
 bumping a global epoch — the narrower kill the 0.32.0 behaviour was standing in
 for. The credential must also be re-checked **after** the asynchronous assertion
 verification and before the principal is created: today's lookup precedes
-verification (`credentialById(ctx.db, response.id)`, `passkeys.ts:356`), so a
+verification (`credentialById(ctx.db, response.id)`, `passkeys.ts:362`), so a
 ceremony in flight can mint a session for a credential deleted meanwhile.
 
 **5. Revocation is a boundary that outlives admission.** Closing a socket is not
@@ -217,7 +217,7 @@ nothing is backfilled.
 
 **8. Ambient modes keep the identity they already have.** `proxy` mode reads an
 upstream user header (`auth.proxyAuthHeader`, `auth.ts:485`) — that becomes the
-ambient principal's label, bounded like `sanitizeLabel`, `passkeys.ts:268-270`.
+ambient principal's label, bounded like `sanitizeLabel`, `passkeys.ts:273-275`.
 `tailscale` carries the client IP; `none` is fixed. Minting and revocation are
 disabled in these modes. Cron is attributed to an explicit system principal, never to the owner.
 
