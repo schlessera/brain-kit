@@ -58,6 +58,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: bun scripts/ci-plan.ts
+      - name: Validate requested candidate before product proof
+        if: steps.plan.outputs.cadence == 'confirmation'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/candidate-proof.ts
       - name: Discover product scenario and assertion ownership
         if: steps.plan.outputs.cadence != 'draft'
         run: bun scripts/proof-inventory.ts
