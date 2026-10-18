@@ -55,6 +55,11 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} autonomous
     // Egress, observed by listeners outside the worker and the server.
     expect(r.counts, "EGRESS_NONE: no connection or datagram reached a host listener").toEqual({ tcp: 0, udp: 0, unixHost: 0, unixHome: 0, unixGit: 0, abstract: 0 });
     for (const a of reports) {
+      // A refusal only names the outer listener when no ephemeral worker-local
+      // endpoint can hold its number: outer ports sit below the worker's range.
+      for (const [name, port] of Object.entries(a.tcpPorts as Record<string, number>)) {
+        expect(port, `${name} port lies below the worker's ephemeral range`).toBeLessThan(a.ephemeralRange[0]);
+      }
       expect(a.net["tcp-host"], "host TCP listener unreachable").toBe("ECONNREFUSED");
       expect(a.net["tcp-upstream"], "the inference upstream is unreachable except through the relay").toBe("ECONNREFUSED");
       expect(a.net.dns, "no name resolves").toBe("gaierror");
