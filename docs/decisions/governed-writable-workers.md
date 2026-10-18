@@ -669,6 +669,17 @@ no execution tree because the parser imports or executes no repository code.
 
 ## The three write areas
 
+> **2026-10-18 — Reference-source/worktree amendment (#2390).** The
+> [reference-worktree decision](reference-worktrees.md) adds application-managed,
+> read-only shared reference source outside brain content, capture and sync,
+> plus tool-requested isolated worktrees for edits or stable reads. It does not
+> exclude ordinary workspaces from journaling or scope accounting: intentional
+> managed worktree edits remain governed and journaled. Existing credential
+> isolation and profile/network restrictions still bind acquisition and access.
+> Only explicit worktree tool access/resumption or renewal resets inactivity;
+> cleanup retains unfinished or unknown-state work for hygiene disposition.
+> These are selected requirements, not implementation or runtime evidence.
+
 Ruling 6 adopts the maintainer's model. Each area has a lifecycle contract, and
 the capabilities note states all three and says which one to link:
 
