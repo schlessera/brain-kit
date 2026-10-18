@@ -105,8 +105,10 @@ Fast feedback being green is useful, but never sufficient merge evidence.
 The request belongs to one event, not a label that can approve later commits.
 A draft run's aggregate is named `draft gates`, never `proof`, so its cheap
 success cannot stand as a ready PR's proof. GitHub can queue a draft push's run
-after the `ready_for_review` run and cancel it; the draft aggregate therefore
-also reads the live PR and fails once it is ready, closed or at another head
+after the `ready_for_review` run and cancel it, leaving no `proof` at all. The
+draft aggregate also reads the live PR and fails when that read finds it ready,
+closed or at another head, which turns the cancelled request into a visible
+failure; a transition after the read is still covered by the distinct name
 ([#2363](https://github.com/schlessera/brain-kit/issues/2363)).
 Main pushes still execute complete affected proof. Scheduled and manual runs
 execute exhaustive discovery with a distinct aggregate check name, so they
