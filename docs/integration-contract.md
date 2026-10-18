@@ -113,6 +113,7 @@ Original fragment identities remain available at this entry point.
 <a id="exec-wrapper-in-app-configuration-additive-1363"></a>
 
 - [Exec wrapper in app configuration (additive, #1363)](integration-contract/package-api.md#exec-wrapper-in-app-configuration-additive-1363) (original line 410).
+- [Backend host exec configuration (additive, #1429)](integration-contract/package-api.md#backend-host-exec-configuration-additive-1429).
 
 <a id="logo-assets-additive-1424-1425"></a>
 
@@ -547,3 +548,4 @@ authenticated recovery routes with an explicit logical scope, described in
 [the HTTP contract](integration-contract/http.md#persisted-claude-auto-memory-history-additive-1658).
 The host-only copy-out callback is described in
 [the package API](integration-contract/package-api.md#native-persisted-claude-memory-observation-additive-1658).
+

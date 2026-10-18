@@ -44,7 +44,7 @@ next to it.
   `packages/ui-server/src/config/env.ts:504-504`) and is null when unset
   (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1070`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:497`), read back as a string
+  `packages/ui-server/src/agent/backend.ts:502`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:351`). Because of the `||`
