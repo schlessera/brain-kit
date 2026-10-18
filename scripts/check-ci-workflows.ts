@@ -64,7 +64,7 @@ export function workflowProblems(text: string, file: string): string[] {
           !job?.steps?.some((step: any) => step.run === `bun scripts/ci-proof.ts ${domain} --shard=\${{ matrix.shard }}/${PROOF_SHARDS[domain]}`)) fail(`${domain}: matrix and shard divisor must match PROOF_SHARDS`);
     }
     const proof = workflow.jobs?.proof;
-    if (proof?.name !== "${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}") fail("proof: manual or main runs must not impersonate candidate confirmation");
+    if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
     for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
