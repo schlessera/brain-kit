@@ -354,6 +354,9 @@ test("browser and layout matrices match the shared shard table (#2414)", () => {
   expect(workflowProblems(text.replace("shard: [1, 2, 3]", "shard: [1, 2]"), "ci.yml").join("\n")).toContain("browser: matrix and shard divisor must match PROOF_SHARDS");
   expect(workflowProblems(text.replace("browser --shard=${{ matrix.shard }}/3", "browser --shard=${{ matrix.shard }}/2"), "ci.yml").join("\n")).toContain("browser: matrix and shard divisor must match PROOF_SHARDS");
   expect(workflowProblems(text.replace("layout --shard=${{ matrix.shard }}/2", "layout --shard=${{ matrix.shard }}/3"), "ci.yml").join("\n")).toContain("layout: matrix and shard divisor must match PROOF_SHARDS");
+  const layoutMatrix = text.indexOf("shard: [1, 2]\n", text.indexOf("  layout:\n"));
+  expect(layoutMatrix).toBeGreaterThan(0);
+  expect(workflowProblems(text.slice(0, layoutMatrix) + "shard: [1, 2, 3]\n" + text.slice(layoutMatrix + "shard: [1, 2]\n".length), "ci.yml").join("\n")).toContain("layout: matrix and shard divisor must match PROOF_SHARDS");
 });
 
 test("small exact inventories wire bounded planner partitions into actual unit execution", () => {
