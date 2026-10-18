@@ -8,8 +8,6 @@ import { failIndexedDbWrites, holdIndexedDbWrite } from "./offline/indexeddb-fau
 import { openScene } from "./offline/scene.ts";
 import { watchMicrophone } from "./offline/fake-microphone.ts";
 
-// Until #1854 gives endurance its own mandatory project, retain default discovery.
-import "./recordings.endurance.tsx";
 import { recordingCell as cell } from "./offline/recording-cell.ts";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

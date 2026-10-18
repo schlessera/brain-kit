@@ -19,7 +19,7 @@ Everything below is the part that does *not* change every week.
 
 ## Where this stands
 
-Eighteen packages version in lockstep under `@schlessera/brain-*`. Published
+Nineteen packages version in lockstep under `@schlessera/brain-*`. Published
 packages remain independently consumable:
 
 | Package | What it is |
@@ -27,7 +27,7 @@ packages remain independently consumable:
 | `brain-geo` | Shared geo services, track measurements and static maps |
 | `brain-common` | Internal helpers shared by the packages (env descriptor core, cache-free frontmatter parser); no compatibility promise |
 | `brain` | Core: CLI, MCP server, hybrid search, indexer, config/taxonomy, skills |
-| `brain-module-jobs` / `-speaking` / `-travel` / `-finance` / `-images` / `-video` | First-party content modules |
+| `brain-module-jobs` / `-speaking` / `-travel` / `-finance` / `-images` / `-video` / `-diagrams` | First-party content modules |
 | `brain-ui-sdk` | Chat-UI wire protocol, runtime schemas, `AgentBackend`/`SpeechProvider` seams |
 | `brain-backend-claude` / `brain-backend-pi` | Agent backends (Claude Agent SDK / pi coding-agent SDK) |
 | `brain-render-template` | Shared markdown/HTML → print-ready document shell |
@@ -89,6 +89,10 @@ when it was made — not a preference.
    version bump; it never merges into your content, and your taxonomy is built
    by onboarding rather than shipped by us.
 7. **Extension interfaces are `@experimental` until 1.0.**
+8. **Provider history is append-only.** What a provider received for one turn
+   is the prefix of what it receives for the next: same tools, same system
+   prompt, earlier messages unchanged. Internal data never enters that
+   history. See [docs/decisions/provider-history.md](docs/decisions/provider-history.md).
 
 Why each of these looks the way it does, and what was rejected on the way, is in
 [docs/decisions/](docs/decisions/README.md).

@@ -1,3 +1,4 @@
+import { TurnTiming } from "./turn-timing.js";
 import { HygieneFinding, HygieneReviewStrip, useHygieneReview } from "./hygiene-review.js";
 import { useMediaQuery } from "../../hooks/use-media-query.js";
 import { useBrainUiRoot } from "../../root-context.js";
@@ -79,7 +80,8 @@ export function ActivityPage() {
   const settingsPanelOpen = useUIStore((s) => s.settingsPanelOpen);
   const setSettingsPanelOpen = useUIStore((s) => s.setSettingsPanelOpen);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
-  const [runs, setRuns] = useState<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] } | null>(null);
+  const streamedLifecycles = useActivityStore(s => s.lifecycles);
+  const [runs, setRuns] = useState<{ live: ActivityRunSummary[]; history: ActivityRunSummary[]; lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[] } | null>(null);
   const [rollups, setRollups] = useState<ActivityRollups | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detailRunId, setDetailRunId] = useState<string | null>(null);
@@ -781,6 +783,9 @@ export function ActivityPage() {
             </section>
           )}
 
+          {(lens === "running" || lens === "done") && Object.values({ ...Object.fromEntries((runs?.lifecycles ?? []).map(item => [item.turnId,item])), ...streamedLifecycles }).filter(item => !item.backendRunId && (lens === "running" ? item.endedAt === null : item.endedAt !== null)).map(item => (
+            <section key={item.turnId} aria-label="Turn lifecycle"><TurnTiming lifecycle={item} /></section>
+          ))}
           {lens === "running" && (
             <section>
               <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">

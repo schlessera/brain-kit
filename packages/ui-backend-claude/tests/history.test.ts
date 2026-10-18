@@ -1,4 +1,7 @@
-import { expect, test, describe } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, expect, test, describe } from "bun:test";
 import type {
   listSessions as sdkListSessions,
   getSessionMessages as sdkGetSessionMessages,
@@ -6,6 +9,9 @@ import type {
   SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { createHistory } from "../src/history";
+
+const brain = mkdtempSync(join(tmpdir(), "claude-history-context-"));
+afterAll(() => rmSync(brain, { recursive: true, force: true }));
 
 // A transcript entry as `getSessionMessages` returns it; `message` is opaque
 // (unknown) to the SDK, so fixtures only need the `.message.content` blocks the
@@ -45,7 +51,7 @@ describe("getHistory normalization", () => {
     ];
 
     const history = createHistory({
-      brainPath: "/brain",
+      brainPath: brain,
       getSessionMessagesFn: messagesFn(transcript),
     });
     const out = await history.getHistory("sess");
@@ -86,7 +92,7 @@ describe("getHistory normalization", () => {
       ]),
     ];
     const history = createHistory({
-      brainPath: "/brain",
+      brainPath: brain,
       getSessionMessagesFn: messagesFn(transcript),
     });
     const [msg] = await history.getHistory("sess");
@@ -113,7 +119,7 @@ describe("getHistory normalization", () => {
       ]),
     ];
     const history = createHistory({
-      brainPath: "/brain",
+      brainPath: brain,
       getSessionMessagesFn: messagesFn(transcript),
     });
     const out = await history.getHistory("sess");
@@ -154,7 +160,7 @@ describe("listSessions normalization", () => {
     ] as unknown as SDKSessionInfo[];
 
     const history = createHistory({
-      brainPath: "/brain",
+      brainPath: brain,
       listSessionsFn: sessionsFn(infos),
     });
     const out = await history.listSessions();
@@ -184,7 +190,7 @@ describe("listSessions normalization", () => {
       throw new Error("no store");
     }) as unknown as typeof sdkListSessions;
     const history = createHistory({
-      brainPath: "/brain",
+      brainPath: brain,
       listSessionsFn: throwingFn,
     });
     expect(await history.listSessions()).toEqual([]);

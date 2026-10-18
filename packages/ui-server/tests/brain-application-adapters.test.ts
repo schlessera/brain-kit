@@ -181,7 +181,13 @@ test("the actual Claude turn options shadow project writers and expose server wr
   }
   expect(a.options!.allowedTools).toContain("mcp__brain-ui__brain_add");
   expect(a.options!.allowedTools).not.toContain("mcp__brain__brain_add");
-  expect(a.options!.disallowedTools).toContain("Write");
+  for (const name of ["Write", "Edit", "NotebookEdit"]) {
+    expect(a.options!.disallowedTools).not.toContain(name);
+    expect(a.options!.allowedTools).toContain(name);
+    expect(await a.options!.canUseTool!(name, { file_path: "notes/raft.md" }, {
+      toolUseID: `strict-${name}`, signal: new AbortController().signal,
+    } as never)).toMatchObject({ behavior: "deny" });
+  }
 });
 
 test("hosted voice retains capture/update and refuses archive, raw writes and grants", async () => {

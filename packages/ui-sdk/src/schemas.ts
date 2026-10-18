@@ -783,6 +783,8 @@ const sampleRangeSchema = z
 
 export const clientConversationStartSchema = z.looseObject({
   type: z.literal("conversation_start"),
+  requestId: id.optional(),
+  agentProviderId: id.optional(),
   conversationId: id.optional(),
   sessionId: id.optional(),
 }) satisfies z.ZodType<ClientConversationStart>;
@@ -827,6 +829,7 @@ export const clientConversationPlaybackSchema = z.looseObject({
 export const clientConversationStopSchema = z.looseObject({
   type: z.literal("conversation_stop"),
   conversationId: id,
+  resumable: z.boolean().optional(),
 }) satisfies z.ZodType<ClientConversationStop>;
 
 const clientScopeDecisionSchema = z.strictObject({ type: z.literal("scope_decision"), sessionId: id, turnId: id,
@@ -1029,6 +1032,7 @@ export const turnScopeSummarySchema = z.looseObject({
     state: z.enum(["paused", "continued", "stopped", "voice_stopped", "ended_before_answer"]), submissionId: id.optional(), reason: z.string().optional() })),
 }) satisfies z.ZodType<import("./protocol.js").TurnScopeSummary>;
 export const turnJournalSummarySchema = z.looseObject({
+  configurationCoverage: z.enum(["incomplete", "complete", "unknown"]).optional(),
   scope: turnScopeSummarySchema.optional(),
   state: z.enum(["recording", "complete", "partial", "expired", "unknown", "unrecorded"]),
   changedFiles: z.number().int().nonnegative().nullable(),
@@ -1443,8 +1447,35 @@ const activitySpanEventSchema = z.looseObject({
   truncated: z.boolean().optional(),
 }) satisfies z.ZodType<ActivitySpanEvent>;
 
+const activityTurnLifecycleSchema = z.looseObject({
+  hostEvents: z.array(z.looseObject({principalId: id, kind: z.enum(["turn_cancelled", "ask_user_cancelled", "principal_revoked", "follow_up"]), observedAt: z.number()})),
+  skippedPhases: z.array(z.enum(["governed", "budget", "journal"])),
+  lifecycleId: id, turnId: id, sessionId: id.nullable(), backendRunId: id.nullable(),
+  acceptedAt: z.number(),
+  dequeuedAt: z.number().nullable(),
+  governedStartedAt: z.number().nullable(),
+  governedAcquiredAt: z.number().nullable(),
+  budgetStartedAt: z.number().nullable(),
+  budgetAdmittedAt: z.number().nullable(),
+  journalStartedAt: z.number().nullable(),
+  journalBeganAt: z.number().nullable(),
+  backendInvokedAt: z.number().nullable(),
+  firstFrameAt: z.number().nullable(),
+  failureObservedAt: z.number().nullable(),
+  endedAt: z.number().nullable(),
+  totalElapsedMs: z.number().nullable(),
+  timeToFirstFrameMs: z.number().nullable(),
+  queueWaitMs: z.number().nullable(),
+  governedAdmissionMs: z.number().nullable(),
+  budgetAdmissionMs: z.number().nullable(),
+  journalBeginMs: z.number().nullable(),
+  backendStartupMs: z.number().nullable(),
+  outcome: z.enum(["success", "error", "timeout", "cancelled", "denied", "interrupted"]).nullable(), reason: z.string().nullable(),
+});
+
 export const serverActivitySnapshotSchema = z.looseObject({
   type: z.literal("activity_snapshot"),
+  lifecycles: z.array(activityTurnLifecycleSchema).optional(),
   view: activityView,
   sessionId: id.optional(),
   runId: id.optional(),
@@ -1456,6 +1487,7 @@ export const serverActivitySnapshotSchema = z.looseObject({
 
 export const serverActivityDeltaSchema = z.looseObject({
   type: z.literal("activity_delta"),
+  lifecycle: activityTurnLifecycleSchema.optional(),
   runId: id,
   seq: z.number(),
   span: activitySpanSchema.optional(),
@@ -1704,6 +1736,8 @@ export const conversationLimitsSchema = z.looseObject({
 
 export const serverConversationOpenedSchema = z.looseObject({
   type: z.literal("conversation_opened"),
+  requestId: id.optional(),
+  agentProviderId: id.optional(),
   conversationId: id,
   epoch: conversationEpoch,
   sessionId: id.optional(),
@@ -1716,6 +1750,7 @@ export const serverConversationOpenedSchema = z.looseObject({
 
 export const serverConversationClosedSchema = z.looseObject({
   type: z.literal("conversation_closed"),
+  requestId: id.optional(),
   conversationId: id,
   epoch: conversationEpoch,
   reason: z.enum(["stopped", "replaced", "disconnected", "provider_closed", "provider_error", "backpressure", "correlation", "refused"]),

@@ -1,0 +1,155 @@
+[
+  {
+    "owner": "packages/ui-react/tests/browser/dispatch-actions-command.ts",
+    "inputs": [
+      {
+        "expression": "spawn(process.env.BUN_BIN ?? \"bun\",\n    [\"--preload\", resolve(\"../../scripts/test-network-child-preload.ts\"), resolve(\"../ui-react/tests/fixtures/dispatch-browser-server.ts\"), origin],\n    { cwd: resolve(\"../..\"), env: process.env, stdio: [\"ignore\", \"pipe\", \"pipe\"] })",
+        "targets": [
+          "packages/ui-react/tests/fixtures/dispatch-browser-server.ts",
+          "scripts/test-network-child-preload.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/tests/browser/hygiene-server-command.ts",
+    "inputs": [
+      {
+        "expression": "spawn(\n      process.env.BUN_BIN ?? \"bun\",\n      [\n        \"--preload\",\n        resolve(\"../../scripts/test-network-child-preload.ts\"),\n        resolve(\"../ui-react/tests/fixtures/hygiene-browser-server.ts\"),\n      ],\n      { cwd: resolve(\"../..\"), env: process.env, stdio: [\"ignore\", \"pipe\", \"pipe\"] }\n    )",
+        "targets": [
+          "packages/ui-react/tests/fixtures/hygiene-browser-server.ts",
+          "scripts/test-network-child-preload.ts"
+        ]
+      },
+      {
+        "expression": "route.fulfill({ contentType: \"text/html\", body: html })",
+        "targets": [
+          "packages/ui-react/tests/browser/hygiene-reload-scene.tsx"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/tests/browser/policy-server-command.ts",
+    "inputs": [
+      {
+        "expression": "spawn(process.env.BUN_BIN ?? \"bun\", [\"--preload\", resolve(\"../../scripts/test-network-child-preload.ts\"), resolve(\"../ui-react/tests/fixtures/policy-browser-server.ts\")],\n      { cwd: resolve(\"../..\"), env: process.env, stdio: [\"ignore\", \"pipe\", \"pipe\"] })",
+        "targets": [
+          "packages/ui-react/tests/fixtures/policy-browser-server.ts",
+          "scripts/test-network-child-preload.ts"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/tests/browser/hygiene-loop-command.ts",
+    "inputs": [
+      {
+        "expression": "spawn(process.env.BUN_BIN ?? \"bun\", [\"--preload\", join(repo, \"scripts/test-network-child-preload.ts\"), join(root, \"scripts/brain-cli.ts\"), ...args], { cwd: root, env: process.env })",
+        "targets": [
+          "packages/ui-react/tests/fixtures/hygiene-loop-cli.ts",
+          "scripts/test-network-child-preload.ts"
+        ]
+      },
+      {
+        "expression": "spawn(process.env.BUN_BIN ?? \"bun\", [\"--preload\", join(repo, \"scripts/test-network-child-preload.ts\"), join(repo, \"packages/ui-react/tests/fixtures/hygiene-loop-server.ts\"), root, String(port)], { cwd: repo, env: process.env })",
+        "targets": [
+          "packages/ui-react/tests/fixtures/hygiene-loop-server.ts",
+          "scripts/test-network-child-preload.ts"
+        ]
+      },
+      {
+        "expression": "readFileSync(join(repo, \"packages/core/fixtures/corpus/notes/quick-note-water.md\"), \"utf8\").replace(\"[[materials]]\", \"materials\").replace(\"updated: 2026-07-02\", \"updated: 2026-07-12\").replace(\"tags: [note, voyage, water]\", \"tags: [voyage, water]\")",
+        "targets": [
+          "packages/core/fixtures/corpus"
+        ]
+      },
+      {
+        "expression": "readFileSync(join(repo, \"packages/core/fixtures/corpus/notes/quick-note-water.md\"), \"utf8\").replace(\"[[materials]]\", \"materials\").replace(\"updated: 2026-07-02\", \"updated: 2026-07-12\")",
+        "targets": [
+          "packages/core/fixtures/corpus"
+        ]
+      },
+      {
+        "expression": "readFileSync(join(repo, \"packages/core/fixtures/corpus/notes/quick-note-water.md\"), \"utf8\").replace(\"[[materials]]\", \"materials\")",
+        "targets": [
+          "packages/core/fixtures/corpus"
+        ]
+      },
+      {
+        "expression": "readFileSync(join(repo, \"packages/core/fixtures/corpus/notes/quick-note-water.md\"), \"utf8\")",
+        "targets": [
+          "packages/core/fixtures/corpus"
+        ]
+      },
+      {
+        "expression": "route.fulfill({ contentType: \"text/html\", body: `<html data-theme=\"dark\"><body style=\"margin:0\"><div id=\"scene\" class=\"bg-background text-foreground\" style=\"height:100vh;display:flex\"></div><script>window.__c5Url=${JSON.stringify(url)}</script><script type=\"module\" src=\"/@fs${join(repo, \"packages/ui-react/tests/browser/hygiene-reload-scene.tsx\")}\"></script></body></html>` })",
+        "targets": [
+          "packages/ui-react/tests/browser/hygiene-reload-scene.tsx"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-sdk/src/server/maintenance-temp-budget.ts",
+    "inputs": [
+      {
+        "expression": "readFileSync(\"/proc/sys/kernel/random/boot_id\", \"utf8\")",
+        "scope": "identity",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      },
+      {
+        "expression": "readFileSync(\"/proc/sys/kernel/random/boot_id\", \"utf8\")",
+        "scope": "alive",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      },
+      {
+        "expression": "readlinkSync(\"/proc/self/ns/pid\")",
+        "scope": "alive",
+        "observation": "linux-proc-self-identity",
+        "targets": []
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-kit/tests/visual/dictation-theme.css",
+    "inputs": [
+      {
+        "expression": "@import \"tailwindcss\" source(none);",
+        "targets": [
+          "package.json",
+          "bun.lock",
+          "packages/ui-kit/package.json"
+        ]
+      },
+      {
+        "expression": "@import \"@schlessera/brain-ui-react/theme.css\";",
+        "targets": [
+          "packages/ui-react/src/theme.css",
+          "packages/ui-react/package.json",
+          "packages/ui-kit/package.json"
+        ]
+      }
+    ]
+  },
+  {
+    "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
+    "inputs": [
+      {
+        "expression": "readFile(resolve(name?`../../packages/module-diagrams/skills/diagram/references/examples/${name}.diagram.yaml`:\"../../packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml\"),\"utf8\")",
+        "targets": [
+          "packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/architecture.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/flowchart.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/state-machine.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/tree.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/er.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/dependency.diagram.yaml",
+          "packages/module-diagrams/skills/diagram/references/examples/architecture-containment.diagram.yaml"
+        ]
+      }
+    ]
+  }
+]

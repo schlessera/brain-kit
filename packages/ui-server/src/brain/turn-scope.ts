@@ -13,7 +13,7 @@ import type { TurnJournal } from "./turn-journal.js";
 type Worker = Parameters<NonNullable<StartTurnRequest["workerStarted"]>>[0];
 type Live = { sessionId: string | null; principalId: string; origin: "interactive" | "voice"; profile: "strict" | "governed";
   startedAt: number; summary: TurnScopeSummary; workers: Set<Worker>; calls: Set<string>; disconnectedAt?: number;
-  checking?: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean };
+  checking?: boolean; source: "policy" | "default"; stop: (reason: string) => void; current: () => boolean; model?: () => string | null };
 export const SCOPE_DISCONNECTED_MS = 30 * 60_000;
 export const SCOPE_FREE_BYTES = 2 * 1024 ** 3;
 export function scopeLimits(policy: EffectiveGovernancePolicy) {
@@ -57,7 +57,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "free_space_floor", count: fs.free, cap: floor,
           overshoot: floor - fs.free, frozen: pending.frozen, observedAt: now(), state: "paused", reason: "Free space fell below its floor while this turn was paused. Stop only." };
         turn.summary.receipts.push(receipt);
-        recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: null, profile: turn.profile,
+        recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
           dedupeKey: receipt.eventId, payload: { cap: receipt.dimension, limit: floor, observed: fs.free, overshoot: receipt.overshoot,
             frozen: receipt.frozen, outcome: "paused", source: "default" } });
       }
@@ -94,7 +94,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused",
         ...(frozen && dimension !== "free_space_floor" && !granted && cap > 0 && Number.isFinite(cap * 2) && turn.origin !== "voice" ? { newCap: cap * 2 } : {}) };
       turn.summary.receipts.push(receipt);
-      recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: null, profile: turn.profile,
+      recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
         dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed, overshoot: receipt.overshoot,
           frozen, outcome: turn.origin === "voice" ? "voice_stopped" : frozen ? "paused" : "stopped", source: turn.source } });
       if (turn.origin === "voice") stop(turnId, turn, receipt, "voice_stopped", `I stopped because this turn reached its limit of ${cap} ${dimension === "tool_calls" ? "tool calls" : dimension === "minutes" ? "wall minutes" : dimension === "files_changed" ? "distinct changed paths" : "bytes"}${dimension === "free_space_floor" ? " of free space" : ""}. Ask again to carry on.`);
@@ -152,7 +152,7 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
   }, periodic);
   return {
     begin(turnId: string, input: { sessionId: string | null; principalId: string; origin: Live["origin"]; profile: Live["profile"];
-      policy: EffectiveGovernancePolicy; source: Live["source"]; hardTimeoutMs: number; current: () => boolean; stop: Live["stop"] }) {
+      policy: EffectiveGovernancePolicy; source: Live["source"]; hardTimeoutMs: number; current: () => boolean; model?: () => string | null; stop: Live["stop"] }) {
       const summary: TurnScopeSummary = { policySource: input.source, limits: scopeLimits(input.policy), hardTimeoutMs: input.hardTimeoutMs, calls: 0, minutes: 0,
         changedPaths: null, observedBytes: null, coverage: "partial", observedAt: now(), receipts: [] };
       const turn: Live = { ...input, startedAt: now(), summary, workers: new Set(), calls: new Set() };

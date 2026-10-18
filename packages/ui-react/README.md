@@ -611,7 +611,7 @@ controls in static output and no lookup needed to draw a graph.
 Markdown fences compose the kit `CodeBlock` with a permanent 44px head Copy
 control. Copy uses source text rather than linkified DOM text. The lazy
 highlighter soft-fails to the same plain source; its chat-only token theme
-works in dark and paper. Mermaid keeps its dedicated renderer. Long lines
+works in dark and paper. Mermaid uses the built-in content-renderer pack for fences and `.mmd` / `.mermaid` files. Browser printing and shared PNG/PDF output use white print tokens; screen diagrams retain the light and dark palettes. Long lines
 wrap for narrow transcripts, and exports retain the original fence content.
 The Storybook `Conversation/Code fence theme` preview uses the actual consumer
 renderer and shipped CSS within an isolated shadow root.
@@ -713,3 +713,47 @@ selection survives resize. Module drafts and pending credentials keep their
 existing navigation and dismissal protections.
 Close and Escape return focus to the opener, including after a resize;
 choosing another destination preserves that destination's focus.
+
+## SVG files and printing
+
+SVG files open in the image previewer. The Raw tab reads their source as
+text from the authenticated raw-file route; SVG markup is never inserted
+into the app document. The raw route keeps its existing restrictive CSP.
+
+The app stylesheet selects the light colour scheme for browser print,
+including when the screen theme is explicitly dark. An SVG embedded as an
+image can use that scheme to choose its light palette; its own `@media print`
+rules do not run inside the image. The share document shell already selects
+light for exports.
+
+### Bundle module content renderers
+
+Import trusted UI entries in the deployment build and register them before the
+first UI root renders. The import is ordinary bundled application code:
+
+```ts
+import { registerContentRendererPack } from "@schlessera/brain-ui-react";
+import { contentRenderers } from "@odysseus/voyage-module/ui";
+import moduleInfo from "@odysseus/voyage-module/package.json";
+
+registerContentRendererPack(contentRenderers, {
+  name: "voyage", // the module manifest name
+  version: moduleInfo.version,
+});
+```
+
+The pack implements the SDK `ContentRendererPack` interface. Its heavy components
+may use `React.lazy` with a literal build-time import. Registering is idempotent
+by pack identity; the first renderer claiming a language or extension wins.
+
+Authenticated `/api/status` supplies configured active module declarations.
+A declared fence or file whose pack is absent keeps its source code and shows
+“Renderer not bundled.” An older server without declarations keeps the ordinary
+code fallback. Roots discard declarations on account changes and reconnect.
+With the root's explicit `config.devTools` enabled, a differing known module
+version warns once per bundled/server version pair per root. Version warnings
+do not change rendering. Production roots do not warn.
+
+Content configuration supplies metadata only. It cannot select a URL or cause a
+client import; rebuild the deployment to add a renderer. Static server entries
+are registered independently through the SDK's trusted static registry.

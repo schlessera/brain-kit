@@ -372,7 +372,7 @@ describe("a follow-up sent while a tool runs (#1003)", () => {
     expect(requests.some((request) => addedText(request).includes(STEER))).toBe(false);
   }, LIVE);
 
-  test("the running step completes, and permissions, ask-user and cost keep working", async () => {
+  test("the running step completes, and permissions, ask-user and completed usage keep working", async () => {
     const observed = await runScenario({ sendDuring: "tool" });
     const frames = observed.frames.map(({ frame }) => frame);
 
@@ -385,12 +385,13 @@ describe("a follow-up sent while a tool runs (#1003)", () => {
     expect(observed.permissions.map((request) => request.toolName)).toEqual(["Bash"]);
     expect(observed.permissions[0]?.input.command).toBe(BASH_COMMAND);
     expect(carriesResult(requests[2], BASH_ID)).toBe(false);
-    // One terminal frame, last, a success that reports what it cost.
+    // One terminal frame, last, a success carrying completed usage; the host prices its cost.
     const results = resultFrames(observed);
     expect(results).toHaveLength(1);
     expect(frames.at(-1)).toBe(results[0]!.frame);
     expect(results[0]!.frame).toMatchObject({ type: "result", outcome: "success", numTurns: 3 });
-    expect(typeof (results[0]!.frame as { costUsd?: unknown }).costUsd).toBe("number");
+    expect((results[0]!.frame as { costUsd?: unknown }).costUsd).toBeUndefined();
+    expect(results[0]!.frame).toHaveProperty("usage.inputTokens");
     // A reload replays the follow-up as the user message it was, between the steps.
     expect(observed.history.filter((message) => message.role === "user").map((message) => message.content)).toEqual([
       "Plan the voyage home.",

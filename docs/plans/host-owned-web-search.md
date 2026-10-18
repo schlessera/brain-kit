@@ -216,10 +216,10 @@ runtime authority or a public plugin seam. Both candidates need them:
 
 Current source confirms why a bridge is needed: ordinary initialization copies
 only auth/models/settings (`const init`,
-`packages/ui-backend-pi/src/worker-session.ts:91-94`), then selects private Pi
+`packages/ui-backend-pi/src/worker-session.ts:117-119`), then selects private Pi
 state. The worker RPC schema has an existing bounded, grant-checked bridge but
 no search method (`export const piWorkerMessage`,
-`packages/ui-backend-pi/src/worker-protocol.ts:64-69`). Resource discovery remains
+`packages/ui-backend-pi/src/worker-protocol.ts:64-75`). Resource discovery remains
 worker-local (`export function createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:29-46`). A new production
 search RPC/tool contract requires its own review; the experiment's activity

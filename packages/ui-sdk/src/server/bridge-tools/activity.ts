@@ -27,6 +27,7 @@ export async function handleQueryActivity(
   }
   const result = await bridge.queryActivity({
     scope: input.scope,
+    ...(input.remedy !== undefined ? { remedy: input.remedy } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.hoursBack !== undefined ? { hoursBack: input.hoursBack } : {}),
     ...(input.limit !== undefined ? { limit: input.limit } : {}),

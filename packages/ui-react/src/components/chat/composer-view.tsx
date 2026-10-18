@@ -51,6 +51,7 @@ export interface ComposerProvider {
 export interface ComposerViewProps {
   /** Capture panel, kept inside the existing bounded composer frame. */
   dictation?: ReactNode;
+  onConversation?: () => void;
   /**
    * Why the mic cannot record, in place of the capture panel: a refused
    * microphone, or a browser that cannot record on the device (#1012).
@@ -131,6 +132,7 @@ export function ComposerView(p: ComposerViewProps) {
   const pointer = useMediaQuery("(min-width: 900px)");
   const attachMenu = (
     <div className={pointer ? "bk-focus-clip flex flex-col rounded-[inherit]" : "flex flex-col"}>
+      {p.onConversation && <ListRow variant="group" icon="mic" iconTone="teal" title="Live conversation" subtitle="Talk while your agent works" onClick={p.onConversation} />}
       <ListRow variant="group" icon="image" iconTone="teal" title="Photo library" subtitle="Pick images already on this device" onClick={p.onPickLibrary} />
       <ListRow variant="group" icon="attach" iconTone="amber" title="Camera" subtitle="Take a photo now" onClick={p.onPickCamera} />
       {p.onPickTracks && <ListRow variant="group" icon="file" iconTone="teal" title="Track files" subtitle="GPX, KML or GeoJSON" onClick={p.onPickTracks} />}

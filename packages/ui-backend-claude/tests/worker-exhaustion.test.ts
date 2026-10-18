@@ -1,3 +1,4 @@
+import { usageEvents } from "./helpers/usage-events.js";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 /**
  * A real bubblewrap worker whose runtime state fills only after the runtime
@@ -27,6 +28,7 @@ async function run(script: string, abortAfterResult = false) {
         env: { PATH: "/usr/bin:/bin", CLAUDE_CONFIG_DIR: config }, signal: new AbortController().signal } as never);
       (child.stdout as NodeJS.ReadableStream).resume();
       yield { type: "system", subtype: "init", session_id: "11111111-1111-4111-8111-111111111111", apiKeySource: "none" };
+      yield* usageEvents("11111111-1111-4111-8111-111111111111", "claude-sonnet-4-6", 17, 9);
       yield { type: "result", subtype: "success", session_id: "11111111-1111-4111-8111-111111111111", total_cost_usd: 0.25,
         duration_ms: 1, num_turns: 1, result: "Ithaca" };
       if (abortAfterResult) host.abort();
@@ -47,7 +49,7 @@ async function run(script: string, abortAfterResult = false) {
 test("state that fills after the result still ends the turn as worker_state_exceeded, keeping its usage", async () => {
   const results = await run(`sleep 0.3; head -c ${8 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/late" 2>/dev/null; exit 0`);
   expect(results).toHaveLength(1);
-  expect(results[0]).toMatchObject({ outcome: "error", isError: true, costUsd: 0.25, failure: { errorClass: "worker_state_exceeded" } });
+  expect(results[0]).toMatchObject({ outcome: "error", isError: true, usage: { inputTokens: 17, outputTokens: 9 }, failure: { errorClass: "worker_state_exceeded" } });
 }, 30_000);
 
 test("state with room left keeps the runtime's success", async () => {

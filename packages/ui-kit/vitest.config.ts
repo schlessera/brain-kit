@@ -1,3 +1,6 @@
+import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../ui-react/tests/browser/diagram-export-command.ts";
+import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
+import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
@@ -118,16 +121,73 @@ export default mergeConfig(
     }],
     test: {
       sequence: { sequencer: MeasuredBrowserSequencer },
-      setupFiles: ["./tests/visual/design-font-setup.ts"],
+      provide: { proofWorkerMode: "selected-zero-v1" },
+      setupFiles: ["./tests/visual/worker-boundary-setup.ts", "./tests/visual/design-font-setup.ts"],
       browser: { commands: { designFonts: rankFooterFonts, designFontUsage } },
       projects: [
         {
           extends: true,
           test: {
+            name: "diagrams-chromium",
+            include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
+            browser: {
+              enabled: true, screenshotFailures: false,
+              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "diagrams-webkit",
+            include: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
+            browser: {
+              enabled: true, screenshotFailures: false,
+              commands: { diagramRasterComparison, diagramFontStyles, diagramArtifact, mermaidScreenComparison, diagramCapture, diagramFixture, overlayMouse, mermaidMedia, mermaidOutput, formConsumerStyles, formViewport },
+              provider: playwright({ contextOptions: { reducedMotion: "reduce" } }),
+              headless: true,
+              instances: [{ browser: "webkit" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
             name: "ui-react-layout",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
             // Measurements of the real consumer, kept out of Bun's test glob,
             // and the offline fault harness's self-tests (#1016).
             include: ["../ui-react/tests/browser/**/*.layout.tsx", "../ui-react/tests/browser/**/*.offline.tsx"],
+            exclude: ["../ui-react/tests/browser/diagrams-*.layout.tsx"],
+            browser: {
+              enabled: true,
+              screenshotFailures: false,
+              commands: { mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              // The fake microphone plays the generated 10-second fixture
+              // (#1016). Chromium reads the file at launch, so it is written
+              // when this config loads; the fake UI grants the permission.
+              // Audio contexts start without a gesture, as the injected
+              // microphone and the tone check need.
+              provider: playwright({
+                launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMicrophoneFile()}`, "--autoplay-policy=no-user-gesture-required"] },
+                contextOptions: { reducedMotion: "reduce" },
+              }),
+              headless: true,
+              instances: [{ browser: "chromium" }],
+            },
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: "ui-react-endurance",
+            provide: { proofWorkerMode: "fresh-worker-runtime-v1" },
+            // Real-time native media proof has its own scheduling and discovery;
+            // keep the same offline launch, commands and lifecycle as layout.
+            include: ["../ui-react/tests/browser/**/*.endurance.tsx"],
             browser: {
               enabled: true,
               screenshotFailures: false,

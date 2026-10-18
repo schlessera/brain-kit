@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { sessionReplay } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeWorkerState, rewriteAppendedAnswers, SessionTooLargeError, workerStateLimit } from "../src/worker-state.js";
 import { createStateLedger, type StateLedger } from "../src/worker-state-budget.js";
@@ -188,8 +189,8 @@ test("ephemeral state copies nothing in and never persists, but still reserves",
   fs.writeFileSync(join(path, project, `${NEW}.jsonl`), "Athena"); snapshot.persist(path);
   expect(fs.existsSync(join(saved, project, `${NEW}.jsonl`))).toBe(false);
 });
-test("persist rewrites only the answer text this run appended to a session's own transcript (#1655)", () => {
-  const line = (type: string, text: string) => JSON.stringify({ type, message: { role: type, content: [{ type: "text", text }] } });
+test("persist preserves runtime answer bytes while promoting only this turn (#2049)", () => {
+  const line = (type: string, text: string) => "  " + JSON.stringify({ type, uuid: text, message: { role: type, content: [{ type: "text", text }] } }) + "  ";
   const before = `${line("assistant", "Earlier: [map](/tmp/map.png)")}\n`;
   put(ID, before);
   fs.mkdirSync(join(saved, project, ID)); fs.writeFileSync(join(saved, project, ID, "agent.jsonl"), `${line("assistant", "[x](/tmp/x)")}\n`);
@@ -201,10 +202,15 @@ test("persist rewrites only the answer text this run appended to a session's own
   snapshot.persist(path, text => { seen.push(text); return text.replaceAll("/tmp/", ".brain/scratch/turns/t/"); });
   expect(seen.sort()).toEqual(["New: [report](/tmp/report.pdf)", "Now: [report](/tmp/report.pdf) and [map](/tmp/map.png)"]);
   const out = fs.readFileSync(join(saved, project, `${ID}.jsonl`), "utf8");
+  expect(out, "CLAUDE_NATIVE_TRANSCRIPT_BYTES_UNCHANGED").toBe(fs.readFileSync(join(target, `${ID}.jsonl`), "utf8"));
+  const display = sessionReplay(saved, brain, ID).texts();
+  const original = "Now: [report](/tmp/report.pdf) and [map](/tmp/map.png)";
+  expect(display(original, 0, original), "CLAUDE_DISPLAY_MAPPING_SURVIVES_RELOAD").toBe("Now: [report](.brain/scratch/turns/t/report.pdf) and [map](.brain/scratch/turns/t/map.png)");
+  expect(display(original, 0, original + "changed"), "CLAUDE_MAPPING_BOUND_TO_NATIVE_BYTES").toBe(original + "changed");
   expect(out.startsWith(before)).toBe(true);
-  expect(out.slice(before.length)).toBe(`${line("user", "[u](/tmp/u.txt)")}\n${line("assistant", "Now: [report](.brain/scratch/turns/t/report.pdf) and [map](.brain/scratch/turns/t/map.png)")}\n`);
+  expect(out.slice(before.length)).toBe(`${line("user", "[u](/tmp/u.txt)")}\n${line("assistant", "Now: [report](/tmp/report.pdf) and [map](/tmp/map.png)")}\n`);
   expect(fs.readFileSync(join(saved, project, ID, "agent.jsonl"), "utf8")).toBe(`${line("assistant", "[x](/tmp/x)")}\n${line("assistant", "[y](/tmp/y)")}\n`);
-  expect(fs.readFileSync(join(saved, project, `${NEW}.jsonl`), "utf8")).toBe(`${line("assistant", "New: [report](.brain/scratch/turns/t/report.pdf)")}\n`);
+  expect(fs.readFileSync(join(saved, project, `${NEW}.jsonl`), "utf8")).toBe(`${line("assistant", "New: [report](/tmp/report.pdf)")}\n`);
 });
 test("a transcript whose saved prefix changed is not rewritten", () => {
   const record = (text: string) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } });
@@ -214,4 +220,23 @@ test("a transcript whose saved prefix changed is not rewritten", () => {
   expect(rewriteAppendedAnswers(changed, prefix, () => "rewritten")).toBe(changed);
   expect(rewriteAppendedAnswers(Buffer.concat([before, Buffer.from(`${record("c")}\n`)]), prefix, () => "rewritten").toString())
     .toBe(`${record("a")}\n${record("rewritten")}\n`);
+});
+
+test("host inference state omits the native credential store while retaining exact settings, account metadata, memory and resumed history", () => {
+  const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "odysseus-host-access", refreshToken: "odysseus-host-refresh" } });
+  fs.writeFileSync(join(saved, ".credentials.json"), credentials);
+  const account = JSON.stringify({ oauthAccount: { accountUuid: "ithaca-account", organizationUuid: "ithaca-organization" } });
+  fs.writeFileSync(join(saved, ".claude.json"), account);
+  const settings = JSON.stringify({ model: "claude-haiku-4-5" }); fs.writeFileSync(join(saved, "settings.json"), settings);
+  put(ID, "Odysseus returns to Ithaca.\n");
+  fs.mkdirSync(join(saved, project, "memory")); fs.writeFileSync(join(saved, project, "memory", "voyage.md"), "Athena's counsel.\n");
+  const snapshot = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { resume: ID, ledger, limits: DEFAULT, hostInference: true });
+  states.push(snapshot); const path = tmpfs(); snapshot.populate(path);
+  expect(fs.existsSync(join(path, ".credentials.json")), "HOST_INFERENCE_NEVER_COPIES_NATIVE_CREDENTIAL_STORE").toBe(false);
+  expect(fs.readFileSync(join(path, "settings.json"), "utf8")).toBe(settings);
+  expect(fs.readFileSync(join(path, ".claude.json"), "utf8")).toBe(account);
+  expect(fs.readFileSync(join(path, project, `${ID}.jsonl`), "utf8")).toBe("Odysseus returns to Ithaca.\n");
+  expect(fs.readFileSync(join(path, project, "memory", "voyage.md"), "utf8")).toBe("Athena's counsel.\n");
+  snapshot.persist(path);
+  expect(fs.readFileSync(join(saved, ".credentials.json"), "utf8"), "HOST_CREDENTIAL_STORE_UNCHANGED_BY_COPY_OUT").toBe(credentials);
 });

@@ -92,6 +92,21 @@ describe("Btrfs worker filesystem filter selection", () => {
 });
 
 describe("actual filesystem ioctl filter runtime", () => {
+  test("the trusted filter restores ignored signals before exec", () => {
+    const python = Bun.which("python3");
+    expect(python).not.toBeNull();
+    // cat observes the exec boundary without installing interpreter handlers.
+    // Run the actual filter even on non-Btrfs test hosts.
+    const child = Bun.spawnSync([python!, "-I", "-S", "-c", WORKER_FILESYSTEM_FILTER_PROGRAM,
+      "/usr/bin/cat", "/proc/self/status"], {
+      cwd: "/", env: {}, stdout: "pipe", stderr: "pipe", timeout: 5_000,
+    });
+    expect(child.stderr.toString()).toBe("");
+    expect(child.exitCode).toBe(0);
+    expect(child.stdout.toString().match(/^SigIgn:\s+([0-9a-f]+)$/m)?.[1], "FILTER_RESTORES_SIGNAL_DEFAULTS")
+      .toBe("0000000000000000");
+  });
+
   // The fixed Python programs import no repository code, make no network
   // requests and operate only on this disposable directory descriptor.
   test("denies every topology request including high request bits, then execs a productive child", () => {

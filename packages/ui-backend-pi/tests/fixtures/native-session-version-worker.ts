@@ -36,7 +36,7 @@ async function run(mode: string) {
 for await (const message of pipeMessages(process.stdin)) {
   const value = message as any;
   if (value.type === "init") { init = value; send({ type: "ready", sessionId: value.sessionId, levels: [], cost: 0 }); }
-  else if (value.type === "prompt") void run(value.text).catch(error => { send({ type: "error", message: error.message }); });
+  else if (value.type === "prompt") void run(value.text.split("\n", 1)[0]).catch(error => { send({ type: "error", message: error.message }); });
   else if (value.type === "answer") {
     const waiter = pending.get(value.id); pending.delete(value.id);
     if (value.error) waiter?.reject(new Error(value.error)); else waiter?.resolve(value.value);

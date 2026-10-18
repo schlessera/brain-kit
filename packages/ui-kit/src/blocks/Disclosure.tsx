@@ -43,6 +43,8 @@ export interface DisclosureProps {
   label?: string;
   meta?: string;
   icon?: IconName;
+  /** A compact accessible cue kept outside the truncating label. */
+  badge?: { icon: IconName; label: string };
   /**
    * A SEED on its own — read once, on mount, then ignored, which is the
    * design's behaviour. Paired with `onOpenChange` it becomes the live value
@@ -133,6 +135,10 @@ export function Disclosure(p: DisclosureProps) {
         >
           {p.label ?? "4 steps · 3 files touched · 2.1s"}
         </span>
+        {p.badge && <span title={p.badge.label} style={{ flex: "none", display: "inline-flex" }} data-disclosure-badge>
+          <Icon icon={p.badge.icon} size={13} color={accent.neutral.ink} />
+          <span className="bk-sr-only">{`, ${p.badge.label}`}</span>
+        </span>}
         {p.meta ? <span style={{ flex: "none", color: accent.neutral.ink }}>{p.meta}</span> : null}
         <Icon icon={open ? "collapse" : "next"} size={13} color={accent.neutral.ink} />
       </div>

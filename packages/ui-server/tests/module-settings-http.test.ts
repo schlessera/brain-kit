@@ -26,6 +26,9 @@ test("mounted module settings use the real CLI, authenticated principals, valida
     mkdirSync(join(t.brainPath, "modules/catalog"), { recursive: true });
     writeFileSync(join(t.brainPath, "modules/catalog/module.ts"), `import {z} from "zod";
 export default {name:"catalog",configSchema:z.object({limit:z.number().int().positive("Limit must be positive")}),setup:()=>({commands:{catalog:async()=>({summary:"Fixture action",run:(_args,cli)=>console.log(JSON.stringify({limit:cli.config.limit}))})}}),settings:{fields:[],actions:[{id:"report",label:"Report",help:"Read saved settings",command:["catalog"],confirm:"Report?"}]}};`);
+    writeFileSync(join(t.brainPath, "modules/catalog/package.json"), JSON.stringify({name:"@odyssey/catalog",version:"1.0.0"}));
+    const manifestPath = join(t.brainPath,"modules/catalog/module.ts");
+    writeFileSync(manifestPath,readFileSync(manifestPath,"utf8").replace('setup:()=>({commands:', 'setup:()=>({renderers:{figure:{fences:["figure"],client:"@odyssey/catalog/ui"}},commands:'));
     const config = JSON.stringify({ modules: { "./modules/catalog": { limit: 3 } } });
     writeFileSync(join(t.brainPath, "brain.config.json"), config);
     writeFileSync(join(t.brainPath, "node_modules/.bin/brain"), `#!${process.execPath}\nprocess.env.BRAIN_ROOT ??=${JSON.stringify(t.brainPath)}; await import(${JSON.stringify(BRAIN_BIN)});\n`, { mode: 0o755 });
@@ -44,7 +47,7 @@ export default {name:"catalog",configSchema:z.object({limit:z.number().int().pos
     expect((await t.fetch(path)).status).toBe(401);
     const list = await t.fetch("/api/modules", request("GET"));
     expect(list.status, await list.clone().text()).toBe(200);
-    expect((await list.json()).enabled).toMatchObject([{ name: "catalog", settings: true, state: "active" }]);
+    expect((await list.json()).enabled).toMatchObject([{ name: "catalog", settings: true, state: "active", version: "1.0.0", renderers: {figure:{fences:["figure"],client:"@odyssey/catalog/ui"}} }]);
     const read = await t.fetch(path, request("GET"));
     expect(read.status, await read.clone().text()).toBe(200);
     const snapshot = await read.json();

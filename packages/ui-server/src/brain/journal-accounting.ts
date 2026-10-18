@@ -20,6 +20,7 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
   usage(): number;
   openRead(hash: string): string;
   releaseRead(id: string): void;
+  reserveTemporary(bytes: number): { id: string; release(): void };
   recover(objects: { has(hash: string): boolean; verify(hash: string, bytes: number): boolean; discardPending(id: string): void }): void;
 } {
   const cap = options.capBytes ?? JOURNAL_CAP_BYTES;
@@ -101,11 +102,31 @@ export function createJournalAccounting(db: Database, dbPath: string, options: {
       }); return id;
     },
     releaseRead(id) { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='read'").run(id)); },
+    reserveTemporary(bytes) {
+      if (!Number.isSafeInteger(bytes) || bytes < 0) throw new JournalStorageUnavailable("invalid temporary copy reservation size");
+      const id = crypto.randomUUID();
+      write(() => db.query("INSERT INTO turn_journal_reservations (id,bytes,pid,pid_start,created_at,hash,kind) VALUES (?,?,?,?,?,NULL,'temporary')")
+        .run(id, bytes, SELF.pid, SELF.start, Date.now()));
+      let released = false;
+      return { id, release() {
+        if (released) return;
+        write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='temporary'").run(id)); released = true;
+      } };
+    },
     recover(objects) {
       const rows = db.query("SELECT * FROM turn_journal_reservations").all() as { id: string; hash: string; bytes: number; pid: number; pid_start: string; kind: string }[];
       for (const row of rows) {
         if (processAlive(row.pid, row.pid_start)) continue;
         if (row.kind === "read") { write(() => db.query("DELETE FROM turn_journal_reservations WHERE id=?").run(row.id)); continue; }
+        if (row.kind === "temporary") {
+          write(() => {
+            const current = db.query("SELECT pid,pid_start FROM turn_journal_reservations WHERE id=? AND kind='temporary'").get(row.id) as { pid: number; pid_start: string } | null;
+            if (!current || processAlive(current.pid, current.pid_start)) return;
+            objects.discardPending(row.id);
+            db.query("DELETE FROM turn_journal_reservations WHERE id=? AND kind='temporary'").run(row.id);
+          });
+          continue;
+        }
         const published = objects.has(row.hash);
         if (published && !objects.verify(row.hash, row.bytes)) throw new JournalStorageUnavailable("a published interrupted object failed integrity verification");
         write(() => {

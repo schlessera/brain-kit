@@ -2,9 +2,14 @@ import { expect, test } from "bun:test";
 import { createBrainUiRoot, type BrainUiRoot } from "../src/root.js";
 import type { LocalWork } from "../src/lib/local-work.js";
 import { createBrainApi } from "../src/lib/api-client.js";
-import type { BrainApi } from "../src/lib/api-client.js";
 import { updateHeld } from "../src/lib/update-holds.js";
 import { TRACKER_STORAGE_KEY } from "../src/lib/trackers.js";
+
+// Renderer discovery is independent of the request whose auth lifetime is tested.
+function withBootstrap(request: (url: string) => Promise<Response>) {
+  return (url: string) => new URL(url, "http://localhost").pathname === "/api/status"
+    ? Promise.resolve(Response.json({ contentRenderers: [] })) : request(url);
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -46,7 +51,7 @@ test("overlapping same-account sign-ins restore once and install one manager", a
 });
 
 test("a delayed 401 from an old authentication lifetime cannot expire the new one", async()=>{
- const pending=deferred<Response>(); const root=createBrainUiRoot({storage:null,request:()=>pending.promise});
+ const pending=deferred<Response>(); const root=createBrainUiRoot({storage:null,request:withBootstrap(()=>pending.promise)});
  try {
   work(root,async()=>true); const stale=root.request("/api/sessions").catch(error=>error);
   await lock(root); expect(await root.authLock.signedIn("odysseus-key")).toBe(true);
@@ -58,8 +63,8 @@ test("a delayed 401 from an old authentication lifetime cannot expire the new on
 
 test("a body decoding and an injected API resolving after expiry cannot repopulate stores",async()=>{
  const body=deferred<string>(); const apiResult=deferred<{sessions:unknown[]}>();
- const api={sessions:()=>apiResult.promise} as unknown as BrainApi;
- const root=createBrainUiRoot({storage:null,api,request:async()=>Object.assign(new Response(),{json:async()=>JSON.parse(await body.promise)})});
+ const api=createBrainApi(()=>"/api",withBootstrap(async()=>Response.json(await apiResult.promise)));
+ const root=createBrainUiRoot({storage:null,api,request:withBootstrap(async()=>Object.assign(new Response(),{json:async()=>JSON.parse(await body.promise)}))});
  try {
   work(root,async()=>true);
   const response=await root.request("/api/sessions"); const reading=response.json().catch(e=>e);
@@ -74,9 +79,15 @@ test("lock clears activity read caches; restoration refetches finished history a
  let histories=0,payloads=0;
  const runId="odysseus-run",spanId="odysseus-tool";
  const span={spanId,runId,origin:"session",sessionId:"odysseus-ithaca",operation:"agent.turn",startedAt:1,endedAt:2,outcome:"success",attrs:{}};
- const api={activityRuns:async()=>{histories++;return{history:[{runId,detailPruned:false}]};},activityRun:async(_id:string,options?:unknown)=>{
-  if(options)payloads++; return{runId,spans:[span],events:[],highWaterSeq:1};
- }} as unknown as BrainApi;
+ const api=createBrainApi(()=>"/api",withBootstrap(async url=>{
+  const parsed=new URL(url,"http://localhost");
+  if(parsed.pathname==="/api/activity/runs"){histories++;return Response.json({live:[],history:[{runId,detailPruned:false}]});}
+  if(parsed.pathname===`/api/activity/runs/${runId}`){
+   if(parsed.searchParams.get("include")==="payloads")payloads++;
+   return Response.json({runId,spans:[span],events:[],highWaterSeq:1});
+  }
+  throw new Error(`Unexpected auth fixture request: ${parsed.pathname}`);
+ }));
  const root=createBrainUiRoot({storage:null,api});
  try {
   work(root,async()=>true); await root.stores.activity.loadSessionActivityHistory("odysseus-ithaca"); await root.stores.activity.loadSpanPayloads(spanId);
@@ -92,7 +103,7 @@ test("lock clears activity read caches; restoration refetches finished history a
 
 
 test("classified recovery 401 from the injected real client locks auth",async()=>{
- const api=createBrainApi(()=>"/api",async()=>new Response(null,{status:401}));
+ const api=createBrainApi(()=>"/api",withBootstrap(async()=>new Response(null,{status:401})));
  const root=createBrainUiRoot({storage:null,api});
  try {
   work(root,async()=>true); expect(await root.api.sessionRecovery("odysseus-ithaca")).toEqual({ok:false,reason:"unauthorized"});
@@ -102,7 +113,7 @@ test("classified recovery 401 from the injected real client locks auth",async()=
 
 test("only the exact account-confirmation route remains readable while locked",async()=>{
  const requests:string[]=[];
- const root=createBrainUiRoot({storage:null,request:async(url)=>{requests.push(url);return Response.json({accountKey:"odysseus-key"});}});
+ const root=createBrainUiRoot({storage:null,request:withBootstrap(async(url)=>{requests.push(url);return Response.json({accountKey:"odysseus-key"});})});
  try {
   work(root,async()=>true); await lock(root);
   await expect(root.request("/api/files?path=/api/vpn-check")).rejects.toMatchObject({name:"AbortError"});
@@ -143,7 +154,7 @@ test("lock cannot reintroduce account metadata captured in a persisted boot stat
 
 for(const invalidate of ["lock","dispose"] as const) test(`classified recovery remains a result after ${invalidate}`,async()=>{
  const pending=deferred<Response>(); let calls=0;
- const api=createBrainApi(()=>"/api",async()=>{calls++;return pending.promise;});
+ const api=createBrainApi(()=>"/api",withBootstrap(async()=>{calls++;return pending.promise;}));
  const root=createBrainUiRoot({storage:null,api});
  try {
   work(root,async()=>true);

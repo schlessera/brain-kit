@@ -6,6 +6,7 @@ import { createTurnBudgets } from "./brain/turn-budgets.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { Database } from "bun:sqlite";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
@@ -18,6 +19,7 @@ import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
 import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
 import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
@@ -230,8 +232,8 @@ export interface BrainUiApp {
   /** Cancel every running turn (used on shutdown). Returns true if any was. */
   cancelActiveTurns(): boolean;
   /**
-   * Release process-held resources (the SQLite handle). Resolves once the
-   * scratch prune pass in flight, if any, has been killed and has exited.
+   * Refuse new HTTP requests and drain admitted handlers before disposing of
+   * their operational state. Stalled request bodies are cancelled on close.
    */
   close(): Promise<void>;
 }
@@ -299,6 +301,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
     body: `Native storage recovery retained ${nativeRecovery.unknown.length + nativeRecovery.retainedUnverifiable} unresolved checkpoint ownership record(s). Reconcile the native storage service before reclaiming their capacity.` });
   const nativeManager = nativeLeases.client;
+  const probeState = { dbPath: config.dbPath, privateStatePaths };
+  // Select from already validated host state; helper/configuration failures
+  // remain recorded probe refusals rather than a new boot failure.
+  const identitySentinelDirectory = dirname(resolve(config.dbPath && config.dbPath !== ":memory:" ? config.dbPath : nativeLeasePath));
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono<AppEnv>();
@@ -360,8 +366,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const turnTempBytes = config.agent.turnTempBytes;
   const latestOrdinary = (): WorkerHostProbe => {
     const recorded = runtimeStatus?.snapshot().workerHost?.ordinary;
-    if (recorded) return recorded.available ? { ok: true } : { ok: false, requirement: recorded.requirement };
-    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
+    if (recorded) return recorded.available ? { ok: true, ...(recorded.identity ? { identity: recorded.identity, workerUid: recorded.workerUid } : {}) } : { ok: false, requirement: recorded.requirement };
+    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes, probeState);
   };
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
@@ -510,6 +516,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const host = new WsHost({
+    identitySentinelDirectory,
     scope,
     policyProposals,
     journal,
@@ -522,7 +529,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     brainPath: config.brainPath,
     registry,
     observability,
-    catalog: createSessionCatalog(() => db, dbLog, scratchPins),
+    catalog: createSessionCatalog(() => db, dbLog, scratchPins, { pricing, store: activity.store }),
     // Exact-operation approvals remain fail-closed until the full-v1 engine
     // wires current server authority. Dismiss/cancel/snooze need no grant.
     inboxTools: createInboxBridgeTools(db, intake, hygieneReview.resolver, config.brainPath),
@@ -570,7 +577,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
   });
   bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
-  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
+  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
@@ -588,7 +595,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity.runtime.recordWorkerHost(mode, bootOrdinary, "boot");
       activity.runtime.recordWorkerLimits(workerLimitsStatus());
     }
-    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes);
+    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes, probeState);
   }
   runtimeStatus = activity.runtime;
   // Whether governed can run, and where the brain's own code is evaluated
@@ -769,6 +776,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createStatusRoutes({
       sourceCommit: config.sourceCommit,
+      getContentRenderers: async () => brain.modules ? declaredContentRenderers((await brain.modules()).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
       // Undefined when the injected consumer cannot be read back (a real OTel
@@ -787,7 +795,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: async () => {
-        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes);
+        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes, probeState);
         await boundary.prepare();
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
@@ -837,7 +845,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       log: observability.logger("share"),
     })
   );
-  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render")));
+  app.route("/api", createRenderRoutes(options.renderer, observability.logger("render"), brain));
   app.route("/api", createProviderRoutes({ registry }));
   app.route(
     "/api",
@@ -912,9 +920,64 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     });
   }
 
+  const httpRequests = new Map<Promise<void>, () => void>();
+  const fetch: Hono["fetch"] = (request, env, executionCtx) => {
+    if (host.closing) return Response.json({ error: "Server shutting down" }, { status: 503,
+      headers: { "Cache-Control": "no-store", "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'" } });
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    let cancelBody = (_reason: unknown) => {};
+    let removeAbort = () => {};
+    // Hono's JSON, multipart and bounded raw readers otherwise can wait on an
+    // unfinished client body forever. Own the reader only when it is pulled;
+    // shutdown errors its consumer immediately and does not await an arbitrary
+    // producer's cancel promise. Normal bytes, metadata and route caps remain.
+    if (request.body && !request.bodyUsed && !request.body.locked) {
+      const original = request, body = request.body;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      let ended = false;
+      let interruptCancel!: () => void;
+      const interrupted = new Promise<void>(resolve => { interruptCancel = resolve; });
+      const cancelSource = (reason: unknown) => reader ? reader.cancel(reason) : body.cancel(reason);
+      cancelBody = reason => {
+        // A route may already be awaiting producer cancellation after its own
+        // byte cap. Shutdown must release that wait as well as active reads.
+        interruptCancel();
+        if (ended) return;
+        ended = true;
+        controller.error(reason);
+        void cancelSource(reason).catch(() => {});
+      };
+      const readable = new ReadableStream<Uint8Array>({
+        start(value) { controller = value; },
+        async pull() {
+          try {
+            reader ??= body.getReader();
+            const chunk = await reader.read();
+            if (ended) return;
+            if (chunk.done) { ended = true; controller.close(); reader.releaseLock(); }
+            else controller.enqueue(chunk.value);
+          } catch (error) { cancelBody(error); }
+        },
+        cancel(reason) {
+          if (!ended) { ended = true; return Promise.race([cancelSource(reason), interrupted]); }
+        },
+      }, { highWaterMark: 0 });
+      request = new Request(original, { method: original.method, body: readable });
+      const disconnected = () => cancelBody(original.signal.reason);
+      original.signal.addEventListener("abort", disconnected, { once: true });
+      removeAbort = () => original.signal.removeEventListener("abort", disconnected);
+      if (original.signal.aborted) disconnected();
+    }
+    const complete = () => { removeAbort(); httpRequests.delete(pending); finish(); };
+    httpRequests.set(pending, () => cancelBody(new HTTPException(503, { message: "Server shutting down" })));
+    try { return Promise.resolve(app.fetch(request, env, executionCtx)).finally(complete); }
+    catch (error) { complete(); throw error; }
+  };
   let closing: Promise<void> | undefined;
   return {
-    fetch: app.fetch,
+    fetch,
     websocket,
     config,
     authMode,
@@ -929,7 +992,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       host.closing = true;
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
+      for (const cancelBody of httpRequests.values()) cancelBody();
+      // Cancel turn work before joining HTTP handlers that may be waiting for
+      // its locks. Keep operational state alive until admitted dispatch ends.
+      await attempt(() => { host.coordinator.cancelAll("Server shutting down"); });
       await attempt(() => inbox.close());
+      await Promise.allSettled([...httpRequests.keys()]);
       await attempt(() => host.close());
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
       await attempt(() => subscription.close());

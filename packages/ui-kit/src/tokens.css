@@ -783,8 +783,9 @@
   --bk-diagram-node: light-dark(#fffefa, #1e2128);
   --bk-diagram-cluster: light-dark(#ece7dc, #0c0e12);
   --bk-diagram-line: light-dark(#5f584c, #9a96a1);
-  --bk-diagram-cluster-border: light-dark(#847c6f, #2a2d35);
+  --bk-diagram-cluster-border: light-dark(#847c6f, #6b6873);
   --bk-diagram-text: light-dark(#231f1a, #e8e4df);
+  --bk-diagram-focal-tint: light-dark(#fbf1e0, #3d352c);
 
   /* ── Light theme ──────────────────────────────────────────────────────
    * Is the first argument of every `light-dark()` above; see the block after
@@ -1224,10 +1225,11 @@
   --bk-canvas-lens-stale: #8a6a10;
   --bk-diagram-bg: #ffffff;
   --bk-diagram-node: #ffffff;
-  --bk-diagram-cluster: #ece7dc;
+  --bk-diagram-cluster: #ffffff;
   --bk-diagram-line: #5f584c;
   --bk-diagram-cluster-border: #847c6f;
   --bk-diagram-text: #231f1a;
+  --bk-diagram-focal-tint: #ffffff;
 }
 /* @print-theme:end */
 

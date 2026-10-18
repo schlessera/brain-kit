@@ -4,7 +4,7 @@ import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
 import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
-import type { ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
+import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number, readonly errors: Array<{ path: string; message: string }> = []) {
@@ -360,6 +360,8 @@ export function createBrainApi(
 
     status: () =>
       fetchJson<{
+        /** Absent on an older server; metadata cannot load client code. */
+        contentRenderers?: ContentRendererDeclaration[];
         /** Optional for servers predating software identity reporting. */
         software?: { release: string; sourceCommit: string };
         version?: string;
@@ -755,7 +757,7 @@ export function createBrainApi(
       limit?: number;
       before?: number;
     }) =>
-      fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[] }>(
+      fetchJson<{ live: ActivityRunSummary[]; history: ActivityRunSummary[]; lifecycles?: import("@schlessera/brain-ui-sdk/protocol").ActivityTurnLifecycle[] }>(
         "/activity/runs?" +
           [
             opts?.origin && `origin=${opts.origin}`,

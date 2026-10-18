@@ -1,0 +1,3 @@
+# Bun does not inherit the repository test preload from a parent directory.
+[test]
+preload = ["../../scripts/test-network-preload.ts"]

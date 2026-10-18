@@ -1,3 +1,4 @@
+import { usageEvents } from "../../ui-backend-claude/tests/helpers/usage-events.js";
 import { mockWorkerHostForSdkStream } from "../../ui-backend-claude/tests/helpers/worker-host";
 mockWorkerHostForSdkStream();
 /**
@@ -101,7 +102,9 @@ function claudeAdapter(brainPath: string, script: Script, sourceHistory: unknown
       await params.options!.canUseTool!("mcp__brain__write", { path: "plans/ithaca.md" }, { signal: new AbortController().signal, toolUseID: "source-write" } as never);
     }
     yield { type: "stream_event", session_id: id, event: { type: "content_block_delta", delta: { type: "text_delta", text: "Continuing." } } };
-    yield { type: "result", subtype: "success", session_id: id, total_cost_usd: 0.01, duration_ms: 1, num_turns: 1 };
+    yield* usageEvents(id, "claude-probe", 1000, 0);
+    yield { type: "result", subtype: "success", session_id: id, total_cost_usd: 0.01, duration_ms: 1, num_turns: 1,
+      modelUsage: { "claude-probe": { inputTokens: 1000, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } };
   })()) as unknown as typeof query;
   return createClaudeBackend({
     brainPath,
@@ -167,14 +170,16 @@ let teardown: (() => void) | null = null;
 afterEach(() => { teardown?.(); teardown = null; });
 
 const SOURCE_HISTORY = [
-  { type: "user", message: { content: "Plan the return to Ithaca." } },
-  { type: "assistant", message: { model: "fixture", content: [{ type: "text", text: "Sail past the Sirens, then Scylla." }] } },
-  { type: "user", message: { content: "Who keeps the house meanwhile?" } },
-  { type: "assistant", message: { model: "fixture", content: [{ type: "text", text: "Penelope, with Telemachus." }] } },
+  { type: "user", uuid: "source-user-1", message: { content: "Plan the return to Ithaca." } },
+  { type: "assistant", uuid: "source-assistant-1", message: { model: "fixture", content: [{ type: "text", text: "Sail past the Sirens, then Scylla." }] } },
+  { type: "user", uuid: "source-user-2", message: { content: "Who keeps the house meanwhile?" } },
+  { type: "assistant", uuid: "source-assistant-2", message: { model: "fixture", content: [{ type: "text", text: "Penelope, with Telemachus." }] } },
 ];
 
 interface RigOptions {
   cap?: number;
+  /** Exercise host recording with a controlled backend terminal path. */
+  startTurn?: (request: StartTurnRequest) => Promise<void>;
   /** Hold the provider roster read (billing resolution) until released. */
   rosterHold?: () => Promise<void> | undefined;
   /** Replace the catalog's handoff write. */
@@ -189,13 +194,15 @@ function rig(options: RigOptions = {}): Rig {
   writeFileSync(join(brain, ".git", "config"), "");
   const scripts = { claude: newScript(), pi: newScript() };
   const starts = { claude: [] as StartTurnRequest[], pi: [] as StartTurnRequest[] };
-  const claude = counted(claudeAdapter(brain, scripts.claude, SOURCE_HISTORY), starts.claude);
+  const adapter = claudeAdapter(brain, scripts.claude, SOURCE_HISTORY);
+  const claude = counted(options.startTurn ? { ...adapter, startTurn: options.startTurn } : adapter, starts.claude);
   const pi = counted(piAdapter(brain, scripts.pi), starts.pi);
   const db = createUiDb(":memory:");
-  const store = createActivityStore(db, { writer: "handoff-test" });
+  const pricing = { resolve: () => ({ input: 0.00001, output: 0, cacheRead: 0, cacheWrite: 0, estimate: false, source: "snapshot" as const }) };
+  const store = createActivityStore(db, { writer: "handoff-test", pricing });
   const stream = createActivityStream(store);
   const registry = createStaticBackendRegistry([claude, pi], "claude");
-  const catalog = createSessionCatalog(() => db);
+  const catalog = createSessionCatalog(() => db, undefined, undefined, { pricing, store });
   if (options.recordHandoff) catalog.recordHandoff = options.recordHandoff(catalog.recordHandoff!.bind(catalog));
   const host = new WsHost({
     brainPath: brain,
@@ -433,13 +440,47 @@ describe("handoff preparation", () => {
     expect(r.starts.pi).toHaveLength(0);
 
     // One run on the source session, named for what it was, with its cost.
-    const run = r.db.query("SELECT name, session_id AS sessionId, cost_usd AS cost, outcome FROM activity_run_rollups WHERE run_id = ?").get(draft.runId) as
-      { name: string; sessionId: string; cost: number | null; outcome: string } | null;
-    expect(run).toEqual({ name: "handoff preparation", sessionId: source, cost: 0.03, outcome: "success" });
+    const run = r.db.query("SELECT name, session_id AS sessionId, cost_usd AS cost, outcome, failure_reason AS failureReason FROM activity_run_rollups WHERE run_id = ?").get(draft.runId) as
+      { name: string; sessionId: string; cost: number | null; outcome: string; failureReason: string | null } | null;
+    expect(run).toEqual({ name: "handoff preparation", sessionId: source, cost: 0.03, outcome: "success", failureReason: null });
     // The cost joins the source's total; it is not a turn of its conversation.
     expect(row(r, source)).toMatchObject({ turns: 4 });
     expect(row(r, source)!.cost).toBeCloseTo(0.53, 6);
     expect(r.db.query("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 1 });
+  });
+
+  test.each(["throw", "empty", "result", "error frame"] as const)("a failed %s handoff records the message sent to its client", async (mode) => {
+    const message = "The fictional summary provider failed.";
+    const r = rig({ startTurn: async ({ bridge }) => {
+      if (mode === "throw") throw new Error(message);
+      if (mode === "error frame") bridge.emit({ type: "error", code: "BACKEND_ERROR", message });
+      bridge.emit({ type: "result", sessionId: "summary", durationMs: 1, numTurns: 1,
+        isError: mode === "result", outcome: mode === "result" ? "error" : "success",
+        ...(mode === "result" ? { failure: { errorClass: "server_error", message } } : {}) });
+    } });
+    const source = seedSource(r, "claude");
+    const ws = r.open();
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-failure-0001", sourceSessionId: source, turns: 1 });
+    await until(() => ws.frames.some((f) => f.type === "handoff_draft"));
+    const draft = ws.frames.find((f) => f.type === "handoff_draft")!;
+    expect(draft).toMatchObject({ state: "failed", message: mode === "empty" ? "The summary came back empty." : message });
+    expect(r.db.query("SELECT outcome, failure_reason AS failureReason FROM activity_run_rollups WHERE run_id = ?").get(draft.runId))
+      .toEqual({ outcome: "error", failureReason: draft.message });
+  });
+
+  test("an ordinary chat result failure records its provider message", async () => {
+    const message = "The fictional chat provider failed.";
+    const r = rig({ startTurn: async ({ bridge, sessionId }) => {
+      bridge.emit({ type: "session_info", sessionId: sessionId!, isNew: false });
+      bridge.emit({ type: "result", sessionId: sessionId!, durationMs: 1, numTurns: 1,
+        isError: true, outcome: "error", failure: { errorClass: "server_error", message } });
+    } });
+    const source = seedSource(r, "claude");
+    const ws = r.open();
+    r.send(ws, { type: "chat_message", sessionId: source, text: "Continue the voyage." });
+    await until(() => ws.frames.some((f) => f.type === "result"));
+    expect(r.db.query("SELECT outcome, failure_reason AS failureReason FROM activity_run_rollups WHERE session_id = ?").get(source))
+      .toEqual({ outcome: "error", failureReason: message });
   });
 
   test("an unknown cost stays unknown, never $0", async () => {
@@ -470,6 +511,9 @@ describe("handoff preparation", () => {
     await until(() => ws.frames.some((f) => f.type === "handoff_draft"));
     expect(ws.frames.find((f) => f.type === "handoff_draft")).toMatchObject({ state: "cancelled" });
     expect(r.host.coordinator.handoffPreparations.size).toBe(0);
+    const cancelled = ws.frames.find((f) => f.type === "handoff_draft")!;
+    expect(r.db.query("SELECT outcome, failure_reason AS failureReason FROM activity_run_rollups WHERE run_id = ?").get(cancelled.runId))
+      .toEqual({ outcome: "cancelled", failureReason: null });
 
     const again = gate();
     r.scripts.claude.summaryHold = again.promise;

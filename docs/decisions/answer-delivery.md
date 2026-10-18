@@ -70,7 +70,7 @@ manufacture an identity, and it was not needed.
 ## One card per request
 
 The store updates a request it already holds and never appends it again
-(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:265-296`). A
+(`addExchange`, `packages/ui-react/src/stores/chat-state.ts:270-301`). A
 settled card stays settled, so a late or replayed frame cannot revive a
 dismissed or answered question. A pending card keeps its payload and the
 exchange object it is keyed by, so a draft in progress survives a re-send.
@@ -106,7 +106,7 @@ capability flag is what peers check, because a revision number alone was
 ruled not to establish receipt support.
 
 Outcomes are remembered in memory for 24 hours, at most 1,024 of them
-(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:372`). That is the
+(`ASK_OUTCOME_TTL_MS`, `packages/ui-server/src/ws/turns.ts:374`). That is the
 client's maximum replay age, so any answer a client may still replay finds
 its outcome. Persisting outcomes would not help after a restart: the
 requests themselves are gone then, and an answer for them must stop, not
@@ -248,7 +248,7 @@ deadline stays the only limit on an ask.
 The late stored-principal race has one native `ask_user` representative.
 All four ChatPage adapters enter `submitAnswer`; the first host frame calls
 `answers.connected()` without selecting an answer kind (`answersReady = true`,
-`packages/ui-react/src/connection.ts:365-366`). The shared restore path must
+`packages/ui-react/src/connection.ts:381-382`). The shared restore path must
 preserve that newer principal. Repeating this browser race for list, rank and
 form adds no separate startup path. Their online and offline/reload native
 cases remain: input adapters, `answerFrame` serialization and host dispatch

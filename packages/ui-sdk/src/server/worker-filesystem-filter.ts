@@ -61,6 +61,12 @@ def main():
             raise RuntimeError("Btrfs worker seccomp filter could not be loaded")
     finally:
         lib.seccomp_release(ctx)
+    # Python reintroduces SIGPIPE/SIGXFSZ ignores after the bootstrap reset.
+    # Restore every catchable disposition only after installing the filter;
+    # preserve the inherited signal mask and the uncatchable signals.
+    import signal
+    for number in signal.valid_signals() - {signal.SIGKILL, signal.SIGSTOP}:
+        signal.signal(number, signal.SIG_DFL)
     os.execve(sys.argv[1], sys.argv[1:], {})
 try:
     main()

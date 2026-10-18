@@ -211,8 +211,13 @@ function claudePermissionProbe(scenario: PermissionScenario): PermissionProbe {
       yield { type: "result", subtype: "success", session_id: "permission-probe", total_cost_usd: 0, duration_ms: 1, num_turns: 1 };
     })();
   }) as unknown as typeof query;
+  const backend = createClaudeBackend({ brainPath, queryFn, allowedTools: scenario === "command" ? [toolName] : [], log: () => {} });
   return {
-    backend: createClaudeBackend({ brainPath, queryFn, allowedTools: scenario === "command" ? [toolName] : [], log: () => {} }),
+    // Exercise native permission decisions on a turn where writes are permitted;
+    // strict refusal is independently covered by the real runtime controls.
+    backend: { ...backend, startTurn: req => backend.startTurn({ ...req, ...(scenario === "mutation" ? {
+      workerSandbox: { brain: brainPath, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
+    } : {}) }) },
     toolName,
     toolUseId: "probe-tool",
     starts: () => starts,

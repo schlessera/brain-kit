@@ -1,11 +1,10 @@
-import { inferenceBudgetNote } from "../packages/ui-server/src/brain/turn-budgets.ts";
 import { describe, expect, test } from "bun:test";
 import {createHash} from "node:crypto";
 import {createPiSchemaReplay} from "../scripts/pi-schema-replay.ts";
 import { mkdtempSync, cpSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { measurementSchema, measurementForm, nativeCredential, replaceExactly, PI_SCHEMA_ARMS, PI_SCHEMA_PROMPT, measurementFixtureGuard } from "../scripts/pi-schema-measurement.ts";
+import { measurementSchema, measurementForm, nativeCredential, replaceExactly, PI_SCHEMA_ARMS, PI_SCHEMA_PROMPT, measurementFixtureGuard, measurementHostedPrompt, measurementPreparedPrompt, adoptMeasurementPreparedPrompt, measurementPromptReceipt } from "../scripts/pi-schema-measurement.ts";
 import { SCHEMA_ARMS } from "../scripts/show-block-schema-forms.ts";
 import { showBlockInputSchema } from "../packages/ui-sdk/src/tool-contracts/blocks.ts";
 import { toolInputJsonSchema, SHOW_BLOCK_DESCRIPTION } from "@schlessera/brain-ui-sdk/server";
@@ -71,6 +70,33 @@ test("reviewed prompt reuse is byte-identical and unknown terminal counters are 
   for (const bad of [null,{}, {...usage,input_tokens:.5},{...usage,total_tokens:1},{...usage,input_tokens_details:{}},{...usage,output_tokens_details:{reasoning_tokens:25}}]) expect(()=>validateTerminalUsage(bad)).toThrow("Codex terminal usage is unknown.");
 });
 
+test("prepared host receipt preserves the reviewed original and rejects changed or extra provider input", () => {
+  const previous = process.env.BRAIN_MEASURE_PI_HOST_PROMPT;
+  const budget = { listPriceCostUsd: null, listPriceIsEstimate: null, tokens: null, observedAt: 0, coverage: "Built-in inference only; provider and tool spend is not metered" as const, scopes: [] };
+  try {
+    measurementHostedPrompt(PI_SCHEMA_PROMPT, budget);
+    const admitted = process.env.BRAIN_MEASURE_PI_HOST_PROMPT!;
+    const prepared = { id: "00000000-0000-4000-8000-000000000001", text: PI_SCHEMA_PROMPT + "\n\nHost-owned fixture facts" };
+    expect(() => measurementPreparedPrompt("different original", prepared)).toThrow("exact admitted original");
+    const receipt = measurementPreparedPrompt(PI_SCHEMA_PROMPT, prepared);
+    expect(receipt.ownership?.original).toBe(PI_SCHEMA_PROMPT);
+    process.env.BRAIN_MEASURE_PI_HOST_PROMPT = admitted;
+    expect(() => adoptMeasurementPreparedPrompt({ ...receipt, effectivePrompt: prepared.text + " extra" })).toThrow("host ownership");
+    expect(() => adoptMeasurementPreparedPrompt({ ...receipt, ownership: { ...receipt.ownership, original: "different original" } })).toThrow("host ownership");
+    adoptMeasurementPreparedPrompt(receipt);
+    expect(measurementPromptReceipt()).toEqual(receipt);
+    const parameters = toolInputJsonSchema(measurementSchema("flat"));
+    const request = { model: "offline-model", input: [{ role: "user", content: [{ type: "input_text", text: prepared.text }] }], tools: [{ type: "function", name: "show_block", strict: null, description: SHOW_BLOCK_DESCRIPTION, parameters }] };
+    expect(() => validatePiSchemaRequest(request, "offline-model", parameters, receipt.effectivePrompt)).not.toThrow();
+    for (const changed of [PI_SCHEMA_PROMPT, prepared.text + " extra", prepared.text.replace("Host-owned", "Changed")]) {
+      expect(() => validatePiSchemaRequest({ ...request, input: [{ role: "user", content: [{ type: "input_text", text: changed }] }] }, "offline-model", parameters, receipt.effectivePrompt), "EXACT_PREPARED_PROVIDER_BYTES").toThrow("exact expected user-plus-host prompt");
+    }
+  } finally {
+    if (previous === undefined) delete process.env.BRAIN_MEASURE_PI_HOST_PROMPT;
+    else process.env.BRAIN_MEASURE_PI_HOST_PROMPT = previous;
+  }
+});
+
 test("actual inline tool admission refuses shell/writes and outside symlink reads", async () => {
   const scratch=mkdtempSync(join(tmpdir(),"pi-schema-guard-"));
   try {
@@ -112,10 +138,14 @@ for (const [form,mode] of [["flat",null],["shared",null],["shared-trimmed",null]
       const rejected=mode&&!["fixture-tools","tool-guard","credit-metadata","media-type-absent","media-type-octet","late-eof","late-eof-final"].includes(mode);
       if(mode==="billing-header"||mode==="billing-event")expect(JSON.parse(rawDiagnostic),"known included-only stop must block the next actual physical request").toHaveLength(1);
       const nativeSummary=rawDiagnostic==="No native request"?rawDiagnostic:JSON.stringify(JSON.parse(rawDiagnostic).map((row:any)=>({sequence:row.sequence,status:row.status,terminal:row.terminal,eof:row.eof,error:row.error})));
-      expect(status, `${await stdout}\n${await stderr}\n${nativeSummary}`).toBe(rejected?1:0);
+      const failureFrames = rawDiagnostic === "No native request" && existsSync(join(scratch, "receipts/server-frames.jsonl"))
+        ? readFileSync(join(scratch, "receipts/server-frames.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)).filter(frame => frame.type === "result" || frame.type === "error") : [];
+      expect(status, `${await stdout}\n${await stderr}\n${nativeSummary}\n${JSON.stringify(failureFrames)}`).toBe(rejected?1:0);
       const result = JSON.parse(readFileSync(join(scratch, "result.json"), "utf8"));
       expect(result.hostPrompt.userPrompt, "REVIEWED_USER_PROMPT_UNCHANGED").toBe(PI_SCHEMA_PROMPT);
-      expect(result.hostPrompt.effectivePrompt, "EXACT_ADMITTED_HOST_PROMPT_COMPOSITION").toBe(`${PI_SCHEMA_PROMPT}\n\n${inferenceBudgetNote(result.hostPrompt.budget)}`);
+      expect(result.hostPrompt.ownership.original, "EXACT_ADMITTED_HOST_PROMPT_ORIGINAL").toBe(PI_SCHEMA_PROMPT);
+      expect(result.hostPrompt.ownership.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(createHash("sha256").update(result.hostPrompt.effectivePrompt).digest("hex"), "EXACT_HOST_PREPARED_WIRE_RECEIPT").toBe(result.hostPrompt.ownership.wireSha256);
       if (rejected) {
         const requests=JSON.parse(rawDiagnostic);
         expect(requests.length).toBeGreaterThan(0);

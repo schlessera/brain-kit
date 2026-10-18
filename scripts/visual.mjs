@@ -17,8 +17,8 @@
  *
  * Because those drift, and a visual suite that drifts from what CI runs is
  * worse than none: it fails locally for reasons nobody can reproduce. Locally
- * this script starts the container; in CI the job already runs inside the same
- * image and calls this script with `--inside`. Both paths reach the identical
+ * this script starts the container; hosted proof uses this same launcher. The
+ * inner process calls this script with `--inside`. Both paths reach the identical
  * vitest invocation, which is the point.
  *
  * ## Why `.mjs` when every other script in this repo is TypeScript run by bun
@@ -38,17 +38,19 @@
  *   node scripts/visual.mjs --inside …         # already in the image (CI)
  *   node scripts/visual.mjs --browser.fileParallelism=true  # diagnostic override
  */
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureWorkspaceLease } from "./workspace-lease.mjs";
+import { prepareDiagramExportSource } from "./prepare-diagram-export-source.mjs";
+import { prepareDiagramNativeArtifacts, diagramProducerImageIdentity } from "./diagram-export-producer.mjs";
 
 /** The pin. Must equal the `playwright` devDependency in `packages/ui-kit`, the
  * pinned offline browser image used by local proof, and D10. */
-const IMAGE = "mcr.microsoft.com/playwright:v1.63.0-noble";
+const IMAGE = diagramProducerImageIdentity;
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const KIT = "packages/ui-kit";
@@ -69,11 +71,15 @@ if (schedulingArgs.length > 1 || schedulingArgs.some((a) => !/^--browser\.filePa
   process.exit(1);
 }
 const schedulingArg = schedulingArgs[0] ?? "--browser.fileParallelism=false";
+const gitCheckout = () => {
+  const [sha, tree, ...parents] = execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim().split(" ");
+  return JSON.stringify({ sha, tree, parents });
+};
 // Stories on dark and paper (D32), curated visual baselines, and the footer's
 // isolated coarse-pointer context, and module Settings' consumer integration.
 // Subject baselines also have their own browser so another file's failure
 // screenshot cannot change their used monospace fallback (#879).
-const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live"];
+const projects = projectArgs.length ? projectArgs.map((arg) => arg.slice("--project=".length)) : ["storybook", "storybook-light", "visual", "rank-footer-touch", "module-settings", "subjects", "dictation", "rail-fine", "rail-coarse", "rail-mixed", "keyboard-hints-live", "diagrams-chromium", "diagrams-webkit"];
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -96,6 +102,10 @@ if (inside) {
   // `--shard` still splits the combined file list, keeping both CI shards busy.
   const vitest = resolve(REPO, "node_modules/vitest/vitest.mjs");
   const args = ["run", ...projects.map((project) => `--project=${project}`), schedulingArg];
+  if (argv.includes("--proof-report")) {
+    rmSync(resolve(REPO, "tmp/proof-cases.json"), { force: true });
+    args.push("--reporter=default", `--reporter=${resolve(REPO, "scripts/proof-case-report.mjs")}`);
+  }
   if (update) args.push("--update");
   if (shardArg) args.push(shardArg);
   args.push(...filters);
@@ -108,6 +118,21 @@ if (inside) {
 // which the next `rm` then cannot remove.
 const uid = typeof process.getuid === "function" ? process.getuid() : 0;
 const gid = typeof process.getgid === "function" ? process.getgid() : 0;
+
+// Execution bootstrap owns acquisition. Metadata lookup and the network-disabled
+// native producer never pull; both consumers launch this exact manifest digest.
+const inspectImage = () => spawnSync("docker", ["image", "inspect", IMAGE, "--format", "{{json .RepoDigests}}"], { encoding: "utf8" });
+let image = inspectImage();
+if (image.error || image.status !== 0 || image.signal) {
+  const acquired = run("docker", ["pull", IMAGE]);
+  if (acquired !== 0) process.exit(acquired);
+  image = inspectImage();
+}
+let digests;
+try { digests = JSON.parse(image.stdout); } catch { /* Missing evidence is refused below. */ }
+if (image.error || image.status !== 0 || image.signal || !Array.isArray(digests) || !digests.includes(IMAGE)) {
+  throw new Error("PINNED_VISUAL_IMAGE_DIGEST_MISMATCH");
+}
 
 // The ranking footer proves layout with the actual preview faces. Prepare public
 // pinned inputs before the browser runs; the test command only reads this cache.
@@ -126,12 +151,21 @@ const bunExecutable = (process.env.PATH ?? "").split(delimiter).map(dir => resol
 });
 if (!bunExecutable) throw new Error("Bun is required for offline server fixtures");
 const scratch = tmpdir();
+// Each native invocation materializes these tracked inputs in its own state.
+let nativePrepared;
+if (projects.some(project => project.startsWith("diagrams-"))) {
+  prepareDiagramExportSource(REPO, argv.includes("--proof-report"), process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS ? JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS) : undefined);
+  nativePrepared = prepareDiagramNativeArtifacts(REPO, projects, process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS ? JSON.parse(process.env.BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS) : undefined);
+}
+// Worktree .git indirection points outside the container mount. Capture on the
+// host and check again after exit; the reporter must not guess an identity.
+const proofCheckout = argv.includes("--proof-report") ? gitCheckout() : undefined;
 const status = run("docker", [
   "run",
   "--rm",
   "--ipc=host",
   // The consumer layout project needs only the in-container Vite server.
-  ...(projects.includes("ui-react-layout") ? ["--network=none"] : []),
+  ...(projects.some(project => ["ui-react-layout", "ui-react-endurance"].includes(project)) ? ["--network=none"] : []),
   "--user",
   `${uid}:${gid}`,
   "-v",
@@ -148,6 +182,9 @@ const status = run("docker", [
   "/repo",
   "-e",
   "HOME=/tmp",
+  ...(proofCheckout ? ["-e", `BRAIN_PROOF_CASE_CHECKOUT=${proofCheckout}`,
+    "-e", "BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS", "-e", "GITHUB_RUN_ID", "-e", "GITHUB_RUN_ATTEMPT", "-e", "GITHUB_JOB"] : []),
+  ...(nativePrepared ? ["-e", `BRAIN_NATIVE_DIAGRAM_PREPARED=${nativePrepared}`] : []),
   IMAGE,
   "node",
   "scripts/visual.mjs",
@@ -155,4 +192,5 @@ const status = run("docker", [
   ...argv.filter((a) => a !== "--inside"),
 ]);
 
+if (proofCheckout && gitCheckout() !== proofCheckout) throw new Error("Checkout changed during browser case reporting");
 process.exit(status);

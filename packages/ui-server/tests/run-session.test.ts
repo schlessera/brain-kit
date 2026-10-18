@@ -625,6 +625,8 @@ describe("handleChatMessage concurrency", () => {
       sessionId: "session-2",
       attachments: [],
     });
+    expect(routingCalls, "ADMISSION_ONE_ROUTING_READ_WHILE_RESERVED").toBe(1);
+    expect(host.coordinator.startingSessions, "ADMISSION_RESERVATION_HELD").toBe(1);
     releaseRouting.resolve();
     if (routingCalls > 0) await backendStarted.promise;
     await until(
@@ -632,7 +634,8 @@ describe("handleChatMessage concurrency", () => {
         host.coordinator.startingSessions === 0 && host.coordinator.running.size === 0
     );
 
-    expect(routingCalls).toBe(1);
+    // Target selection reads profiles first; billing resolves the admitted provider later.
+    expect(routingCalls, "routing plus admitted billing profile snapshot").toBe(2);
     expect(reservationWhileRouting).toBe(1);
     expect(prompts).toEqual(["admitted"]);
     expect(sent.filter((message) => message.type === "error")).toEqual([

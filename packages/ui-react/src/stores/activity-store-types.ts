@@ -1,4 +1,5 @@
 import type {
+  ActivityTurnLifecycle,
   ActivitySpan,
   ActivitySpanEvent,
   ServerActivityDelta,
@@ -7,6 +8,7 @@ import type {
 import type { ActivityIntent } from "../lib/api-client.js";
 
 export interface ActivityState {
+  lifecycles: Record<string, ActivityTurnLifecycle>;
   /** server_hello said this host records activity. */
   supported: boolean;
   /** Session ids this connection has an activity subscription for. */

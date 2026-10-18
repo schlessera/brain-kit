@@ -508,3 +508,24 @@ test("browsing parses its ignore snapshot despite an unrelated FIFO", async () =
     expect(listing.some(entry => entry.name === "secret")).toBe(false);
   } finally { await rm(fifo, { force: true }); }
 });
+
+
+describe("SVG image classification", () => {
+  const source = '<svg xmlns="http://www.w3.org/2000/svg"><title>Odysseus</title></svg>';
+  test("UTF-8 SVG remains an image regardless of case or XML text", () => {
+    for (const name of ["crossing.svg", "CROSSING.SVG"]) expect(classifyKind(name, Buffer.from(source))).toBe("binary");
+  });
+  test("metadata chooses image/svg+xml and keeps source on the existing raw route", async () => {
+    await writeFile(join(root, "crossing.svg"), source);
+    const result = await readFileContent("crossing.svg", root);
+    expect(result.kind).toBe("binary");
+    expect(result.mime).toBe("image/svg+xml");
+    expect(result.content).toBeUndefined();
+    const routes = createFilesRoutes({ brainRoot: root });
+    const raw = await routes.request("/files/content?path=crossing.svg&raw=1");
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("content-type")).toBe("image/svg+xml");
+    expect(raw.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(await raw.text()).toBe(source);
+  });
+});

@@ -2,6 +2,8 @@
 import { isAbsolute } from "node:path";
 import { request as unixRequest } from "node:http";
 import { Readable } from "node:stream";
+import { consumeNativeStageAuthority, consumeNativeCheckpointRead, nativeCheckpointReaderPath, type NativeCheckpointReadTicket } from "./native-checkpoint-reader.js";
+import { nativeCheckpointId } from "./native-brain-manager-protocol.js";
 import { NativeBrainManagerError, nativeManagerRequest, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
   type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange } from "./native-brain-manager-protocol.js";
 
@@ -15,6 +17,15 @@ export interface NativeStageInspection {
   checkpointUuid: string;
   changes: AsyncIterable<NativeStageChange>;
   completed: NativeDeltaStream["completed"];
+}
+export interface NativeCheckpointMetadata {
+  path: string; kind: "directory" | "file" | "symlink" | "other";
+  mode: number; bytes: number; stamp: string; inode: string; target?: string;
+}
+export interface NativeCheckpointFile {
+  workerUid: number;
+  stream: ReadableStream<Uint8Array>;
+  completed: Promise<{ bytes: number; workerUid: number }>;
 }
 async function boundedJson(response: Response): Promise<any> {
   if (!response.body) throw new NativeBrainManagerError("unavailable", "Native manager returned no response body.");
@@ -119,7 +130,113 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
       throw new NativeBrainManagerError("unknown", `Native manager receipt is unreadable; reconcile the same checkpoint identity. ${String(error)}`);
     }
   }
+  async function checkpointRead(id: string, action: "file" | "stat" | "list", path: string, maximum: number,
+    expectedWorkerUid: number, signal?: AbortSignal, operation: "readCheckpoint" | "readStage" = "readCheckpoint"): Promise<NativeCheckpointFile> {
+    if (!Number.isSafeInteger(expectedWorkerUid) || expectedWorkerUid <= 0)
+      throw new NativeBrainManagerError("unsupported", "Private checkpoint reads require an actual qualified worker identity.");
+    const ticket = await control({ operation, id, action, path, maximum }, signal) as NativeCheckpointReadTicket & { token: string };
+    const validId = nativeCheckpointId.safeParse(ticket.id).success;
+    const cancel = async () => { if (validId) await control({ operation: "cancelCheckpointRead", id: ticket.id }); };
+    if (!validId || ticket.socketPath !== nativeCheckpointReaderPath(options.socketPath, ticket.id) || ticket.workerUid !== expectedWorkerUid ||
+      typeof ticket.token !== "string" || !nativeCheckpointId.safeParse(ticket.token).success ||
+      !Number.isSafeInteger(ticket.maximum) || ticket.maximum < 0 || ticket.maximum > maximum) {
+      await cancel();
+      throw new NativeBrainManagerError("unsupported", "Native manager fixed reader does not match the host's verified worker identity or authorized channel.");
+    }
+    const child = consumeNativeCheckpointRead(ticket, signal);
+    const timer = setTimeout(() => child.cancel(), options.timeoutMs);
+    const completed = child.completed.then(async result => { await cancel(); return result; }, async error => { await cancel(); throw error; })
+      .finally(() => clearTimeout(timer));
+    void completed.catch(() => {});
+    const reader = child.stream.getReader();
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try { const part = await reader.read(); if (part.done) controller.close(); else controller.enqueue(part.value); }
+        catch (error) { child.cancel(); controller.error(error); }
+      },
+      async cancel(reason) { child.cancel(); await reader.cancel(reason); await completed.catch(() => {}); },
+    });
+    return { workerUid: ticket.workerUid, stream, completed };
+  }
+  async function checkpointMetadata(id: string, action: "stat" | "list", path: string, expectedWorkerUid: number, signal?: AbortSignal, operation: "readCheckpoint" | "readStage" = "readCheckpoint"): Promise<unknown> {
+    const copy = await checkpointRead(id, action, path, options.maxDeltaBytes, expectedWorkerUid, signal, operation);
+    const pieces: Uint8Array[] = []; let length = 0;
+    const reader = copy.stream.getReader();
+    try {
+      for (;;) { const part = await reader.read(); if (part.done) break; length += part.value.byteLength;
+        if (length > options.maxDeltaBytes) throw new NativeBrainManagerError("unavailable", "Checkpoint metadata exceeded its transport bound."); pieces.push(part.value); }
+      const receipt = await copy.completed;
+      if (receipt.bytes !== length) throw new NativeBrainManagerError("unavailable", "Checkpoint metadata completion size differs.");
+      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(pieces, length)));
+    } finally { await reader.cancel(); await copy.completed.catch(() => {}); }
+  }
+  function metadata(value: unknown): NativeCheckpointMetadata {
+    const item = value as NativeCheckpointMetadata;
+    if (!item || typeof item.path !== "string" || !item.path.isWellFormed() || !item.path || item.path.startsWith("/") || item.path.includes("\0") ||
+      item.path.split("/").some(part => !part || part === "." || part === "..") ||
+      !["file", "directory", "symlink", "other"].includes(item.kind) || !Number.isSafeInteger(item.mode) || item.mode < 0 || item.mode > 0o7777 ||
+      !Number.isSafeInteger(item.bytes) || item.bytes < 0 || typeof item.inode !== "string" || !/^\d+$/.test(item.inode) ||
+      typeof item.stamp !== "string" || !/^\d+:\d+:\d+:\d+$/.test(item.stamp) ||
+      (item.kind === "symlink" && (typeof item.target !== "string" || !item.target.isWellFormed())) ||
+      Object.keys(item).sort().join(",") !== (item.kind === "symlink" ? "bytes,inode,kind,mode,path,stamp,target" : "bytes,inode,kind,mode,path,stamp"))
+      throw new NativeBrainManagerError("unavailable", "Malformed fixed-reader checkpoint metadata.");
+    return item;
+  }
   return {
+    attestStage: async (id: string, signal?: AbortSignal): Promise<{ fd: number; close(): void }> => {
+      const ticket = await control({ operation: "attestStage", id }, signal);
+      const validId = nativeCheckpointId.safeParse(ticket.id).success;
+      const cancel = async () => { if (validId) await control({ operation: "cancelCheckpointRead", id: ticket.id }); };
+      if (!validId || ticket.socketPath !== nativeCheckpointReaderPath(options.socketPath, ticket.id) ||
+        !nativeCheckpointId.safeParse(ticket.token).success || Object.keys(ticket).sort().join(",") !== "id,socketPath,token") {
+        await cancel(); throw new NativeBrainManagerError("unsupported", "Invalid manager stage authority channel.");
+      }
+      const bounded = signal ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs)]) : AbortSignal.timeout(options.timeoutMs);
+      let authority: { fd: number; close(): void } | undefined;
+      try { authority = await consumeNativeStageAuthority(ticket, id, bounded); await cancel(); return authority; }
+      catch (error) { authority?.close(); await cancel(); throw error; }
+    },
+    readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointFile> =>
+      checkpointRead(id, "file", path, maximum, expectedWorkerUid, signal, "readStage"),
+    statStage: async (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata | null> => {
+      const value = await checkpointMetadata(id, "stat", path, expectedWorkerUid, signal, "readStage");
+      if (value === null) return null;
+      const item = metadata(value);
+      if (item.path !== path) throw new NativeBrainManagerError("unavailable", "Stage metadata path differs from its request.");
+      return item;
+    },
+    listStage: async (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata[]> => {
+      const value = await checkpointMetadata(id, "list", path, expectedWorkerUid, signal, "readStage");
+      if (!Array.isArray(value) || value.length > 200_000) throw new NativeBrainManagerError("unavailable", "Malformed stage directory inventory.");
+      const entries = value.map(metadata), names = new Set<string>(), prefix = path ? `${path}/` : "";
+      for (const item of entries) {
+        const name = item.path.slice(prefix.length);
+        if (!item.path.startsWith(prefix) || !name || name.includes("/") || names.has(name)) throw new NativeBrainManagerError("unavailable", "Stage directory inventory differs from its request.");
+        names.add(name);
+      }
+      return entries;
+    },
+    readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointFile> =>
+      checkpointRead(id, "file", path, maximum, expectedWorkerUid, signal),
+    statCheckpoint: async (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata | null> => {
+      const value = await checkpointMetadata(id, "stat", path, expectedWorkerUid, signal);
+      if (value === null) return null;
+      const item = metadata(value);
+      if (item.path !== path) throw new NativeBrainManagerError("unavailable", "Checkpoint metadata path differs from its request.");
+      return item;
+    },
+    listCheckpoint: async (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata[]> => {
+      const value = await checkpointMetadata(id, "list", path, expectedWorkerUid, signal);
+      if (!Array.isArray(value) || value.length > 200_000) throw new NativeBrainManagerError("unavailable", "Malformed checkpoint directory inventory.");
+      const entries = value.map(metadata), names = new Set<string>(), prefix = path ? `${path}/` : "";
+      for (const item of entries) {
+        const name = item.path.slice(prefix.length);
+        if (!item.path.startsWith(prefix) || !name || name.includes("/") || names.has(name))
+          throw new NativeBrainManagerError("unavailable", "Checkpoint directory inventory escapes or duplicates its requested directory.");
+        names.add(name);
+      }
+      return entries;
+    },
     ready: async (signal?: AbortSignal): Promise<NativeManagerReady> => control({ operation: "ready" }, signal),
     checkpoint: async (id: string, signal?: AbortSignal): Promise<NativeCheckpoint> => control({ operation: "checkpoint", id }, signal),
     release: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "release", id }, signal),

@@ -10,12 +10,14 @@
  * (docs/decisions/governed-writable-workers.md, "The host execution boundary").
  */
 import { closeSync, existsSync, readFileSync, realpathSync } from "node:fs";
+import { Readable } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
-import { prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
+import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
-import { createWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorker, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
+import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
+import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenance-temp-budget.js";
 import { resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
@@ -48,7 +50,7 @@ export interface MaintenanceCommand {
   home?: string;
   /** More host paths the command needs below a masked directory. */
   readPaths?: readonly string[];
-  /** More host directories to mask, such as the server's database directory. */
+  /** More private host directories or regular files to mask, such as the server's database directory. */
   maskPaths?: readonly string[];
   /** Existing host files the command may append to, such as a span sink. */
   writeFiles?: readonly string[];
@@ -75,6 +77,63 @@ export interface MaintenanceResult {
   exitCode: number;
   /** Killed for its deadline or an abort. */
   killed: boolean;
+}
+
+const preparedMaintenanceCommands = new WeakMap<MaintenanceCommand, WorkerLaunch>();
+const maintenanceIndexWriters = new WeakMap<MaintenanceCommand, NonNullable<Awaited<ReturnType<typeof prepareNativeMaintenanceIndex>>>>();
+const maintenanceGitWriters = new WeakMap<MaintenanceCommand, NativeMaintenanceGitPreparation>();
+/** @internal Freeze only the concrete Git adapter through the existing owned writable stage. */
+export async function prepareMaintenanceGitInput(input: MaintenanceCommand, signal?: AbortSignal): Promise<NonNullable<MaintenanceCommand["git"]>> {
+  if (!input.git || input.credentials || !input.output) throw Error("Concrete maintenance Git input requires its owned credential-free stage");
+  const preparation = await prepareNativeMaintenanceGit(maintenanceLaunch({ ...input, git: undefined }), input.git, signal);
+  if (!preparation) return input.git;
+  const entry = Bun.resolveSync("./maintenance-git-input", import.meta.dir);
+  const writer = { ...input, git: undefined, command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, String(preparation.manifest.maximum)],
+    readPaths: [...(input.readPaths ?? []), entry], stdin: JSON.stringify(preparation.manifest), signal, timeoutMs: 5000 };
+  maintenanceGitWriters.set(writer, preparation);
+  let receipt: Parameters<typeof finishNativeMaintenanceGit>[1];
+  try {
+    const result = await runMaintenanceWorker(writer);
+    if (result.exitCode !== 0 || result.killed) throw Error("Concrete maintenance Git input preparation refused");
+    try { receipt = JSON.parse(result.stdout); } catch { throw Error("Concrete maintenance Git input receipt refused"); }
+  } catch (error) {
+    await finishNativeMaintenanceGit(preparation, undefined, signal).catch(() => {});
+    throw error;
+  }
+  return finishNativeMaintenanceGit(preparation, receipt, signal);
+}
+/** @internal Prepare the existing attested stage's masks immediately before one synchronous launch. */
+export async function prepareMaintenanceWorker(input: MaintenanceCommand, signal?: AbortSignal): Promise<void> {
+  preparedMaintenanceCommands.delete(input);
+  signal?.throwIfAborted();
+  const launch = maintenanceLaunch(input);
+  const indexWriter = maintenanceIndexWriters.get(input);
+  if (indexWriter) authorizeNativeMaintenanceIndex(launch, indexWriter);
+  else if (!maintenanceGitWriters.has(input)) {
+    // The existing fixed Git installer touches no SQLite files; its private
+    // generation must survive until its own first-party command consumes it.
+    const preparation = await prepareNativeMaintenanceIndex(launch);
+    if (preparation) {
+      let succeeded = false;
+      try {
+        const entry = Bun.resolveSync("./maintenance-index-input", import.meta.dir);
+        const control = { ...input, git: undefined, command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, String(preparation.maximum)],
+          readPaths: [...(input.readPaths ?? []), entry], stdin: "", signal, timeoutMs: 30000 };
+        maintenanceIndexWriters.set(control, preparation);
+        const result = await runMaintenanceWorker(control);
+        succeeded = result.exitCode === 0 && !result.killed && result.stdout.trim() === '{"prepared":true}';
+        if (!succeeded) throw Error("Disposable index preparation command refused: " + result.stderr);
+      } catch (error) {
+        try { finishNativeMaintenanceIndex(preparation, false); } catch { /* Poisoning cannot replace the primary refusal. */ }
+        throw error;
+      }
+      finishNativeMaintenanceIndex(preparation, succeeded);
+    }
+  }
+  const writer = maintenanceGitWriters.get(input);
+  if (writer) authorizeNativeMaintenanceGitWriter(launch, writer);
+  await prepareNativeMaintenanceMasks(launch, signal);
+  preparedMaintenanceCommands.set(input, launch);
 }
 
 /** The launch for one maintenance command: the worker sees the Bun that runs this server, and nothing else of its runtime. */
@@ -170,9 +229,44 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
   let startupView: WorkerStartupView | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
+  let helperWorker: ReturnType<typeof launchAgentWorker> | undefined;
+  let executionView: WorkerStartupView | undefined;
+  let helperCompletion: Promise<number> | undefined;
   try {
     startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
-    const boot = workerBootstrap({ ...maintenanceLaunch({ ...input, startupView, tempLimits: limits }), maintenanceReservation: reservation });
+    const launch = { ...maintenanceLaunch({ ...input, startupView, tempLimits: limits }), maintenanceReservation: reservation };
+    const prepared = preparedMaintenanceCommands.get(input); preparedMaintenanceCommands.delete(input); maintenanceGitWriters.delete(input);
+    if (prepared) transferNativeMaintenanceMasks(prepared, launch);
+    if (workerIdentityHelper() && !input.credentials && !input.transport) {
+      // launchAgentWorker consumes one execution reference. The maintenance
+      // owner keeps its stage and immutable checkpoint across later commands.
+      executionView = retainWorkerStartupView(startupView!);
+      const helperLaunch = { ...launch, startupView: executionView };
+      transferNativeMaintenanceMasks(launch, helperLaunch);
+      const running = helperWorker = launchAgentWorker(helperLaunch);
+      const complete = async () => {
+        if (!input.startupView) await startupView?.cleanup();
+        reservation.release();
+      };
+      helperCompletion = running.exited.then(async code => { await complete(); return code; }, async error => {
+        if (!workerCleanupUnconfirmed(error)) await complete();
+        throw error;
+      });
+      // These are the launcher's concrete Node pipe streams. Converting them
+      // keeps the maintenance stream/abort callers and their EOF drain intact.
+      return {
+        input: data => new Promise<void>(resolve => {
+          running.stdin.once("error", () => resolve());
+          running.stdin.end(data, () => resolve());
+        }),
+        stdout: Readable.toWeb(running.stdout) as unknown as ReadableStream<Uint8Array>,
+        stderr: Readable.toWeb(running.stderr) as unknown as ReadableStream<Uint8Array>,
+        pid: running.pid,
+        exited: helperCompletion,
+        kill: signal => running.kill(signal),
+      };
+    }
+    const boot = workerBootstrap(launch);
     pipes = createWorkerPipes();
     child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
@@ -200,6 +294,23 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
       kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
     };
   } catch (error) {
+    if (helperWorker) {
+      try { helperWorker.kill("SIGKILL"); } finally {
+        // Completion preserves unconfirmed ownership and admission failures.
+        void helperCompletion?.catch(() => {});
+      }
+      throw error;
+    }
+    if (workerCleanupUnconfirmed(error)) throw error;
+    if (executionView) {
+      // The helper launcher may already have begun dropping this idempotent
+      // reference. Keep admission until both owned references are released.
+      void Promise.resolve(executionView.cleanup()).then(async () => {
+        if (!input.startupView) await startupView?.cleanup();
+        reservation.release();
+      }).catch(() => { /* The broker retains unresolved native cleanup intent. */ });
+      throw error;
+    }
     try { if (child) killWorker(child, "SIGKILL"); } finally {
       try { pipes?.cleanup(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } }
     }
@@ -237,6 +348,8 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   signal?: AbortSignal;
   timeoutMs?: number;
 }): Promise<MaintenanceResult> {
+  input.signal?.throwIfAborted();
+  await prepareMaintenanceWorker(input, input.signal);
   input.signal?.throwIfAborted();
   const worker = launchMaintenanceWorker(input);
   let killed = false;
@@ -337,7 +450,11 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   try {
     startupView = input.startupView ?? (input.transport ? undefined : createWorkerStartupView(realpathSync(input.brainPath)));
-    const boot = workerBootstrap({ ...maintenanceLaunch({ ...input, startupView, tempLimits: limits }), maintenanceReservation: reservation });
+    const launch = { ...maintenanceLaunch({ ...input, startupView, tempLimits: limits }), maintenanceReservation: reservation };
+    // Synchronous callers cannot prepare an unreadable protected stage.
+    // workerCommand refuses that stage before any payload or helper starts.
+    preparedMaintenanceCommands.delete(input);
+    const boot = workerBootstrap(launch);
     pipes = createWorkerPipes();
     const child = Bun.spawnSync(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
       stdout: pipes.child[1], stderr: pipes.child[2], timeout: input.timeoutMs });

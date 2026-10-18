@@ -45,3 +45,8 @@ export { resolveCompletionProvider } from "./lib/registry.js";
 export { geminiCompletions } from "./providers/completions/gemini.js";
 export type { GeminiCompletionConfig } from "./providers/completions/gemini.js";
 export { GEMINI_FLASH_MODEL } from "./lib/llm-defaults.js";
+
+// Data-only Markdown fence discovery and offline artifact rendering.
+export { markdownFences } from "./lib/markdown-code.js";
+export type { MarkdownFence } from "./lib/markdown-code.js";
+export { renderHtmlArtifact } from "./lib/render-artifact.js";

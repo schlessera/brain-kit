@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createUiDb } from "../src/db/client.js";
-import { createTurnBudgets, BudgetExceeded } from "../src/brain/turn-budgets.js";
+import { createTurnBudgets, BudgetExceeded, inferenceBudgetLimits, inferenceBudgetContext } from "../src/brain/turn-budgets.js";
 import { resolveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 const policy = () => resolveGovernancePolicy({ schema_version: 1, budgets: { turn: { warn_usd: 1, block_usd: 2, block_tokens: 10 }, session: { warn_usd: 3, block_usd: 4, block_tokens: 20 }, day: { warn_usd: 3, block_usd: 4, block_tokens: 20 } } });
 function fixture() {
@@ -115,4 +115,23 @@ test("retained warning evidence is disclosed once at admission, without inventin
   finally {
     f.close();
   }
+});
+
+test("session prompt limits exclude running usage and only actionable warnings enter current context", () => {
+  const f = fixture();
+  try {
+    f.budgets.begin("athena", "ithaca", policy());
+    const initial = f.budgets.receipt("athena");
+    const fixed = inferenceBudgetLimits(initial);
+    expect(fixed).toContain("turn: warn $1; stop $2");
+    expect(inferenceBudgetContext(initial)).toBeUndefined();
+    f.budgets.observe("athena", usage(1));
+    const changed = f.budgets.receipt("athena");
+    expect(inferenceBudgetLimits(changed), "FIXED_LIMITS_HAVE_NO_RUNNING_USAGE").toBe(fixed);
+    const warning = inferenceBudgetContext(changed)!;
+    expect(warning, "ACTIONABLE_THRESHOLD_CONTEXT").toContain("turn warning threshold reached");
+    expect(warning).not.toContain("known lower bound");
+    expect(warning).not.toContain("$1");
+    expect(fixed).not.toContain(String(changed.observedAt));
+  } finally { f.close(); }
 });

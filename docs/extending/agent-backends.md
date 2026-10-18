@@ -141,6 +141,14 @@ name in it. A backend that lists every configured profile, as pi does, omits
 the member. See
 [the integration contract](../integration-contract/wire.md#unavailable-profiles-additive-1044).
 
+Claude refuses explicit background `Bash` calls before execution: each turn's
+worker is disposable, so the model must retry with `run_in_background: false`
+and collect the result within the turn. This denial also covers approved input
+edits and never adds an allowlist grant. Native runtime task notifications are
+excluded from user history using their transcript UUID and runtime provenance;
+the following user prompt and images remain intact. Literal notification XML
+submitted by a user remains user text. Transcripts themselves are unchanged.
+
 Backends own their transcripts. `listSessions()` / `getHistory()` read from
 the backend's own store (the SDK ships a shared JSONL implementation:
 `createTranscriptStore` in `packages/ui-sdk/src/server/transcript-store.ts`),
@@ -230,8 +238,11 @@ by the cross-backend suite:
   actually sit on the execution path of every mutating tool.
 
 `buildSystemPromptAppend` (`packages/ui-sdk/src/server/system-prompt.ts`)
-builds the shared brain-ui system-prompt block; backends that can vary their
-system prompt per turn feed it the advisory `req.client` environment.
+builds the shared brain-ui system-prompt block. The first-party backends retain
+one exact session append and deliver changed advisory `req.client` and host
+facts only in owned new tail context. See the
+[session prompt context decision](../decisions/session-prompt-context.md) and
+[its persistence/replay behavior](../hosting/session-prompt-context.md).
 
 ### Explicit autonomous turns (`@experimental`)
 
@@ -502,7 +513,7 @@ promises.
   or an explicit name admits it.
 - **Shell commands.** `bashLockKey` picks the lock a command must hold
   (`BRAIN_LOCK_KEY` for document writes), `rtkRewriteCommand` applies the
-  optional rtk rewrite, and `DEFAULT_CONFIRM_BASH_PATTERNS` is the bundled
+  optional rtk rewrite inside the command's execution environment, and `DEFAULT_CONFIRM_BASH_PATTERNS` is the bundled
   confirmation policy for when configuration is missing. Its entries may
   evolve between releases; compile it with `compileConfirmPatterns` like any
   other source.
@@ -679,3 +690,16 @@ server never interprets an npm specifier from configuration.
 - [agent-runners.md](agent-runners.md) — the CLI-oriented agent seam in core.
 - [../integration-contract.md](../integration-contract.md) — protocol revisions
   and stability guarantees.
+
+
+Claude's host-side hook requires fresh evidence from its actual live worker
+before using an installed RTK oracle. It checks the worker's kernel process
+identity, effective PATH, UID/groups and exact executable inode. Only an
+unaliased, read-only system installation with a supported static native ELF (including dependency-free static PIE)
+qualifies; scripts, dynamic loaders, opaque exec wrappers, unreadable helper
+identities, masked paths and repository or writable-area executables remain
+unknown and preserve the original command. The oracle gets a clean environment
+and `/` as its working directory, without provider credentials or repository
+configuration. Pi already invokes the shared helper inside its worker. The
+shared availability probe is not cached across commands or environments.
+RTK rewriting retains the existing permission and outward-action checks.

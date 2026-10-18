@@ -8,6 +8,7 @@ import type {
   TurnRetry,
 } from "@schlessera/brain-ui-sdk/server";
 import { subscriptionAuthAction } from "@schlessera/brain-ui-sdk/server";
+import { usageLimitText } from "./usage-limit.js";
 import { AUTH_ERROR_CLASSES } from "./subscription.js";
 import { usageFromResult, CompletedResponseUsage } from "./usage.js";
 
@@ -36,9 +37,11 @@ export class StreamAdapter {
    * decides whether the turn failed.
    */
   private apiError: TurnFailure | null = null;
+  private usageLimitStop = false;
   private retryAttempts = 0;
   private resetsAt: number | undefined;
   private readonly completedUsage = new CompletedResponseUsage();
+  private firstMainRequest = false;
 
 
   constructor(
@@ -67,6 +70,18 @@ export class StreamAdapter {
         // surface streams the MAIN transcript only; subagent content arrives
         // at block granularity via the activity channel.
         const event = msg.event;
+        if (!this.options.autonomousUsage && !this.options.freshRuntimeUsage && !parentToolUseId
+            && !this.firstMainRequest && event.type === "message_start") {
+          this.firstMainRequest = true;
+          const u = event.message.usage;
+          const token = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+          // Runtime title requests are not root stream events. Model equality
+          // cannot establish provenance; child channels are excluded above.
+          this.report({ kind: "first_request_cache", usage: { inputTokens: token(u.input_tokens),
+            cacheReadTokens: token(u.cache_read_input_tokens), cacheCreationTokens: token(u.cache_creation_input_tokens),
+            source: "claude_root_stream", coverage: "provider_reported" } });
+        }
+
         if (this.options.autonomousUsage) {
           // Queue accounting keeps its existing root-only checkpoint semantics.
           if (!parentToolUseId) {
@@ -77,7 +92,10 @@ export class StreamAdapter {
           // Child inference is counted once in the turn's cumulative receipt;
           // its text still never enters the main chat stream.
           const receipt = this.completedUsage.observe(event, parentToolUseId ?? "root");
-          if (event.type === "message_stop" && receipt) this.report({ kind: "usage", ...receipt });
+          if (event.type === "message_stop" && receipt) {
+            this.report({ kind: "usage", ...receipt });
+            if (!this.options.freshRuntimeUsage) this.report({ kind: "claude_session_usage", completed: receipt.usage });
+          }
         }
         if (parentToolUseId) break;
 
@@ -121,7 +139,11 @@ export class StreamAdapter {
         // client sees for it is #191's. Only the top-level turn's: a subagent
         // that failed is the parent's to handle, and a parent that completes
         // anyway did not fail.
-        if (!parentToolUseId && msg.error) {
+        const limitText = !parentToolUseId ? usageLimitText(msg.message, msg.message.content) : null;
+        if (limitText) {
+          this.usageLimitStop = true;
+          this.apiError = this.failure(FIRST_PARTY_FAILURE_CLASSES.rate_limit, limitText, undefined);
+        } else if (!parentToolUseId && msg.error) {
           const text = msg.message.content
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("")
@@ -212,18 +234,22 @@ export class StreamAdapter {
         // Status BEFORE result: `result` is the turn's terminal frame and
         // must be the last thing a consumer sees for the turn.
         messages.push({ type: "status", status: "idle" });
-        // One query() subprocess per turn, so cost and `modelUsage` (preferred:
-        // it covers subagents and sidechains, which `usage` excludes) cover the
-        // turn. A follow-up the CLI runs as a continuation adds a result whose
-        // cost and modelUsage are cumulative over the process; the runner
-        // keeps the last one and adds the earlier runs' turns and duration.
-        const usage = usageFromResult(msg);
-        if (msg.subtype === "success" && !msg.is_error) {
+        // SDK 0.3.293 / CLI 2.1.293 loopback measurement (#2025): result
+        // cost and modelUsage include earlier resumed turns; raw `usage`
+        // stays per-query. Completed responses include this host turn's root
+        // and child calls once, including continuations in the same process.
+        const cumulative = usageFromResult(msg);
+        const wholeFreshRuntime = this.options.autonomousUsage || this.options.freshRuntimeUsage;
+        const usage = wholeFreshRuntime ? cumulative : this.completedUsage.snapshot();
+        const costUsd = wholeFreshRuntime ? msg.total_cost_usd : undefined;
+        if (!wholeFreshRuntime) this.report({ kind: "claude_session_usage", completed: usage,
+          cumulative, reportedCostUsd: msg.total_cost_usd });
+        if (msg.subtype === "success" && !msg.is_error && !this.usageLimitStop) {
           messages.push({
             type: "result",
             sessionId: msg.session_id,
             outcome: "success",
-            costUsd: msg.total_cost_usd,
+            ...(costUsd !== undefined ? { costUsd } : {}),
             durationMs: msg.duration_ms,
             numTurns: msg.num_turns,
             isError: false,
@@ -232,7 +258,9 @@ export class StreamAdapter {
         } else {
           // `success` with `is_error` is how the runtime ends a turn on an
           // API error: the error text is the `result`, the status rides
-          // beside it (#191). An error subtype carries a failure only when
+          // beside it (#191). A synthetic usage-limit stop also fails even
+          // when the runtime leaves is_error false (#2032).
+          // An error subtype carries a failure only when
           // the runtime reported an API error first.
           const failure =
             msg.subtype === "success"
@@ -250,7 +278,7 @@ export class StreamAdapter {
             // Real accounting is available on error results too — a failed
             // turn still spent tokens, and hiding that would under-report.
             // Absent stays absent: 0 would claim "free".
-            ...(typeof msg.total_cost_usd === "number" ? { costUsd: msg.total_cost_usd } : {}),
+            ...(typeof costUsd === "number" ? { costUsd } : {}),
             ...(usage ? { usage } : {}),
           });
         }
@@ -259,6 +287,8 @@ export class StreamAdapter {
 
       case "system": {
         if (msg.subtype === "init") {
+          if (!parentToolUseId && msg.model) this.report({ kind: "main_model", model: msg.model, sessionId: msg.session_id });
+          if (!this.options.autonomousUsage && !this.options.freshRuntimeUsage) this.report({ kind: "claude_session_usage" });
           messages.push({
             type: "status",
             status: "thinking",
@@ -394,6 +424,8 @@ export class StreamAdapter {
 }
 
 export interface StreamAdapterOptions {
+  /** A fresh nonpersistent helper has no resumed history in its terminal totals. */
+  freshRuntimeUsage?: boolean;
   /** Restricted autonomous accounting; no additional client frames. */
   autonomousUsage?: boolean;
   /**

@@ -63,6 +63,11 @@ inspecting CI on a PR live in the `work-issue` skill's
   `Object.defineProperty`, and delete only when the original was absent.
   Saving values or unconditionally deleting `navigator` leaks state between
   suites (#1158). Keep ordered native/absent/readonly restoration controls.
+- Persistence fault fixtures retain their storage failure through the original
+  failure and persisted-state assertions. Track and drain the actual native
+  transactions, then restore complete storage method descriptors in cleanup.
+  A queued autosave can legitimately clear a failure after successful recovery;
+  include a real queued writer to prove its position in the fault window (#2355).
 - Test doubles must replace the lowest shared request method (`get` for a
   `ScrapeClient`), or explicitly stub every inherited request path. Use the
   smallest collaborator that proves the behavior; borrowing a real adapter
@@ -233,6 +238,58 @@ boundary, the reasons and the file- and assertion-level inventory are in
   experiment inventory and Bun version. A failing experiment test is a failing
   release check, not a skip.
 
+## Optional bubblewrap upgrade for local Linux proof
+
+On hosts with large mount tables, bubblewrap 0.13 or newer avoids the older
+per-mount read-only remount walk by using `mount_setattr()` on Linux 5.12+.
+This is a local tooling recommendation, not a new product minimum or an
+automatic installer. User/network namespaces must still be permitted.
+The [0.13.1 release](https://github.com/containers/bubblewrap/releases/tag/v0.13.1)
+publishes the archive checksum used below; the
+[upstream build instructions](https://github.com/containers/bubblewrap/blob/v0.13.1/README.md#installation)
+use Meson.
+
+For Ubuntu 24.04, install the build prerequisites before entering offline proof:
+
+```sh
+sudo apt-get update
+sudo apt-get install --no-install-recommends build-essential meson ninja-build pkg-config libcap-dev
+```
+
+Build a private, ordinary executable from the verified archive:
+
+```sh
+set -eu
+bwrap_build=$(mktemp -d)
+curl --fail --location --output "$bwrap_build/bubblewrap-0.13.1.tar.xz" \
+  https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
+(cd "$bwrap_build" && printf '%s\n' \
+  '0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d  bubblewrap-0.13.1.tar.xz' \
+  | sha256sum --check -)
+tar -xJf "$bwrap_build/bubblewrap-0.13.1.tar.xz" -C "$bwrap_build"
+meson setup "$bwrap_build/build" "$bwrap_build/bubblewrap-0.13.1" \
+  --prefix="$HOME/.local/opt/bubblewrap-0.13.1" \
+  -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled
+meson compile -C "$bwrap_build/build"
+meson install -C "$bwrap_build/build"
+PATH="$HOME/.local/opt/bubblewrap-0.13.1/bin:$PATH" bwrap --version
+PATH="$HOME/.local/opt/bubblewrap-0.13.1/bin:$PATH" bun run check:pr --base origin/main
+```
+
+The archive checksum identifies upstream source; compiler and dependency choices
+can change the resulting binary hash. Keep the selected binary/version and source
+checkout beside native proof receipts. Do not make `bwrap` setuid: upstream
+removed that installation mode in 0.12. The separate test-only identity broker
+uses its own setuid helper; it does not require a setuid `bwrap`.
+
+Upstream 0.12 also changed absolute-symlink resolution during setup. Qualify the
+existing launcher, filesystem-filter, protected-path/symlink containment, egress,
+identity and staged-output assertions with the chosen binary rather than assuming
+an upgrade preserves them. Keep normal sandbox flags: `--not-a-security-boundary`
+permits setup failures and does not belong in proof. A PATH change on the host
+does not upgrade a fixed `/usr/bin/bwrap` inside a container; qualify that runtime
+separately before changing its supplied binary. Hosted CI images stay unchanged.
+
 ## Required proof for a PR
 
 The policy is [the CI decision](../decisions/ci-utility.md); the commands are
@@ -240,14 +297,25 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
 
 - Contract tests assert the `--json` envelopes. Automatic CI runs cheap
   metadata gates and complete affected hosted unit/integration/runtime,
-  keyless funnel, pinned browser proof, strict types and packaging on ready
-  PRs. Agents keep focused local behavioral proof.
+  keyless funnel, pinned browser proof, strict types and packaging on explicit
+  ready-candidate confirmation events. Agents keep focused local behavioral proof.
 - Run `bun run check:pr --base origin/main` before opening or marking ready.
+  For an upper stack layer, substitute its verified immediate parent ref;
+  see [stack rules](github.md#stacked-pull-requests). Each included PR needs
+  its own selected proof and actual base/head/checkout evidence.
   This is local preflight and affected fast feedback, including working-tree
-  inputs. Agents retain targeted debugging, failing-first/restored mutation
+  inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
+  through the offline wrapper as import-graph affected feedback. Bun includes
+  committed, staged, unstaged and untracked changes; no affected test files
+  prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
+  remain `./packages ./tests`, and the optional changed value uses `=`. This
+  feedback misses spawned commands and inputs read from disk or named as
+  strings; complete hosted discovery remains the required proof. Full/all
+  modes retain their existing suites without this extra step.
+  Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
-- Ready PR CI supplies complete repeatable proof for affected workspaces and
+- Ready-candidate confirmation supplies complete repeatable proof for affected workspaces and
   reverse dependencies plus root tests. Global/unknown changes expand to full
   discovery. Relevant pinned browser/accessibility/pointer, layout/offline/
   endurance, editorial, real Claude/Chrome and cleanup categories remain
@@ -261,20 +329,42 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   release preparation runs instead of PR proof. Scheduled
   exhaustive CI is additional coverage, not a replacement for selected
   pre-merge proof.
+- Drafts run cheap gates. Ready `opened`, `reopened` and `ready_for_review`
+  events request full affected confirmation. Ready `synchronize` runs affected
+  fast invariants and types only; `proof` remains nonpassing until the author
+  converts to draft and marks ready after the final push. A push invalidates
+  the request. Main pushes retain full affected proof; scheduled/manual runs
+  remain exhaustive and have a distinct aggregate name.
 - Keep drafts cheap and batch intermediate pushes. After cheap gates, run
   independent proof categories concurrently. Preserve per-browser file bounds;
   measure queue/elapsed time and cancellation/repeated work before adding
   shards. Different PRs never share cancellation groups. Metadata edits do not
   launch heavy proof, and every main SHA retains independent evidence.
 - Record actual tested head/base, selected jobs/attempts/checkout logs and
-  focused local receipts. Assess base changes before rebasing; unrelated main
-  advancement alone does not require repeated long proof. Relevant
+  focused local receipts. The candidate gate validates the actual merge checkout's immutable head/base/tree
+  and live PR readiness/head plus the independent live base ref. Any base advance
+  requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
   receipt a new combined-tree pass. Under #1333, complete browser/layout
-  domains may retain validated equivalent successful automatic receipts. Read
-  the current retention ledger and aggregate; original run/job/checkout
+  domains may retain validated equivalent successful automatic receipts.
+  Inclusion fingerprints recompute each immutable tree's complete supported
+  import/declaration closure and tracked path/blob/mode, build/discovery/partition
+  and runner identities. Unknown generated/runtime inputs execute fresh; a
+  graph-structure hash or unchanged imported files alone cannot authorize reuse.
+  Before naming a source run as passing proof, verify its workflow name/path,
+  event, head, conclusion and complete job inventory. Repository synchronization
+  jobs do not provide CI proof. Read the current retention ledger and aggregate;
+  original run/job/checkout
   identity remains distinct. Other categories stay fresh. Verify actual squash
-  parent/tree and automatic main-push proof. Respect branch rules.
+  parent/tree and automatic main-push proof. Respect branch rules. A writer can bypass checks when protection is absent;
+  agents still require passing candidate proof and must re-read head/base before
+  matching-head merge. This change does not alter repository protection.
+- Endurance runs separately with `bun run test:endurance` and its own mandatory
+  selected job. Ordinary layout shards exclude `.endurance.tsx`; their real-time
+  cost cannot distort ordinary weights. Keep per-browser concurrency unchanged.
+  `bun run test:inventory` emits discovered execution ownership and source
+  navigation; see [the assertion/domain mapping](proof-domains.md). Dynamic test
+  counts and passing assertions come from actual suite reports, not AST counts.
 
 ## GitHub Actions CI
 
@@ -295,7 +385,44 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+Hosted unit partitions run up to two serial Bun test processes through
+`scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
+install, build output and workspace lease. The wrapper preserves the caller's
+umask, drops setup capabilities and binds a private maintenance ledger without
+changing within-worker child limits or hiding the host's `/tmp` from Docker.
+Its checkout container lives outside host `/tmp`, which native workers replace
+with private storage. Namespace setup is a real prerequisite, never a skipped
+runtime. JUnit and timings must each match the complete discovered file set;
+combined reports and per-worker diagnostics are uploaded. Local `bun run test`
+and `check:pr` defaults keep their existing behavior. Use the internal unit
+proof `--workers=1` diagnostic for a serial measurement, preserving the actual
+source identity; performance qualification and remaining evidence live in
+[#2121](https://github.com/schlessera/brain-kit/issues/2121).
+
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
 [CI and merge reference](../../.agents/skills/work-issue/references/ci-and-merge.md).
+
+
+Shared browser proof discovery follows literal relative CSS imports and local
+asset URLs. Plain relative `@source` directories own their recursively scanned
+bytes and directory membership; scanned TypeScript is not executed or imported.
+The common build consumes both stylesheet entries. Their exact package-import
+ownership is recorded in `scripts/css-proof-inputs.json`: the installed
+Tailwind stylesheet is backed by the dependency manifests and lockfile, with
+`source(none)` disabling implicit scanning, and the kit token export names its
+source. An edited or duplicate statement invalidates its declaration. Missing
+inputs, symlinks, escaped paths, globs, remote URLs, dynamic sources and unknown
+build directives remain unresolved and require fresh proof. This discovery
+support does not itself establish a complete retainable browser domain.
+
+
+Retention's bounded browser-command audit must preserve imported top-level
+execution. Its tests import a real config in a Bun child and observe a transitive
+module input even while the registered callback remains dormant. Activating a
+command through a selected spec, inherited setup or configuration must force
+fresh execution; registration alone is not invocation. Registered dormant
+callbacks require the same complete call/escape audit, and a mutation of that
+activation guard must fail the named assertion.
+The exact audited configuration/source guard makes unsupported edits fresh.

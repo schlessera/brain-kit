@@ -83,3 +83,13 @@ test("complete hosted unit discovery avoids repeating its curated subset", () =>
   const commands = verificationCommands(plan, join(import.meta.dir, ".."));
   expect(commands.map(command => command.name)).toEqual(["strict typecheck"]);
 });
+
+
+test("intermediate feedback executes the affected fast subset even when final unit proof will be required", () => {
+  const plan = planChecks(["tsconfig.json"], []);
+  plan.cadence = "feedback";
+  const root = join(import.meta.dir, "..");
+  const commands = verificationCommands(plan, root);
+  expect(commands[0]!.name).toBe("strict typecheck");
+  expect(commands.slice(1).flatMap(command => command.argv.slice(3)).sort()).toEqual(plan.tests.map(file => join(root, file)).sort());
+});

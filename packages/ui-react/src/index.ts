@@ -9,6 +9,7 @@
  */
 
 // Branding / copy configuration (module singleton, set once at boot).
+export { registerContentRendererPack } from "./content-renderers/register.js";
 export { configureBrainUi, type BrainUiConfig } from "./config.js";
 
 // Top-level surfaces the shell composes.

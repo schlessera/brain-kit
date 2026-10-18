@@ -97,6 +97,16 @@ ownership rather than being duplicated here.
 
 ## Continuity settling boundaries
 
+Networked continuity contexts start with native offline state, create their
+page, then explicitly transition online before loading the app. Playwright's
+initial online default can inherit an offline host namespace; a connected
+loopback WebSocket alone does not establish the upload queue's native online
+precondition. The fixture asserts both starting states, and every subsequent
+drop/recovery checks native connectivity and one trusted offline/online event.
+No navigator property is replaced. Namespace and local-origin guards still
+restrict egress. Failed scene preparation closes its owned browser context,
+including its page listeners, before rethrowing the original failure.
+
 The rendering helper (`finishRender`,
 `packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
@@ -133,10 +143,10 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:436-456`;
-`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:457-481`), while
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
+`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:379-391`). Native protocol
+"session_queue")`, `packages/ui-react/src/connection.ts:395-407`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
@@ -386,13 +396,25 @@ failed cases, repeated controls and unexecuted paths remain distinguishable.
 
 The observations separate several temporal contracts:
 
-- The native boot-probe suite keeps thirteen real process-deadline cases. Its
-  existing lower oracle is 4950 ms for a 5000 ms deadline, with a 1500 ms
-  settlement margin for loaded scheduling. The eight-second fixture holds do
-  not run to completion. These bounds explain the present 66.73 second command;
-  they do not prove that five seconds of wall time is necessary to test every
-  deadline branch. A clock replacement still needs actual registered callbacks,
-  real process termination, ineffective-killer behavior and cleanup witnesses.
+- The boot-probe suite preserves thirteen original subprocess scenarios and two
+  native five-second forward/backward wall-clock-jump controls from #2180. The unwrapped
+  target and both hung-helper cases retain native 4950–6500 ms elapsed proof.
+  Ten other cases capture the actual source-owned 5000 ms primary callback;
+  after real version output, subsequent pending stdout/stderr reads and native
+  target readiness, 4999 ms cannot deliver it and 5000 ms delivers it once.
+  Their elapsed operand explicitly combines logical primary time and native
+  settlement, retaining the 1500 ms settlement allowance. Cleanup (250 ms),
+  helper cleanup (200 ms), signals, pipes and subprocess exits remain native.
+  Elapsed observations and bounded readiness/cleanup polls use monotonic time;
+  only the two native jump controls patch Date.now, with full restoration.
+  Inherited-pipe readiness compares the live descendant's actual endpoints
+  with the exited parent's endpoints. Successful exit/EOF proves cancellation;
+  assertion and actual disappearance-failure witnesses prove pending-work
+  settlement and complete descriptor restoration. Eight-second fixture holds
+  end in owned cleanup. Historical 66.73-second measurements describe the
+  original native file; delivery measurements and fault receipts belong to
+  [#1939](https://github.com/schlessera/brain-kit/issues/1939). They do not
+  resolve the independent historical helper-PID investigation in #1310.
 - Seven stale-write watchdogs requested 20000 ms; none fired, and all seven were
   cleared after roughly 329–357 ms. A supplemental HTTP observation recorded
   four 3000 ms watchdogs, also cleared without firing. These registration-to-clear
@@ -1659,3 +1681,50 @@ font-cache permission setup failure are retained as diagnostics; qualification
 uses fresh private-cache copies whose Vitest chunk matches the independently
 integrity-verified npm archive, plus an owned font-cache directory. Shared
 caches and the lockfile are unchanged.
+
+## Cold-capture Record readiness
+
+The [cold-capture receipt](evidence/test-wait-cold-capture-readiness.json)
+attributes the original command to `abe5086df48883bc270a36edb127b05519398332`
+and records the candidate command hash, exact control diffs and native logs.
+Storage recovery enables the Record control; the earlier locked-inventory
+assertion already requires its subsequent refresh. The gate directly renders
+the local screen. Neither that screen nor its Button has an entrance animation.
+A native trial click checks the actual enabled, visible, stable pointer target
+before the original fine-pointer focus/Enter or coarse-pointer real click.
+The heading and Stop-and-save focus assertions remain separate observations.
+This readiness check does not drain arbitrary future callbacks.
+
+Both full files pass all 31 original cases: sixteen width/theme/pointer cells
+and fifteen boundary cases. All 68 authored assert expressions are unchanged.
+The changed preparation executes twenty times: the sixteen cold cells plus
+reauthentication, Continue while recording, disposal and failed live discard.
+The three separate reauthentication 350 ms waits, twenty native 1,300 ms audio
+waits, three 150 ms negative windows and 200 ms disposal observation remain.
+No native media clock, production behavior, discovery or matrix changes.
+
+One serialized shared-host pair in the pinned Playwright 1.63.0 image measures
+74.62 → 66.83 host command seconds, 69.37 → 61.52 Vitest seconds and
+68.65 → 60.71 test-body seconds. The removed preparation spans total
+7,009.820 ms. Candidate trial spans total 602.225 ms across twenty calls,
+including twelve relocated fine-pointer trials and eight new coarse trials;
+the original fine trials were not separately timed, so this is not net added
+work. Native audio spans remain 26,014.908 / 26,015.803 ms. Vitest setup/import
+is 8/5 versus 9/6 ms; worker, server, cache, storage and media setup also occurs
+inside the per-case spans. GNU CPU/RSS describes only the host wrapper/client,
+not daemon-owned browser processes. Browser CPU/RSS and cgroup quotas are
+unmeasured. An initial passing invocation waited for build ownership and is
+preserved separately, outside the matched comparison. These observations are
+not a performance guarantee or inferred whole-CI saving.
+
+A temporarily disabled native target, released after 700 ms, passes both input
+paths. Skipping the trial makes the original keyboard interaction fail to
+reach recording; this is an interaction timeout, not an audio assertion.
+A held-disabled target reaches the trial's enabled-state diagnostic. Delaying
+the production recording-focus effect fails the original Stop-and-save focus
+assertion. Dropping actual media deliveries fails the committed-audio assertion;
+mounting protected content on reachability fails the explicit-Continue assertion.
+Every fault closes its browser context and loopback server; restored fine and
+coarse controls pass. Temporary sources and DOM state are confined to those
+controls and restored. Narrow dark/light screenshots were inspected with the
+original accessibility, fitting, privacy and recording assertions retained.

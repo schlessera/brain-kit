@@ -7,6 +7,8 @@ A change to the machine surface is prefixed CONTRACT: instead.
      required verification. If a human action remains, use Refs # instead,
      name the action below, and hand the issue over with needs: human after
      independent agent work is complete. -->
+<!-- For a stack slice, use Refs until this layer completes the issue. Name
+     the parent PR and this layer's scope under What changed. -->
 Closes #
 
 ## What changed
@@ -32,6 +34,10 @@ Closes #
 bun run check:pr --base origin/main
 ```
 
+<!-- Upper stack layers use --base <parent-ref>. Record this PR's actual
+     tested parent/head/checkout and selected proof; see
+     docs/process/github.md#stacked-pull-requests. -->
+
 ## Checklist
 
 - [ ] Focused local preflight/behavioral receipts and complete selected hosted proof passed; actual head/base/job checkout evidence is in Proof.
@@ -41,6 +47,7 @@ bun run check:pr --base origin/main
 - [ ] No personal data anywhere in the diff — the leakage gate covers the whole tree.
 - [ ] The integration contract index or relevant component is updated in this same commit, or nothing in the machine surface moved.
 - [ ] Docs under `docs/` reflect the change, or nothing documented moved.
+- [ ] Provider history stays append-only (`docs/decisions/provider-history.md`): the provider-history guard passes, or nothing on a turn's path changed.
 
 ## Anything left open
 

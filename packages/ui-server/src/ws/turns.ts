@@ -84,6 +84,8 @@ export interface QueuedFollowUp {
    */
   followUpId?: string;
   queuedAt?: number;
+  lifecycleTurnId?: string;
+  lifecycle?: ReturnType<typeof import("../activity/turn-lifecycle.js").createTurnLifecycle>;
   /** Its pill label (#1004), once the host's label model has written one. */
   label?: string;
   /**
