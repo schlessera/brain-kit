@@ -34,7 +34,38 @@ async function adapter(kind: "claude" | "pi", voice = false) {
   const backend = kind === "claude" ? createClaudeBackend({ brainPath: root }) : createPiBackend({ brainPath: root, loadExtensions: false });
   const policy = backend.brainApplicationPolicy!({ ...(voice ? { posture: "voice", enforceAllowedTools: true, noGrantSurface: true } : {}) });
   const approvals: unknown[] = []; const receipts: BrainApplicationResult[] = [];
-  const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root, dbPath: join(fixtureRoot, "state/ui.db") })), principalId: "odysseus", turnId: "hosted-turn", policy, signal: new AbortController().signal,
+  const maintenance: unknown[] = [];
+  const boundary = createFixtureHostBoundary({ brainPath: root, dbPath: join(fixtureRoot, "state/ui.db") });
+  const run = boundary.run.bind(boundary);
+  boundary.run = async execution => {
+    // Keep the real request, worker and publication boundary unchanged. Retain
+    // diagnostics in memory; successful assertions produce no extra output.
+    const request = { purpose: execution.purpose, stdin: execution.stdin, timeoutMs: execution.timeoutMs,
+      gate: execution.gate, credentials: execution.credentials };
+    try {
+      const result = await run(execution);
+      maintenance.push({ request, result });
+      return result;
+    } catch (error) {
+      maintenance.push({ request, error });
+      throw error;
+    }
+  };
+  const indexFailure = (result: Record<string, unknown>) => {
+    if (result.ok === true && result.indexed === true) return undefined;
+    const seen = new WeakSet<object>();
+    return JSON.stringify({ kind, result, receipts, maintenance }, (_key, value) => {
+      if (typeof value === "bigint") return String(value);
+      if (value && typeof value === "object") {
+        if (seen.has(value)) return "[already recorded]";
+        seen.add(value);
+        if (value instanceof Error) return { name: value.name,
+          ...Object.fromEntries(Object.getOwnPropertyNames(value).map(key => [key, Reflect.get(value, key)])) };
+      }
+      return value;
+    });
+  };
+  const apply = createBrainApplication({ root, planner: boundaryPlanner(boundary), principalId: "odysseus", turnId: "hosted-turn", policy, signal: new AbortController().signal,
     isAuthorized: () => true, approve: async (input) => { approvals.push(input); return !voice; }, record: r => receipts.push(r) });
   const bridge: BackendBridge = { emit: () => {}, requestPermission: async () => { throw new Error("Duplicate runtime approval"); },
     applyBrain: input => apply({ principalId: "odysseus", turnId: "hosted-turn", input }),
@@ -49,7 +80,7 @@ async function adapter(kind: "claude" | "pi", voice = false) {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const server = options.mcpServers!["brain-ui"] as { instance: { connect(t: unknown): Promise<void> } };
     await server.instance.connect(serverTransport); await client.connect(clientTransport); closes.push(() => client.close());
-    return { options, approvals, receipts, tools: (await client.listTools()).tools.map(t => t.name),
+    return { options, approvals, receipts, indexFailure, tools: (await client.listTools()).tools.map(t => t.name),
       call: async (name: string, input: Record<string, unknown>) => {
         const result = await client.callTool({ name, arguments: input });
         const text = (result.content as { text: string }[])[0]!.text;
@@ -59,7 +90,7 @@ async function adapter(kind: "claude" | "pi", voice = false) {
   }
   const turn = createTurnContext(); turn.bridge = bridge;
   const tools = createBrainTools({ turn, brain: createBrainAccess(root), lock: toolLockFromKeyed(createKeyedLock()) });
-  return { options: undefined, approvals, receipts, tools: tools.map(t => t.name),
+  return { options: undefined, approvals, receipts, indexFailure, tools: tools.map(t => t.name),
     call: async (name: string, input: Record<string, unknown>) => {
       const tool = tools.find(t => t.name === name)!;
       try {
@@ -74,16 +105,16 @@ for (const kind of ["claude", "pi"] as const) {
     const a = await adapter(kind);
     expect(a.tools).toContain("brain_add"); expect(a.tools).toContain("brain_update"); expect(a.tools).toContain("brain_archive");
     const add = await a.call("brain_add", { content: "Odysseus reinforces the raft mast.", type: "note", title: "Raft mast application" });
-    expect(add.ok).toBe(true); expect(add.indexed).toBe(true);
+    expect(add.ok, a.indexFailure(add)).toBe(true); expect(add.indexed, a.indexFailure(add)).toBe(true);
     const path = add.outcome.path;
     const base = await a.call("brain_read_base", { path });
     const update = await a.call("brain_update", { path, expectedBaseHash: base.expectedBaseHash, append_content: "Athena checks the rope." });
-    expect(update.ok).toBe(true); expect(update.indexed).toBe(true);
+    expect(update.ok, a.indexFailure(update)).toBe(true); expect(update.indexed, a.indexFailure(update)).toBe(true);
     expect(readFileSync(join(root, path), "utf8")).toContain("Athena checks the rope.");
     expect(a.approvals).toHaveLength(0);
     const next = await a.call("brain_read_base", { path });
     const archive = await a.call("brain_archive", { path, expectedBaseHash: next.expectedBaseHash });
-    expect(archive.ok).toBe(true); expect(archive.indexed).toBe(true); expect(a.approvals).toHaveLength(1);
+    expect(archive.ok, a.indexFailure(archive)).toBe(true); expect(archive.indexed, a.indexFailure(archive)).toBe(true); expect(a.approvals).toHaveLength(1);
     expect(readFileSync(join(root, path), "utf8")).toContain("status: archived");
     const db = openDatabase(join(root, "brain.db"));
     try { expect(db.query("SELECT status FROM documents WHERE path = ?").get(path)).toEqual({ status: "archived" }); }
