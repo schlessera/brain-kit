@@ -52,6 +52,8 @@ export interface AutonomousTurnInput {
 }
 
 export interface AutonomousTurnDeps extends TurnRecorderDeps {
+  /** @internal Trusted createApp state; anonymous memory embedders have none. */
+  identitySentinelDirectory?: string;
   /** Owned host manager; restricted workers still require immutable native inputs. */
   nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1];
   applicationPlanner?: ApplicationPlanner;
@@ -91,7 +93,7 @@ export async function runAutonomousTurn(
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
   // The restricted envelope must be establishable, not only the ordinary worker (#676).
-  try { requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime); }
+  try { requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime, { dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory }); }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.emit?.({ type: "error", code: "BACKEND_REQUEST_ERROR", turnId: input.turnId, message,
@@ -239,7 +241,7 @@ async function executeAutonomousTurn(
     // The server owns this policy: nothing is auto-allowed, so every
     // application reaches `approve`, whatever the backend would allow.
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
-      planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager })),
+      planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
       isAuthorized: current,
       approve: async (proposal, destructive) => {
