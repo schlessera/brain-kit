@@ -1,5 +1,6 @@
+import {frozenGeneratedSource} from "./frozen-generated-source";
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { inclusionInputs } from "../scripts/inclusion-inputs";
@@ -82,7 +83,7 @@ test("validated installed asset bytes and mode join immutable source fingerprint
   for(const entry of readdirSync(installed)) if(entry!=="axe-core") symlinkSync(join(installed,entry),join(root,"node_modules",entry),"dir");
   const owner="packages/ui-react/tests/browser/offline/cold-capture/commands.ts";
   for(const file of [owner,"scripts/build.ts","scripts/build-receipt.ts","scripts/build-repeat-observation.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","packages/ui-react/package.json","packages/ui-kit/package.json"])
-    write(root,file,readFileSync(resolve(import.meta.dir,"..",file),"utf8"));
+    write(root,file,frozenGeneratedSource(file));
   write(root,spec,`import "../../../ui-react/tests/browser/offline/cold-capture/commands.ts";`);
   write(root,"node_modules/axe-core/package.json",JSON.stringify({name:"axe-core",version:"4.13.0"}));write(root,"node_modules/axe-core/axe.min.js","owned asset before");commit(root);
   const initial=inclusionInputs(root,"layout",inventory,"fixed-runner").fingerprint;
