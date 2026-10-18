@@ -1,7 +1,6 @@
 /** Owned native bytes remain executable without restoring host temporary storage. */
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { restrictedReadPaths, workerCommand, type WorkerLaunch } from "../src/server/worker-launcher.js";
 
@@ -12,7 +11,9 @@ afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 function fixture() {
   mkdirSync(join(ROOT, "tmp"), { recursive: true });
   const root = mkdtempSync(join(ROOT, "tmp/odysseus-runtime-"));
-  const temporary = mkdtempSync(join(tmpdir(), "odysseus-runtime-"));
+  // Exercise the launcher's literal private /tmp mount even when the test
+  // runner relocates TMPDIR; its host sentinel must be behind that mount.
+  const temporary = mkdtempSync("/tmp/odysseus-runtime-");
   cleanups.push(() => rmSync(root, { recursive: true, force: true }), () => rmSync(temporary, { recursive: true, force: true }));
   const brain = join(root, "brain"), relay = join(root, "relay"), mirror = join(root, "mirror");
   mkdirSync(brain); mkdirSync(relay, { mode: 0o700 }); mkdirSync(mirror);
