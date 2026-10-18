@@ -139,6 +139,8 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(ci.jobs.changeset!["timeout-minutes"]).toBe(3);
     expect(ci.jobs.verify!["timeout-minutes"]).toBe(3);
     expect(ci.jobs.pack!["timeout-minutes"]).toBe(5);
+    // Browser shards keep buffer above the measured ~900 s whole-job peak (#2414).
+    expect(ci.jobs.browser!["timeout-minutes"]).toBe(20);
   });
   test("the contract checks exact PR heads and carries title/labels as environment data", () => {
     const contract = workflows.find(w => w.file === "contract.yml")!.workflow;

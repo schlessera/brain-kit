@@ -142,6 +142,9 @@ fresh job and never becomes an ordinary browser/layout weight. Requalify timing
 inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
 Two layout shards, per-project serial execution and all deadlines remain unchanged.
+Browser jobs have a 20-minute bound. It was raised from 15 minutes after browser
+(2) reached 887 s on main and 917 s on a ready PR ([#2414](https://github.com/schlessera/brain-kit/issues/2414)). A weight refresh still
+qualifies by measured whole-job elapsed time, not by the bound.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
