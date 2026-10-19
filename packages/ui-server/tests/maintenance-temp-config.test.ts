@@ -55,7 +55,7 @@ test("configured Git transport retains its separate envelope and maintenance all
 test("the host boundary exposes the same trusted settings to existing hosted helper entry paths",()=>{
  const tempLimits={allowanceBytes:8388608,budgetBytes:16777216};
  const boundary=createHostBoundary({brainPath:"/tmp/odysseus-brain",dbPath:"/tmp/odysseus-state/ui.db",maintenanceTemp:tempLimits});
- expect(boundary.maintenance).toEqual({tempLimits,tempDomain:{statePath:"/tmp/odysseus-state/ui.db"},maskPaths:["/tmp/odysseus-state"]});
+ expect(boundary.maintenance).toEqual({tempLimits,tempDomain:{statePath:"/tmp/odysseus-state/ui.db"},maskPaths:["/tmp/odysseus-state"],scratchIgnoreQuery:expect.any(Function)});
 });
 
 test("hosted turn admission forwards maintenance identity before backend startup", async () => {

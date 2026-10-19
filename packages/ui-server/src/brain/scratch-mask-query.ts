@@ -1,5 +1,5 @@
 /** One read-only Git query; no stage publication or repository execution on the host. */
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { prepareNativeWorkerStartupView, runMaintenanceWorker, type MaintenanceHost } from "@schlessera/brain-ui-sdk/internal";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
@@ -10,9 +10,14 @@ export function createScratchIgnoreQuery(input: {
   maintenance: MaintenanceHost;
   lock: Pick<KeyedLock, "withLock">;
 }): NonNullable<MaintenanceHost["scratchIgnoreQuery"]> {
-  const brain = realpathSync(input.brainPath);
+  // The boundary already canonicalized this key, resolving missing roots for
+  // construction-only clients. Filesystem prerequisites belong to execution.
+  const brain = input.brainPath;
   return signal => input.lock.withLock(brain, async () => {
     signal?.throwIfAborted();
+    if (!lstatSync(brain).isDirectory() || realpathSync(brain) !== brain) {
+      throw new Error("Scratch verification requires the unchanged canonical brain directory.");
+    }
     if (!input.nativeManager) throw new Error("Scratch verification requires the configured native manager.");
     const git = Bun.which("git");
     if (!git) throw new Error("Scratch verification requires Git in the maintenance worker.");

@@ -417,7 +417,7 @@ before application-lock admission, acquires its own complete native checkpoint
 asynchronously and runs a credential-free, read-only Git query. It releases
 that input after the worker drains, without creating or publishing a writable
 stage (`createScratchIgnoreQuery`,
-`packages/ui-server/src/brain/scratch-mask-query.ts:7-38`). Exit 1 means the
+`packages/ui-server/src/brain/scratch-mask-query.ts:7-43`). Exit 1 means the
 directory is not ignored. Launch failure, another exit or timeout means the
 rule could not be verified; the mask remains refused without forwarding worker
 stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
