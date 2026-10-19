@@ -6,7 +6,7 @@ import { buildMaterial, buildProducerPaths, matchingBuildReceipt, operationFor, 
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, existsSync, fstatSync, openSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fstatSync, openSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { buildMounts, captureBuildInputs, captureDerivedOutput, captureOutputs, digest, identity, outputFiles, sameOutputIdentity } from "./ci-build-boundary";
 import { selectBuildPackages } from "./publishable-packages";
