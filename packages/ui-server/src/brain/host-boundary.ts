@@ -25,7 +25,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
@@ -36,7 +36,7 @@ import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brai
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { operationalStateMasks, operationalStateRefusal, type OperationalStateLayout } from "./operational-state.js";
+import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
 
 /** Why `governed` cannot run on this server. */
@@ -65,6 +65,16 @@ export interface BrainExecution {
   /** Host-side Bun options for the old unwrapped path, such as SIGKILL on abort. */
   killSignal?: NodeJS.Signals;
   timeoutMs?: number;
+  /** @internal Storage owner operations recheck authority after admission/preparation. */
+  assertAuthorized?: () => void;
+  /** @internal Distinguish pre-launch owner refusal from an interrupted effect. */
+  onExecute?: () => void;
+  /** @internal Combined output bound for an explicitly bounded operation. */
+  outputBytes?: number;
+  /** @internal A consequence reader discards every worker output, including Git side effects. */
+  publish?: false;
+  /** @internal Fixed host-selected publication areas, never supplied by a request. */
+  outputAreas?: readonly string[];
   /** Existing host files the command may append to (a cron span sink). */
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
@@ -112,6 +122,7 @@ export function brainCommandClass(args: readonly string[]): { credentials: boole
     // Automatic plain index is keyword-only. Provider/flagged operations keep
     // the conservative credentialed exclusive envelope.
     case "index": return args.length === 1 ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
+    case "storage": return args.length === 3 && args[1] === "pack" && args[2] === "--json" ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
     case "search": return { credentials: true, gate: "shared" };
     // A module action runs the module's own code, which may call out.
     case "module": return args.includes("--action") ? { credentials: true, gate: "exclusive" } : { credentials: false, gate: "shared" };
@@ -131,7 +142,12 @@ export function cronJobClass(jobName: string): { credentials: boolean; gate: Gat
 /** Concrete probe object permits test spies, with no production disable flag. */
 export const hostExecution = {
   /** The same probe a turn's gate runs, so a test double stands in for both. */
-  probe: (brainPath: string): WorkerHostProbe => workerHostBoundary.probe(brainPath),
+  probe: (brainPath: string, state?: WorkerProbeState): WorkerHostProbe => {
+    let directory: string | undefined;
+    try { directory = workerIdentitySentinelDirectory(brainPath, state); }
+    catch (error) { return { ok: false, requirement: error instanceof Error ? error.message : "Worker identity qualification requires trusted server state outside the brain" }; }
+    return workerHostBoundary.probe(brainPath, directory ? { identitySentinelDirectory: directory } : undefined);
+  },
   /** A credential-free maintenance worker, network namespace included, which the ordinary probe does not cover. */
   maintenanceProbe: (brainPath: string, tempLimits: WorkerStateLimits, tempDomain: MaintenanceCommand["tempDomain"] | undefined, startupView: WorkerStartupView, signal?: AbortSignal): WorkerHostProbe | Promise<WorkerHostProbe> => probeNativeMaintenanceWorker(brainPath, tempLimits, tempDomain, startupView, signal),
   cwd: () => process.cwd(),
@@ -177,6 +193,8 @@ export interface HostBoundary {
 }
 
 export interface HostBoundaryOptions {
+  /** @internal Trusted server-state placement passed by the autonomous owner. */
+  identitySentinelDirectory?: string;
   /** Trusted shared host credential state; omitted server/cron instances use the per-UID domain. */
   credentialDomain?: HostCredentialDomain;
   /** The one configured host manager; never discovered through the repository. */
@@ -318,7 +336,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   const maintenanceKey = JSON.stringify([brain, tempDomain ? real(tempDomain.statePath) : null,
     maintenanceTemp.allowanceBytes, maintenanceTemp.budgetBytes]);
   const workerHost = (startupView?: WorkerStartupView): WorkerHostProbe => {
-    const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+    const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
     if (!ordinary.ok) return ordinary;
     if (!maintenance || (!maintenance.probe.ok && Date.now() - maintenance.at > 60_000)) {
       try {
@@ -373,6 +391,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
       tempLimits: maintenanceTemp,
+      ...("outputBytes" in execution && execution.outputBytes ? { outputBytes: execution.outputBytes } : {}),
       ...(tempDomain ? { tempDomain } : {}),
       // The operator's exec wrapper runs inside the worker, as it does for agent workers.
       command: wrapCommand(argv, exec.wrapper),
@@ -436,7 +455,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (passedMaintenanceProbes.has(maintenanceKey)) return governed();
       return outputLock.withLock(brain, async () => {
       signal?.throwIfAborted();
-      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       if (!ordinary.ok) return governed();
       if (passedMaintenanceProbes.has(maintenanceKey) || (maintenance && !maintenanceResourceRefused && !maintenance.probe.ok && Date.now() - maintenance.at <= 60_000)) return governed();
       const view = preparedView ?? await prepareInput(signal);
@@ -460,7 +479,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     status: () => {
       const availability = governed();
-      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain));
+      const ordinary = options.workerHost?.() ?? (probed ??= hostExecution.probe(brain, options));
       let configuredIdentity = false;
       try { configuredIdentity = Boolean(workerIdentityHelper()); } catch { configuredIdentity = true; }
       const identity = ordinary.ok && ordinary.identity === "separate_uid"
@@ -476,6 +495,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     withGate,
     async run(execution) {
       execution.signal?.throwIfAborted();
+      execution.assertAuthorized?.();
       return gated(execution, async hold => {
         execution.signal?.throwIfAborted();
         if (!isolated()) {
@@ -484,7 +504,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             // Another shared turn can establish sticky worker history while
             // credential exclusion waits. Release credentials before rerouting.
             if (isolated()) return undefined;
+            if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
+            execution.assertAuthorized?.();
             if (hold) markUnpinnedHostWriter(hold);
+            execution.onExecute?.();
             const proc = hostSpawn(execution);
             const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
             try {
@@ -503,19 +526,23 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           if (result) return result;
         }
         return credentialed(execution, async () => {
-          if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+          if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
             ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
           const run = async () => {
+            execution.assertAuthorized?.();
             const view = await prepareInput(execution.signal);
             let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
             try {
               execution.signal?.throwIfAborted();
-              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });
+              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               const launch = command(execution);
-              const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+              const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
+              execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
-                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-              if (!result.killed) {
+                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
+              () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
+              if (!result.killed && execution.publish !== false) {
+                execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
                 else await outputs.publish();
               }
@@ -540,6 +567,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           execution.signal?.throwIfAborted();
           if (isolated()) { credential?.release(); credential = undefined; }
           else {
+            if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
             if (hold) markUnpinnedHostWriter(hold);
             const proc = hostSpawn(execution);
             return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
@@ -568,7 +596,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           let signalCode: string | null = null;
           const onAbort = () => abort.abort(execution.signal?.reason);
           execution.signal?.addEventListener("abort", onAbort, { once: true });
-          const exited = runMirrorSync({ nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
+          const exited = runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: selectedCommand, transportEnv: execution.env, mirror: selectedMirror, signal: abort.signal,
             ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }).then(result => {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
@@ -590,17 +618,20 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });
+        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         const launch = command(execution);
-        const git = await prepareMaintenanceGit(launch, outputs, execution.signal);
+        const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
-        worker = launchMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) });
+        const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
+        await prepareMaintenanceWorker(maintenance, execution.signal);
+        execution.signal?.throwIfAborted();
+        worker = launchMaintenanceWorker(maintenance);
       }
       catch (error) { try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
-        if (!signalCode) {
+        if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
         }
@@ -614,6 +645,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
+        if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
         const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: { ...execution.env }, stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
         return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode ?? 1 };
       }

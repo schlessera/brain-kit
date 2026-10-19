@@ -160,3 +160,15 @@ export function findIndexDocuments(opts: Root & {
 function derived(version: number): void {
   if (version < 8) throw new QueryFailure("incompatible_index");
 }
+
+/** Bounded incoming resolved-link evidence; absence never proves an attachment unused. */
+export function readStorageReferences(opts: Root & { path: string }): QueryResult<{ sources: Array<{ path: string; indexedAt: string }>; truncated: boolean }> {
+  let path = "";
+  return withSnapshot(opts, "storage", () => { path = relativePath(opts.path); }, db => {
+    const rows = db.query(`SELECT DISTINCT source.path AS path, source.indexed_at AS indexedAt
+      FROM links JOIN documents source ON source.id=links.source_id
+      JOIN documents target ON target.id=links.target_id
+      WHERE target.path=? ORDER BY source.path LIMIT 201`).all(path) as Array<{ path: string; indexedAt: string }>;
+    return { sources: rows.slice(0, 200), truncated: rows.length > 200 };
+  });
+}

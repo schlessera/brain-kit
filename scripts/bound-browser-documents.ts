@@ -31,19 +31,23 @@ const declarations:DocumentDeclaration[]=[{
 },{
   // Reviewed against #2295 and #2346: bounded capture tracing, split relay and
   // callout cases keep the exact HTML/CSS sink, five callers and offline producers.
+  // #2386 re-audit: narrow geometry/capture case split preserves all eight
+  // callout capture sites, arguments and unchanged HTML/CSS/font producers.
+  // #2241 re-audit: renderer/axis edits only strengthen viewer selection and
+  // font assertions; capture arguments, call counts and producer closure stay fixed.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
   "caller": "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx",
-  "callerHash": "dbac044e90a3b7b84e308a96cca8396874afb9b96d8cc23b2fddb4293d85706c",
+  "callerHash": "9d5e6b574bc22fb19f47c6d7d813f13bd444920539bf341732700e9d3413de4a",
   "calls": 2,
   "additionalCallers": {
     "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
-      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
+      "hash": "83e34b70e1de6368073d1aa3414f5f42ffd071da6246ce47109397df72206091",
       "calls": 8
     },
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {
-      "hash": "6512cb4660834ef7b15a52258d51f694c4e34fd530754bdc51580137db22b75c",
+      "hash": "bd7c728af1ae5c250ddbef4e3423372590aabc65430661fe6afed97e3eb6e933",
       "calls": 3
     },
     "packages/ui-react/tests/browser/diagrams-positional.layout.tsx": {
@@ -193,7 +197,7 @@ export function browserDocumentRefusals(root:string,files:readonly string[],impo
 function evaluateBrowserDocuments(root:string,files:readonly string[],importers:BrowserImporters){
   const result=new Map<string,Map<string,BrowserDocumentInputs>>(),refusals=new Map<string,string>();
   const matches=(file:string,hash:string)=>{const path=resolve(root,file);return existsSync(path)&&realpathSync(path)===path&&createHash("sha256").update(readFileSync(path)).digest("hex")===hash;};
-  if(!matches(config,"e724696a55955e9f32d396b2031214600086533c3f9b8baabcc1c6bb7311f1db")){for(const declaration of declarations)refusals.set(declaration.owner,`unreviewed configuration ${config}`);return {bound:result,refusals};}
+  if(!matches(config,"89ea7a414a191a5624fce2dff8e0434aac5474c4c5b74d13499848cd17e2b257")){for(const declaration of declarations)refusals.set(declaration.owner,`unreviewed configuration ${config}`);return {bound:result,refusals};}
   for(const declaration of declarations){
     const callers=new Map<string,{hash:string;calls:number}>([[declaration.caller,{hash:declaration.callerHash,calls:declaration.calls}],...Object.entries(declaration.additionalCallers??{})]);
     const absent=[config,declaration.owner,...callers.keys()].find(file=>!files.includes(file));

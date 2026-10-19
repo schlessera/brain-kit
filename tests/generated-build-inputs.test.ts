@@ -1,3 +1,4 @@
+import {frozenGeneratedSource} from "./frozen-generated-source";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +11,7 @@ const producer=["scripts/build.ts","scripts/build-receipt.ts","scripts/build-rep
 function fixture(){
   const root=mkdtempSync(join(tmpdir(),"generated-css-"));roots.push(root);
   const write=(file:string,bytes:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),bytes);};
-  for(const file of producer)write(file,readFileSync(join(repo,file),"utf8"));
+  for(const file of producer)write(file,frozenGeneratedSource(file));
   write("packages/ui-react/src/styles.css",".marker{color:red}");write("packages/ui-react/package.json",'{}');
   return {root,write};
 }
@@ -46,7 +47,7 @@ test("locked offline Tailwind CLI really derives changed bytes from owned styles
 
 test("only audited filesystem reader commands bind the generated stylesheet cwd",()=>{
   const {root,write}=fixture();const owner="packages/ui-kit/tests/visual/form-browser.ts";
-  const original=readFileSync(join(repo,owner),"utf8");write(owner,original);
+  const original=frozenGeneratedSource(owner);write(owner,original);
   expect(generatedCssReadInputs(root,owner,"../ui-react/dist/styles.css")?.entry).toBe("packages/ui-react/src/styles.css");
   expect(generatedCssReadInputs(root,owner,"../../outside/styles.css")).toBeUndefined();
   expect(generatedCssReadInputs(root,"other.ts","../ui-react/dist/styles.css")).toBeUndefined();
@@ -55,4 +56,15 @@ test("only audited filesystem reader commands bind the generated stylesheet cwd"
   write(owner,original+'\n// reader drift\n');
   expect(generatedCssReadInputs(root,owner,"../ui-react/dist/styles.css")).toBeUndefined();
   expect(discoverInputClosure(root,[owner]).unresolved.some(value=>value.includes('readFile(resolve("../ui-react/dist/styles.css"), "utf8")'))).toBe(true);
+});
+
+// Keep real candidate drift separate from independently owned positives.
+test("current producer bytes qualify only when they match the frozen audit",()=>{
+  for(const file of producer){
+    const {root,write}=fixture(),current=readFileSync(join(repo,file),"utf8");
+    write(file,current);
+    const binding=generatedCssInputs(root,"packages/ui-react/dist/styles.css");
+    if(current===frozenGeneratedSource(file)) expect(binding?.entry,"UNCHANGED_PRODUCER_RETAINS_BINDING").toBe("packages/ui-react/src/styles.css");
+    else expect(binding,"CURRENT_PRODUCER_DRIFT_REQUIRES_FRESH_PROOF").toBeUndefined();
+  }
 });

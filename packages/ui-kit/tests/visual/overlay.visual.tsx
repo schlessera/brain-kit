@@ -173,11 +173,77 @@ test("close controls have 44px corner reach and computed title contrast in both 
   }
 });
 test("entry motion is absent under reduce and the sheet has one surface animation otherwise", async () => {
-  // Mutation: remove reduced-motion media guard → reduced animation list assertion.
-  await mount(<Harness />); await open();
-  expect(q('.bk-overlay').getAnimations({subtree:true}), 'reduced animation list').toEqual([]);
+  // Capture the insertion commit before the real click's RPC can outlast the
+  // finite entrance. Retain native objects without pausing or seeking them.
+  async function captureOpening() {
+    let captured: {
+      overlay: HTMLElement; surface: HTMLElement; modal: boolean; reduced: boolean;
+      direct: Animation[]; subtree: Animation[];
+      effects: { target: KeyframeEffect["target"]; name: string | undefined;
+        timing: EffectTiming; keyframes: ComputedKeyframe[] }[];
+    } | undefined;
+    const observer = new MutationObserver(() => {
+      const overlay = q('.bk-overlay'); const surface = q('.bk-overlay-surface');
+      if (!overlay || !surface) return;
+      // getAnimations forces style resolution in the insertion microtask.
+      // Keep unfiltered lists so additional surface or descendant motion fails.
+      const direct = surface.getAnimations();
+      captured = { overlay, surface, modal: overlay.matches(':modal'),
+        reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        direct, subtree: overlay.getAnimations({ subtree: true }),
+        effects: direct.map(animation => ({
+          target: (animation.effect as KeyframeEffect).target,
+          name: animation instanceof CSSAnimation ? animation.animationName : undefined,
+          timing: animation.effect!.getTiming(),
+          keyframes: (animation.effect as KeyframeEffect).getKeyframes(),
+        })),
+      };
+      observer.disconnect();
+    });
+    observer.observe(host!, { childList: true, subtree: true });
+    try {
+      await open();
+      expect(captured, 'opening insertion observed').toBeDefined();
+      expect(captured!.overlay, 'captured native overlay').toBe(q('.bk-overlay'));
+      expect(captured!.surface, 'captured sheet surface').toBe(q('.bk-overlay-surface'));
+      expect(captured!.modal, 'opening uses native modal').toBe(true);
+      return captured!;
+    } finally {
+      observer.disconnect();
+    }
+  }
+  // Mutations: unguard the entire entry block (including keyframes) → reduced
+  // animation list; disable the sheet entrance → one surface entry.
+  await mount(<Harness />);
+  const reduced = await captureOpening();
+  expect(reduced.reduced, 'native reduced-motion media').toBe(true);
+  expect(reduced.subtree, 'reduced animation list').toEqual([]);
+  expect(reduced.direct, 'reduced surface animation list').toEqual([]);
   await userEvent.keyboard('{Escape}'); await commands.dictationMotion('no-preference');
-  await open(); expect(q('.bk-overlay-surface').getAnimations(), 'one surface entry').toHaveLength(1);
+  const opening = await captureOpening();
+  expect(opening.reduced, 'native no-preference media').toBe(false);
+  expect(opening.direct, 'one surface entry').toHaveLength(1);
+  const entrance = opening.direct[0]!;
+  expect(entrance, 'native surface CSS animation').toBeInstanceOf(CSSAnimation);
+  const effect = opening.effects[0]!;
+  expect(effect.target, 'entry targets the actual surface').toBe(opening.surface);
+  expect(effect.name, 'sheet entry name').toBe('bk-overlay-sheet');
+  expect(effect.timing, 'sheet entry timing').toMatchObject({ duration: 200, iterations: 1, fill: 'none' });
+  expect(effect.keyframes.map(frame => frame.computedOffset), 'sheet entry endpoints').toEqual([0, 1]);
+  expect(effect.keyframes.map(frame => frame.transform), 'sheet entry transform').toEqual(['translateY(100%)', 'translateY(0px)']);
+  expect(opening.subtree, 'only scrim and surface enter').toHaveLength(2);
+  expect(opening.subtree, 'subtree retains surface identity').toContain(entrance);
+  const scrim = opening.subtree.find(animation => animation !== entrance)!;
+  expect(scrim, 'native scrim CSS animation').toBeInstanceOf(CSSAnimation);
+  expect((scrim as CSSAnimation).animationName, 'scrim entry name').toBe('bk-overlay-fade');
+  expect((scrim.effect as KeyframeEffect).target, 'scrim entry target').toBe(q('.bk-overlay-scrim'));
+  // Await actual native completion under the existing test deadline. This
+  // deliberately reaches the condition where the former late lookup loses it.
+  await entrance.finished;
+  expect(entrance.playState, 'captured entrance finished naturally').toBe('finished');
+  expect(opening.surface.getAnimations(), 'completed entrance leaves live set').toHaveLength(0);
+  expect(opening.direct[0], 'retained opening identity survives completion').toBe(entrance);
+  expect((entrance.effect as KeyframeEffect).target, 'finished entrance keeps actual target').toBe(opening.surface);
 });
 
 

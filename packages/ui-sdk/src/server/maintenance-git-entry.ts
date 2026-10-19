@@ -28,7 +28,8 @@ async function main(): Promise<void> {
     }
     config.push("-c", `${key}=${value}`);
   }
-  config.push("-c", `core.hooksPath=${frozen.hooks}`);
+  // Both exact roots are selected by the retained host stage; no global or wildcard exception.
+  config.push("-c", `safe.directory=${frozen.data}`, "-c", `core.hooksPath=${frozen.hooks}`);
   const env = { ...inherited.env, GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_GLOBAL: "/dev/null",
     ...(frozen.attributes ? { GIT_ATTR_SOURCE: frozen.attributes } : {}) };
   // -C supplied by a core caller names the output root already; the default

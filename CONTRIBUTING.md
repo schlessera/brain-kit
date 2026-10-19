@@ -285,7 +285,7 @@ feature test should use these helpers instead of building its own.
 
 The complete dictation browser fixture has its own `dictation` project so its
 Chromium touch emulation and consumer styles stay outside the shared `visual`
-page. The default browser wrapper includes it in both shards; use
+page. The default browser wrapper includes it in every shard; use
 `node scripts/visual.mjs --project=dictation` for a focused container run.
 
 Tests and typecheck run from live TS source — no build needed. The
