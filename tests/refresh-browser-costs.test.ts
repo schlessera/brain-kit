@@ -3,26 +3,28 @@ import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import { refreshBrowserCosts } from "../scripts/refresh-browser-costs";
 import type { API } from "../scripts/proof-reuse";
+import { PROOF_SHARDS, shardNumbers } from "../scripts/proof-shards";
 
 const sha = "a".repeat(40), parent = "b".repeat(40), tree = "c".repeat(40);
 const image = "mcr.microsoft.com/playwright:v1.63.0-noble";
 const stamp = "2026-07-12T00:00:00Z ";
 function fixture(domain: "browser" | "layout" = "layout") {
   const project = domain === "layout" ? "ui-react-layout" : "visual";
-  const logs = [1, 2].map(shard => [
+  const count = PROOF_SHARDS[domain];
+  const logs = shardNumbers(domain).map(shard => [
     `${stamp}[command]/usr/bin/git log -1 --format=%H`, `${stamp}${sha}`,
     `${stamp}Status: Downloaded newer image for ${image}`,
-    `${stamp}Measured browser shard ${shard}/2: 1/2 specs; 0 recorded weights, 2 positive defaults`,
+    `${stamp}Measured browser shard ${shard}/${count}: 1/${count} specs; 0 recorded weights, ${count} positive defaults`,
     `${stamp}✓ ${project} (chromium) ../ui-react/tests/browser/odysseus-${shard}.layout.tsx (1 test) ${shard * 1000}ms`,
     `${stamp}Test Files 1 passed (1)`,
   ].join("\n"));
   const run = { id: 42, run_attempt: 1, status: "completed", conclusion: "success", event: "push", path: ".github/workflows/ci.yml",
     head_sha: sha, repository: { full_name: "schlessera/brain-kit" } };
-  const jobs = [1, 2].map(shard => ({ id: shard, run_id: 42, head_sha: sha, name: `${domain} (${shard})`, status: "completed", conclusion: "success",
+  const jobs = shardNumbers(domain).map(shard => ({ id: shard, run_id: 42, head_sha: sha, name: `${domain} (${shard})`, status: "completed", conclusion: "success",
     steps: [{ name: `Complete ${domain} proof`, status: "completed", conclusion: "success" }] }));
   const commit = { sha, tree: { sha: tree }, parents: [{ sha: parent }] };
   const source = { encoding: "base64", content: Buffer.from(`const IMAGE = "${image}";`).toString("base64") };
-  const page = { total_count: 2, jobs };
+  const page = { total_count: jobs.length, jobs };
   const api: API = {
     async json(path) {
       if (path === "actions/runs/42/attempts/1") return run;
@@ -51,6 +53,9 @@ test("attributed layout refresh preserves browser costs and provenance, then bro
   expect(refreshed.seconds["ui-react-layout::packages/ui-react/tests/browser/odysseus-1.layout.tsx"]).toBe(1);
   expect(refreshed.measurements?.layout).toEqual(layout.measurements?.layout);
   expect(refreshed.seconds["visual::packages/ui-kit/tests/visual/odysseus.visual.tsx"]).toBeUndefined();
+  // Browser measurements come from every configured shard, not a fixed pair (#2414).
+  expect(refreshed.measurements?.browser).toMatchObject({ jobs: shardNumbers("browser") });
+  expect(Object.keys(refreshed.seconds).filter(key => key.startsWith("visual::"))).toHaveLength(PROOF_SHARDS.browser);
 });
 
 test("cancelled layout job cannot supply admitted measurements despite passing file logs", async () => {

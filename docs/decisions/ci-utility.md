@@ -103,6 +103,13 @@ proof and endurance wait for confirmation. Its `proof` check deliberately fails
 with the action needed: convert to draft, finish pushes, then mark ready again.
 Fast feedback being green is useful, but never sufficient merge evidence.
 The request belongs to one event, not a label that can approve later commits.
+A draft run's aggregate is named `draft gates`, never `proof`, so its cheap
+success cannot stand as a ready PR's proof. GitHub can queue a draft push's run
+after the `ready_for_review` run and cancel it, leaving no `proof` at all. The
+draft aggregate also reads the live PR and fails when that read finds it ready,
+closed or at another head, which turns the cancelled request into a visible
+failure; a transition after the read is still covered by the distinct name
+([#2363](https://github.com/schlessera/brain-kit/issues/2363)).
 Main pushes still execute complete affected proof. Scheduled and manual runs
 execute exhaustive discovery with a distinct aggregate check name, so they
 cannot impersonate a PR's candidate confirmation. Title/label edits run the separate contract gate, not long
@@ -111,7 +118,8 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout shards, a separate endurance job and captures start independently.
-There are four measured-cost unit partitions and two browser/layout partitions,
+There are four measured-cost unit partitions, three browser and two layout partitions
+(`PROOF_SHARDS`, `scripts/proof-shards.ts`, which the workflow guard matches against the matrices),
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
 still making progress. Completed-file observations in
@@ -141,7 +149,10 @@ inputs, never runtime dependencies. Layout refresh admits ordinary
 fresh job and never becomes an ordinary browser/layout weight. Requalify timing
 inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
-Two layout shards, per-project serial execution and all deadlines remain unchanged.
+Layout keeps two shards; per-project serial execution and all test deadlines remain unchanged.
+Browser proof runs in three shards and its jobs have a 20-minute bound. It was raised from 15 minutes after browser
+(2) reached 887 s on main and 917 s on a ready PR ([#2414](https://github.com/schlessera/brain-kit/issues/2414)). A weight refresh still
+qualifies by measured whole-job elapsed time, not by the bound.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
@@ -340,7 +351,7 @@ and actual merge-result parent/tree validation remain binding.
 
 ### Retaining complete browser domains
 
-Under #1333, ready-PR metadata can retain both shards of a complete browser or
+Under #1333, ready-PR metadata can retain every shard of a complete browser or
 layout domain from up to three recent successful automatic runs of that same
 contribution. Unit, types, packaging, native runtime and editorial checks remain
 fresh: their Git-sensitive or broader process inputs do not have an admitted
@@ -556,7 +567,7 @@ locked installed resources. No current output or untracked image enters this
 snapshot, and baseline changes cannot inherit old passing comparisons.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
-and modes, selected discovery ownership/order, the two measured partitions and
+and modes, selected discovery ownership/order, the domain's measured partitions (`PROOF_SHARDS`) and
 runner identity. It also includes every proof/tooling script and workflow,
 root/package manifests and lockfiles, compiler configuration and expanded build
 source inventories. These conservative shared harness inputs can invalidate

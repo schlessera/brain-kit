@@ -238,6 +238,58 @@ boundary, the reasons and the file- and assertion-level inventory are in
   experiment inventory and Bun version. A failing experiment test is a failing
   release check, not a skip.
 
+## Optional bubblewrap upgrade for local Linux proof
+
+On hosts with large mount tables, bubblewrap 0.13 or newer avoids the older
+per-mount read-only remount walk by using `mount_setattr()` on Linux 5.12+.
+This is a local tooling recommendation, not a new product minimum or an
+automatic installer. User/network namespaces must still be permitted.
+The [0.13.1 release](https://github.com/containers/bubblewrap/releases/tag/v0.13.1)
+publishes the archive checksum used below; the
+[upstream build instructions](https://github.com/containers/bubblewrap/blob/v0.13.1/README.md#installation)
+use Meson.
+
+For Ubuntu 24.04, install the build prerequisites before entering offline proof:
+
+```sh
+sudo apt-get update
+sudo apt-get install --no-install-recommends build-essential meson ninja-build pkg-config libcap-dev
+```
+
+Build a private, ordinary executable from the verified archive:
+
+```sh
+set -eu
+bwrap_build=$(mktemp -d)
+curl --fail --location --output "$bwrap_build/bubblewrap-0.13.1.tar.xz" \
+  https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
+(cd "$bwrap_build" && printf '%s\n' \
+  '0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d  bubblewrap-0.13.1.tar.xz' \
+  | sha256sum --check -)
+tar -xJf "$bwrap_build/bubblewrap-0.13.1.tar.xz" -C "$bwrap_build"
+meson setup "$bwrap_build/build" "$bwrap_build/bubblewrap-0.13.1" \
+  --prefix="$HOME/.local/opt/bubblewrap-0.13.1" \
+  -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled
+meson compile -C "$bwrap_build/build"
+meson install -C "$bwrap_build/build"
+PATH="$HOME/.local/opt/bubblewrap-0.13.1/bin:$PATH" bwrap --version
+PATH="$HOME/.local/opt/bubblewrap-0.13.1/bin:$PATH" bun run check:pr --base origin/main
+```
+
+The archive checksum identifies upstream source; compiler and dependency choices
+can change the resulting binary hash. Keep the selected binary/version and source
+checkout beside native proof receipts. Do not make `bwrap` setuid: upstream
+removed that installation mode in 0.12. The separate test-only identity broker
+uses its own setuid helper; it does not require a setuid `bwrap`.
+
+Upstream 0.12 also changed absolute-symlink resolution during setup. Qualify the
+existing launcher, filesystem-filter, protected-path/symlink containment, egress,
+identity and staged-output assertions with the chosen binary rather than assuming
+an upgrade preserves them. Keep normal sandbox flags: `--not-a-security-boundary`
+permits setup failures and does not belong in proof. A PATH change on the host
+does not upgrade a fixed `/usr/bin/bwrap` inside a container; qualify that runtime
+separately before changing its supplied binary. Hosted CI images stay unchanged.
+
 ## Required proof for a PR
 
 The policy is [the CI decision](../decisions/ci-utility.md); the commands are

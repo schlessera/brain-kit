@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { discoverInputClosure, type InputDeclaration } from "./browser-input-closure";
 import { balanceBrowserSpecs, readBrowserCosts } from "./browser-shards";
+import { PROOF_SHARDS } from "./proof-shards";
 import { selectedSpecs, treeEntries, type Inputs, type Reusable, type Spec } from "./proof-inputs";
 
 const required = ["package.json", "bun.lock", "tsconfig.json", "bunfig.toml", ".github/workflows/ci.yml",
@@ -114,7 +115,7 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
       if (!["100644", "100755"].includes(paths.get(path)!.mode)) throw new Error("Unsupported symbolic input requires fresh proof");
     }
     const partitions = balanceBrowserSpecs(selected.map(spec => ({ key: `${spec.project}::${spec.file}`, project: spec.project })),
-      2, readBrowserCosts(join(snapshot, "scripts/browser-shard-costs.json"))).map(part => part.map(spec => spec.key));
+      PROOF_SHARDS[category], readBrowserCosts(join(snapshot, "scripts/browser-shard-costs.json"))).map(part => part.map(spec => spec.key));
     const files = entries.filter(entry => included.has(entry.path));
     const material = { version: 2, category, runner, inventory, partitions, directories: closure.directories ?? [], external: closure.external ?? [], ...(closure.nativeDiagram?{nativeDiagram:closure.nativeDiagram}:{}), files };
     return { version: 2, category, runner, inventory, partitions, excluded: [], ...(closure.nativeDiagram?{nativeDiagram:closure.nativeDiagram}:{}),
