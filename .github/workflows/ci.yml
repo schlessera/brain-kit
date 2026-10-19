@@ -200,6 +200,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
@@ -252,6 +255,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
@@ -317,6 +323,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
@@ -371,6 +380,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
@@ -425,6 +437,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
@@ -474,6 +489,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
@@ -524,6 +542,9 @@ jobs:
             tmp/diagram-renderer-proof/
             tmp/mermaid-renderer-proof/
             tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
             packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
             packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
             !packages/ui-kit/**/__screenshots__/**/*-linux.png
