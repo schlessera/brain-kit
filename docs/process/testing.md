@@ -44,6 +44,12 @@ inspecting CI on a PR live in the `work-issue` skill's
   normal transports. Guard regression probes use controlled native sentinels
   so failing-first and mutation runs cannot send external requests or start
   curl.
+- The shared preload disables fixture Git auto-maintenance with command-scope
+  `maintenance.auto=false` and `gc.auto=0`. Guarded spawns carry those settings
+  even when callers replace the environment, preserving their other Git
+  configuration. This includes Bun's `node:child_process` path, inherited shell
+  commands and explicitly preloaded child probes. Production invocations keep
+  their own policy. The startup-view copier still refuses concurrent changes.
 
 ## Runtimes, browsers and doubles
 
