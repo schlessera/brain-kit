@@ -4,7 +4,7 @@ export type BuildPurpose = "production" | "qualification";
 export const operationFor = (purpose: BuildPurpose) => purpose === "production" ? "fixed-isolated-ci-v1" : "fixed-isolated-ci-qualification-v1";
 export type BuildMaterial = { producer: Record<string, string>; configuration: Record<string, string>; installation: string; bun: string };
 export const buildProducerPaths = ["scripts/build.ts", "scripts/build-execution.ts", "scripts/build-receipt.ts", "scripts/build-repeat-observation.ts", "scripts/bin-modes.ts", "scripts/publishable-packages.ts", "scripts/workspace-lease.mjs",
-  "scripts/ci-build-files.ts", "scripts/ci-build-lifetime.ts", "scripts/ci-build-boundary.ts", "scripts/ci-build-operation.ts", "scripts/ci-build-entry.ts", "scripts/ci-build-state.ts", "scripts/ci-build-data.ts", "scripts/ci-build-trace.ts", "scripts/ci-build-consumers.ts", "scripts/ci-build-evidence.ts"];
+  "scripts/ci-build-files.ts", "scripts/ci-build-lifetime.ts", "scripts/ci-build-context.ts", "scripts/ci-build-boundary.ts", "scripts/ci-build-operation.ts", "scripts/ci-build-entry.ts", "scripts/ci-build-state.ts", "scripts/ci-build-data.ts", "scripts/ci-build-trace.ts", "scripts/ci-build-consumers.ts", "scripts/ci-build-evidence.ts"];
 const configuration = (entry: BuildFile) => !/(^|\/)node_modules(?:\/|$)/.test(entry.path) &&
   (/(^|\/)package\.json$/.test(entry.path) || /(^|\/)tsconfig[^/]*\.json$/.test(entry.path) || /(^|\/)bunfig\.toml$/.test(entry.path) || entry.path.endsWith(".css"));
 export function buildMaterial(records: readonly BuildFile[], installation: string, bun: string): BuildMaterial {

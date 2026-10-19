@@ -1,3 +1,4 @@
+import { readBuildKernelContext } from "./ci-build-context";
 /** The only program run by the fixed CI build container. Not a plugin host. */
 import { buildRead, checkBuildPrivateDirectory } from "./ci-build-files";
 import assert from "node:assert/strict";
@@ -41,6 +42,7 @@ if (import.meta.main) {
   for (const [pkg, names] of Object.entries(entry.topology)) {
     assert.deepEqual(readdirSync(`/repo/packages/${pkg}`).sort(), names, "CI_BUILD_INITIAL_PACKAGE_TOPOLOGY");
   }
+  const kernel = readBuildKernelContext();
   const runtime = { bun: digest(buildRead("/tool/bun").bytes), node: { path: entry.node, sha256: digest(buildRead(entry.node).bytes) } };
   assert(mounts.some(mount => mount.target === "/tmp" && mount.type === "tmpfs" && mount.options.split(",").includes("rw")), "CI_BUILD_FRESH_PRIVATE_TMPFS");
   checkBuildPrivateDirectory("/tmp/home"); checkBuildPrivateDirectory("/tmp/cache");
@@ -64,6 +66,6 @@ if (import.meta.main) {
   }
   const receipts = readdirSync("/repo/tmp").filter(name => /^build-\d+-[0-9a-f-]+-probe\.json$/.test(name)).sort()
     .map(name => ({ name, value: JSON.parse(buildRead(join("/repo/tmp", name), undefined, 16 * 1024 * 1024).bytes.toString("utf8")) }));
-  writeFileSync("/repo/tmp/isolated-producer.json", JSON.stringify({ version: 1, kind: entry.mode === "consumers" ? "packed-consumers" : "workspace-build", code, runtime, receipts, consumers, mounts, topology: "checked-after-child-exit" }));
+  writeFileSync("/repo/tmp/isolated-producer.json", JSON.stringify({ version: 1, kind: entry.mode === "consumers" ? "packed-consumers" : "workspace-build", code, runtime, kernel, receipts, consumers, mounts, topology: "checked-after-child-exit" }));
   process.exitCode = code;
 }

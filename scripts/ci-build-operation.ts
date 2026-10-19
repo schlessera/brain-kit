@@ -1,3 +1,4 @@
+import { BuildContextCleanupError, observeBuildContext, readBuildDaemonContext } from "./ci-build-context";
 /** One dormant, fixed isolated build operation. CI intent is not authority. */
 import { dockerControl as docker, inspectOwnedBuildContainer, removeOwnedBuildContainer } from "./ci-build-lifetime";
 import { buildRead } from "./ci-build-files";
@@ -49,7 +50,6 @@ function workspaceScope(root: string) {
   const directory = lstatSync(root), socket = lstatSync("/var/run/docker.sock");
   if (!directory.isDirectory() || !socket.isSocket()) throw new Error("Unsupported fixed build ownership");
   return { root: realpathSync(root), directory: { dev: directory.dev, ino: directory.ino }, uid: process.getuid!(), gid: process.getgid!(),
-    boot: digest(readFileSync("/proc/sys/kernel/random/boot_id")), kernel: digest(readFileSync("/proc/sys/kernel/osrelease")),
     dockerSocket: { dev: socket.dev, ino: socket.ino }, platform: process.platform, arch: process.arch };
 }
 function operationReceipt(root: string, value: unknown) {
@@ -180,7 +180,11 @@ async function execute(root: string, options: Options, policy: Qualification, qu
         return;
       }
       imagePresent(policy.image, dockerConfig);
-      const scope = workspaceScope(root);
+      const context = observeBuildContext(dockerConfig, policy.image, state);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      if (interrupted) throw new Error("Build interrupted during context lookup");
+      if ((proof?.node ?? policy.node.sha256) && context.binding.node !== (proof?.node ?? policy.node.sha256)) throw new Error("Lookup runtime mismatch");
+      const scope = { ...workspaceScope(root), producer: context.binding };
       const key = identity({ version: 1, purpose, domain, inputs: captured.sha256, image: policy.image, bun: bunHash, bunVersion: Bun.version, policy: identity(policy), jobs: options.jobs, scope });
       const stampDirectory = join(root, "tmp", proof ? "ci-build-qualification-cache" : "ci-build-cache");
       if (publish) ownedDirectory(root, stampDirectory, true);
@@ -202,7 +206,7 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       for (const pkg of reused) console.log(`Up to date packages/${pkg} (qualified isolated operation)`);
       if (proof?.consumers && pending.length) throw new Error("Consumer proof requires every current output's successful same-operation receipt");
       if (!pending.length && !proof?.consumers) {
-        const value = { version: 1, kind: "isolated-ci-build", purpose, domain, authority: qualificationOnly ? "none" : "qualified-production", state: qualificationOnly ? "unqualified-private-repeat" : "reused", key, selected, reused, compiled: [], phases, elapsedMs: performance.now() - started };
+        const value = { version: 1, kind: "isolated-ci-build", purpose, domain, authority: qualificationOnly ? "none" : "qualified-production", state: qualificationOnly ? "unqualified-private-repeat" : "reused", context, key, selected, reused, compiled: [], phases, elapsedMs: performance.now() - started };
         proof?.results.push(value);
         operationReceipt(root, value);
         return 0;
@@ -257,7 +261,8 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       if (interrupted || code !== 0) throw new Error(`Isolated compiler failed (${code})`);
       const producer = ownedJSON(join(state, "diagnostics/isolated-producer.json")).value;
       const runtime = producer.runtime;
-      if (runtime?.bun !== bunHash || runtime?.node?.path !== policy.node.path || ((proof?.node ?? policy.node.sha256) && runtime.node.sha256 !== (proof?.node ?? policy.node.sha256))) throw new Error("Consumed runtime mismatch");
+      if (identity(producer.kernel) !== identity(context.binding.kernel) || identity(readBuildDaemonContext(dockerConfig)) !== identity(context.binding.daemon)) throw new Error("Actual producer context changed after lookup");
+      if (runtime?.bun !== bunHash || runtime?.node?.path !== policy.node.path || runtime.node.sha256 !== context.binding.node || ((proof?.node ?? policy.node.sha256) && runtime.node.sha256 !== (proof?.node ?? policy.node.sha256))) throw new Error("Consumed runtime mismatch");
       if (proof?.consumers) {
         if (producer.kind !== "packed-consumers" || producer.code !== 0 || producer.consumers?.completed !== true || identity(producer.consumers.packages) !== identity(selected)) throw new Error("Packed consumer receipt mismatch");
       } else if (!successfulBuildProducer(producer, pending, { path: policy.node.path, sha256: qualificationOnly ? proof?.node ?? null : policy.node.sha256 }, bunHash)) throw new Error("Consumed compiler receipt mismatch");
@@ -287,13 +292,18 @@ async function execute(root: string, options: Options, policy: Qualification, qu
       }
       phases.publishMs = performance.now() - publishStart;
       if (proof) { proof.candidate ??= material; proof.node ??= producer.runtime.node.sha256; }
-      const value = { version: 1, kind: "isolated-ci-build", purpose: diagnostic ? `qualification-${diagnostic}` : purpose, domain, authority: qualificationOnly ? "none" : "qualified-production", artifactDirectory: qualificationOnly ? state : undefined, state: qualificationOnly ? "unqualified" : "compiled", action: proof ? "private-qualification-output" : qualificationOnly ? "qualification-only" : "publish", session, key, selected, reused, compiled: pending, outputs, producer, drained, removed, phases, elapsedMs: performance.now() - started };
+      const value = { version: 1, kind: "isolated-ci-build", purpose: diagnostic ? `qualification-${diagnostic}` : purpose, domain, authority: qualificationOnly ? "none" : "qualified-production", artifactDirectory: qualificationOnly ? state : undefined, state: qualificationOnly ? "unqualified" : "compiled", action: proof ? "private-qualification-output" : qualificationOnly ? "qualification-only" : "publish", session, key, context, selected, reused, compiled: pending, outputs, producer, drained, removed, phases, elapsedMs: performance.now() - started };
       proof?.results.push(value); operationReceipt(root, value);
       if (qualificationOnly && !proof) console.log(`Unqualified build artifacts retained at ${state}; no reuse stamp or workspace output published.`);
       return 0;
     } catch (error) {
       if (containerKnown) preserve = true;
       operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: containerKnown ? "failed" : "unsupported", action: containerKnown ? "fail" : "ordinary-rebuild", reason: containerKnown ? "producer-incomplete" : "boundary-unavailable", phases });
+      if (error instanceof BuildContextCleanupError || interrupted) {
+        preserve = true;
+        operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "failed", action: "fail", session, reason: interrupted ? "context-lookup-interrupted" : "context-cleanup-incomplete", phases });
+        throw error;
+      }
       if (!containerKnown && (!qualificationOnly || proof)) return;
       throw error;
     }

@@ -36,6 +36,16 @@ successful output sample.
 Workspace leases continue coordinating cooperating writers. They do not
 restrict compiler reads. A private container operation has its own explicit
 input boundary; the diagram export operation grants it no inherited authority.
+Every eligible lookup observes the fixed daemon through a fresh, bounded,
+session-owned context container. Its actual boot, kernel release/version, CPU
+affinity and Node bytes join the lookup identity with the daemon identity. The
+compiling container independently reports its context; a mismatch refuses
+publication. A repeat still starts a context reader, even when it starts no
+compiler or stylesheet children. Unavailable context refuses reuse; unconfirmed
+context-container cleanup is a failure. Caller host boot data and socket inode
+equality cannot substitute for this observation. These are necessary context
+bindings, not proof of clock, entropy, hardware or other ambient independence.
+
 Normal and isolated builds share the concrete compiler/copy/bin scheduler,
 without an extension or plugin interface. The isolated entry receives only
 validated manifest-selected pending packages. No public CLI or environment

@@ -11,7 +11,7 @@ function fixture() {
  const workspace = join(controller,"workspace"), state = join(workspace,"tmp/isolated-ci-build/operation-Ithaca"), session = "00000000-0000-4000-8000-000000000001";
  mkdirSync(state,{recursive:true,mode:0o700});
  const file=(path:string,bytes:string)=>{mkdirSync(join(state,path,".."),{recursive:true,mode:0o700});writeFileSync(join(state,path),bytes);};
- for(const path of ["invocation.json","entry.json","container-boundary.json","diagnostics/isolated-producer.json"])file(path,"{}");
+ for(const path of ["context.json","invocation.json","entry.json","container-boundary.json","diagnostics/isolated-producer.json"])file(path,"{}");
  file("cleanup.json",JSON.stringify({session,containerID:"a".repeat(64),drained:true,removed:true}));file("tool/bun","captured runtime fixture");
  file("parents/common/dist/index.js",'export const harbour="Ithaca";\n');
  const output=identity(outputFiles(join(state,"parents/common/dist")));
@@ -23,6 +23,7 @@ test("controller compaction retains exact output/runtime/evidence before removin
  const actual=compactBuildEvidence(f.workspace,f.controller,f.result), receipt=JSON.parse(readFileSync(join(actual.artifactDirectory,"retained.json"),"utf8"));
  expect(existsSync(f.state),"CI_BUILD_DRAINED_DUPLICATE_CAPTURE_REMOVED").toBe(false);expect(existsSync(join(other,"keep"))).toBe(true);
  expect(receipt.files.map((file:any)=>file.path)).toContain("cleanup.json");expect(receipt.removedCapture).toBe(true);
+ expect(receipt.files.map((file:any)=>file.path),"CI_BUILD_CONTEXT_RECEIPT_RETAINED").toContain("context.json");
  expect(identity(outputFiles(join(f.controller,receipt.outputs.common.path))),"CI_BUILD_RETAINED_OUTPUT_IDENTITY").toBe(f.result.outputs.common);
  expect(digest(readFileSync(join(f.controller,"runtime",`bun-${f.result.producer.runtime.bun}`)))).toBe(f.result.producer.runtime.bun);
 });

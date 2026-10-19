@@ -36,7 +36,7 @@ async function compilerDrain(storageFailure?: StorageFailure) {
   const release = join(root, "release");
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
       copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });
@@ -127,7 +127,7 @@ async function successfulBuild(storageFailure?: StorageFailure) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-compiler-levels-"));
   try {
     mkdirSync(join(root, "scripts"));
-    for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+    for (const file of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
       copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
     }
     mkdirSync(join(root, "node_modules/.bin"), { recursive: true });

@@ -21,7 +21,7 @@ export function compactBuildEvidence(workspace: string, controller: string, resu
     writeFileSync(join(evidence, path), file.bytes, { flag: "wx", mode }); chmodSync(join(evidence, path), mode);
     files.push({ path, sha256: digest(file.bytes), mode });
   };
-  for (const path of ["invocation.json", "entry.json", "container-boundary.json", "cleanup.json", "diagnostics/isolated-producer.json"]) retain(path);
+  for (const path of ["context.json", "invocation.json", "entry.json", "container-boundary.json", "cleanup.json", "diagnostics/isolated-producer.json"]) retain(path);
   for (const path of buildNames(join(state, "diagnostics"))) if (/^build-[0-9]+-[0-9a-f-]+-probe\.json$/.test(path) || path === "qualification-syscalls.log") retain(`diagnostics/${path}`);
   const bun = buildRead(join(state, "tool/bun")); assert.equal(digest(bun.bytes), result.producer.runtime.bun);
   const runtime = join(controller, "runtime"); mkdirSync(runtime, { recursive: true, mode: 0o700 });
