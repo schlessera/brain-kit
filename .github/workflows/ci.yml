@@ -190,6 +190,7 @@ jobs:
             tmp/unit-report-summary.json
             tmp/unit-worker-*.xml
             tmp/unit-worker-*.json
+            tmp/unit-worker-diagnostics/
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
