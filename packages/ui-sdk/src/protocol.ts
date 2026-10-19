@@ -3741,3 +3741,7 @@ export interface ServerScopeDecisionReceipt {
   reason?: string;
 }
 export type { ScopeCapReceipt, ScopeDimension, TurnScopeSummary } from "./turn-journal.js";
+
+export type { StorageCoverage, StorageOwner, StorageBytes, StorageRoot, StorageCapacityView, StorageFileEntry, StorageSnapshot, StorageStatus, StoragePage, StorageFilter, StorageReferenceEvidence, StorageMaintenanceKind, StorageMaintenanceRequest, StorageMaintenanceItem, StorageMaintenanceObservation, StorageMaintenanceReceipt, StorageMaintenanceRow, StorageTreeNode, StorageTreeFilter, StorageTreePage } from "./storage.js";
+export type { StorageRemovalInspection, StorageRemovalReviewRequest, StorageRemovalStartRequest, StorageRemovalUndoRequest, StorageRemovalFile, StorageRemovalReview, StorageRemovalItem, StorageRemovalReceipt, StorageRemovalCapability } from "./storage-removal.js";
+export type { StorageHistoryTier, StorageSeverity, StorageEvidenceReason, StorageObservedRate, StorageScenario, StorageCapacityEvidence, StorageHistoryCapacity, StorageHistoryObservation, StorageHistoryResponse, StoragePressureView, StorageGuidanceResponse } from "./storage-guidance.js";

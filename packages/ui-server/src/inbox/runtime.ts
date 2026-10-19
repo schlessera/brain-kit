@@ -176,6 +176,8 @@ export function createInboxRuntime(db: Database, deps: {
   arm();
   return {
     ready,
+    /** Concrete cleanup owner only; does not route or dispatch inbox work. */
+    cleanup: cleanup ? (request: Parameters<typeof cleanup.run>[0]) => cleanup.run(request) : undefined,
     tick,
     async poke() {
       if (closed) return { ...result(), rearmed: false, closed: true };

@@ -1418,7 +1418,12 @@ describe("the WAL after an index run (#423)", () => {
   });
 
   test("a reader holding a transaction open makes the checkpoint busy, not the run", async () => {
-    const root = bulkyCorpus();
+    // A read snapshot makes the checkpoint busy regardless of corpus size.
+    // The preceding controls retain the multi-megabyte truncation proof.
+    const root = makeCorpus({
+      "notes/bulk-0.md": md("Bulk 0", "Odysseus prepares the return voyage."),
+      "notes/unchanged.md": md("Unchanged", "Penelope keeps the arrival record."),
+    });
     await runIndex(root);
     writeFileSync(join(root, "notes/bulk-0.md"), md("Bulk 0", "rewritten so the run writes"));
 

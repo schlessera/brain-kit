@@ -51,7 +51,7 @@ const MUTATING_COMMANDS = new Set([
   // render writes the rendered file into the repo.
   "render",
   // scratch removes files from the brain's scratch area.
-  "scratch",
+  "scratch", "storage",
 ]);
 
 /**
@@ -62,6 +62,7 @@ const MUTATING_COMMANDS = new Set([
 const MUTATING_SUBCOMMAND: Record<string, string> = {
   skills: "sync",
   graph: "compute",
+  storage: "pack",
 };
 
 /**
@@ -128,7 +129,7 @@ async function main(): Promise<number> {
   const { command, wantsHelp } = scanCliArgs(argv);
 
   // Storage observes host-selected roots without executing repository config.
-  if (command === "storage") {
+  if (command === "storage" && argv[1] !== "pack") {
     const { storageCommand, runStorageInventory } = await import("./commands/storage.js");
     if (wantsHelp) { console.log(storageCommand.helpBlock); return 0; }
     await runStorageInventory(argv.slice(1), json);
