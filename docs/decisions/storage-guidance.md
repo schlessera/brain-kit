@@ -15,8 +15,9 @@ record overhead for longer daily retention; physical SQLite/WAL overhead remains
 separately measured operational storage. Exhausted metadata capacity pauses
 history rather than destroying previous valid evidence.
 
-Observed rates describe measured change. Short- and long-window capacity
-exhaustion estimates are conditional scenarios, shown only with sufficient
+Observed rates describe measured change. The approved [seven-day and 30-day
+windows](https://github.com/schlessera/brain-kit/issues/2014#issuecomment-6212083563)
+yield conditional capacity-exhaustion scenarios, shown only with sufficient
 comparable evidence and identified by their windows. A range is not a confidence
 interval. Missing, partial or incompatible data cannot produce a number or clear
 a warning. Qualified flat/falling depletion is labelled without infinite headroom.

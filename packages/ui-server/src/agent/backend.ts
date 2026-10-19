@@ -56,6 +56,8 @@ export interface BackendRegistryOptions {
 
 export interface BackendRegistry {
   getBackends(): Promise<AgentBackend[]>;
+  /** Inspect already constructed owners without triggering runtime setup or discovery. */
+  peekBackends?(): readonly AgentBackend[] | null;
   getBackendById(id: string): Promise<AgentBackend | undefined>;
   getDefaultBackend(): Promise<AgentBackend>;
   getDefaultBackendId(): Promise<string>;
@@ -475,6 +477,7 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
   };
   const backendLog = options.log ? toBackendLog(options.log) : undefined;
   let cachedRegistry: Promise<RegistrySnapshot> | null = null;
+  let loadedRegistry: RegistrySnapshot | null = null;
 
   async function buildRegistry(): Promise<RegistrySnapshot> {
     const entries = activeFirstPartyBackends(agent);
@@ -523,10 +526,10 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
   }
 
   const getRegistry = (): Promise<RegistrySnapshot> => {
-    if (!cachedRegistry) cachedRegistry = buildRegistry();
+    if (!cachedRegistry) cachedRegistry = buildRegistry().then(value => (loadedRegistry = value));
     return cachedRegistry;
   };
-  return makeRegistry(getRegistry, options);
+  return makeRegistry(getRegistry, options, () => loadedRegistry);
 }
 
 export function createStaticBackendRegistry(
@@ -556,7 +559,7 @@ export function createStaticBackendRegistry(
     resolved,
     options.modelSource ?? null
   );
-  return makeRegistry(async () => snapshot, options);
+  return makeRegistry(async () => snapshot, options, () => snapshot);
 }
 
 function makeRegistry(
@@ -566,7 +569,8 @@ function makeRegistry(
     getDefaultModelId?: () => string | null;
     getBillingOverrides?: () => Record<string, BillingMode>;
     log?: Logger;
-  }
+  },
+  peek?: () => RegistrySnapshot | null
 ): BackendRegistry {
   let profileSnapshot: ProfileSnapshot | null = null;
 
@@ -643,6 +647,7 @@ function makeRegistry(
   }
 
   return {
+    peekBackends: () => peek?.()?.backends ?? null,
     async getBackends() {
       return (await getRegistry()).backends;
     },
