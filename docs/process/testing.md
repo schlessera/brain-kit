@@ -426,3 +426,22 @@ fresh execution; registration alone is not invocation. Registered dormant
 callbacks require the same complete call/escape audit, and a mutation of that
 activation guard must fail the named assertion.
 The exact audited configuration/source guard makes unsupported edits fresh.
+
+## Focused native scratch-mask proof
+
+The separately named scratch variant uses the existing identity/Btrfs fixture:
+
+```sh
+bun scripts/prove-worker-identity.ts --image="$NATIVE_PROOF_IMAGE" \
+  --shared-git --private-git-inputs --native-phase-only \
+  --application-qualification --scratch-mask --boot-prune-capture
+```
+
+It joins the captured real boot prune before opening its governed turns. The
+fresh turn checks native agent identity and Git ignore, exact browser PNG
+application, genuine nonignored refusal, pin retention and pruning. The warm
+turn checks failed-query and unavailable-worker refusals without overwriting
+the existing mask. The dedicated backend drives the real host bridge; it does
+not call an image provider. The ordinary native SDK fixture remains unchanged.
+All selected phase deadlines, final joins, diagnostics and owned cleanup remain
+required. This partial composition does not replace complete PR proof.
