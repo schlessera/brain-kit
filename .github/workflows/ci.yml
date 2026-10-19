@@ -197,6 +197,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -242,6 +249,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -300,6 +314,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -347,6 +368,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -394,6 +422,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -436,6 +471,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -479,6 +521,13 @@ jobs:
             packages/ui-kit/.vitest-attachments/
             packages/ui-react/.vitest-attachments/
             .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
