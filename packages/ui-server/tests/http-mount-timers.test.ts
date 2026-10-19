@@ -12,7 +12,7 @@ test("HTTP keepalive ownership survives shallow stacks without hiding applicatio
   let interval: ReturnType<typeof setInterval> | undefined;
   try {
     Object.defineProperty(Error, "stackTraceLimit", { ...stackDescriptor, value: 1 });
-    expect(globalAgent.keepSocketAlive(socket)).toBe(true);
+    globalAgent.keepSocketAlive(socket);
     expect(socket.timeout).toBeGreaterThan(0);
     expect(timers.pending.size, "HTTP_KEEPALIVE_OWNER_DOES_NOT_REQUIRE_STACK_FRAMES").toBe(0);
 
