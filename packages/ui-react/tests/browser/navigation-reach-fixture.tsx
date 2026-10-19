@@ -12,7 +12,7 @@
  * Three things are proved here, each per width:
  *
  * 1. **Inventory.** The palette's rows, read from the mounted palette, are
- *    exactly the commands this file routes. A command added to the palette
+ *    exactly the commands these specs route. A command added to the palette
  *    without a route here fails, so "every command" cannot drift.
  * 2. **The desktop matrix.** For 480, 900, 1279, 1280 and 1440, every start
  *    state (empty and occupied Chat, Sessions, Actions, Graph, Files and
@@ -33,10 +33,8 @@
  * overflows the document sideways.
  */
 /// <reference types="@vitest/browser-playwright" />
-// Activity migrations need the same real fine/coarse/mixed pointer scenes.
-import "./durable-actions.layout.js";
-import { afterAll, afterEach, beforeAll, expect, inject, test, vi, type TestContext } from "vitest";
-import { commands, page, userEvent } from "vitest/browser";
+import { afterAll, afterEach, beforeAll, expect, inject, vi, type TestContext } from "vitest";
+import { commands, page } from "vitest/browser";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { BrainUiProvider } from "../../src/root-context.js";
@@ -419,92 +417,6 @@ async function walk(s: Scene, steps: Step[], mode: string, toward: string) {
   }
 }
 
-test("the matrix: every target has a count for every start at every width", () => {
-  for (const width of DESKTOP) for (const start of startsAt(width)) for (const name of Object.keys(targets)) {
-    expect(Number.isInteger(allowed(name, start, width)), `${name} from ${start} at ${width}`).toBe(true);
-  }
-  expect(new Set(PALETTE_ROWS).size, "one target per palette row").toBe(PALETTE_ROWS.length);
-});
-
-for (const width of [320, 390, ...DESKTOP]) for (const theme of ["dark", "light"] as const) {
-  test(width < 480 ? `inventory at ${width} (${theme}): no phone palette, including programmatic opening`
-    : `inventory at ${width} (${theme}): the palette's rows are exactly the commands routed here`, async (ctx) => {
-    pointer();
-    const s = await mount(ctx, "occupied", { width, theme });
-    ui$(s).setPaletteOpen(true);
-    await settle(s);
-    if (width < 480) {
-      expect(ui$(s).paletteOpen, "phone guard clears programmatic opening").toBe(false);
-      expect(s.host.querySelector('[data-palette]'), "no hidden modal below 480").toBeNull();
-      return;
-    }
-    const rows = paletteRows(s);
-    expect([...rows].sort(), `the palette at ${width} lists the routed commands`).toEqual([...PALETTE_ROWS].sort());
-    expect(rows.filter((r) => r === "Sessions"), "Sessions once").toHaveLength(1);
-  });
-}
-
-for (const width of DESKTOP) for (const start of startsAt(width)) for (const [name, target] of Object.entries(targets)) {
-  test(`D52 §2 desktop matrix at ${width} from ${start}: ${name}`, async (ctx) => {
-    const mode = pointer();
-    const s = await mount(ctx, start, { width, theme: themeOf(start) });
-    s.writes.length = 0;
-    // Already there is 0 (D52 §2); otherwise the adopted path.
-    const steps = target.reached(s) ? [] : target.path(start, width);
-    await walk(s, steps, mode, `${name} from ${start}`);
-    await expect.poll(() => target.reached(s), { message: `${name} from ${start} at ${width} (${mode}) after ${steps.length}` }).toBe(true);
-    await expect.poll(() => SURFACE[name]!(s), { message: `${name} is drawn, not only flagged, from ${start} at ${width}` }).toBe(true);
-    expect(steps.length, `activations to ${name} from ${start} at ${width} (D52 §2)`).toBe(allowed(name, start, width));
-    // Opening Search, Add, the briefing or a panel writes nothing; Sync
-    // starts its own job and nothing else. The briefing only reads (#1391).
-    await settle(s);
-    const job = name === "Sync" ? ["POST /api/brain/sync"] : [];
-    await expect.poll(() => s.writes, { message: `${name} from ${start}: requests that write` }).toEqual(job);
-    expect(document.documentElement.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(width);
-  });
-}
-
-/**
- * Parity: from the same start, the command's dedicated route and its palette
- * row end in the same effect. The palette row is pressed by pointer from 480
- * up. Below 480 there is no palette; the same actual pointer action at
- * 480 is the reference the phone route is compared with.
- */
-const PHONE_PATHS: Record<string, Step[]> = {
-  Chat: [tab("Chat")], Sessions: [tab("Sessions")], Actions: [tab("Actions")], Files: [tab("Files")],
-  Settings: [tab("More"), button(/^Settings/)], Graph: [tab("More"), button(/^Graph/)],
-  "New chat": [button("New chat")], Search: [button("Search the brain")],
-  "Add a note": [tab("More"), button(/^Add a note/)], "Daily briefing": [tab("More"), button(/^Daily briefing/)],
-  Sync: [tab("More"), button(/^Sync the brain/)], Stats: [tab("More"), button(/^Brain statistics/)],
-};
-for (const width of [320, 390, ...DESKTOP]) for (const [name, target] of Object.entries(targets)) {
-  if (!target.palette) continue;
-  const start: Start = name === "Chat" ? "actions" : "occupied";
-  test(`parity at ${width}: ${name}'s route and its palette row do the same thing`, async (ctx) => {
-    const mode = pointer();
-    const theme = width % 2 ? "light" : "dark";
-    const reference = await (async () => {
-      const s = await mount(ctx, start, { width: Math.max(480, width), theme });
-      s.writes.length = 0;
-      await walk(s, palette(target.palette!), mode, `${name} by the visible palette`);
-      await expect.poll(() => target.reached(s), { message: `${name} by the palette row` }).toBe(true);
-      await settle(s);
-      const reference = effect(s);
-      // Native modals from the reference must close before another root is tested.
-      s.dispose();
-      return reference;
-    })();
-    const s = await mount(ctx, start, { width, theme });
-    s.writes.length = 0;
-    await walk(s, width < 480 ? PHONE_PATHS[name]! : target.path(start, width), mode, `${name} by its route`);
-    await expect.poll(() => target.reached(s), { message: `${name} by its route` }).toBe(true);
-    await settle(s);
-    const routed = effect(s);
-    // The pane takes focus from the rail and the palette alike; elsewhere focus is the route's own.
-    expect({ ...routed, paneFocused: name === "Sessions" ? routed.paneFocused : null }, `${name}: route and palette agree`)
-      .toEqual({ ...reference, paneFocused: name === "Sessions" ? reference.paneFocused : null });
-  });
-}
 
 /**
  * The palette's one conditional row: Continue on another backend (#61), shown
@@ -581,113 +493,5 @@ async function mountHandoff(ctx: TestContext, width: number, theme: "dark" | "li
 /** The review the handoff opens, for which session. */
 const handoffOpen = (s: Scene) => s.ui.stores.handoff.getState().sheet?.sourceSessionId ?? null;
 
-for (const width of [320, 390, ...DESKTOP]) {
-  test(`the conditional row at ${width}: ${HANDOFF} is listed for a stored session, and its row's overflow does what the palette row does`, async (ctx) => {
-    const mode = pointer();
-    const theme = width % 2 ? "light" : "dark";
-    const reference = await (async () => {
-      // At phone widths the parity reference intentionally mounts at 480:
-      // the palette has no phone surface, so its first visible width is the reference.
-      const s = await mountHandoff(ctx, Math.max(480, width), theme);
-      ui$(s).setPaletteOpen(true);
-      await settle(s);
-      expect([...paletteRows(s)].sort(), "the palette lists the routed commands and the handoff").toEqual([...PALETTE_ROWS, HANDOFF].sort());
-      ui$(s).setPaletteOpen(false);
-      await settle(s);
-      await walk(s, palette(HANDOFF), mode, `${HANDOFF} by the visible palette`);
-      await expect.poll(() => handoffOpen(s), { message: `${HANDOFF} by the palette row` }).toBe(ITHACA.id);
-      await settle(s);
-      const reference = { ...effect(s), review: handoffOpen(s) };
-      s.dispose();
-      return reference;
-    })();
-    expect(reference.review, "the palette row opened a review").toBe(ITHACA.id);
-    const s = await mountHandoff(ctx, width, theme);
-    const overflow: Step = { name: `More for ${ITHACA.title}`, find: (x) => find(x, `More for ${ITHACA.title}`) };
-    const item: Step = { name: HANDOFF, find: (x) => find(x, new RegExp(`^${HANDOFF}`), "menuitem") };
-    await walk(s, [...(wideAt(width) ? [] : [tab("Sessions")]), overflow, item], mode, `${HANDOFF} by the row's overflow`);
-    await expect.poll(() => handoffOpen(s), { message: `${HANDOFF} by the row's overflow` }).toBe(ITHACA.id);
-    await settle(s);
-    // The Sessions drawer the route went through is the only difference.
-    const routed = { ...effect(s), review: handoffOpen(s) };
-    expect({ ...routed, panels: routed.panels.filter((p) => p !== "sessionPanelOpen"), paneFocused: null },
-      `${HANDOFF}: the overflow and the palette agree`).toEqual({ ...reference, panels: reference.panels.filter((p) => p !== "sessionPanelOpen"), paneFocused: null });
-  });
-}
-
-/**
- * The palette's rows are the only pointer route to Graph, Sync and Stats
- * (D52 §1), so under a coarse pointer each must be a 44px target (D20), and
- * the row's own box must take a press at each of its four inset corners:
- * the rows sit 2px apart, so a neighbour's reach would show up there. Under
- * a fine pointer the rows keep their 34px density (35.7px with a chip)
- * (#1120).
- */
-for (const width of DESKTOP) for (const theme of ["dark", "light"] as const) {
-  test(`palette rows at ${width} (${theme}): 44px targets under a coarse pointer, mouse density under a fine one`, async (ctx) => {
-    const mode = pointer();
-    const s = await mount(ctx, "occupied", { width, theme });
-    await walk(s, [allCommands], mode, "the palette");
-    const rows = [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')];
-    expect(rows.length, "the palette lists its rows").toBe(PALETTE_ROWS.length);
-    for (const row of rows) {
-      // The list scrolls on a short palette, as a thumb would scroll it.
-      row.scrollIntoView({ block: "nearest" });
-      await settle(s, 1);
-      const r = rect(row);
-      const name = row.textContent ?? "";
-      for (const [x, y] of [[r.left + 1, r.top + 1], [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]] as const) {
-        const hit = document.elementFromPoint(x, y);
-        expect(row.contains(hit), `the row's own box takes a press at ${x},${y}: ${name} hit ${hit?.outerHTML.slice(0, 120)}`).toBe(true);
-      }
-      if (mode === "fine") {
-        expect(Math.round(r.height * 10) / 10, `fine-pointer density: ${name}`).toBe(/sync|spends/.test(name) ? 35.7 : 34);
-      } else {
-        expect(r.height, `44px target height: ${name}`).toBeGreaterThanOrEqual(43.5);
-        expect(r.width, `44px target width: ${name}`).toBeGreaterThanOrEqual(43.5);
-      }
-    }
-  });
-}
-
-/**
- * Keyboard alone, from 480 up: Tab reaches All commands, Enter opens the
- * palette with focus in its query, arrows reach each row and Enter runs it,
- * with the same effect a pointer gets. Esc from an opened palette returns
- * focus to All commands.
- */
-for (const width of DESKTOP) for (const [name, target] of Object.entries(targets)) {
-  if (!target.palette) continue;
-  test(`keyboard only at ${width}: All commands → ${target.palette}`, async (ctx) => {
-    pointer();
-    const s = await mount(ctx, "occupied", { width, theme: width % 2 ? "light" : "dark" });
-    s.writes.length = 0;
-    const all = allCommands.find(s)!;
-    (document.activeElement as HTMLElement | null)?.blur();
-    // The rail's three stops: destinations, acts, All commands.
-    for (let i = 0; i < 3; i++) await userEvent.tab();
-    expect(document.activeElement, "Tab reaches All commands").toBe(all);
-    await userEvent.keyboard("{Enter}");
-    await settle(s);
-    const dialog = () => s.host.querySelector<HTMLElement>('[role="dialog"][aria-label="Command palette"]');
-    expect(dialog(), "Enter opens the palette").not.toBeNull();
-    expect(document.activeElement, "focus enters the query").toBe(dialog()!.querySelector("input"));
-    await userEvent.keyboard("{Escape}");
-    await settle(s);
-    expect(dialog()).toBeNull();
-    expect(document.activeElement, "Esc returns focus to All commands").toBe(all);
-    await userEvent.keyboard("{Enter}");
-    await settle(s);
-    const enabled = [...dialog()!.querySelectorAll<HTMLElement>('[role="option"]:not([aria-disabled="true"])')];
-    const index = enabled.findIndex(row => (row.textContent ?? "").startsWith(target.palette!));
-    expect(index, `${target.palette} is listed`).toBeGreaterThanOrEqual(0);
-    await userEvent.keyboard("{ArrowDown}");
-    for (let i = 0; i < index; i++) await userEvent.keyboard("{ArrowDown}");
-    expect((document.activeElement?.textContent ?? "").startsWith(target.palette!), `arrows reach ${target.palette}`).toBe(true);
-    await userEvent.keyboard("{Enter}");
-    await settle(s);
-    await expect.poll(() => target.reached(s), { message: `${name} by keyboard` }).toBe(true);
-    await expect.poll(() => SURFACE[name]!(s), { message: `${name} is drawn after the keyboard route` }).toBe(true);
-    expect(dialog(), "running a row closes the palette").toBeNull();
-  });
-}
+export { DESKTOP, PALETTE_ROWS, SURFACE, allowed, allCommands, button, effect, find, handoffOpen, HANDOFF, ITHACA, mount, mountHandoff, palette, paletteRows, pointer, rect, settle, startsAt, tab, targets, themeOf, ui$, walk, wideAt };
+export type { Start, Step };
