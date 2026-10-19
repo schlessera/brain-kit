@@ -68,8 +68,8 @@ if (worker) {
     app = await httpContractApp({ staticRoot: true, env: { VOICE_PROVIDER: provider.id }, speechProvider: provider, registry: createStaticBackendRegistry([backend]) });
     process.stderr.write("[external-speech] bundling public browser client\n");
     const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:"client.js"}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/external-speech-browser.ts"), app.staticRoot], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const [bundleOut, bundleErr, bundleCode] = await Promise.all([relay(bundle.stdout), relay(bundle.stderr), bundle.exited]);
-    if (bundleCode !== 0) throw new Error(`Speech fixture client build failed: ${bundleOut}\n${bundleErr}`);
+    const [bundleOut, bundleErr, bundleCode] = await runtimeHookPhases("external-speech-runtime").child("client-bundle", bundle, relay);
+    if (bundleCode !== 0) throw new Error(`Speech fixture client build failed (${bundleCode}, ${bundle.signalCode ?? "no signal"}): ${bundleOut}\n${bundleErr}`);
     for (const [file, pkg] of [["kit.css", "ui-kit"], ["app.css", "ui-react"]]) {
       await writeFile(resolve(app.staticRoot, file!), await readFile(resolve(repo, `packages/${pkg}/dist/styles.css`)));
     }

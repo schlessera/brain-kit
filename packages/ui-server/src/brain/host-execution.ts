@@ -52,6 +52,8 @@ export interface HostExecution {
   /** Null until the database is attached. */
   gate(): WriterGate | null;
   manifests(): GovernedManifests | null;
+  /** Existing quarantine only; reading this does not create it. */
+  quarantinePath(): string | undefined;
   /**
    * Reconciles every abandoned governed turn on an existing database (with
    * none, nothing is created, so a refused boot leaves no database behind),
@@ -90,6 +92,7 @@ export function createHostExecution(options: { brainPath: string; dbPath: string
     boundary,
     gate: () => gate,
     manifests: () => manifests,
+    quarantinePath: () => quarantineDir,
     reconcileExisting() {
       if (options.dbPath === ":memory:" || !existsSync(options.dbPath)) return [];
       const db = createUiDb(options.dbPath);
