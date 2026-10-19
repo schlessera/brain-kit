@@ -203,6 +203,8 @@ test("Settings mint: credential stays above the drawer, requires acknowledgement
   // Mutation: remove the credential saved-acknowledgement guard; disabled Done assertion fails.
   const s = await mount(ctx, 800);
   flushSync(() => { s.ui.stores.ui.getState().setSettingsTab("devices"); s.ui.stores.ui.getState().openPanel("settings"); });
+  // Opening starts the lazy load; retain the poll for the resulting React DOM.
+  await import("../../src/components/settings/devices-agents-tab.js");
   await expect.poll(() => s.host.querySelector("#agent-label")).not.toBeNull();
   await userEvent.fill(s.host.querySelector<HTMLInputElement>("#agent-label")!, "Eumaeus");
   const mint = [...s.host.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.textContent === "Create agent credential")!;
