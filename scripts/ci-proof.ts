@@ -79,8 +79,8 @@ if (import.meta.main) {
       const needs = JSON.parse(process.env.PROOF_NEEDS ?? "null");
       const root = resolve(import.meta.dir, "..");
       const event = process.env.GITHUB_EVENT_PATH ? await Bun.file(process.env.GITHUB_EVENT_PATH).json() : {};
-      if (process.env.GITHUB_ACTIONS === "true") validateSelections(root, event, process.env, needs?.changeset?.outputs);
       await requireCandidate(root, event, process.env);
+      if (process.env.GITHUB_ACTIONS === "true") validateSelections(root, event, process.env, needs?.changeset?.outputs);
       const context = contextFromEvent(event, process.env);
       const value = needs?.changeset?.outputs?.reuse;
       const retained = value ? await retainedCategories(root, JSON.parse(value), context,

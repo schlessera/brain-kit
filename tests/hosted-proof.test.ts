@@ -61,6 +61,23 @@ test("emitted aggregate executable fails a cancelled selected job and accepts it
   }
 });
 
+test("hosted aggregate requires live draft readiness before selection planning", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "candidate-event-")); directories.push(directory);
+  const eventPath = join(directory, "event.json");
+  writeFileSync(eventPath, JSON.stringify({ action: "synchronize",
+    pull_request: { number: 7, draft: true, head: { sha: "a".repeat(40) } } }));
+  // Missing selections deliberately stop a bypass at the cheap cadence check.
+  // No repository plan or matching selection fixture is needed to reach readiness.
+  const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
+    env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: eventPath,
+      GITHUB_REPOSITORY: "odysseus/brain-kit", GH_TOKEN: "", GITHUB_TOKEN: "", PROOF_NEEDS: "{}" },
+    stdout: "pipe", stderr: "pipe" });
+  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(code, err).toBe(1);
+  expect(err, "AGGREGATE_MUST_REQUIRE_LIVE_DRAFT_READINESS").toContain("Draft proof requires live read-only GitHub readiness verification");
+  expect(out).not.toContain("All selected hosted proof passed");
+});
+
 test("affected complete discovery admits new files and reverse dependencies without unrelated packages", () => {
   const dir = mkdtempSync(join(tmpdir(), "hosted-proof-")); directories.push(dir);
   const packages: Workspace[] = [
