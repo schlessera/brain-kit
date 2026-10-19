@@ -62,9 +62,10 @@ The [reader-consistency ruling](https://github.com/schlessera/brain-kit/issues/2
 keeps shared reads live. Existing readers see refreshed source on subsequent
 reads; a multi-step inspection may span revisions. Readers protect source
 against capacity eviction, not revision updates. Publish only complete,
-validated acquisition results. Stable multi-step reads require a managed
-worktree from a reported commit, rather than pinning shared source per turn or
-waiting for all readers before refreshing.
+validated acquisition results, and report the current revision and freshness
+honestly. Stable multi-step reads require a managed worktree from a reported
+commit, rather than pinning shared source per turn or waiting for all readers
+before refreshing.
 
 The [failure ruling](https://github.com/schlessera/brain-kit/issues/2390#issuecomment-6248467569)
 returns the previous usable authorized source when refresh fails, explicitly
@@ -152,6 +153,13 @@ the concrete per-operation/worktree attribution metric, Git/checkout and
 staging allocations, relevant allocation overhead and safe pending-write
 reservations without double-counting allocated/reserved bytes. A Btrfs label
 alone proves neither efficient sharing nor actual-allocation enforcement.
+
+The existing `StorageInventory` reports logical-byte totals and allocation
+observations based on `512 * st_blocks`, with an explicit warning that shared
+extents may be charged more than once (`StorageInventory`,
+`packages/core/src/lib/storage-inventory.ts:25-35`). Those observations are not
+the unique aggregate allocation metric selected for this pool; reusing storage
+management owners does not qualify their existing inventory as that metric.
 
 This allowance is separate from the unchanged brain-content retained-history
 policy in [native brain storage](native-brain-storage.md), which charges
