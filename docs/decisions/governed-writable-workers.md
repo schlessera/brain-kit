@@ -1241,7 +1241,11 @@ provisional maintainer choices because historical distributions were absent.
 Policy overrides remain supported; independent hard limits are unchanged.
 
 Continue adds the original cap exactly once per dimension in the turn, with
-the finite ceiling displayed first. A second hit for that dimension is Stop-only;
+the finite ceiling displayed first. It is offered and accepted only while the
+latest reliable observation is strictly below that ceiling. Equality or a larger
+overshoot exhausts the finite recovery and shows its exact Stop-only reason;
+submission rechecks headroom without consuming a refused grant. Incomplete
+observations cannot establish headroom. A second hit for that dimension is Stop-only;
 other dimensions retain independent grants. The existing max(5%, 2 GiB) free-space
 floor is Stop-only. True voice stops, dictation is interactive, and Queue authority
 is unchanged. Paused work remains paused with an authorized session client;
