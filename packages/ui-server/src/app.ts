@@ -4,7 +4,7 @@ import { createSharedStorageScan } from "./storage/shared-scan.js";
 import { createStorageNotifier } from "./storage/notify.js";
 import { createStorageGuidance } from "./storage/guidance.js";
 import { createStorageSampling } from "./storage/sampling.js";
-import storagePackage from "../package.json";
+import storagePackage from "../package.json" with { type: "json" };
 import { createStorageRemoval } from "./storage/removal.js";
 import { createStorageRemovalRoutes } from "./routes/storage-removal.js";
 import { createStorageMaintenance } from "./storage/maintenance.js";

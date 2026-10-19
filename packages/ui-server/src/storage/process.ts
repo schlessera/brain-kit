@@ -5,7 +5,7 @@ import { realpathSync, readFileSync } from "node:fs";
 import type { MetadataRoot, MetadataResult } from "./metadata.js";
 const inside = (root: string, path: string) => { const rel = relative(root, path); return !rel || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../")); };
 /** Verify the installed public reader, never code or executables from content. */
-function coreReader(brainPath: string, subpath: "storage" | "queries"): string {
+export function coreReader(brainPath: string, subpath: "storage" | "queries"): string {
   const manifestPath = realpathSync(fileURLToPath(import.meta.resolve("@schlessera/brain/package.json")));
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (manifest.name !== "@schlessera/brain") throw Error("storage-reader-unavailable");

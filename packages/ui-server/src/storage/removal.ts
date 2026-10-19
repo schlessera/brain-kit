@@ -3,7 +3,8 @@ import { subprocessEnv } from "../config/env.js";
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { inspectStorageAttachment, removeStorageAttachment, restoreStorageAttachment, storageAttachmentPath, storageAttachmentVacant, StorageAttachmentRefusal, type StorageAttachmentVersion, type StorageAttachmentFacts } from "@schlessera/brain/storage";
+import { createRequire } from "node:module";
+import type { StorageAttachmentVersion } from "@schlessera/brain/storage";
 import type { JournalVersion, StorageRemovalInspection, StorageRemovalCapability, StorageRemovalReview, StorageRemovalReceipt, StorageRemovalFile } from "@schlessera/brain-ui-sdk/protocol";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
@@ -13,6 +14,7 @@ import { SELF, processAlive, type WriterGate } from "../brain/writer-gate.js";
 import { StorageUnavailable, type StorageCoordinator } from "./coordinator.js";
 import { readRemovalFacts } from "./removal-facts.js";
 import { storageObservation } from "./maintenance.js";
+import { coreReader } from "./process.js";
 
 export const STORAGE_REMOVAL_LIMITS = Object.freeze({ items: 32, fileBytes: 64 * 1024 * 1024, totalBytes: 128 * 1024 * 1024, milliseconds: 300_000, reviewMilliseconds: 60_000, receiptBytes: 262_144, receipts: 128 });
 const REVIEW_TTL = 10 * 60_000, runningHere = new Set<string>();
@@ -20,7 +22,7 @@ const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 const prefix = (path: string, root: string) => root === "." || path === root || path.startsWith(`${root}/`);
 type PrivateFile = { path: string; version: StorageAttachmentVersion | null; consequences: string; retained: JournalVersion | null };
 type Row = { id: string; principal_id: string; action: "remove" | "undo"; source_id: string | null; selection: string; fingerprint: string; journal_turn_id: string; state: StorageRemovalReceipt["state"]; pid: number; pid_start: string; receipt: string; private_versions: string };
-const factIdentity = (facts: StorageAttachmentFacts, path: string) => digest({ file: facts.files.find(file => file.path === path), complete: facts.complete, unchecked: facts.unchecked });
+const factIdentity = (facts: Awaited<ReturnType<typeof readRemovalFacts>>, path: string) => digest({ file: facts.files.find(file => file.path === path), complete: facts.complete, unchecked: facts.unchecked });
 const encode = (value: unknown) => { const text = JSON.stringify(value); if (Buffer.byteLength(text) > STORAGE_REMOVAL_LIMITS.receiptBytes) throw new StorageUnavailable(400, "Attachment receipt exceeds its bound."); return text.padEnd(STORAGE_REMOVAL_LIMITS.receiptBytes); };
 const validId = (id: string) => /^[a-zA-Z0-9_-]{16,96}$/.test(id);
 
@@ -32,6 +34,17 @@ export function createStorageRemoval(db: Database, options: {
   retainedRoot?: string;
 }) {
   const brain = realpathSync(options.brainPath), journal = options.journal;
+  // Core is an optional peer. Load its installed public entry only for removal,
+  // preserving server imports and unrelated features when it is absent.
+  let core: typeof import("@schlessera/brain/storage") | undefined;
+  function attachments() {
+    if (core) return core;
+    const loaded = createRequire(import.meta.url)(coreReader(brain, "storage")) as typeof import("@schlessera/brain/storage");
+    for (const name of ["inspectStorageAttachment", "removeStorageAttachment", "restoreStorageAttachment", "storageAttachmentPath", "storageAttachmentVacant", "StorageAttachmentRefusal"] as const) {
+      if (typeof loaded[name] !== "function") throw new Error("Attachment recovery entry unavailable.");
+    }
+    return core = loaded;
+  }
   const record = (root: string, target: string, outcome: "success" | "no-space", error?: unknown) => {
     const code = (error as { code?: string; reason?: string } | undefined)?.code;
     const quota = code === "EDQUOT" || (error as { reason?: string } | undefined)?.reason === "journal_capacity";
@@ -46,11 +59,12 @@ export function createStorageRemoval(db: Database, options: {
   function capability(principal: string): StorageRemovalCapability {
     authorize(principal); reconcile(); const status = options.boundary.status();
     const latest = db.query("SELECT * FROM turn_journal_storage_operations WHERE brain=? AND principal_id=? ORDER BY requested_at DESC,rowid DESC LIMIT 1").get(brain, principal) as Row | null;
-    const available = !closed && process.platform === "linux" && options.boundary.isolated() && status.available;
+    let available = !closed && process.platform === "linux" && options.boundary.isolated() && status.available;
+    if (available) { try { attachments(); } catch { available = false; } }
     return { available, reason: available ? null : "qualified_native_recovery_unavailable", limits: STORAGE_REMOVAL_LIMITS, latest: latest ? recover(latest) : null };
   }
   function protectedReason(path: string): string | null {
-    if (!storageAttachmentPath(path)) return "unsupported_or_protected_attachment";
+    if (!attachments().storageAttachmentPath(path)) return "unsupported_or_protected_attachment";
     const status = options.boundary.status();
     if (!status.available || status.profileFallback || !status.protectedPaths) return "protection_or_ownership_unknown";
     if ([...options.protectedPaths, ...status.protectedPaths.map(value => value.path)].some(root => prefix(path, root))) return "protected_owner_path";
@@ -98,6 +112,7 @@ export function createStorageRemoval(db: Database, options: {
     const prior = select(id);
     if (prior) { if (prior.principal_id !== principal || prior.selection !== selection || prior.action !== action || prior.source_id !== sourceId) throw new StorageUnavailable(409, "Operation identity belongs to another selection."); return recover(prior); }
     if (!capability(principal).available) throw new StorageUnavailable(503, "This host cannot remove attachments yet.");
+    const { storageAttachmentPath, inspectStorageAttachment, storageAttachmentVacant, StorageAttachmentRefusal } = attachments();
     if (reviews.size || active.size) throw new StorageUnavailable(409, "Another attachment review or operation is active.");
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), STORAGE_REMOVAL_LIMITS.reviewMilliseconds); reviews.add(controller);
     let finish!: () => void; const done = new Promise<void>(resolve => { finish = resolve; }); pendingReviews.add(done);
@@ -149,7 +164,9 @@ export function createStorageRemoval(db: Database, options: {
     const revoked = setInterval(() => { try { check(); } catch { controller.abort(); } }, 100);
     let journalStarted = false, effects = false, unresolved = false;
     try {
-      check(); result.before = storageObservation(await options.storage.measure(row.principal_id, controller.signal), ["content", "git", "journal", "database"]);
+      check();
+      const { inspectStorageAttachment, removeStorageAttachment, restoreStorageAttachment, storageAttachmentVacant, StorageAttachmentRefusal } = attachments();
+      result.before = storageObservation(await options.storage.measure(row.principal_id, controller.signal), ["content", "git", "journal", "database"]);
       await exclusive(controller.signal, `storage-remove:${row.id}`, async () => {
         check(); if (Date.now() >= result.review.expiresAt) throw Error("review_expired");
         const eligible = result.review.files.filter(file => file.eligible).map(file => file.path);
