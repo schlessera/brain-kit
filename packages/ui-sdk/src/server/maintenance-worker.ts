@@ -64,6 +64,8 @@ export interface MaintenanceCommand {
 
 /** Trusted helper configuration shared by hosted startup and short Git checks. */
 export interface MaintenanceHost {
+  /** @internal Fixed hosted scratch reader; acquires and releases its own native input lease. */
+  scratchIgnoreQuery?(signal?: AbortSignal): Promise<Pick<MaintenanceResult, "exitCode" | "killed">>;
   /** @internal A host-prepared immutable input lease, acquired before a synchronous reader. */
   startupView?: WorkerStartupView;
   tempLimits?: WorkerStateLimits;
