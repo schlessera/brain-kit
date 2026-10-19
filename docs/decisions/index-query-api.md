@@ -118,7 +118,7 @@ neither justified a service or configurable query-provider seam.
 
 > **2026-10-05 — Implementation context (#697).** UI-server now declares the
 > optional peer and resolves the entry lazily, once per app
-> (`createCoreQueryAccess`, `packages/ui-server/src/core-queries.ts:187-220`). The
+> (`createCoreQueryAccess`, `packages/ui-server/src/core-queries.ts:192-227`). The
 > source-backed range is `>=0.40.0 <1.0.0`: the published 0.40.0 manifest is the
 > first to export `./queries`, its declarations name all nine operations and its
 > query source matches the source the server was migrated against; 0.39.0 has no

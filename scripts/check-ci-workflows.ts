@@ -1,6 +1,7 @@
 /** GitHub is the sole CI provider; contributions share read-only workflows. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
@@ -56,8 +57,14 @@ export function workflowProblems(text: string, file: string): string[] {
       const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
       if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
+    // Matrices, retention and refresh share one shard table; a drifted matrix would strand a partition.
+    for (const domain of Object.keys(PROOF_SHARDS) as ShardedDomain[]) {
+      const job = workflow.jobs?.[domain] as any;
+      if (JSON.stringify(job?.strategy?.matrix?.shard) !== JSON.stringify(shardNumbers(domain)) ||
+          !job?.steps?.some((step: any) => step.run === `bun scripts/ci-proof.ts ${domain} --shard=\${{ matrix.shard }}/${PROOF_SHARDS[domain]}`)) fail(`${domain}: matrix and shard divisor must match PROOF_SHARDS`);
+    }
     const proof = workflow.jobs?.proof;
-    if (proof?.name !== "${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}") fail("proof: manual or main runs must not impersonate candidate confirmation");
+    if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
     for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {

@@ -1,3 +1,4 @@
+import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
 import { requireCandidate, validateSelections } from "./candidate-proof";
 import { cpus, freemem, totalmem } from "node:os";
@@ -8,7 +9,9 @@ import { runCommands, type Command } from "./ci-runner";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests, discoverTests } from "./test-shards";
 import { resolveBrowserPin } from "./captures/provenance";
-import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable } from "./proof-inputs";
+import { diagramInstallationIdentity } from "./diagram-export-installation.mjs";
+import { diagramProducerRuntime } from "./diagram-export-producer.mjs";
+import { browserInventory, checkout, git, proofInputs, runnerIdentity, type Reusable, type Inputs } from "./proof-inputs";
 import { contextFromEvent, GitHubProofAPI, RECEIPT_MARKER, retainedCategories } from "./proof-reuse";
 
 export const PROOF_JOBS = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"] as const;
@@ -100,12 +103,12 @@ if (import.meta.main) {
       const shard = shardArg?.slice("--shard=".length);
       const unitWorkers = workersArg ? Number(workersArg.slice("--workers=".length)) : 2;
       const plan = await Bun.file(process.env.CI_PLAN_PATH ?? join(root, "tmp/ci-plan.json")).json() as CheckPlan;
-      let inputs;
+      let inputs:Inputs|undefined;
       if (category === "browser" || category === "layout") {
         try {
           if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Dirty tracked inputs");
           inputs = proofInputs(root, category as Reusable, await browserInventory(root), runnerIdentity());
-        } catch (error) { console.log(`Fresh execution remains required: reusable input inventory is unavailable: ${String(error)}`); }
+        } catch (error) { logWorkerAuditDiagnostic(error); console.log(`Fresh execution remains required: reusable input inventory is unavailable: ${String(error)}`); }
       }
       const identity = Bun.spawnSync(["git", "show", "-s", "--format=%H %T %P", "HEAD"], { cwd: root, stdout: "pipe", stderr: "pipe" });
       if (identity.exitCode !== 0) throw new Error("Cannot record actual proof checkout");
@@ -118,7 +121,7 @@ if (import.meta.main) {
       if (chrome && category === "unit") await runCommands([{ name: "first real Chrome launch and render",
         argv: [process.execPath, "packages/ui-render-puppeteer/tests/cold-start.ts", chrome] }], root);
       const commands = categoryCommands(category, plan, root, shard, unitWorkers).map(command => ({ ...command,
-        env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env } }));
+        env: { ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}), ...command.env, ...(inputs?.nativeDiagram?{BRAIN_PROOF_NATIVE_DIAGRAM_INPUTS:JSON.stringify(inputs.nativeDiagram)}:{}) } }));
       // The host/container lease regression deliberately uses --pull=never
       // under the offline test harness. Prepare its actual pinned image once,
       // only on the partition that discovers that test, before entering tests.
@@ -161,6 +164,7 @@ if (import.meta.main) {
         await Bun.write(join(root, "tmp/unit-report-summary.json"), JSON.stringify({ checkout: { sha, tree, parents }, shard, unitWorkers, ...report }, null, 2));
       }
       if (inputs) {
+        if(inputs.nativeDiagram&&(diagramInstallationIdentity(root).sha256!==inputs.nativeDiagram.installation||diagramProducerRuntime().sha256!==inputs.nativeDiagram.runtime))throw Error("Native diagram installed or runtime inputs changed during reusable execution");
         if (git(root, "diff", "HEAD", "--").trim()) throw new Error("Reusable execution changed tracked inputs");
         console.log(RECEIPT_MARKER + JSON.stringify({ version: 1, category, shard, checkout: checkout(root), inputs }));
       }

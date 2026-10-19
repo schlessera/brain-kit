@@ -1,3 +1,17 @@
+import { createStorageHistory } from "./storage/history-store.js";
+import { aggregateCollection } from "./storage/history-model.js";
+import { createSharedStorageScan } from "./storage/shared-scan.js";
+import { createStorageNotifier } from "./storage/notify.js";
+import { createStorageGuidance } from "./storage/guidance.js";
+import { createStorageSampling } from "./storage/sampling.js";
+import storagePackage from "../package.json" with { type: "json" };
+import { createStorageRemoval } from "./storage/removal.js";
+import { createStorageRemovalRoutes } from "./routes/storage-removal.js";
+import { createStorageMaintenance } from "./storage/maintenance.js";
+import { createStorageMaintenanceRoutes } from "./routes/storage-maintenance.js";
+import { createStorageCoordinator } from "./storage/coordinator.js";
+import { createStorageRoutes } from "./routes/storage.js";
+import type { StorageStore } from "./storage/collect.js";
 import { recordGovernanceEvent } from "./governance/events.js";
 import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
@@ -280,9 +294,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const nativeLeasePath = resolve(config.nativeBrain.leasePath ?? `${config.dbPath}.native-leases.sqlite`);
   const journalRoot = ephemeralJournal ? mkdtempSync(join(tmpdir(), "brain-ui-journal-"))
     : join(dirname(resolve(config.dbPath)), `${basename(config.dbPath)}.journal`);
+  const storageCacheRoot = `${journalRoot}.storage-cache`;
   const privateStatePaths = config.inbox?.pokeTokenFile
     ? [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: config.inbox.pokeTokenFile }] : [];
-  privateStatePaths.push({ setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
+  privateStatePaths.push({ setting: "Storage transfer cache", path: storageCacheRoot }, { setting: "turn journal", path: journalRoot }, { setting: "BRAIN_UI_NATIVE_BRAIN_LEASE_PATH", path: nativeLeasePath });
   // The manager verifies its fixed topology and root-private state. These are
   // exact masks, not app-owned directories to enumerate or mask by parent.
   const nativeMaskPaths = nativeReady.privatePaths;
@@ -301,6 +316,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   if (nativeRecovery.unknown.length || nativeRecovery.retainedUnverifiable) observability.logger("brain").emit({ severityText: "WARN",
     body: `Native storage recovery retained ${nativeRecovery.unknown.length + nativeRecovery.retainedUnverifiable} unresolved checkpoint ownership record(s). Reconcile the native storage service before reclaiming their capacity.` });
   const nativeManager = nativeLeases.client;
+  const probeState = { dbPath: config.dbPath, privateStatePaths };
+  // Select from already validated host state; helper/configuration failures
+  // remain recorded probe refusals rather than a new boot failure.
+  const identitySentinelDirectory = dirname(resolve(config.dbPath && config.dbPath !== ":memory:" ? config.dbPath : nativeLeasePath));
   const auth: AuthRuntime = { ...config.auth, host: config.host };
 
   const app = new Hono<AppEnv>();
@@ -363,7 +382,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const latestOrdinary = (): WorkerHostProbe => {
     const recorded = runtimeStatus?.snapshot().workerHost?.ordinary;
     if (recorded) return recorded.available ? { ok: true, ...(recorded.identity ? { identity: recorded.identity, workerUid: recorded.workerUid } : {}) } : { ok: false, requirement: recorded.requirement };
-    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes);
+    return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes, probeState);
   };
   const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
@@ -512,6 +531,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     connected: () => host.clients.hasClients(),
     changed(turnId, sessionId) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...journal.summary(turnId), ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   const host = new WsHost({
+    identitySentinelDirectory,
     scope,
     policyProposals,
     journal,
@@ -572,7 +592,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
   });
   bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
-  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
+  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
@@ -590,7 +610,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       activity.runtime.recordWorkerHost(mode, bootOrdinary, "boot");
       activity.runtime.recordWorkerLimits(workerLimitsStatus());
     }
-    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes);
+    else probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "boot", workerStateBytes, turnTempBytes, probeState);
   }
   runtimeStatus = activity.runtime;
   // Whether governed can run, and where the brain's own code is evaluated
@@ -790,7 +810,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: async () => {
-        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes);
+        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes, probeState);
         await boundary.prepare();
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};
@@ -804,6 +824,61 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));
   app.route("/api", createJournalRoutes({ journal }));
+  const storageHistory = createStorageHistory(db, config.brainPath);
+  bootCleanup.push(() => storageHistory.close());
+  const storageAuthorized = (id: string) => { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); };
+  const storageShared = createSharedStorageScan(db, config.brainPath, storageCacheRoot, storageAuthorized);
+  const storageNotices = createStorageNotifier(db, storageHistory);
+  const storageStores: StorageStore[] = [
+    { path: journalRoot, label: "Retained file history", category: "journal", owner: "app", recursive: true },
+    { path: storageCacheRoot, label: "Storage shared scan cache", category: "temporary", owner: "app", recursive: true, optional: true },
+  ];
+  for (const [path, label] of [[config.dbPath, "Operational database"], [nativeLeasePath, "Native lease database"]] as const) {
+    if (!path || path === ":memory:") continue;
+    for (const suffix of ["", "-wal", "-shm", "-journal"]) storageStores.push({ path: resolve(path + suffix), label: label + suffix, category: "database", owner: "app", recursive: false, optional: suffix !== "" });
+  }
+  for (const [index, path] of (config.storage?.backupRoots ?? []).entries()) storageStores.push({ path, label: `Backup store ${index + 1}`, category: "backup", owner: "operator", recursive: true });
+  const storage = createStorageCoordinator({ salt: storageHistory.salt, shared: storageShared,
+    onCollection(value, source) { storageHistory.offer(aggregateCollection(value, source, storagePackage.version)); },
+    onFailure(at) { storageHistory.failure(at); },
+    onWrite(report) { storageHistory.ownerWrite(report); },
+    brainPath: config.brainPath, stores: storageStores, gitRoots: [...config.storage?.gitRoots ?? []],
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+    unavailable: [
+      { label: "Native checkpoints and output", category: "native", owner: "app", reason: "shared-native-allocation-unavailable" },
+      { label: "Live temporary stores", category: "temporary", owner: "app", reason: "private-runtime-usage-unavailable" },
+    ],
+    storesNow() {
+      const stores: StorageStore[] = [], unavailable: Array<{ label: string; category: "transcripts"; owner: "app"; reason: string }> = [];
+      const quarantine = hostExecution.quarantinePath();
+      if (quarantine) stores.push({ path: quarantine, label: "Quarantined changes", category: "journal", owner: "app", recursive: true, optional: true });
+      const backends = registry.peekBackends?.();
+      if (!backends) unavailable.push({ label: "Backend transcripts", category: "transcripts", owner: "app", reason: "backend-owner-not-initialized" });
+      for (const backend of backends ?? []) {
+        if (!backend.storageRoots) { unavailable.push({ label: `${backend.id} transcripts`, category: "transcripts", owner: "app", reason: "backend-storage-unsupported" }); continue; }
+        try { for (const location of backend.storageRoots()) stores.push({ path: location.path, label: `${backend.id} ${location.kind}`, category: "transcripts", owner: "app", recursive: true, optional: true }); } catch { unavailable.push({ label: `${backend.id} transcripts`, category: "transcripts", owner: "app", reason: "backend-roots-unavailable" }); }
+      }
+      return { stores, unavailable };
+    },
+  });
+  bootCleanup.push(() => storage.close());
+  const storageGuidance = createStorageGuidance(db, storageHistory, storage, storageNotices);
+  const storageSampling = createStorageSampling(db, storage, storageHistory, storageShared, storageNotices, activity.pushSender);
+  bootCleanup.push(() => storageSampling.close());
+  app.route("/api", createStorageRoutes(storage, storageGuidance));
+  const storageMaintenance = createStorageMaintenance(db, { brainPath: config.brainPath, storage, brain, scratch: scratchPrune, inbox, boundary,
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+  });
+  bootCleanup.push(() => storageMaintenance.close());
+  app.route("/api", createStorageMaintenanceRoutes(storageMaintenance));
+
+  const storageRemoval = createStorageRemoval(db, { brainPath: config.brainPath, retainedRoot: journalRoot, boundary, journal, gate: hostExecution.gate()!, lock: host.workerLock, storage,
+    protectedPaths: [...storageStores.map(store => store.path), ...config.storage?.gitRoots ?? []].filter(path => path === config.brainPath || path.startsWith(config.brainPath + "/")).map(path => path === config.brainPath ? "." : path.slice(config.brainPath.length + 1)),
+    authorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
+  });
+  bootCleanup.push(() => storageRemoval.close());
+  app.route("/api", createStorageRemovalRoutes(storageRemoval));
+
   const reverts = createTurnReverts(db, { brainPath: config.brainPath, journal, gate: hostExecution.gate()!, lock: host.workerLock,
     isAuthorized(id) { const principal = resolvePrincipal(db, id); return !!principal && ["owner", "ambient"].includes(principal.kind) && isUsablePrincipal(principal, Date.now()); },
     refresh() { host.governedTurns?.refresh(host.workerLock); } });
@@ -991,12 +1066,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Cancel turn work before joining HTTP handlers that may be waiting for
       // its locks. Keep operational state alive until admitted dispatch ends.
       await attempt(() => { host.coordinator.cancelAll("Server shutting down"); });
+      await attempt(() => storageSampling.close());
+      await attempt(() => storageRemoval.close());
+      await attempt(() => storageMaintenance.close());
       await attempt(() => inbox.close());
       await Promise.allSettled([...httpRequests.keys()]);
       await attempt(() => host.close());
       await attempt(async () => { await Promise.allSettled([...host.turnTasks]); });
       await attempt(() => subscription.close());
       await attempt(() => intake.close());
+      await attempt(() => storage.close());
+      await attempt(() => { storageHistory.flush(); storageHistory.close(); });
       await attempt(() => scratchPrune.close());
       await attempt(() => scratchPins.close());
       await attempt(() => reverts.close());
@@ -1004,7 +1084,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(async () => { await host.governedTurns?.close(); });
       await attempt(() => journal.close());
       await attempt(() => nativeLeases.close());
-      if (ephemeralJournal) await attempt(() => rmSync(journalRoot, { recursive: true, force: true }));
+      if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
       await attempt(() => activity.close());
       await attempt(() => hostExecution.release());
       await attempt(() => db.close());

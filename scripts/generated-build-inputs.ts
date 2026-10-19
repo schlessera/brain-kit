@@ -2,28 +2,17 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-// These sources establish: tracked source entry, a cleaned package dist, locked
+// These sources establish: tracked source entry, cleaned package dist, locked
 // Tailwind CLI, build-before-browser order, checked exits and post-success receipt.
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
-  "scripts/ci-build-evidence.ts": "dcc3e4fea02c2b00d9c6837cda2ad4fff50c43cf0c50f66cbeccb1bfec7f34ef",
-  "scripts/ci-build-consumers.ts": "8f59840cd1ab5c178fa21c6d5b959f71e1ce6744b63948496ba6cde1282c818f",
-  "scripts/ci-build-trace.ts": "7defa9f4762e4c39b2452f81b7979831c63bf8466d48412e7446c3ce42e56034",
-  "scripts/ci-build-data.ts": "ee4dae143f814e61084fe94e8bc9690ebf44ccda3eca40091c5ecfa2c5918ccd",
-  "scripts/ci-build-state.ts": "a232c502b2b738c105c98b639c51ba99c177953013cdc8a5faf3a85d664a51bc",
-  "scripts/ci-build-files.ts": "afb8020ce5976f2d848554c970b3f9330167baeaf13cfd89fcd015f7fdce03a3",
-  "scripts/ci-build-lifetime.ts": "97ac87d386df8010c90de814b472bddc7166a2d3844809ceb73719e9c204a7e9",
-  "scripts/ci-build-qualification.json": "31044cc0055d43353ae235daf56f88b4d24f40fef9ea5aac96f69421f5c20fc6",
-  "scripts/ci-build-entry.ts": "1749c09a8ae6f75565a410c9be55f40d98cf634a81f9d26951ba2f14fa58f01b",
-  "scripts/ci-build-operation.ts": "2223043fedb95c53b5feda0596118bfbf40e10141f5dea298ed1f222066b0095",
-  "scripts/ci-build-boundary.ts": "34926ef4e78f53112c401f3ad5df26d028b98fec3d6d428ea5fc18990ae02ed8",
-  "scripts/build-execution.ts": "17ee42de1b37aa8034c6b0719b32ec432ac8fde321fb9c2c3a426799ea996a5e",
-  "scripts/build.ts": "30c1ecc7272921efe4e437b23e3d088e03d38869a9f5b2365fc08592e248d8d8",
-  "scripts/build-receipt.ts": "567c3d13b5e3e1295f597e4f57a9d0d9912685f2669cf3872daa26c2931bd1e6",
+  "scripts/build.ts": "95c40d174c0dfa8d2f8f317a3c2236fecbba600faaaf3ebecb7a96dbd94c392d",
+  "scripts/build-receipt.ts": "12c673be0e62aca17a4c11e45e2a915f17788199fd10632ae0833bcf6753b45d",
+  "scripts/build-repeat-observation.ts": "06b2dd99186519e3dd084f9a5bb9d9d503af72da46678f556381dcaeca0c6e5f",
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
   "scripts/workspace-lease.mjs": "dc6dc975e6abdb3fb193b368b79544bc98c60c624f0fd9c9985358284bb07df0",
-  "scripts/ci-proof.ts": "14eed5d2f28570afc19a546cc405d6f7706405577cec059ceac30132256b6509",
+  "scripts/ci-proof.ts": "c58de06eba788b6b892416ddda3abb28fa1e8e908f25c0800482fbe05e0de678",
   "scripts/check-pr.ts": "ed29d8dbb2e8b9982b502ad663045992339088dd8db766335b0b7ed2ba2436f6",
   "scripts/ci-runner.ts": "e6b9da9fdf92cb7ade402c620a8f58727bf5a09725bed03000a862866a6f9262",
   ".github/workflows/ci.yml": "0664eae990558d400c8b34b8d1fe9d687ff2b9e82e906ad2480e10bf42d9fc32",

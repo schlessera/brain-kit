@@ -103,6 +103,13 @@ proof and endurance wait for confirmation. Its `proof` check deliberately fails
 with the action needed: convert to draft, finish pushes, then mark ready again.
 Fast feedback being green is useful, but never sufficient merge evidence.
 The request belongs to one event, not a label that can approve later commits.
+A draft run's aggregate is named `draft gates`, never `proof`, so its cheap
+success cannot stand as a ready PR's proof. GitHub can queue a draft push's run
+after the `ready_for_review` run and cancel it, leaving no `proof` at all. The
+draft aggregate also reads the live PR and fails when that read finds it ready,
+closed or at another head, which turns the cancelled request into a visible
+failure; a transition after the read is still covered by the distinct name
+([#2363](https://github.com/schlessera/brain-kit/issues/2363)).
 Main pushes still execute complete affected proof. Scheduled and manual runs
 execute exhaustive discovery with a distinct aggregate check name, so they
 cannot impersonate a PR's candidate confirmation. Title/label edits run the separate contract gate, not long
@@ -111,7 +118,8 @@ one PR share a cancellable group. Different PRs never cancel one another.
 
 After cheap gates, packaging, strict verification, unit shards, runtime probes,
 browser shards, layout shards, a separate endurance job and captures start independently.
-There are four measured-cost unit partitions and two browser/layout partitions,
+There are four measured-cost unit partitions, three browser and two layout partitions
+(`PROOF_SHARDS`, `scripts/proof-shards.ts`, which the workflow guard matches against the matrices),
 with full coverage assertions and original per-browser file concurrency bounds.
 The first two-unit-partition hosted run reached its 20-minute budgets while
 still making progress. Completed-file observations in
@@ -141,7 +149,10 @@ inputs, never runtime dependencies. Layout refresh admits ordinary
 fresh job and never becomes an ordinary browser/layout weight. Requalify timing
 inputs after scenario ownership changes: the former combined recording-file
 measurement includes endurance and is not its current ordinary-layout cost.
-Two layout shards, per-project serial execution and all deadlines remain unchanged.
+Layout keeps two shards; per-project serial execution and all test deadlines remain unchanged.
+Browser proof runs in three shards and its jobs have a 20-minute bound. It was raised from 15 minutes after browser
+(2) reached 887 s on main and 917 s on a ready PR ([#2414](https://github.com/schlessera/brain-kit/issues/2414)). A weight refresh still
+qualifies by measured whole-job elapsed time, not by the bound.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
@@ -340,7 +351,7 @@ and actual merge-result parent/tree validation remain binding.
 
 ### Retaining complete browser domains
 
-Under #1333, ready-PR metadata can retain both shards of a complete browser or
+Under #1333, ready-PR metadata can retain every shard of a complete browser or
 layout domain from up to three recent successful automatic runs of that same
 contribution. Unit, types, packaging, native runtime and editorial checks remain
 fresh: their Git-sensitive or broader process inputs do not have an admitted
@@ -396,6 +407,56 @@ fresh receipt. Three audited command readers additionally bind the runner's
 binding unavailable. Current `dist` bytes never substitute for source inputs.
 Other generated artifacts, external assets and temporary readers remain unknown
 until their own bindings are validated.
+
+Generated CSS/theme and inclusion self-tests use raw Git blobs from the
+independently pinned audited revision for their positive producer controls.
+They test actual current producer bytes separately: legitimate audit drift
+requires fresh proof and does not redefine the positive fixture. The locked
+offline compiler and installed-asset byte/mode controls remain runtime proof.
+
+The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
+The host launches each engine's native producer in a separate network-disabled,
+read-only-root Docker container, using the existing pinned Playwright image's
+actual immutable manifest reference. The only host mounts are the private six-workspace
+source view (read-only), a private external-package installation (read-only), the
+captured installed Bun bytes (read-only), and an initially empty owned output
+directory. Its HOME/temp and shared-memory filesystems are fresh container state;
+neither the original checkout nor host temporary directories or browser font
+cache are mounted. Image and Bun identities join the browser input fingerprint.
+Execution bootstrap provisions the exact manifest digest and verifies its
+RepoDigest before either producer or browser consumption. Acquisition stays
+outside the offline producer and proof lookup.
+Metadata lookup projects the explicit manifest reference without requiring a Docker image
+on the metadata runner; actual execution requires that exact manifest reference with no pull.
+The kernel mount boundary applies to imported initialization and shared library
+helpers as well as the fixed entry; their inactivity is not assumed.
+
+The fixture retains the three fixed CLI vectors, literal diagrams-only config,
+fresh canonical brain/config roots, exact workspace resolution and immutable
+core-command refusal. The source view owns every tracked path, mode and byte in
+six workspace families plus exact preparation/entry files. External packages are
+copied without hidden package-manager state or unrelated workspace aliases. Their
+complete directory membership, package/manifest identities, modes, file bytes and
+internal file-link targets are reverified after copying; escaping aliases and
+mixed installation origins refuse. Code identity alone does not establish this
+closed read boundary: actual absent-host-data assertions and counterfactual host
+mounts qualify the mount restriction.
+
+Only a successful, drained native process publishes its artifact identities into
+a fresh per-launch handoff directory. The browser validates the preparation
+session, checkout, source/installation/runtime identities and all three artifact
+hashes, writes those exact validated bytes into its private consumer view, then
+retains the original SVG/reference zero-request replay and
+raster/font/PDF assertions. Different launches never share a prepared output root.
+The browser-side pinned font cache remains a separately owned browser input.
+
+Qualification is tied to the exact operation, source and installed identities;
+unknown readers, drift or missing inputs retain complete fresh proof. The fresh
+shard independently passes its computed identity to host preparation and checks
+installation/runtime identity again before emitting its existing receipt. Both
+shards, independent immutable source/current validation and whole-workflow
+successful eligibility retain the existing complete-domain protocol. Local proof
+is not a hosted baseline, retention hit or permission to use a failed workflow.
 
 Two audited fixture readers consume the literal installed `axe-core/axe.min.js`
 asset. Its explicit resource identity records package name/version, relative
@@ -506,7 +567,7 @@ locked installed resources. No current output or untracked image enters this
 snapshot, and baseline changes cannot inherit old passing comparisons.
 
 The inclusion fingerprint binds relevant immutable Git paths, blob identities
-and modes, selected discovery ownership/order, the two measured partitions and
+and modes, selected discovery ownership/order, the domain's measured partitions (`PROOF_SHARDS`) and
 runner identity. It also includes every proof/tooling script and workflow,
 root/package manifests and lockfiles, compiler configuration and expanded build
 source inventories. These conservative shared harness inputs can invalidate

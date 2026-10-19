@@ -26,6 +26,7 @@ test("real child reports exit and each drained channel without exposing output",
   expect(events).toContain("stderr-complete");
   expect(events.at(-1)).toBe("complete");
   expect(records.find((r) => r.event === "exit")?.code).toBe(7);
+  expect(records.find((r) => r.event === "exit")?.signal).toBeNull();
   expect(records.find((r) => r.event === "build-progress")?.package).toBe("core");
   expect(JSON.stringify(records)).not.toContain("sentinel");
   expect(records.every((r) => r.childPid === child.pid)).toBe(true);
@@ -46,6 +47,20 @@ test("pending output remains distinguishable from a completed channel", async ()
   closeOutput();
   await observation;
   expect(records.at(-1)?.event).toBe("complete");
+});
+
+test("a silent signalled child retains its PID, exit code and signal", async () => {
+  const hook = capture();
+  const child = Bun.spawn([process.execPath, "-e", 'process.kill(process.pid, "SIGTERM")'], { stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await hook.child("client-bundle", child);
+  expect(out).toBe("");
+  expect(err).toBe("");
+  expect(code).toBe(143);
+  expect(records.find((record) => record.event === "exit"), "BUNDLE_CHILD_TERMINATION_IS_ATTRIBUTED").toMatchObject({
+    stage: "client-bundle", childPid: child.pid, code: 143, signal: "SIGTERM",
+  });
+  expect(records.some((record) => record.event === "stdout-complete" && record.bytes === 0)).toBe(true);
+  expect(records.some((record) => record.event === "stderr-complete" && record.bytes === 0)).toBe(true);
 });
 
 test("named phase preserves values and the original rejection", async () => {

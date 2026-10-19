@@ -47,12 +47,33 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     for (const worker of turn.workers) worker.kill("SIGKILL");
     turn.stop(reason);
   }
+  function refreshHeadroom(turn: Live, receipt: ScopeCapReceipt) {
+    if (receipt.dimension === "free_space_floor") return;
+    const dimension = receipt.dimension;
+    const observed = dimension === "tool_calls" ? turn.summary.calls : dimension === "minutes" ? turn.summary.minutes
+      : dimension === "files_changed" ? turn.summary.changedPaths : turn.summary.observedBytes;
+    // Incomplete captures retain the last reliable receipt, never imply headroom.
+    if (observed !== null && Number.isFinite(observed)) {
+      receipt.count = observed; receipt.overshoot = Math.max(0, observed - receipt.cap); receipt.observedAt = now();
+    }
+    delete receipt.newCap;
+    const granted = turn.summary.receipts.some(previous => previous.dimension === dimension && previous.state === "continued");
+    const newCap = receipt.cap * 2;
+    if (!receipt.frozen || turn.origin === "voice" || granted || receipt.cap <= 0 || !Number.isFinite(newCap) || turn.summary.limits[dimension] !== receipt.cap) return;
+    if (observed === null || !Number.isFinite(observed)) {
+      receipt.reason = "Latest scope observation is incomplete; continuation headroom is unknown. Stop only.";
+    } else if (observed >= newCap) {
+      const unit = dimension === "files_changed" ? "distinct paths" : dimension === "turn_bytes" ? "bytes" : dimension === "minutes" ? "min" : "tool calls";
+      receipt.reason = `The finite continuation ceiling of ${newCap.toLocaleString("en-US")} ${unit} is already exhausted. Stop only.`;
+    } else { receipt.newCap = newCap; delete receipt.reason; }
+  }
   function check(turnId: string, turn: Live) {
     if (!turn.current()) return;
     turn.summary.minutes = Math.max(0, (now() - turn.startedAt) / 60_000);
     const fs = space(), floor = Math.max(fs.total * .05, SCOPE_FREE_BYTES);
     const pending = turn.summary.receipts.findLast(receipt => receipt.state === "paused");
     if (pending) {
+      refreshHeadroom(turn, pending);
       if (pending.dimension !== "free_space_floor" && fs.free < floor) {
         const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension: "free_space_floor", count: fs.free, cap: floor,
           overshoot: floor - fs.free, frozen: pending.frozen, observedAt: now(), state: "paused", reason: "Free space fell below its floor while this turn was paused. Stop only." };
@@ -73,7 +94,6 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
     for (const [dimension, count] of counts) {
       const cap = dimension === "free_space_floor" ? floor : turn.summary.limits[dimension];
       if (count === null || (dimension === "free_space_floor" ? count >= cap : count < cap)) continue;
-      const granted = turn.summary.receipts.some(receipt => receipt.dimension === dimension && receipt.state === "continued");
       let frozen = false, freezeFailure: string | undefined;
       try { for (const worker of turn.workers) worker.freeze(); frozen = turn.workers.size > 0; }
       catch (error) { freezeFailure = `Scope freeze failed; the turn stopped: ${String(error)}`; for (const worker of turn.workers) worker.kill("SIGKILL"); }
@@ -91,8 +111,8 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
         : dimension === "files_changed" ? turn.summary.changedPaths : dimension === "turn_bytes" ? turn.summary.observedBytes : space().free;
       const observed = measured ?? count;
       const receipt: ScopeCapReceipt = { eventId: randomUUID(), dimension, count: observed, cap,
-        overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused",
-        ...(frozen && dimension !== "free_space_floor" && !granted && cap > 0 && Number.isFinite(cap * 2) && turn.origin !== "voice" ? { newCap: cap * 2 } : {}) };
+        overshoot: Math.max(0, dimension === "free_space_floor" ? cap - observed : observed - cap), frozen, observedAt: now(), state: "paused" };
+      refreshHeadroom(turn, receipt);
       turn.summary.receipts.push(receipt);
       recordGovernanceEvent(db, { kind: "scope_cap", turnId, sessionId: turn.sessionId, actor: turn.origin, model: turn.model?.() ?? null, profile: turn.profile,
         dedupeKey: receipt.eventId, payload: { cap: dimension, limit: cap, observed, overshoot: receipt.overshoot,
@@ -190,13 +210,16 @@ export function createTurnScope(db: Database, options: { brainPath: string; jour
       const turn = active.get(msg.turnId);
       if (!turn || !turn.current()) return response("ended_before_answer");
       if (msg.action === "readback") return response("pending");
+      if (msg.action === "continue" && receipt.newCap !== turn.summary.receipts.find(item => item.eventId === msg.eventId)?.newCap)
+        return response("refused", "This continuation offer no longer matches the live turn.");
       // A grant cannot bypass a floor that another writer crossed while this worker waited.
       if (msg.action === "continue") check(msg.turnId, turn);
       if (!turn.current()) return response("ended_before_answer");
       const latestPause = turn.summary.receipts.findLast(receipt => receipt.state === "paused");
       if (msg.action === "continue" && latestPause?.eventId !== msg.eventId) return response("refused", "The free-space floor now requires Stop only.");
       const liveReceipt = turn.summary.receipts.find(receipt => receipt.eventId === msg.eventId)!;
-      if (msg.action === "continue" && liveReceipt.newCap === undefined) return response("refused", "This limit permits Stop only.");
+      if (msg.action === "continue" && (liveReceipt.newCap === undefined || turn.checking || observationHolds > 0))
+        return response("refused", liveReceipt.reason ?? "This limit permits Stop only while continuation headroom is unconfirmed.");
       try {
         if (msg.action === "continue") {
           // Grant is consumed before resumption; a failed resume cannot issue another increment.

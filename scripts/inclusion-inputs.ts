@@ -2,13 +2,14 @@
 import ts from "typescript";
 import { includeBrowserScreenshots } from "./browser-screenshot-inputs";
 import { auditedInactiveCommands } from "./browser-command-activation";
-import {hasAuditedWorkerBoundary,pdfWorkerInput} from "./browser-worker-audit";
+import {inspectWorkerAudit,WorkerAuditError,pdfWorkerInput} from "./browser-worker-audit";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { discoverInputClosure, type InputDeclaration } from "./browser-input-closure";
 import { balanceBrowserSpecs, readBrowserCosts } from "./browser-shards";
+import { PROOF_SHARDS } from "./proof-shards";
 import { selectedSpecs, treeEntries, type Inputs, type Reusable, type Spec } from "./proof-inputs";
 
 const required = ["package.json", "bun.lock", "tsconfig.json", "bunfig.toml", ".github/workflows/ci.yml",
@@ -87,7 +88,8 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
     // the recognizable constructor behind a new alias/realm. Such edits cannot
     // turn an absent audit into a generally closed domain.
     if(category==="browser"){
-      if(!hasAuditedWorkerBoundary(snapshot,closure,selected))throw new Error("Unresolved immutable browser inputs require fresh proof: unvalidated selected Worker capability audit");
+      const audit=inspectWorkerAudit(snapshot,closure,selected);
+      if(!audit.qualified)throw new WorkerAuditError(audit.diagnostic);
       closure.unresolved=closure.unresolved.filter(input=>input!==pdfWorkerInput);
     }
     if (closure.unresolved.length) throw new Error(`Unresolved immutable ${category} inputs require fresh proof: ${closure.unresolved.slice(0, 3).join("; ")}`);
@@ -113,10 +115,10 @@ export function inclusionInputs(root: string, category: Reusable, inventory: Spe
       if (!["100644", "100755"].includes(paths.get(path)!.mode)) throw new Error("Unsupported symbolic input requires fresh proof");
     }
     const partitions = balanceBrowserSpecs(selected.map(spec => ({ key: `${spec.project}::${spec.file}`, project: spec.project })),
-      2, readBrowserCosts(join(snapshot, "scripts/browser-shard-costs.json"))).map(part => part.map(spec => spec.key));
+      PROOF_SHARDS[category], readBrowserCosts(join(snapshot, "scripts/browser-shard-costs.json"))).map(part => part.map(spec => spec.key));
     const files = entries.filter(entry => included.has(entry.path));
-    const material = { version: 2, category, runner, inventory, partitions, directories: closure.directories ?? [], external: closure.external ?? [], files };
-    return { version: 2, category, runner, inventory, partitions, excluded: [],
+    const material = { version: 2, category, runner, inventory, partitions, directories: closure.directories ?? [], external: closure.external ?? [], ...(closure.nativeDiagram?{nativeDiagram:closure.nativeDiagram}:{}), files };
+    return { version: 2, category, runner, inventory, partitions, excluded: [], ...(closure.nativeDiagram?{nativeDiagram:closure.nativeDiagram}:{}),
       fingerprint: createHash("sha256").update(JSON.stringify(material)).digest("hex") };
   } finally { rmSync(snapshot, { recursive: true, force: true }); }
 }

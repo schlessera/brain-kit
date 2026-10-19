@@ -6,13 +6,14 @@ import { browserInventory, checkout, git, normalizeInventory, proofInputs, runne
 import { boundedLedger, contextFromEvent, findRetained, receiptFromLog, retainedCategories, validateSource, type API, type Context, type FreshReceipt, type Source } from "../scripts/proof-reuse";
 import { proofProblems, PROOF_JOBS } from "../scripts/ci-proof";
 import * as workerAudit from "../scripts/browser-worker-audit";
+import { PROOF_SHARDS, shardNumbers } from "../scripts/proof-shards";
 const roots: string[] = [];
 // These are synthetic receipt/API protocol fixtures, not browser execution
 // qualification. Keep real immutable fingerprint/source recomputation while
 // modeling an admitted capability. Actual capability/refusal/native controls
 // live in the worker-audit, inclusion and real browser proof tests.
-let capability:ReturnType<typeof spyOn<typeof workerAudit,"hasAuditedWorkerBoundary">>;
-beforeEach(()=>{capability=spyOn(workerAudit,"hasAuditedWorkerBoundary").mockReturnValue(true);});
+let capability:ReturnType<typeof spyOn<typeof workerAudit,"inspectWorkerAudit">>;
+beforeEach(()=>{capability=spyOn(workerAudit,"inspectWorkerAudit").mockReturnValue({qualified:true,diagnostic:{version:1,expectedIdentity:undefined,actualIdentity:undefined,reason:"isolated fingerprint fixture"}});});
 afterEach(()=>capability.mockRestore());
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const runner = "ubuntu-24.04/fixed/Linux/X64/bun-1.4.2";
@@ -52,19 +53,20 @@ function fixture() {
 const context: Context = { repository: "schlessera/brain-kit", headRepository: "schlessera/brain-kit", branch: "chore/fixture", pr: 42, run: 100 };
 function evidence(root: string, inputs: Inputs) {
   const identity = checkout(root);
-  const receipts: FreshReceipt[] = [1, 2].map(shard => ({ version: 1, category: "browser", shard: `${shard}/2`, checkout: identity, inputs }));
-  const source: Source = { run: 90, attempt: 1, jobs: [101, 102], checkout: identity, inputs };
+  const ids = shardNumbers("browser").map(shard => 100 + shard);
+  const receipts: FreshReceipt[] = shardNumbers("browser").map(shard => ({ version: 1, category: "browser", shard: `${shard}/${PROOF_SHARDS.browser}`, checkout: identity, inputs }));
+  const source: Source = { run: 90, attempt: 1, jobs: ids, checkout: identity, inputs };
   const calls: string[] = [];
   const run = { id: 90, event: "pull_request", status: "completed", conclusion: "success", run_attempt: 1,
     head_sha: identity.parents[1], head_branch: context.branch, path: ".github/workflows/ci.yml", head_repository: { full_name: context.headRepository }, repository: { full_name: context.repository }, created_at: new Date().toISOString() };
-  const jobs = [101, 102].map((id, i) => ({ id, run_id: 90, head_sha: identity.parents[1], name: `browser (${i + 1})`, status: "completed", conclusion: "success", check_run_url: `https://api.github.com/repos/${context.repository}/check-runs/${id}`,
+  const jobs = ids.map((id, i) => ({ id, run_id: 90, head_sha: identity.parents[1], name: `browser (${i + 1})`, status: "completed", conclusion: "success", check_run_url: `https://api.github.com/repos/${context.repository}/check-runs/${id}`,
     steps: [{ name: "Complete browser proof", status: "completed", conclusion: "success" }] }));
   const logs = receipts.map(r => `2026-07-12T00:00:00Z ${identity.sha}\n2026-07-12T00:00:01Z refs/remotes/pull/42/merge\n2026-07-12T00:00:02Z BRAIN_PROOF_RECEIPT ${JSON.stringify(r)}\n`);
   const api: API = {
     async json(path) {
       calls.push(path);
       if (path === "actions/runs/90/attempts/1") return run;
-      if (path === "actions/runs/90/attempts/1/jobs?per_page=100") return { total_count: 2, jobs };
+      if (path === "actions/runs/90/attempts/1/jobs?per_page=100") return { total_count: jobs.length, jobs };
       if (path.startsWith("check-runs/")) return { id: Number(path.split("/").at(-1)), head_sha: identity.parents[1], status: "completed", conclusion: "success", app: { slug: "github-actions" } };
       if (path === `git/commits/${identity.sha}`) return { sha: identity.sha, tree: { sha: identity.tree }, parents: identity.parents.map(sha => ({ sha })) };
       throw new Error(`Unexpected API ${path}`);
@@ -103,6 +105,8 @@ test("logs must contain one fresh receipt tied to the actual checkout and correc
   expect(() => receiptFromLog(logs[0]! + logs[0], "browser", 1)).toThrow("ambiguous");
   expect(() => receiptFromLog(logs[0]!.split("\n").slice(1).join("\n"), "browser", 1)).toThrow("actual job checkout");
   expect(() => receiptFromLog(logs[0]!, "browser", 2)).toThrow("Wrong fresh");
+  // A receipt from the two-shard era names another partition and is never admitted (#2414).
+  expect(() => receiptFromLog(logs[0]!.replace(`"shard":"1/${PROOF_SHARDS.browser}"`, `"shard":"1/2"`), "browser", 1)).toThrow("Wrong fresh");
 });
 test("successful immutable source receipts validate against APIs", async () => {
   const root = fixture(), inputs = proofInputs(root, "browser", inventory, runner);
