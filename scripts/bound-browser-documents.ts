@@ -31,19 +31,23 @@ const declarations:DocumentDeclaration[]=[{
 },{
   // Reviewed against #2295 and #2346: bounded capture tracing, split relay and
   // callout cases keep the exact HTML/CSS sink, five callers and offline producers.
+  // #2386 re-audit: narrow geometry/capture case split preserves all eight
+  // callout capture sites, arguments and unchanged HTML/CSS/font producers.
+  // #2241 re-audit: renderer/axis edits only strengthen viewer selection and
+  // font assertions; capture arguments, call counts and producer closure stay fixed.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
   "caller": "packages/ui-react/tests/browser/diagrams-renderer.layout.tsx",
-  "callerHash": "dbac044e90a3b7b84e308a96cca8396874afb9b96d8cc23b2fddb4293d85706c",
+  "callerHash": "9d5e6b574bc22fb19f47c6d7d813f13bd444920539bf341732700e9d3413de4a",
   "calls": 2,
   "additionalCallers": {
     "packages/ui-react/tests/browser/diagrams-callouts.layout.tsx": {
-      "hash": "64e5d794fe1a9f54386d712bb445d75d8e9fd50ac0e271b791de6ca4a0948b44",
+      "hash": "83e34b70e1de6368073d1aa3414f5f42ffd071da6246ce47109397df72206091",
       "calls": 8
     },
     "packages/ui-react/tests/browser/diagrams-axis.layout.tsx": {
-      "hash": "6512cb4660834ef7b15a52258d51f694c4e34fd530754bdc51580137db22b75c",
+      "hash": "bd7c728af1ae5c250ddbef4e3423372590aabc65430661fe6afed97e3eb6e933",
       "calls": 3
     },
     "packages/ui-react/tests/browser/diagrams-positional.layout.tsx": {

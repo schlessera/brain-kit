@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:111-177`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:383`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:387`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:328-333`).
+  `packages/ui-server/src/app.ts:332-337`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -1371,7 +1371,7 @@ outward approvals.
 The native qualification now constructs the full SDK turn, including its MCP
 server, system prompt, per-turn context and permission hooks, rather than
 constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:205-226`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:209-231`).
 Strict and governed controls retain history, model changes, host login
 rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
 call still reaches the existing per-use refusal: removing the assembled
@@ -1379,7 +1379,7 @@ PreToolUse hook creates the refused file. Native managed Unix-socket overrides
 and project API credentials withhold the prompt through the existing
 subscription settings check, before provider contact or host credential
 resolution (`settingsRefusal(settings`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:238-243`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:246-251`).
 The actual process state ledger is observed admitted while the worker is live
 and empty after teardown.
 
