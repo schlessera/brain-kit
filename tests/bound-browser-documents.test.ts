@@ -1,3 +1,4 @@
+import {frozenBrowserFiles,frozenBrowserSource} from "./frozen-browser-source";
 import {afterEach,expect,test} from "bun:test";
 import {mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -7,7 +8,7 @@ import ts from "typescript";
 import {boundBrowserDocuments,browserDocumentRefusals,reviewedBrowserDocuments} from "../scripts/bound-browser-documents";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[],owner="packages/ui-kit/tests/visual/form-browser.ts",caller="packages/ui-react/tests/browser/destination-press.pointer.tsx",config="packages/ui-kit/vitest.config.ts",files=[owner,caller,config];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
-function fixture(extra:readonly string[]=[]){const root=mkdtempSync(join(tmpdir(),"bound-browser-documents-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};symlinkSync(join(repo,"node_modules"),join(root,"node_modules"),"dir");for(const file of [...files,...extra])write(file,readFileSync(join(repo,file),"utf8"));return{root,write};}
+function fixture(extra:readonly string[]=[]){const root=mkdtempSync(join(tmpdir(),"bound-browser-documents-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};symlinkSync(join(repo,"node_modules"),join(root,"node_modules"),"dir");for(const file of [...files,...extra])write(file,frozenBrowserSource(file).toString("utf8"));return{root,write};}
 test("the exact HTML fixture has only source-owned reporting document and cleanup calls",()=>{
   const {root}=fixture(),bound=boundBrowserDocuments(root,files,browserImporters(root,files));
   expect([...bound.get(owner)!.values()]).toEqual([{runtime:[caller],bytes:[]}]);
@@ -35,7 +36,7 @@ test("replay caller, guard, CSS and font-origin drift or an additional caller st
 });
 
 const diagram="packages/ui-react/tests/browser/diagram-proof-command.ts",diagramCaller="packages/ui-react/tests/browser/diagrams-renderer.layout.tsx";
-const diagramFiles=[diagram,diagramCaller,"packages/ui-react/tests/browser/diagrams-callouts.layout.tsx","packages/module-diagrams/tests/fixtures/callouts.ts","packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx",...new Bun.Glob("packages/module-diagrams/skills/diagram/references/examples/**/*.yaml").scanSync({cwd:repo}),"packages/module-diagrams/tests/fixtures/axis-examples.ts",guard,"packages/ui-kit/tests/visual/form-browser.ts","packages/ui-kit/tests/visual/design-font-setup.ts","packages/ui-kit/tests/visual/design-font-checks.ts","packages/ui-kit/tests/visual/rank-footer-browser.ts","scripts/captures/fonts.ts","scripts/captures/font-lock.json","scripts/captures/fonts.css","packages/ui-kit/.storybook/preview-head.html","packages/module-diagrams/tests/fixtures/renderer-fixture.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",...new Bun.Glob("packages/module-diagrams/src/*.{ts,tsx}").scanSync({cwd:repo})];
+const diagramFiles=[diagram,diagramCaller,"packages/ui-react/tests/browser/diagrams-callouts.layout.tsx","packages/module-diagrams/tests/fixtures/callouts.ts","packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx",...frozenBrowserFiles("packages/module-diagrams/skills/diagram/references/examples").filter(file=>file.endsWith(".yaml")),"packages/module-diagrams/tests/fixtures/axis-examples.ts",guard,"packages/ui-kit/tests/visual/form-browser.ts","packages/ui-kit/tests/visual/design-font-setup.ts","packages/ui-kit/tests/visual/design-font-checks.ts","packages/ui-kit/tests/visual/rank-footer-browser.ts","scripts/captures/fonts.ts","scripts/captures/font-lock.json","scripts/captures/fonts.css","packages/ui-kit/.storybook/preview-head.html","packages/module-diagrams/tests/fixtures/renderer-fixture.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",...frozenBrowserFiles("packages/module-diagrams/src").filter(file=>/^packages\/module-diagrams\/src\/[^/]+\.tsx?$/.test(file))];
 test("diagram replay binds all five exact callers and every SVG, fixture, CSS and inline-font producer",()=>{
  const {root}=fixture(diagramFiles),selected=[...files,...diagramFiles],bound=boundBrowserDocuments(root,selected,browserImporters(root,selected));
  expect(bound.has(diagram),"REVIEWED_DIAGRAM_DOCUMENT_BINDS").toBe(true);
@@ -57,7 +58,7 @@ test("diagram caller, renderer, fixture, guard and font drift or extra caller re
 
 const exportOwner="packages/ui-react/tests/browser/diagram-export-command.ts",exportCaller="packages/ui-react/tests/browser/diagrams-export.layout.tsx";
 const exportFiles=[...diagramFiles,exportOwner,exportCaller,...[2,4,6,7].map(face=>`packages/module-diagrams/assets/fonts/${face}.ttf`)];
-function exportFixture(){const {root,write}=fixture();for(const file of exportFiles){mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),readFileSync(join(repo,file)));}return{root,write};}
+function exportFixture(){const {root,write}=fixture();for(const file of exportFiles){mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),frozenBrowserSource(file));}return{root,write};}
 test("export raster replay binds actual flattening, SVG inputs and four bundled font blobs",()=>{
  const {root}=exportFixture(),selected=[...files,...exportFiles],bound=boundBrowserDocuments(root,selected,browserImporters(root,selected));
  const input=[...bound.get(exportOwner)!.values()][0]!;expect(input.runtime).toContain(exportCaller);expect(input.runtime).toContain("packages/module-diagrams/src/flatten.ts");for(const face of [2,4,6,7])expect(input.bytes).toContain(`packages/module-diagrams/assets/fonts/${face}.ttf`);
@@ -107,5 +108,23 @@ test("every module-diagrams source a reviewed binding imports is pinned among it
     const pinned=new Set(Object.keys(entry.producers));
     const unpinned=[...sourceClosure([...pinned].filter(file=>/\.[cm]?[jt]sx?$/.test(file)))].filter(file=>file.startsWith("packages/module-diagrams/src/")&&!pinned.has(file)).sort();
     expect(unpinned,`UNPINNED_PRODUCER_IMPORTS ${entry.command}`).toEqual([]);
+  }
+});
+
+// Every document family gets a positive before replacing any audited input
+// with real candidate bytes. Compare to the independent owner, never to a
+// newly computed production pin or the binder's own result.
+test.each([...reviewedBrowserDocuments])("current document sources retain only their reviewed binding: $command",entry=>{
+  const selected=[...new Set([...files,...ghostFiles,...exportFiles])];
+  const {root}=fixture(ghostFiles);
+  for(const file of exportFiles){mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),frozenBrowserSource(file));}
+  const bind=()=>boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(entry.owner);
+  expect(bind(),`FROZEN_DOCUMENT_CONTROL_QUALIFIES ${entry.command}`).toBe(true);
+  for(const file of new Set([config,entry.owner,entry.caller,...Object.keys(entry.additionalCallers??{}),...Object.keys(entry.producers)])){
+   const frozen=frozenBrowserSource(file),current=readFileSync(join(repo,file));
+   if(current.equals(frozen)) continue; // The positive above already exercised these exact bytes.
+   writeFileSync(join(root,file),current);
+   expect(bind(),`CURRENT_DOCUMENT_SOURCE_DRIFT_REQUIRES_FRESH_PROOF ${entry.command} ${file}`).toBe(false);
+   writeFileSync(join(root,file),frozen);
   }
 });

@@ -414,6 +414,14 @@ They test actual current producer bytes separately: legitimate audit drift
 requires fresh proof and does not redefine the positive fixture. The locked
 offline compiler and installed-asset byte/mode controls remain runtime proof.
 
+Browser document, inactive-command and worker-boundary self-tests follow the
+same ownership rule. Their positive config, callers, producers and binary font
+fixtures come from independently pinned raw Git blobs, including frozen directory
+membership. Actual candidate bytes are checked separately against that owner;
+changed enforcement cannot qualify by recomputing its manifest. These fixtures
+exercise the existing audit and never refresh production pins or authorize
+retained proof for the candidate.
+
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
