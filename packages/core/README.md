@@ -67,3 +67,24 @@ index registry and completion-provider resolution
 `@schlessera/brain/internal` holds first-party native-handle search/context and
 write helpers. It has no compatibility guarantee and requires the same
 lockstep version; integrations should use the supported query results.
+
+### Host storage integration
+
+Host-shell authors can call `readStorageInventory` from
+`@schlessera/brain/storage` to obtain bounded live metadata without executing
+Git, repository configuration or the brain CLI. Enforce owner authorization and
+choose explicit roots at the host boundary. The [host reader contract](../../docs/integration-contract/package-api.md#host-storage-reader-additive-2010)
+defines resource bounds, Git marker support, unknown evidence and cancellation.
+
+`brain storage pack --json` runs the existing non-destructive Git packing tasks
+without expiring history or refs. Its [qualified result](../../docs/integration-contract/cli.md#storage-packing-additive-0440-2011)
+reports refusal/partial outcomes and workload-dependent temporary headroom.
+Governed hosts invoke it through their credential-free maintenance worker.
+
+The same Storage entry exports narrow raw attachment inspection/removal/restore
+primitives and bounded consequence inspection. Their [caller obligations and
+limits](../../docs/integration-contract/package-api.md#selected-attachment-application-additive-0440-2012)
+are part of the contract: callers own exclusive coordination, current authority
+and durable verified recovery before removal. Consequence inspection evaluates
+Git and belongs in a credential-free worker in hosted consumers. It does not
+change the metadata-only inventory reader or add an unjournaled delete command.

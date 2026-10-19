@@ -197,7 +197,23 @@ export "./queries" (./src/queries/index.ts)
   readGraphMeta
   readGraphNeighborhood
   readLinkWalk
+  readStorageReferences
   readVoiceVocabulary
+
+export "./storage" (./src/storage.ts)
+  STORAGE_ATTACHMENT_LIMITS
+  type StorageAttachmentFacts
+  StorageAttachmentRefusal
+  type StorageAttachmentVersion
+  type StorageInventory
+  type StorageReadOptions
+  inspectStorageAttachment
+  inspectStorageAttachmentFacts
+  readStorageInventory
+  removeStorageAttachment
+  restoreStorageAttachment
+  storageAttachmentPath
+  storageAttachmentVacant
 
 export "./testing" (./src/testing/index.ts)
   type AgentRunnerContractHarness
@@ -805,6 +821,15 @@ signatures (every public export and the types it is made of)
     const SCHEMA_VERSION: 15;
   SCRATCH_DIR (packages/core/src/lib/scratch.ts)
     const SCRATCH_DIR: ".brain/scratch";
+  STORAGE_ATTACHMENT_LIMITS (packages/core/src/lib/storage-attachments.ts)
+    const STORAGE_ATTACHMENT_LIMITS: Readonly<{
+        depth: 32;
+        fileBytes: number;
+        milliseconds: 15000;
+        pathBytes: 4096;
+    }>;
+  STORAGE_LIMITS (packages/core/src/lib/storage-inventory.ts)
+    const STORAGE_LIMITS: Readonly<StorageLimits>;
   ScratchFailure (packages/core/src/lib/scratch.ts)
     export interface ScratchFailure {
         path: string;
@@ -922,6 +947,125 @@ signatures (every public export and the types it is made of)
     export interface StatsTrends {
         evaluatedAt: string;
         verdicts: StatsTrend[];
+    }
+  StorageAttachmentFacts (packages/core/src/lib/storage-attachment-facts.ts)
+    export interface StorageAttachmentFacts {
+        fingerprint: string;
+        complete: boolean;
+        scannedFiles: number;
+        unchecked: string[];
+        files: {
+            path: string;
+            git: "tracked" | "untracked" | "ignored" | "no-repository" | "unknown";
+            references: {
+                source: string;
+                hash: string;
+                certainty: "resolved" | "possible";
+            }[];
+            truncated: boolean;
+        }[];
+    }
+  StorageAttachmentRefusal (packages/core/src/lib/storage-attachments.ts)
+    export class StorageAttachmentRefusal extends Error {
+        constructor(readonly reason: "unsupported" | "protected" | "changed" | "too_large" | "occupied" | "unavailable");
+    }
+  StorageAttachmentVersion (packages/core/src/lib/storage-attachments.ts)
+    export interface StorageAttachmentVersion {
+        hash: string;
+        bytes: number;
+        mode: number;
+        identity: string;
+        parents: string[];
+    }
+  StorageCapacity (packages/core/src/lib/storage-inventory.ts)
+    export interface StorageCapacity {
+        id: string;
+        device: string;
+        mountId: string;
+        filesystemType: string;
+        totalBytes: number | null;
+        usedBytes: number | null;
+        freeBytes: number | null;
+        availableBytes: number | null;
+        reason: string | null;
+        provenance: "statfs";
+        quota: null;
+        quotaReason: "unsupported";
+    }
+  StorageEntry (packages/core/src/lib/storage-inventory.ts)
+    export interface StorageEntry {
+        id: string;
+        parentId: string | null;
+        rootId: string;
+        path: string;
+        name: string;
+        kind: StorageKind;
+        objectId: string;
+        capacityId: string;
+        logicalBytes: number | null;
+        allocatedBytes: number | null;
+        measurementReason: string | null;
+        version: string;
+        links: number;
+        pdfOver5MB: boolean;
+        aliasOf: string | null;
+    }
+  StorageInventory (packages/core/src/lib/storage-inventory.ts)
+    export interface StorageInventory {
+        schema_version: 1;
+        scanId: string;
+        revision: string;
+        startedAt: string;
+        finishedAt: string;
+        expiresAt: string;
+        status: "complete" | "partial" | "unsupported";
+        consistency: "live-observation";
+        allocationBasis: "512 * st_blocks; shared extents may be charged more than once";
+        roots: {
+            id: string;
+            kind: "brain" | "git";
+            path: string;
+        }[];
+        entries: StorageEntry[];
+        capacities: StorageCapacity[];
+        pages: {
+            cursor: string;
+            parentId: string | null;
+            entryIds: string[];
+            nextCursor: string | null;
+        }[];
+        totals: {
+            entryLogicalBytes: number | null;
+            objectLogicalBytes: number | null;
+            objectAllocatedBytes: number | null;
+            objects: number;
+            entries: number;
+            lowerBound: boolean;
+        };
+        errors: {
+            path: string;
+            reason: string;
+        }[];
+        omittedErrors: number;
+        limits: typeof STORAGE_LIMITS;
+    }
+  StorageKind (packages/core/src/lib/storage-inventory.ts)
+    export type StorageKind = "file" | "directory" | "symlink" | "special";
+  StorageLimits (packages/core/src/lib/storage-inventory.ts)
+    interface StorageLimits {
+        entries: number;
+        depth: number;
+        milliseconds: number;
+        errors: number;
+        page: number;
+        freshness: number;
+        gitBytes: number;
+    }
+  StorageReadOptions (packages/core/src/storage.ts)
+    export interface StorageReadOptions {
+        brainPath: string;
+        gitRoots?: readonly string[];
+        signal?: AbortSignal;
     }
   Subgraph (packages/core/src/queries/types.ts)
     export interface Subgraph {
@@ -1322,6 +1466,10 @@ signatures (every public export and the types it is made of)
     export function getMarkdownFiles(root: string, taxonomy: Taxonomy): string[];
   inertGeneratedText (packages/core/src/lib/generated-regions.ts)
     export function inertGeneratedText(text: string): string;
+  inspectStorageAttachment (packages/core/src/lib/storage-attachments.ts)
+    export function inspectStorageAttachment(root: string, path: string, signal?: AbortSignal): Promise<StorageAttachmentVersion>;
+  inspectStorageAttachmentFacts (packages/core/src/lib/storage-attachment-facts.ts)
+    export function inspectStorageAttachmentFacts(root: string, paths: readonly string[], signal?: AbortSignal): StorageAttachmentFacts;
   isInScratch (packages/core/src/lib/scratch.ts)
     export function isInScratch(root: string, path: string): boolean;
   isWriteRefusal (packages/core/src/lib/scratch.ts)
@@ -1388,10 +1536,24 @@ signatures (every public export and the types it is made of)
         depth?: number;
         direction?: "outgoing" | "incoming" | "both";
     }): QueryResult<LinkWalk>;
+  readStorageInventory (packages/core/src/storage.ts)
+    export function readStorageInventory(options: StorageReadOptions): Promise<StorageInventory>;
+  readStorageReferences (packages/core/src/queries/index.ts)
+    export function readStorageReferences(opts: Root & {
+        path: string;
+    }): QueryResult<{
+        sources: Array<{
+            path: string;
+            indexedAt: string;
+        }>;
+        truncated: boolean;
+    }>;
   readVoiceVocabulary (packages/core/src/queries/index.ts)
     export function readVoiceVocabulary(opts: Root & {
         limit: number;
     }): QueryResult<VoiceVocabulary>;
+  removeStorageAttachment (packages/core/src/lib/storage-attachments.ts)
+    export function removeStorageAttachment(root: string, path: string, expected: StorageAttachmentVersion, signal?: AbortSignal, assertCurrent?: () => void): Promise<void>;
   renderHtmlArtifact (packages/core/src/lib/render-artifact.ts)
     export function renderHtmlArtifact(input: {
         html: string;
@@ -1406,6 +1568,8 @@ signatures (every public export and the types it is made of)
     export function resolveReranker(config?: RerankerSettings): Reranker | undefined;
   resolveWritable (packages/core/src/lib/safe-path.ts)
     export function resolveWritable(root: string, relOrAbs: string): string | null;
+  restoreStorageAttachment (packages/core/src/lib/storage-attachments.ts)
+    export function restoreStorageAttachment(root: string, path: string, expected: StorageAttachmentVersion, copy: (fd: number) => void, assertCurrent?: () => void): void;
   rewriteGeneratedRegion (packages/core/src/lib/generated-regions.ts)
     export function rewriteGeneratedRegion(raw: string, name: string, content: string, asOf: string): string | null;
   runAgentRunnerContract (packages/core/src/testing/agent-runners.ts)
@@ -1432,6 +1596,10 @@ signatures (every public export and the types it is made of)
         frontmatter: string;
         body: string;
     };
+  storageAttachmentPath (packages/core/src/lib/storage-attachments.ts)
+    export function storageAttachmentPath(path: string): boolean;
+  storageAttachmentVacant (packages/core/src/lib/storage-attachments.ts)
+    export function storageAttachmentVacant(root: string, path: string, expected: StorageAttachmentVersion): boolean;
   syncSkills (packages/core/src/lib/skills/sync.ts)
     export function syncSkills(ctx: SkillSources, opts?: SyncOptions): SyncResult;
   tagsConfigSchema (packages/core/src/lib/config.ts)

@@ -7,6 +7,8 @@
  *   (identity, range and operation checks) and returns core's terms;
  * - the packed graph routes, both the shipped TypeScript source and the
  *   compiled default JavaScript, serve populated results through the peer;
+ * - Storage removal reports unavailable without core, and available with it
+ *   on an otherwise qualified Linux host, through both shipped entry paths;
  * - no published ui-server declaration names `@schlessera/brain`, so a
  *   consumer that does not install the optional peer can still typecheck it.
  */
@@ -66,9 +68,40 @@ for (const path of ${JSON.stringify([join(server, "src/brain/governance-policy.t
 }
 console.log("packed ui-server: source/default policy reads and last-valid fallback work without core");
 `);
+  const storageProbe = join(probeDir, "storage-peer.ts");
+  await Bun.write(storageProbe, `
+import { createRequire } from "node:module";
+let peerPresent = false;
+try { createRequire(import.meta.url).resolve("@schlessera/brain/package.json"); peerPresent = true; } catch {}
+const expectedPeer = process.argv[2] === "present";
+if (peerPresent !== expectedPeer) throw new Error("STORAGE_OPTIONAL_CORE_FIXTURE");
+const unused = new Proxy({}, { get() { throw new Error("STORAGE_CAPABILITY_MUST_NOT_EXECUTE"); } });
+for (const variant of ["src", "dist"]) {
+  const extension = variant === "src" ? ".ts" : ".js";
+  const root = ${JSON.stringify(server)} + "/" + variant;
+  const { createUiDb } = await import(root + "/db/client" + extension);
+  const { createStorageRemoval } = await import(root + "/storage/removal" + extension);
+  const db = createUiDb(":memory:");
+  const removal = createStorageRemoval(db, {
+    brainPath: ${JSON.stringify(brainPath)}, authorized: () => true, protectedPaths: [],
+    boundary: { isolated: () => true, status: () => ({ available: true, protectedPaths: [] }),
+      run() { throw new Error("STORAGE_CAPABILITY_MUST_NOT_EXECUTE"); } },
+    journal: unused, gate: unused, lock: unused, storage: unused,
+  });
+  try {
+    const capability = removal.capability("odysseus");
+    const expectedAvailable = expectedPeer && process.platform === "linux";
+    if (capability.available !== expectedAvailable || capability.reason !== (expectedAvailable ? null : "qualified_native_recovery_unavailable")) {
+      throw new Error((expectedPeer ? "STORAGE_OPTIONAL_CORE_AVAILABLE" : "STORAGE_OPTIONAL_CORE_UNAVAILABLE") + ": " + variant + " " + JSON.stringify(capability));
+    }
+  } finally { await removal.close(); db.close(); }
+}
+console.log("packed ui-server: source/default Storage removal capability with core " + (expectedPeer ? "present" : "absent"));
+`);
   renameSync(corePeer, heldCorePeer);
-  try { await run([policyProbe]); }
+  try { await run([policyProbe]); await run([storageProbe, "absent"]); }
   finally { renameSync(heldCorePeer, corePeer); }
+  await run([storageProbe, "present"]);
 
   // 1. Declarations: no reference to the optional peer, value or type.
   // A module reference — import/export from, import(), require() or a types
