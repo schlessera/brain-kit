@@ -4,6 +4,7 @@ import { checkout, type Checkout } from "./proof-inputs";
 import type { Candidate } from "./integration-reservation";
 import type { API } from "./proof-reuse";
 import { PROOF_JOBS, proofProblems } from "./ci-proof";
+import { shardNumbers } from "./proof-shards";
 
 export function checkoutFromJob(log: string): string {
   const lines = log.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
@@ -47,7 +48,7 @@ export async function verifyIntegrationProof(root: string, repository: string, c
   const expected = ["changeset:success", "proof:success"];
   for (const name of PROOF_JOBS) {
     const fresh = selected.selections[name] === "true" && !selected.retained.includes(name);
-    if (fresh && ["browser", "layout"].includes(name)) expected.push(`${name} (1):success`, `${name} (2):success`);
+    if (fresh && (name === "browser" || name === "layout")) expected.push(...shardNumbers(name).map(shard => `${name} (${shard}):success`));
     else if (fresh && name === "unit") {
       const shards: unknown = JSON.parse(selected.unitShards ?? "null");
       if (!Array.isArray(shards) || !shards.length || shards.length > 4 || shards.some((value, index) => value !== index + 1)) throw new Error("Missing actual unit partition identity");

@@ -46,8 +46,13 @@ async function scenario(mode: string) {
     const repo="odysseus/brain-kit", base=candidate.base, head=candidate.head, squash=${JSON.stringify(squash)};
     const categories=["verify","pack","unit","browser","layout","captures","runtime","runtime_host","endurance"];
     const selected={selections:Object.fromEntries(categories.map(x=>[x,"false"])),results:Object.fromEntries(categories.map(x=>[x,"skipped"])),retained:[],unitShards:null};
+    if(s.mode.startsWith("browser-")){selected.selections.browser="true";selected.results.browser="success";}
     if(s.mode==="missing-selection")delete selected.selections.endurance;
     if(s.mode==="unexpected-skip"){selected.selections.endurance="true";selected.results.endurance="success";}
+    const job=(id,name,conclusion="success")=>({id,name,status:"completed",conclusion,run_id:91,head_sha:head});
+    const jobs=[job(1,"changeset"),job(2,"proof"),...categories.flatMap((name,index)=>name==="browser"&&s.mode.startsWith("browser-")
+      ?[1,2,3].filter(shard=>s.mode!=="browser-missing-third"||shard!==3).map(shard=>job(20+shard,"browser ("+shard+")"))
+      :[job(index+3,name,"skipped")])];
     const run=(id,workflow)=>({id,run_attempt:1,event:"pull_request",head_sha:head,status:s.mode.startsWith("confirm-")&&workflow==="ci"&&s.requested&&(s.mode==="confirm-cap"||s.now===${NOW})?"queued":"completed",conclusion:s.mode==="proof-failure"&&workflow==="ci"?"failure":s.mode==="confirm-cancel"&&s.requested&&workflow==="ci"?"cancelled":"success",repository:{html_url:candidate.repository},head_repository:{html_url:candidate.repository},pull_requests:[{number:7}]});
     const checkout="[command]git log -1 --format=%H\\n2026-07-12T00:00:00Z "+(s.mode==="wrong-checkout"?"c".repeat(40):actual.sha)+"\\n";
     let value;
@@ -64,11 +69,12 @@ async function scenario(mode: string) {
       else if(path.includes("actions/workflows/ci.yml/runs?event=push"))value={workflow_runs:[]};
       else if(path.includes("actions/workflows/ci.yml/runs"))value={workflow_runs:[run(s.mode.startsWith("confirm-")&&!s.requested?90:91,"ci")]};
       else if(path.includes("actions/workflows/contract.yml/runs"))value={workflow_runs:[run(92,"contract")]};
-      else if(path.includes("/attempts/1/jobs"))value={total_count:11,jobs:[{id:1,name:"changeset",status:"completed",conclusion:"success",run_id:91,head_sha:head},{id:2,name:"proof",status:"completed",conclusion:"success",run_id:91,head_sha:head},...categories.map((name,index)=>({id:index+3,name,status:"completed",conclusion:"skipped",run_id:91,head_sha:head}))]};
+      else if(path.includes("/attempts/1/jobs"))value={total_count:jobs.length,jobs};
       else if(path.endsWith("actions/jobs/1/logs"))value=checkout+'"cadence": "confirmation"';
       else if(path.endsWith("actions/jobs/2/logs")) {
         if(s.mode==="revoked-during-proof"&&!s.revoked){const store=new GitReservationStore(root), snap=store.read();store.publish(snap,reservationTransition(snap.state,{kind:"revoke",maintainer:true,reason:"Abandon controlled fixture"},202,s.now));s.revoked=true;}
         value=checkout+"BRAIN_CANDIDATE_RECEIPT "+JSON.stringify({event:"ready_for_review",head,base,checkout:actual})+"\\nBRAIN_SELECTED_PROOF_RECEIPT "+JSON.stringify(selected)+"\\nAll selected hosted proof passed; remaining skips are planner-intended.";}
+      else if(/actions\\/jobs\\/2[123]\\/logs$/.test(path))value=checkout;
       else if(path.endsWith("git/commits/"+actual.sha))value={sha:actual.sha,tree:{sha:actual.tree},parents:actual.parents.map(sha=>({sha}))};
       else if(path.endsWith("git/commits/"+squash))value={sha:squash,tree:{sha:actual.tree},parents:[{sha:base}]};
       else if(path.endsWith("issues/9"))value={milestone:{title:s.mode==="wrong-milestone"?"0.43.1":"0.44.0"}};
@@ -119,4 +125,16 @@ test("confirmation executable renews automatically, releases cancellation and ca
       expect(result.err).toContain("expired");
     }
   }
+});
+
+// The delivered workflow has three browser jobs. Keep this independent fixture
+// literal so a stale two-job verifier cannot bless incomplete selected proof.
+test("shared merge executable requires all three delivered browser shards", async () => {
+  const complete = await scenario("browser-complete");
+  expect(complete.code, `COMPLETE_SELECTED_BROWSER_INVENTORY: ${complete.err}`).toBe(2);
+  expect(complete.dispatched).toBe(true);
+  const missing = await scenario("browser-missing-third");
+  expect(missing.dispatched, "NO_MERGE_WITH_MISSING_THIRD_BROWSER_SHARD").toBe(false);
+  expect(missing.code).toBe(1);
+  expect(missing.err).toContain("Actual selected job inventory differs");
 });
