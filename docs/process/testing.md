@@ -443,14 +443,5 @@ application, genuine nonignored refusal, pin retention and pruning. The warm
 turn checks failed-query and unavailable-worker refusals without overwriting
 the existing mask. The dedicated backend drives the real host bridge; it does
 not call an image provider. The ordinary native SDK fixture remains unchanged.
-The scratch composition partitions each Git prerequisite and application into
-sequential children: private positive, fresh Git/app, warm Git/app and strict
-Git/app. Each prerequisite finishes its real publication and cleanup before
-its app child; the same brain, app databases and native manager persist across
-children. Warm and strict use the existing app-only entry after their Git
-control, just as fresh already does. No brain or application state is reset.
-Each child still has 90 seconds; the entire application composition retains
-its original 455-second cap, including cleanup, rather than multiplying the
-budget by the expanded child count. Strict still executes the real SDK turn.
-All final joins, diagnostics and owned cleanup remain required. This partial
-composition does not replace complete PR proof.
+All selected phase deadlines, final joins, diagnostics and owned cleanup remain
+required. This partial composition does not replace complete PR proof.

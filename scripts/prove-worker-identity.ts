@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFil
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { applicationQualificationSelected, applicationQualificationScenario, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
-import { ordinaryIdentityPhases, ordinaryIdentityApplicationTimeoutMs } from "../packages/ui-sdk/tests/fixtures/ordinary-identity-phases.js";
+import { ordinaryIdentityPhases, IDENTITY_PHASE_TIMEOUT_MS, IDENTITY_CLEANUP_TIMEOUT_MS } from "../packages/ui-sdk/tests/fixtures/ordinary-identity-phases.js";
 import { SDK_RELAY_PROFILE_TIMEOUT_MS, SDK_RELAY_SINGLE_TURN_TIMEOUT_MS } from "../packages/ui-backend-claude/tests/fixtures/sdk-host-relay-limits.js";
 import { ownedPruneVariant, ownedPruneDiagnosticSelected, bootPruneCaptureVariant, bootPruneCaptureSelected } from "./native-proof/owned-prune-variant.js";
 import { dbRepeatStageVariant } from "./native-proof/db-repeat-variant.js";
@@ -162,12 +162,11 @@ if (import.meta.main) {
       chmodSync(binary, 0o755);
       faultHashes[name] = { script: hash(script), binary: hash(readFileSync(binary)) };
     }
-    const phaseSelection = { applicationScenario, applicationQualification, scratchMask,
-      probeStatePlacement, sharedGit, privateGitInputs };
-    const applicationPhases = ordinaryIdentityPhases(phaseSelection);
-    const applicationTimeoutMs = ordinaryIdentityApplicationTimeoutMs(phaseSelection);
-    // Keep the existing enclosing allowance even when scratch controls are
-    // partitioned; both complete SDK profiles retain their separate allowance.
+    const applicationPhases = ordinaryIdentityPhases({ applicationScenario, applicationQualification,
+      probeStatePlacement, sharedGit, privateGitInputs });
+    const applicationTimeoutMs = applicationPhases.length * IDENTITY_PHASE_TIMEOUT_MS + IDENTITY_CLEANUP_TIMEOUT_MS;
+    // Preserve the existing allowance for other work; account for the additional
+    // sequential application phases and both complete SDK profiles when selected.
     const containerTimeoutMs = 240_000 + Math.max(0, applicationTimeoutMs - 180_000)
       + (nativePhaseOnly ? 0 : 2 * (SDK_RELAY_PROFILE_TIMEOUT_MS - SDK_RELAY_SINGLE_TURN_TIMEOUT_MS));
     const nativeFixturePath = join(artifact, "identity-fixture.py");
@@ -186,8 +185,6 @@ if (import.meta.main) {
       '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', `"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--application-scenario=${applicationScenario}"`));
     if (bootPruneCapture) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
       '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--boot-prune-capture"'));
-    if (scratchMask) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
-      '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--scratch-mask"'));
     if (omitProbeStatePlacement) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
       '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts", "--omit-probe-state-placement"'));
     const setup = join(artifact, "setup.sh");
@@ -303,7 +300,7 @@ exit "$case_code"
     const metadata = { image, applicationPhases, applicationTimeoutMs, containerTimeoutMs,
       applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" || applicationScenario === "db-repeat" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
       skippedGitPhases: applicationScenario === "db-repeat" ? ["fresh-standalone", "warm-standalone"] : [],
-      proofScope: scratchMask ? "scratch-mask-partitioned-application-qualification-boot-prune-capture-variant" : applicationScenario === "db-repeat" ? "application-scenario-db-repeat-boot-prune-capture-stage-observation-variant" : applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+      proofScope: scratchMask ? "scratch-mask-application-qualification-boot-prune-capture-variant" : applicationScenario === "db-repeat" ? "application-scenario-db-repeat-boot-prune-capture-stage-observation-variant" : applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
       collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null, bootPruneHashes: bootVariant?.hashes ?? null, dbRepeatStageHashes: dbVariant?.hashes ?? null,
       skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls", ...(applicationQualification ? APPLICATION_SKIPPED_CONTROLS : []), ...(probeStatePlacement ? ["private-git-inputs", "fresh-controls", "fresh-app", "warm-app", "strict-app"] : [])] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",

@@ -1,7 +1,5 @@
 /** A separately named partial composition; original full controls stay selected by default. */
 export const APPLICATION_QUALIFICATION_PHASES = ["private-positive", "fresh-git", "fresh-app", "warm", "strict"] as const;
-/** Same ordered controls, with Git prerequisites partitioned like fresh-git/fresh-app. */
-export const SCRATCH_MASK_QUALIFICATION_PHASES = ["private-positive", "fresh-git", "fresh-app", "warm-git", "warm-app", "strict-git", "strict-app"] as const;
 export const APPLICATION_SKIPPED_CONTROLS = ["private-input-adverse-controls", "ordinary-probe-relay-controls", "maintenance-stage-principal-mask-publication-and-adverse-controls"];
 export function applicationQualificationSelected(options: readonly string[]): boolean {
   const selected = options.includes("--application-qualification");
