@@ -10,11 +10,11 @@ export function ownedPruneVariant(cronSource: string, boundarySource: string) {
   const observer = (key: string, condition = "") => `const fixtureStarted = performance.now();
   const fixtureStage = (stage: string) => { try { ${condition}console.log(JSON.stringify({ ${key}: { stage, elapsedMs: performance.now() - fixtureStarted } })); } catch { /* Observation cannot replace the operation. */ } };`;
   let cron = replace("cron", cronSource, "  const { brain, log } = options;", "  const { brain, log } = options;\n  " + observer("fixtureOwnedPrune"));
-  cron = replace("cron", cron, "    if (inFlight) return inFlight;", '    if (inFlight) { fixtureStage("tick:join-existing"); return inFlight; }');
+  cron = replace("cron", cron, "    if (tickFlight) return tickFlight;", '    if (tickFlight) { fixtureStage("tick:join-existing"); return tickFlight; }');
   cron = replace("cron", cron, "    const controller = new AbortController();", '    fixtureStage("tick:start-new");\n    const controller = new AbortController();');
-  cron = replace("cron", cron, "      if (options.pins) await options.pins.refresh(controller.signal);", '      if (options.pins) { fixtureStage("pins:start"); await options.pins.refresh(controller.signal); fixtureStage("pins:done"); }');
-  cron = replace("cron", cron, '      return brain.scratchPrune({ signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });', '      fixtureStage("cli:start");\n      const result = await brain.scratchPrune({ signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });\n      fixtureStage("cli:done"); return result;');
-  cron = replace("cron", cron, "      .catch((error: unknown) => {", '      .catch((error: unknown) => {\n        fixtureStage("pass:error");');
+  cron = replace("cron", cron, "        try { await options.pins.refresh(controller.signal); }", '        try { fixtureStage("pins:start"); await options.pins.refresh(controller.signal); fixtureStage("pins:done"); }');
+  cron = replace("cron", cron, '      return brain.scratchPrune({ ...(request ?? {}), signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });', '      fixtureStage("cli:start");\n      const result = await brain.scratchPrune({ ...(request ?? {}), signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });\n      fixtureStage("cli:done"); return result;');
+  cron = replace("cron", cron, "    tickFlight = run().then(() => undefined).catch((error: unknown) => {", '    tickFlight = run().then(() => undefined).catch((error: unknown) => {\n      fixtureStage("pass:error");');
   cron = replace("cron", cron, "      .finally(() => {", '      .finally(() => {\n        fixtureStage("pass:settled");');
   let boundary = replace("boundary", boundarySource, "    async run(execution) {", '    async run(execution) {\n      ' + observer("fixtureOwnedPruneBoundary", 'if (execution.purpose !== "brain scratch prune") return; ') + '\n      fixtureStage("entry");');
   const runStart = boundary.indexOf("    async run(execution) {"), runEnd = boundary.indexOf("    async launch(execution) {", runStart);
@@ -24,11 +24,12 @@ export function ownedPruneVariant(cronSource: string, boundarySource: string) {
   run = replace("boundary", run, "          const run = async () => {", '          const run = async () => {\n            fixtureStage("output-lock:admitted");\n            fixtureStage("view:start");');
   const mark = (before: string, start: string, done: string) => { run = replace("boundary", run, before, `            fixtureStage("${start}");\n${before}\n            fixtureStage("${done}");`); };
   run = replace("boundary", run, "            const view = await prepareInput(execution.signal);", '            const view = await prepareInput(execution.signal);\n            fixtureStage("view:done");');
-  mark("              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });", "output:start", "output:done");
+  mark("              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });", "output:start", "output:done");
   mark("              const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);", "git:start", "git:done");
   mark(`              const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
-                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });`, "worker:start", "worker:done");
-  run = replace("boundary", run, "              if (!result.killed) {", '              if (!result.killed) {\n                fixtureStage("publish:start");');
+                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
+              () => { execution.assertAuthorized?.(); execution.onExecute?.(); });`, "worker:start", "worker:done");
+  run = replace("boundary", run, "              if (!result.killed && execution.publish !== false) {", '              if (!result.killed && execution.publish !== false) {\n                fixtureStage("publish:start");');
   run = replace("boundary", run, "                else await outputs.publish();", '                else await outputs.publish();\n                fixtureStage("publish:done");');
   run = replace("boundary", run, "            } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }", '            } finally { try { fixtureStage("output-cleanup:start"); await outputs?.cleanup(); fixtureStage("output-cleanup:done"); } finally { fixtureStage("view-cleanup:start"); await view.cleanup(); fixtureStage("view-cleanup:done"); } }');
   run = replace("boundary", run, "          return outputLock.withLock(brain, () => execution.lock", '          fixtureStage("output-lock:wait");\n          return outputLock.withLock(brain, () => execution.lock');

@@ -2,6 +2,7 @@ import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../
 import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
 import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
+import { storageServer } from "../ui-react/tests/browser/storage-server-command.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
 import { hygieneServer } from "../ui-react/tests/browser/hygiene-server-command.ts";
@@ -165,7 +166,7 @@ export default mergeConfig(
             browser: {
               enabled: true,
               screenshotFailures: false,
-              commands: { mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
+              commands: { mermaidMedia, mermaidOutput, mermaidScreenComparison, buttonCapture, overlayMouse, dictationMotion, policyServer, storageServer, hygieneLoop, hygieneServer, dispatchActions, sheetInput, focusCapture, formViewport, formConsumerStyles, rankFooterFonts, codeHighlightFailure, codeHighlightFailureCount, offlineScene, coldCapture, shareReview, transcriptionHttp, startRequestLog, requestLog, grantMicrophone },
               // The fake microphone plays the generated 10-second fixture
               // (#1016). Chromium reads the file at launch, so it is written
               // when this config loads; the fake UI grants the permission.

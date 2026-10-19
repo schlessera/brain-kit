@@ -7,7 +7,7 @@ import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteerin
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
-export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number) => Promise<string>, steeringOptions: JournalSteeringOptions = {},
+export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>, steeringOptions: JournalSteeringOptions = {},
   identity?: { brainPath: string; createTemporary: NativeJournalReadContext["createTemporary"] }) {
   const workerUid = () => {
     if (!identity || !workerIdentityHelper()) return undefined;
@@ -33,6 +33,24 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       const root = observer.currentRoot();
       return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root)), covered);
     },
+    allowed(path: string, policy: NativeJournalPolicy): boolean { return !!journalPathScope(path) && !policy.ignored(path); },
+    eligible(path: string, policy: NativeJournalPolicy): boolean {
+      const metadata = observer.get(path);
+      return !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path);
+    },
+    /** Exact current sealed before-version; the caller keeps the ordinary policy and storage owner. */
+    async retainBefore(path: string, policy: NativeJournalPolicy, signal?: AbortSignal): Promise<JournalSnapshotEntry | undefined> {
+      signal?.throwIfAborted();
+      const metadata = observer.get(path), root = observer.currentRoot();
+      if (!metadata) return undefined;
+      if (metadata.bytes > 64 * 1024 * 1024) throw new Error("Selected attachment exceeds the bounded recovery copy size.");
+      const result = entry(metadata, policy);
+      if (!result || result.ignored || result.kind !== "file") return result;
+      const hash = await withNativeJournalFile(root.path, path, metadata.bytes, context(root, signal),
+        file => retain(file.fd, metadata.bytes, signal));
+      signal?.throwIfAborted();
+      return { ...result, hash };
+    },
     async observe(policies: ReadonlyMap<string, NativeJournalPolicy>, signal?: AbortSignal) {
       const observation = await observer.observe(signal);
       try {
@@ -46,7 +64,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
           let hash = captured.get(key);
           if (!hash) {
             const privateRead = context(root, signal), started = performance.now();
-            try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes)); }
+            try { hash = await withNativeJournalFile(root.path, metadata.path, metadata.bytes, privateRead, file => retain(file.fd, metadata.bytes, signal)); }
             catch (error) {
               if (!privateRead || !nativeJournalPermissionDenied(error)) throw error;
               unreadable.set(metadata.path, { path: metadata.path, bytes: metadata.bytes, mode: metadata.mode, kind: metadata.kind, reason: "worker_reader_unavailable", ms: Math.max(0, Math.round(performance.now() - started)) });

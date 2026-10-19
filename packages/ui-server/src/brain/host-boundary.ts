@@ -65,6 +65,16 @@ export interface BrainExecution {
   /** Host-side Bun options for the old unwrapped path, such as SIGKILL on abort. */
   killSignal?: NodeJS.Signals;
   timeoutMs?: number;
+  /** @internal Storage owner operations recheck authority after admission/preparation. */
+  assertAuthorized?: () => void;
+  /** @internal Distinguish pre-launch owner refusal from an interrupted effect. */
+  onExecute?: () => void;
+  /** @internal Combined output bound for an explicitly bounded operation. */
+  outputBytes?: number;
+  /** @internal A consequence reader discards every worker output, including Git side effects. */
+  publish?: false;
+  /** @internal Fixed host-selected publication areas, never supplied by a request. */
+  outputAreas?: readonly string[];
   /** Existing host files the command may append to (a cron span sink). */
   writeFiles?: readonly string[];
   /** A complete hosted sync: its only credentialed part is the host mirror transport. */
@@ -112,6 +122,7 @@ export function brainCommandClass(args: readonly string[]): { credentials: boole
     // Automatic plain index is keyword-only. Provider/flagged operations keep
     // the conservative credentialed exclusive envelope.
     case "index": return args.length === 1 ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
+    case "storage": return args.length === 3 && args[1] === "pack" && args[2] === "--json" ? { credentials: false, gate: "shared" } : { credentials: true, gate: "exclusive" };
     case "search": return { credentials: true, gate: "shared" };
     // A module action runs the module's own code, which may call out.
     case "module": return args.includes("--action") ? { credentials: true, gate: "exclusive" } : { credentials: false, gate: "shared" };
@@ -380,6 +391,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       brainPath: brain,
       ...(startupView ? { startupView } : {}),
       tempLimits: maintenanceTemp,
+      ...("outputBytes" in execution && execution.outputBytes ? { outputBytes: execution.outputBytes } : {}),
       ...(tempDomain ? { tempDomain } : {}),
       // The operator's exec wrapper runs inside the worker, as it does for agent workers.
       command: wrapCommand(argv, exec.wrapper),
@@ -483,6 +495,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     withGate,
     async run(execution) {
       execution.signal?.throwIfAborted();
+      execution.assertAuthorized?.();
       return gated(execution, async hold => {
         execution.signal?.throwIfAborted();
         if (!isolated()) {
@@ -491,7 +504,10 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             // Another shared turn can establish sticky worker history while
             // credential exclusion waits. Release credentials before rerouting.
             if (isolated()) return undefined;
+            if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
+            execution.assertAuthorized?.();
             if (hold) markUnpinnedHostWriter(hold);
+            execution.onExecute?.();
             const proc = hostSpawn(execution);
             const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
             try {
@@ -513,16 +529,20 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
             ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
           const run = async () => {
+            execution.assertAuthorized?.();
             const view = await prepareInput(execution.signal);
             let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
             try {
               execution.signal?.throwIfAborted();
-              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });
+              outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
               const launch = command(execution);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
+              execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
-                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-              if (!result.killed) {
+                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}), ...(execution.outputBytes ? { outputBytes: execution.outputBytes } : {}) },
+              () => { execution.assertAuthorized?.(); execution.onExecute?.(); });
+              if (!result.killed && execution.publish !== false) {
+                execution.assertAuthorized?.();
                 if (execution.lock) await outputs.publishLocked(execution.lock.keyed);
                 else await outputs.publish();
               }
@@ -547,6 +567,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           execution.signal?.throwIfAborted();
           if (isolated()) { credential?.release(); credential = undefined; }
           else {
+            if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
             if (hold) markUnpinnedHostWriter(hold);
             const proc = hostSpawn(execution);
             return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
@@ -597,7 +618,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
-        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal });
+        outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
         const launch = command(execution);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
@@ -610,7 +631,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
-        if (!signalCode) {
+        if (!signalCode && execution.publish !== false) {
           if (execution.lock) await outputs!.publishLocked(execution.lock.keyed);
           else await outputs!.publish();
         }
@@ -624,6 +645,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     runSync(execution) {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
+        if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
         const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: { ...execution.env }, stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
         return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode ?? 1 };
       }
