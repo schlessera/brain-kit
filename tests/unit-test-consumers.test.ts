@@ -47,6 +47,13 @@ function fixture() {
 const consumer = "packages/consumer/tests/cross.test.ts";
 const changed = "packages/source/src/index.ts";
 
+test("ordinary module properties do not imply a runtime loader", () => {
+  const f = fixture();
+  f.write(consumer, 'const module = {name: "fixture", setup() {}}; module.setup(); console.log(module.name);');
+  expect(unitFiles(planChecks([changed], workspaces(f.root), f.root), f.root), "ORDINARY_MODULE_PROPERTIES").not.toContain(consumer);
+  expect(discoverUnitImports(f.root).unresolved.size).toBe(0);
+});
+
 test.each(["exports", "main", "nested scope", "helper imports"])(
   "resolution metadata retains the consumer when only %s changes", kind => {
     const f = fixture();

@@ -155,7 +155,8 @@ export function discoverUnitImports(root: string): UnitImportGraph {
           ts.isParenthesizedExpression(parent);
         const resolver = property && /^(?:resolve|resolveSync|require)$/.test(property);
         const supportedCall = directCall && (object === "Bun" ? property === "resolveSync" : property === "resolve");
-        if (object === "module" ? property || indirectObject : indirectObject || resolver && !supportedCall)
+        if (object === "module" ? property && /^(?:require|createRequire|_load|constructor)$/.test(property) || indirectObject :
+            indirectObject || resolver && !supportedCall)
           unknown(file, "Unsupported loader object or resolver alias");
       }
       if (/^(?:tests\/|scripts\/|packages\/[^/]+\/(?:tests|scripts)\/)/.test(file) &&
