@@ -279,6 +279,44 @@ this now-completed same-source count comparison. Dependency copies and private
 builds count in proof time and sampled VM resources; setup/install and queues
 remain separate step measurements. No deadline, shard count or N changed here.
 
+### One fresh build per test invocation
+
+The [2026-10-20 option-B ruling for #2279](https://github.com/schlessera/brain-kit/issues/2279#issuecomment-6293488248)
+permits one fresh package build under the invocation's continuously held write
+lease. `scripts/test.ts` prepares the selected runtime consumers' forward
+package closure before starting Bun tests. Each private unit worker requests a
+full build inside that same build/test lifetime, after namespace entry. There
+are still at most two workers, with serial compilers inside each. A worker can
+now start tests while its sibling is still preparing; account for this scheduling
+placement separately from duplicate compilation avoided.
+
+The seventeen runtime hooks use a checked helper. Admission requires the live
+ancestor coordinator's PID/start identity, invocation nonce, canonical checkout
+and root inode, active exclusive lease owner/descriptor/inode, and the actual
+builder's completed successful package/child receipt for the required closure.
+The coordinator waits for exit and both output EOFs before publishing a bounded
+record through its held descriptor. Closing the descriptor or losing the owner
+revokes it; leftover files and the builder's best-effort observation fingerprints
+have no authority. Failed or signaled preparation stops the invocation before
+tests; missing diagnostics after successful preparation leave hooks rebuilding.
+
+Every ordinary nested wrapper creates a fresh invocation. Only the explicitly
+checked isolated external-speech child borrows its live parent's build, outside
+both its setup and outer-test deadlines. Direct/unattested hooks rebuild;
+standalone coordinated runtime invocations freshly prepare. Shared read batches,
+unsupported alternate working directories and watch/hot runs remain unattested.
+Ordinary explicit `scripts/build.ts` calls still compile every selected package,
+including freshness/configuration/compiler/output-damage fixture controls.
+Client/browser bundling stays fresh and consumers keep their default exports.
+
+Source edits during a run take effect at the next invocation, as explicitly
+accepted by the ruling. The lease coordinates cooperating first-party writers;
+it does not make source immutable or protect against hostile same-UID processes.
+No persistent stamp, boolean skip, generic producer interface, assertion or
+deadline change follows. This is distinct from deferred #2319 activation below.
+Measure complete preparation, hook admission, test execution and cleanup costs;
+small hook durations alone are not a whole-invocation speedup.
+
 ### Opt-in compilation within one hosted workspace
 
 The [same-source compilation comparison](https://github.com/schlessera/brain-kit/issues/2321#issuecomment-6233589351)

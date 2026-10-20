@@ -1,3 +1,5 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -47,9 +49,8 @@ async function child(args: string[]) {
 }
 
 beforeAll(async () => {
-  // A focused source mutation still bundles the client below from its fresh
-  // source; only already-built, unchanged workspace dependencies may be reused.
-  if (process.env.BRAIN_ARTIFACT_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
+  // The invocation owns fresh package output; client bundling stays fresh below.
+  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("artifact-recovery-runtime.test.ts"));
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-artifact-recovery-"));
   brain = resolve(fixture, "brain");
   await createFixtureBrain(repo, brain);

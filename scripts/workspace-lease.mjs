@@ -1,5 +1,5 @@
 /** Coordinate development commands which share mutable workspace output. */
-import { fstatSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { fstatSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,6 +39,48 @@ function ancestorOwnsLease(lease) {
     }
   } catch { /* A dead/unrelated owner cannot authorize nested access. */ }
   return false;
+}
+
+/** Linux process lifetime, including PID reuse and zombie rejection. */
+export function processIdentity(pid) {
+  try {
+    if (!Number.isSafeInteger(pid) || pid < 1) return;
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    if (["Z", "X"].includes(fields[0])) return;
+    return { parent: Number(fields[1]), start: fields[19] };
+  } catch { /* A dead owner has no authority. */ }
+}
+
+export function liveAncestor(ownerPid, ownerStart) {
+  if (process.platform !== "linux" || typeof ownerStart !== "string" || !/^\d+$/.test(ownerStart)) return false;
+  let pid = process.pid;
+  for (let depth = 0; pid > 0 && depth < 128; depth++) {
+    const identity = processIdentity(pid);
+    if (!identity) return false;
+    if (pid === ownerPid) return identity.start === ownerStart;
+    pid = identity.parent;
+  }
+  return false;
+}
+
+/** Strict invocation admission, in addition to ordinary inherited lock transport. */
+export function workspaceLeaseIdentity(root) {
+  try {
+    const lease = inheritedLease();
+    if (!lease || !liveAncestor(lease.ownerPid, lease.ownerStart)) return;
+    const path = realpathSync(root), st = statSync(path), lock = statSync(lockPath(path));
+    if (lease.root !== path || lease.rootDev !== st.dev || lease.rootIno !== st.ino || lock.dev !== lease.dev || lock.ino !== lease.ino) return;
+    const held = statSync(`/proc/${lease.ownerPid}/fd/${lease.ownerFd}`);
+    if (!held.isFile() || held.dev !== lock.dev || held.ino !== lock.ino) return;
+    const info = readFileSync(`/proc/${lease.ownerPid}/fdinfo/${lease.ownerFd}`, "utf8");
+    // The path/inode alone survives release. Require an actual held flock and
+    // its original owner lifetime; a readable marker never grants write access.
+    const mode = lease.mode === "write" ? "WRITE" : "(?:READ|WRITE)";
+    if (!new RegExp(`^lock:\\s+\\d+: FLOCK\\s+ADVISORY\\s+${mode}\\s+${lease.ownerPid}\\s+`, "m").test(info)) return;
+    return { mode: lease.mode, root: path, rootDev: st.dev, rootIno: st.ino,
+      dev: lock.dev, ino: lock.ino, ownerPid: lease.ownerPid, ownerFd: lease.ownerFd, ownerStart: lease.ownerStart };
+  } catch { /* Unsupported/missing/replaced ownership cannot attest a build. */ }
 }
 
 function sameFile(fd, path) {
@@ -174,7 +216,9 @@ async function enter(root, mode, lifetimeFd, executable, args) {
   }
   if (fd === undefined) throw new Error("Workspace lock descriptor was not inherited from flock");
   const held = fstatSync(fd);
-  const owner = { ownerPid: process.pid, ownerFd: fd };
+  const canonical = realpathSync(root), scope = statSync(canonical);
+  const owner = { ownerPid: process.pid, ownerFd: fd, ownerStart: processIdentity(process.pid)?.start,
+    root: canonical, rootDev: scope.dev, rootIno: scope.ino };
   process.env[MARKER] = JSON.stringify({ mode, fd, dev: held.dev, ino: held.ino, ...owner });
   const { spawn } = await import("node:child_process");
   const { Socket } = await import("node:net");

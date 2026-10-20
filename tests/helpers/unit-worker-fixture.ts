@@ -8,7 +8,6 @@ export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: 
   mkdirSync(join(root, "tmp"));
   const lease = join(source, "scripts/workspace-lease.mjs");
   const receipt = join(source, "scripts/build-receipt.ts");
-  const guard = join(source, "scripts/test-network-child-preload.ts");
   const budget = join(source, "packages/ui-sdk/src/server/maintenance-temp-budget.ts");
   const write = (file: string, content: string) => {
     mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -17,6 +16,7 @@ export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: 
   write("scripts/unit-worker-entry.sh", readFileSync(join(source, "scripts/unit-worker-entry.sh"), "utf8"));
   write(".gitignore", "node_modules/\ntmp/\ndist/\n.vitest-attachments/\n");
   write("package.json", JSON.stringify({ name: "odysseus-unit-fixture", type: "module", scripts: { build: "bun scripts/build.ts", test: "bun scripts/test.ts" } }));
+  write("packages/raft/package.json", JSON.stringify({ name: "@odysseus/raft", version: "1.0.0" }));
   write("packages/raft/README.md", "Odysseus builds the raft.\n");
   // This byte-owned stand-in tests dependency copying, not a compiler version.
   write("node_modules/typescript/package.json", '{"name":"odysseus-dependency-fixture"}\n');
@@ -63,11 +63,11 @@ const {basename,join}=await import("node:path");const {existsSync}=await import(
 const shared=${JSON.stringify(join(root,"tmp"))};writeFileSync(join(shared,"built-"+basename(process.cwd())),"ready");
 const stop=Date.now()+5000;while((!existsSync(join(shared,"built-1"))||!existsSync(join(shared,"built-2")))&&Date.now()<stop)await Bun.sleep(5);` : ""}
 ${options.failBuild ? "process.exit(7);" : ""}
-mkdirSync("dist",{recursive:true});writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
-  write("scripts/test.ts", `import {ensureWorkspaceLease,inheritWorkspaceLease} from ${JSON.stringify(lease)};
-const code=await ensureWorkspaceLease(process.cwd(),"write");if(code!==undefined)process.exit(code);
-const child=Bun.spawn([process.execPath,"test","--preload",${JSON.stringify(guard)},...process.argv.slice(2)],inheritWorkspaceLease({stdio:["inherit","inherit","inherit"]}));
-process.exit(await child.exited);\n`);
+mkdirSync("dist",{recursive:true});writeFileSync("dist/lease.json",JSON.stringify({lease:JSON.parse(process.env.BRAIN_WORKSPACE_LEASE),nonce:process.env.BRAIN_TEST_INVOCATION_NONCE}));writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
+  for (const file of ["scripts/test.ts", "scripts/runtime-test-builds.ts", "scripts/test-invocation.ts", "scripts/publishable-packages.ts",
+    "scripts/workspace-lease.mjs", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts", "scripts/test-network-guard.ts", "packages/core/tests/cli-harness.ts"]) {
+    write(file, readFileSync(join(source, file), "utf8"));
+  }
   const files = ["odysseus", "penelope"].map(name => `tests/${name}.test.ts`);
   for (const [index, file] of files.entries()) write(file, `import {expect,test} from "bun:test";
 import {existsSync,mkdirSync,readFileSync,statSync,writeFileSync} from "node:fs";
@@ -86,6 +86,10 @@ test("${index === 0 ? "Odysseus" : "Penelope"} owns build, lease and maintenance
   expect(existsSync("dist/ready.txt"),"PRIVATE_UNIT_BUILD_READY").toBe(true);
   expect(readFileSync("dist/ready.txt","utf8")).toBe("Odysseus builds the raft.");
   const lease=JSON.parse(process.env.BRAIN_WORKSPACE_LEASE!);
+  const prepared=JSON.parse(readFileSync("dist/lease.json","utf8"));
+  expect(prepared.lease.ownerPid,"PREPARATION_AND_TEST_SHARE_LIVE_LEASE").toBe(lease.ownerPid);
+  expect(prepared.lease.ownerStart).toBe(lease.ownerStart);
+  expect(prepared.nonce,"PREPARATION_AND_TEST_SHARE_INVOCATION").toBe(process.env.BRAIN_TEST_INVOCATION_NONCE);
   expect(lease.ino,"PRIVATE_UNIT_OUTPUT_LEASE").toBe(statSync("tmp/workspace-operation/output.lock").ino);
   const git=Bun.spawnSync(["git","rev-parse","--path-format=absolute","--git-common-dir"],{stdout:"pipe",stderr:"pipe"});expect(git.exitCode).toBe(0);
   const parent=dirname(new TextDecoder().decode(git.stdout).trim()),shared=join(parent,"tmp/shared");mkdirSync(shared,{recursive:true});

@@ -1,3 +1,4 @@
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { statSync } from "node:fs";
@@ -79,11 +80,8 @@ async function stopHost(h: Host | undefined) {
 const hook = runtimeHookPhases("association-signout-runtime.test.ts");
 beforeAll(() => hook.phase("setup", async () => {
   if (!executablePath && !process.env.BRAIN_PINNED_CHROMIUM) return;
-  if (!process.env.BRAIN_AUTH_FIXTURE_BUILT) {
-  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await hook.child("package-build", build);
+  const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
   if (code !== 0) throw new Error(`Local work fixture package build failed (${code}): ${out}\n${err}`);
-  }
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-association-signout-"));
   brain = resolve(scratch, "brain");
   await hook.phase("fixture-files", () => createFixtureBrain(repo, brain));

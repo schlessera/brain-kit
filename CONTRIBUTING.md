@@ -48,7 +48,12 @@ issue when you are not sure.
 repository preload, and the repository browser
 wrapper wait automatically for other commands using the same checkout's build
 output. Runtime tests hold exclusive access because their fixtures rebuild the
-packages. Every selected package is rebuilt. Persistent build-output reuse is
+packages. Coordinated runtime invocations freshly build their selected package
+closure once before tests; hooks verify that same live invocation, checkout,
+exclusive lease and successful build before omitting duplicate compilation.
+Direct or unattested hooks rebuild. Source edits made during a run take effect
+on the next invocation. Ordinary explicit builds still rebuild every selected
+package. Watch/hot runs remain unattested. Persistent build-output reuse is
 disabled
 until its effective configuration, installed toolchain, runtime and stylesheet
 inputs can be qualified; package versions and symlink target strings are not
