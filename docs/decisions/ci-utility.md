@@ -811,3 +811,15 @@ The exact unit inventory is validated against default Bun discovery. It includes
 owning fast tests once, and uses at most the existing four partitions, reduced
 only when fewer files exist; no empty partition or duplicate execution substitutes
 for coverage. Selected categories remain required by the unchanged aggregate.
+
+
+## Fixed CI build output reuse
+
+The [isolated build decision](isolated-ci-build.md) records the maintainer's
+#2319 rulings: retain the dormant fixed first-party operation and defer activation,
+preserving ordinary rebuilding for local and unsupported contexts. CI intent stays
+off, production remains unqualified, and the original optimization criteria stay
+open after the independently reviewable dormant delivery. CI intent does not
+authorize reuse. Complete effective inputs, drained output ownership, actual
+consumer compatibility and comparable hosted cost must be qualified before
+activation. This does not cache selected test results or relax their proof.
