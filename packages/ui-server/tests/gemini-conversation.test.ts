@@ -20,7 +20,7 @@ async function until(check: () => boolean): Promise<void> {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw new Error("transport condition timed out"); await Bun.sleep(1); }
 }
-async function fixture(ack = true, consume = true) {
+async function fixture(ack = true, consume = true, parameterless = false) {
   const sent: any[] = [];
   const received: LiveConversationEvent[] = [];
   let remote: Bun.ServerWebSocket<undefined> | undefined;
@@ -32,6 +32,14 @@ async function fixture(ack = true, consume = true) {
       open(ws) { remote = ws; },
       message(ws, frame) {
         const m = JSON.parse(String(frame)); sent.push(m);
+        // The fixed host_task takes no vendor arguments. Model its accepted
+        // parameterless declaration at the real transport boundary (#2356),
+        // rather than acknowledging any setup shape unconditionally.
+        if (m.setup && parameterless && m.setup.tools.some((tool: any) => tool.functionDeclarations.some((declaration: any) =>
+          declaration.parameters !== undefined || declaration.parametersJsonSchema !== undefined))) {
+          ws.close(1007, "Parameterless host_task must omit its parameter schema");
+          return;
+        }
         if (m.setup && ack) ws.send(JSON.stringify({ setupComplete: {} }));
       },
     },
@@ -66,6 +74,10 @@ async function fixture(ack = true, consume = true) {
 }
 const ref = (nativeHandle = "native-1") => ({ conversationId: "ithaca", epoch: 1, utteranceId: "u1", turnId: "t1", requestId: "r1", nativeHandle });
 const result = { outcome: "completed" as const, facts: "The Ithaca note was captured.", delivery: "when-idle" as const };
+
+test("Gemini parameterless host_task completes a schema-checking peer handshake", async () => {
+  await expect(fixture(true, true, true)).resolves.toMatchObject({ provider: { id: "gemini-live" } });
+});
 
 test("Gemini setup uses canonical endpoint, server-only auth, manual activity and explicit NON_BLOCKING", async () => {
   const f = await fixture();
