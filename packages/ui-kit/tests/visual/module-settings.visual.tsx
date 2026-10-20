@@ -73,8 +73,9 @@ test("generic module fields render every leaf kind, discover new schema fields a
   } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
 });
 
-for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
-  test(`module settings: source-preserving edits and guarded navigation in ${theme} at ${width}px`, async () => {
+for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (const purpose of ["presentation", "transaction"] as const) {
+  const behavior = purpose === "presentation" ? "pristine presentation" : "source-preserving edits and guarded navigation";
+  test(`module settings: ${behavior} in ${theme} at ${width}px`, async () => {
     const restoreViewport = await settingsViewport(width);
     const iframe = document.createElement("iframe");
     iframe.dataset.moduleSettings = "";
@@ -91,7 +92,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
     const saves: Array<{ values: Record<string, unknown>; revision: string | null }> = [];
     let reject: "validation" | "conflict" | "network" | null = null;
     let moduleListRequests = 0;
-    const coldImport = theme === "dark" && width === 320;
+    const coldImport = purpose === "presentation" && theme === "dark" && width === 320;
     const ui = createBrainUiRoot({ storage: null, request: async (url, init) => {
       const path = new URL(url, "http://fixture.example").pathname;
       if (path.endsWith("/modules")) { moduleListRequests++; return Response.json({ enabled: [{ name: "jobs", key: snapshot.key, state: "active", settings: true, description: "Find the next voyage" }, { name: "broken", key: "./broken", state: "unavailable", settings: false, error: "Repair the module config" }], available: [] }); }
@@ -124,13 +125,16 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
       await import("../../../ui-react/src/components/settings/modules-tab.js");
       await expect.poll(() => doc.body.textContent).toContain("Configure Jobs");
       expect(moduleListRequests).toBe(1);
-      expect(button(doc, "View Broken").getAttribute("aria-disabled")).not.toBe("true");
-      flushSync(() => button(doc, "View Broken").click());
-      await expect.poll(() => doc.body.textContent).toContain("This detail is read-only");
-      expect(doc.body.textContent).toContain("Repair the module config");
-      expect(doc.querySelector('[data-setting-path]')).toBeNull();
-      flushSync(() => button(doc, "Back to modules").click());
-      await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
+      // Pristine surfaces own their captures; the transaction starts from its own fresh editor.
+      if (purpose === "presentation") {
+        expect(button(doc, "View Broken").getAttribute("aria-disabled")).not.toBe("true");
+        flushSync(() => button(doc, "View Broken").click());
+        await expect.poll(() => doc.body.textContent).toContain("This detail is read-only");
+        expect(doc.body.textContent).toContain("Repair the module config");
+        expect(doc.querySelector('[data-setting-path]')).toBeNull();
+        flushSync(() => button(doc, "Back to modules").click());
+        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
+      }
       flushSync(() => button(doc, "Configure Jobs").click());
       await expect.poll(() => doc.getElementById("module-setting-scoring.groups.0.name")).not.toBeNull();
       expect((doc.getElementById("module-setting-scoring.compensationBenchmark") as HTMLInputElement).value).toBe("120000.00");
@@ -142,95 +146,98 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
       expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
       const name = doc.getElementById("module-setting-scoring.groups.0.name")!;
       expect(name.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-      await new Promise((resolve) => setTimeout(resolve, 350));
-      await commands.moduleSettingsScreenshot(width === 320 ? `mobile-${theme}` : `desktop-${theme}`);
       const editor = doc.querySelector<HTMLElement>("[data-module-settings-editor]")!;
-      for (const [section, path] of [["tiers", "scoring.groups.0.tiers"], ["sources", "boards"], ["storage", "opportunitiesDir"]]) {
-        const field = doc.querySelector<HTMLElement>(`[data-setting-path="${path}"]`)!;
-        editor.scrollTop += field.getBoundingClientRect().top - editor.getBoundingClientRect().top;
+      if (purpose === "presentation") {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        await commands.moduleSettingsScreenshot(width === 320 ? `mobile-${theme}` : `desktop-${theme}`);
+        for (const [section, path] of [["tiers", "scoring.groups.0.tiers"], ["sources", "boards"], ["storage", "opportunitiesDir"]]) {
+          const field = doc.querySelector<HTMLElement>(`[data-setting-path="${path}"]`)!;
+          editor.scrollTop += field.getBoundingClientRect().top - editor.getBoundingClientRect().top;
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          expect(editor.scrollTop).toBeGreaterThan(0);
+          await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-${section}`);
+        }
+        editor.scrollTop = 0;
+      } else {
+        editor.scrollTop = 0;
+        // Switching style twice must retain both source forms and their casing.
+        flushSync(() => button(doc, "One keyword list").click());
+        expect(doc.body.textContent).toContain("tiers will be removed");
+        flushSync(() => button(doc, "Graded tiers").click());
+        expect(doc.body.textContent).not.toContain("Unsaved changes");
+        enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation");
+        expect(doc.body.textContent).toContain("Unsaved changes");
+        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-dirty`);
+        expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
+        flushSync(() => ui.stores.ui.getState().closeAllPanels());
+        expect(ui.stores.ui.getState().settingsPanelOpen).toBe(true);
+        expect(doc.body.textContent).toContain("Keep your unsaved changes?");
+        flushSync(() => button(doc, "Keep editing").click());
+        editor.scrollTop = editor.scrollHeight;
+        reject = "network";
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => doc.body.textContent).toContain("Connection interrupted");
+        expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Connection interrupted");
+        expect((name as HTMLInputElement).value).toBe("Fleet navigation");
+        reject = "validation";
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => doc.body.textContent).toContain("Name is required");
+        expect(name.getAttribute("aria-invalid")).toBe("true");
+        await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups.0.name");
+        const lifecycleTop = doc.querySelector("[data-module-settings-lifecycle]")!.getBoundingClientRect().top;
+        expect(name.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
+        expect(doc.getElementById("module-setting-scoring.groups.0.name-error")!.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
+        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-validation`);
+        enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation revised");
+        reject = null;
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => saves.length).toBe(1);
+        const scoring = saves[0]!.values.scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark: unknown; location?: unknown; queueThreshold?: unknown };
+        expect(scoring.groups[0]).toMatchObject({ name: "Fleet navigation revised", keywords: ["LegacyCase"], tiers: [{ points: 25, keywords: ["Navigation", "Harbor"] }, { points: 15, keywords: ["Sailing"] }] });
+        expect(scoring.compensationBenchmark).toBe("12000000");
+        expect(scoring.location).toBeUndefined();
+        expect(scoring.queueThreshold).toBeUndefined();
+        expect(saves[0]!.revision).toBe('"fixture-original"');
+        await expect.poll(() => ui.stores.ui.getState().settingsNavigationProtected).toBe(false);
+        expect(doc.body.textContent).toContain("commit abcdef0");
+        expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("commit abcdef0");
+        expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+
+        enter(doc, "module-setting-queries", "Unsaved query in progress");
+        expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
+        flushSync(() => ui.stores.ui.getState().setSettingsTab("accounts"));
+        expect(ui.stores.ui.getState().settingsTab).toBe("modules");
+        expect(doc.body.textContent).toContain("Keep your unsaved changes?");
+        flushSync(() => button(doc, "Keep editing").click());
+        flushSync(() => button(doc, "Discard").click());
+        expect((doc.getElementById("module-setting-queries") as HTMLInputElement).value).toBe("");
+
+        // A resize remounts the pane/drawer body; the draft and its guard survive.
+        enter(doc, "module-setting-scoring.groups.0.name", "Across the breakpoint");
+        const resized = width === 320 ? 1440 : 320;
+        iframe.style.width = `${resized}px`;
+        await page.viewport(resized, 800); await commands.formViewport(resized, 800);
+        await expect.poll(() => (doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement | null)?.value).toBe("Across the breakpoint");
+        expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
+        reject = "conflict";
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => doc.querySelector('[aria-label="Review conflicting settings"]')).not.toBeNull();
+        expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Settings changed elsewhere");
+        flushSync(() => button(doc, "Review").click());
+        expect(doc.activeElement?.getAttribute("aria-label")).toBe("Review conflicting settings");
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        expect(editor.scrollTop).toBeGreaterThan(0);
-        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-${section}`);
+        await commands.moduleSettingsScreenshot(`${resized === 320 ? "mobile" : "desktop"}-${theme}-conflict`);
+        const reviewed = button(doc, "Save reviewed settings");
+        expect(reviewed.getAttribute("aria-disabled")).toBe("true");
+        const radios = [...doc.querySelectorAll<HTMLInputElement>('input[type="radio"][name^="conflict-"]')].filter((input) => input.parentElement?.textContent?.includes("Use yours"));
+        expect(radios.length).toBeGreaterThan(0);
+        for (const radio of radios) flushSync(() => radio.click());
+        reject = null;
+        flushSync(() => reviewed.click());
+        await expect.poll(() => saves.length).toBe(2);
+        expect(saves[1]!.revision).toBe('"fixture-remote"');
+        expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
       }
-      editor.scrollTop = 0;
-
-      // Switching style twice must retain both source forms and their casing.
-      flushSync(() => button(doc, "One keyword list").click());
-      expect(doc.body.textContent).toContain("tiers will be removed");
-      flushSync(() => button(doc, "Graded tiers").click());
-      expect(doc.body.textContent).not.toContain("Unsaved changes");
-      enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation");
-      expect(doc.body.textContent).toContain("Unsaved changes");
-      await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-dirty`);
-      expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      flushSync(() => ui.stores.ui.getState().closeAllPanels());
-      expect(ui.stores.ui.getState().settingsPanelOpen).toBe(true);
-      expect(doc.body.textContent).toContain("Keep your unsaved changes?");
-      flushSync(() => button(doc, "Keep editing").click());
-      editor.scrollTop = editor.scrollHeight;
-      reject = "network";
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => doc.body.textContent).toContain("Connection interrupted");
-      expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Connection interrupted");
-      expect((name as HTMLInputElement).value).toBe("Fleet navigation");
-      reject = "validation";
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => doc.body.textContent).toContain("Name is required");
-      expect(name.getAttribute("aria-invalid")).toBe("true");
-      await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups.0.name");
-      const lifecycleTop = doc.querySelector("[data-module-settings-lifecycle]")!.getBoundingClientRect().top;
-      expect(name.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
-      expect(doc.getElementById("module-setting-scoring.groups.0.name-error")!.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
-      await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-validation`);
-      enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation revised");
-      reject = null;
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => saves.length).toBe(1);
-      const scoring = saves[0]!.values.scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark: unknown; location?: unknown; queueThreshold?: unknown };
-      expect(scoring.groups[0]).toMatchObject({ name: "Fleet navigation revised", keywords: ["LegacyCase"], tiers: [{ points: 25, keywords: ["Navigation", "Harbor"] }, { points: 15, keywords: ["Sailing"] }] });
-      expect(scoring.compensationBenchmark).toBe("12000000");
-      expect(scoring.location).toBeUndefined();
-      expect(scoring.queueThreshold).toBeUndefined();
-      expect(saves[0]!.revision).toBe('"fixture-original"');
-      await expect.poll(() => ui.stores.ui.getState().settingsNavigationProtected).toBe(false);
-      expect(doc.body.textContent).toContain("commit abcdef0");
-      expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("commit abcdef0");
-      expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-
-      enter(doc, "module-setting-queries", "Unsaved query in progress");
-      expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      flushSync(() => ui.stores.ui.getState().setSettingsTab("accounts"));
-      expect(ui.stores.ui.getState().settingsTab).toBe("modules");
-      expect(doc.body.textContent).toContain("Keep your unsaved changes?");
-      flushSync(() => button(doc, "Keep editing").click());
-      flushSync(() => button(doc, "Discard").click());
-      expect((doc.getElementById("module-setting-queries") as HTMLInputElement).value).toBe("");
-
-      // A resize remounts the pane/drawer body; the draft and its guard survive.
-      enter(doc, "module-setting-scoring.groups.0.name", "Across the breakpoint");
-      const resized = width === 320 ? 1440 : 320;
-      iframe.style.width = `${resized}px`;
-      await page.viewport(resized, 800); await commands.formViewport(resized, 800);
-      await expect.poll(() => (doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement | null)?.value).toBe("Across the breakpoint");
-      expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      reject = "conflict";
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => doc.querySelector('[aria-label="Review conflicting settings"]')).not.toBeNull();
-      expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Settings changed elsewhere");
-      flushSync(() => button(doc, "Review").click());
-      expect(doc.activeElement?.getAttribute("aria-label")).toBe("Review conflicting settings");
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      await commands.moduleSettingsScreenshot(`${resized === 320 ? "mobile" : "desktop"}-${theme}-conflict`);
-      const reviewed = button(doc, "Save reviewed settings");
-      expect(reviewed.getAttribute("aria-disabled")).toBe("true");
-      const radios = [...doc.querySelectorAll<HTMLInputElement>('input[type="radio"][name^="conflict-"]')].filter((input) => input.parentElement?.textContent?.includes("Use yours"));
-      expect(radios.length).toBeGreaterThan(0);
-      for (const radio of radios) flushSync(() => radio.click());
-      reject = null;
-      flushSync(() => reviewed.click());
-      await expect.poll(() => saves.length).toBe(2);
-      expect(saves[1]!.revision).toBe('"fixture-remote"');
-      expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
     } finally {
       if (coldImport) await commands.moduleSettingsImportGate("stop");
       flushSync(() => react.unmount()); ui.dispose(); iframe.remove();

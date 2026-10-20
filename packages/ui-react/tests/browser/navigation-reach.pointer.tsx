@@ -400,9 +400,9 @@ function paletteRows(s: Scene): string[] {
   return [...s.host.querySelectorAll<HTMLElement>('[role="dialog"][aria-label="Command palette"] [role="option"]')]
     .map((o) => (o.textContent ?? "").replace(/⏎/g, "").replace(/⌘\d$/, "").replace(/(spends|sync|a turn is running|needs the host)+$/g, "").trim());
 }
-// Hygiene's authenticated review effect is proved against a real server in
-// hygiene-review.layout.tsx; this shell fixture still inventories its row.
-const PALETTE_ROWS = [...Object.values(targets).flatMap((t) => (t.palette ? [t.palette] : [])), "Start hygiene review"];
+// Specialized Storage and Hygiene flows have their own real-browser proof;
+// this D52 destination matrix still inventories both keyless palette rows.
+const PALETTE_ROWS = [...Object.values(targets).flatMap((t) => (t.palette ? [t.palette] : [])), "Storage", "Start hygiene review"];
 
 const DESKTOP = [480, 900, 1279, 1280, 1440] as const;
 /** The cells' themes alternate by start, so each width is drawn in both. */

@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as workers from "@schlessera/brain-ui-sdk/internal";
+import * as journalCaptures from "../src/brain/native-journal-capture.js";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
 import { createPiBackend } from "../../ui-backend-pi/src/backend.js";
 import { createFixtureApp as createApp } from "./helpers/native-app-fixture.js";
@@ -49,6 +50,24 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
   const frames: ServerMessage[] = [];
   const latest = () => frames.filter((frame): frame is Extract<ServerMessage,{ type:"turn_journal" }> => frame.type === "turn_journal").at(-1);
   const paused = () => latest()?.journal.scope?.receipts.at(-1)?.state === "paused";
+  let releaseObservation!: () => void, observationHeld = false;
+  const observationReleased = new Promise<void>(done => { releaseObservation = done; });
+  let captureSpy: ReturnType<typeof spyOn> | undefined;
+  if (adapter === "pi" && !voice) {
+    const createCapture = journalCaptures.createNativeJournalCapture;
+    captureSpy = spyOn(journalCaptures, "createNativeJournalCapture").mockImplementation((...args) => {
+      const capture = createCapture(...args);
+      return { ...capture, async observe(...input) {
+        const observation = await capture.observe(...input);
+        return { ...observation, async commit() {
+          // The real journal has published the finite pause, but its observation
+          // hold must remain effective until this real capture commit completes.
+          if (!observationHeld && paused()) { observationHeld = true; await observationReleased; }
+          await observation.commit();
+        } };
+      } };
+    });
+  }
   try {
     app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: join(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
@@ -77,13 +96,29 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     const first = latest()!, receipt = first.journal.scope!.receipts.at(-1)!;
     expect(first.journal.budget, "COMBINED_SCOPE_PAUSE_RETAINS_BUDGET_FACTS").toBeDefined();
     expect(receipt, "SCOPE_ADAPTER_PAUSES_WITH_EXACT_FINITE_CEILING").toMatchObject({ dimension: "tool_calls", cap: 2, count: 2, newCap: 4, frozen: true, state: "paused" });
+    if (adapter === "pi") await wait(() => observationHeld, () => frames);
     const heartbeat = Bun.file(join(brain, "adapter-heartbeat")).size; await Bun.sleep(150);
     expect(Bun.file(join(brain, "adapter-heartbeat")).size, "SCOPE_ADAPTER_RUNNING_WORKER_PAUSED").toBe(heartbeat);
     const decision = (r: ScopeCapReceipt, action: string, submissionId: string) => ({ type: "scope_decision", turnId: first.turnId, sessionId: first.sessionId, eventId: r.eventId, submissionId, action });
     send({ ...decision(receipt, "continue", "wrong-session"), sessionId: "ogygia" });
     await wait(() => frames.some(frame => frame.type === "scope_decision_receipt" && frame.submissionId === "wrong-session"), () => frames);
     expect(frames.find(frame => frame.type === "scope_decision_receipt" && frame.submissionId === "wrong-session")).toMatchObject({ state: "refused" });
+    const decisions = (submissionId: string) => frames.filter((frame): frame is Extract<ServerMessage, { type: "scope_decision_receipt" }> => frame.type === "scope_decision_receipt" && frame.submissionId === submissionId);
+    if (adapter === "pi") {
+      expect(app.wsHost.journal!.isHeld(), "SCOPE_ADAPTER_REAL_OBSERVATION_COMMIT_HELD").toBe(true);
+      send(decision(receipt, "continue", "athena-held"));
+      await wait(() => decisions("athena-held").length === 1, () => frames);
+      expect(decisions("athena-held")[0], "SCOPE_ADAPTER_HELD_OBSERVATION_REFUSES_FINITE_OFFER").toMatchObject({ state: "refused", reason: "This limit permits Stop only while continuation headroom is unconfirmed." });
+      expect(latest()!.journal.scope, "SCOPE_ADAPTER_REFUSAL_CONSUMES_NO_GRANT").toMatchObject({ calls: 2, limits: { tool_calls: 2 }, receipts: [{ state: "paused", cap: 2, count: 2, newCap: 4, frozen: true }] });
+      expect(Bun.file(join(brain, "adapter-heartbeat")).size, "SCOPE_ADAPTER_REFUSED_WORKER_STAYS_PAUSED").toBe(heartbeat);
+    }
+    // Synchronize the grant with completed observation, not merely its published facts.
+    releaseObservation();
+    await app.wsHost.journal!.idle();
+    expect(app.wsHost.journal!.isHeld(), "SCOPE_ADAPTER_GRANT_AFTER_OBSERVATION_COMPLETES").toBe(false);
     send(decision(receipt, "continue", "athena-grant")); send(decision(receipt, "continue", "athena-grant"));
+    await wait(() => decisions("athena-grant").length === 2, () => frames);
+    expect(decisions("athena-grant").map(frame => frame.state), "SCOPE_ADAPTER_FIRST_GRANT_AND_DUPLICATE_ACCEPTED").toEqual(["accepted", "accepted"]);
     await wait(() => latest()?.journal.scope!.receipts.length === 2, () => frames);
     const second = latest()!.journal.scope!.receipts.at(-1)!;
     expect(second).toMatchObject({ cap: 4, count: 4, frozen: true, state: "paused" }); expect(second.newCap).toBeUndefined();
@@ -101,5 +136,9 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     const block = JSON.parse(blocks[0]!.payload);
     expect(block.failures, "SCOPE_CAP_BOTH_HITS_RETAINED_IN_ROADBLOCK_EPISODE").toHaveLength(2);
     expect(block.eventIds).toHaveLength(2);
-  } finally { await app?.close(); spawn?.mockRestore(); if (priorPi === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = priorPi; rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    releaseObservation();
+    try { await app?.close(); }
+    finally { captureSpy?.mockRestore(); spawn?.mockRestore(); if (priorPi === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = priorPi; rmSync(root, { recursive: true, force: true }); }
+  }
 }, 30_000);

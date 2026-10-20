@@ -195,11 +195,24 @@ jobs:
             tmp/unit-report-summary.json
             tmp/unit-worker-*.xml
             tmp/unit-worker-*.json
+            tmp/unit-worker-diagnostics/
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -243,6 +256,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -299,6 +324,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -344,6 +381,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -389,6 +438,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -429,6 +490,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -470,6 +543,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
