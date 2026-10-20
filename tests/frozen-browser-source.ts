@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import {resolve} from "node:path";
 
-// Delivered main after #2393 owns the reviewed browser config and producers.
+// Delivered Storage main (#2172) owns the reviewed config and producers.
 // Read raw Git blobs offline, independently of production pins and HEAD. This
 // positive is not candidate qualification; current bytes have separate controls.
-const owner = "90a95123cfceb169bd2ecf7c213544db742eaed7";
+const owner = "caae12da2e678dd4720bf112e93ef21812cfdc18";
 function git(args: string[]): Buffer {
   const child = Bun.spawnSync(["git", ...args], {
     cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe",
