@@ -467,6 +467,32 @@ They test actual current producer bytes separately: legitimate audit drift
 requires fresh proof and does not redefine the positive fixture. The locked
 offline compiler and installed-asset byte/mode controls remain runtime proof.
 
+Only a reviewed re-audit moves the audited revision
+([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer ruling 2026-10-18):
+
+- **Trigger.** A legitimate change to any file in the audited producer table
+  (`const auditedProducer`, `scripts/generated-build-inputs.ts`) lands on main.
+  That merge leaves the binding unavailable, so proof runs fresh. A separate
+  follow-up PR restores it. Drift is not batched indefinitely.
+- **Owner.** The audited revision (`const owner`, `tests/frozen-generated-source.ts`)
+  must be a delivered main commit. CI reads its blobs offline from full history,
+  and a squash merge discards the changing PR's own commits, so that PR cannot
+  name itself as the owner.
+- **Audit.** The re-audit reviews each changed producer and the combined set's
+  guarantees: cleaned package output, the frozen Tailwind dependency, the build
+  finishing before browser execution, checked exits and the fresh receipt. It
+  records the owner, the changed paths and digests, and the rationale.
+  Recomputing a digest is not an audit.
+- **Update.** One PR moves the owner, refreshes every matching production digest
+  and updates the positive-fixture provenance together. It records two mutation
+  receipts, then completes local and hosted proof:
+  - a producer-digest bypass fails its negative control;
+  - corrupt positive ownership fails its positive control.
+- **Drift during review.** A producer that changes again before the re-audit
+  merges needs renewed review, or stays unqualified and keeps fresh proof.
+  Automatic pin refreshes and per-file ownership are not part of this
+  procedure.
+
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
