@@ -10,7 +10,7 @@ const roots:string[]=[];
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
 const invocation=(filename:string,format:string)=>["diagram","export",filename,"--theme","print","--format",format,"--json"];
 test("native preload admits only the six closed filename and format combinations",()=>{
- for(const filename of ["release.diagram.yaml","origin.diagram.yaml"])for(const format of ["svg","png","pdf"]){
+ for(const filename of ["release.diagram.yaml","origin.diagram.yaml"] as const)for(const format of ["svg","png","pdf"]){
   expect(assertNativeExportArguments(invocation(filename,format))).toEqual({filename,format});
   expect(()=>assertNativeExportChild(["bun",resolve(import.meta.dir,"../packages/core/src/cli/brain.ts"),...invocation(filename,format)])).not.toThrow();
  }
