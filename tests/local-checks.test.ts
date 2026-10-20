@@ -1,9 +1,9 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { checkPackages } from "../scripts/check-packages";
-import { localChecks, requireRuntimeTools } from "../scripts/check-pr";
+import { localChecks, requireLocalSandbox, requireRuntimeTools } from "../scripts/check-pr";
 import { testArgv } from "../scripts/test";
 import { planChecks, workspaces } from "../scripts/ci-plan";
 
@@ -14,6 +14,129 @@ function fixture() {
   mkdirSync(join(dir, ".github/workflows"), { recursive: true });
   return dir;
 }
+
+function mountTable(count: number): string {
+  return Array.from({ length: count }, (_, i) => `${i + 1} 0 0:1 / /mnt/fixture/binds/${i} rw - tmpfs tmpfs rw`).join("\n") + "\n";
+}
+
+test("sandbox prerequisite permits 249 ms despite a large mount table", () => {
+  expect(requireLocalSandbox( () => mountTable(8000), () => 249)).toBeUndefined();
+});
+
+test("sandbox prerequisite refuses 250 ms before downstream checks", () => {
+  const which = spyOn(Bun, "which").mockReturnValue("/fixture/tool");
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0, stdout: new TextEncoder().encode("bubblewrap 0.9.0\n") } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    {
+      expect(() => requireLocalSandbox( () => mountTable(20), () => 250))
+        .toThrow("fastest of three 250.0 ms (requires less than 250 ms); bubblewrap 0.9.0; 20 mount entries; dominant mount-point prefix: /mnt/fixture/binds (20 entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
+    }
+    expect(which).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledWith(["bwrap", "--version"], { timeout: 5000 });
+  } finally { which.mockRestore(); spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite compares the fastest of exactly three probes", () => {
+  const samples = [900, 249, 300];
+  const timer = () => samples.shift()!;
+  expect(requireLocalSandbox( () => mountTable(8000), timer)).toBeUndefined();
+  expect(samples).toEqual([]);
+});
+
+test("sandbox prerequisite timeout reports a lower bound and actionable host diagnostics", () => {
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(argv => {
+    const command = Array.isArray(argv) ? argv : argv.cmd;
+    return {
+      exitCode: command[1] === "--version" ? 0 : 143,
+      exitedDueToTimeout: command[1] !== "--version",
+      stdout: new TextEncoder().encode(command[1] === "--version" ? "bubblewrap 0.9.0\n" : ""),
+    } as ReturnType<typeof Bun.spawnSync>;
+  });
+  try {
+    let message = "";
+    try { requireLocalSandbox(() => mountTable(24000)); }
+    catch (error) { message = (error as Error).message; }
+    expect(message, "TIMED_OUT_SANDBOX_MUST_REPORT_ACTIONABLE_LOWER_BOUND")
+      .toContain("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
+    expect(message).toContain("bubblewrap 0.9.0; 24000 mount entries; dominant mount-point prefix: /mnt/fixture/binds (24000 entries)");
+    expect(message).toContain("Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
+    expect(message).not.toContain("fastest of three");
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn.mock.calls[0]).toEqual([["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 }]);
+    expect(spawn.mock.calls[1]).toEqual([["bwrap", "--version"], { timeout: 5000 }]);
+  } finally { spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite does not classify nonzero, signal or spawn errors as slow timeouts", () => {
+  const spawn = spyOn(Bun, "spawnSync");
+  try {
+    for (const result of [{ exitCode: 1 }, { exitCode: 124 }, { exitCode: 137, signalCode: "SIGKILL", exitedDueToTimeout: false }]) {
+      spawn.mockReturnValue(result as ReturnType<typeof Bun.spawnSync>);
+      expect(() => requireLocalSandbox(() => { throw new Error("MOUNT_DIAGNOSTICS_MUST_NOT_RUN_FOR_FAILED_SETUP"); }))
+        .toThrow("sandbox setup probe failed");
+    }
+    const failure = new Error("Odysseus bwrap permission denied");
+    spawn.mockImplementation(() => { throw failure; });
+    expect(() => requireLocalSandbox()).toThrow(failure);
+    expect(spawn).toHaveBeenCalledTimes(4);
+  } finally { spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite reports the largest parent prefix and decodes mountinfo escapes", () => {
+  const table = mountTable(600).replaceAll("/mnt/fixture/binds", "/mnt/fixture/binds\\040here") +
+    mountTable(400).replaceAll("/mnt/fixture/binds", "/other");
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0, stdout: new TextEncoder().encode("bubblewrap fixture") } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    expect(() => requireLocalSandbox( () => table, () => 300))
+      .toThrow("dominant mount-point prefix: /mnt/fixture/binds here (600 entries)");
+  } finally { spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite runs the real namespace command three times and rejects failed setup", () => {
+  const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0 } as ReturnType<typeof Bun.spawnSync>);
+  try {
+    expect(requireLocalSandbox()).toBeUndefined();
+    expect(spawn).toHaveBeenCalledTimes(3);
+    expect(spawn).toHaveBeenCalledWith(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 });
+    spawn.mockReturnValue({ exitCode: 1 } as ReturnType<typeof Bun.spawnSync>);
+    expect(() => requireLocalSandbox()).toThrow("sandbox setup probe failed");
+  } finally { spawn.mockRestore(); }
+});
+
+test("focused and full local CLI refuse setup before downstream proof while plan stays inspection-only", async () => {
+  const dir = fixture(), preload = join(dir, "odysseus-refused-setup.ts");
+  writeFileSync(preload, `const original=Bun.spawnSync;
+    Bun.spawnSync=((argv,options)=>{
+      const command=Array.isArray(argv)?argv:argv.cmd;
+      return command[0]==="bwrap"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:original(argv,options);});
+    Bun.spawn=()=>{throw new Error("DOWNSTREAM_PROOF_REACHED_BEFORE_SANDBOX_REFUSAL");};`);
+  for (const mode of [[], ["--full"], ["--plan"]]) {
+    const child = Bun.spawn([process.execPath, "--preload", preload, resolve(import.meta.dir, "../scripts/check-pr.ts"), ...mode],
+      { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
+    const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    if (mode[0] === "--plan") {
+      expect(code, error).toBe(0); expect(out).toContain("hostedProofRequired");
+    } else {
+      expect(code, "LOCAL_CLI_MUST_REFUSE_FAILED_SANDBOX_SETUP").not.toBe(0);
+      expect(error, "LOCAL_CLI_REFUSES_BEFORE_DOWNSTREAM_PROOF").toContain("sandbox setup probe failed");
+      expect(error).not.toContain("DOWNSTREAM_PROOF_REACHED");
+    }
+  }
+});
+
+test("container-backed hosted categories do not require host sandbox setup", () => {
+  const which = spyOn(Bun, "which").mockImplementation(name => name === "docker" || name === "flock" ? `/fixture/${name}` : null);
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => { throw new Error("HOST_SANDBOX_MUST_NOT_RUN_FOR_CONTAINER_PROOF"); });
+  try {
+    for (const category of ["browser", "layout", "captures", "endurance"] as const) {
+      const plan = planChecks([], []);
+      plan.local = { ...plan.local, fullTests: false, [category]: true };
+      expect(() => requireRuntimeTools(plan), "HOSTED_CONTAINER_CATEGORY_HAS_NO_HOST_SANDBOX_PREREQUISITE").not.toThrow();
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  } finally { which.mockRestore(); spawn.mockRestore(); }
+});
 
 test("runtime tools reject invalid Chrome paths before launching any child", () => {
   const dir = fixture();

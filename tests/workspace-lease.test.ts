@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { workspaceLeaseDockerArgs } from "../scripts/workspace-lease-container.ts";
 import { resolveBrowserPin } from "../scripts/captures/provenance.ts";
 
 const project = resolve(import.meta.dir, "..");
@@ -16,8 +17,9 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(leaseHelper = helper, pauseBeforeRemoval = false, pauseEntryPublication = false) {
-  const root = mkdtempSync(join(tmpdir(), "brain-workspace-lease-")); dirs.push(root);
+function fixture(leaseHelper = helper, pauseBeforeRemoval = false, pauseEntryPublication = false, parent = tmpdir()) {
+  mkdirSync(parent, { recursive: true });
+  const root = mkdtempSync(join(parent, "brain-workspace-lease-")); dirs.push(root);
   mkdirSync(join(root, "dist"));
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "odysseus-build-fixture", type: "module", exports: "./dist/index.js" }));
   writeFileSync(join(root, "dist/index.js"), 'export const captain = "Odysseus";\n');
@@ -247,15 +249,13 @@ const spawn = (...args) => {
 });
 
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {
-  const root = fixture();
+  const root = fixture(helper, false, false, join(project, "tmp", "workspace-lease-container"));
   for (const path of ["scripts", "packages/ui-kit", "node_modules/vitest"]) mkdirSync(join(root, path), { recursive: true });
   for (const name of ["visual.mjs", "workspace-lease.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
-  writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync("/repo/vitest-entered","native container acquired ownership\\n");\n');
+  writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync(new URL("../../vitest-entered",import.meta.url),"native container acquired ownership\\n");\n');
   const owner = start(root, "write", "hold", "host");
   await entered(root, "host");
-  const container = Bun.spawn(["docker", "run", "--rm", "--pull=never", "--network=none", "--ipc=host",
-    "--user", `${process.getuid!()}:${process.getgid!()}`, "-v", `${root}:/repo`, "-w", "/repo",
-    (await resolveBrowserPin(project)).image, "node", "scripts/visual.mjs", "--inside", "--project=visual"],
+  const container = Bun.spawn(workspaceLeaseDockerArgs(root, (await resolveBrowserPin(project)).image, `${process.getuid!()}:${process.getgid!()}`),
   { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   children.push(container);
   const stdout = new Response(container.stdout).text();
