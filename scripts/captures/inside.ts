@@ -17,7 +17,9 @@ export interface CaptureJob {
 }
 
 async function run(): Promise<void> {
-  const root = "/repo", output = "/captures", cache = "/fonts";
+  const run = process.env.BRAIN_CAPTURE_RUN;
+  if (!run || !/^\.capture-[a-zA-Z0-9_-]+$/.test(run)) throw new Error("Capture runner requires its owned staging directory name");
+  const root = "/repo", output = resolve("/captures", run), cache = "/fonts";
   const job: CaptureJob = JSON.parse(await readFile(resolve(output, "capture-job.json"), "utf8"));
   const catalogue = await readCatalogue(root);
   const index = JSON.parse(await readFile(resolve(root, "packages/ui-kit/storybook-static/index.json"), "utf8"));

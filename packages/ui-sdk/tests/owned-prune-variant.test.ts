@@ -78,14 +78,19 @@ test("real original and variant boundary methods preserve owned operation order,
   const descriptor = Object.getOwnPropertyDescriptor(console, "log")!, diagnostics: unknown[] = [];
   Object.defineProperty(console, "log", { ...descriptor, value: (line: string) => diagnostics.push(JSON.parse(line)) });
   const failure = Error("Odysseus owned operation refusal");
-  async function execute(source: string, fail: boolean) {
+  async function execute(source: string, fail: boolean, publish = true) {
     const signal = new AbortController().signal, logger = { emit() {} }, launch = { command: ["/bin/true"] };
+    const areas = ["scratch"];
     const calls: string[] = [], view = { async cleanup() { calls.push("view-cleanup"); } };
     const output = { view, output: {}, async publish() { calls.push("publish"); }, async cleanup() { calls.push("output-cleanup"); } };
     const dependencies = {
       gated: async (_: unknown, work: (hold: null) => unknown) => { calls.push("gate"); return work(null); }, isolated: () => true,
       credentialed: async (_: unknown, work: () => unknown) => { calls.push("credential"); return work(); },
-      prepareInput: async () => { calls.push("view"); return view; }, prepareMaintenanceOutput: async () => { calls.push("output"); return output; },
+      prepareInput: async () => { calls.push("view"); return view; }, prepareMaintenanceOutput: async (_: unknown, options: { areas: string[]; signal: AbortSignal; startupView: unknown }) => {
+        expect(options.areas, "OWNED_PRUNE_OUTPUT_AREAS_PRESERVED").toBe(areas);
+        expect(options.signal).toBe(signal); expect(options.startupView).toBe(view);
+        calls.push("output"); return output;
+      },
       options: { log: logger }, command: () => launch, prepareMaintenanceGit: async (...args: unknown[]) => {
         expect(args.length, "OWNED_PRUNE_GIT_ARGUMENT_COUNT_PRESERVED").toBe(4);
         expect(args[0], "OWNED_PRUNE_GIT_COMMAND_IDENTITY_PRESERVED").toBe(launch);
@@ -94,22 +99,29 @@ test("real original and variant boundary methods preserve owned operation order,
         expect(args[3], "OWNED_PRUNE_GIT_LOGGER_IDENTITY_PRESERVED").toBe(logger);
         calls.push("git"); return undefined;
       },
-      runMaintenanceWorker: async () => { calls.push("worker"); if (fail) throw failure; return { stdout: "Odysseus", stderr: "", exitCode: 0, killed: false }; },
+      runMaintenanceWorker: async (options: { signal: AbortSignal; timeoutMs: number; outputBytes: number }, beforeStart: () => void) => {
+        expect(options, "OWNED_PRUNE_WORKER_BOUNDS_PRESERVED").toMatchObject({ signal, timeoutMs: 1000, outputBytes: 4096 });
+        beforeStart(); calls.push("worker"); if (fail) throw failure; return { stdout: "Odysseus", stderr: "", exitCode: 0, killed: false };
+      },
       outputLock: { async withLock(_brain: string, work: () => unknown) { calls.push("output-lock"); return work(); } }, brain: "Odysseus brain",
     };
     const start = source.indexOf("    async run(execution) {"), end = source.indexOf("    async launch(execution) {", start);
     const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync("const operation = {" + source.slice(start, end) + "}; return operation.run;");
     const operation = new Function(...Object.keys(dependencies), javascript)(...Object.values(dependencies));
-    try { return { result: await operation({ purpose: "brain scratch prune", signal }), calls }; }
+    try { return { result: await operation({ purpose: "brain scratch prune", signal, outputAreas: areas, outputBytes: 4096, timeoutMs: 1000, publish,
+      assertAuthorized() { calls.push("authorize"); }, onExecute() { calls.push("on-execute"); } }), calls }; }
     catch (error) { return { error, calls }; }
   }
   try {
     const original = await execute(boundary, false), observed = await execute(variant, false);
-    expect(observed).toEqual(original);
-    expect(observed.calls).toEqual(["gate", "credential", "output-lock", "view", "output", "git", "worker", "publish", "output-cleanup", "view-cleanup"]);
+    expect(observed, "OWNED_PRUNE_AUTHORITY_AND_EXECUTION_PRESERVED").toEqual(original);
+    expect(observed.calls).toEqual(["authorize", "gate", "credential", "output-lock", "authorize", "view", "output", "git", "authorize", "authorize", "on-execute", "worker", "authorize", "publish", "output-cleanup", "view-cleanup"]);
     const failedOriginal = await execute(boundary, true), failedObserved = await execute(variant, true);
     expect(failedObserved.calls).toEqual(failedOriginal.calls); expect(failedObserved.error).toBe(failure); expect(failedOriginal.error).toBe(failure);
     expect(failedObserved.calls.slice(-2)).toEqual(["output-cleanup", "view-cleanup"]);
+    const unpublishedOriginal = await execute(boundary, false, false), unpublishedObserved = await execute(variant, false, false);
+    expect(unpublishedObserved, "OWNED_PRUNE_DISCARD_PRESERVED").toEqual(unpublishedOriginal);
+    expect(unpublishedObserved.calls).not.toContain("publish");
     expect(diagnostics.every(record => Object.keys(record as object).join() === "fixtureOwnedPruneBoundary")).toBe(true);
   } finally { Object.defineProperty(console, "log", descriptor); }
 });

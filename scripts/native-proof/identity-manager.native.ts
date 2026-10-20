@@ -106,6 +106,15 @@ os.chmod(${JSON.stringify(join(brain, "opaque"))},0)`] });
         expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations WHERE kind='temporary'").get()).toEqual({ n: 0 });
         await observation.commit();
       } catch (error) { await observation.abort(); throw error; }
+      // Storage must retain the exact selected version before an effect even
+      // when the ordinary server UID cannot open its sealed checkpoint.
+      const selected = await capture.retainBefore("private/result.md", policy)
+        .then(value => ({ value }), error => ({ error: String(error) }));
+      const selectedHash = createHash("sha256").update("Odysseus private checkpoint").digest("hex");
+      expect(selected, "STORAGE_PRIVATE_ORIGINAL_BEFORE_EFFECT").toMatchObject({ value: { hash: selectedHash } });
+      expect(objects.read(selectedHash, 100).toString()).toBe("Odysseus private checkpoint");
+      expect(db.query("SELECT count(*) AS n FROM turn_journal_reservations WHERE kind='temporary'").get(),
+        "STORAGE_PRIVATE_ORIGINAL_RELEASES_TEMPORARY_CHARGE").toEqual({ n: 0 });
       const restore = launchAgentWorker({ brainPath: brain,
         sandbox: { brain, profile: "governed", restricted: false, areas: [], scratchAliasesRemoved: [] },
         stateBytes: MIB, turnTempBytes: MIB, env: {},
