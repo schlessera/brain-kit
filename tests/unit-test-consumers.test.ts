@@ -47,6 +47,70 @@ function fixture() {
 const consumer = "packages/consumer/tests/cross.test.ts";
 const changed = "packages/source/src/index.ts";
 
+test.each(["exports", "main", "nested scope", "helper imports"])(
+  "resolution metadata retains the consumer when only %s changes", kind => {
+    const f = fixture();
+    f.write("packages/source/src/other.ts", "export const value = 2;");
+    let metadata = "packages/source/package.json";
+    if (kind === "main") {
+      f.write(metadata, JSON.stringify({ name: "@schlessera/brain-source", main: "./src/other.ts" }));
+    } else if (kind === "nested scope") {
+      metadata = "packages/source/src/package.json";
+      f.write(metadata, '{"type":"module"}');
+    } else if (kind === "helper imports") {
+      metadata = "packages/helpers/package.json";
+      f.write(metadata, JSON.stringify({ name: "@schlessera/brain-helpers", imports: { "#value": "@schlessera/brain-source" } }));
+      f.write("packages/helpers/tests/loader.ts", 'export {value} from "#value";');
+    } else {
+      // Both targets exist unchanged; only the Bun export routing is edited.
+      f.write(metadata, JSON.stringify({ name: "@schlessera/brain-source",
+        exports: { ".": { bun: "./src/other.ts", default: "./src/index.ts" } } }));
+    }
+    f.write(consumer, kind === "helper imports" ?
+      'import {value} from "../../helpers/tests/loader";' : 'import {value} from "@schlessera/brain-source";');
+    // Fixture validation uses Bun itself, independently of the planner resolver.
+    expect(Bun.resolveSync("@schlessera/brain-source", join(f.root, "packages/consumer/tests")))
+      .toBe(join(f.root, `packages/source/src/${kind === "exports" || kind === "main" ? "other" : "index"}.ts`));
+    if (kind === "helper imports")
+      expect(Bun.resolveSync("#value", join(f.root, "packages/helpers/tests")))
+        .toBe(join(f.root, "packages/source/src/index.ts"));
+    const baseline = planChecks([metadata], workspaces(f.root));
+    const plan = planChecks([metadata], workspaces(f.root), f.root);
+    expect(unitFiles(plan, f.root), "RESOLUTION_METADATA_CONSUMER").toContain(consumer);
+    expect(unitFiles(baseline, f.root).every(file => unitFiles(plan, f.root).includes(file))).toBe(true);
+    expect(plan.global).toBe(false);
+    expect(plan.affected).toEqual(baseline.affected);
+    expect(plan.local).toEqual(baseline.local);
+    expect(discoverUnitImports(f.root).unresolved.size).toBe(0);
+  },
+);
+
+test.each([
+  ["namespace", 'import * as mod from "node:module"; const load = mod.createRequire(import.meta.url);'],
+  ["default", 'import mod from "node:module"; const load = mod.createRequire(import.meta.url);'],
+  ["destructured", 'import * as mod from "module"; const {createRequire: factory} = mod; const load = factory(import.meta.url);'],
+  ["property alias", 'import mod from "node:module"; const factory = mod["createRequire"]; const load = factory(import.meta.url);'],
+  ["namespace alias", 'import * as mod from "node:module"; const alias = mod; const load = alias.createRequire(import.meta.url);'],
+  ["dynamic module", 'const mod = await import("node:module"); const load = mod.createRequire(import.meta.url);'],
+  ["required module", 'const {createRequire: factory} = require("module"); const load = factory(import.meta.url);'],
+  ["re-exported factory", 'import {factory} from "./loader"; const load = factory(import.meta.url);'],
+  ["global module property", 'const load = module["require"].bind(module);'],
+  ["Bun resolver alias", 'const {resolveSync: load} = Bun;'],
+  ["meta resolver alias", 'const meta = import.meta; const load = meta.resolve;'],
+])("unsupported %s loader retains its actual unit owner", (_name, setup) => {
+  const f = fixture();
+  f.write("packages/consumer/tests/loader.ts", 'export {createRequire as factory} from "node:module";');
+  f.write(consumer, `${setup} const value = load("@schlessera/brain-source");`);
+  const baseline = planChecks([changed], workspaces(f.root));
+  expect(unitFiles(baseline, f.root)).not.toContain(consumer);
+  const plan = planChecks([changed], workspaces(f.root), f.root);
+  expect(unitFiles(plan, f.root), "INDIRECT_LOADER_CONSUMER").toContain(consumer);
+  expect(discoverUnitImports(f.root).unresolved.size).toBeGreaterThan(0);
+  expect(plan.local).toEqual(baseline.local);
+  expect(plan.affected).toEqual(baseline.affected);
+  expect(unitFiles(plan, f.root)).not.toContain("packages/unrelated/tests/own.test.ts");
+});
+
 test.each([
   ["package", 'import {value} from "@schlessera/brain-source";'],
   ["relative JS to TS", 'import {value} from "../../source/src/index.js";'],

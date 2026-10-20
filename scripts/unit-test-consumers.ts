@@ -55,9 +55,21 @@ export function discoverUnitImports(root: string): UnitImportGraph {
     if (!reasons.includes(reason)) reasons.push(reason);
     unresolved.set(file, reasons);
   };
-  const edge = (owner: string, target: string) => {
+  const input = (owner: string, target: string) => {
     const consumers = reverse.get(target) ?? new Set<string>();
     consumers.add(owner); reverse.set(target, consumers);
+  };
+  // Resolution reads package scopes as well as source bytes. Include absent
+  // scopes too: adding/deleting package.json can redirect the same import.
+  // These are metadata inputs, not missing executable source dependencies.
+  const scopes = (owner: string, target: string) => {
+    for (let dir = dirname(target); dir !== "."; dir = dirname(dir))
+      input(owner, `${dir}/package.json`);
+    input(owner, "package.json");
+  };
+  const edge = (owner: string, target: string) => {
+    input(owner, target);
+    scopes(owner, target);
     visit(target);
   };
   const visit = (file: string) => {
@@ -77,7 +89,13 @@ export function discoverUnitImports(root: string): UnitImportGraph {
     if ((ast as ts.SourceFile & { parseDiagnostics: readonly ts.Diagnostic[] }).parseDiagnostics.length)
       unknown(file, "Invalid source");
     const imported = (specifier: string, typeOnly = false) => {
+      // Module namespaces/defaults, destructuring, re-exports and dynamic
+      // access can all expose createRequire/Module._load. Without evaluating
+      // that dataflow, retain this source's runnable owners conservatively.
+      if (!typeOnly && (specifier === "module" || specifier === "node:module"))
+        unknown(file, "Unsupported module loader access");
       if (builtins.has(specifier) || specifier.startsWith("bun:")) return;
+      scopes(file, file);
       const result = typeOnly ? ts.resolveModuleName(specifier, absolute, options, ts.sys).resolvedModule :
         resolveRuntimeModule(specifier, absolute, options);
       if (!result) {
@@ -125,6 +143,21 @@ export function discoverUnitImports(root: string): UnitImportGraph {
         unknown(file, "Unsupported require factory alias");
       if (ts.isCallExpression(node) && /^(?:createRequire|import\.meta\.glob)$/.test(node.expression.getText(ast)))
         unknown(file, "Runtime-selected loader");
+      if (ts.isIdentifier(node) && (node.text === "Bun" || node.text === "module") ||
+          ts.isMetaProperty(node) && node.getText(ast) === "import.meta") {
+        const parent = node.parent;
+        const object = node.getText(ast);
+        const property = ts.isPropertyAccessExpression(parent) && parent.expression === node ? parent.name.text : undefined;
+        const directCall = ts.isCallExpression(parent.parent) && parent.parent.expression === parent;
+        const indirectObject = ts.isVariableDeclaration(parent) && parent.initializer === node ||
+          ts.isElementAccessExpression(parent) && parent.expression === node ||
+          ts.isCallExpression(parent) && parent.arguments.some(argument => argument === node) ||
+          ts.isParenthesizedExpression(parent);
+        const resolver = property && /^(?:resolve|resolveSync|require)$/.test(property);
+        const supportedCall = directCall && (object === "Bun" ? property === "resolveSync" : property === "resolve");
+        if (object === "module" ? property || indirectObject : indirectObject || resolver && !supportedCall)
+          unknown(file, "Unsupported loader object or resolver alias");
+      }
       if (/^(?:tests\/|scripts\/|packages\/[^/]+\/(?:tests|scripts)\/)/.test(file) &&
           (ts.isTemplateExpression(node) && sourceExtension.test(node.templateSpans.at(-1)!.literal.text) ||
            ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken &&

@@ -67,6 +67,10 @@ re-exports, shared helpers, cycles and statically named spawned fixtures contrib
 transitively. A direct import of `src/types.ts` does not imply an import of an
 unrelated `src/index.ts`. Manifest dependencies are the coverage floor, not an
 exhaustive inventory of test inputs.
+Importer and target package scopes are resolution inputs too: changing an export,
+entrypoint or package import map can select a consumer without changing either
+source file. The graph retains those manifest paths, including absent nested
+scopes whose addition or deletion can change resolution.
 
 Computed, unresolved, unreadable and unsupported import edges conservatively add
 their reachable runnable unit owners even when those owners are outside that
@@ -76,11 +80,13 @@ these additional consumers and selected fast tests exactly once; it never replac
 the floor with only import matches. Static resolution does not execute source,
 configuration or arbitrary loader expressions. Unknown runtime loaders can
 therefore select many consumers; that widening is a correctness cost, not a
-speedup or a reason to ignore them.
+speedup or a reason to ignore them. Runtime access to the `node:module`/`module`
+loader API (including namespace/default imports, re-exports and aliases), and
+unsupported loader object/resolver aliases, retain their runnable owners.
 The implementation keeps discovery, reverse ownership and floor-preserving
-composition separate (`discoverUnitImports`, `scripts/unit-test-consumers.ts:31-153`;
-`unitImportOwners`, `scripts/unit-test-consumers.ts:156-162`;
-`addUnitImportConsumers`, `scripts/unit-test-consumers.ts:172-191`).
+composition separate (`discoverUnitImports`, `scripts/unit-test-consumers.ts:31-186`;
+`unitImportOwners`, `scripts/unit-test-consumers.ts:189-195`;
+`addUnitImportConsumers`, `scripts/unit-test-consumers.ts:205-224`).
 
 The whole-class audit independently resolves current cross-workspace test sources,
 then traces their runnable owners, including extension-appending launch helpers
