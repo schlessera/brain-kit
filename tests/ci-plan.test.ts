@@ -187,6 +187,7 @@ describe("affected CI checks", () => {
   test("the executable writes affected job outputs and keeps drafts on cheap gates", async () => {
     const f = fixture(); f.write("scripts/ci-plan.ts", readFileSync(join(import.meta.dir, "../scripts/ci-plan.ts"), "utf8").replace('"typescript"', JSON.stringify(import.meta.resolve("typescript"))));
     f.write("scripts/browser-input-closure.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/browser-input-closure.ts"))};\n`);
+    f.write("scripts/unit-test-consumers.ts", `export * from ${JSON.stringify(resolve(import.meta.dir, "../scripts/unit-test-consumers.ts"))};\n`);
     f.write("packages/core/src/note.ts", "export const note = 2;\n");
     f.git("add", "."); f.git("commit", "-qm", "planner fixture");
     for (const draft of ["true", "false"]) {
