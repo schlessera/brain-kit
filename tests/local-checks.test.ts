@@ -106,22 +106,75 @@ test("sandbox prerequisite runs the real namespace command three times and rejec
 
 test("focused and full local CLI refuse setup before downstream proof while plan stays inspection-only", async () => {
   const dir = fixture(), preload = join(dir, "odysseus-refused-setup.ts");
-  writeFileSync(preload, `const original=Bun.spawnSync;
+  const owner = resolve(import.meta.dir, ".."), entry = join(dir, "scripts/check-pr.ts");
+  mkdirSync(join(dir, "scripts"));
+  mkdirSync(join(dir, "packages/ithaca"), { recursive: true });
+  mkdirSync(join(dir, "tmp"));
+  // Keep the actual entry byte-identical; only static imports forward to real
+  // helpers. Planning must inspect this tiny Git root, never the worker checkout.
+  cpSync(join(owner, "scripts/check-pr.ts"), entry);
+  expect(readFileSync(entry)).toEqual(readFileSync(join(owner, "scripts/check-pr.ts")));
+  for (const helper of ["ci-plan", "ci-runner", "check-packages"]) {
+    writeFileSync(join(dir, `scripts/${helper}.ts`), `export * from ${JSON.stringify(join(owner, `scripts/${helper}.ts`))};\n`);
+  }
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"] }));
+  writeFileSync(join(dir, "packages/ithaca/package.json"), JSON.stringify({ name: "@odysseus/ithaca" }));
+  writeFileSync(join(dir, ".gitignore"), "tmp/\n");
+  writeFileSync(preload, `import {appendFileSync} from "node:fs";
+    import {dirname,resolve} from "node:path";
+    const root=${JSON.stringify(dir)}, trace=process.env.LOCAL_CLI_TRACE;
+    if(resolve(dirname(process.argv[1]),"..")!==root || process.cwd()!==root)
+      throw new Error("EXPECTED_FIXTURE_ROOT_BEFORE_SCAN");
+    const original=Bun.spawnSync;
     Bun.spawnSync=((argv,options)=>{
       const command=Array.isArray(argv)?argv:argv.cmd;
-      return command[0]==="bwrap"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:original(argv,options);});
+      const settings=Array.isArray(argv)?options:argv;
+      if(command[0]==="git" && resolve(settings?.cwd??process.cwd())!==root)
+        throw new Error("EXPECTED_FIXTURE_ROOT_BEFORE_SCAN");
+      if(trace)appendFileSync(trace,JSON.stringify(command)+"\\n");
+      if(command[0]==="bwrap")return {exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)};
+      if(command[0]!=="git")throw new Error("UNEXPECTED_FIXTURE_DISCOVERY_COMMAND");
+      return original(argv,options);});
     Bun.spawn=()=>{throw new Error("DOWNSTREAM_PROOF_REACHED_BEFORE_SANDBOX_REFUSAL");};`);
+  const git = (...args: string[]) => {
+    const result = Bun.spawnSync(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+    if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+  };
+  git("init", "-q"); git("add", ".");
+  git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture");
+  const base = git("rev-parse", "HEAD");
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"], description: "Odysseus plans the return." }));
   for (const mode of [[], ["--full"], ["--plan"]]) {
-    const child = Bun.spawn([process.execPath, "--preload", preload, resolve(import.meta.dir, "../scripts/check-pr.ts"), ...mode],
-      { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
-    const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const trace = join(dir, "tmp", `${mode[0] ?? "default"}.jsonl`), started = performance.now();
+    const child = Bun.spawn([process.execPath, "--preload", preload, entry, "--base", base, ...mode],
+      { cwd: dir, env: { ...process.env, LOCAL_CLI_TRACE: trace }, stdout: "pipe", stderr: "pipe" });
+    const drained = Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    let result: Awaited<typeof drained>;
+    try { result = await drained; }
+    finally { if (child.exitCode === null) child.kill(); await drained; }
+    const [code, out, error] = result;
+    const calls: string[][] = existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
+    console.info(JSON.stringify({ mode: mode[0] ?? "default", code, elapsedMs: performance.now() - started, calls }));
+    expect(error, "EXPECTED_FIXTURE_ROOT_BEFORE_SCAN").not.toContain("EXPECTED_FIXTURE_ROOT_BEFORE_SCAN");
+    expect(error).not.toContain("UNEXPECTED_FIXTURE_DISCOVERY_COMMAND");
     if (mode[0] === "--plan") {
       expect(code, error).toBe(0); expect(out).toContain("hostedProofRequired");
+      expect(calls.some(command => command[0] === "bwrap")).toBe(false);
     } else {
       expect(code, "LOCAL_CLI_MUST_REFUSE_FAILED_SANDBOX_SETUP").not.toBe(0);
       expect(error, "LOCAL_CLI_REFUSES_BEFORE_DOWNSTREAM_PROOF").toContain("sandbox setup probe failed");
       expect(error).not.toContain("DOWNSTREAM_PROOF_REACHED");
+      expect(calls.filter(command => command[0] === "bwrap")).toHaveLength(1);
     }
+    const plan = JSON.parse(out);
+    expect(plan.changed).toEqual(["package.json"]);
+    expect(plan.affected).toEqual(["ithaca"]);
+    expect(plan.global).toBe(true);
+    expect(plan.typecheck).toBe(true); expect(plan.pack).toBe(true);
+    expect(plan.hostedProofRequired).toEqual({ fullTests: true, browser: false, layout: false, captures: false, runtime: true, endurance: false });
+    expect(plan.packedConsumerChecks).toBe(mode[0] === "--full");
+    expect(plan.commands).toContain("all lint and leakage gates");
   }
 });
 
