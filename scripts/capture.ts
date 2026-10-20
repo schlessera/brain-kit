@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { relative, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { readCatalogue, type Viewport } from "./captures/catalogue.ts";
 import { readFontLock, verifyFontCache } from "./captures/fonts.ts";
 import { prepareFontCache } from "./captures/prepare-fonts.ts";
@@ -50,6 +50,12 @@ async function command(argv: string[]): Promise<void> {
   if (await process.exited !== 0) throw new Error(`Capture command failed: ${argv.slice(0, 3).join(" ")}`);
 }
 
+export function captureRenderArgs(root: string, cache: string, staging: string, bun: string, image: string, runnerDirectory: string): string[] {
+  return ["docker", "run", "--rm", "--network=none", "--read-only", "--ipc=host", "--user", `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
+      "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777", "-v", `${root}:/repo:ro`, "-v", `${cache}:/fonts:ro`,
+      "-v", `${dirname(staging)}:/captures`, "--env", `BRAIN_CAPTURE_RUN=${basename(staging)}`, "-v", `${bun}:/capture-bun:ro`, "-v", `${bun}:/usr/local/bin/bun:ro`, "-v", `${bun}:/usr/local/bin/bunx:ro`, "-w", "/repo", image, "node", `/repo/${relative(root, runnerDirectory)}/inside.mjs`];
+}
+
 async function run(): Promise<void> {
   const options = argumentsFor(process.argv.slice(2));
   const catalogue = await readCatalogue(root);
@@ -73,10 +79,13 @@ async function run(): Promise<void> {
   const lockDirectory = resolve(root,"tmp/.feature-capture-lock");
   try { await mkdir(lockDirectory); }
   catch { throw new Error("Another capture owns this checkout’s build; finish it before capturing again. If it was interrupted, remove tmp/.feature-capture-lock after verifying no capture is running."); }
-  let staging: string | undefined, runnerDirectory: string | undefined;
+  let staging: string | undefined, publication: string | undefined, runnerDirectory: string | undefined;
   try {
     await writeFile(resolve(lockDirectory,"owner.json"),JSON.stringify({pid:process.pid})+"\n");
-    staging = await mkdtemp(resolve(output, ".capture-"));
+    const share = resolve(root, "tmp", "capture-share");
+    await mkdir(share, { recursive: true });
+    staging = await mkdtemp(resolve(share, ".capture-"));
+    publication = await mkdtemp(resolve(output, ".capture-publication-"));
     runnerDirectory = await mkdtemp(resolve(root, "tmp/.capture-runner-"));
     let image: Array<{ Id: string; RepoDigests?: string[] }>;
     try { image = JSON.parse(execFileSync("docker", ["image", "inspect", pin.image], { encoding: "utf8" })); }
@@ -106,9 +115,7 @@ async function run(): Promise<void> {
         reduced_motion: catalogue.environment.reduced_motion },
     };
     await writeFile(resolve(staging, "capture-job.json"), JSON.stringify(job) + "\n");
-    await command(["docker", "run", "--rm", "--network=none", "--read-only", "--ipc=host", "--user", `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
-      "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777", "-v", `${root}:/repo:ro`, "-v", `${cache}:/fonts:ro`,
-      "-v", `${staging}:/captures`, "-v", `${bun}:/capture-bun:ro`, "-v", `${bun}:/usr/local/bin/bun:ro`, "-v", `${bun}:/usr/local/bin/bunx:ro`, "-w", "/repo", pin.image, "node", `/repo/${relative(root, runnerDirectory)}/inside.mjs`]);
+    await command(captureRenderArgs(root, cache, staging, bun, pin.image, runnerDirectory));
     if ((await sourceProvenance(root)).inputs_sha256 !== source.inputs_sha256) throw new Error("Capture source changed while rendering; outputs were not accepted");
     const result = JSON.parse(await readFile(resolve(staging, "capture-result.json"), "utf8")) as { artifacts: Array<{ id: string; file: string; files: Array<{file:string}>; theme: string; viewport: Viewport }> };
     if (result.artifacts.length !== ids.length || new Set(result.artifacts.map((entry)=>entry.id)).size!==ids.length || result.artifacts.some((entry) => !ids.includes(entry.id) || !entry.files.length)) throw new Error("Capture runner did not return every selected recipe");
@@ -120,14 +127,19 @@ async function run(): Promise<void> {
     const retained = previous.artifacts.filter((entry) => typeof entry === "object" && entry !== null && !replaced.has((entry as { file: string }).file));
     const manifest = { purpose: previous.purpose, selected_ids: ids, artifacts: [...retained, ...result.artifacts] };
     await writeFile(resolve(staging, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
-    for (const entry of result.artifacts) for (const file of entry.files) await rename(resolve(staging, file.file), resolve(output, file.file));
-    await rename(resolve(staging, "manifest.json"), resolve(output, "manifest.json"));
+    // Copy to the destination filesystem before the existing atomic publication
+    // renames. Explicit output directories may live on a different filesystem.
+    for (const entry of result.artifacts) for (const file of entry.files) await copyFile(resolve(staging, file.file), resolve(publication, file.file));
+    await copyFile(resolve(staging, "manifest.json"), resolve(publication, "manifest.json"));
+    for (const entry of result.artifacts) for (const file of entry.files) await rename(resolve(publication, file.file), resolve(output, file.file));
+    await rename(resolve(publication, "manifest.json"), resolve(output, "manifest.json"));
     console.log(`Captured ${ids.length} selected recipes; each artifact records its own source/environment provenance.`);
   } finally {
     if (staging) await rm(staging, { recursive: true, force: true });
+    if (publication) await rm(publication, { recursive: true, force: true });
     if (runnerDirectory) await rm(runnerDirectory, { recursive: true, force: true });
     await rm(lockDirectory, {recursive:true,force:true});
   }
 }
 
-run().catch((error) => { console.error((error as Error).message); process.exitCode = 1; });
+if (import.meta.main) run().catch((error) => { console.error((error as Error).message); process.exitCode = 1; });

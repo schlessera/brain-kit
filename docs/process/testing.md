@@ -44,6 +44,12 @@ inspecting CI on a PR live in the `work-issue` skill's
   normal transports. Guard regression probes use controlled native sentinels
   so failing-first and mutation runs cannot send external requests or start
   curl.
+- The shared preload disables fixture Git auto-maintenance with command-scope
+  `maintenance.auto=false` and `gc.auto=0`. Guarded spawns carry those settings
+  even when callers replace the environment, preserving their other Git
+  configuration. This includes Bun's `node:child_process` path, inherited shell
+  commands and explicitly preloaded child probes. Production invocations keep
+  their own policy. The startup-view copier still refuses concurrent changes.
 
 ## Runtimes, browsers and doubles
 
@@ -352,7 +358,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   shards. Different PRs never share cancellation groups. Metadata edits do not
   launch heavy proof, and every main SHA retains independent evidence.
 - Record actual tested head/base, selected jobs/attempts/checkout logs and
-  focused local receipts. The candidate gate validates the actual merge checkout's immutable head/base/tree
+  focused local receipts. Confirmation metadata applies the existing identity
+  guard before product-proof dispatch; draft and synchronize feedback retain
+  their cadence. The final gate repeats validation, since admission does not
+  freeze live refs. The guard validates the actual merge checkout's immutable head/base/tree
   and live PR readiness/head plus the independent live base ref. Any base advance
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
@@ -376,6 +385,29 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   `bun run test:inventory` emits discovered execution ownership and source
   navigation; see [the assertion/domain mapping](proof-domains.md). Dynamic test
   counts and passing assertions come from actual suite reports, not AST counts.
+
+## Stable Docker proof inputs
+
+Docker Desktop on WSL2 retains a host mount for each distinct bind source, even
+when a container exits. Local proofs bind stable checkout directories and select
+fresh run directories inside the container. The first use of a checkout can add
+mounts; repeating a proof must not add sources solely because its run ID changed.
+Restarting Docker Desktop or `wsl --shutdown` clears older leaked mounts.
+
+| Caller | Stable host source | Run selection |
+| --- | --- | --- |
+| Native hosted admission | `tmp/native-host-proof/` | Container-only bind of the selected run to `/proof` |
+| Worker identity | `tmp/worker-identity-proof/` | Same `/proof` projection, with read-only helper and variant projections inside the container |
+| Editorial capture | `tmp/capture-share/` | A staging directory name selects outputs; verified files are copied to destination-local staging before atomic publication |
+| Native diagram export | Private tar-filled named volumes and copied captured Bun bytes | Only source and filtered installation volumes are mounted read-only; output is copied out and owned containers/volumes are removed |
+| Pinned workspace lease test | `tmp/workspace-lease-container/` | Container working directory selects the fresh fixture |
+
+The stable source checkout, installed Bun binary, font cache and lease directory
+retain their existing mounts. Browser, raster and audio callers already use stable source paths. Images, isolation flags and proof assertions remain the
+same. Container-only projections create no new Docker host bind source. The private
+diagram copy transport additionally requires host `tar` for its input archives. A new
+checkout still introduces its own stable sources; this does not clear old mounts
+or promise zero growth across distinct checkouts.
 
 ## GitHub Actions CI
 
