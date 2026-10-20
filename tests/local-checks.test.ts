@@ -313,7 +313,7 @@ function importFixture() {
   const dir = fixture();
   const root = join(import.meta.dir, "..");
   mkdirSync(join(dir, "scripts"));
-  for (const helper of ["test.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
+  for (const helper of ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "publishable-packages.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"]) {
     cpSync(join(root, "scripts", helper), join(dir, "scripts", helper));
   }
   mkdirSync(join(dir, "packages/core/tests"), { recursive: true });
