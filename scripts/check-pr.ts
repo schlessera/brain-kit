@@ -86,7 +86,7 @@ export function requireLocalSandbox(readMountinfo = () => readFileSync("/proc/se
       if (!(error instanceof SandboxSetupTimeout)) throw error;
       // The killed probe has no completed sample. Report only the budget's
       // elapsed lower bound, never a precise fastest-of-three measurement.
-      refuse("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
+      return refuse("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
     }
     if (fastest >= 250) refuse(`fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms)`);
   }

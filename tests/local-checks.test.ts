@@ -45,11 +45,14 @@ test("sandbox prerequisite compares the fastest of exactly three probes", () => 
 });
 
 test("sandbox prerequisite timeout reports a lower bound and actionable host diagnostics", () => {
-  const spawn = spyOn(Bun, "spawnSync").mockImplementation(argv => ({
-    exitCode: argv[1] === "--version" ? 0 : 143,
-    exitedDueToTimeout: argv[1] !== "--version",
-    stdout: new TextEncoder().encode(argv[1] === "--version" ? "bubblewrap 0.9.0\n" : ""),
-  }) as ReturnType<typeof Bun.spawnSync>);
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(argv => {
+    const command = Array.isArray(argv) ? argv : argv.cmd;
+    return {
+      exitCode: command[1] === "--version" ? 0 : 143,
+      exitedDueToTimeout: command[1] !== "--version",
+      stdout: new TextEncoder().encode(command[1] === "--version" ? "bubblewrap 0.9.0\n" : ""),
+    } as ReturnType<typeof Bun.spawnSync>;
+  });
   try {
     let message = "";
     try { requireLocalSandbox(() => mountTable(24000)); }
@@ -104,7 +107,9 @@ test("sandbox prerequisite runs the real namespace command three times and rejec
 test("focused and full local CLI refuse setup before downstream proof while plan stays inspection-only", async () => {
   const dir = fixture(), preload = join(dir, "odysseus-refused-setup.ts");
   writeFileSync(preload, `const original=Bun.spawnSync;
-    Bun.spawnSync=((argv,options)=>argv[0]==="bwrap"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:original(argv,options));
+    Bun.spawnSync=((argv,options)=>{
+      const command=Array.isArray(argv)?argv:argv.cmd;
+      return command[0]==="bwrap"?{exitCode:1,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)}:original(argv,options);});
     Bun.spawn=()=>{throw new Error("DOWNSTREAM_PROOF_REACHED_BEFORE_SANDBOX_REFUSAL");};`);
   for (const mode of [[], ["--full"], ["--plan"]]) {
     const child = Bun.spawn([process.execPath, "--preload", preload, resolve(import.meta.dir, "../scripts/check-pr.ts"), ...mode],
