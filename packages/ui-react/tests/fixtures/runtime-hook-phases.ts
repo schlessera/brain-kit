@@ -18,6 +18,7 @@ export function runtimeHookPhases(file: string) {
   }
   async function child(stage: string, child: {
     pid: number; stdout: ReadableStream<Uint8Array>; stderr: ReadableStream<Uint8Array>; exited: Promise<number>;
+    readonly signalCode?: string | null;
   }, consume: (stream: ReadableStream<Uint8Array>) => Promise<string> =
     (stream) => new Response(stream).text()): Promise<[string, string, number]> {
     const details = { childPid: child.pid };
@@ -52,7 +53,7 @@ export function runtimeHookPhases(file: string) {
       }
     }
     const result = await Promise.all([output(child.stdout, "stdout"), output(child.stderr, "stderr"),
-      child.exited.then((code) => { report(stage, "exit", { ...details, code }); return code; })]);
+      child.exited.then((code) => { report(stage, "exit", { ...details, code, signal: child.signalCode ?? null }); return code; })]);
     report(stage, "complete", details);
     return result;
   }

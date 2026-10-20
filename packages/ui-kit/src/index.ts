@@ -285,3 +285,5 @@ export { Overlay, type OverlayProps, type OverlayVariant, type OverlayCloseReaso
 
 export { IconButton, type IconButtonProps } from "./primitives/IconButton.js";
 export { TextButton, type TextButtonProps } from "./primitives/TextButton.js";
+
+export { StorageMap, type StorageMapItem, type StorageMapProps } from "./storage/StorageMap.js";
