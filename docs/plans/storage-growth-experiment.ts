@@ -119,7 +119,7 @@ function forecast(samples: Sample[], now: number, long = false): Forecast {
   for (let i = samples.length - 1; i >= 0; i--) {
     const point = samples[i], next = points[0];
     if (!point.complete || point.gap || point.available === null || point.scope !== latest.scope || point.basis !== latest.basis || point.total !== latest.total
-      || latest.at - point.at > (long ? 28 : 7) * day || (next && (next.at <= point.at || next.at - point.at > (long ? 48 : 12) * hour))) break;
+      || latest.at - point.at > (long ? 30 : 7) * day || (next && (next.at <= point.at || next.at - point.at > (long ? 48 : 12) * hour))) break;
     points.unshift(point);
   }
   if (points.length < (long ? 15 : 5) || latest.at - points[0].at < (long ? 14 : 2) * day) return { kind: "unavailable" };
@@ -138,6 +138,10 @@ const long = capacityTrace(22, day, i => 3_750_000_000 - i * 50_000_000);
 const shortResult = forecast(short, short.at(-1)!.at), longResult = forecast(long, long.at(-1)!.at, true);
 assert.deepEqual(shortResult, { kind: "depleting", days: 27 });
 assert.deepEqual(longResult, { kind: "depleting", days: 54 });
+// The approved 30-day window includes the early change 29 days ago, while
+// excluding the preceding 31-day-old endpoint. A 28-day window loses it.
+const month = capacityTrace(32, day, i => 4_000_000_000 - Math.min(i, 2) * 100_000_000 - Math.max(0, i - 2) * 50_000_000);
+assert.deepEqual(forecast(month, month.at(-1)!.at, true), { kind: "depleting", days: 2_350_000_000 / (1_550_000_000 / 30) }, "STORAGE_DESIGN_USES_30_DAY_POLICY");
 assert.equal(forecast(short.map((p, i) => ({ ...p, total: i === 8 ? p.total + 1 : p.total })), short.at(-1)!.at).kind, "unavailable");
 assert.equal(forecast(short, short.at(-1)!.at + 7 * hour).kind, "unavailable");
 assert.equal(forecast(short, short.at(-1)!.at - 1).kind, "unavailable");

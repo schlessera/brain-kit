@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, ls
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
+import { addUnitImportConsumers } from "./unit-test-consumers";
 
 export interface Workspace {
   dir: string;
@@ -280,7 +281,7 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   });
   const ui = affected.some(dir => ["ui-sdk", "ui-kit", "ui-react", "ui-server", "render-template", "geo"].includes(dir));
   const captureInputs = changed.some(path => path === "docs/process/feature-captures.md" || path.startsWith("scripts/capture") || path.startsWith("scripts/captures/"));
-  const plan: CheckPlan = { changed: [...changed].sort(), affected, global,
+  let plan: CheckPlan = { changed: [...changed].sort(), affected, global,
     ...(rootPaths.length && !global && !packageCode ? { unitTests: [...new Set([...tests, ...consumers.tests])].sort() } : {}),
     typecheck: global || rootPaths.some(path => /\.[cm]?[jt]sx?$/.test(path)) || typedInputs || changed.some(path => path.startsWith("template/") && /\.[cm]?[jt]sx?$/.test(path)),
     tests, pack: global || ships,
@@ -288,6 +289,7 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
       layout: consumers.categories.has("layout") || ((global || packageCode) && ui), captures: consumers.categories.has("captures") || captureInputs || ((global || packageCode) && ui),
       endurance: consumers.categories.has("endurance") || ((global || packageCode) && ui),
       runtime: consumers.categories.has("runtime") || global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
+  if (arguments.length >= 3 && packageCode && !global) plan = addUnitImportConsumers(plan, root);
   // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
   return arguments.length >= 3 && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
 }
