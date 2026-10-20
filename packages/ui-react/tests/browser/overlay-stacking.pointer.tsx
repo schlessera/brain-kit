@@ -203,6 +203,8 @@ test("Settings mint: credential stays above the drawer, requires acknowledgement
   // Mutation: remove the credential saved-acknowledgement guard; disabled Done assertion fails.
   const s = await mount(ctx, 800);
   flushSync(() => { s.ui.stores.ui.getState().setSettingsTab("devices"); s.ui.stores.ui.getState().openPanel("settings"); });
+  // Opening starts the lazy load; retain the poll for the resulting React DOM.
+  await import("../../src/components/settings/devices-agents-tab.js");
   await expect.poll(() => s.host.querySelector("#agent-label")).not.toBeNull();
   await userEvent.fill(s.host.querySelector<HTMLInputElement>("#agent-label")!, "Eumaeus");
   const mint = [...s.host.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.textContent === "Create agent credential")!;
@@ -580,7 +582,8 @@ test("destination opening references survive native completion before sampling",
 
 // #1771: pixel comparison catches shadows that never participate in hit tests.
 for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
-  test(`${theme} ${width}: destination effects never shade navigation`, async ctx => {
+  for (const name of ["Sessions", "Settings", "Files"] as const)
+  test(`${theme} ${width} ${name}: destination effects never shade navigation`, async ctx => {
     const s = await mount(ctx, width);
     s.ui.stores.ui.getState().setTheme(theme);
     await commands.destinationSafeArea(34);
@@ -607,56 +610,54 @@ for (const theme of ["dark", "light"] as const) for (const width of [320, 390])
     };
     for (const type of ["animationstart", "animationend", "animationcancel"]) document.addEventListener(type, traceMotion, true);
     ctx.onTestFinished(() => { for (const type of ["animationstart", "animationend", "animationcancel"]) document.removeEventListener(type, traceMotion, true); });
-    for (const name of ["Sessions", "Settings", "Files"]) {
-      const selector = `[data-panel="${name}"]`;
-      const opening = captureOpeningAnimations(s.host, selector);
-      ctx.onTestFinished(opening.stop);
-      const activationAt = performance.now();
-      if (name === "Settings") {
-        s.ui.stores.ui.getState().setSettingsTab("devices");
-        await userEvent.click(s.tab("More"));
-        await userEvent.click(page.getByRole("button", { name: "Settings", exact: true }));
-      } else await userEvent.click(s.tab(name));
-      const activationReturnedAt = performance.now();
-      await frame();
-      opening.stop();
-      const panel = s.overlay(selector);
-      const surface = panel.querySelector<HTMLElement>(".bk-overlay-surface")!;
-      const animations = opening.take();
-      if (animations.length === 0) {
-        const state = { name, theme, width, activationAt, activationReturnedAt, sampledAt: performance.now(),
-        connected: panel.isConnected, reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
-        styles: [panel, ...panel.querySelectorAll<HTMLElement>(".bk-overlay-surface, .bk-overlay-scrim")].map(element => {
-          const css = getComputedStyle(element);
-          return { target: element.className, name: css.animationName, duration: css.animationDuration, delay: css.animationDelay, fill: css.animationFillMode };
-        }), animations: animations.map(animation => ({ state: animation.playState, currentTime: animation.currentTime, startTime: animation.startTime,
-          timing: animation.effect?.getComputedTiming() })), events: [...motionTrace] };
-        const label = `${theme}-${width}-${name}`;
-        console.error("DESTINATION_MOTION", label, "empty animation set; preserving native state");
-        try { await commands.destinationMotion(label, state); }
-        catch (error) { console.error("DESTINATION_MOTION capture failed", String(error)); }
-      }
-      expect(animations.length, "real opening animations are enabled").toBeGreaterThan(0);
-      for (const animation of animations) animation.pause();
-      const originalTransform = nav.style.transform;
-      for (const time of [0, 150, 300]) {
-        for (const animation of animations) animation.currentTime = time;
-        const paint = await commands.destinationPaint(navigation, selector, `${theme}-${width}-${name}-${time}`);
-        expect(nav.style.transform, "paint reference restores the navigation transform").toBe(originalTransform);
-        expect(getComputedStyle(panel).visibility, "destination stays painted after comparison").toBe("visible");
-        expect(paint.stable, `${name} NAVIGATION_CAPTURE_STABLE at ${time}ms`).toBe(true);
-        expect(paint.same,
-          `${name} NAVIGATION_PAINT_UNSHADED at ${time}ms`).toBe(true);
-      }
-      expect(surface.getBoundingClientRect().bottom, "pane ends above safe-area bar").toBe(nav.getBoundingClientRect().top);
-      for (const tab of ["Chat", "Sessions", "Actions", "Files", "More"]) {
-        const target = s.tab(tab); const box = target.getBoundingClientRect();
-        expect(target.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)), `${tab} hit target above pane effects`).toBe(true);
-      }
-      // Native keyboard activation replaces the destination and closes instantly.
-      s.tab("Chat").focus();
-      await userEvent.keyboard("{Enter}"); await frame();
-      expect(s.host.querySelector(selector), "destination closes on keyboard Chat").toBeNull();
-      expect(s.tab("Chat").getAttribute("aria-selected"), "keyboard activation selects Chat").toBe("true");
+    const selector = `[data-panel="${name}"]`;
+    const opening = captureOpeningAnimations(s.host, selector);
+    ctx.onTestFinished(opening.stop);
+    const activationAt = performance.now();
+    if (name === "Settings") {
+      s.ui.stores.ui.getState().setSettingsTab("devices");
+      await userEvent.click(s.tab("More"));
+      await userEvent.click(page.getByRole("button", { name: "Settings", exact: true }));
+    } else await userEvent.click(s.tab(name));
+    const activationReturnedAt = performance.now();
+    await frame();
+    opening.stop();
+    const panel = s.overlay(selector);
+    const surface = panel.querySelector<HTMLElement>(".bk-overlay-surface")!;
+    const animations = opening.take();
+    if (animations.length === 0) {
+      const state = { name, theme, width, activationAt, activationReturnedAt, sampledAt: performance.now(),
+      connected: panel.isConnected, reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      styles: [panel, ...panel.querySelectorAll<HTMLElement>(".bk-overlay-surface, .bk-overlay-scrim")].map(element => {
+        const css = getComputedStyle(element);
+        return { target: element.className, name: css.animationName, duration: css.animationDuration, delay: css.animationDelay, fill: css.animationFillMode };
+      }), animations: animations.map(animation => ({ state: animation.playState, currentTime: animation.currentTime, startTime: animation.startTime,
+        timing: animation.effect?.getComputedTiming() })), events: [...motionTrace] };
+      const label = `${theme}-${width}-${name}`;
+      console.error("DESTINATION_MOTION", label, "empty animation set; preserving native state");
+      try { await commands.destinationMotion(label, state); }
+      catch (error) { console.error("DESTINATION_MOTION capture failed", String(error)); }
     }
+    expect(animations.length, "real opening animations are enabled").toBeGreaterThan(0);
+    for (const animation of animations) animation.pause();
+    const originalTransform = nav.style.transform;
+    for (const time of [0, 150, 300]) {
+      for (const animation of animations) animation.currentTime = time;
+      const paint = await commands.destinationPaint(navigation, selector, `${theme}-${width}-${name}-${time}`);
+      expect(nav.style.transform, "paint reference restores the navigation transform").toBe(originalTransform);
+      expect(getComputedStyle(panel).visibility, "destination stays painted after comparison").toBe("visible");
+      expect(paint.stable, `${name} NAVIGATION_CAPTURE_STABLE at ${time}ms`).toBe(true);
+      expect(paint.same,
+        `${name} NAVIGATION_PAINT_UNSHADED at ${time}ms`).toBe(true);
+    }
+    expect(surface.getBoundingClientRect().bottom, "pane ends above safe-area bar").toBe(nav.getBoundingClientRect().top);
+    for (const tab of ["Chat", "Sessions", "Actions", "Files", "More"]) {
+      const target = s.tab(tab); const box = target.getBoundingClientRect();
+      expect(target.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)), `${tab} hit target above pane effects`).toBe(true);
+    }
+    // Native keyboard activation replaces the destination and closes instantly.
+    s.tab("Chat").focus();
+    await userEvent.keyboard("{Enter}"); await frame();
+    expect(s.host.querySelector(selector), "destination closes on keyboard Chat").toBeNull();
+    expect(s.tab("Chat").getAttribute("aria-selected"), "keyboard activation selects Chat").toBe("true");
   });

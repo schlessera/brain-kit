@@ -200,7 +200,7 @@ throughout a window. Never use logical/allocated App growth to forecast capacity
 | Window | Evidence |
 | --- | --- |
 | Short | Recent points within seven days; at least five distinct endpoints spanning 48 hours; no interval over 12 hours. |
-| Long | Completed Daily endpoints within 28 days plus the latest Recent endpoint; at least 15 distinct endpoints spanning 14 days; no interval over 48 hours. |
+| Long | Completed Daily endpoints within 30 days plus the latest Recent endpoint; at least 15 distinct endpoints spanning 14 days; no interval over 48 hours. |
 
 Deduplicate identical timestamps. The latest point must be the current complete
 capacity observation and at most six hours old, with no future timestamp. Walk

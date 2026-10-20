@@ -85,7 +85,8 @@ describe("turn temp (#1655, #1703)", () => {
       finally { Bun.spawn=spawn; worker?.kill('SIGKILL'); worker?.turnTemp?.close(); }`;
     const run = Bun.spawnSync(["bwrap", "--unshare-net", "--unshare-pid", "--bind", "/", "/", "--size", String(ALLOWANCE),
       "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", process.execPath, "--no-env-file", "-e", program],
-      { stdout: "pipe", stderr: "pipe", timeout: 20_000 });
+      // The new child /tmp hides any inherited TMPDIR beneath the outer /tmp.
+      { env: { ...process.env, TMPDIR: "/tmp" }, stdout: "pipe", stderr: "pipe", timeout: 20_000 });
     expect(run.exitCode, run.stderr.toString()).toBe(0);
     const receipt = JSON.parse(run.stdout.toString().trim());
     expect(receipt.refused, "the held descriptor must not name the host's /tmp").toBe(true);

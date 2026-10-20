@@ -1,10 +1,25 @@
 /** Required offline Btrfs/Unix-manager hosted proof; missing prerequisites fail. */
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { verifyIndexReleaseReproduction } from "./native-proof/verify-index-release-repro.js";
 
 export const NATIVE_PROOF_IMAGE = "brain-kit-native-runtime:1";
 export const NATIVE_PROOF_NAME = "native managed hosted admission";
+
+export function nativeHostDockerArgs(root: string, artifact: string, uid: string, backend: string, apparmor: boolean, retainIndexNamespace: boolean, bun: string): string[] {
+  const lease = join(root, "tmp", "workspace-operation");
+  return ["docker", "run", "--rm", "--pull=never", "--network=none",
+        ...(retainIndexNamespace ? ["--env=BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE=1"] : []),
+        "--cap-drop=ALL", ...(uid === "0" ? ["--cap-add=SETFCAP"] : []), ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"].map(value => `--cap-add=${value}`),
+        "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
+        ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),
+        "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
+        "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
+        "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
+        "--mount", `type=bind,source=${root},target=/repo,readonly`,
+        "--mount", `type=bind,source=${lease},target=/repo/tmp/workspace-operation`,
+        "--workdir=/repo", "--entrypoint=/bin/sh", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "host", "python3", "/repo/scripts/native-proof/fixture.py", backend, uid];
+}
 
 if (import.meta.main) {
   try {
@@ -33,17 +48,7 @@ if (import.meta.main) {
       writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ backend, appUid: Number(uid), apparmor, profile: apparmor ? "brain-kit-native-proof" : null }));
       if (!apparmor) console.log("AppArmor unavailable: this runtime provides no enforced AppArmor qualification.");
       const lease = join(root, "tmp", "workspace-operation"); mkdirSync(lease, { recursive: true, mode: 0o700 });
-      const args = ["docker", "run", "--rm", "--pull=never", "--network=none",
-        ...(retainIndexNamespace ? ["--env=BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE=1"] : []),
-        "--cap-drop=ALL", ...(uid === "0" ? ["--cap-add=SETFCAP"] : []), ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"].map(value => `--cap-add=${value}`),
-        "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
-        ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),
-        "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
-        "--mount", `type=bind,source=${artifact},target=/proof`,
-        "--mount", `type=bind,source=${realpathSync(process.execPath)},target=/usr/local/bin/bun,readonly`,
-        "--mount", `type=bind,source=${root},target=/repo,readonly`,
-        "--mount", `type=bind,source=${lease},target=/repo/tmp/workspace-operation`,
-        "--workdir=/repo", NATIVE_PROOF_IMAGE, "/repo/scripts/native-proof/fixture.py", backend, uid];
+      const args = nativeHostDockerArgs(root, artifact, uid, backend, apparmor, retainIndexNamespace, realpathSync(process.execPath));
       console.log(`Native ${backend} uid ${uid} hosted proof artifacts: ${artifact}`);
       const runnerQuota = readFileSync("/proc/sys/user/max_user_namespaces", "utf8");
       const child = Bun.spawn(args, { stdin: "ignore", stdout: "inherit", stderr: "inherit" });

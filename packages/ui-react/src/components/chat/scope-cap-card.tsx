@@ -28,11 +28,16 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
   const activated = useRef(false), submission = useRef<string | undefined>(undefined), action = useRef<"continue" | "stop">("stop");
   const row = useRef<HTMLParagraphElement>(null), announced = useRef<string | undefined>(undefined);
   const paused = receipt.state === "paused" && !blockedBy;
+  const canContinue = receipt.newCap !== undefined;
+  const staleContinue = action.current === "continue" && !canContinue;
   useEffect(() => {
-    if (announced.current === receipt.eventId) return;
-    announced.current = receipt.eventId;
-    setAnnouncement(paused ? `Turn paused: ${scopeReceiptText(receipt)}. ${receipt.newCap === undefined ? "Stop only." : "Continue or stop."}` : scopeReceiptText(receipt));
-  }, [receipt, paused]);
+    // Counts may refresh without another alert; changed eligibility must replace
+    // an earlier announcement that Continue was available for this same event.
+    const key = JSON.stringify([receipt.eventId, paused, canContinue, receipt.reason]);
+    if (announced.current === key) return;
+    announced.current = key;
+    setAnnouncement(paused ? `Turn paused: ${scopeReceiptText(receipt)}. ${canContinue ? "Continue or stop." : receipt.reason ?? "Stop only."}` : scopeReceiptText(receipt));
+  }, [receipt, paused, canContinue]);
   useEffect(() => {
     if (paused || !activated.current) return;
     setPending(false);
@@ -43,11 +48,13 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
     if (!delivery || delivery.submissionId !== submission.current || delivery.turnId !== turnId || delivery.sessionId !== sessionId) return;
     setPending(false);
     if (["refused", "failed"].includes(delivery.state)) setError(delivery.reason ?? "The host could not confirm the action. Check status before trying again.");
-    else if (delivery.state === "pending") setError("The turn is still paused. Your previous action was not accepted; try it again manually.");
+    else if (delivery.state === "pending") setError(staleContinue ? "The turn is still paused. Continuation is unavailable; choose Stop here." : "The turn is still paused. Your previous action was not accepted; try it again manually.");
     else if (delivery.state === "answered_elsewhere") setAnnouncement("This scope limit was answered from another device.");
-  }, [delivery, turnId, sessionId]);
+  }, [delivery, turnId, sessionId, staleContinue]);
   function send(next: "continue" | "stop" | "readback") {
     if (!connected || root.stores.chat.getState().activeSessionId !== sessionId) return;
+    if (next === "continue" && !canContinue) return;
+    if (next !== "readback" && next !== action.current) submission.current = undefined;
     if (next !== "readback" && !submission.current) submission.current = crypto.randomUUID();
     if (!submission.current) submission.current = crypto.randomUUID();
     if (next !== "readback") { activated.current = true; action.current = next; }
@@ -57,18 +64,19 @@ export function ScopeCapCard({ receipt, turnId, sessionId, blockedBy }: { receip
     }
   }
   const reason = activeSession !== sessionId ? "Open this chat to answer its limit." : !connected ? "Needs the host to answer · the turn stays paused." : pending ? "Waiting for the host's receipt. If it is lost, check status manually." : error;
+  const disabled = !connected || activeSession !== sessionId || pending || (!!error && !staleContinue);
   return <div className="brain-scope-card min-w-0 break-words" data-scope-event={receipt.eventId}>
     <span className="sr-only" role="status" aria-live="polite">{announcement}</span>
     {paused ? <>
       <AskUserCard id={receipt.eventId} tone="amber" prompt={pending ? "Continuing or stopping…" : "▲ Turn paused"}
-        question={`${receipt.dimension === "free_space_floor" ? "This turn reached the brain's free-space floor." : `This turn reached its ${scopeLimitName[receipt.dimension].toLowerCase()}.`} Observed: ${scopeNumber(receipt.dimension, receipt.count)}. Limit: ${scopeNumber(receipt.dimension, receipt.cap)}. ${receipt.frozen ? "Nothing in the worker is running while it waits." : "A frozen worker was not confirmed."}${receipt.overshoot > 0 ? ` Observed overshoot: ${scopeNumber(receipt.dimension, receipt.overshoot)}.` : ""} Partial work and observed journal versions remain.`}
+        question={`${receipt.dimension === "free_space_floor" ? "This turn reached the brain's free-space floor." : `This turn reached its ${scopeLimitName[receipt.dimension].toLowerCase()}.`} Observed: ${scopeNumber(receipt.dimension, receipt.count)}. Limit: ${scopeNumber(receipt.dimension, receipt.cap)}. ${receipt.frozen ? "Nothing in the worker is running while it waits." : "A frozen worker was not confirmed."}${receipt.overshoot > 0 ? ` Observed overshoot: ${scopeNumber(receipt.dimension, receipt.overshoot)}.` : ""}${receipt.reason ? ` ${receipt.reason}` : ""} Partial work and observed journal versions remain.`}
         showActions={false} options={[
-          ...(receipt.newCap === undefined ? [] : [{ title: "Continue", subtitle: `Raises this limit to exactly ${scopeNumber(receipt.dimension, receipt.newCap)} for this turn only. Your policy is unchanged.`, disabled: !!reason, onClick: () => send("continue") }]),
-          { title: "Stop here", subtitle: receipt.newCap === undefined ? "This limit allows Stop only. Partial work remains." : "Ends this turn. Partial work remains.", disabled: !!reason, onClick: () => send("stop") },
+          ...(receipt.newCap === undefined ? [] : [{ title: "Continue", subtitle: `Raises this limit to exactly ${scopeNumber(receipt.dimension, receipt.newCap)} for this turn only. Your policy is unchanged.`, disabled, onClick: () => send("continue") }]),
+          { title: "Stop here", subtitle: !canContinue ? "This limit allows Stop only. Partial work remains." : "Ends this turn. Partial work remains.", disabled, onClick: () => send("stop") },
         ]} />
       {reason && <p className="mt-2 text-sm">{reason}</p>}
       {(pending || error) && <Button label="Check status" disabled={!connected || activeSession !== sessionId} style={{ minHeight: 44 }} onClick={() => send("readback")} />}
-      {error && !pending && connected && <Button label={`Try ${action.current === "continue" ? "Continue" : "Stop"} again`} style={{ minHeight: 44 }} onClick={() => send(action.current)} />}
+      {error && !pending && connected && !staleContinue && <Button label={`Try ${action.current === "continue" ? "Continue" : "Stop"} again`} disabled={activeSession !== sessionId} style={{ minHeight: 44 }} onClick={() => send(action.current)} />}
     </> : <p ref={row} tabIndex={-1} data-scope-receipt={receipt.eventId} className="text-sm break-words">{scopeReceiptText(receipt)}{blockedBy ? ". The free-space floor now requires Stop only." : ""}{receipt.reason ? `. ${receipt.reason}` : ""}</p>}
   </div>;
 }

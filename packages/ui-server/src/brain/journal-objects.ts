@@ -33,7 +33,7 @@ export class JournalCapacityError extends Error {
 /** No brain pathname reaches this store. Only checked source descriptors and sha256 object names do. */
 export function createJournalObjects(root: string, accounting: JournalObjectAccounting): {
   has(hash: string): boolean;
-  putFileAsync(source: number, size: number): Promise<string>;
+  putFileAsync(source: number, size: number, signal?: AbortSignal): Promise<string>;
   putBytes(bytes: Uint8Array): string;
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
@@ -89,8 +89,8 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         if (!published) reservation.cancel(); throw error;
       }
     },
-    async putFileAsync(source, size) {
-      assertOpen();
+    async putFileAsync(source, size, signal) {
+      assertOpen(); signal?.throwIfAborted();
       if (!Number.isSafeInteger(size) || size < 0) throw new Error("Invalid journal object size.");
       const info = fstatSync(source);
       if (!info.isFile() || info.size !== size) throw new Error("Journal source changed before its storage reservation.");
@@ -101,6 +101,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         const hash = createHash("sha256"), chunk = Buffer.alloc(64 * 1024);
         let position = 0;
         for (;;) {
+          signal?.throwIfAborted();
           const { bytesRead } = await readAsync(source, chunk, 0, Math.min(chunk.length, size - position + 1), position);
           if (!bytesRead) break;
           if (position + bytesRead > size) throw new Error("Journal source grew during capture.");
@@ -108,6 +109,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
           if (output !== undefined) {
             let written = 0;
             while (written < bytesRead) {
+              signal?.throwIfAborted();
               const { bytesWritten } = await writeAsync(output, chunk, written, bytesRead - written, position + written);
               if (!bytesWritten) throw new Error("Journal object write made no progress.");
               written += bytesWritten;
@@ -119,6 +121,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         return hash.digest("hex");
       }
       const expectedHash = await digestSource();
+      signal?.throwIfAborted();
       const reservation = accounting.reserve(size, expectedHash);
       const name = `pending-${reservation.id ?? crypto.randomUUID()}`;
       let output: number | undefined, present = false, published = false;
