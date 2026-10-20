@@ -64,7 +64,7 @@ const shared=${JSON.stringify(join(root,"tmp"))};writeFileSync(join(shared,"buil
 const stop=Date.now()+5000;while((!existsSync(join(shared,"built-1"))||!existsSync(join(shared,"built-2")))&&Date.now()<stop)await Bun.sleep(5);` : ""}
 ${options.failBuild ? "process.exit(7);" : ""}
 mkdirSync("dist",{recursive:true});writeFileSync("dist/lease.json",JSON.stringify({lease:JSON.parse(process.env.BRAIN_WORKSPACE_LEASE),nonce:process.env.BRAIN_TEST_INVOCATION_NONCE}));writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
-  for (const file of ["scripts/test.ts", "scripts/runtime-test-builds.ts", "scripts/test-invocation.ts", "scripts/publishable-packages.ts",
+  for (const file of ["scripts/test.ts", "scripts/runtime-test-builds.ts", "scripts/test-invocation.ts", "scripts/test-invocation-child.ts", "scripts/publishable-packages.ts",
     "scripts/workspace-lease.mjs", "scripts/test-network-preload.ts", "scripts/test-network-child-preload.ts", "scripts/test-network-guard.ts", "packages/core/tests/cli-harness.ts"]) {
     write(file, readFileSync(join(source, file), "utf8"));
   }

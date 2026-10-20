@@ -1,10 +1,11 @@
 /** One fresh build owned by one live test invocation; never cross-run freshness. */
-import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { selectBuildPackages } from "./publishable-packages";
-import { inheritWorkspaceLease, liveAncestor, processIdentity, workspaceLeaseIdentity } from "./workspace-lease.mjs";
+import { liveAncestor, processIdentity, workspaceLeaseIdentity } from "./workspace-lease.mjs";
+import { invocationChild } from "./test-invocation-child";
 
 const AUTHORITY = "BRAIN_TEST_BUILD_AUTHORITY";
 const NONCE = "BRAIN_TEST_INVOCATION_NONCE";
@@ -97,13 +98,14 @@ export function clearInvocation(): string {
 
 /** Called after write admission. Caller forwards cancellation throughout build/test. */
 export async function prepareInvocation(root: string, directories: readonly string[] | undefined,
-  started: (child: ReturnType<typeof Bun.spawn>) => void): Promise<{ code: number; dispose: () => void }> {
+  started: (child: ReturnType<typeof invocationChild>) => void): Promise<{ code: number; dispose: () => void }> {
   const nonce = process.env[NONCE]!;
   const selected = selectBuildPackages(root, directories).map(pkg => pkg.dir);
   const buildId = randomUUID(), before = performance.now();
-  const child = Bun.spawn([process.execPath, join(root, "scripts/build.ts"), ...(directories ? ["--for", directories.join(",")] : [])],
-    inheritWorkspaceLease({ cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, BRAIN_TEST_BUILD_ID: buildId } }));
+  const child = invocationChild([process.execPath, join(root, "scripts/build.ts"), ...(directories ? ["--for", directories.join(",")] : [])],
+    { cwd: root, stdin: "ignore", env: { ...process.env, BRAIN_TEST_BUILD_ID: buildId } });
   started(child);
+  await child.ready;
   event("build-start", { nonce, builderPid: child.pid, buildId, packages: selected });
   async function drain(stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") {
     let bytes = 0;
@@ -112,12 +114,13 @@ export async function prepareInvocation(root: string, directories: readonly stri
   }
   const results = await Promise.allSettled([child.exited.then(code => { event("build-exit", { nonce, builderPid: child.pid, code, signal: child.signalCode }); return code; }),
     drain(child.stdout as ReadableStream<Uint8Array>, "stdout"), drain(child.stderr as ReadableStream<Uint8Array>, "stderr")]);
+  await child.finish();
   const resource = child.resourceUsage();
   const usage = resource ? { cpuUserUs: Number(resource.cpuTime.user), cpuSystemUs: Number(resource.cpuTime.system),
     maxRssBytes: Number(resource.maxRSS) } : undefined;
   const exited = results[0];
   const code = exited.status === "fulfilled" ? exited.value : 1;
-  if (code !== 0 || child.signalCode || results.some(result => result.status === "rejected")) {
+  if (code !== 0 || child.signalCode || child.cancelled || results.some(result => result.status === "rejected")) {
     event("preparation-failed", { nonce, builderPid: child.pid, code, usage, elapsedMs: performance.now() - before });
     return { code: code || 1, dispose() {} };
   }
@@ -179,45 +182,4 @@ export async function prepareInvocation(root: string, directories: readonly stri
     event("build-unattested", { nonce, builderPid: child.pid, usage, elapsedMs: performance.now() - before });
     return { code: 0, dispose() {} };
   }
-}
-
-/** Stop this invocation's actual child tree before draining/releasing ownership.
- * Nested wrappers share the enclosing flock/group, so killing only their builder
- * cannot rely on the enclosing group exiting. PID/start pairs bound every signal.
- */
-export function invocationChild(child: ReturnType<typeof Bun.spawn>) {
-  const start = processIdentity(child.pid)?.start;
-  let stopped: Promise<void> | undefined;
-  return {
-    stop(signal: NodeJS.Signals): Promise<void> {
-      if (stopped) return stopped;
-      stopped = (async () => {
-        if (process.platform !== "linux" || !start) { child.kill(signal); await child.exited; return; }
-        if (processIdentity(child.pid)?.start !== start) return;
-        const processes = readdirSync("/proc").filter(name => /^\d+$/.test(name)).flatMap(name => {
-          const pid = Number(name), state = processIdentity(pid);
-          return state ? [{ pid, ...state }] : [];
-        });
-        const owned = [{ pid: child.pid, start }];
-        for (let index = 0; index < owned.length; index++) {
-          for (const process of processes) if (process.parent === owned[index]!.pid && !owned.some(item => item.pid === process.pid)) owned.push(process);
-        }
-        const live = (item: { pid: number; start: string }) => processIdentity(item.pid)?.start === item.start;
-        const signalOwned = (signal: NodeJS.Signals) => {
-          for (const item of [...owned].reverse()) if (live(item)) {
-            try { process.kill(item.pid, signal); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
-          }
-        };
-        signalOwned(signal);
-        const grace = Date.now() + 1_000;
-        while (owned.some(live) && Date.now() < grace) await Bun.sleep(10);
-        if (owned.some(live)) signalOwned("SIGKILL");
-        await child.exited;
-        const end = Date.now() + 1_000;
-        while (owned.some(live) && Date.now() < end) await Bun.sleep(10);
-        if (owned.some(live)) throw new Error("Invocation child cleanup incomplete");
-      })();
-      return stopped;
-    },
-  };
 }

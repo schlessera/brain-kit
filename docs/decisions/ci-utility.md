@@ -300,6 +300,18 @@ revokes it; leftover files and the builder's best-effort observation fingerprint
 have no authority. Failed or signaled preparation stops the invocation before
 tests; missing diagnostics after successful preparation leave hooks rebuilding.
 
+Build and test commands each run beneath a private process-group anchor that
+stays alive until command exit and both output EOFs have been joined. Cancellation
+signals only that anchored group, with one-second forced cleanup for survivors
+and children forked during signal handling. Losing the wrapper's IPC lifetime
+channel also stops the group. A command leader exiting first cannot orphan its
+inherited-output holders, and a nested wrapper does not signal the outer lease
+or unrelated siblings. The anchor closes its own output descriptors after launch
+so it cannot manufacture EOF or hold output open itself. Cancellation after a
+successful builder exit still prevents attestation. This is cooperating
+process-group ownership, not containment of processes deliberately escaping
+their process group; it adds no product extension interface.
+
 Every ordinary nested wrapper creates a fresh invocation. Only the explicitly
 checked isolated external-speech child borrows its live parent's build, outside
 both its setup and outer-test deadlines. Direct/unattested hooks rebuild;

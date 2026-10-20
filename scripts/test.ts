@@ -19,9 +19,10 @@
 import { constants } from "node:os";
 import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
+import { invocationChild } from "./test-invocation-child";
 import { runtimeBuildSelection } from "./runtime-test-builds";
-import { acceptsSpeechDelegation, clearInvocation, invocationChild, prepareInvocation } from "./test-invocation";
-import { ensureWorkspaceLease, inheritWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
+import { acceptsSpeechDelegation, clearInvocation, prepareInvocation } from "./test-invocation";
+import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
 
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
@@ -176,7 +177,7 @@ if (import.meta.main) {
   let owned: ReturnType<typeof invocationChild> | undefined;
   const stopping: Promise<void>[] = [];
   const stop = (signal: NodeJS.Signals) => { const pending = owned?.stop(signal); if (pending) { stopping.push(pending); void pending.catch(() => {}); } };
-  const started = (child: ReturnType<typeof Bun.spawn>) => { owned = invocationChild(child); if (cancelled) stop(cancelled); };
+  const started = (child: ReturnType<typeof invocationChild>) => { owned = child; if (cancelled) stop(cancelled); };
   const listeners = signals.map(signal => () => { cancelled = signal; stop(signal); });
   signals.forEach((signal, index) => process.on(signal, listeners[index]!));
   let dispose = () => {};
@@ -193,12 +194,12 @@ if (import.meta.main) {
       if (preparation.code !== 0) { result = preparation.code; throw new Error(`Test invocation preparation failed (${result})`); }
     }
     if (!cancelled) {
-      const tests = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], inheritWorkspaceLease({
-        stdin: "inherit", stdout: "pipe", stderr: "pipe",
-      }));
+      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit" });
       started(tests);
+      await tests.ready;
       const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
       const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
+      await tests.finish();
       result = joined[0].status === "fulfilled" ? joined[0].value : 1;
       if (joined.some(item => item.status === "rejected")) result = result || 1;
       if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);

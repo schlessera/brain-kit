@@ -175,3 +175,55 @@ const child=Bun.spawn([process.execPath,...${JSON.stringify(args)}],{stdout:"inh
     const result = await running.done; expect(result.code, result.output).toBe(0); expect(result.output).not.toContain("(fail)");
   } finally { write("tmp/stop-watch", "stop"); running.child.kill(); await running.done; }
 });
+
+for (const phase of ["build", "tests"] as const) for (const cancellation of ["SIGTERM", "SIGKILL", "late-fork"] as const)
+test(`nested ${phase} ${cancellation} stops an exited leader's EOF holder while its outer lease stays live`, async () => {
+  const { root, write } = fixture();
+  // Node unref deliberately lets the producer exit while its descendant retains
+  // both inherited output descriptors. This is the actual wrapper, not stop alone.
+  write("late.cjs", `const fs=require("node:fs");fs.writeFileSync("tmp/late",JSON.stringify({pid:process.pid,start:fs.readFileSync("/proc/self/stat","utf8").split(") ")[1].split(" ")[19]}));process.on("SIGTERM",()=>{});setInterval(()=>{},1000);`);
+  write("hold.cjs", `const fs=require("node:fs");fs.writeFileSync("tmp/orphan",JSON.stringify({pid:process.pid,start:fs.readFileSync("/proc/self/stat","utf8").split(") ")[1].split(" ")[19]}));${cancellation === "late-fork" ? 'process.on("SIGTERM",()=>{require("node:child_process").spawn("node",["late.cjs"],{stdio:["ignore",1,2]}).unref()});' : ""}setInterval(()=>{},1000);`);
+  const spawnHolder = `const {spawn}=require("node:child_process");const c=spawn("node",["hold.cjs"],{stdio:["ignore",1,2]});c.unref();`;
+  write("produce.cjs", 'const fs=require("node:fs");if(!fs.existsSync("tmp/producer-started")){fs.writeFileSync("tmp/producer-started","once");' + spawnHolder + "}");
+  write("nested.test.ts", phase === "build" ? 'import {test} from "bun:test";test("must not start",()=>console.log("NESTED_TESTS_STARTED"));' :
+    `import {spawn} from "node:child_process";const c=spawn("node",["produce.cjs"],{stdio:["ignore",1,2]});await new Promise(resolve=>c.once("exit",resolve));console.log("TEST_LEADER_EXIT");process.exit(0);`);
+  write("probe.ts", consumerProbe + `
+import {existsSync} from "node:fs";
+import {processIdentity,workspaceLeaseIdentity} from "./scripts/workspace-lease.mjs";
+${phase === "build" ? `writeFileSync("node_modules/.bin/tsc",readFileSync("node_modules/.bin/tsc","utf8")+'\\nconst holder=Bun.spawn(["node","produce.cjs"],{stdout:"inherit",stderr:"inherit"});await holder.exited;process.exit(process.exitCode||0);'.replaceAll('\\\\n','\\n'));` : ""}
+const lease=workspaceLeaseIdentity(root);
+const sibling=Bun.spawn(["node","-e","setInterval(()=>{},1000)"],{stdout:"ignore",stderr:"ignore"});
+const siblingStart=processIdentity(sibling.pid)?.start;
+const child=Bun.spawn([process.execPath,"scripts/test.ts",${phase === "build" ? '"--internal-full-preparation",' : ""}"nested.test.ts"],{stdout:"pipe",stderr:"pipe"});
+let output="",done=false;const drain=async stream=>{for await(const bytes of stream)output+=new TextDecoder().decode(bytes)};
+const joined=Promise.all([child.exited,drain(child.stdout),drain(child.stderr)]).then(([code])=>{done=true;return code});
+let orphan;
+try {
+ const ready=Date.now()+10000;while((!existsSync("tmp/orphan")||!output.includes(${JSON.stringify(phase === "build" ? '"event":"build-exit"' : "TEST_LEADER_EXIT")}))&&Date.now()<ready)await Bun.sleep(10);
+ expect(existsSync("tmp/orphan"),output).toBe(true);orphan=JSON.parse(readFileSync("tmp/orphan","utf8"));
+ expect(output, "ACTUAL_LEADER_EXIT_BEFORE_CANCEL").toContain(${JSON.stringify(phase === "build" ? '"event":"build-exit"' : "TEST_LEADER_EXIT")});
+ await Bun.sleep(30);expect(done,"EOF_HOLDER_BLOCKS_WRAPPER_COMPLETION").toBe(false);
+ child.kill(${JSON.stringify(cancellation === "SIGKILL" ? "SIGKILL" : "SIGTERM")});const end=Date.now()+2500;while(!done&&Date.now()<end)await Bun.sleep(10);
+ const survives=processIdentity(orphan.pid)?.start===orphan.start;
+ console.log(JSON.stringify({phase:${JSON.stringify(phase)},cancellation:${JSON.stringify(cancellation)},wrapper:child.pid,orphan,sibling:{pid:sibling.pid,start:siblingStart},lease,done,survives,outerLeaseLive:!!workspaceLeaseIdentity(root),siblingLive:processIdentity(sibling.pid)?.start===siblingStart}));
+ ${cancellation === "late-fork" ? 'expect(existsSync("tmp/late"),"SIGNAL_HANDLER_FORK_WAS_EXERCISED").toBe(true);const late=JSON.parse(readFileSync("tmp/late","utf8"));expect(processIdentity(late.pid)?.start,"LATE_FORK_MUST_STOP").not.toBe(late.start);' : ""}
+ expect(survives,"EXITED_${phase.toUpperCase()}_DESCENDANT_MUST_STOP").toBe(false);
+ expect(done,"NESTED_${phase.toUpperCase()}_EXIT_AND_BOTH_EOFS_COMPLETE").toBe(true);
+ expect(await joined).not.toBe(0);expect(workspaceLeaseIdentity(root),"OUTER_LEASE_RETAINED").toEqual(lease);
+ expect(processIdentity(sibling.pid)?.start,"UNRELATED_SIBLING_RETAINED").toBe(siblingStart);
+ ${phase === "build" ? 'expect(output).not.toContain("NESTED_TESTS_STARTED");expect(output).not.toContain(\'"event":"build-attested"\');' : ""}
+} finally {
+ if(existsSync("tmp/late")){const late=JSON.parse(readFileSync("tmp/late","utf8"));if(processIdentity(late.pid)?.start===late.start)process.kill(late.pid,"SIGKILL");}
+ if(orphan&&processIdentity(orphan.pid)?.start===orphan.start)process.kill(orphan.pid,"SIGKILL");
+ child.kill("SIGTERM");sibling.kill("SIGKILL");await sibling.exited;await joined;
+ console.log("INDEPENDENT_ORPHAN_CLEANUP",!orphan||processIdentity(orphan.pid)?.start!==orphan.start);
+}
+`);
+  const running = start(root);
+  try {
+    const result = await running.done;
+    for (const line of result.output.split("\n")) if (line.startsWith('{"phase":') || line.startsWith("INDEPENDENT_ORPHAN_CLEANUP")) console.log(line);
+    expect(result.code, result.output).toBe(0);
+  }
+  finally { running.child.kill(); await running.done; }
+});

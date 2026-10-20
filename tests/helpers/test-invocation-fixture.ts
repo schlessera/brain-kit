@@ -10,7 +10,7 @@ export function invocationFixture(parent = tmpdir()) {
   write("bun.lock", "{}\n");
   write(".gitignore", "node_modules/\npackages/*/dist/\ntmp/\n");
   write("tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2019", module: "ESNext", moduleResolution: "Bundler", types: [], skipLibCheck: true } }));
-  for (const file of ["build.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs", "test.ts", "test-invocation.ts", "runtime-test-builds.ts", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "unit-worker-entry.sh"]) {
+  for (const file of ["build.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs", "test.ts", "test-invocation.ts", "test-invocation-child.ts", "runtime-test-builds.ts", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "unit-worker-entry.sh"]) {
     write(`scripts/${file}`, readFileSync(join(source, "scripts", file), "utf8"));
   }
   for (const file of ["packages/core/tests/cli-harness.ts", "packages/ui-react/tests/fixtures/runtime-package-build.ts", "packages/ui-react/tests/fixtures/runtime-hook-phases.ts"]) write(file, readFileSync(join(source, file), "utf8"));
@@ -27,7 +27,7 @@ export function invocationFixture(parent = tmpdir()) {
 import {clearInvocation,prepareInvocation} from "./scripts/test-invocation";
 const code=await ensureWorkspaceLease(import.meta.dir,"write");if(code!==undefined)process.exit(code);
 clearInvocation();let active;let cancelled=false;
-for(const signal of ["SIGINT","SIGTERM","SIGHUP"])process.on(signal,()=>{cancelled=true;active?.kill(signal)});
+for(const signal of ["SIGINT","SIGTERM","SIGHUP"])process.on(signal,()=>{cancelled=true;active?.stop ? active.stop(signal) : active?.kill(signal)});
 const preparation=await prepareInvocation(import.meta.dir,(process.env.ONLY||"ithaca,troy").split(","),child=>{active=child});
 try { if(preparation.code||cancelled)process.exitCode=preparation.code||1;else {
 active=Bun.spawn([process.execPath,"probe.ts"],inheritWorkspaceLease({stdio:["inherit","inherit","inherit"]}));process.exitCode=await active.exited;
