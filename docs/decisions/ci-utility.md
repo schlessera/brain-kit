@@ -59,7 +59,39 @@ visual results. A test failure is not excused by moving its execution.
 
 CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
 unit/integration discovery normally includes affected workspaces and every reverse
-dependant, plus root tooling tests. Global/unknown inputs expand to complete
+manifest dependant, plus root tooling tests. Under the maintainer's
+[2026-10-20 option B ruling](https://github.com/schlessera/brain-kit/issues/2404#issuecomment-6286701867),
+package changes additionally select runnable unit consumers of the actual changed
+import targets. Package exports use the Bun source condition; relative imports,
+re-exports, shared helpers, cycles and statically named spawned fixtures contribute
+transitively. A direct import of `src/types.ts` does not imply an import of an
+unrelated `src/index.ts`. Manifest dependencies are the coverage floor, not an
+exhaustive inventory of test inputs.
+
+Computed, unresolved, unreadable and unsupported import edges conservatively add
+their reachable runnable unit owners even when those owners are outside that
+floor. Failure to construct a trustworthy graph expands to complete unit discovery.
+An explicit unit inventory contains the entire previous manifest/root inventory,
+these additional consumers and selected fast tests exactly once; it never replaces
+the floor with only import matches. Static resolution does not execute source,
+configuration or arbitrary loader expressions. Unknown runtime loaders can
+therefore select many consumers; that widening is a correctness cost, not a
+speedup or a reason to ignore them.
+The implementation keeps discovery, reverse ownership and floor-preserving
+composition separate (`discoverUnitImports`, `scripts/unit-test-consumers.ts:31-153`;
+`unitImportOwners`, `scripts/unit-test-consumers.ts:156-162`;
+`addUnitImportConsumers`, `scripts/unit-test-consumers.ts:172-191`).
+
+The whole-class audit independently resolves current cross-workspace test sources,
+then traces their runnable owners, including extension-appending launch helpers
+and file references. An undiscovered helper is not automatically native-only.
+Browser/layout/native entrypoints retain their existing runners and selectors;
+they never become Bun unit files or count as passing unit coverage. Unresolved
+ownership fails the audit, and independent category gaps must be reported.
+The independent test-only exception below, existing category selection,
+discovery refusals and complete shard-union validation remain unchanged.
+
+Global/unknown inputs expand to complete
 default discovery. Newly added files are discovered, not admitted through a
 fixed allowlist. Shipped changes retain all packed-consumer probes; selected
 strict types remain complete. UI inputs retain every pinned visual/accessibility/
