@@ -25,6 +25,10 @@ const frames: Array<{ type: string; draftId?: string; requestId?: string; sessio
 const prompts: Array<{ sessionId: string; text: string; images: number }> = [];
 let sequence = 0;
 beforeAll(async () => {
+  // Browser bundles resolve the SDK's default dist exports, not its Bun source condition.
+  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-sdk"], { cwd: resolve(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" });
+  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  if (code !== 0) throw new Error(`Share fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(join(tmpdir(), "odysseus-share-draft-"));
   const brain = join(scratch, "brain");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);

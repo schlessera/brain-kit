@@ -26,6 +26,15 @@ built and measured, and the alternatives they replaced.
 
 ## The rulings
 
+> **2026-10-18 — Reference inspection amendment (#2390).** The
+> [reference-worktree decision](reference-worktrees.md) selects shared read-only
+> source outside brain content for ordinary inspection and centrally managed
+> isolated worktrees for edits or stable reads. It supersedes using an ordinary
+> workspace clone as the supported disposable-reference workflow; the existing
+> workspace mount and its journal/scope obligations remain. Managed worktree
+> cleanup does not extend to arbitrary user-owned repositories. The historical
+> mount measurements below do not qualify the new workflow.
+
 1. **Scratch.** `<brain>/.brain/scratch` is bound read-write into the worker
    as its own mount. It is created when missing and must be a real
    directory inside the brain, never a symlink or redirect. Hard links into

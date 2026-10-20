@@ -108,6 +108,7 @@ export function DesktopPalette() {
       ...(finePointer ? { shortcut: d.key } : {}),
       onClick: run(d.go),
     })),
+    { icon: "ledger", label: "Storage", tone: "neutral", onClick: run(() => root.stores.ui.getState().openSettings("storage")) },
     { icon: "graph", label: "Graph", tone: "purple", onClick: run(routes.graph) },
     { icon: "compose", label: "New chat", tone: "amber", onClick: run(routes.inChat(clearMessages)) },
   ];
