@@ -96,13 +96,15 @@ export async function attemptCiBuild(root: string, options: Options): Promise<nu
     operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "unsupported", action: "ordinary-rebuild", reason: "producer-runtime-override" });
     return;
   }
-  let policy: Qualification;
-  try { policy = readPolicy(); }
+  let policy: Qualification, qualified: boolean;
+  // Parsed JSON is still untrusted shape. Incomplete object fields can throw
+  // during qualification, and must retain the ordinary rebuild fallback too.
+  try { policy = readPolicy(); qualified = complete(policy); }
   catch {
     operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "unsupported", action: "ordinary-rebuild", reason: "qualification-unavailable" });
     return;
   }
-  if (!complete(policy)) {
+  if (!qualified) {
     console.log("Isolated CI build is unqualified; rebuilding normally.");
     operationReceipt(root, { version: 1, kind: "isolated-ci-build", state: "unqualified", action: "ordinary-rebuild", reason: "qualification-unavailable" });
     return;

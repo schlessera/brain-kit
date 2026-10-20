@@ -1,9 +1,27 @@
 # Isolated CI build output reuse
 
-The [maintainer ruling on #2319](https://github.com/schlessera/brain-kit/issues/2319#issuecomment-6237827676)
-selects one fixed first-party CI build operation. Ordinary local builds and
+The [2026-10-20 maintainer ruling on #2319](https://github.com/schlessera/brain-kit/issues/2319#issuecomment-6284109466)
+defers activation and retains the dormant operation and producer-context fix.
+It narrows the earlier [fixed-operation ruling](https://github.com/schlessera/brain-kit/issues/2319#issuecomment-6237827676)
+to an independently reviewable delivery under `Refs #2319`. Production
+qualification remains unqualified and CI intent stays off. Ordinary local builds and
 unsupported contexts rebuild without requiring Docker. This is build output
 reuse, not reuse of test results or authority to omit selected proof.
+
+The original optimization, ambient-input, native-provenance and comparable
+hosted-cost acceptance criteria remain open in #2319 after a dormant delivery.
+The ruling neither waives those criteria nor authorizes a stronger deterministic
+runtime/native-build boundary; that would require a separate specification and
+maintainer ruling. Required selected hosted proof of the dormant slice remains
+separate from activation qualification.
+
+Finite local controls exposed concrete limits: direct vDSO clock reads bypass
+the diagnostic libc interposition, kernel/device and hardware inputs remain
+unqualified, and registry integrity for the consumed LightningCSS archive does
+not establish its source-to-binary provenance. Equal output samples and a bound
+producer context cannot close those gaps. Measured capture and lookup overhead
+also lacks a comparable hosted baseline. These limits motivate deferral, not
+a speedup or completed optimization claim.
 
 The previous stamp could authorize a skip after an effective compiler config
 target or installed emitter changed. Package versions, link strings and a
@@ -22,6 +40,8 @@ Changing source invalidates the input identity. Unsupported effective aliases,
 changed executable configuration or installed producers, unavailable context
 and ambiguous state require ordinary compilation. A real producer failure
 propagates; it is not retried as an ordinary build to manufacture success.
+Unreadable, aliased or malformed qualification policy also falls back before
+Docker access; parsing JSON alone does not establish a valid policy shape.
 
 The fixed operation consumes captured bytes through read-only mounts, a fixed
 environment and local-only executable resolution, without network acquisition.

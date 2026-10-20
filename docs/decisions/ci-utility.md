@@ -816,8 +816,10 @@ for coverage. Selected categories remain required by the unchanged aggregate.
 ## Fixed CI build output reuse
 
 The [isolated build decision](isolated-ci-build.md) records the maintainer's
-#2319 ruling: develop and qualify one fixed first-party operation, preserving
-ordinary rebuilding for local and unsupported contexts. CI intent does not
+#2319 rulings: retain the dormant fixed first-party operation and defer activation,
+preserving ordinary rebuilding for local and unsupported contexts. CI intent stays
+off, production remains unqualified, and the original optimization criteria stay
+open after the independently reviewable dormant delivery. CI intent does not
 authorize reuse. Complete effective inputs, drained output ownership, actual
 consumer compatibility and comparable hosted cost must be qualified before
 activation. This does not cache selected test results or relax their proof.

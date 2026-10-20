@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, cpSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { buildProducerPaths } from "../scripts/ci-build-state";
 
 const repo = join(import.meta.dir, "..");
 const roots: string[] = [];
@@ -34,9 +35,13 @@ function fixture() {
   return { root, outer, compiler };
 }
 async function build(root: string, ...args: string[]) {
-  const child = Bun.spawn([process.execPath, "scripts/build.ts", ...args], { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  return runBuild(root, args);
+}
+async function runBuild(root: string, args: string[], options: { env?: NodeJS.ProcessEnv; preload?: string } = {}) {
+  const child = Bun.spawn([process.execPath, ...(options.preload ? ["--preload", options.preload] : []), "scripts/build.ts", ...args],
+    { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", ...(options.env ? { env: options.env } : {}) });
   const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  expect(code, `${out}\n${err}`).toBe(0);
+  expect(code, `ORDINARY_BUILD_COMPLETES_WITHOUT_QUALIFIED_POLICY\n${out}\n${err}`).toBe(0);
   const names = readdirSync(join(root, "tmp")).filter(name => /^build-.*-probe\.json$/.test(name));
   expect(names).toHaveLength(1);
   const receipt = JSON.parse(readFileSync(join(root, "tmp", names[0]!), "utf8"));
@@ -55,6 +60,52 @@ function consume(root: string): number {
   expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
   return Number(new TextDecoder().decode(child.stdout).trim());
 }
+
+function withoutDocker(root: string, intent = "isolated-v1") {
+  const preload = join(root, "docker-denial.ts");
+  writeFileSync(preload, `import cp from "node:child_process";
+import { appendFileSync } from "node:fs";
+import { mock } from "bun:test";
+const deny = (args) => {
+  if (args.some(arg => typeof arg === "string" && /(^|\\/)docker$/.test(arg))) {
+    appendFileSync(${JSON.stringify(join(root, "docker-attempts"))}, "attempt\\n");
+    throw new Error("Docker unavailable in ordinary build regression");
+  }
+};
+const sync = cp.spawnSync;
+mock.module("node:child_process", () => ({ ...cp, spawnSync: (...args) => { deny([args[0], ...(args[1] ?? [])]); return sync(...args); } }));
+for (const name of ["spawn", "spawnSync"]) {
+  const original = Bun[name];
+  Bun[name] = (...args) => { deny(Array.isArray(args[0]) ? args[0] : args[0].cmd); return original(...args); };
+}
+`);
+  return { preload, env: { ...process.env, BRAIN_CI_BUILD_OPERATION: intent } };
+}
+
+for (const field of ["producer", "configuration"] as const) test(`malformed ${field} qualification preserves real ordinary compilation without Docker`, async () => {
+  const { root } = fixture(), options = withoutDocker(root);
+  const policy = JSON.parse(readFileSync(join(root, "scripts/ci-build-qualification.json"), "utf8"));
+  const hash = "a".repeat(64);
+  Object.assign(policy, { activation: "qualified", installation: hash, bun: hash, ambientEvidence: hash, compatibilityEvidence: hash, hostedCostEvidence: hash,
+    node: { path: "/usr/bin/node", sha256: hash }, producer: Object.fromEntries(buildProducerPaths.map(path => [path, hash])), configuration: { "tsconfig.json": hash }, [field]: null });
+  write(root, "scripts/ci-build-qualification.json", JSON.stringify(policy));
+  compiled(await runBuild(root, ["--for", "ithaca", "--jobs=2", "--force"], options), ["ithaca"]);
+  expect(consume(root), "MALFORMED_POLICY_FALLBACK_REACHES_REAL_CONSUMER").toBe(1);
+  expect(lstatSync(join(root, "docker-attempts"), { throwIfNoEntry: false }), "MALFORMED_POLICY_NEVER_INVOKES_DOCKER").toBeUndefined();
+});
+
+test("dormant intent, invalid intent and aliased policy preserve ordinary builds without Docker", async () => {
+  const { root, outer } = fixture();
+  for (const intent of ["isolated-v1", "invalid-operation"]) {
+    compiled(await runBuild(root, ["--for", "ithaca"], withoutDocker(root, intent)), ["ithaca"]);
+    expect(consume(root)).toBe(1);
+  }
+  const policy = join(root, "scripts/ci-build-qualification.json");
+  copyFileSync(policy, join(outer, "policy.json")); rmSync(policy); symlinkSync("../../policy.json", policy);
+  compiled(await runBuild(root, ["--for", "ithaca", "--force"], withoutDocker(root)), ["ithaca"]);
+  expect(consume(root)).toBe(1);
+  expect(lstatSync(join(root, "docker-attempts"), { throwIfNoEntry: false }), "DORMANT_OR_UNSUPPORTED_PATH_NEVER_INVOKES_DOCKER").toBeUndefined();
+});
 
 test("effective aliased compiler configuration is rebuilt before consuming output", async () => {
   const { root, outer } = fixture(); const config = join(outer, "compiler.json");
