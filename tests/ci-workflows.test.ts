@@ -14,6 +14,13 @@ const read = (file: string) => readFileSync(join(ROOT, ".github/workflows", file
 const workflows = CI_WORKFLOWS.map(file => ({ file, workflow: Bun.YAML.parse(read(file)) as Workflow }));
 const ci = workflows.find(w => w.file === "ci.yml")!.workflow;
 const REPO = "schlessera/brain-kit";
+test("confirmation metadata cannot omit identity admission or apply it to draft feedback", () => {
+  const source = read("ci.yml");
+  const guard = /      - name: Validate requested candidate before product proof\n[\s\S]*?        run: bun scripts\/candidate-proof.ts\n/;
+  expect(source).toMatch(guard);
+  expect(workflowProblems(source.replace(guard, ""), "ci.yml").join("\n")).toContain("confirmation admission must validate identity");
+  expect(workflowProblems(source.replace("if: steps.plan.outputs.cadence == 'confirmation'", "if: always()"), "ci.yml").join("\n")).toContain("confirmation admission must validate identity");
+});
 const pullRequest = (headRepo: string | null, extra: Obj = {}): Obj => ({
   event_name: "pull_request", repository: REPO,
   event: { pull_request: { number: 7, title: "fix(core): steer between Scylla and Charybdis", labels: [],

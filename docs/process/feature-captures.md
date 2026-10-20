@@ -69,6 +69,11 @@ crops retain their source dimensions and fail if the canvas cannot contain them.
 Component-stage CSS measurements round to their declared image pixels; phone
 border boxes are exact. Runtime transcripts use the full document height.
 
+Rendering binds the stable checkout directory `tmp/capture-share/` and selects a
+fresh staging child by name. Docker Desktop therefore sees the same output bind
+source on repeated runs. Verified files are copied into staging on the requested
+output filesystem before the existing atomic publication renames.
+
 Docker and the installed Bun binary are required. Builds and Chromium run in
 the image declared by the shared visual runner, with the frozen installed
 packages. The manifest records the image ID/digests, browser and Bun binaries,

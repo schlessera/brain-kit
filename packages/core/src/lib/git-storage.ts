@@ -1,3 +1,5 @@
+import { statfsSync } from "node:fs";
+
 /**
  * Git storage upkeep for a brain repository: the non-destructive packing
  * `brain maintain` runs, and the read-only figures `brain doctor` reports.
@@ -88,4 +90,16 @@ export function originalRefs(root: string): string[] {
   const out = git(root, ["for-each-ref", "--format=%(refname)", "refs/original/"]);
   if (!out.ok) throw new GitStorageError(firstLine(out.stderr, "git for-each-ref failed"));
   return out.stdout ? out.stdout.split("\n") : [];
+}
+
+/** Capacity of the Git common store, resolved inside the caller's execution boundary. */
+export function gitPackingHeadroom(root: string): { availableBytes: number | null; requiredBytes: null; reason: string } {
+  const common = git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (!common.ok) throw new GitStorageError("Git common store unavailable");
+  let availableBytes: number | null = null;
+  try {
+    const info = statfsSync(common.stdout, { bigint: true }), bytes = info.bavail * info.bsize;
+    if (bytes >= 0n && bytes <= BigInt(Number.MAX_SAFE_INTEGER)) availableBytes = Number(bytes);
+  } catch { /* An unknown capacity is not zero. Git still reports write refusals. */ }
+  return { availableBytes, requiredBytes: null, reason: "Old and new packs coexist; required temporary bytes depend on the workload. No space is reserved." };
 }

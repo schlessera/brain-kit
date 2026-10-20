@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { diagramSourceSetup, diagramSourceDomains } from "../scripts/diagram-export-source.mjs";
@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift" = "warm") {
+async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift" = "warm", nativeExit = 0) {
   const root = await mkdtemp(resolve(tmpdir(), "brain-visual-runner-"));
   roots.push(root);
   for (const path of ["scripts/captures", "packages/ui-kit", "node_modules/vitest", "commands"]) {
@@ -44,6 +44,9 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
   const flock = Bun.which("flock");
   if (!flock) throw new Error("visual runner tests require flock");
   await symlink(flock, resolve(root, "commands/flock"));
+  const tar = Bun.which("tar");
+  if (!tar) throw new Error("visual runner volume transport requires tar");
+  await symlink(tar, resolve(root, "commands/tar"));
   await writeFile(resolve(root, "scripts/captures/font-lock.json"), "{}\n");
   await writeFile(resolve(root, "node_modules/vitest/package.json"), JSON.stringify({name:"vitest",version:"1.0.0"}));
   const log = resolve(root, "calls.jsonl");
@@ -65,13 +68,63 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
         {env: process.env, stdio: "inherit"});
       process.exit(child.status ?? 92);` : "";
     const nativeRouting = command === "docker" ? `
-      import {mkdirSync,writeFileSync} from "node:fs";
-      import {join} from "node:path";
-      const nativeArgs=process.argv.slice(2);
-      if(nativeArgs[0]==="run"&&nativeArgs.some(value=>value.endsWith(":/proof"))){
-        const mount=nativeArgs.find(value=>value.endsWith(":/proof"));const output=mount.slice(0,-7);mkdirSync(output,{recursive:true});
-        for(const format of ["svg","png","pdf"])writeFileSync(join(output,"release."+format),"owned wrapper routing output");
-        console.log("[]");process.exit(0);
+      import * as nativeFs from "node:fs";
+      import {join as nativeJoin} from "node:path";
+      import {spawnSync as nativeSpawn} from "node:child_process";
+      import assert from "node:assert/strict";
+      const nativeArgs=process.argv.slice(2), nativeRoot=process.env.RUNNER_ROOT;
+      const store=nativeJoin(nativeRoot,"docker-state");
+      const volumePath=name=>{assert(/^brain-kit-native-[a-z0-9-]+$/.test(name));return nativeJoin(store,"volumes",name);};
+      const containerPath=name=>{assert(/^brain-kit-native-[a-z0-9-]+$/.test(name));return nativeJoin(store,"containers",name);};
+      const nativeRecord=()=>nativeFs.appendFileSync(nativeJoin(nativeRoot,"native-calls.jsonl"),JSON.stringify(nativeArgs)+"\\n");
+      const mounts=()=>nativeArgs.flatMap((arg,index)=>arg==="--mount"?[Object.fromEntries(nativeArgs[index+1].split(",").map(part=>part.split("=")))]:[]);
+      const finish=()=>{nativeRecord();process.exit(0);};
+      if(nativeArgs[0]==="volume"){
+        const location=volumePath(nativeArgs[2]);
+        if(nativeArgs[1]==="create")nativeFs.mkdirSync(location,{recursive:true});
+        else {assert.equal(nativeArgs[1],"rm");nativeFs.rmSync(location,{recursive:true});}
+        finish();
+      }
+      if(nativeArgs[0]==="run"&&nativeArgs.includes("/inputs")){
+        for(const flag of ["--rm","--interactive","--pull=never","--network=none","--read-only"])assert(nativeArgs.includes(flag));
+        const [mount]=mounts();assert.equal(mount.type,"volume");assert.equal(mount.target,"/inputs");
+        assert(nativeArgs.includes(imageRef));
+        const unpack=nativeSpawn("tar",["-xf","-","-C",volumePath(mount.source)],{stdio:[0,"pipe","pipe"]});
+        assert.equal(unpack.status,0,unpack.stderr?.toString());finish();
+      }
+      if(nativeArgs[0]==="create"){
+        for(const flag of ["--pull=never","--network=none","--read-only","--user","--tmpfs"])assert(nativeArgs.includes(flag));
+        assert(nativeArgs.includes(imageRef));assert(nativeArgs.includes("/native-runtime/bun"));
+        const mounted=mounts();assert.equal(mounted.length,4);
+        for(const mount of mounted){assert.equal(mount.type,"volume");assert(nativeFs.statSync(volumePath(mount.source)).isDirectory());}
+        const source=mounted.find(mount=>mount.target===nativeArgs[nativeArgs.indexOf("-w")+1]);
+        const runtime=mounted.find(mount=>mount.target==="/native-runtime");
+        const modules=mounted.find(mount=>mount.target===nativeJoin(nativeRoot,"node_modules"));
+        assert(source&&runtime&&modules);for(const mount of [source,runtime,modules])assert("readonly" in mount);
+        assert(nativeFs.readFileSync(nativeJoin(volumePath(source.source),"scripts/visual.mjs")).equals(nativeFs.readFileSync(nativeJoin(nativeRoot,"scripts/visual.mjs"))));
+        assert(!nativeFs.existsSync(nativeJoin(volumePath(source.source),"README.md")));
+        assert(!nativeFs.existsSync(nativeJoin(volumePath(source.source),"ambient-canary")));
+        assert(nativeFs.readFileSync(nativeJoin(volumePath(runtime.source),"bun")).equals(nativeFs.readFileSync(nativeJoin(nativeRoot,"commands/bun"))));
+        assert.equal(JSON.parse(nativeFs.readFileSync(nativeJoin(volumePath(modules.source),"vitest/package.json"))).name,"vitest");
+        const name=nativeArgs[nativeArgs.indexOf("--name")+1];
+        nativeFs.mkdirSync(nativeJoin(store,"containers"),{recursive:true});
+        nativeFs.writeFileSync(containerPath(name),JSON.stringify({mounted,exit:null}));finish();
+      }
+      if(["start","inspect","cp","rm"].includes(nativeArgs[0])){
+        const name=nativeArgs[0]==="cp"?nativeArgs[1].split(":")[0]:nativeArgs.at(-1);
+        const location=containerPath(name),state=JSON.parse(nativeFs.readFileSync(location));
+        const output=volumePath(state.mounted.find(mount=>mount.target==="/proof").source);
+        if(nativeArgs[0]==="start"){
+          assert.deepEqual(nativeArgs.slice(0,2),["start","--attach"]);
+          for(const format of ["svg","png","pdf"])nativeFs.writeFileSync(nativeJoin(output,"release."+format),"owned volume output "+format);
+          state.exit=Number(process.env.NATIVE_EXIT);nativeFs.writeFileSync(location,JSON.stringify(state));console.log("[]");
+        }else if(nativeArgs[0]==="inspect"){
+          assert.equal(nativeArgs[2],"{{.State.ExitCode}}");assert.notEqual(state.exit,null);console.log(state.exit);
+        }else if(nativeArgs[0]==="cp"){
+          assert.equal(nativeArgs[1],name+":/proof/.");assert.notEqual(state.exit,null);
+          nativeFs.cpSync(output,nativeArgs[2],{recursive:true});
+        }else {assert.equal(nativeArgs[1],"--force");nativeFs.rmSync(location);}
+        finish();
       }
     ` : "";
     const bootstrap=command==="docker"?`
@@ -93,7 +146,7 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
   }
   const child = Bun.spawn([node!, resolve(root, "scripts/visual.mjs"), ...args], {
     cwd: root,
-    env: { ...gitEnv, RUNNER_ROOT: root, RUNNER_LOG: log, RUNNER_EXIT: String(exit) },
+    env: { ...gitEnv, RUNNER_ROOT: root, RUNNER_LOG: log, RUNNER_EXIT: String(exit), NATIVE_EXIT: String(nativeExit) },
     stdout: "pipe", stderr: "pipe",
   });
   const [code, stdout, stderr] = await Promise.all([
@@ -205,4 +258,35 @@ test("a mismatching manifest is refused before native source preparation",async(
  expect(result.stderr,"IMAGE_DRIFT_REFUSED_BEFORE_PRODUCER").toContain("PINNED_VISUAL_IMAGE_DIGEST_MISMATCH");
  expect(result.calls).toEqual([]);
  expect(await Bun.file(resolve(result.root,"tmp/diagram-export-source.json")).exists()).toBe(false);
+});
+
+
+test("native volume handoff publishes all formats and drains only owned resources", async () => {
+  const result = await invoke(["--project=diagrams-chromium", "--project=diagrams-webkit"]);
+  expect(result.code, result.stderr).toBe(0);
+  const prepared = resolve(result.root, "tmp/diagram-export-native-prepared");
+  const [session] = await readdir(prepared);
+  for (const engine of ["chromium", "webkit"]) {
+    const output = resolve(prepared, session!, engine);
+    const receipt = JSON.parse(await readFile(resolve(output, "producer.json"), "utf8"));
+    for (const format of ["svg", "png", "pdf"]) {
+      const bytes = await readFile(resolve(output, `release.${format}`));
+      expect(bytes.toString(), "COPIED_VOLUME_OUTPUT_REACHES_BROWSER_RECEIPT").toBe(`owned volume output ${format}`);
+      expect(receipt.files[`release.${format}`]).toBe(new Bun.CryptoHasher("sha256").update(bytes).digest("hex"));
+    }
+  }
+  expect(result.calls.at(-1)!.command).toBe("vitest");
+  expect(await readdir(resolve(result.root, "docker-state/volumes"))).toEqual([]);
+  expect(await readdir(resolve(result.root, "docker-state/containers"))).toEqual([]);
+});
+
+test("native volume producer failure blocks browser execution and still drains resources", async () => {
+  const result = await invoke(["--project=diagrams-chromium"], 0, "warm", 17);
+  expect(result.code, "NATIVE_FAILURE_MUST_BLOCK_BROWSER").not.toBe(0);
+  expect(result.stderr).toContain("Native diagram producer failed (17)");
+  expect(result.calls.some(call => call.command === "vitest")).toBe(false);
+  const calls = (await readFile(resolve(result.root, "native-calls.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+  expect(calls.some(args => args[0] === "cp")).toBe(false);
+  expect(await readdir(resolve(result.root, "docker-state/volumes"))).toEqual([]);
+  expect(await readdir(resolve(result.root, "docker-state/containers"))).toEqual([]);
 });
