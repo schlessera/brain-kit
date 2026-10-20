@@ -44,6 +44,42 @@ test("sandbox prerequisite compares the fastest of exactly three probes", () => 
   expect(samples).toEqual([]);
 });
 
+test("sandbox prerequisite timeout reports a lower bound and actionable host diagnostics", () => {
+  const spawn = spyOn(Bun, "spawnSync").mockImplementation(argv => ({
+    exitCode: argv[1] === "--version" ? 0 : 143,
+    exitedDueToTimeout: argv[1] !== "--version",
+    stdout: new TextEncoder().encode(argv[1] === "--version" ? "bubblewrap 0.9.0\n" : ""),
+  }) as ReturnType<typeof Bun.spawnSync>);
+  try {
+    let message = "";
+    try { requireLocalSandbox(() => mountTable(24000)); }
+    catch (error) { message = (error as Error).message; }
+    expect(message, "TIMED_OUT_SANDBOX_MUST_REPORT_ACTIONABLE_LOWER_BOUND")
+      .toContain("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
+    expect(message).toContain("bubblewrap 0.9.0; 24000 mount entries; dominant mount-point prefix: /mnt/fixture/binds (24000 entries)");
+    expect(message).toContain("Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
+    expect(message).not.toContain("fastest of three");
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn.mock.calls[0]).toEqual([["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 }]);
+    expect(spawn.mock.calls[1]).toEqual([["bwrap", "--version"], { timeout: 5000 }]);
+  } finally { spawn.mockRestore(); }
+});
+
+test("sandbox prerequisite does not classify nonzero, signal or spawn errors as slow timeouts", () => {
+  const spawn = spyOn(Bun, "spawnSync");
+  try {
+    for (const result of [{ exitCode: 1 }, { exitCode: 124 }, { exitCode: 137, signalCode: "SIGKILL", exitedDueToTimeout: false }]) {
+      spawn.mockReturnValue(result as ReturnType<typeof Bun.spawnSync>);
+      expect(() => requireLocalSandbox(() => { throw new Error("MOUNT_DIAGNOSTICS_MUST_NOT_RUN_FOR_FAILED_SETUP"); }))
+        .toThrow("sandbox setup probe failed");
+    }
+    const failure = new Error("Odysseus bwrap permission denied");
+    spawn.mockImplementation(() => { throw failure; });
+    expect(() => requireLocalSandbox()).toThrow(failure);
+    expect(spawn).toHaveBeenCalledTimes(4);
+  } finally { spawn.mockRestore(); }
+});
+
 test("sandbox prerequisite reports the largest parent prefix and decodes mountinfo escapes", () => {
   const table = mountTable(600).replaceAll("/mnt/fixture/binds", "/mnt/fixture/binds\\040here") +
     mountTable(400).replaceAll("/mnt/fixture/binds", "/other");

@@ -313,6 +313,8 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   setup probes and requires the fastest to take less than 250 ms. Slow setup
   can consume the workers' fixed runtime deadlines. Refusal reports the fastest
   time, bubblewrap version, mount count and dominant mount-point parent prefix.
+  A probe that reaches its 5 s budget refuses with an elapsed lower bound and
+  the same host diagnostics; failed setup remains a separate prerequisite error.
   Use bubblewrap 0.13 or newer to avoid the older per-mount remount cost, or
   restart Docker Desktop (on WSL2, `wsl --shutdown`) to clear leaked bind mounts.
   Mount count alone does not decide whether setup is affordable. The guard

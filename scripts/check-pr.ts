@@ -49,18 +49,20 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): 
   return checks;
 }
 
+class SandboxSetupTimeout extends Error {}
+
 function probeSandboxSetup(): number {
   const start = performance.now();
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 });
   const elapsed = performance.now() - start;
+  if (namespace.exitedDueToTimeout) throw new SandboxSetupTimeout();
   if (namespace.exitCode !== 0) throw new Error("Local checks require bwrap and permitted user/network namespaces; sandbox setup probe failed");
   return elapsed;
 }
 
 export function requireLocalSandbox(readMountinfo = () => readFileSync("/proc/self/mountinfo", "utf8"), probeTimer = probeSandboxSetup): void {
   if (process.platform === "linux") {
-    const fastest = Math.min(...Array.from({ length: 3 }, () => probeTimer()));
-    if (fastest >= 250) {
+    const refuse = (measurement: string): never => {
       const entries = readMountinfo().split("\n").filter(line => line.trim().length > 0);
       // Group mount points by their immediate parent, so individually named
       // leaked bind mounts report their containing directory rather than `/`.
@@ -75,8 +77,18 @@ export function requireLocalSandbox(readMountinfo = () => readFileSync("/proc/se
       const [prefix, count] = [...prefixes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? ["(none)", 0];
       const version = Bun.spawnSync(["bwrap", "--version"], { timeout: 5000 });
       const versionText = version.exitCode === 0 ? new TextDecoder().decode(version.stdout).trim() : "bubblewrap version unavailable";
-      throw new Error(`Local checks refuse slow sandbox setup: fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms); ${versionText}; ${entries.length} mount entries; dominant mount-point prefix: ${prefix} (${count} entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown; then retry local preflight.`);
+      throw new Error(`Local checks refuse slow sandbox setup: ${measurement}; ${versionText}; ${entries.length} mount entries; dominant mount-point prefix: ${prefix} (${count} entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown; then retry local preflight.`);
+    };
+    let fastest: number;
+    try {
+      fastest = Math.min(...Array.from({ length: 3 }, () => probeTimer()));
+    } catch (error) {
+      if (!(error instanceof SandboxSetupTimeout)) throw error;
+      // The killed probe has no completed sample. Report only the budget's
+      // elapsed lower bound, never a precise fastest-of-three measurement.
+      refuse("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
     }
+    if (fastest >= 250) refuse(`fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms)`);
   }
 }
 

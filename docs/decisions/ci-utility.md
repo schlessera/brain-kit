@@ -48,6 +48,8 @@ It does not require Docker or Chrome and does not duplicate complete packaging,
 strict types or full browser/runtime proof. Under the revised #2370 scope, Linux
 preflight requires permitted user/network namespaces and times three real
 sandbox setups before checks run; the fastest must take less than 250 ms.
+A probe timeout retains its 5 s budget and refuses with an elapsed lower bound
+and actionable host diagnostics, separately from an ordinary failed setup.
 The timing probe belongs to the local CLI entry point. Hosted categories use
 their own runtime prerequisites: container-backed browser/editorial proof does
 not require bubblewrap on the host, while native proof retains its namespace
