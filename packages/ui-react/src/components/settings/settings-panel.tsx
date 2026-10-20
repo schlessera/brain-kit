@@ -1,5 +1,5 @@
 import { Fragment, Suspense, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ChevronRight, KeyRound, Laptop, Puzzle, SlidersHorizontal, UserRound, Workflow } from "lucide-react";
+import { ChevronRight, HardDrive, KeyRound, Laptop, Puzzle, SlidersHorizontal, UserRound, Workflow } from "lucide-react";
 import { useUIStore, type SettingsTab } from "../../stores/ui-store.js";
 import { SlidePanel } from "../layout/slide-panel.js";
 import { cn } from "../../lib/utils.js";
@@ -21,6 +21,7 @@ const PasskeyTab = lazyChunk(() => import("./passkey-tab.js").then((m) => ({ def
 const DevicesAgentsTab = lazyChunk(() => import("./devices-agents-tab.js").then((m) => ({ default: m.DevicesAgentsTab })));
 const SkillsTab = lazyChunk(() => import("./skills-tab.js").then((m) => ({ default: m.SkillsTab })));
 const ModulesTab = lazyChunk(() => import("./modules-tab.js").then((m) => ({ default: m.ModulesTab })));
+const StorageTab = lazyChunk(() => import("./storage-tab.js").then((m) => ({ default: m.StorageTab })));
 
 /** One logical inventory at every width; the groups label the desktop column. */
 const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; group: string; icon: IconName; glyph: typeof KeyRound }> = [
@@ -29,6 +30,7 @@ const SECTIONS: Array<{ id: SettingsTab; label: string; meta: string; group: str
   { id: "accounts", label: "Accounts", meta: "providers", group: "This brain", icon: "wallet", glyph: UserRound },
   { id: "skills", label: "Skills", meta: "catalog", group: "This brain", icon: "capability", glyph: Puzzle },
   { id: "modules", label: "Modules", meta: "workflows", group: "This brain", icon: "steps", glyph: Workflow },
+  { id: "storage", label: "Storage", meta: "capacity", group: "This brain", icon: "ledger", glyph: HardDrive },
   { id: "security", label: "Security", meta: "passkeys", group: "Access", icon: "passkey", glyph: KeyRound },
   { id: "devices", label: "Devices & agents", meta: "credentials", group: "Access", icon: "agent", glyph: Laptop },
 ];
@@ -236,6 +238,7 @@ function SectionBody({ tab, open, moduleSession }: { tab: SettingsTab; open: boo
       : tab === "accounts" ? <AccountsTab active={open} />
       : tab === "skills" ? <SkillsTab active={open} />
       : tab === "modules" ? <ModulesTab active={open} session={moduleSession} />
+      : tab === "storage" ? <StorageTab active={open} />
       : tab === "security" ? <PasskeyTab active={open} />
       : <DevicesAgentsTab active={open} />}
   </Suspense>;

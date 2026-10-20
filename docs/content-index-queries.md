@@ -1,6 +1,6 @@
 # Content-index query results
 
-`@schlessera/brain/queries` provides nine synchronous operations over a brain's
+`@schlessera/brain/queries` provides ten synchronous operations over a brain's
 existing disposable `brain.db`. Bun resolves TypeScript source; ordinary `types`
 and `default` conditions resolve the same build's declarations and JavaScript.
 The entry does not initialize config, modules, providers, vectors, agents or the
@@ -22,10 +22,10 @@ own working directory. HTTP/tool adapters still own authentication and root
 selection. Document keys are root-relative slash paths: `./notes/ithaca.md` is
 normalized; empty, absolute, drive-prefixed, backslash, empty-segment, control
 character and `..` paths are invalid. The API reads indexed keys, not source files;
-a missing indexed path is `not_found`. IDs identify nodes in this index/result,
+a missing indexed path is `not_found` except Storage reference inspection, which returns an empty observed link list. IDs identify nodes in this index/result,
 not across rebuilding; retain document paths as durable keys.
 
-A module hygiene check receives the same nine operations already bound to its
+A module hygiene check receives the existing nine non-Storage operations already bound to its
 brain as `ctx.queries` (type `ContentIndexQueries`, exported from this entry),
 taking these options without `brainPath`. See
 [modules.md](modules.md#hygiene-checks-read-the-index-through-ctxqueries).
@@ -40,6 +40,7 @@ taking these options without `brainPath`. See
 | `readGraphDiscovery` | `root?: string`, `direction?: "out" \| "both"`, `maxDepth?: number` | `Subgraph`; default precomputed root, out direction, depth 8 clamped 1..8. |
 | `readGraphMaintenance` | `staleDays?: number`, `now?: string` | `Maintenance`; stale age 180 days clamped 1..3650; optional real UTC ISO instant (`YYYY-MM-DDTHH:mm:ss[.sss]Z`) makes the date-prefix cutoff deterministic, otherwise current time. |
 | `readLinkWalk` | Required `path: string`; `depth?: number`, `direction?: "outgoing" \| "incoming" \| "both"` | `LinkWalk`; depth 1, both directions; depth clamped 1..4. Unresolved raw link text, cycle/deduplication and touched-node behavior match `brain_graph`. |
+| `readStorageReferences` | Required `path: string` | Up to 200 distinct incoming resolved-link sources, ordered by path, with each source’s `indexedAt`; `truncated` reports more. No source bytes are read. The index file is opened read-only with SQLite NOFOLLOW. An empty list does not prove no references; current source changes, unresolved/unindexed links and external consumers remain unchecked. |
 | `readVoiceVocabulary` | Required positive integer `limit: number` | `VoiceVocabulary`; at most that many ranked terms; extractor version 2, matching current tag/title/path/link/content scoring and stoplists. No pronunciation file or cache access. |
 | `listIndexDocuments` | `type?: string`, `tag?: string`, `status?: string`, `relevance?: string`, `limit?: number` | `ListedDocument[]`; limit 20 clamped 1..100, updated descending, current listing filter/tag behavior; archived only when `status: "archived"`. Null status is excluded by the default non-archived predicate. |
 | `findIndexDocuments` | `type?: string`, `excludeStatus?: string`, `pathSuffix?: string` | `DocumentCandidate[]`; complete path-ordered metadata selection, no cap. Literal suffix including `%`, `_` and an optional leading slash, never a LIKE pattern. Supplied exclusion also excludes null status. |

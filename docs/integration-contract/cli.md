@@ -3,6 +3,27 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Storage packing (additive, 0.44.0, #2011)
+
+`brain storage pack --json` runs only the existing non-destructive Git
+loose-object, incremental-repack and pack-refs tasks, including the second
+loose-object pass. It preserves history, refs and reflogs. Unlike metadata
+inventory, packing loads the normal CLI context and obeys its write/read-only
+guards; a governed host invokes it only inside its credential-free maintenance
+boundary. There are no arbitrary roots, commands or expiry options.
+
+The JSON result is `{schema_version: 1, action: "pack", state, packed, reason,
+headroom}`. `state` is `complete`, `refused` or `partial`; exit code is 0 for
+complete and 2 otherwise. `packed` counts loose objects packed by the owner or
+is null when no complete count is known. It is not reclaimed bytes. `reason`
+is null, `no_space`, `not_a_git_worktree` or `git_maintenance_unavailable`.
+`headroom` is null before capacity inspection, or `{availableBytes, requiredBytes:
+null, reason}`. Availability is a nullable live statfs observation of the Git
+common store. Required temporary bytes depend on the workload; old/new packs
+can coexist, and this command reserves no space. Known zero availability
+refuses before packing. A failure after maintenance started is partial and
+requires remeasurement; it is never reported as a rollback or success.
+
 ## Storage inventory (additive, #2009)
 
 `BRAIN_ROOT=/absolute/brain brain storage inventory --json` emits one bounded
