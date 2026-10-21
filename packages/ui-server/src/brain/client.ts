@@ -53,7 +53,8 @@ export interface BrainClient {
   /** argv prefix for invoking the brain CLI inside the repo. */
   cliCommand(): string[];
   /** Additive settings support; older injected clients may omit it. */
-  modules?(): Promise<{ enabled: ConfiguredModule[]; available: unknown[] }>;
+  /** Cancellation applies before execution admission; admitted output and cleanup drain normally. */
+  modules?(opts?: { signal?: AbortSignal }): Promise<{ enabled: ConfiguredModule[]; available: unknown[] }>;
   moduleSettings?(name: string, operation: "get" | "save" | "validate" | "preview" | "migrate" | "enable" | "disable" | "action", options?: { values?: Record<string, unknown>; revision?: string; action?: string }): Promise<unknown>;
   search(
     query: string,
@@ -121,7 +122,7 @@ export function brainCliCommand(brainPath: string): string[] {
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
 export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal;
   /** @internal Where the CLI runs: in a maintenance worker while the host execution boundary holds (#1648). */
-  boundary?: HostBoundary; outputBytes?: number; assertAuthorized?: () => void }): Promise<void> {
+  boundary?: HostBoundary; admissionSignal?: AbortSignal; outputBytes?: number; assertAuthorized?: () => void }): Promise<void> {
   const phase = options.phase ?? "startup";
   const requirements = [{ owner: "@schlessera/brain-ui-server", kind: "minimum" as const, declaration: MIN_BRAIN_CLI_VERSION }];
   if (options.minimumVersion !== undefined) {
@@ -139,10 +140,11 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
   let result: VersionProbeResult;
   const boundary = options.boundary ?? createHostBoundary({ brainPath, exec: options.exec });
   try {
+    options.admissionSignal?.throwIfAborted();
     if (boundary.isolated()) {
       // The CLI is the brain's own code: answered from a maintenance worker.
       const answer = await boundary.run({ argv: [...command, "--version"], env: subprocessEnv("brainCli", { NO_COLOR: "1" }),
-        credentials: false, gate: "shared", purpose: "brain CLI version", ...(options.signal ? { signal: options.signal } : {}),
+        credentials: false, gate: "shared", purpose: "brain CLI version", admissionSignal: options.admissionSignal, ...(options.signal ? { signal: options.signal } : {}),
         timeoutMs: VERSION_PROBE_TIMEOUT_MS, ...(options.outputBytes ? { outputBytes: options.outputBytes } : {}), ...(options.assertAuthorized ? { assertAuthorized: options.assertAuthorized } : {}) });
       result = { stdout: answer.stdout, stderr: answer.stderr, exitCode: answer.timedOut ? null : answer.exitCode,
         timedOut: answer.timedOut === true, cleanupWarnings: [] };
@@ -156,6 +158,7 @@ export async function probeBrainCliVersion(brainPath: string, log: Logger, optio
     }
   } catch (error) {
     options.signal?.throwIfAborted();
+    options.admissionSignal?.throwIfAborted();
     unknown(error instanceof Error ? error.message : String(error), "brain CLI version probe failed; continuing");
     return;
   }
@@ -222,14 +225,15 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
     throw new Error("searchTimeoutMs must be a positive finite number");
   }
 
-  async function execBrain(args: string[], signal?: AbortSignal, input?: string, lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock, maintenance?: MaintenanceRequest & { minimumVersion?: string }): Promise<ExecResult> {
+  async function execBrain(args: string[], signal?: AbortSignal, input?: string, lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock, maintenance?: MaintenanceRequest & { minimumVersion?: string; admissionSignal?: AbortSignal }): Promise<ExecResult> {
     signal?.throwIfAborted();
+    maintenance?.admissionSignal?.throwIfAborted();
     if (maintenance?.bounded && !boundary.isolated()) throw new BrainMaintenanceUnavailable("Storage maintenance requires a qualified worker before probing repository code.");
     const command = brainCliCommand(brainPath);
     const requiredVersion = maintenance?.minimumVersion ?? minimumVersion;
     if (requiredVersion !== undefined) {
-      try { await probeBrainCliVersion(brainPath, log, { exec, minimumVersion: requiredVersion, phase: "invocation", command, signal, boundary, ...(maintenance?.bounded ? { outputBytes: 1024 * 1024 } : {}), ...(maintenance?.assertAuthorized ? { assertAuthorized: maintenance.assertAuthorized } : {}) }); }
-      catch (error) { signal?.throwIfAborted(); if (maintenance?.minimumVersion) throw new BrainMaintenanceUnavailable("Storage packing requires a qualified core CLI at " + maintenance.minimumVersion + " or newer.", "core_upgrade_or_probe_required"); throw error; }
+      try { await probeBrainCliVersion(brainPath, log, { exec, minimumVersion: requiredVersion, phase: "invocation", command, signal, boundary, admissionSignal: maintenance?.admissionSignal, ...(maintenance?.bounded ? { outputBytes: 1024 * 1024 } : {}), ...(maintenance?.assertAuthorized ? { assertAuthorized: maintenance.assertAuthorized } : {}) }); }
+      catch (error) { signal?.throwIfAborted(); maintenance?.admissionSignal?.throwIfAborted(); if (maintenance?.minimumVersion) throw new BrainMaintenanceUnavailable("Storage packing requires a qualified core CLI at " + maintenance.minimumVersion + " or newer.", "core_upgrade_or_probe_required"); throw error; }
       signal?.throwIfAborted();
     }
     // Every brain CLI launch goes through the host boundary, not only the
@@ -248,12 +252,13 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       credentials,
       gate,
       purpose: `brain ${args.slice(0, 2).join(" ")}`,
+      admissionSignal: maintenance?.admissionSignal,
       ...(args[0] === "sync" ? { sync: true } : {}),
       ...(lock ? { lock: { keyed: lock, key: "brain-docs" } } : {}),
       ...(maintenance?.assertAuthorized ? { assertAuthorized: maintenance.assertAuthorized } : {}),
       ...(maintenance?.bounded ? { outputBytes: 1024 * 1024, timeoutMs: 5 * 60_000, onExecute: () => { entered = true; } } : {}),
       ...(input !== undefined ? { stdin: input } : {}),
-      // Only read-only search passes a signal. Kill even a CLI that ignores
+      // Execution cancellation kills even a CLI that ignores
       // SIGTERM; abandoning a request must not leave the local process alive.
       ...(signal ? { signal, killSignal: "SIGKILL" as const } : {}),
     }); } catch (error) {
@@ -281,8 +286,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       return brainCliCommand(brainPath);
     },
 
-    async modules() {
-      return parseJsonOutput(await execBrain(["module", "list", "--json"]));
+    async modules(options) {
+      return parseJsonOutput(await execBrain(["module", "list", "--json"], undefined, undefined, undefined, { admissionSignal: options?.signal }));
     },
 
     async moduleSettings(name, operation, options = {}) {

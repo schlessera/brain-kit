@@ -787,11 +787,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       log: authLog,
     })
   );
+  // Only module metadata opts into admission cancellation. Other HTTP owners
+  // retain their existing request and shutdown lifetimes.
+  const metadataClosing = new AbortController();
   app.route(
     "/api",
     createStatusRoutes({
       sourceCommit: config.sourceCommit,
-      getContentRenderers: async () => brain.modules ? declaredContentRenderers((await brain.modules()).enabled) : undefined,
+      getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal: signal ? AbortSignal.any([signal, metadataClosing.signal]) : metadataClosing.signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
       // Undefined when the injected consumer cannot be read back (a real OTel
@@ -924,7 +927,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route("/api", createPiAuthRoutes({ agent: config.agent }));
   app.route("/api", createWebSearchRoutes({ agent: config.agent }));
   app.route("/api", createToolPermissionRoutes({ db, log: dbLog }));
-  app.route("/api", createModuleRoutes(brain));
+  app.route("/api", createModuleRoutes(brain, metadataClosing.signal));
   app.route("/api", createGovernanceRoutes({ db }));
   app.route(
     "/api",
@@ -1060,6 +1063,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
       host.closing = true;
+      metadataClosing.abort(new Error("Server shutting down"));
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
       for (const cancelBody of httpRequests.values()) cancelBody();

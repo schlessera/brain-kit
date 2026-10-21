@@ -183,7 +183,10 @@ export interface HostBoundary {
   /** Both, as `/api/status` reports them. */
   status(): GovernedStatus;
   /** Runs one command to completion, inside a maintenance worker while the boundary is in force. */
-  run(execution: BrainExecution): Promise<ExecutionResult>;
+  run(execution: BrainExecution & {
+    /** Cancel only before execution admission; a granted owner drains publication and cleanup. */
+    admissionSignal?: AbortSignal;
+  }): Promise<ExecutionResult>;
   /** The same, with live output, for a streamed sync or a cron job. */
   launch(execution: BrainExecution): Promise<StreamingExecution>;
   /** A short synchronous query (git `check-ignore`). Takes no gate. */
@@ -494,13 +497,17 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     },
     withGate,
     async run(execution) {
-      execution.signal?.throwIfAborted();
+      const admissionSignal = execution.admissionSignal
+        ? execution.signal ? AbortSignal.any([execution.signal, execution.admissionSignal]) : execution.admissionSignal
+        : execution.signal;
+      const admission = { ...execution, signal: admissionSignal };
+      admissionSignal?.throwIfAborted();
       execution.assertAuthorized?.();
-      return gated(execution, async hold => {
-        execution.signal?.throwIfAborted();
+      return gated(admission, async hold => {
+        admissionSignal?.throwIfAborted();
         if (!isolated()) {
-          const result = await credentialed(execution, async () => {
-            execution.signal?.throwIfAborted();
+          const result = await credentialed(admission, async () => {
+            admissionSignal?.throwIfAborted();
             // Another shared turn can establish sticky worker history while
             // credential exclusion waits. Release credentials before rerouting.
             if (isolated()) return undefined;
@@ -525,10 +532,11 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           });
           if (result) return result;
         }
-        return credentialed(execution, async () => {
+        return credentialed(admission, async () => {
           if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: execution.signal });
+            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
           const run = async () => {
+            admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
             const view = await prepareInput(execution.signal);
             let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
@@ -550,7 +558,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
           };
           return outputLock.withLock(brain, () => execution.lock
-            ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: execution.signal }) : run(), { signal: execution.signal });
+            ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: admissionSignal }) : run(), { signal: admissionSignal });
         }, execution.sync === true);
       });
     },
