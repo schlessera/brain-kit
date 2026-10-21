@@ -165,7 +165,8 @@ function executionSeconds(snapshot: TimingSnapshot): number {
 }
 function end(snapshot: TimingSnapshot): string | null {
   if (snapshot.run.status !== "completed" || snapshot.problems.length || !snapshot.jobs.length) return null;
-  const ends = snapshot.jobs.map(job => job.completedAt).filter((v): v is string => Boolean(v) && Number.isFinite(Date.parse(v!)));
+  const ends = snapshot.jobs.filter(job => job.execution === "observed").map(job => job.completedAt)
+    .filter((v): v is string => Boolean(v) && Number.isFinite(Date.parse(v!)));
   return ends.sort().at(-1) ?? null;
 }
 
@@ -269,7 +270,7 @@ export function summarize(input: TimingSnapshot[]) {
       "Averages include failures/cancellations where execution was observed. Successful command averages exclude failed phases.",
       "Windowed PR totals are not complete lifetime cost. Multiple-PR attribution is excluded from per-PR accounting.",
       "Queue is request-to-first-observed-job for first attempts only; dependent-job eligibility/queue is not reconstructed.",
-      "Elapsed time ends at the last available job completion, not a measured ready-to-merge or human review interval.",
+      "Elapsed time ends at the last observed executed job completion, not a measured ready-to-merge or human review interval.",
       "Resource receipts are untrusted timing data, not validated passing proof. CPU/memory are VM-wide, not process peaks.",
       "No local checks, human review, reservation wait or exact counterfactual speedup is inferred."] };
 }

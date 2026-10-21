@@ -34,6 +34,8 @@ test("queued cancellation timestamps do not become consumed runner minutes", () 
   expect(summarize([s]).coverage.unobservedJobs).toBe(1);
   const running = normalizeJob({ ...job(), conclusion: "cancelled" });
   expect(running.execution).toBe("observed"); expect(running.seconds).toBe(60);
+  s.jobs = [running, { ...queued, id: 2, completedAt: "2026-07-12T11:00:00Z" }];
+  expect(summarize([s]).attemptElapsedSeconds.median).toBe(60);
 });
 
 test("unknown and excluded durations remain distinct from measured zero", () => {

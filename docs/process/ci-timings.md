@@ -79,7 +79,7 @@ The report distinguishes three quantities:
 - **Observed runner consumption:** summed executed job intervals, including
   failed and cancelled attempts. This is not billed minutes, CPU time or wall
   time. Overlapping parallel jobs each consume their own runner time.
-- **Attempt elapsed time:** attempt start to the last available job completion.
+- **Attempt elapsed time:** attempt start to the last observed executed job completion.
   Initial queue is separately request-to-first-observed-job for first attempts.
   A rerun's original `created_at` is not its request time. Dependent-job queue
   eligibility, reservations, human review and ready-to-merge time are unknown.
