@@ -47,9 +47,12 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
       const value = metadata.slice(0, -1) + ',"receipt":' + bytes + "}";
       if (Buffer.byteLength(value) > 262144) throw new Error("build snapshot exhausted");
       // Use a positional write and truncate to retain one bounded current snapshot.
-      writeSync(observerFd, value, 0, "utf8"); ftruncateSync(observerFd, Buffer.byteLength(value));
+      const size = Buffer.byteLength(value);
+      if (writeSync(observerFd, value, 0, "utf8") !== size) throw new Error("short build snapshot write");
+      ftruncateSync(observerFd, size);
     } catch {
       observerUnavailable = true;
+      if (observerFd !== undefined) { try { closeSync(observerFd); } catch {} observerFd = undefined; }
       try { console.error("HOSTED_OBSERVER_INCOMPLETE build snapshot"); } catch {}
     } finally { observerNs += process.hrtime.bigint() - observationStarted; }
   }
@@ -116,7 +119,10 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
           before, after, output, executionMs, observationMs: { before: beforeMs, after: afterMs, output: outputMs } } });
         receipt.state = "complete"; receipt.success = code === 0; receipt.code = code;
       });
-      if (observerFd !== undefined) { try { closeSync(observerFd); } catch {} observerFd = undefined; }
+      if (observerFd !== undefined) {
+        try { closeSync(observerFd); } catch { try { console.error("HOSTED_OBSERVER_INCOMPLETE build close"); } catch {} }
+        observerFd = undefined;
+      }
     },
   };
 }

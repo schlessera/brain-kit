@@ -2,6 +2,16 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnostic_observer:
+        description: "Diagnostic only; deliberately cannot pass the proof aggregate"
+        type: choice
+        options: [disabled, 2465-r8]
+        default: disabled
+      observer_sha:
+        description: "Exact independently reviewed diagnostic commit (required for 2465-r8)"
+        type: string
+        default: ""
   schedule:
     - cron: "17 3 * * *"
   push:
@@ -53,6 +63,9 @@ jobs:
       - name: Plan affected fast and local checks
         id: plan
         env:
+          BRAIN_HOSTED_OBSERVER_REQUEST: ${{ inputs.diagnostic_observer }}
+          BRAIN_HOSTED_OBSERVER_EXPECTED_SHA: ${{ inputs.observer_sha }}
+          BRAIN_HOSTED_OBSERVER_METADATA: "1"
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -64,7 +77,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/candidate-proof.ts
       - name: Discover product scenario and assertion ownership
-        if: steps.plan.outputs.cadence != 'draft'
+        if: steps.plan.outputs.cadence != 'draft' && steps.plan.outputs.cadence != 'diagnostic-observation'
         run: bun scripts/proof-inventory.ts
       - name: Lint, leakage and contribution workflow guards
         run: bun run lint
@@ -171,15 +184,28 @@ jobs:
           bun-version: "1.4.2"
       # Native source freezes require dependency inodes owned by this checkout.
       - run: bun install --frozen-lockfile --backend=copyfile
+      - name: Validate diagnostic source and historical selection
+        if: github.event_name == 'workflow_dispatch' && inputs.diagnostic_observer == '2465-r8'
+        env:
+          EXPECTED_SHA: ${{ inputs.observer_sha }}
+        run: bun scripts/hosted-observer-selection.ts "$EXPECTED_SHA"
       - name: Recompute affected proof on the actual checkout
+        if: github.event_name != 'workflow_dispatch' || inputs.diagnostic_observer != '2465-r8'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
+      - name: Check diagnostic Node runtime before workload setup
+        if: github.event_name == 'workflow_dispatch' && inputs.diagnostic_observer == '2465-r8'
+        run: node scripts/hosted-observer-runtime.mjs tmp/hosted-observer-runtime.json
       - name: Real Chrome and offline Linux namespace prerequisites
         run: bash scripts/ci-runtime-setup.sh
+      - name: Diagnostic observation of one original shard (not qualifying proof)
+        if: github.event_name == 'workflow_dispatch' && inputs.diagnostic_observer == '2465-r8'
+        run: node scripts/hosted-observer-run.mjs tmp/hosted-observer 1500 -- bun scripts/ci-proof.ts unit --shard=4/4
       - name: Complete unit proof
+        if: github.event_name != 'workflow_dispatch' || inputs.diagnostic_observer != '2465-r8'
         env:
           UNIT_SHARDS: ${{ strategy.job-total }}
         run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"
@@ -189,6 +215,10 @@ jobs:
         with:
           name: unit-proof-${{ matrix.shard }}
           path: |
+            tmp/hosted-observer/
+            tmp/hosted-observer-runtime.json
+            tmp/hosted-observer-plan.json
+            tmp/hosted-observer-selection.json
             tmp/proof-checkout.json
             tmp/proof-resources.json
             tmp/unit-report.xml

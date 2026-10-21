@@ -12,14 +12,21 @@ function git(...args: string[]) {
   if (child.exitCode !== 0) throw Error("Diagnostic Git identity unavailable");
   return child.stdout.toString().trim();
 }
+if (createHash("sha256").update(readFileSync(join(root, "scripts/hosted-observer-selection.json"))).digest("hex") !== "8f630fa40e22987c4e7dd9ac2d2aa55e4a8808b702973d563e6e6eabf39ac795") throw Error("Historical selection source changed");
 const expected = process.argv[2];
-if (!/^[a-f0-9]{40}$/.test(expected ?? "") || git("rev-parse", "HEAD") !== expected ||
-    process.env.GITHUB_SHA && process.env.GITHUB_SHA !== expected) throw Error("Diagnostic ref changed");
-if (git("status", "--porcelain", "--untracked-files=no")) throw Error("Dirty diagnostic source");
+function requireSource() {
+  if (!/^[a-f0-9]{40}$/.test(expected ?? "") || git("rev-parse", "HEAD") !== expected ||
+      process.env.GITHUB_SHA && process.env.GITHUB_SHA !== expected) throw Error("Diagnostic ref changed");
+  if (git("status", "--porcelain", "--untracked-files=normal")) throw Error("Dirty diagnostic source");
+}
+requireSource();
 if (git("merge-base", selection.base, "HEAD") !== selection.base) throw Error("Wrong diagnostic base");
-const allowed = new Set(["scripts/browser-input-closure.ts", "scripts/build-receipt.ts", "scripts/ci-plan.ts", "scripts/ci-proof.ts", "scripts/unit-test-consumers.ts", "scripts/unit-workers.ts", "docs/decisions/ci-utility.md", ".github/workflows/ci.yml"]);
+const allowed = new Set(["scripts/browser-input-closure.ts", "scripts/build-receipt.ts", "scripts/ci-plan.ts", "scripts/ci-proof.ts", "scripts/unit-test-consumers.ts", "scripts/unit-workers.ts", "docs/decisions/ci-utility.md", "docs/decisions/claude-code-runtime.md", ".github/workflows/ci.yml", "tests/ci-plan.test.ts",
+  "scripts/hosted-observer.mts", "scripts/hosted-observer-node.mts", "scripts/hosted-observer-run.mjs",
+  "scripts/hosted-observer-runtime.mjs", "scripts/hosted-observer-selection.ts", "scripts/hosted-observer-selection.json",
+  "scripts/hosted-observer.control.mjs"]);
 for (const path of git("diff", "--name-only", selection.base, "HEAD").split("\n").filter(Boolean)) {
-  if (!allowed.has(path) && !/^scripts\/hosted-observer(?:[-.][a-z]+)*\.(?:ts|mts|mjs|json)$/.test(path)) throw Error(`Unexpected diagnostic change: ${path}`);
+  if (!allowed.has(path)) throw Error(`Unexpected diagnostic change: ${path}`);
 }
 const plan = { ...selection.plan, cadence: "confirmation" as const };
 const files = unitFiles(plan, root, selection.shard);
@@ -27,6 +34,7 @@ if (JSON.stringify(balanceTests(files, 2)) !== JSON.stringify(selection.partitio
 for (const [file, hash] of Object.entries(selection.testSha256)) {
   if (createHash("sha256").update(readFileSync(join(root, file))).digest("hex") !== hash) throw Error(`Historical testcase changed: ${file}`);
 }
+requireSource(); // Refuse a ref/source change during discovery too.
 mkdirSync(join(root, "tmp"), { recursive: true });
 writeFileSync(join(root, "tmp/hosted-observer-plan.json"), JSON.stringify(plan, null, 2));
 writeFileSync(join(root, "tmp/ci-plan.json"), JSON.stringify(plan, null, 2));
@@ -37,7 +45,8 @@ if (process.env.BRAIN_HOSTED_OBSERVER_METADATA === "1") {
       .map(name => `${name}=${name === "unit"}\n`).join(""));
 }
 writeFileSync(join(root, "tmp/hosted-observer-selection.json"), JSON.stringify({ kind: selection.kind,
-  actual: git("show", "-s", "--format=%H %T %P", "HEAD"), source: selection.checkout, files, partitions: selection.partitions,
+  actual: git("show", "-s", "--format=%H %T %P", "HEAD"),
+  event: Object.fromEntries(["GITHUB_SHA", "GITHUB_REF", "GITHUB_WORKFLOW_REF", "GITHUB_WORKFLOW_SHA", "GITHUB_EVENT_NAME", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB"].map(name => [name, process.env[name] ?? null])), source: selection.checkout, files, partitions: selection.partitions,
   sourceRun: selection.sourceRun, shard: selection.shard,
   warning: "Historical workload selection, not affected candidate proof. Aggregate remains nonpassing." }, null, 2));
 console.log("Historical discovery and ordered partitions match; diagnostic only.");

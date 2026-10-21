@@ -372,6 +372,12 @@ export function planFromEnvironment(root: string, env: NodeJS.ProcessEnv): Check
 if (import.meta.main) {
   try {
     const root = resolve(import.meta.dir, "..");
+    // Isolated diagnostic dispatch only; ordinary event planning is unchanged.
+    // Its outputs deliberately cannot satisfy the unchanged proof aggregate.
+    if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch" && process.env.BRAIN_HOSTED_OBSERVER_REQUEST === "2465-r8") {
+      const child = Bun.spawnSync([process.execPath, join(root, "scripts/hosted-observer-selection.ts"), process.env.BRAIN_HOSTED_OBSERVER_EXPECTED_SHA ?? ""], { stdio: ["ignore", "inherit", "inherit"] });
+      process.exit(child.exitCode ?? 1);
+    }
     const plan = planFromEnvironment(root, process.env);
     if (process.env.GITHUB_ACTIONS === "true" && !process.env.GITHUB_EVENT_PATH) throw new Error("Hosted proof requires GITHUB_EVENT_PATH");
     // Standalone planner diagnostics preserve complete selection; only an actual

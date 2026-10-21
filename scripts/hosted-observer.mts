@@ -49,5 +49,5 @@ export function endObservation(span: ReturnType<typeof beginObservation>, data?:
 // These are synchronous lifecycle observations, not listeners that retain the loop.
 if (directory) process.on("exit", code => {
   observation("process.exit", { code });
-  if (fd !== undefined) { try { closeSync(fd); } catch {} fd = undefined; }
+  if (fd !== undefined) { try { closeSync(fd); } catch { disable("phase close failed"); } fd = undefined; }
 });
