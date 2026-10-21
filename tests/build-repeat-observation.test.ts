@@ -14,7 +14,7 @@ function fixture() {
   write("package.json", '{"name":"odysseus-build-observation","type":"module"}');
   write("bun.lock", "Odysseus keeps a fixed dependency inventory.\n");
   write("tsconfig.json", "{}"); write(".gitignore", "node_modules\ntmp\ndist\n");
-  for (const file of ["build.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
+  for (const file of ["build.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) {
     write(`scripts/${file}`, ""); copyFileSync(join(repo, "scripts", file), join(root, "scripts", file));
   }
   write("packages/raft/package.json", '{"name":"@fixture/raft","version":"1.0.0"}');
@@ -68,6 +68,11 @@ test("fixed workload context observes real source changes without executing Git 
     write("packages/raft/src/index.ts", "export const cargo = 2;\n");
     expect(observedBuildContext(root, ["raft"]), "SOURCE_CHANGE_INVALIDATES_FIXED_WORKLOAD_CONTEXT").not.toEqual(original);
     write("packages/raft/src/index.ts", "export const cargo = 1;\n"); expect(observedBuildContext(root, ["raft"])).toEqual(original);
+    // The package build body moved out of build.ts (#2449); changing it is a different workload (#2459).
+    const body = readFileSync(join(root, "scripts/build-execution.ts"));
+    writeFileSync(join(root, "scripts/build-execution.ts"), Buffer.concat([body, Buffer.from("// Odysseus re-rigs the raft\n")]));
+    expect(observedBuildContext(root, ["raft"]), "BUILD_BODY_CHANGE_INVALIDATES_FIXED_WORKLOAD_CONTEXT").not.toEqual(original);
+    writeFileSync(join(root, "scripts/build-execution.ts"), body); expect(observedBuildContext(root, ["raft"])).toEqual(original);
     expect(existsSync(join(root, "git-observer-hook-ran")), "GIT_OBSERVER_EXECUTES_NO_FILTER_OR_FSMONITOR").toBe(false);
     const config = readFileSync(join(root, "tsconfig.json")); rmSync(join(root, "tsconfig.json"));
     expect(observedBuildContext(root, ["raft"])).toEqual({ state: "unknown" });

@@ -337,8 +337,9 @@ export function discoverBrowserClosures(root: string): BrowserClosures {
     ["browser", "layout", "endurance", "captures"].map(category => [category, category === "captures" ? captures : { files: [], unresolved: [message] }])) as unknown as BrowserClosures;
   let specs: Spec[];
   try {
+    // File discovery must not retain the child for unawaited Storybook telemetry retries.
     const command = Bun.spawnSync(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
-      cwd: join(root, "packages/ui-kit"), env: { ...process.env, CI: "true" }, stdout: "pipe", stderr: "pipe", timeout: 15000,
+      cwd: join(root, "packages/ui-kit"), env: { ...process.env, CI: "true", STORYBOOK_DISABLE_TELEMETRY: "1" }, stdout: "pipe", stderr: "pipe", timeout: 15000,
     });
     if (command.exitCode !== 0) return failed("Installed Vitest discovery failed");
     specs = normalizeInventory(JSON.parse(readFileSync(output, "utf8")), root);

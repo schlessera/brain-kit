@@ -79,7 +79,7 @@ export function observedBuildContext(root: string, packages: readonly string[]) 
   try {
     const git = gitObservation(root);
     const inputs = observedInventory(root, ["package.json", "bun.lock", "tsconfig.json",
-      ...["build.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"].map(file => `scripts/${file}`),
+      ...["build.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"].map(file => `scripts/${file}`),
       ...packages.flatMap(name => [`packages/${name}/src`, `packages/${name}/package.json`, `packages/${name}/tsconfig.build.json`])]);
     if (inputs.state !== "known") return unknown();
     const tools = [{ name: "typescript", files: ["package.json", "bin/tsc", "lib/tsc.js", "lib/_tsc.js"] }];
