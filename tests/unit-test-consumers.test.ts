@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { planChecks, workspaces } from "../scripts/ci-plan";
+import { planChecks, planUnitChecks, workspaces } from "../scripts/ci-plan";
 import { unitFiles } from "../scripts/ci-proof";
 import { addUnitImportConsumers, discoverUnitImports, selectUnitImportConsumers } from "../scripts/unit-test-consumers";
 import { browserInventory } from "../scripts/proof-inputs";
@@ -15,8 +15,9 @@ test.each([
   ["packages/ui-server/src/brain/application.ts", "packages/ui-react/tests/share-draft-runtime.test.ts"],
   ["packages/module-jobs/src/types.ts", "packages/ui-server/tests/jobs-board-selection-http.test.ts"],
 ])("production unit proof includes the cross-workspace consumer of %s", async (changed, consumer) => {
-  // Observed because this whole-repository planning intermittently exceeds its deadline on CI (#2465).
-  const files = await observePlanning(ROOT, `consumer-${changed.split("/")[1]}`, () => unitFiles(planChecks([changed], workspaces(ROOT), ROOT), ROOT));
+  // Unit selection only: browser-closure discovery's synchronous Vitest listing
+  // put this case near its deadline on CI (#2465). Still observed for #2465.
+  const files = await observePlanning(ROOT, `consumer-${changed.split("/")[1]}`, () => unitFiles(planUnitChecks([changed], workspaces(ROOT), ROOT), ROOT));
   expect(files, `CROSS_WORKSPACE_CONSUMER: ${consumer}`).toContain(consumer);
 });
 
@@ -54,6 +55,15 @@ test("ordinary module properties do not imply a runtime loader", () => {
   f.write(consumer, 'const module = {name: "fixture", setup() {}}; module.setup(); console.log(module.name);');
   expect(unitFiles(planChecks([changed], workspaces(f.root), f.root), f.root), "ORDINARY_MODULE_PROPERTIES").not.toContain(consumer);
   expect(discoverUnitImports(f.root).unresolved.size).toBe(0);
+});
+
+test("unit planning is full planning without the browser categories", () => {
+  const f = fixture();
+  f.write(consumer, 'import { value } from "@schlessera/brain-source"; import {test} from "bun:test"; test("cross", () => { void value; });');
+  const full = planChecks([changed], workspaces(f.root), f.root), unit = planUnitChecks([changed], workspaces(f.root), f.root);
+  const withoutBrowser = (plan: typeof full) => ({ ...plan, local: { ...plan.local, browser: null, layout: null, endurance: null, captures: null } });
+  expect(withoutBrowser(unit), "UNIT_PLANNING_MATCHES_FULL_PLANNING").toEqual(withoutBrowser(full));
+  expect(unitFiles(unit, f.root)).toContain(consumer);
 });
 
 test.each(["exports", "main", "nested scope", "helper imports"])(
