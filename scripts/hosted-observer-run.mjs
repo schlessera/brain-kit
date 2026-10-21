@@ -6,8 +6,8 @@ import { performance } from "node:perf_hooks";
 
 const [directoryArg, secondsArg, separator, ...command] = process.argv.slice(2);
 const seconds = Number(secondsArg);
-if (process.platform !== "linux" || !directoryArg || separator !== "--" || !command.length ||
-    !Number.isInteger(seconds) || seconds < 1 || seconds > 1700) throw Error("Expected OUTPUT SECONDS(1..1700) -- COMMAND ARGS");
+if (process.platform !== "linux" || !process.versions.node.startsWith("24.") || !directoryArg || separator !== "--" || !command.length ||
+    !Number.isInteger(seconds) || seconds < 1 || seconds > 1700) throw Error("Expected Linux Node 24 and OUTPUT SECONDS(1..1700) -- COMMAND ARGS");
 const directory = resolve(directoryArg);
 mkdirSync(directory, { mode: 0o700 }); // Exclusive invocation; never append to another run.
 const started = performance.now(), cpuStart = process.cpuUsage();
@@ -58,6 +58,7 @@ function sample() {
     for (let i = 0; i < queue.length; i++) {
       const item = queue[i];
       if (selected.has(item.pid)) continue;
+      if (!seen.has(item.pid) && seen.size >= 65536) throw Error("Owned PID history exceeds 65536");
       selected.set(item.pid, item); seen.set(item.pid, item.key);
       queue.push(...(byParent.get(item.pid) ?? []));
     }
