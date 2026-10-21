@@ -471,3 +471,10 @@ fresh execution; registration alone is not invocation. Registered dormant
 callbacks require the same complete call/escape audit, and a mutation of that
 activation guard must fail the named assertion.
 The exact audited configuration/source guard makes unsupported edits fresh.
+
+## Cross-PR timing collection
+
+The read-only [CI timing collector](ci-timings.md) archives job, step and optional
+command observations independently of proof gates. Its reports distinguish
+elapsed time, observed runner consumption, missing evidence and historical
+full-proof estimates; timing archives never replace candidate proof.

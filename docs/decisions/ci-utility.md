@@ -895,3 +895,18 @@ open after the independently reviewable dormant delivery. CI intent does not
 authorize reuse. Complete effective inputs, drained output ownership, actual
 consumer compatibility and comparable hosted cost must be qualified before
 activation. This does not cache selected test results or relax their proof.
+
+## Read-only timing archives
+
+The user-requested cross-PR collection in #2476 adds one scheduled/manual
+measurement workflow, separate from authoritative contribution CI. It runs
+trusted default-branch tooling with read-only Actions, contents and PR access,
+parses candidate logs only as data, and archives normalized observations for
+90 days. Daily two-day windows reduce collection overhead; explicit backfill
+is needed after longer outages or reruns of older runs. Workflow lint admits
+this narrowly scoped collector while retaining the existing CI/provider gates.
+
+The [collection guide](../process/ci-timings.md) defines interval/attempt
+accounting, missing evidence, cancellation costs, PR attribution and the
+historical exhaustive-run proxy. Estimates remain distinct from same-source
+paired measurements. Timing metadata never authorizes proof retention or merge.
