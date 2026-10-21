@@ -7,15 +7,17 @@ import { unitFiles } from "../scripts/ci-proof";
 import { addUnitImportConsumers, discoverUnitImports, selectUnitImportConsumers } from "../scripts/unit-test-consumers";
 import { browserInventory } from "../scripts/proof-inputs";
 import { auditUnitConsumers } from "./helpers/unit-consumer-audit";
+import { observePlanning } from "./helpers/planning-observer";
 
 const ROOT = resolve(import.meta.dir, "..");
 
 test.each([
   ["packages/ui-server/src/brain/application.ts", "packages/ui-react/tests/share-draft-runtime.test.ts"],
   ["packages/module-jobs/src/types.ts", "packages/ui-server/tests/jobs-board-selection-http.test.ts"],
-])("production unit proof includes the cross-workspace consumer of %s", (changed, consumer) => {
-  const plan = planChecks([changed], workspaces(ROOT), ROOT);
-  expect(unitFiles(plan, ROOT), `CROSS_WORKSPACE_CONSUMER: ${consumer}`).toContain(consumer);
+])("production unit proof includes the cross-workspace consumer of %s", async (changed, consumer) => {
+  // Observed because this whole-repository planning intermittently exceeds its deadline on CI (#2465).
+  const files = await observePlanning(ROOT, `consumer-${changed.split("/")[1]}`, () => unitFiles(planChecks([changed], workspaces(ROOT), ROOT), ROOT));
+  expect(files, `CROSS_WORKSPACE_CONSUMER: ${consumer}`).toContain(consumer);
 });
 
 const scratch: string[] = [];
