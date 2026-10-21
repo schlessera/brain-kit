@@ -248,9 +248,14 @@ export interface BrainUiApp {
   /**
    * Refuse new HTTP requests and drain admitted handlers before disposing of
    * their operational state. Stalled request bodies are cancelled on close.
+   * In-flight brain CLI reads and plain index runs get a 2 s grace period and
+   * are then cancelled; runs that write Markdown or git always finish.
    */
   close(): Promise<void>;
 }
+
+/** How long close() lets in-flight brain CLI runs finish before cancelling shared ones (#2473). */
+const CLOSE_GRACE_MS = 2_000;
 
 function isWebSocketUpgradeAttempt(request: Request): boolean {
   const connectionHasUpgrade = request.headers
@@ -438,13 +443,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   bootCleanup.push(() => intake.close());
   await inbox.ready; await intake.reconcile();
-  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: brainLog, boundary });
+  // Aborted when close()'s grace period ends: cancels in-flight shared CLI runs.
+  const shutdown = new AbortController();
+  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: brainLog, boundary, shutdown: shutdown.signal });
   // After a curated application, a credential-free worker indexed the change
   // without provider keys (#1648). The credentialed reindex that fills in its
   // vectors waits for the writer gate; one at a time, and one more if more
   // changes arrived meanwhile.
-  const keyedReindex = coalesced(() => brain.index(), error => brainLog.emit({ severityText: "WARN",
-    body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
+  const keyedReindex = coalesced(() => brain.index(), error => { if (!shutdown.signal.aborted) brainLog.emit({ severityText: "WARN",
+    body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }); });
   bootCleanup.push(() => keyedReindex.idle());
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
@@ -514,7 +521,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths],
-      index: lock => brain.index({ lock }), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+      index: lock => brain.index({ lock }), report: message => { if (!shutdown.signal.aborted) brainLog.emit({ severityText: "WARN", body: message }); } });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
@@ -1060,6 +1067,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
       host.closing = true;
+      // In-flight work gets a short grace period; then shared CLI runs (reads
+      // and plain index) are cancelled so they cannot hold close open (#2473).
+      const grace = setTimeout(() => shutdown.abort(new Error("Server shutting down")), CLOSE_GRACE_MS);
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };
       for (const cancelBody of httpRequests.values()) cancelBody();
@@ -1088,6 +1098,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => activity.close());
       await attempt(() => hostExecution.release());
       await attempt(() => db.close());
+      clearTimeout(grace);
       if (failures.length === 1) throw failures[0];
       if (failures.length) throw new AggregateError(failures, "Application shutdown retained failed cleanup outcomes.");
     })(),
