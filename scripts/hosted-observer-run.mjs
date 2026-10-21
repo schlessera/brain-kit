@@ -96,6 +96,7 @@ function stop(signal) {
 child = spawn(command[0], command.slice(1), { stdio: ["ignore", "pipe", "pipe"],
   env: { ...process.env, BRAIN_HOSTED_OBSERVER_DIR: directory } });
 childKey = stat(child.pid)?.key;
+if (!childKey) problem("child PID/start unavailable; descendant coverage incomplete");
 const kernelUnits = {};
 for (const name of ["CLK_TCK", "PAGESIZE"]) {
   const result = spawnSync("getconf", [name], { encoding: "utf8", timeout: 1000 });
@@ -158,7 +159,7 @@ function finish(forced = false) {
   const code = childExit?.code ?? null, signal = childExit?.signal ?? null;
   const signalCode = name => 128 + ({ SIGINT: 2, SIGTERM: 15, SIGKILL: 9, SIGHUP: 1 }[name] ?? 1);
   // A timed-out or cancelled zero-exiting child cannot turn its wrapper green.
-  const exitCode = code && code > 0 ? code : watchdog ? 124 : interrupted ? signalCode(interrupted) : code ?? (signal ? signalCode(signal) : 1);
+  const exitCode = code && code > 0 ? code : watchdog ? 124 : interrupted ? signalCode(interrupted) : code === 0 ? 0 : signal ? signalCode(signal) : 1;
   const receipt = { code, signal, exitCode, interrupted, watchdog, forced, eof, childClosed, elapsedMs: performance.now() - started,
     observerCpu: process.cpuUsage(cpuStart), samplingNs: samplingNs.toString(), samples, survivors, files, errors, errorCount,
     captureComplete: !errors.length && !survivors.length && !watchdog && !interrupted,
