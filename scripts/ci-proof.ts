@@ -1,3 +1,4 @@
+import { beginObservation, endObservation } from "./hosted-observer.mts";
 import {logWorkerAuditDiagnostic} from "./browser-worker-audit";
 /** Complete affected hosted proof. Reuses the opt-in local command inventory. */
 import { requireCandidate, validateSelections } from "./candidate-proof";
@@ -34,6 +35,8 @@ export function proofProblems(needs: Record<string, { result?: string; outputs?:
 
 /** Complete discovery expands unknown/global inputs; root tooling tests accompany package changes. */
 export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[] {
+  const observed = beginObservation("unitFiles", undefined);
+  try {
   if (!plan.local.fullTests) throw new Error("Unit proof was not selected");
   const roots = plan.global ? ["packages", "tests"] : ["tests", ...plan.affected.map(dir => `packages/${dir}`)];
   const discovered = discoverTests(root, !plan.global && plan.unitTests ? ["packages", "tests"] : roots);
@@ -44,6 +47,7 @@ export function unitFiles(plan: CheckPlan, root: string, shard = "1/1"): string[
   const index = Number(match[1]), total = Number(match[2]);
   if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || index > total) throw new Error("Invalid proof shard");
   return balanceTests(files, total)[index - 1]!;
+  } finally { endObservation(observed); }
 }
 
 export function categoryCommands(category: ProofCategory, plan: CheckPlan, root: string, shard?: string, unitWorkers = 2): Command[] {

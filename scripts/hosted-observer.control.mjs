@@ -1,0 +1,66 @@
+/** Cheap real-process controls; not part of the historical unit inventory. */
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const root = resolve(import.meta.dirname, ".."), packet = resolve(process.argv[2]);
+mkdirSync(packet, { recursive: true });
+const moduleUrl = pathToFileURL(join(root, "scripts/hosted-observer.mts")).href;
+const wrapper = join(root, "scripts/hosted-observer-run.mjs");
+const run = (name, code, env = {}) => {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", code], { cwd: inactive, env: { ...process.env, ...env }, encoding: "utf8", timeout: 10000 });
+  writeFileSync(join(packet, name + ".json"), JSON.stringify({ status: result.status, signal: result.signal, stdout: result.stdout, stderr: result.stderr, error: result.error?.message }, null, 2));
+  return result;
+};
+const phase = directory => readdirSync(directory).filter(name => name.startsWith("phase-")).flatMap(name => readFileSync(join(directory, name), "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)));
+const inactive = join(packet, "inactive"); mkdirSync(inactive);
+assert.equal(run("dormant", `const before=process.listenerCount('exit');const m=await import(${JSON.stringify(moduleUrl)});m.observation('dormant');if(process.listenerCount('exit')!==before)throw Error('DORMANT_LISTENER');`, { BRAIN_HOSTED_OBSERVER_DIR: "" }).status, 0);
+assert.deepEqual(readdirSync(inactive), [], "DORMANT_NO_ARTIFACTS");
+const observed = join(packet, "events"); mkdirSync(observed);
+const event = run("events", `const m=await import(${JSON.stringify(moduleUrl)});const s=m.beginObservation('control');await new Promise(r=>setTimeout(r,30));m.endObservation(s);`, { BRAIN_HOSTED_OBSERVER_DIR: observed });
+assert.equal(event.status, 0);
+const events = phase(observed), start = events.find(e => e.name === "control.begin"), end = events.find(e => e.name === "control.end");
+assert.ok(start && end, "PHASE_BOUNDARIES_PRESENT");
+assert.match(start.key, /^\d+:\d+$/, "PROCESS_START_KEY");
+assert.equal(start.key, end.key); assert.ok(BigInt(end.ns) > BigInt(start.ns));
+assert.ok(end.cpu.user + end.cpu.system >= start.cpu.user + start.cpu.system); assert.ok(start.memory.rss > 0);
+assert.ok(events.some(e => e.name === "process.exit"), "EXIT_EVENT_CAPTURED");
+const missing = run("unwritable", `const m=await import(${JSON.stringify(moduleUrl)});m.observation('control');process.exitCode=7;`, { BRAIN_HOSTED_OBSERVER_DIR: join(packet, "absent", "child") });
+assert.equal(missing.status, 7, "OBSERVER_ERROR_PRESERVES_EXIT"); assert.match(missing.stderr, /HOSTED_OBSERVER_INCOMPLETE/);
+const capped = join(packet, "capped"); mkdirSync(capped);
+const limited = run("cap", `const m=await import(${JSON.stringify(moduleUrl)});m.observation('oversize','x'.repeat(70000));m.observation('later');`, { BRAIN_HOSTED_OBSERVER_DIR: capped });
+assert.equal(limited.status, 0); assert.match(limited.stderr, /phase bytes exhausted/); assert.equal(phase(capped).length, 0);
+const lifetime = join(packet, "node-lifetime"); mkdirSync(lifetime);
+const node = spawnSync(process.execPath, ["--import", join(root, "scripts/hosted-observer-node.mts"), "-e", "setTimeout(()=>{},20)"], { env: { ...process.env, BRAIN_HOSTED_OBSERVER_DIR: lifetime }, encoding: "utf8", timeout: 5000 });
+assert.equal(node.status, 0, node.stderr);
+assert.deepEqual(phase(lifetime).map(e => e.name), ["node.preload", "node.beforeExit", "process.exit"]);
+async function wrapped(name, code, cancel = false) {
+  const dir = join(packet, name), child = spawn(process.execPath, [wrapper, dir, "5", "--", process.execPath, "--input-type=module", "-e", code], { stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "", stderr = "";
+  child.stdout.on("data", data => { stdout += data; }); child.stderr.on("data", data => { stderr += data; });
+  const timer = cancel ? setTimeout(() => child.kill("SIGTERM"), 1200) : undefined;
+  const result = await new Promise(resolve => child.on("close", (code, signal) => resolve({ code, signal })));
+  clearTimeout(timer);
+  writeFileSync(join(packet, name + "-wrapper.json"), JSON.stringify({ ...result, stdout, stderr }, null, 2));
+  const receipt = JSON.parse(readFileSync(join(dir, "result.json"), "utf8"));
+  const output = readFileSync(join(dir, "output.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(output.some(row => row.stream === "stdout" && row.eof), "STDOUT_EOF_CAPTURED");
+  assert.ok(output.some(row => row.stream === "stderr" && row.eof), "STDERR_EOF_CAPTURED");
+  assert.deepEqual(receipt.survivors, [], "NO_OWNED_SURVIVORS");
+  const samples = readFileSync(join(dir, "resources.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.ok(samples.some(row => row.processes.length > 0), "REAL_PID_SAMPLES");
+  assert.ok(samples.every(row => typeof row.vm.stat === "string" && row.ns && row.epochMs));
+  return { result, receipt };
+}
+const failed = await wrapped("failure", `import {spawn} from 'node:child_process';const child=spawn(process.execPath,['-e','setTimeout(()=>{},1250)'],{stdio:'inherit'});console.log('Odysseus begins',child.pid);console.error('retained failure');child.on('exit',()=>{process.exitCode=7});`);
+assert.equal(failed.result.code, 7, "CHILD_FAILURE_NOT_SWALLOWED"); assert.equal(failed.receipt.code, 7);
+const failureSamples = readFileSync(join(packet, "failure/resources.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+assert.ok(failureSamples.some(row => row.processes.length >= 2), "DESCENDANT_START_KEYS_CAPTURED");
+const cancelled = await wrapped("cancellation", "console.log('Odysseus waits');setInterval(()=>{},1000);", true);
+assert.equal(cancelled.result.code, 143, "SIGNAL_RESULT_PRESERVED"); assert.equal(cancelled.receipt.signal, "SIGTERM");
+const measured = await wrapped("sampling-cost", "setTimeout(()=>{},3200);");
+assert.equal(measured.result.code, 0); assert.equal(measured.receipt.captureComplete, true);
+writeFileSync(join(packet, "PASS.json"), JSON.stringify({ controls: ["dormant", "phase CPU/time/identity", "failure", "writer failure", "byte cap", "node lifecycle", "EOF", "cancellation", "survivors"], overhead: measured.receipt }, null, 2));
+console.log("Hosted observer controls passed");

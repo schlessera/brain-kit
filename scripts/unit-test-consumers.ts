@@ -1,3 +1,4 @@
+import { beginObservation, endObservation } from "./hosted-observer.mts";
 /** Additive unit proof inputs; unresolved imports select their runnable owners. */
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { builtinModules } from "node:module";
@@ -29,6 +30,8 @@ const stem = (path: string) => basename(path).replace(/\.[cm]?[jt]sx?$/i, "");
 
 /** A new graph per planning invocation: no stale working-tree or dependency cache. */
 export function discoverUnitImports(root: string): UnitImportGraph {
+  const observed = beginObservation("discoverUnitImports", undefined);
+  try {
   root = realpathSync(root);
   const roots = ["packages", "tests"].filter(path => existsSync(join(root, path)));
   const tests = discoverTests(root, roots), leaves = new Set(tests);
@@ -184,6 +187,7 @@ export function discoverUnitImports(root: string): UnitImportGraph {
   };
   for (const test of tests) visit(test);
   return { tests, reverse, unresolved };
+  } finally { endObservation(observed); }
 }
 
 /** Cycles are finite; helpers need not themselves be runnable test files. */

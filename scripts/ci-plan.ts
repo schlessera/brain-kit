@@ -1,3 +1,4 @@
+import { beginObservation, endObservation } from "./hosted-observer.mts";
 /** Repository-only check selection. Product CLI/MCP contracts are unaffected. */
 import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -85,6 +86,8 @@ export interface CheckPlan {
 }
 
 export function workspaces(root: string): Workspace[] {
+  const observed = beginObservation("workspaces", undefined);
+  try {
   return readdirSync(join(root, "packages"), { withFileTypes: true })
     .filter(entry => entry.isDirectory() && existsSync(join(root, "packages", entry.name, "package.json")))
     .map(entry => {
@@ -94,6 +97,7 @@ export function workspaces(root: string): Workspace[] {
           ...manifest.peerDependencies, ...manifest.optionalDependencies }),
         files: manifest.files ?? [] };
     });
+  } finally { endObservation(observed); }
 }
 
 /** Reverse dependency closure includes peers, optional deps and test/dev deps. */
@@ -236,6 +240,8 @@ export function independentTests(root: string, changed: readonly string[]): stri
 }
 
 export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), enableConsumerSelection = true): CheckPlan {
+  const observed = beginObservation("planChecks", { changed });
+  try {
   const leaves = root && enableConsumerSelection ? independentTests(root, changed) : undefined;
   if (leaves) {
     const affected = [...new Set(leaves.filter(file => file.startsWith("packages/")).map(file => file.split("/")[1]!))].sort();
@@ -292,6 +298,7 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   if (arguments.length >= 3 && packageCode && !global) plan = addUnitImportConsumers(plan, root);
   // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
   return arguments.length >= 3 && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  } finally { endObservation(observed); }
 }
 
 /** Global dependency/tooling changes remain exhaustive; selected categories remain complete. */

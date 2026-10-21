@@ -1,3 +1,4 @@
+import { beginObservation, endObservation } from "./hosted-observer.mts";
 /** Source-owned browser proof inputs. Unknown edges retain complete broad proof. */
 import {resolveRuntimeModule} from "./runtime-module-resolution";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
@@ -38,6 +39,8 @@ function inside(root: string, file: string): string | undefined {
 }
 /** No declaration can suppress an unresolved call: every declaration names real inputs. */
 export function discoverInputClosure(root: string, entrypoints: readonly string[], declarations: readonly InputDeclaration[] = [], activation?: { config: string; selected: readonly Spec[]; candidates: readonly CommandCandidate[] }): InputClosure {
+  const observed = beginObservation("discoverInputClosure", { entrypoints });
+  try {
   root = realpathSync(root);
   const unresolved = new Set<string>(), files = new Set<string>(), directories = new Set<string>();
   const external = new Map<string, LockedBrowserAsset>();
@@ -311,6 +314,7 @@ export function discoverInputClosure(root: string, entrypoints: readonly string[
   for (const file of [...entrypoints,...executionRoots]) visit(file);
   for (const owner of declared.keys()) if (!files.has(owner)) unresolved.add(`Unused declaration owner: ${owner}`);
   return { ...(nativeBinding?{nativeDiagram:nativeBinding.identity}:{}), ...(nativeDiagramDiagnostic?{nativeDiagramDiagnostic}:{}), files: [...files].sort(), directories: [...directories].sort(), ...(external.size ? { external: [...external.values()].sort((a,b) => `${a.package}/${a.asset}`.localeCompare(`${b.package}/${b.asset}`)) } : {}), unresolved: [...unresolved].sort() };
+  } finally { endObservation(observed); }
 }
 export function closureSelects(changed: readonly string[], closure: InputClosure, broad: boolean): boolean {
   const inputs = new Set(closure.files);
@@ -320,6 +324,8 @@ export function closureSelects(changed: readonly string[], closure: InputClosure
 export type BrowserClosures = Record<BrowserCategory, InputClosure>;
 /** Use the installed runner's actual file discovery; a failure leaves every category broad. */
 export function discoverBrowserClosures(root: string): BrowserClosures {
+  const observed = beginObservation("discoverBrowserClosures", undefined);
+  try {
   const declarations = (file: string): InputDeclaration[] => {
     const data = JSON.parse(readFileSync(join(root, file), "utf8"));
     if (!Array.isArray(data)) throw new Error("Invalid indirect-input declarations");
@@ -338,9 +344,11 @@ export function discoverBrowserClosures(root: string): BrowserClosures {
   let specs: Spec[];
   try {
     // File discovery must not retain the child for unawaited Storybook telemetry retries.
-    const command = Bun.spawnSync(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
+    const listing = beginObservation("node.listing");
+    const command = Bun.spawnSync(["node", ...(process.env.BRAIN_HOSTED_OBSERVER_DIR ? ["--import", join(import.meta.dir, "hosted-observer-node.mts")] : []), "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
       cwd: join(root, "packages/ui-kit"), env: { ...process.env, CI: "true", STORYBOOK_DISABLE_TELEMETRY: "1" }, stdout: "pipe", stderr: "pipe", timeout: 15000,
     });
+    endObservation(listing, { exitCode: command.exitCode, signalCode: command.signalCode, observerIncomplete: command.stderr.toString().includes("HOSTED_OBSERVER_INCOMPLETE") });
     if (command.exitCode !== 0) return failed("Installed Vitest discovery failed");
     specs = normalizeInventory(JSON.parse(readFileSync(output, "utf8")), root);
     const declaration = /const projects = projectArgs\.length \?[^\n]+ : (\[[^\n]+\]);/.exec(readFileSync(join(root, "scripts/visual.mjs"), "utf8"));
@@ -359,4 +367,5 @@ export function discoverBrowserClosures(root: string): BrowserClosures {
       endurance: discoverInputClosure(root, entries("endurance"), visualDeclarations),
       captures };
   } catch (error) { return failed(`Cannot establish indirect input ownership: ${String(error)}`); }
+  } finally { endObservation(observed); }
 }

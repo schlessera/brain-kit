@@ -1,3 +1,4 @@
+import { observation } from "./hosted-observer.mts";
 /** Concurrent serial Bun processes, each owning its source/dependencies/build lease. */
 import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, readSync, rmdirSync, statSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -195,6 +196,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       const { dev, ino } = statSync(join(workspace, "node_modules/typescript/package.json"));
       return { worker: index + 1, workspace: relative(root, workspace), files, checkout, dependency: { dev, ino } };
     }), null, 2));
+    observation("workers.prepared", workers.map((worker, index) => ({ worker: index + 1, root: worker.root, checkout: worker.checkout, files: worker.files })));
     await runCommands(workers.map((worker, index) => ({ name: `unit worker ${index + 1} private package build`,
       argv: [process.execPath, "run", "--cwd", worker.root, "build"] })), root, 2);
     for (const worker of workers) mkdirSync(join(worker.root, "tmp/maintenance-ledger"), { recursive: true, mode: 0o700 });
@@ -226,7 +228,9 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     await Bun.write(join(reportDir, "unit-report.xml"), xml);
     await Bun.write(join(reportDir, "unit-timings.json"), JSON.stringify(timings, null, 2));
   } catch (error) { primaryFailure = error; throw error; } finally {
+    observation("workers.cleanup.begin");
     await preserveReportsAndRemoveWorkers();
+    observation("workers.cleanup.end");
   }
 }
 

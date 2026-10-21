@@ -86,9 +86,9 @@ speedup or a reason to ignore them. Runtime access to the `node:module`/`module`
 loader API (including namespace/default imports, re-exports and aliases), and
 unsupported loader object/resolver aliases, retain their runnable owners.
 The implementation keeps discovery, reverse ownership and floor-preserving
-composition separate (`discoverUnitImports`, `scripts/unit-test-consumers.ts:31-187`;
-`unitImportOwners`, `scripts/unit-test-consumers.ts:190-196`;
-`addUnitImportConsumers`, `scripts/unit-test-consumers.ts:206-225`).
+composition separate (`discoverUnitImports`, `scripts/unit-test-consumers.ts:32-191`;
+`unitImportOwners`, `scripts/unit-test-consumers.ts:194-200`;
+`addUnitImportConsumers`, `scripts/unit-test-consumers.ts:210-229`).
 
 The whole-class audit independently resolves current cross-workspace test sources,
 then traces their runnable owners, including extension-appending launch helpers
