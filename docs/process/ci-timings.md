@@ -94,6 +94,8 @@ execution. Missing/incomplete timestamps and lost attempts make consumption a
 lower bound; they do not prove zero cost. Skips with validated timing metadata
 are marked retained separately from excluded/unresolved skips. Selected job
 outcomes and retention validation remain the responsibility of product proof.
+Cancelled attempts with an explicitly empty job inventory are counted as
+unobserved cancellations, separately from failed inventory acquisition.
 
 PR attribution uses the run's PR payload, an exact current PR head, or an
 unambiguous repository/branch match from PR metadata. The last form explicitly

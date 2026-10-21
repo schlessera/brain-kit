@@ -170,3 +170,11 @@ test("retained browser timing metadata stays distinct from a fresh execution or 
   expect(summarize([s]).coverage.retainedJobs).toBe(1);
   expect(summarize([s]).observedRunnerSeconds).toBe(60);
 });
+
+test("a cancelled attempt with an explicitly empty job inventory remains unobserved", async () => {
+  const api: TimingAPI = { json: async () => ({ total_count: 0, jobs: [] }), log: async () => "" };
+  const s = await collectAttempt(api, "example/engine", { ...rawRun, conclusion: "cancelled" }, 1, false, finish);
+  expect(s.problems).toEqual([]);
+  expect(summarize([s]).coverage.unobservedCancelledAttempts).toBe(1);
+  expect(summarize([s]).attemptElapsedSeconds.n).toBe(0);
+});

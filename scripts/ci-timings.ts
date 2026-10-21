@@ -127,7 +127,7 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
     }
     if (new Set(jobs.map(j => j.id)).size !== jobs.length || jobs.some(j => j.run_id !== run.id || (j.run_attempt !== undefined && j.run_attempt !== attempt))) throw new Error("Job identity mismatch");
   } catch (error) { snapshot.problems.push(String(error)); return snapshot; }
-  if (!jobs.length && run.status === "completed") snapshot.problems.push("Completed attempt has no available jobs");
+  if (!jobs.length && run.status === "completed" && run.conclusion !== "cancelled") snapshot.problems.push("Completed attempt has no available jobs");
   for (const rawJob of jobs) {
     const job = normalizeJob(rawJob);
     if (resources && job.execution === "observed" && CATEGORIES.includes(job.category) && !["verify", "pack"].includes(job.category)) {
@@ -231,6 +231,7 @@ export function summarize(input: TimingSnapshot[]) {
       prs: prs.length, pairedPRs: paired.length, incompleteAttempts: snapshots.filter(s => s.problems.length || s.run.status !== "completed").length,
       jobs: snapshots.reduce((n, s) => n + s.jobs.length, 0),
       unobservedJobs: snapshots.flatMap(s => s.jobs).filter(j => j.execution === "unobserved").length,
+      unobservedCancelledAttempts: snapshots.filter(s => s.run.conclusion === "cancelled" && !s.jobs.some(j => j.execution === "observed")).length,
       observedJobsWithoutDuration: snapshots.flatMap(s => s.jobs).filter(j => j.execution === "observed" && j.seconds === null).length,
       resourceReceipts: snapshots.flatMap(s => s.jobs).filter(j => j.resource).length,
       retainedJobs: snapshots.flatMap(s => s.jobs).filter(j => j.execution === "retained").length,
