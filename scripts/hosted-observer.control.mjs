@@ -1,7 +1,7 @@
 /** Cheap real-process controls; not part of the historical unit inventory. */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -9,6 +9,23 @@ const root = resolve(import.meta.dirname, ".."), packet = resolve(process.argv[2
 mkdirSync(packet, { recursive: true });
 const moduleUrl = pathToFileURL(join(root, "scripts/hosted-observer.mts")).href;
 const wrapper = join(root, "scripts/hosted-observer-run.mjs");
+// Exercise the actual prerequisite before relying on any observer evidence.
+const runtimeCheck = spawnSync(process.execPath, [join(root, "scripts/hosted-observer-runtime.mjs"), join(packet, "runtime.json")], { encoding: "utf8", timeout: 5000 });
+writeFileSync(join(packet, "runtime-check.json"), JSON.stringify({ status: runtimeCheck.status, stdout: runtimeCheck.stdout, stderr: runtimeCheck.stderr }, null, 2));
+assert.equal(runtimeCheck.status, 0, "SUPPORTED_RUNTIME_ACCEPTED_BEFORE_WORKLOAD");
+assert.equal(JSON.parse(readFileSync(join(packet, "runtime.json"))).supported, true);
+// The first control changes only the version identity; the second actually disables
+// Node's native TypeScript loader. Both must refuse before the sentinel workload.
+const unsupported = join(packet, "unsupported.mjs");
+writeFileSync(unsupported, "Object.defineProperty(process.versions, 'node', { value: '20.0.0' });\n");
+for (const [name, flags] of [["unsupported-version", ["--import", unsupported]], ["disabled-typescript", ["--no-experimental-strip-types"]]]) {
+  const marker = join(packet, name + "-WORKLOAD-RAN");
+  const result = spawnSync(process.execPath, [...flags, wrapper, join(packet, name), "1", "--", process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`], { encoding: "utf8", timeout: 5000 });
+  writeFileSync(join(packet, name + ".json"), JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr }, null, 2));
+  assert.equal(result.status, 1, name + " refuses");
+  assert.equal(existsSync(marker), false, "UNSUPPORTED_RUNTIME_BEFORE_WORKLOAD");
+  assert.equal(JSON.parse(readFileSync(join(packet, name, "runtime.json"))).supported, false, "REFUSAL_RETAINS_IDENTITY");
+}
 const run = (name, code, env = {}) => {
   const result = spawnSync(process.execPath, ["--input-type=module", "-e", code], { cwd: inactive, env: { ...process.env, ...env }, encoding: "utf8", timeout: 10000 });
   writeFileSync(join(packet, name + ".json"), JSON.stringify({ status: result.status, signal: result.signal, stdout: result.stdout, stderr: result.stderr, error: result.error?.message }, null, 2));

@@ -3,17 +3,17 @@ import { spawn, spawnSync } from "node:child_process";
 import { constants, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync, writeSync, closeSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { runtimeIdentity } from "./hosted-observer-runtime.mjs";
+import { runtimeIdentity, runtimeRequirement } from "./hosted-observer-runtime.mjs";
 
 const [directoryArg, secondsArg, separator, ...command] = process.argv.slice(2);
 const seconds = Number(secondsArg);
 if (!directoryArg || separator !== "--" || !command.length ||
-    !Number.isInteger(seconds) || seconds < 1 || seconds > 1700) throw Error("Expected Linux Node 24 and OUTPUT SECONDS(1..1700) -- COMMAND ARGS");
+    !Number.isInteger(seconds) || seconds < 1 || seconds > 1700) throw Error(`Expected ${runtimeRequirement} and OUTPUT SECONDS(1..1700) -- COMMAND ARGS`);
 const directory = resolve(directoryArg);
 mkdirSync(directory, { mode: 0o700 }); // Exclusive invocation; never append to another run.
 const runtime = runtimeIdentity();
 writeFileSync(join(directory, "runtime.json"), JSON.stringify(runtime, null, 2));
-if (!runtime.supported) { console.error("HOSTED_OBSERVER_INCOMPLETE requires Linux Node 24 before workload", JSON.stringify(runtime)); process.exit(1); }
+if (!runtime.supported) { console.error(`HOSTED_OBSERVER_INCOMPLETE requires ${runtimeRequirement} before workload`, JSON.stringify(runtime)); process.exit(1); }
 const started = performance.now(), cpuStart = process.cpuUsage();
 const errors = [], seen = new Map();
 let errorCount = 0;
