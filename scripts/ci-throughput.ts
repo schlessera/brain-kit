@@ -149,6 +149,7 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
       createToMergeSeconds: seconds(p.createdAt, p.mergedAt), readyToMergeSeconds: seconds(ready?.at, p.mergedAt),
       gateToMergeSeconds: preGreen ? seconds(new Date(completed(preGreen)!).toISOString(), p.mergedAt) : null,
       mergeToGreenSeconds: postGreen ? seconds(p.mergedAt, new Date(completed(postGreen)!).toISOString()) : null,
+      createToGreenSeconds: postGreen ? seconds(p.createdAt, new Date(completed(postGreen)!).toISOString()) : null,
       observedRunnerSeconds: [...pre, ...main].reduce((n, s) => n + execution(s), 0),
       equivalence, incidents: events.filter(e => ["incident", "revert"].includes(e.kind) && e.pr === p.number).map(e => e.id) };
   });
@@ -200,7 +201,7 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
         ({ start: Math.max(start, Date.parse(j.startedAt!)), end: Math.min(end, Date.parse(j.completedAt!)) })));
     candidateJobSeconds += mergeIntervals(intervals).reduce((n, i) => n + (i.end - i.start) / 1000, 0);
   }
-  const durations = (key: "createToMergeSeconds" | "readyToMergeSeconds" | "gateToMergeSeconds" | "mergeToGreenSeconds") => stats(prRows.flatMap(p => p[key] === null ? [] : [p[key]!]));
+  const durations = (key: "createToMergeSeconds" | "readyToMergeSeconds" | "gateToMergeSeconds" | "mergeToGreenSeconds" | "createToGreenSeconds") => stats(prRows.flatMap(p => p[key] === null ? [] : [p[key]!]));
   const categoriesFailed = [...new Set(prRows.flatMap(p => p.firstMainFailedJobs.map(j => j.category)))];
   return { objective: "Increase first-pass green integrations per day while preserving required proof and monitoring post-merge recovery/incident outcomes", window,
     coverage: { lifecyclePRs: pulls.length, lifecycleProblems: pulls.filter(p => p.problems.length).map(p => ({ pr: p.number, problems: p.problems })),
@@ -210,7 +211,7 @@ export function summarizeThroughput(snapshots: TimingSnapshot[], pulls: PullObse
       firstPassGreen: percentage(firstGreen.length, firstKnown.length), sameCommitObservedGreen: percentage(eventual.length, delivered.length),
       runnerMinutesPerObservedGreenIntegration: eventual.length ? prRows.reduce((n, p) => n + p.observedRunnerSeconds, 0) / 60 / eventual.length : null,
       createToMergeSeconds: durations("createToMergeSeconds"), readyToMergeSeconds: durations("readyToMergeSeconds"),
-      gateToMergeSeconds: durations("gateToMergeSeconds"), mergeToGreenSeconds: durations("mergeToGreenSeconds") },
+      gateToMergeSeconds: durations("gateToMergeSeconds"), mergeToGreenSeconds: durations("mergeToGreenSeconds"), createToGreenSeconds: durations("createToGreenSeconds") },
     reliability: { firstMainOutcomes: Object.fromEntries([...new Set(prRows.map(p => p.firstMainOutcome))].map(k => [k, prRows.filter(p => p.firstMainOutcome === k).length])),
       sameSourceRecoveries: prRows.filter(p => p.sameSourceRecovery).length,
       firstMainFailedJobCategories: Object.fromEntries(categoriesFailed.map(c => [c, prRows.filter(p => p.firstMainFailedJobs.some(j => j.category === c)).length])),
@@ -257,7 +258,7 @@ export function throughputMarkdown(r: ReturnType<typeof summarizeThroughput>): s
     `Post-merge first outcomes: ${JSON.stringify(r.reliability.firstMainOutcomes)}; same-source recoveries: ${r.reliability.sameSourceRecoveries}.`,
     `Pre-green / main-nongreen: ${r.reliability.preGreenMainNonGreen.numerator}/${r.reliability.preGreenMainNonGreen.denominator} (${format(r.reliability.preGreenMainNonGreen.percent)}%). This is discordance, not a diagnosed regression rate.`, "",
     "| Elapsed interval | Samples | Mean min | Median min | p90 min |", "| --- | ---: | ---: | ---: | ---: |",
-    ...["createToMergeSeconds", "readyToMergeSeconds", "gateToMergeSeconds", "mergeToGreenSeconds"].map(k => {
+    ...["createToGreenSeconds", "createToMergeSeconds", "readyToMergeSeconds", "gateToMergeSeconds", "mergeToGreenSeconds"].map(k => {
       const d = r.velocity[k as "createToMergeSeconds"];
       return `| ${k} | ${d.n} | ${format(d.mean === null ? null : d.mean / 60)} | ${format(d.median === null ? null : d.median / 60)} | ${format(d.p90 === null ? null : d.p90 / 60)} |`;
     }), "", `Peak observed CI jobs: ${r.parallelism.ciJobs.peak}; peak distinct PR verification intervals: ${r.parallelism.distinctPRVerification.peak}. Worker concurrency: ${r.parallelism.recordedWorkers ? r.parallelism.recordedWorkers.peak : "unknown (no complete worker records)"}.`,

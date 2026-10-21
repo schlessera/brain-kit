@@ -33,6 +33,7 @@ test("first main failure and same-source recovery are counted without claiming a
   expect(r.reliability.sameSourceRecoveries).toBe(1);
   expect(r.reliability.preGreenMainNonGreen.percent).toBe(100);
   expect(r.velocity.mergeToGreenSeconds.median).toBe(300);
+  expect(r.velocity).toMatchObject({ createToGreenSeconds: { median: 4500 } });
   expect(r.velocity.readyToMergeSeconds.median).toBe(420);
   expect(r.velocity.gateToMergeSeconds.median).toBe(120);
   expect(r.evidence.squashComparedToRecordedReceipt.matches).toBe(1);

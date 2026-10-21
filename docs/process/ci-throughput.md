@@ -49,6 +49,7 @@ execution. It is not complete lifetime cost without complete lifetime coverage.
 | First-pass green percentage | First-main green PRs / PRs with a known first-main outcome. Unknown outcomes are separate; numerator and denominator accompany every percentage. |
 | Runner-minutes/observed-green integration | All observed cohort pre/post CI job time, including failed deliveries / cohort PRs with observed same-commit green main proof. Not billed minutes or complete agent cost. |
 | Create → merge | PR lifecycle latency, combining work, waiting and rework. |
+| Create → same-commit green main | End-to-end pipeline delivery latency for the cohort with observed green proof, including any same-source recovery. This is not complete incident follow-up or a defect-free guarantee. |
 | Recorded ready → merge | Last ready transition → merge if no subsequent draft transition intervened. Incomplete timelines remain unknown. |
 | Final-head green aggregate → merge | Last observed green aggregate at the merged PR head → merge. This does not independently validate checkout or live base. |
 | Merge → same-commit green | Time to observed green main proof on that exact squash. Recovery via a later repair commit needs an explicit related record. |
