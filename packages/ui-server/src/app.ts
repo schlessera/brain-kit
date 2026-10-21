@@ -248,14 +248,18 @@ export interface BrainUiApp {
   /**
    * Refuse new HTTP requests and drain admitted handlers before disposing of
    * their operational state. Stalled request bodies are cancelled on close.
-   * In-flight brain CLI reads and plain index runs get a 2 s grace period and
+   * In-flight brain CLI reads and plain index runs get a 10 s grace period and
    * are then cancelled; every other run keeps its existing shutdown behaviour.
    */
   close(): Promise<void>;
 }
 
-/** How long close() lets in-flight brain CLI runs finish before cancelling shared ones (#2473). */
-const CLOSE_GRACE_MS = 2_000;
+/**
+ * How long close() lets in-flight brain CLI runs finish before cancelling
+ * shared ones (#2473). Long enough for an ordinary follow-up index to finish,
+ * short enough to bound shutdown well inside a 30 s hook.
+ */
+const CLOSE_GRACE_MS = 10_000;
 
 function isWebSocketUpgradeAttempt(request: Request): boolean {
   const connectionHasUpgrade = request.headers

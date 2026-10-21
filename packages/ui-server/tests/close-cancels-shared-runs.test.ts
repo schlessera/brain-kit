@@ -85,10 +85,10 @@ test("close cancels a read that never exits once the grace period ends", async (
   const stats = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/stats")));
   await cli.started();
   const begun = performance.now();
-  expect(await closeWithin(app, 10_000), "CLOSE_MUST_NOT_WAIT_FOR_A_HUNG_SHARED_RUN").toBe("closed");
-  expect(performance.now() - begun, "the grace period is honoured before cancelling").toBeGreaterThan(1_900);
+  expect(await closeWithin(app, 20_000), "CLOSE_MUST_NOT_WAIT_FOR_A_HUNG_SHARED_RUN").toBe("closed");
+  expect(performance.now() - begun, "the grace period is honoured before cancelling").toBeGreaterThan(9_500);
   expect(await stats.then(response => response.status, () => "rejected")).not.toBe(200);
-}, 30_000);
+}, 45_000);
 
 test("a read that finishes within the grace period is answered", async () => {
   const cli = brainWithCli("stats", STATS, 500);
@@ -98,18 +98,18 @@ test("a read that finishes within the grace period is answered", async () => {
   const closed = closeWithin(app, 10_000);
   expect((await stats).status, "SHARED_RUN_WITHIN_GRACE_IS_UNAFFECTED").toBe(200);
   expect(await closed).toBe("closed");
-}, 30_000);
+}, 45_000);
 
 test("close lets a writer that outlasts the grace period finish", async () => {
-  const cli = brainWithCli("add", ADDED, 3_000);
+  const cli = brainWithCli("add", ADDED, 11_000);
   const app = await appFor(cli.root);
   const add = Promise.resolve(app.fetch(new Request("http://localhost/api/brain/add", { method: "POST",
     headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Landed on Ithaca at dawn." }) })));
   await cli.started();
-  const closed = closeWithin(app, 20_000);
+  const closed = closeWithin(app, 25_000);
   expect(await (await add).json(), "WRITER_MUST_COMPLETE_ACROSS_CLOSE").toMatchObject({ success: true, path: ADDED.path });
   expect(await closed).toBe("closed");
-}, 30_000);
+}, 45_000);
 
 test("the client's shutdown signal cancels a plain index with its exact reason", async () => {
   const cli = brainWithCli("index", { indexed: 0 }, null);
@@ -121,7 +121,7 @@ test("the client's shutdown signal cancels a plain index with its exact reason",
   shutdown.abort(reason);
   // The app suppresses exactly this reason, so it must arrive unwrapped.
   expect(await index, "SHUTDOWN_REASON_MUST_REACH_THE_INDEX_CALLER").toBe(reason);
-}, 30_000);
+}, 45_000);
 
 test("the client's shutdown signal never cancels a writer", async () => {
   const cli = brainWithCli("add", ADDED, 1_000);
@@ -131,4 +131,4 @@ test("the client's shutdown signal never cancels a writer", async () => {
   await cli.started();
   shutdown.abort(new Error("Server shutting down"));
   expect(await add).toMatchObject({ path: ADDED.path });
-}, 30_000);
+}, 45_000);
