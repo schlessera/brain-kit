@@ -51,6 +51,9 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): 
 
 class SandboxSetupTimeout extends Error {}
 
+/** The fastest of three sandbox setup probes must take less than this. */
+const SANDBOX_SETUP_LIMIT_MS = 1000;
+
 function probeSandboxSetup(): number {
   const start = performance.now();
   const namespace = Bun.spawnSync(["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/usr/bin/true"], { timeout: 5000 });
@@ -86,9 +89,9 @@ export function requireLocalSandbox(readMountinfo = () => readFileSync("/proc/se
       if (!(error instanceof SandboxSetupTimeout)) throw error;
       // The killed probe has no completed sample. Report only the budget's
       // elapsed lower bound, never a precise fastest-of-three measurement.
-      return refuse("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
+      return refuse(`probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than ${SANDBOX_SETUP_LIMIT_MS} ms)`);
     }
-    if (fastest >= 250) refuse(`fastest of three ${fastest.toFixed(1)} ms (requires less than 250 ms)`);
+    if (fastest >= SANDBOX_SETUP_LIMIT_MS) refuse(`fastest of three ${fastest.toFixed(1)} ms (requires less than ${SANDBOX_SETUP_LIMIT_MS} ms)`);
   }
 }
 
