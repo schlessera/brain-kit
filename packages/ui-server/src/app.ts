@@ -249,7 +249,7 @@ export interface BrainUiApp {
    * Refuse new HTTP requests and drain admitted handlers before disposing of
    * their operational state. Stalled request bodies are cancelled on close.
    * In-flight brain CLI reads and plain index runs get a 2 s grace period and
-   * are then cancelled; runs that write Markdown or git always finish.
+   * are then cancelled; every other run keeps its existing shutdown behaviour.
    */
   close(): Promise<void>;
 }
@@ -450,8 +450,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // without provider keys (#1648). The credentialed reindex that fills in its
   // vectors waits for the writer gate; one at a time, and one more if more
   // changes arrived meanwhile.
-  const keyedReindex = coalesced(() => brain.index(), error => { if (!shutdown.signal.aborted) brainLog.emit({ severityText: "WARN",
-    body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }); });
+  // A refresh cancelled by close() is not a failure; every other error still reports.
+  const ignoreShutdown = (error: unknown) => { if (error !== shutdown.signal.reason) throw error; };
+  const keyedReindex = coalesced(() => brain.index().catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
+    body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
   bootCleanup.push(() => keyedReindex.idle());
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
@@ -521,7 +523,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths],
-      index: lock => brain.index({ lock }), report: message => { if (!shutdown.signal.aborted) brainLog.emit({ severityText: "WARN", body: message }); } });
+      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
