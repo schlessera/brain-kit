@@ -910,3 +910,13 @@ The [collection guide](../process/ci-timings.md) defines interval/attempt
 accounting, missing evidence, cancellation costs, PR attribution and the
 historical exhaustive-run proxy. Estimates remain distinct from same-source
 paired measurements. Timing metadata never authorizes proof retention or merge.
+
+The expanded #2476 objective is reliable parallel agent throughput. Collection
+joins lifecycle, first-main outcomes, recovery observations, queue/concurrency,
+reservation history and explicitly supplied work/incident records. The primary
+descriptive proxy is first-pass green integrations/day, accompanied by cost and
+latency per delivered cohort. Empirical green rates do not establish formal
+guarantees; proof evidence coverage, unknowns and scenario assumptions remain
+separate. Actual agent activity and diagnosed regressions require explicit
+records. Optimization still preserves existing assertions, guards and matching
+candidate proof, with causal claims requiring comparable measured inputs.

@@ -4,6 +4,10 @@
 the CI and contract workflows. It does not run tests, change proof selection,
 approve a candidate or supply passing-proof receipts.
 
+The [throughput measurement guide](ci-throughput.md) extends these observations
+with delivery latency, main-push outcomes, concurrency, reservation history,
+explicit worker/incident records and configurable scenario assumptions.
+
 ## Collect and report
 
 Use authenticated `gh` with Actions, contents and pull-request read access:
@@ -44,7 +48,7 @@ proof of a successful candidate.
 ## Automatic archival
 
 `.github/workflows/ci-timings.yml` collects an overlapping two-day creation
-window daily, with command receipts, and supports manual dispatch. This avoids
+window daily, with command receipts, PR lifecycle and reservation history, and supports manual dispatch. This avoids
 adding a measurement runner to every PR push and contract metadata edit. It
 runs default-branch code with a read-only token and no dependency install;
 candidate logs are parsed as data. Timing archives are uploaded for 90 days,

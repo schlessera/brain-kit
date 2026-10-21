@@ -134,11 +134,16 @@ test("native report CLI persists statistics and missing-acquisition evidence off
   try {
     writeFileSync(join(dir, "run-12-attempt-1.json"), JSON.stringify(snapshot()));
     writeFileSync(join(dir, "collection.json"), JSON.stringify({ repository: "example/engine",
+      since: "2026-07-12T00:00:00Z", until: "2026-07-13T00:00:00Z",
       expected: [{ run: 12, attempts: 2 }], errors: [{ run: 12, attempt: 2, error: "unavailable" }], status: "completed" }));
+    writeFileSync(join(dir, "pull-42.json"), JSON.stringify({ version: 1, repository: "example/engine", number: 42, collectedAt: finish,
+      createdAt: start, mergedAt: finish, closedAt: finish, head: sha, merge: tree, baseBranch: "main", changedFiles: 1, additions: 1, deletions: 0, timeline: [], problems: [] }));
     const child = Bun.spawnSync([process.execPath, "scripts/ci-timings.ts", "report", "--out", dir], { stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode).toBe(0);
     const report = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
     expect(report.observedRunnerSeconds).toBe(60);
+    expect(report.throughput.coverage.mergedInWindow).toBe(1);
+    expect(report.throughput.velocity.firstPassGreen.percent).toBeNull();
     expect(report.collectionCoverage.missingAttempts).toEqual(["example/engine/12/2"]);
     expect(report.collectionCoverage.scopes[0].errors[0].error).toBe("unavailable");
     expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("Missing discovered attempts: 1");

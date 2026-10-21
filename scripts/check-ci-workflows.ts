@@ -120,7 +120,7 @@ export function timingWorkflowProblems(text: string): string[] {
   const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
   if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" ||
     checkouts[0]?.with?.["persist-credentials"] !== false || checkouts[0]?.with?.repository !== undefined) fail("collector must check out trusted default-branch code without credentials");
-  if (!steps.some(s => s.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --resources'))) fail("timing collection command missing");
+  if (!steps.some(s => s.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --resources --reservations'))) fail("timing collection command missing");
   for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("collector scripts must not interpolate events or install candidate dependencies");
   if (!steps.some(s => s.uses === "actions/upload-artifact@v7" && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
   return errors;

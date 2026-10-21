@@ -1,6 +1,11 @@
 /** Read-only CI timing archive. Logs are data; no candidate code is executed. */
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { seconds, stats } from "./ci-timing-stats";
+export { seconds, stats } from "./ci-timing-stats";
+import { collectPullObservation, summarizeThroughput, throughputMarkdown, validateWorkEvent,
+  type PullObservation, type WorkEvent, type Scenario } from "./ci-throughput";
+import { collectReservationHistory } from "./ci-coordination";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -35,16 +40,14 @@ export interface TimingSnapshot {
   jobs: TimingJob[]; problems: string[];
   selection?: { selections: Record<string, string>; retained: string[] };
   selectionProblem?: string;
+  context?: { cadence: string; global: boolean; head: string };
+  candidate?: { head: string; base: string; checkout: { sha: string; tree: string; parents: string[] } };
+  evidenceProblem?: string;
 }
 const WORKFLOWS = ["ci.yml", "contract.yml"];
 const CATEGORIES = ["verify", "pack", "unit", "browser", "layout", "captures", "runtime", "runtime_host", "endurance"];
 const SHA = /^[a-f0-9]{40}$/;
 const validSeconds = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x) && x >= 0;
-export function seconds(start?: string | null, end?: string | null): number | null {
-  if (!start || !end) return null;
-  const elapsed = (Date.parse(end) - Date.parse(start)) / 1000;
-  return validSeconds(elapsed) ? elapsed : null;
-}
 export function category(name: string): string {
   return name.replace(/ \(.*\)$/, "").replace(/^(?:integrated or exhaustive proof|draft gates)$/, "proof");
 }
@@ -137,10 +140,16 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
     snapshot.jobs.push(job);
   }
   if (resources) {
+    const metadata = snapshot.jobs.find(j => j.category === "changeset" && j.execution === "observed");
+    if (metadata) {
+      try { attachTimingEvidence(snapshot, await api.log(metadata.id)); }
+      catch (e) { snapshot.evidenceProblem = String(e); }
+    }
     const aggregate = snapshot.jobs.find(j => j.category === "proof" && j.execution === "observed");
     if (aggregate) {
       try {
         const log = await api.log(aggregate.id);
+        attachTimingEvidence(snapshot, log);
         const rows = log.split("\n").filter(line => line.includes("BRAIN_SELECTED_PROOF_RECEIPT "));
         if (rows.length !== 1) throw new Error("Selected-proof timing metadata missing or ambiguous");
         const receipt = JSON.parse(rows[0]!.split("BRAIN_SELECTED_PROOF_RECEIPT ")[1]!);
@@ -154,12 +163,25 @@ export async function collectAttempt(api: TimingAPI, repository: string, raw: Ra
   return snapshot;
 }
 
-export function stats(values: number[]) {
-  const sorted = values.filter(validSeconds).sort((a, b) => a - b), n = sorted.length;
-  return { n, mean: n ? sorted.reduce((a, b) => a + b, 0) / n : null,
-    median: n ? (sorted[Math.floor((n - 1) / 2)]! + sorted[Math.floor(n / 2)]!) / 2 : null,
-    p90: n ? sorted[Math.ceil(n * .9) - 1]! : null };
+export function attachTimingEvidence(snapshot: TimingSnapshot, log: string): void {
+  for (const [marker, kind] of [["BRAIN_TIMING_CONTEXT ", "context"], ["BRAIN_CANDIDATE_RECEIPT ", "candidate"]] as const) {
+    const rows = log.split("\n").filter(line => line.includes(marker));
+    if (!rows.length) continue;
+    if (rows.length !== 1) throw new Error("Ambiguous timing evidence");
+    const value = JSON.parse(rows[0]!.split(marker)[1]!);
+    if (value.head !== snapshot.run.head) throw new Error("Timing evidence head mismatch");
+    if (kind === "context") {
+      if (!["draft", "feedback", "confirmation", "integrated", "exhaustive"].includes(value.cadence) || typeof value.global !== "boolean") throw new Error("Invalid timing context");
+      snapshot.context = { cadence: value.cadence, global: value.global, head: value.head };
+    } else {
+      if (!SHA.test(value.head) || !SHA.test(value.base) || !SHA.test(value.checkout?.sha) || !SHA.test(value.checkout?.tree) ||
+        JSON.stringify(value.checkout?.parents) !== JSON.stringify([value.base, value.head])) throw new Error("Invalid candidate timing receipt");
+      snapshot.candidate = { head: value.head, base: value.base,
+        checkout: { sha: value.checkout.sha, tree: value.checkout.tree, parents: value.checkout.parents } };
+    }
+  }
 }
+
 function executionSeconds(snapshot: TimingSnapshot): number {
   return snapshot.jobs.reduce((sum, job) => sum + (job.seconds ?? 0), 0);
 }
@@ -186,6 +208,8 @@ export function deduplicate(snapshots: TimingSnapshot[]): TimingSnapshot[] {
       merged.run.prs = older.run.prs; merged.run.attribution = older.run.attribution;
     }
     if (!merged.selection && older.selection) merged.selection = older.selection;
+    if (!merged.context && older.context) merged.context = older.context;
+    if (!merged.candidate && older.candidate) merged.candidate = older.candidate;
     for (const job of merged.jobs) {
       const previous = older.jobs.find(j => j.id === job.id);
       if (!job.resource && previous?.resource) { job.resource = previous.resource; job.resourceProblem = null; }
@@ -344,40 +368,122 @@ async function pullIdentities(api: TimingAPI, since: string): Promise<PullIdenti
   }
   return rows;
 }
-async function writeReport(dir: string) {
-  const snapshots = await readSnapshots(dir), collections = await readCollections(dir);
+async function readOperationalData(dir: string): Promise<{ pulls: PullObservation[]; events: WorkEvent[] }> {
+  const pulls: PullObservation[] = [], events: WorkEvent[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) { const children = await readOperationalData(path); pulls.push(...children.pulls); events.push(...children.events); }
+    else if (/^pull-\d+\.json$/.test(entry.name)) pulls.push(await Bun.file(path).json());
+    else if (/^event-[\w-]+\.json$/.test(entry.name)) events.push(validateWorkEvent(await Bun.file(path).json()));
+  }
+  const unique = new Map<string, PullObservation>();
+  for (const p of pulls) {
+    const key = `${p.repository}/${p.number}`, old = unique.get(key);
+    if (!old || p.collectedAt > old.collectedAt) unique.set(key, p);
+  }
+  return { pulls: [...unique.values()], events };
+}
+async function writeReport(dir: string, scenario?: Scenario) {
+  const snapshots = await readSnapshots(dir), rawCollections = await readCollections(dir);
+  const collections = [...new Map(rawCollections.map(c => [c.id ?? JSON.stringify(c), c])).values()];
   const observed = new Set(snapshots.map(s => `${s.repository}/${s.run.id}/${s.run.attempt}`));
   const missing = new Set<string>();
   for (const c of collections) for (const r of c.expected ?? []) for (let attempt = 1; attempt <= r.attempts; attempt++) {
     const key = `${c.repository}/${r.run}/${attempt}`;
     if (!observed.has(key)) missing.add(key);
   }
-  const report = { ...summarize(snapshots), collectionCoverage: { missingAttempts: [...missing],
+  const basic = summarize(snapshots), operational = await readOperationalData(dir);
+  const analysisPath = join(dir, "analysis-window.json"), scenarioPath = join(dir, "scenario.json");
+  const intervals = collections.filter(c => stampForWindow(c.since) && stampForWindow(c.until));
+  const window = await Bun.file(analysisPath).exists() ? await Bun.file(analysisPath).json() : intervals.length ? {
+    since: intervals.map(c => c.since).sort()[0], until: intervals.map(c => c.until).sort().at(-1), source: "bounding collection interval; archive gaps must be reviewed" } : null;
+  scenario ??= await Bun.file(scenarioPath).exists() ? await Bun.file(scenarioPath).json() : { failedPRFraction: .3, additionalPushes: 2, failedRunCostFraction: 1 };
+  const lifecycleAcquisition = await Bun.file(join(dir, "enrichment.json")).exists() ? await Bun.file(join(dir, "enrichment.json")).json() : null;
+  const reservations = await Bun.file(join(dir, "reservations.json")).exists() ? await Bun.file(join(dir, "reservations.json")).json() : null;
+  if (reservations && snapshots.some(s => s.repository !== reservations.repository)) throw new Error("Reservation archive belongs to another repository");
+  const report = { ...basic, lifecycleAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
+    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservations?.leases) : null,
+    collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
       collectedAt: c.collectedAt, status: c.status, errors: c.errors })) } };
   await Bun.write(join(dir, "summary.json"), JSON.stringify(report, null, 2) + "\n");
-  await Bun.write(join(dir, "summary.md"), markdown(report) + `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);
+  await Bun.write(join(dir, "summary.md"), markdown(report) + (report.throughput ? "\n" + throughputMarkdown(report.throughput) : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
+    `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);
   return report;
+}
+const stampForWindow = (s: unknown): s is string => typeof s === "string" && Number.isFinite(Date.parse(s));
+
+async function enrich(dir: string, api: TimingAPI, repository: string, evidence: boolean): Promise<boolean> {
+  const snapshots = await readSnapshots(dir), scope = await readCollections(dir);
+  const since = scope.map(c => c.since).filter(stampForWindow).sort()[0] ?? snapshots.map(s => s.run.createdAt).sort()[0];
+  let indexed: number[] = [];
+  const errors: { pr: number; problem: string }[] = [];
+  if (since) {
+    try { indexed = (await pullIdentities(api, since)).map(p => p.number); }
+    catch (e) { errors.push({ pr: 0, problem: `PR index unavailable: ${String(e)}` }); }
+  }
+  const ids = [...new Set([...indexed, ...snapshots.filter(s => s.repository === repository).flatMap(s => s.run.prs)])];
+  let index = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (index < ids.length) {
+      const pr = ids[index++]!;
+      try {
+      const p = await collectPullObservation(api, repository, pr);
+      await Bun.write(join(dir, `pull-${pr}.json`), JSON.stringify(p, null, 2) + "\n");
+      if (!evidence) continue;
+      const pre = snapshots.filter(s => s.repository === repository && s.run.event === "pull_request" && s.run.prs.includes(pr) && s.run.head === p.head &&
+        s.run.conclusion === "success" && (!p.mergedAt || Date.parse(s.run.createdAt) <= Date.parse(p.mergedAt))).sort((a, b) => b.run.id - a.run.id || b.run.attempt - a.run.attempt);
+      const latest = pre.find(s => s.jobs.some(j => j.name === "proof" && j.conclusion === "success"));
+      if (latest) {
+        try { attachTimingEvidence(latest, await api.log(latest.jobs.find(j => j.name === "proof")!.id)); }
+        catch (e) { latest.evidenceProblem = String(e); }
+        await Bun.write(join(dir, `run-${latest.run.id}-attempt-${latest.run.attempt}.json`), JSON.stringify(latest, null, 2) + "\n");
+      }
+      } catch (e) { errors.push({ pr, problem: String(e) }); }
+    }
+  }));
+  await Bun.write(join(dir, "enrichment.json"), JSON.stringify({ version: 1, repository, collectedAt: new Date().toISOString(), expectedPRs: ids, errors }, null, 2));
+  return !errors.length;
 }
 
 if (import.meta.main) {
   try {
     const args = process.argv.slice(2), mode = args.shift();
     const options = new Map<string, string>();
-    let resources = false;
+    let resources = false, reservations = false;
     while (args.length) {
       const flag = args.shift()!;
       if (flag === "--resources") { resources = true; continue; }
-      if (!["--repo", "--since", "--until", "--run", "--out"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
+      if (flag === "--reservations") { reservations = true; continue; }
+      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
     const dir = resolve(options.get("--out") ?? "tmp/ci-timings");
     await mkdir(dir, { recursive: true });
-    if (mode === "report") { await writeReport(dir); console.log(`Report written to ${dir}`); }
+    const repository = options.get("--repo") ?? "schlessera/brain-kit";
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
+    const api: TimingAPI = { json: async path => JSON.parse(await gh(path, repository)), log: id => gh(`actions/jobs/${id}/logs`, repository, true) };
+    if (reservations) {
+      if (!options.has("--since")) throw new Error("Reservation history requires --since");
+      await Bun.write(join(dir, "reservations.json"), JSON.stringify(collectReservationHistory(repository, options.get("--since")!), null, 2) + "\n");
+    }
+    if (options.has("--scenario")) await Bun.write(join(dir, "scenario.json"), JSON.stringify(await Bun.file(options.get("--scenario")!).json(), null, 2));
+    if (options.has("--since") && options.has("--until")) await Bun.write(join(dir, "analysis-window.json"), JSON.stringify({ since: options.get("--since"), until: options.get("--until"), source: "explicit analysis interval" }));
+    if (mode === "record") {
+      if (!options.has("--event")) throw new Error("Record requires --event JSON-file");
+      const input = await Bun.file(options.get("--event")!).json();
+      if (input.repository && input.repository !== repository) throw new Error("Event repository differs from --repo");
+      const event = validateWorkEvent({ ...input, version: 1, repository, id: input.id ?? crypto.randomUUID(), at: input.at ?? new Date().toISOString() });
+      const path = join(dir, `event-${event.id}.json`);
+      try { await writeFile(path, JSON.stringify(event, null, 2) + "\n", { flag: "wx" }); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (JSON.stringify(validateWorkEvent(await Bun.file(path).json())) !== JSON.stringify(event)) throw new Error("Event ID already exists with different content");
+      }
+      console.log(`Recorded ${event.id}`);
+    } else if (mode === "enrich") { if (!await enrich(dir, api, repository, resources)) process.exitCode = 1; await writeReport(dir); console.log(`Enriched ${dir}`); }
+    else if (mode === "report") { await writeReport(dir); console.log(`Report written to ${dir}`); }
     else if (mode === "collect") {
-      const repository = options.get("--repo") ?? "schlessera/brain-kit";
-      if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
-      const api: TimingAPI = { json: async path => JSON.parse(await gh(path, repository)), log: id => gh(`actions/jobs/${id}/logs`, repository, true) };
       const cutoff = options.get("--until") ?? new Date().toISOString();
       let runs: RawRun[];
       if (options.has("--run")) {
@@ -391,10 +497,12 @@ if (import.meta.main) {
       }
       console.log(`Discovered ${runs.length} runs; collecting attempts with four concurrent requests`);
       const errors: { run: number; attempt: number; error: string }[] = [];
-      const collection = { version: 1, repository, collectedAt: new Date().toISOString(), status: "collecting",
+      const collection = { version: 1, id: crypto.randomUUID(), repository, collectedAt: new Date().toISOString(), status: "collecting",
         since: options.get("--since") ?? null, until: cutoff, requestedRun: options.get("--run") ?? null,
         expected: runs.map(r => ({ run: r.id, attempts: r.run_attempt })), resourcesRequested: resources, errors };
       await Bun.write(join(dir, "collection.json"), JSON.stringify(collection, null, 2) + "\n");
+      const collectionArchive = join(dir, "collections", collection.id, "collection.json");
+      await Bun.write(collectionArchive, JSON.stringify(collection, null, 2) + "\n");
       let next = 0, done = 0;
       await Promise.all(Array.from({ length: 4 }, async () => {
         while (next < runs.length) {
@@ -445,10 +553,12 @@ if (import.meta.main) {
       }
       collection.status = "completed";
       await Bun.write(join(dir, "collection.json"), JSON.stringify(collection, null, 2) + "\n");
+      await Bun.write(collectionArchive, JSON.stringify(collection, null, 2) + "\n");
+      if (!await enrich(dir, api, repository, false)) process.exitCode = 1;
       const report = await writeReport(dir);
       console.log(JSON.stringify({ directory: dir, coverage: report.coverage, errors: errors.length }));
       if (errors.length || report.collectionCoverage.missingAttempts.length ||
         (await readSnapshots(dir)).some(s => s.problems.length)) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect (--since ISO [--until ISO] | --run ID) [--resources] [--repo owner/repo] [--out DIR] | report [--out DIR]");
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--event JSON] [--scenario JSON] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }

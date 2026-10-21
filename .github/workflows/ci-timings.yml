@@ -35,7 +35,7 @@ jobs:
           TIMING_REPO: ${{ github.repository }}
         run: |
           since=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
-          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --resources
+          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --resources --reservations
       - name: Retain normalized timing archive
         if: always()
         uses: actions/upload-artifact@v7
