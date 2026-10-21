@@ -12,6 +12,7 @@ const declarations:DocumentDeclaration[]=[{
   sink:'route.fulfill(requested === path\n      ? { status: 200, contentType: "text/html", body: html }\n      : { status: 404, contentType: "text/plain", body: "Unknown fixture file" })',
   producers:{} as Record<string,string>
 },{
+  // #1599 re-audit: design-font-checks.ts only adds a synchronous layout read of its probe host; no sink, call, argument or producer changes.
   command:"ghostTrace",owner:"packages/ui-kit/tests/visual/ghost-browser.ts",ownerHash:"004c45bd7261997efccc74623ee2f67db4fc832b99039bc2f49cea81e75fb799",
   caller:"packages/ui-kit/tests/visual/ghost-sweep.visual.tsx",callerHash:"77ecc3626f82ae9687f17fdc9846353ed9bd3057a802ac3e8acd89b72d17039e",calls:1,
   sink:'page.setContent(`<html data-theme="${fixture.theme}"><head><base href="${fixture.base}"><style>${fixture.css}</style><style>body{margin:0;padding:16px;box-sizing:border-box;background:var(--bk-color-canvas)}</style></head><body>${fixture.html}</body></html>`)',
@@ -21,7 +22,7 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/.storybook/preview.css":"d98834fb114fc7aa26cf2b79bcbaf363943fdd99b1535748f14f1dd861a0d4ec",
     "packages/ui-kit/tests/visual/zero-request-replay.ts":"694080b66abfd6235d1873e63c908f4284b8804e5f3ff2ac98ca89169c59290e",
     "packages/ui-kit/tests/visual/design-font-setup.ts":"ef812cb97c62da898dc0050cdfc09762163dfdb2cac1e3b813d586fd0fa95fb2",
-    "packages/ui-kit/tests/visual/design-font-checks.ts":"c534a18213734a16731e9ff70aedf267c2fdde6867a17b068b0292040e00634f",
+    "packages/ui-kit/tests/visual/design-font-checks.ts":"502748af10e70e34583dc82f0f9de21d59d1b86829aa80d29ce04e071da464cd",
     "packages/ui-kit/tests/visual/rank-footer-browser.ts":"7c4a2b0e4b5d3f40f2cc84af86f852c36068791fcb1dc6f8989f2863d51733a0",
     "scripts/captures/fonts.ts":"a0d96b46f110e929e34cdc592927c4a23dedde9f672e059bfae7bba10e8349cd",
     "scripts/captures/font-lock.json":"3ec58a552059527131bda0277703425243a63aa311d58b67201a7b2c9fe136ad",
@@ -36,6 +37,7 @@ const declarations:DocumentDeclaration[]=[{
   // callout capture sites, arguments and unchanged HTML/CSS/font producers.
   // #2241 re-audit: renderer/axis edits only strengthen viewer selection and
   // font assertions; capture arguments, call counts and producer closure stay fixed.
+  // #1599 re-audit: design-font-checks.ts only adds a synchronous layout read of its probe host; no sink, call, argument or producer changes.
   "command": "diagramCapture",
   "owner": "packages/ui-react/tests/browser/diagram-proof-command.ts",
   "ownerHash": "d7280cf23ba24bd636f7737d8552801e37f8c03c1e773aee660c9e07ded524a9",
@@ -71,7 +73,7 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/tests/visual/zero-request-replay.ts": "694080b66abfd6235d1873e63c908f4284b8804e5f3ff2ac98ca89169c59290e",
     "packages/ui-kit/tests/visual/form-browser.ts": "3ccf67a71fa64af195bbf8cf6d173064dc9d2d4fc6abc699fa0a638c352ca62e",
     "packages/ui-kit/tests/visual/design-font-setup.ts": "ef812cb97c62da898dc0050cdfc09762163dfdb2cac1e3b813d586fd0fa95fb2",
-    "packages/ui-kit/tests/visual/design-font-checks.ts": "c534a18213734a16731e9ff70aedf267c2fdde6867a17b068b0292040e00634f",
+    "packages/ui-kit/tests/visual/design-font-checks.ts": "502748af10e70e34583dc82f0f9de21d59d1b86829aa80d29ce04e071da464cd",
     "packages/ui-kit/tests/visual/rank-footer-browser.ts": "7c4a2b0e4b5d3f40f2cc84af86f852c36068791fcb1dc6f8989f2863d51733a0",
     "scripts/captures/fonts.ts": "a0d96b46f110e929e34cdc592927c4a23dedde9f672e059bfae7bba10e8349cd",
     "scripts/captures/font-lock.json": "3ec58a552059527131bda0277703425243a63aa311d58b67201a7b2c9fe136ad",
@@ -122,6 +124,7 @@ const declarations:DocumentDeclaration[]=[{
   }
 },
 {
+  // #1599 re-audit: design-font-checks.ts only adds a synchronous layout read of its probe host; no sink, call, argument or producer changes.
   "command": "diagramRasterComparison",
   "owner": "packages/ui-react/tests/browser/diagram-export-command.ts",
   "ownerHash": "f7c3d14ccf96438bf4e28ecc1929b1208fb99520d21a9947086bb43bca933328",
@@ -133,7 +136,7 @@ const declarations:DocumentDeclaration[]=[{
     "packages/ui-kit/tests/visual/zero-request-replay.ts": "694080b66abfd6235d1873e63c908f4284b8804e5f3ff2ac98ca89169c59290e",
     "packages/ui-kit/tests/visual/form-browser.ts": "3ccf67a71fa64af195bbf8cf6d173064dc9d2d4fc6abc699fa0a638c352ca62e",
     "packages/ui-kit/tests/visual/design-font-setup.ts": "ef812cb97c62da898dc0050cdfc09762163dfdb2cac1e3b813d586fd0fa95fb2",
-    "packages/ui-kit/tests/visual/design-font-checks.ts": "c534a18213734a16731e9ff70aedf267c2fdde6867a17b068b0292040e00634f",
+    "packages/ui-kit/tests/visual/design-font-checks.ts": "502748af10e70e34583dc82f0f9de21d59d1b86829aa80d29ce04e071da464cd",
     "packages/ui-kit/tests/visual/rank-footer-browser.ts": "7c4a2b0e4b5d3f40f2cc84af86f852c36068791fcb1dc6f8989f2863d51733a0",
     "scripts/captures/fonts.ts": "a0d96b46f110e929e34cdc592927c4a23dedde9f672e059bfae7bba10e8349cd",
     "scripts/captures/font-lock.json": "3ec58a552059527131bda0277703425243a63aa311d58b67201a7b2c9fe136ad",
