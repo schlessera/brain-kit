@@ -250,6 +250,7 @@ export function throughputMarkdown(r: ReturnType<typeof summarizeThroughput>): s
   const format = (x: number | null) => x === null ? "unknown" : x.toFixed(2);
   return ["## Reliable integration throughput", "", r.objective + ".", "",
     `Window: ${r.window.since} to ${r.window.until} (${r.window.source}).`,
+    `Lifecycle observations: ${r.coverage.lifecyclePRs}; records with acquisition problems: ${r.coverage.lifecycleProblems.length}; merged cohort: ${r.coverage.mergedInWindow}.`,
     `Merged PR/day: ${format(r.velocity.mergedPerDay)}; first-pass green integrations/day: ${format(r.velocity.firstPassGreenPerDay)}.`,
     `First main-push green: ${r.velocity.firstPassGreen.numerator}/${r.velocity.firstPassGreen.denominator} (${format(r.velocity.firstPassGreen.percent)}%); unknown first-main outcomes: ${r.coverage.firstMainUnknown}.`,
     `Observed runner-minutes per observed-green integration: ${format(r.velocity.runnerMinutesPerObservedGreenIntegration)}.`,
@@ -262,6 +263,6 @@ export function throughputMarkdown(r: ReturnType<typeof summarizeThroughput>): s
     }), "", `Peak observed CI jobs: ${r.parallelism.ciJobs.peak}; peak distinct PR verification intervals: ${r.parallelism.distinctPRVerification.peak}. Worker concurrency: ${r.parallelism.recordedWorkers ? r.parallelism.recordedWorkers.peak : "unknown (no complete worker records)"}.`,
     `Reservation occupied wall-seconds: ${r.reservation ? format(r.reservation.activeWallSeconds) : "unknown"}; caller reservation wait remains unknown without wait records.`,
     `Final candidate receipt / immutable squash comparisons: ${JSON.stringify(r.evidence.squashComparedToRecordedReceipt)}. Differences require contextual review; unknown is not equivalent.`,
-    `Scenario: ${JSON.stringify(r.scenario.assumptions)}; equivalent full runs/PR ${format(r.scenario.equivalentFullRunsPerPR)}; estimated compute saving ${format(r.scenario.estimatedSavingPercent)}%.`,
+    `Scenario: ${JSON.stringify(r.scenario.assumptions)}; equivalent full runs/PR ${format(r.scenario.equivalentFullRunsPerPR)}; estimated compute saving ${format(r.scenario.estimatedSavingPercent)}%; full reference samples: ${r.scenario.baselineSamples}.`,
     "Causal wall-time and reliability improvements remain unknown. Guarantee satisfaction requires the existing independent proof/merge validation; these rates do not replace it.", ""].join("\n");
 }

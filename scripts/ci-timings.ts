@@ -307,6 +307,7 @@ export function markdown(report: ReturnType<typeof summarize>): string {
     "| Event / category | Jobs | Mean min | Median min | p90 min |", "| --- | ---: | ---: | ---: | ---: |",
     ...Object.entries(report.categories).map(([key, value]) => `| ${key.replaceAll("|", "\\|")} | ${value.n} | ${minutes(value.mean)} | ${minutes(value.median)} | ${minutes(value.p90)} |`), "",
     "## Approximate full-proof comparison", "", report.baseline.label + ".",
+    "The two-run reference assumes a clean first pass; every-attempt costing is the opposite extreme. Use the explicit throughput scenario for a failure/rework assumption.",
     `Successful exhaustive samples: ${report.baseline.samples.length}; median runner minutes per full run: ${minutes(report.baseline.runnerSeconds.median)}.`,
     `Median full-run attempt elapsed minutes: ${minutes(report.baseline.elapsedSeconds.median)}; estimated combined pre/post elapsed minutes per PR: ${minutes(report.baseline.estimatedElapsedPerPRBeforeAndAfter)} (queue/review differences are not modeled).`,
     `For paired PRs only: observed CI runner minutes ${minutes(report.baseline.pairedObservedCIRunnerSeconds)}; estimated full proof once before and after ${minutes(report.baseline.onceBeforeAndAfterEstimate)}; estimated full proof on every observed attempt ${minutes(report.baseline.everyAttemptEstimate)}.`, "",
@@ -407,7 +408,10 @@ async function writeReport(dir: string, scenario?: Scenario) {
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
       collectedAt: c.collectedAt, status: c.status, errors: c.errors })) } };
   await Bun.write(join(dir, "summary.json"), JSON.stringify(report, null, 2) + "\n");
-  await Bun.write(join(dir, "summary.md"), markdown(report) + (report.throughput ? "\n" + throughputMarkdown(report.throughput) : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
+  await Bun.write(join(dir, "summary.md"), (report.throughput ? "# Reliable integration measurements\n\n" + throughputMarkdown(report.throughput) +
+    `\nLifecycle acquisition errors: ${lifecycleAcquisition?.errors?.length ?? "unknown"}.\n\n` : "") +
+    markdown(report).replace("# CI timing observations", report.throughput ? "## CI timing detail" : "# CI timing observations") +
+    (report.throughput ? "" : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
     `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);
   return report;
 }
