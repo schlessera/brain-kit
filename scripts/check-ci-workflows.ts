@@ -90,6 +90,17 @@ export function workflowProblems(text: string, file: string): string[] {
     if (admission <= planning || discovery <= admission || metadata[admission]?.if !== "steps.plan.outputs.cadence == 'confirmation'" ||
         metadata[admission]?.env?.GH_TOKEN !== "${{ github.token }}") fail("metadata: confirmation admission must validate identity after planning and before product discovery");
   }
+  if (file === "contract.yml") {
+    // The event's base is wrong for native stack layers on some triggers (#2650).
+    const steps = workflow.jobs?.contract?.steps ?? [];
+    const gate = steps.find(step => step.run?.startsWith("bun scripts/check-contract-pr.ts"));
+    const eventBase = /github\.base_ref|pull_request\.base/;
+    if (gate?.run !== 'bun scripts/check-contract-pr.ts --declared-base "$HEAD_SHA"' ||
+        gate.env?.PR_NUMBER !== "${{ github.event.pull_request.number }}" || gate.env?.GH_TOKEN !== "${{ github.token }}" ||
+        steps.some(step => Object.entries(step.env ?? {}).some(([key, value]) => key !== "EVENT_BASE_REF" && eventBase.test(String(value))) || eventBase.test(step.run ?? ""))) {
+      fail("contract: the comparison base must be the PR's declared base, read at run time, never the event's");
+    }
+  }
   return problems;
 }
 
