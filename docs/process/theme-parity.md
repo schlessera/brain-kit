@@ -71,22 +71,72 @@ the additional theme presentation checks.
 | Same file, `steering skill review and existing per-file revert`: awaited title/diff, focus, recorded taint, zoom, Escape return, Revert/Undo receipts and exact skill bytes | Both journal stories traverse the steering reader and assert awaited diff, title focus, recorded taint, reader bounds, explicit per-file revert dispatch, Escape return and visible Undo affordance after fixture receipt. | Actual Revert/Undo operations, exact before/after skill bytes and receipt completion, 200% zoom and egress. Fixture callbacks do not execute a filesystem operation. |
 | Same file, `shared conflict reader chooses retained versions, keeps both and Undo`: title focus, truthful conflict copy, observation selection/diff, explicit Keep both, receipts, selected/companion bytes, zoom, Undo content/removal, egress | Both journal stories traverse the conflict reader, assert focus/copy/bounds/axe, switch observations, assert the Other observed version selector and explicit ≥44px Keep both action, dispatch selected/other/expected observation identities, and show Undo after a fixture receipt. | Exact selected and companion file contents, actual resolution/Undo receipt and execution, companion removal, index updates, stale/conflict handling, native 200% zoom and no egress. |
 
-Artifact `FilePanel` is not represented by this central coverage. Its complete
-`artifact-recovery-runtime.test.ts` matrix remains necessary: native title and
-opener focus; status cardinality; document and 200% zoom bounds; retry size,
-visibility and four edge hit tests; static reduced-motion loading; awaited
-500/offline/403/413/PDF/404 states; status/alert/retry/download truthfulness;
-native PDF painting; route/auth/retry/race/navigation and egress proof. The
-loading wrapper currently fails `aria-prohibited-attr` in actual consumer
-coverage ([#1884](https://github.com/schlessera/brain-kit/issues/1884)); it has no
-passing central replacement. No artifact runtime reduction is justified by
-this map.
+The artifact `FilePanel` has its own map under
+[Artifact consumer](#artifact-consumer).
 
 The native helper and awaited-state assertions are part of this map even when
 they are not standalone `expect` calls. Native hit/zoom/media, storage/auth,
 HTTP/file bytes and operation execution are deliberately not approximated by
 Storybook callback assertions. Central presentation coverage does not replace
 these native proofs or change product/public interfaces.
+
+## Artifact consumer
+
+`Conversation/Artifact theme` mounts the composition of
+`packages/ui-react/tests/fixtures/artifact-recovery-client.tsx`: the actual
+`BrainMarkdown` file link, composer and `FilePanel`, bound to the UI store's
+open state. It leaves out the connection gate and navigation chrome, which
+keep their runtime owners. The document uses the same built consumer
+stylesheet, viewport, media and cleanup as the account and journal fixtures.
+The phone drawer and the desktop panes are both inline `<section>` elements
+inside the story document, not portals. Each story asserts that the mounted
+shape's root node is the document, that it sits inside the story canvas, and
+that its computed `color-scheme` is the selected theme.
+
+The real file store receives every metadata outcome through the root's request
+seam and classifies it itself. A 500, a held request, a thrown network
+`TypeError`, 403, 413, PDF metadata and a scratch 404 become the same store
+states the runtime routes produce. Unexpected requests throw. pdf.js fetches
+the PDF bytes natively. The `artifactParityRoute` browser command serves the
+runtime fixture's one-page PDF for that exact same-origin raw path and aborts
+everything else
+(`artifactParityRoute`, `packages/ui-kit/tests/visual/artifact-parity-route.ts:10-19`).
+The route is removed by the story cleanup and by a Vitest finalizer.
+
+The stories mirror the two runtime families that multiply theme by width:
+(`LayoutPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:125-163`)
+and `LayoutDesktop` match `artifact layout <theme> <width>`;
+(`StatesPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:168-213`)
+and `StatesDesktop` match `artifact full state matrix <theme> <width>`. Both
+Storybook projects run all four stories at 320/1280px, which gives the same
+eight width/theme cells as the runtime. Every transient state also gets the
+scoped WCAG A/AA check, including contrast. The unchanged addon gate checks the
+final state.
+
+| Runtime oracle (`artifact-recovery-runtime.test.ts`) | Central presentation oracle | Native boundary retained |
+| --- | --- | --- |
+| `artifact layout`: a 500 reached by focusing the link and pressing Enter; awaited title and settled load | `Layout*`: Enter on the focused actual file link; awaited `Couldn't open this file.` heading. | Native keyboard activation through Playwright, with the real server route and an authenticated session. |
+| Same case: native title focus | `artifact title focus`; after Try again, `retry keeps title focus`. | Native focus after a native key press. |
+| Same case: exactly one status | `exactly one artifact status`, with `artifact states are not alerts` and `retry only where supported`. | None beyond the native page. |
+| Same case: document has no horizontal overflow | `artifact document bounds`, plus the `bounds` helper on the toolbar and the retry button. | The runtime page's own html/body rules. |
+| Same case: `RETRY_44PX_TARGET` | `artifact retry target height`, plus `artifact retry target width`. | None beyond the native page. |
+| Same case: `RETRY_EDGE_HIT_TESTS` | `artifact retry edge hit test` runs the runtime's exact oracle, `document.elementFromPoint` at each of the four edges. It is layout hit testing in the same Chromium, not simulated input. | Hit testing in the application page with its navigation chrome mounted. |
+| Same case: `200PCT_ZOOM_NO_HORIZONTAL_OVERFLOW` and retry visible | Same CSS `zoom: 2` on the document element: `artifact 200% zoom has no horizontal overflow`, `artifact retry visible at 200% zoom`. The original zoom is restored in `finally`. | The application page's zoomed document with its own html/body rules. |
+| Same case: Escape restores focus to the file link and closes the panel | `Escape returns to the file link`, `artifact panel closed`, no title left mounted. | Native Escape, opener focus in the application page, and the `__artifactFixture` open state. |
+| Same case: no external egress (`outside`) | No replacement claimed. Unexpected requests throw in the seam and the route aborts them; this isolates the fixture and is not an egress oracle. | Every context-level egress assertion. |
+| `artifact full state matrix`: held first load, awaited `Loading file` status | `States*`: held seam request; awaited `Loading file` label and status text; scoped axe, then `loading is a named group` ([#1884](https://github.com/schlessera/brain-kit/issues/1884)). | A held real HTTP route. |
+| Same case: `REDUCED_MOTION_STATIC_LOADING` | `loading draws ghost lines`, `static reduced-motion loading`, `bounds` on the loading group. | None beyond the native page. |
+| Same case: released load renders the 500 heading | Same released held request, then the awaited heading, neutral state checks and axe. | Real server 500. |
+| Same case: offline, 403, 413, PDF, 404 opened through `__artifactFixture.open`, each with an awaited heading, one status, no alert, retry only for offline, document bounds | The same `openFile` call for each outcome, in the same order, with the same awaited heading and the same four checks. | Real `internetdisconnected` network abort, real server statuses and private error bodies, and auth on every request. |
+| Same case: PDF success awaits a native canvas | Seam PDF metadata, then pdf.js paints the routed bytes: `PDF page painted`, `bounds` on the canvas. | The real raw route, its headers, and pdf.js against the server. |
+| Same case: no false download outside PDF success | `<title>: no false download` for every non-PDF state. | None beyond the native page. |
+
+The other artifact runtime cases do not multiply by theme and are unchanged.
+They cover the status cases, the single offline retry flight, auth expiry and
+account change, secondary 404s, navigation, nested More, reopening after a
+resize, the HTML route and SVG printing. Fixture metadata, the PDF route and
+the retry counter prove presentation and dispatch only. They do not prove
+routing, authorization, request races or egress.
 
 ## What this map does not prove
 
@@ -181,6 +231,7 @@ node scripts/visual.mjs --project=storybook --project=storybook-light \
   --filter=SessionStrip.stories --filter=PendingFollowUps.stories \
   --filter=ComposerTheme.stories --filter=SessionTheme.stories \
   --filter=AccountTheme.stories --filter=JournalTheme.stories \
+  --filter=ArtifactTheme.stories \
   --filter=InPrint.stories
 ```
 
