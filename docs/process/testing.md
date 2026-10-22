@@ -565,12 +565,12 @@ The other consumer screenshot destinations have these explicit boundaries:
 - Opt-in external captures stay **local-only**: `BRAIN_ARTIFACT_SCREENSHOTS`
   directs additional artifact captures to a caller-chosen directory
   (`if (process.env.BRAIN_ARTIFACT_SCREENSHOTS)`,
-  `packages/ui-react/tests/artifact-recovery-runtime.test.ts:332-332`), while
+  `packages/ui-react/tests/artifact-recovery-runtime.test.ts:333-333`), while
   `BRAIN_REVIEW_CAPTURES` does the same for association/signout review
   (`if (process.env.BRAIN_REVIEW_CAPTURES)`,
-  `packages/ui-react/tests/association-signout-runtime.test.ts:218-218`;
+  `packages/ui-react/tests/association-signout-runtime.test.ts:216-216`;
   `if (process.env.BRAIN_REVIEW_CAPTURES)`,
-  `packages/ui-react/tests/association-signout-runtime.test.ts:252-252`). Hosted
+  `packages/ui-react/tests/association-signout-runtime.test.ts:250-250`). Hosted
   proof sets neither variable. These are optional manual review exports;
   collectors do not search arbitrary external directories.
 - Standalone navigation/software diagnostics stay **local-only**. The manual
