@@ -159,6 +159,12 @@ for (const trigger of ["caller abort", "app close", "loopback abort", "pre-abort
       console.info("METADATA_QUEUE_ORACLE", JSON.stringify({ path, trigger, outcome, holderReleased, bodyEntries }));
       expect(outcome, "QUEUED_STATUS_SETTLES_BEFORE_OUTPUT_LOCK_RELEASE").not.toBe("still queued");
       expect(outcome).toBe(path === "/api/status" ? 200 : 500);
+      // The loopback server has already streamed its response to the client.
+      if (trigger !== "loopback abort") {
+        const body = await (await pending!).json() as Record<string, unknown>;
+        if (path === "/api/status") expect(body, "CANCELLED_STATUS_OMITS_RENDERERS").not.toHaveProperty("contentRenderers");
+        else expect(body).toHaveProperty("error");
+      }
       if (trigger === "loopback abort") {
         expect(serverAborted, "ACTUAL_BUN_SERVER_REQUEST_ABORT_OBSERVED").toBe(true);
         await disconnected.promise;
