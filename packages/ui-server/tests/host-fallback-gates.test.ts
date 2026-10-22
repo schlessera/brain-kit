@@ -86,9 +86,42 @@ for (const method of ["run", "launch"] as const) {
         const refusal = await f.start(method, mode, selected, entered).then(() => undefined, error => error);
         expect(refusal, `FOLDER_POLICY_REFUSES_LEGACY_HOST_FALLBACK (${label})`).toBeInstanceOf(HostFallbackRefusedError);
         expect(String(refusal)).toContain("group/private");
+        expect(String(refusal), "REFUSAL_NAMES_THE_REQUIRED_BOUNDARY").toContain("requires the qualified worker boundary");
         expect(existsSync(f.ready), `FOLDER_POLICY_REFUSAL_PRECEDES_HOST_PROCESS (${label})`).toBe(false);
         expect(f.gate.holders(), `FOLDER_POLICY_REFUSAL_RELEASES_ADMISSION (${label})`).toEqual([]);
       }
+    } finally { await f.close(); }
+  });
+
+  test(`${method}: a folder policy refusal releases credential exclusion and precedes failed launch and cancellation`, async () => {
+    const f = fixture();
+    const directory = join(f.root, "credentials"); mkdirSync(directory, { mode: 0o700 });
+    const domain = { directory };
+    const selected = createHostBoundary({ brainPath: f.brain, gate: () => f.gate, requireGate: true, credentialDomain: domain,
+      workerHost: () => ({ ok: false, requirement: "fictional never-governed fixture" }) });
+    const settle = (running: Promise<unknown>) => running.then(async value => {
+      // A wrongly started streaming child is drained so the named assertion, not cleanup, fails.
+      const child = value as StreamingExecution; child.kill("SIGKILL");
+      await Promise.all([child.stdout.cancel(), child.stderr.cancel(), child.exited]); return value;
+    }, error => error);
+    try {
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+      const entered = `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`;
+      const credentialed = await settle(selected[method]({ ...f.command("shared", entered), credentials: true, signal: undefined }));
+      expect(credentialed, "FOLDER_POLICY_REFUSES_CREDENTIALED_HOST_FALLBACK").toBeInstanceOf(HostFallbackRefusedError);
+      const credential = await acquireHostCredentialExclusion({ domain, timeoutMs: 1000 });
+      credential.release();
+      const missing = await settle(selected[method]({ ...f.command("shared"), signal: undefined, argv: [join(f.root, "missing-program")] }));
+      expect(missing, "FOLDER_POLICY_REFUSAL_PRECEDES_FAILED_LAUNCH").toBeInstanceOf(HostFallbackRefusedError);
+      const exclusive = await f.gate.acquire("exclusive", "existing exclusive owner"); f.holds.push(exclusive);
+      const cancel = new AbortController();
+      const waiting = settle(selected[method]({ ...f.command("shared", entered), signal: cancel.signal }));
+      await Bun.sleep(30); cancel.abort(new Error("Odysseus cancelled"));
+      expect(String(await waiting), "CANCELLED_HOST_REQUEST_SETTLES_WITHOUT_A_CHILD").toContain("Odysseus cancelled");
+      exclusive.release();
+      expect(existsSync(f.ready)).toBe(false);
+      expect(f.gate.holders(), "FOLDER_POLICY_REFUSAL_RELEASES_ADMISSION").toEqual([]);
     } finally { await f.close(); }
   });
 
@@ -101,7 +134,7 @@ for (const method of ["run", "launch"] as const) {
       for (const [mode, selected] of [["shared", f.boundary()], ["none", f.boundary(true, false)]] as const) {
         const refusal = await f.start(method, mode, selected, entered).then(() => undefined, error => error);
         expect(refusal, `INVALID_POLICY_REFUSES_LEGACY_HOST_FALLBACK (${mode})`).toBeInstanceOf(HostFallbackRefusedError);
-        expect(String(refusal)).toContain("invalid");
+        expect(String(refusal)).toContain("cannot be read or parsed");
         expect(existsSync(f.ready)).toBe(false);
       }
       expect(f.gate.holders()).toEqual([]);

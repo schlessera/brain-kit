@@ -89,9 +89,9 @@ export class HostFallbackRefusedError extends Error {
  * the legacy host path.
  */
 export function refuseHostFallback(policy: TurnGovernancePolicy, roots: readonly string[] = []): void {
-  if (policy.errors.length) throw new HostFallbackRefusedError("Host fallback is refused: context/policies/governance.md is invalid, so whether a provider folder policy is active is unknown. Check it with `brain policy check`, or run brain code where the worker boundary is available.");
+  if (policy.errors.length) throw new HostFallbackRefusedError("Host fallback is refused: context/policies/governance.md cannot be read or parsed, so whether a provider folder policy is active is unknown, and brain code requires the qualified worker boundary until it is fixed. Check it with `brain policy check`.");
   const folders = [...new Set([...roots, ...providerFolderRoots(policy.policy)])].sort();
-  if (folders.length) throw new HostFallbackRefusedError(`Host fallback is refused while a provider folder policy is active (${folders.join(", ")}): this host cannot run brain code in a worker, and nothing bounds a host process's descendants. Run brain code where the worker boundary is available, or remove the provider folders from the policy.`);
+  if (folders.length) throw new HostFallbackRefusedError(`Host fallback is refused while a provider folder policy is active (${folders.join(", ")}): brain code beside protected folders requires the qualified worker boundary, because nothing bounds a host process's descendants. Run the server where the worker boundary is available, or remove the provider folders from the policy.`);
 }
 
 // Only a concrete, still-owned hold can record negative host provenance.
