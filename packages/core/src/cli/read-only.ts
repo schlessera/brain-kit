@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { linkRule, READ_ONLY_BRAIN_RULE, turnTempRule } from "@schlessera/brain-common/internal/worker-areas";
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { SCRATCH_DIR } from "../lib/scratch.js";
 
 /** Commands whose output belongs in the scratch area when the brain is read-only (#1626). */
@@ -35,11 +36,16 @@ export function readOnlyBrainError(command: string, error: unknown, root?: strin
 
 /**
  * The directory a known write form writes into: the scratch area for
- * `scratch` and for a `render` sent there, the brain root otherwise. The
- * read-only pre-check asks about this path, so a scratch write still runs
- * where the scratch area is its own writable mount.
+ * `scratch` and for a `render` sent there, the index directory for an index
+ * pass that writes nothing else, the brain root otherwise. The read-only
+ * pre-check asks about this path, so a scratch write still runs where the
+ * scratch area is its own writable mount, and an index pass still runs where
+ * a provider-restricted turn's private index is (#1668).
  */
 export function writeTarget(command: string, args: readonly string[], root: string): string {
+  // `--embeddings` and `--forget-cache` also append to the brain's committed caches.
+  if (command === "index" && !args.some(arg => arg === "--embeddings" || arg === "--on-commit" || arg === "--forget-cache" || arg.startsWith("--forget-cache=")))
+    return join(root, INDEX_DIR);
   const out = args.some(arg => arg === "--out" || arg.startsWith("--out="));
   if (command === "scratch" || (command === "render" && (args.includes("--scratch") || (args.includes("-") && !out)))) {
     return join(root, SCRATCH_DIR);

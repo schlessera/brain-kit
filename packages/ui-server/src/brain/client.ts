@@ -127,6 +127,11 @@ export function brainCliCommand(brainPath: string): string[] {
   return ["bun", "scripts/brain-cli.ts"];
 }
 
+/** The keyword index pass that builds a provider-restricted turn's private index (#1668). */
+export function privateIndexArgv(brainPath: string, command: readonly string[] = brainCliCommand(brainPath)): string[] {
+  return [...command, "index", "--json"];
+}
+
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
 export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal;
   /** @internal Where the CLI runs: in a maintenance worker while the host execution boundary holds (#1648). */

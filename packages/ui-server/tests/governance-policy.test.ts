@@ -269,7 +269,7 @@ test("unsupported policy edits never dispatch engines in the reader or actual ad
 });
 
 
-test("admitted literal provider folders reach real governed mounts without claiming provider authority", async () => {
+test("admitted literal provider folders reach real governed mounts and stay masked without a proven recipient", async () => {
   const f = fixture(); f.write("providers: [{ paths: [group/private/**], allow: [anthropic] }]");
   mkdirSync(join(f.brain, "group/private"), { recursive: true });
   writeFileSync(join(f.brain, "group/private/identity.md"), "Odysseus private identity.\n");
@@ -280,12 +280,14 @@ test("admitted literal provider folders reach real governed mounts without claim
     const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
       if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi
       if mv group group-moved 2>/dev/null; then echo ANCESTOR_RENAMED; exit 42; fi
-      printf Athena > group/private/new.md || exit 43
+      if printf Athena > group/private/new.md 2>/dev/null; then echo MASKED_FOLDER_WRITTEN; exit 43; fi
       printf Odysseus > group/public.md || exit 44
-      cat group/private/identity.md
+      cat group/private/identity.md 2>/dev/null || printf MASKED
     `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode, `ADMITTED_PROVIDER_FOLDER_PLAN_REACHES_NATIVE_MOUNTS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
-    expect(child.stdout.toString(), "TOPOLOGY_RETENTION_ALONE_DOES_NOT_MASK_OR_AUTHORIZE_PROVIDER_DATA").toBe("Odysseus private identity.\n");
+    // Retention alone authorizes nothing; with no proven recipient (#1665) the folder is masked (#1668).
+    expect(child.stdout.toString(), "UNPROVEN_RECIPIENT_SEES_PROVIDER_FOLDER_MASKED").toBe("MASKED");
+    expect(readFileSync(join(f.brain, "group/public.md"), "utf8"), "PERMITTED_SIBLING_WRITABLE").toBe("Odysseus");
   } finally { await hold.end(); }
 });
 
@@ -299,7 +301,7 @@ test("an invalid admission retains provider folders from the turn reader's last-
   try {
     expect(hold.policy.source).toBe("last_valid");
     const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
-      'if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi; printf Athena > group/private/new.md'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+      'if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode, `LAST_VALID_ADMITTED_POLICY_REACHES_NATIVE_FOLDER_PINS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
     const peer = await f.execution.gate()!.acquire("shared", "turn:athena-inherits-last-valid-plan");
     try {
@@ -341,10 +343,10 @@ test.each(["missing", "legacy", "ancestor"] as const)("a pre-existing unpinned p
       try {
         expect(strict.sandbox.profile).toBe("strict");
         const child = launchAgentWorker({ brainPath: f.brain, sandbox: strict.sandbox, startupView: strict.startupView,
-          env: {}, command: ["/bin/cat", "group/private/initial.md"] });
+          env: {}, command: ["/bin/sh", "-c", "cat group/private/initial.md 2>/dev/null || printf MASKED"] });
         child.stdin.end();
         const [exit, out, err] = await Promise.all([child.exited, collect(child.stdout), collect(child.stderr)]);
-        expect(exit, err).toBe(0); expect(out).toBe("Athena");
+        expect(exit, err).toBe(0); expect(out, "STRICT_TURN_MASKS_PROVIDER_FOLDER_WITHOUT_A_PROVEN_RECIPIENT").toBe("MASKED");
       } finally { await strict.end(); }
     }
     if (admitted) {
@@ -388,14 +390,14 @@ test("a live peer retaining a descendant permits shared admission of its pinned 
     hold = await f.turns.begin("shared-pinned-ancestor", new AbortController().signal);
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
     const next = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c",
-      "if mv group/private group/moved 2>/dev/null; then exit 42; fi; printf Odysseus > group/public.md; printf Athena > group/private/deeper/newer.md"] });
+      "if mv group/private group/moved 2>/dev/null; then exit 42; fi; printf Odysseus > group/public.md; if printf Athena > group/private/deeper/newer.md 2>/dev/null; then exit 43; fi"] });
     next.stdin.end();
     const [exit, out, err] = await Promise.all([next.exited, collect(next.stdout), collect(next.stderr)]);
     expect(exit, out + err).toBe(0);
     old.stdin.write("go\n"); old.stdin.end();
     expect(await old.exited, (await oldOutput).join("")).toBe(0);
     expect(readFileSync(join(f.brain, "group/private/deeper/older.md"), "utf8")).toBe("Athena");
-    expect(readFileSync(join(f.brain, "group/private/deeper/newer.md"), "utf8")).toBe("Athena");
+    expect(existsSync(join(f.brain, "group/private/deeper/newer.md")), "MASKED_FOLDER_NOT_WRITTEN_BY_UNPROVEN_RECIPIENT").toBe(false);
     expect(readFileSync(join(f.brain, "group/public.md"), "utf8")).toBe("Odysseus");
   } finally { old.kill(); await old.exited; await oldOutput; try { await hold?.end(); } finally { prior.release(); } }
 });
