@@ -57,8 +57,33 @@ test("emitted aggregate executable fails a cancelled selected job and accepts it
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, err).toBe(result === "success" ? 0 : 1);
     if (result === "cancelled") expect(err).toContain("layout: selected proof did not pass (cancelled)");
-    else expect(out).toContain("All selected hosted proof passed");
+    else {
+      expect(out).toContain("All selected hosted proof passed");
+      const line = out.split("\n").find(line => line.startsWith("BRAIN_SELECTED_PROOF_RECEIPT "));
+      expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
+      expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
+        selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null,
+      });
+    }
   }
+});
+
+test("hosted aggregate requires live draft readiness before selection planning", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "candidate-event-")); directories.push(directory);
+  const eventPath = join(directory, "event.json");
+  writeFileSync(eventPath, JSON.stringify({ action: "synchronize",
+    pull_request: { number: 7, draft: true, head: { sha: "a".repeat(40) } } }));
+  // Missing selections deliberately stop a bypass at the cheap cadence check.
+  // No repository plan or matching selection fixture is needed to reach readiness.
+  const child = Bun.spawn([process.execPath, "scripts/ci-proof.ts", "aggregate"], { cwd: ROOT,
+    env: { ...process.env, GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: eventPath,
+      GITHUB_REPOSITORY: "odysseus/brain-kit", GH_TOKEN: "", GITHUB_TOKEN: "", PROOF_NEEDS: "{}" },
+    stdout: "pipe", stderr: "pipe" });
+  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(code, err).toBe(1);
+  expect(err, "AGGREGATE_MUST_REQUIRE_LIVE_DRAFT_READINESS").toContain("Draft proof requires live read-only GitHub readiness verification");
+  expect(out).not.toContain("All selected hosted proof passed");
 });
 
 test("affected complete discovery admits new files and reverse dependencies without unrelated packages", () => {
@@ -196,6 +221,14 @@ test("emitted aggregate refuses skipped or missing selected native host job", as
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, "EMITTED_NATIVE_HOST_REQUIRED").toBe(state === "success" ? 0 : 1);
     if (state !== "success") expect(err).toContain(`runtime_host: selected proof did not pass (${state})`);
-    else expect(out).toContain("All selected hosted proof passed");
+    else {
+      expect(out).toContain("All selected hosted proof passed");
+      const line = out.split("\n").find(line => line.startsWith("BRAIN_SELECTED_PROOF_RECEIPT "));
+      expect(line, "MERGE_CONSUMER_RECEIVES_VALIDATED_SELECTED_INVENTORY").toBeDefined();
+      expect(JSON.parse(line!.slice("BRAIN_SELECTED_PROOF_RECEIPT ".length))).toEqual({
+        selections: Object.fromEntries(PROOF_JOBS.map(name => [name, "true"])),
+        results: Object.fromEntries(PROOF_JOBS.map(name => [name, "success"])), retained: [], unitShards: null,
+      });
+    }
   }
 });

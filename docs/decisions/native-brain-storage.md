@@ -58,6 +58,16 @@ which could erase another turn's later edits.
 
 ## Storage ownership and capacity
 
+> **2026-10-18 — Separate reference/worktree policy (#2390).** The
+> [reference-worktree decision](reference-worktrees.md#a-separate-logical-btrfs-volume-and-finite-allocation-budget)
+> selects a separate logical Btrfs reference/worktree volume with a combined
+> actual-allocated-disk allowance, including shared allocations, staging and
+> reservations. It does not change the brain-content retained-history charges
+> or the frequent-checkpoint store described below. Separate physical storage
+> and pre-reserved reference-volume backing are not required. Its concrete
+> allocation attribution and worktree optimization require their own runtime
+> evidence; this amendment supplies no qualification of either.
+
 The 10 GiB retained-history limit remains: distinct retained objects are charged
 by logical file length, alongside journal-owned database allocation and
 object-write reservations. Sharing physical extents does not reduce those
@@ -157,7 +167,7 @@ A failed or interrupted preparation poisons the stage for further payloads and
 publication until it is discarded. The private control marker is bound to the
 existing stage/checkpoint, command generation, descriptor and owned drain;
 no generic copying or reader authority is added (`prepareMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:108-139`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:110-141`).
 
 The root manager configuration fixes the application UID/group and the existing
 output allowance and aggregate budget. Requests cannot choose host paths or

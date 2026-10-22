@@ -1,7 +1,7 @@
 /** Real cross-UID broker proof; fixture elevation exists only in this container. */
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { applicationQualificationSelected, applicationQualificationScenario, APPLICATION_SKIPPED_CONTROLS } from "../packages/ui-sdk/tests/fixtures/application-qualification.js";
 import { ordinaryIdentityPhases, IDENTITY_PHASE_TIMEOUT_MS, IDENTITY_CLEANUP_TIMEOUT_MS } from "../packages/ui-sdk/tests/fixtures/ordinary-identity-phases.js";
 import { SDK_RELAY_PROFILE_TIMEOUT_MS, SDK_RELAY_SINGLE_TURN_TIMEOUT_MS } from "../packages/ui-backend-claude/tests/fixtures/sdk-host-relay-limits.js";
@@ -65,6 +65,20 @@ process.exitCode = code;
   return { shim, host, hashes: { originalCollector: collectorHash, originalHost: digest(hostSource), shim: digest(shim), variantHost: digest(host) } };
 }
 
+export function workerIdentityDockerArgs(source: string, artifact: string, container: string, image: string, apparmor: boolean, variants: { db: boolean; boot: boolean; prune: boolean; inventory: boolean; scratch: boolean }, bun: string): string[] {
+  const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
+  return ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
+    `--security-opt=seccomp=${join(source, "scripts/native-proof/seccomp.json")}`,
+    ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
+    "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
+    "--mount", `type=bind,source=${dirname(artifact)},target=/fixture-runs,readonly`,
+    "--mount", `type=bind,source=${source},target=/repo,readonly`,
+    "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
+    "--workdir=/repo", "--entrypoint=/bin/sh", image, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "identity",
+    ...(variants.db ? ["db"] : []), ...(variants.boot ? ["boot"] : []), ...(variants.prune ? ["prune"] : []), ...(variants.inventory ? ["inventory"] : []), ...(variants.scratch ? ["scratch"] : []), "--", "/bin/sh", "/setup.sh"];
+
+}
+
 if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
@@ -115,6 +129,7 @@ if (import.meta.main) {
       writeFileSync(join(artifact, "boot-scratch-prune.fixture.ts"), bootVariant.cron);
       writeFileSync(join(artifact, "boot-prune-substitution.json"), JSON.stringify(bootVariant.substitution, null, 2));
     }
+    if (scratchMask) writeFileSync(join(artifact, "scratch-mask-identity-ws.fixture.ts"), readFileSync(join(source, "packages/ui-sdk/tests/fixtures/scratch-mask-identity-ws.ts")));
     const dbVariant = applicationScenario === "db-repeat" ? dbRepeatStageVariant(readFileSync(join(source, "packages/ui-sdk/src/server/worker-native-output.ts"), "utf8")) : undefined;
     if (dbVariant) {
       writeFileSync(join(artifact, "db-repeat-output.fixture.ts"), dbVariant.source);
@@ -309,20 +324,7 @@ exit "$case_code"
     writeFileSync(join(artifact, "environment.json"), JSON.stringify(metadata, null, 2));
     writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ apparmor }));
     const container = `brain-kit-identity-proof-${crypto.randomUUID()}`;
-    const argv = ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
-      `--security-opt=seccomp=${join(source, "scripts/native-proof/seccomp.json")}`,
-      ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined", "--device=/dev/loop-control", "--device-cgroup-rule=b 7:1790 rwm",
-      "--mount", `type=bind,source=${artifact},target=/proof`,
-      "--mount", `type=bind,source=${source},target=/repo,readonly`,
-      ...(scratchMask ? ["--mount", `type=bind,source=${join(source, "packages/ui-sdk/tests/fixtures/scratch-mask-identity-ws.ts")},target=/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-ws.ts,readonly`] : []),
-      ...(dbVariant ? ["--mount", `type=bind,source=${join(artifact, "db-repeat-output.fixture.ts")},target=/repo/packages/ui-sdk/src/server/worker-native-output.ts,readonly`] : []),
-      ...(bootVariant ? ["--mount", `type=bind,source=${join(artifact, "boot-scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`] : []),
-      ...(pruneVariant ? [...(!bootVariant ? ["--mount", `type=bind,source=${join(artifact, "scratch-prune.fixture.ts")},target=/repo/packages/ui-server/src/cron/scratch-prune.ts,readonly`] : []),
-        "--mount", `type=bind,source=${join(artifact, "host-boundary.fixture.ts")},target=/repo/packages/ui-server/src/brain/host-boundary.ts,readonly`] : []),
-      ...(inventoryVariant ? ["--mount", `type=bind,source=${join(artifact, "maintenance-git.fixture.ts")},target=/repo/packages/ui-server/src/brain/maintenance-git.ts,readonly`] : []),
-      "--mount", `type=bind,source=${realpathSync(process.execPath)},target=/usr/local/bin/bun,readonly`,
-      "--mount", `type=bind,source=${helper},target=/fixture-helper,readonly`, "--mount", `type=bind,source=${helperScriptPath},target=/helper.py,readonly`, "--mount", `type=bind,source=${filter},target=/filter.py,readonly`,
-      "--mount", `type=bind,source=${setup},target=/setup.sh,readonly`, "--mount", `type=bind,source=${artifact},target=/fixture-variants,readonly`, "--workdir=/repo", "--entrypoint=/bin/sh", image, "/setup.sh"];
+    const argv = workerIdentityDockerArgs(source, artifact, container, image, apparmor, { db: !!dbVariant, boot: !!bootVariant, prune: !!pruneVariant, inventory: !!inventoryVariant, scratch: scratchMask }, realpathSync(process.execPath));
     console.log(`Worker identity proof artifacts: ${artifact}`);
     const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const forward = (signal: NodeJS.Signals) => child.kill(signal);

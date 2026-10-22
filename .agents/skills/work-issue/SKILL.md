@@ -267,7 +267,13 @@ Missing tools, skipped runtimes, failures/cancellations and unexpected job skips
 leave selected hosted proof incomplete. Never delete tests, weaken offline
 harnesses or rerun a real failure to obtain green. Keep drafts cheap and batch
 pushes. A ready PR synchronize event runs fast feedback with a deliberately
-nonpassing final gate. After the last push, convert to draft and mark ready to
+nonpassing final gate. For ordinary candidates, acquire the exact-candidate integration reservation
+with `bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` before
+requesting expensive confirmation; it handles the draft-to-ready transition,
+minute renewal and shared proof-checked merge. Hold competing confirmation and
+main merges while another lease is live. See the CI reference for explicit
+acquire/renew/release/revoke, expiry, hard cap and unsupported native candidates.
+After the last push, convert to draft and mark ready under that reservation to
 request complete candidate confirmation; opening/reopening ready also requests it. After cheap gates independent categories run concurrently; per-PR
 cancellation cannot cancel another PR. Measure queue/elapsed time and wasted
 cancellations before adding shards. Follow docs/decisions/ci-utility.md.
@@ -301,7 +307,8 @@ type/area/`contract` labels; do not copy readiness labels onto the PR.
   under the GitHub skill. This applies to every merge, including docs/test/CI
   work and `Refs` slices; choose the confirmed upcoming release for unreleased
   work and preserve the initial release of unchanged shipped behavior. Then
-  squash with `--match-head-commit` for an ordinary PR, or follow the stack
+  use `bun scripts/integrate.ts merge <pr> --lease <id> --issues owner/repo#N,...`
+  for the shared reservation-checked ordinary squash, or follow the stack
   merge/evidence procedure for native stacked PRs. Respect a merge queue and
   monitor actual completion. Do not ask again for permission included in
   the end-to-end request.
