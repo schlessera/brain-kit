@@ -9,7 +9,7 @@ export function createModuleRoutes(brain: BrainClient): Hono {
   const valid = (name: string) => /^[a-z][a-z0-9-]{0,30}$/.test(name);
   app.get("/modules", async (c) => {
     if (!brain.modules) return c.json({ error: "Module settings are unavailable with this brain CLI" }, 501);
-    try { return c.json(await brain.modules()); }
+    try { return c.json(await brain.modules({ signal: c.req.raw.signal })); }
     catch (error) { return c.json({ error: (error as Error).message }, 500); }
   });
   app.get("/modules/:name/settings", async (c) => {

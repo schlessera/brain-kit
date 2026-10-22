@@ -3609,3 +3609,47 @@ the same identity is allowed; changing an established identity or patching a
 terminal span returns false without modifying the row. The recorder persists
 this identity in both the queryable session column and the existing attributes.
 This additive API ships in a minor release.
+
+## Backend host exec configuration (additive, #1429)
+
+`BackendModuleContext`, `ClaudeBackendOptions`, `CreatePiBackendOptions` and
+`BackendRegistryOptions` accept optional `exec: ExecWrapperConfig`.
+`probeBackendRuntimes` accepts the same optional configuration as its sixth
+argument. The app passes its resolved `ServerConfig.exec` to startup probes
+and backend construction. Both first-party backends use that host configuration
+for runtime probes, Claude SDK workers and Pi grep/bash tools, including tools
+inside Pi workers. An explicit empty object disables the optional wrapper;
+an absent field preserves ambient-wrapper compatibility. Standalone backend
+factories preserve omission, resolving the ambient wrapper and killer at the
+existing turn/tool-spawn boundaries; Pi serializes that host fallback into each
+worker turn. Explicit host configurations are copied at construction.
+
+A Pi worker's view gains each configured helper file read-only at its
+configured path, and nothing else of the directory holding it, in ordinary and
+restricted workers alike. Each helper a worker runs, the Pi wrapper and killer
+and the ordinary Claude worker's wrapper, must be an absolute path naming a
+regular file, directly or through a symlink; anything else refuses the turn
+before any relay, reservation or worker is acquired. Existing argv, environment
+and permission semantics remain unchanged; the optional wrapper never replaces
+worker isolation.
+
+## Module metadata admission cancellation (additive, #2457)
+
+`BrainClient.modules({ signal })` accepts an optional abort signal. It cancels
+metadata waiting for execution admission, including a required CLI version
+probe. Once an execution owns its admission locks, its worker, output
+publication and cleanup drain normally. Cancellation between a version probe
+and the module lookup prevents the latter from starting. Calls without an
+option preserve their existing behavior and result shape.
+
+The internal host boundary carries a separate admission signal so existing
+execution cancellation, including search worker termination and output drain,
+keeps its semantics. The optional `BrainClient.modules` input is an additive
+public TypeScript change and ships in a minor.
+
+`createApp()` passes each `/api/status` and `/api/modules` request's signal,
+so a caller that disconnects cancels its queued metadata. `close()` cancels
+every metadata request still waiting for admission as soon as it begins.
+Admitted metadata is a shared run: it drains within `close()`'s 10 s grace
+period and is then cancelled with the other shared runs (#2473). The response
+shapes and status codes are unchanged.

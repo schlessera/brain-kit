@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { text as streamText } from "node:stream/consumers";
 import { afterEach, describe, expect, test } from "bun:test";
 import { launchAgentWorker, prepareWorkerSandbox } from "../../ui-sdk/src/server/worker-launcher";
@@ -171,19 +172,25 @@ describe("operational state boot refusal (#1649)", () => {
   });
 
   test("state masks cover real database and token targets as well as configured directories", async () => {
-    const f = fixture(); const privateDir = mkdtempSync("/var/tmp/odysseus-private-target-"); roots.push(privateDir);
-    const dbPath = join(f.state, "linked.db"), tokenPath = join(f.state, "token");
-    const realDb = join(privateDir, "brain-ui.db"), realToken = join(privateDir, "poke-token");
+    const f = fixture(); const privateDir = mkdtempSync(join(tmpdir(), "odysseus-private-target-")); roots.push(privateDir);
+    mkdirSync(join(privateDir, "database")); mkdirSync(join(privateDir, "tokens"));
+    const realDb = join(privateDir, "database/brain-ui.db"), realToken = join(privateDir, "tokens/poke-token");
     writeFileSync(realDb, "Odysseus private database"); writeFileSync(realToken, "Odysseus private token");
-    symlinkSync(realDb, dbPath); symlinkSync(realToken, tokenPath);
-    const paths = { brainPath: f.brain, dbPath, privateStatePaths: [{ setting: "BRAIN_UI_INBOX_POKE_TOKEN_FILE", path: tokenPath }] };
-    const boundary = createHostBoundary(paths);
-    const result = await boundary.run({ argv: [process.execPath, "--no-env-file", "-e",
-      `for(const p of ${JSON.stringify([realDb, realToken, dbPath, tokenPath])}) if(await Bun.file(p).exists()) throw new Error("PRIVATE_STATE_LEAK:"+p); console.log("masked")`],
-      env: {}, credentials: false, gate: "shared", purpose: "private state mask proof" });
+    // Both configured paths and targets are otherwise visible in this private
+    // namespace. /tmp or a home mask cannot hide a broken resolved-target mask.
+    const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/opt",
+      "--bind", f.root, "/opt/odysseus-layout", "--bind", privateDir, "/opt/odysseus-private", process.execPath,
+      "--preload", resolve(import.meta.dir, "../../../scripts/test-network-child-preload.ts"), join(import.meta.dir, "fixtures/operational-state-mask-control.ts")],
+    { env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code, stderr).toBe(0);
+    const { result, masks } = JSON.parse(stdout.trim().split("\n").at(-1)!) as { result: { exitCode: number; stdout: string; stderr: string }; masks: string[] };
     expect(result.exitCode, result.stderr).toBe(0); expect(result.stdout.trim(), "PRIVATE_STATE_TARGET_MASKS").toBe("masked");
-    expect(operationalStateMasks(paths), "RESOLVED_PRIVATE_STATE_MASKS").toContain(privateDir);
-    expect(operationalStateMasks(paths)).toContain(f.state);
+    expect(masks, "RESOLVED_DATABASE_TARGET_MASK").toContain("/opt/odysseus-private/database");
+    expect(masks, "RESOLVED_TOKEN_TARGET_MASK").toContain("/opt/odysseus-private/tokens");
+    expect(masks).toContain("/opt/odysseus-layout/state");
+    expect(readFileSync(realDb, "utf8")).toBe("Odysseus private database");
+    expect(readFileSync(realToken, "utf8")).toBe("Odysseus private token");
   });
 
 });

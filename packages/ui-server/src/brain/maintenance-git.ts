@@ -89,49 +89,28 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const refreshInput = async () => {
     if (!command.credentials) spec = await prepareMaintenanceGitInput({ ...command, startupView: outputs.view, output: outputs.output, git: spec }, signal);
   };
-  const gitRun = async (args: string[], stdin?: string) => {
-    await refreshInput();
-    const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
-      command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, ...args], ...(stdin !== undefined ? { stdin } : {}), network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
-    if (answer.exitCode !== 0 || answer.killed || !/^[a-f0-9]{40,64}\n?$/.test(answer.stdout)) throw new Error(`cannot freeze Git attributes: ${answer.stderr.slice(-400)}`);
-    return answer.stdout.trim();
-  };
-  async function tree(path: string): Promise<string> {
-    const rows: string[] = [];
+  // Work-tree attribute bytes come from the private collection or the
+  // immutable copy; `.git` and `node_modules` are never entered.
+  const attributes = privateInputs ? privateInputs.attributes : [];
+  if (!privateInputs) (function collect(path: string, prefix: string) {
     for (const name of readdirSync(path)) {
       if (name === ".git" || name === "node_modules") continue;
-      const child = join(path, name);
-      const info = lstatSync(child);
-      if (name === ".gitattributes" && info.isFile()) {
-        const oid = await gitRun(["hash-object", "-w", "--stdin", "--no-filters"], readFileSync(child, "utf8"));
-        rows.push(`100644 blob ${oid}\t${name}\0`);
-      } else if (info.isDirectory()) {
-        const oid = await tree(child);
-        if (oid !== EMPTY_TREE) rows.push(`040000 tree ${oid}\t${name}\0`);
-      }
+      const child = join(path, name), info = lstatSync(child);
+      if (name === ".gitattributes" && info.isFile()) attributes.push({ path: prefix + name, data: readFileSync(child, "utf8") });
+      else if (info.isDirectory()) collect(child, `${prefix}${name}/`);
     }
-    return rows.length ? gitRun(["mktree", "-z"], rows.join("")) : EMPTY_TREE;
-  }
-  const EMPTY_TREE = await gitRun(["mktree", "-z"], "");
-  if (privateInputs) {
-    type AttributeTree = { data?: string; children: Map<string, AttributeTree> };
-    const root: AttributeTree = { children: new Map() };
-    for (const attribute of privateInputs.attributes) {
-      let node = root;
-      for (const part of attribute.path.split("/").slice(0, -1)) {
-        if (!node.children.has(part)) node.children.set(part, { children: new Map() });
-        node = node.children.get(part)!;
-      }
-      node.data = attribute.data;
-    }
-    const freeze = async (node: AttributeTree): Promise<string> => {
-      const rows: string[] = [];
-      if (node.data !== undefined) rows.push(`100644 blob ${await gitRun(["hash-object", "-w", "--stdin", "--no-filters"], node.data)}\t.gitattributes\0`);
-      for (const [name, child] of node.children) { const oid = await freeze(child); if (oid !== EMPTY_TREE) rows.push(`040000 tree ${oid}\t${name}\0`); }
-      return rows.length ? gitRun(["mktree", "-z"], rows.join("")) : EMPTY_TREE;
-    };
-    frozen.attributes = await freeze(root);
-  } else frozen.attributes = await tree(outputs.view.root);
+  })(outputs.view.root, "");
+  // One launch writes every object through the frozen adapter. Its deadline
+  // is the sum of the per-object launches it replaces (#2622).
+  const directories = new Set(attributes.flatMap(({ path }) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
+  const freezer = Bun.resolveSync("./maintenance-git-attributes", import.meta.dir);
+  await refreshInput();
+  const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
+    command: [process.execPath, "--config=/dev/null", "--no-env-file", freezer, entry], stdin: JSON.stringify(attributes),
+    readPaths: [...(command.readPaths ?? []), freezer], network: false,
+    timeoutMs: 5000 * (1 + attributes.length + (attributes.length ? 1 + directories.size : 0)), ...(signal ? { signal } : {}) });
+  if (answer.exitCode !== 0 || answer.killed || !/^[a-f0-9]{40,64}\n?$/.test(answer.stdout)) throw new Error(`cannot freeze Git attributes: ${answer.stderr.slice(-400)}`);
+  frozen.attributes = answer.stdout.trim();
   writeFileSync(join(root, "config.json"), JSON.stringify(frozen), { mode: 0o600 });
   await refreshInput();
   return spec;

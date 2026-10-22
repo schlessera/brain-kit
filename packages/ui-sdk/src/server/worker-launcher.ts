@@ -133,7 +133,7 @@ export interface WorkerLaunch {
  * `/tmp` is already a fresh tmpfs in every worker, which covers
  * `/tmp/.X11-unix`.
  */
-export const HOST_MASKS = ["/run", "/var/run", "/var/lib", "/home", "/root", "/mnt", "/media", "/srv"] as const;
+export const HOST_MASKS = ["/run", "/var", "/home", "/root", "/mnt", "/media", "/srv"] as const;
 
 /** The private, empty `$HOME` of a credential-free maintenance worker, on its own `/tmp`. */
 export const MAINTENANCE_HOME = "/tmp/brain-maintenance-home";

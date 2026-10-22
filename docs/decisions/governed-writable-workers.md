@@ -370,6 +370,43 @@ protected admission. No existing writer is killed or made exclusive. This
 negative accounting does not qualify a native plan as mounted-writer attestation
 or complete the all-writer proof for provider exclusions.
 
+**No host fallback under a folder policy (#2284).** A gate row records a host
+writer only for as long as its owning server process and the child's output
+pipes live. Neither bounds what that child started. A host child whose owner
+was SIGKILLed, or a `setsid` descendant with closed output after a normal
+return, could still replace a restricted folder after a new governed worker
+had pinned it
+([reproduction](https://github.com/schlessera/brain-kit/issues/2284)). No
+parent-death signal, process group or EOF supervisor proves that every
+descendant of an unsandboxed host process has exited. The maintainer chose
+option (c) on 2026-10-22, over a sticky unknown-state refusal and over a
+PID-namespace boundary for legacy fallback: **while a provider folder policy
+is active, the legacy host fallback is refused entirely.** The refusal happens
+before any host process exists, as `HostFallbackRefusedError`, and names the
+folders. The existing peer refusals above are checked first and keep their
+plain errors. It covers complete and streaming commands, gated and ungated
+(optional missing gate, `gate: none`, the synchronous reader). A gated command
+is checked inside its writer-gate transaction, so the check is ordered against
+governed admission, and the policy is reread there. An ungated command reads
+every active writer's plan from the gate in one transaction. Only with no gate
+at all is the policy file the sole evidence. A provider folder policy
+means a literal recursive folder selector (`<root>/**`) in a provider rule,
+in the current policy or in a plan an active writer retains after the policy
+is removed. A policy file that cannot be read or parsed is treated as unknown
+folder state and refuses too, as does an active writer with unknown or
+unverifiable folder provenance. A valid policy without provider folders, or
+no policy file, leaves host fallback running. The one change there is that
+an ungated command beside an attached gate now also refuses beside a writer
+with unknown provenance, as a gated one already did. Managed and governed
+execution do not change. Host fallback still exists for never-governed hosts.
+
+This ruling does not apply to folders that appear after a host writer
+started. A host writer admitted with no folder policy, whose admission has
+since ended while a descendant keeps running, is outside the gate. A later
+folder policy cannot account for it, and restarting the server does not end
+that descendant. Before relying on provider folder exclusions on such a
+brain, make sure no process that host fallback started is still running.
+
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
 requires the operational database and other private server state outside the
@@ -1041,7 +1078,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:312`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1366,25 +1403,38 @@ socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
 (`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:197`).
-Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
-directories with empty read-only tmpfs mounts:
+directories with empty read-only tmpfs mounts. Maintenance workers share the
+same host mask set:
 
-- `/run`, `/var/run`, `/var/lib`, `/tmp/.X11-unix`;
+- `/run`, all of `/var`, `/tmp/.X11-unix`;
 - every home directory except the brain's own path;
 - `/root`, `/mnt`, `/media` and `/srv`.
 
-After the masks, the launcher re-binds the runtime the worker needs, read-only
-and file by file, with the same resolution the restricted envelope uses
+The maintainer's 2026-10-22 ruling on [#2633](https://github.com/schlessera/brain-kit/issues/2633)
+includes `/var/tmp`, `/var/spool`, `/var/snap` and future layouts below `/var`.
+There is no `/var/tmp` exception. A read-only host mount still permits socket
+connections, so selected subdirectory masks cannot provide this boundary.
+The worker's private `/tmp` and the other host masks remain in place.
+
+After the masks, the launcher re-binds only the explicit runtime inputs the
+worker needs, read-only, with the same resolution the restricted envelope uses
 (`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1625`):
 
 - the Bun executable;
-- the backend entry and its `node_modules` chains;
+- the backend entry's package, its `node_modules` chains and linked workspace
+  packages;
 - the bundled agent CLI.
 
-This keeps a Bun or package install under a home directory or `/srv` working,
-without exposing that whole directory again.
+This keeps a Bun or package install under `/var`, a home directory or `/srv`
+working without exposing the whole masked ancestor. These are explicit file
+and package-directory binds, not a general exception for their parent.
+Compatibility proof executes a Bun binary bound from `/var/lib`, reads an
+explicit regular-file input there, refuses a write to that input, and checks
+that neighboring host sockets remain unreachable. The governed and strict
+filesystem walks permit only the admitted relay and proxy sockets; the
+credential-free maintenance walk permits none.
 
 ### Private-state masks beneath inaccessible parents — 2026-10-17
 
@@ -1670,11 +1720,11 @@ helper the host provides:
 
 - **brain-kit owns the launcher seam** (#1677). An optional host-supplied
   identity helper sits in front of `bwrap`. It follows the exec wrapper's
-  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:39`):
+  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:42`):
   an absolute path in argv position 0, and the worker as its own process
   group. `kill(2)` across uids returns `EPERM`, so every signal goes through
   the kill helper. The helper's protocol
-  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:53`)
+  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:56`)
   gains `STOP` and `CONT`. A scope cap without a delegated cgroup stops and
   resumes the worker through them (see "Scope caps"). Signalling the process
   group is not enough. `bwrap --new-session` puts the payload in a session and
@@ -1756,6 +1806,16 @@ worker environment; the existing adapter supplies the immutable hooks and
 attributes to later Git consumers. Credentialed and no-helper preparation keep
 their existing paths (`collectMaintenanceGitSources`,
 `packages/ui-server/src/brain/maintenance-git-source.ts:66-187`).
+
+The attributes freeze writes the empty tree and every `.gitattributes` blob
+and tree in one launch of a fixed first-party program, without network and
+under the credential policy, frozen adapter and owned stage of the command it
+prepares. Each launch
+re-prepares that adapter input, so freezing one object per launch multiplied a
+maintenance run's preparation several times over. The single launch's deadline
+is the sum of the per-object launches it replaced (`Work-tree attribute bytes come`,
+`packages/ui-server/src/brain/maintenance-git.ts:92-113`;
+[#2622](https://github.com/schlessera/brain-kit/issues/2622)).
 
 **Server-owned strict output — 2026-10-22.** A strict worker can publish a
 private directory into its scratch area. Native publication installs those
@@ -2083,7 +2143,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:430-441`).
+  `packages/ui-server/src/brain/host-boundary.ts:445-456`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -2128,7 +2188,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:85-129`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:86-130`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely

@@ -494,15 +494,21 @@ refs. A host process that evaluates any of them runs what an agent wrote. So
 while the host execution boundary holds, the server evaluates none of them
 itself. It runs that work in a **maintenance worker**: the same bubblewrap
 launcher, with the brain bound read-write, the host root read-only, and
-`/run`, `/var/run`, `/var/lib`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
+`/run`, all of `/var`, `/home`, `/root`, `/mnt`, `/media`, `/srv`
 and the UI database's directory masked by empty private tmpfs mounts. Required
 private regular files, including the native loop backing file, are covered by
 read-only `/dev/null` binds after permitted runtime and HOME binds. Their
 original bytes remain inaccessible even when the backing file is outside a
 masked directory. No host
-Unix socket below them is reachable. The server's Bun and its own
-installation are bound back read-only, so a runtime installed under a home
-keeps working; nothing the brain names is.
+Unix socket below them is reachable. The all-`/var` mask includes `/var/tmp`,
+`/var/spool`, `/var/snap` and future layouts; it has no `/var/tmp` exception
+([the October 22 ruling](../decisions/governed-writable-workers.md#network-egress)).
+Governed and strict workers use the same host masks, with their existing
+private `/tmp` behavior. The server's Bun and its explicit runtime inputs are
+bound back read-only: regular files and required package/dependency
+directories, rather than the whole masked ancestor. A runtime installed
+under `/var` or a home keeps working while neighboring host sockets stay
+hidden; nothing the brain names is a runtime exception.
 
 An owned installed runtime may also live beneath `/tmp` (#1844/#1901).
 Private temp is mounted first; only its resolved executable/package/dependency
@@ -609,6 +615,22 @@ run under `strict`, and the brain's code stays on the host only when:
 
 `GET /api/status` reports this as `runtime.workerHost.governed`, with
 `hostExecution` `"worker"` or `"host"`, and the boot log says it once.
+
+**No host execution under a provider folder policy.** If
+`context/policies/governance.md` names a provider folder (`<root>/**`), or
+cannot be read or parsed, a `"host"` server refuses every command that would
+run the brain's code on the host. Removing the folders from the policy does
+not release a folder that a running turn still retains, and that turn keeps
+refusing host commands until it ends. The command fails before any process
+starts, with `HostFallbackRefusedError` or, beside a running turn, the
+existing peer refusal. Nothing can prove that
+every descendant of a host process has exited, and one that survives could
+replace a folder a later governed worker relies on. Run the server where the
+worker boundary is available, or remove the provider folders from the policy.
+If the server ran host commands before a folder policy was added, make sure
+none of the processes they started is still running before you rely on that
+policy. Restarting the server does not stop a detached one
+([decision](../decisions/governed-writable-workers.md#the-host-execution-boundary)).
 
 **Operational state must live outside the brain, in every hosted profile.**
 Before opening SQLite, provisioning the private poke token, reconciling turns or

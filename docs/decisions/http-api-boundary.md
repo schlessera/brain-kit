@@ -46,11 +46,11 @@ explicit supported rows, not silently excluded by this distinction.
 
 The source audit on 2026-09-30 used
 `e0875269b21b707482545be9e94901acb897893b`. The public health mount precedes auth
-(`createHealthRoutes`, `packages/ui-server/src/app.ts:766`), the API guard follows
-public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:787`), and the
-WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:969`).
+(`createHealthRoutes`, `packages/ui-server/src/app.ts:771`), the API guard follows
+public ceremonies (`authGuard`, `packages/ui-server/src/app.ts:792`), and the
+WebSocket admission is separate (`"/ws"`, `packages/ui-server/src/app.ts:974`).
 Static serving is conditional (`if (options.staticRoot)`,
-`packages/ui-server/src/app.ts:989-1010`). That order establishes access;
+`packages/ui-server/src/app.ts:994-1015`). That order establishes access;
 it does not select compatibility status.
 
 A hermetic real-app launch, with temporary brain root, in-memory database,
@@ -79,6 +79,16 @@ reads, and joins admitted handlers before disposing of state. This boundary ends
 at response creation: existing SSE and journal owners still govern streaming
 response producers. A stalled client or producer cancellation cannot make
 shutdown wait for unbounded additional request bytes.
+
+Module metadata for status and the modules list opts into caller and app-lifetime
+admission cancellation. A queued lookup settles without launching after its
+caller disconnects or as soon as shutdown begins. An admitted lookup is a shared
+run: it keeps its publication and cleanup through shutdown's grace period and is
+then cancelled with the other shared runs (#2473). Status continues to omit
+unavailable optional renderer metadata, while already completed results retain
+their ordinary successful response. Other HTTP work, streaming producers and
+governed refresh retain their existing lifetimes; the dispatch join still
+precedes state disposal.
 
 ## Versioning and changes
 

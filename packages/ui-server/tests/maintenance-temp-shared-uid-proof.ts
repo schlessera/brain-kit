@@ -6,7 +6,8 @@ import { createUiDb } from "../src/db/client";
 import { ledgerLine } from "../../ui-sdk/tests/maintenance-temp-ledger-protocol";
 assert.equal(process.getuid?.(),0,"this explicit UID proof requires a root fixture launcher");
 const previousMask=process.umask(0o007);
-const root=mkdtempSync("/var/tmp/odysseus-maintenance-uid-");
+// This proof starts as root: keep its shared state outside every ambient host mask.
+const root=mkdtempSync("/opt/odysseus-maintenance-uid-");
 const brain=join(root,"brain"); const state=join(root,"state"); mkdirSync(brain); mkdirSync(state);
 chmodSync(root,0o755); chmodSync(brain,0o777); chownSync(state,65534,65534); chmodSync(state,0o700);
 const dbPath=join(state,"ui.db"); createUiDb(dbPath).close(); chownSync(dbPath,65534,65534); chmodSync(dbPath,0o660);

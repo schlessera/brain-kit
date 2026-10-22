@@ -252,7 +252,9 @@ signatures (every public export and the types it is made of)
     export interface BrainClient {
         hygiene?(args: readonly string[]): Promise<unknown>;
         cliCommand(): string[];
-        modules?(): Promise<{
+        modules?(opts?: {
+            signal?: AbortSignal;
+        }): Promise<{
             enabled: ConfiguredModule[];
             available: unknown[];
         }>;

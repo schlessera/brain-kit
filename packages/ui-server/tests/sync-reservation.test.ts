@@ -1,3 +1,4 @@
+import { controlDirectory } from "./helpers/control-directory.js";
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ describe("sync reservation", () => {
     const link = root + "-link";
     // The fixture control channel is outside immutable configuration. Only
     // its existing event file is bound writable; the release file is read-only.
-    const control = mkdtempSync("/var/tmp/odysseus-sync-control-");
+    const control = controlDirectory("odysseus-sync-control-");
     const events = join(control, "events.txt");
     const release = join(control, "release");
     writeFileSync(events, "");

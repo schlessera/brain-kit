@@ -10,6 +10,12 @@
 #
 # The title and labels reach the script through environment variables, never
 # through an expression inside `run`: a PR title is attacker-controlled text.
+#
+# The comparison base is the one the PR declares, read from the PR at run time
+# with the read-only token. `github.base_ref` is not it: for an upper layer of a
+# native stack, `edited` events report the stack's base (`main`), and the gate
+# then charged the layer with its parent's contract edit (#2650). The event's
+# value is passed only so the log shows a disagreement.
 name: contract
 
 on:
@@ -41,8 +47,10 @@ jobs:
           bun-version: "1.4.2"
       - name: Match the CONTRACT title and label to the contract doc
         env:
-          BASE_REF: origin/${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_BASE_REF: ${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: bun scripts/check-contract-pr.ts "$BASE_REF" "$HEAD_SHA"
+        run: bun scripts/check-contract-pr.ts --declared-base "$HEAD_SHA"

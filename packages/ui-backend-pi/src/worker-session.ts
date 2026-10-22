@@ -1,5 +1,5 @@
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { workerCleanupUnconfirmed, sessionPromptContext, describeClient } from "@schlessera/brain-ui-sdk/internal";
+import { workerCleanupUnconfirmed, sessionPromptContext, describeClient, workerExecHelpers } from "@schlessera/brain-ui-sdk/internal";
 import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
@@ -23,7 +23,7 @@ import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
 import { createTurnContext } from "./turn-context.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { DEFAULT_PI_ALLOWED_TOOLS } from "./tools.js";
-import { subprocessEnv } from "./config/env.js";
+import { subprocessEnv, ambientExecConfig } from "./config/env.js";
 import { savePiSession, readPiSession, piSessionDirectory, syncPiAuth } from "./session-storage.js";
 import { checkSessionSize, PI_WORKER_STATE, SessionTooLargeError, pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
 
@@ -39,6 +39,10 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   env.workerSignal?.throwIfAborted();
   const declared = resumeId ? undefined : toModel(resolveModelSpec(backend, profileId));
   const restricted = env.autonomous?.containment === "restricted";
+  // Selected once per worker and serialized into its local tools. Helpers are
+  // checked before any relay, reservation or worker exists (#1429).
+  const exec = backend.exec ?? ambientExecConfig();
+  const execHelpers = workerExecHelpers(exec);
   let entries: import("@earendil-works/pi-coding-agent").FileEntry[] | undefined;
   if (resumeId) {
     // Current server-owned transcripts have fixed UUID names. Opening one must
@@ -114,7 +118,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       throw new BackendRequestError("Pi prepared npm resources must be inside the selected agent directory's npm tree.");
     }
   }
-  const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
+  const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { exec, brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, fixedAppend: promptContext?.append(), ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
@@ -163,6 +167,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), cachedNpmModules] };
     }
+    // Worker-local tools run the host's helpers: each file alone, never its parent.
+    if (execHelpers.length && !envelope) sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), ...execHelpers] };
     const limits = launchLimits({});
     sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
@@ -180,7 +186,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
-      ...(envelope ? { restricted: { readPaths: restrictedReadPaths([entry]), inferenceDir: envelope.relay.dir } } : {}),
+      ...(envelope ? { restricted: { readPaths: [...restrictedReadPaths([entry]), ...execHelpers], inferenceDir: envelope.relay.dir } } : {}),
     });
     launchedChild = child;
     backend.log?.("debug", "Pi startup phase", { phase: "spawn", durationMs: performance.now() - spawning, elapsedMs: performance.now() - startupStarted });

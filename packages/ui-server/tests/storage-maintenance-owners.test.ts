@@ -57,7 +57,7 @@ test("maintenance revalidates authorization after the real cross-process writer 
 test("maintenance revalidates authority after asynchronous worker preparation before entering the command", async () => {
   const nativeOutput = await import("../../ui-sdk/src/server/worker-native-output");
   const f = fixture(); let allowed = true, prepared = false, entered = 0, revoke = true;
-  const effectRoot = mkdtempSync("/var/tmp/odysseus-maintenance-effect-"), effect = join(effectRoot, "entered");
+  const effectRoot = mkdtempSync(join(tmpdir(), "odysseus-maintenance-effect-")), effect = join(effectRoot, "entered");
   writeFileSync(effect, "untouched");
   const program = `await Bun.write(${JSON.stringify(effect)},"entered");`;
   const descriptor = Object.getOwnPropertyDescriptor(nativeOutput, "prepareNativeMaintenanceMasks")!;

@@ -142,12 +142,10 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): PiBackendEnv {
 }
 
 /**
- * The exec wrapper and its cancellation helper. Resolved per spawn rather than
- * cached at module scope, matching this file's rule for everything else: the
- * process may gain the variables after this module loads, and a stale read of
- * a privilege boundary is the wrong kind of stale.
+ * Resolve explicitly supplied environment at a compatibility edge. Host exec
+ * configuration takes precedence, including an explicitly empty object.
  */
-export function resolveExecConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+export function resolveExecConfig(env: NodeJS.ProcessEnv): ExecWrapperConfig {
   return {
     wrapper: validateExecWrapper(env[EXEC_WRAPPER_ENV]),
     killer: validateExecWrapper(env[EXEC_KILLER_ENV]),
@@ -245,4 +243,9 @@ export function subprocessEnv(
     ...operatorNames,
     ...extraNames,
   ]);
+}
+
+/** Legacy hosts omitting exec retain the ambient wrapper at their compatibility edge. */
+export function ambientExecConfig(): ExecWrapperConfig {
+  return resolveExecConfig(process.env);
 }
