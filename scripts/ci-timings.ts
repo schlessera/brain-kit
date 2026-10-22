@@ -6,6 +6,8 @@ export { seconds, stats } from "./ci-timing-stats";
 import { collectPullObservation, summarizeThroughput, throughputMarkdown, validateWorkEvent,
   type PullObservation, type WorkEvent, type Scenario } from "./ci-throughput";
 import { collectReservationHistory, mergeLeaseObservations, type ReservationArchive } from "./ci-coordination";
+import { TimingClient, TimingBudgetStop } from "./ci-timing-api";
+import { seedTimings } from "./ci-timing-seed";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -87,7 +89,7 @@ export function resourceFromLog(log: string, expectedCategory: string): Resource
 
 /** GitHub limits filtered run searches to 1,000; split instead of truncating. */
 export async function discoverRuns(api: TimingAPI, workflow: string, since: string, until: string): Promise<RawRun[]> {
-  if (!WORKFLOWS.includes(workflow) || !Number.isFinite(Date.parse(since)) || Date.parse(until) <= Date.parse(since)) throw new Error("Invalid workflow/time interval");
+  if (!WORKFLOWS.includes(workflow) || !Number.isFinite(Date.parse(since)) || !Number.isFinite(Date.parse(until)) || Date.parse(until) <= Date.parse(since)) throw new Error("Invalid workflow/time interval");
   const query = `actions/workflows/${workflow}/runs?per_page=100&created=${encodeURIComponent(`${since}..${until}`)}`;
   const first = await api.json(query + "&page=1");
   if (!Number.isSafeInteger(first.total_count) || first.total_count < 0 || !Array.isArray(first.workflow_runs)) throw new Error("Invalid run inventory");
@@ -315,13 +317,6 @@ export function markdown(report: ReturnType<typeof summarize>): string {
     ...report.limitations.map(line => `- ${line}`), ""].join("\n");
 }
 
-async function gh(path: string, repository: string, log = false): Promise<string> {
-  const child = Bun.spawn(["gh", "api", ...(log ? ["--allow-escape-sequences"] : []), `repos/${repository}/${path}`],
-    { stdout: "pipe", stderr: "pipe", timeout: 60000 });
-  const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  if (code !== 0) throw new Error(`GitHub evidence unavailable (${path}): ${err.trim()}`);
-  return out;
-}
 async function readSnapshots(dir: string): Promise<TimingSnapshot[]> {
   const result: TimingSnapshot[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -340,7 +335,7 @@ async function readCollections(dir: string): Promise<any[]> {
   return rows;
 }
 
-interface PullIdentity { number: number; head: string; branch: string; repository: string | null; merge: string | null; }
+interface PullIdentity { number: number; head: string; branch: string; repository: string | null; merge: string | null; updatedAt?: string; }
 export function attributePR(snapshot: TimingSnapshot, pulls: PullIdentity[]): void {
   if (snapshot.run.event === "push") {
     const matches = pulls.filter(p => p.merge === snapshot.run.head);
@@ -364,7 +359,7 @@ async function pullIdentities(api: TimingAPI, since: string): Promise<PullIdenti
     const pulls = await api.json(`pulls?state=all&sort=updated&direction=desc&per_page=100&page=${page}`);
     if (!Array.isArray(pulls)) throw new Error("Invalid PR identity inventory");
     for (const p of pulls) rows.push({ number: p.number, head: p.head.sha, branch: p.head.ref,
-      repository: p.head.repo?.full_name ?? null, merge: p.merged_at ? p.merge_commit_sha : null });
+      repository: p.head.repo?.full_name ?? null, merge: p.merged_at ? p.merge_commit_sha : null, updatedAt: p.updated_at });
     if (pulls.length < 100 || Date.parse(pulls.at(-1).updated_at) < Date.parse(since)) break;
   }
   return rows;
@@ -425,9 +420,11 @@ function reservationCoverage(input: ReservationArchive[]) {
   const archives = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
     .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
   for (const archive of archives) if (archive.version !== 1 || !stampForWindow(archive.collectedAt) ||
-    archive.sourceRef !== "refs/heads/brain-integration-reservation" || !SHA.test(archive.sourceHead) ||
-    !Array.isArray(archive.leases)) throw new Error("Invalid reservation archive");
-  return { scopes: archives.map(({ repository, collectedAt, sourceRef, sourceHead }) => ({ repository, collectedAt, sourceRef, sourceHead })),
+    archive.sourceRef !== "refs/heads/brain-integration-reservation" || !Array.isArray(archive.leases) ||
+    (archive.error === undefined ? !SHA.test(archive.sourceHead ?? "") :
+      typeof archive.error !== "string" || archive.sourceHead !== null || archive.leases.length !== 0)) throw new Error("Invalid reservation archive");
+  return { scopes: archives.map(({ repository, collectedAt, sourceRef, sourceHead, error }) => ({ repository, collectedAt, sourceRef, sourceHead, error })),
+    complete: archives.every(a => a.error === undefined), observed: archives.some(a => a.error === undefined),
     leases: mergeLeaseObservations(archives.flatMap(a => a.leases)) };
 }
 async function writeReport(dir: string, scenario?: Scenario) {
@@ -450,27 +447,29 @@ async function writeReport(dir: string, scenario?: Scenario) {
   const lifecycleAcquisition = lifecycleCoverage(operational.acquisitions, operational.pulls);
   const reservationAcquisition = reservationCoverage(operational.reservations);
   const report = { ...basic, lifecycleAcquisition, reservationAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
-    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.leases) : null,
+    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.observed ? reservationAcquisition.leases : undefined) : null,
     collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
-      collectedAt: c.collectedAt, status: c.status, errors: c.errors })) } };
+      collectedAt: c.collectedAt, status: c.status, errors: c.errors, requestBudget: c.requestBudget, seed: c.seed })) } };
   await Bun.write(join(dir, "summary.json"), JSON.stringify(report, null, 2) + "\n");
   await Bun.write(join(dir, "summary.md"), (report.throughput ? "# Reliable integration measurements\n\n" + throughputMarkdown(report.throughput) +
     `\nLifecycle acquisition errors: ${lifecycleAcquisition?.errors.length ?? "unknown"}.\n` +
     `Missing requested lifecycle PRs: ${lifecycleAcquisition?.missingPRs.length ?? "unknown"}.\n\n` : "") +
     markdown(report).replace("# CI timing observations", report.throughput ? "## CI timing detail" : "# CI timing observations") +
     (report.throughput ? "" : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
+    `\nPartial collection scopes: ${collections.filter(c => c.status !== "completed").length}; budget stops: ${collections.filter(c => c.requestBudget?.stopped).length}; seed gaps: ${collections.filter(c => c.seed?.error).length}.\n` +
+    `Reservation acquisition gaps: ${reservationAcquisition?.scopes.filter(s => s.error !== undefined).length ?? "unknown"}.\n` +
     `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);
   return report;
 }
 const stampForWindow = (s: unknown): s is string => typeof s === "string" && Number.isFinite(Date.parse(s));
 
-async function enrich(dir: string, api: TimingAPI, repository: string, evidence: boolean): Promise<boolean> {
+async function enrich(dir: string, api: TimingAPI, repository: string, evidence: boolean, identities: PullIdentity[] | null = null) {
   const snapshots = await readSnapshots(dir), scope = await readCollections(dir);
   const since = scope.map(c => c.since).filter(stampForWindow).sort()[0] ?? snapshots.map(s => s.run.createdAt).sort()[0];
-  let indexed: number[] = [];
+  let indexed: number[] = identities?.map(p => p.number) ?? [];
   const errors: { pr: number; problem: string }[] = [];
-  if (since) {
+  if (since && identities === null) {
     try { indexed = (await pullIdentities(api, since)).map(p => p.number); }
     catch (e) { errors.push({ pr: 0, problem: `PR index unavailable: ${String(e)}` }); }
   }
@@ -478,10 +477,17 @@ async function enrich(dir: string, api: TimingAPI, repository: string, evidence:
   let index = 0;
   await Promise.all(Array.from({ length: 4 }, async () => {
     while (index < ids.length) {
+      if (api instanceof TimingClient && api.budget.stopped) break;
       const pr = ids[index++]!;
       try {
+      const path = join(dir, `pull-${pr}.json`), identity = identities?.find(p => p.number === pr);
+      const previous: PullObservation | null = await Bun.file(path).exists() ? await Bun.file(path).json() : null;
+      if (previous && previous.repository !== repository) throw new Error("PR archive belongs to another repository");
+      if (!evidence && previous && !previous.problems.length && (previous.mergedAt || identity && previous.head === identity.head &&
+        Date.parse(identity.updatedAt ?? "") <= Date.parse(previous.collectedAt))) continue;
       const p = await collectPullObservation(api, repository, pr);
-      await Bun.write(join(dir, `pull-${pr}.json`), JSON.stringify(p, null, 2) + "\n");
+      await Bun.write(path, JSON.stringify(p, null, 2) + "\n");
+      errors.push(...p.problems.map(problem => ({ pr, problem })));
       if (!evidence) continue;
       const pre = snapshots.filter(s => s.repository === repository && s.run.event === "pull_request" && s.run.prs.includes(pr) && s.run.head === p.head &&
         s.run.conclusion === "success" && (!p.mergedAt || Date.parse(s.run.createdAt) <= Date.parse(p.mergedAt))).sort((a, b) => b.run.id - a.run.id || b.run.attempt - a.run.attempt);
@@ -495,8 +501,9 @@ async function enrich(dir: string, api: TimingAPI, repository: string, evidence:
     }
   }));
   await Bun.write(join(dir, "enrichment.json"), JSON.stringify({ version: 1, repository, collectedAt: new Date().toISOString(), expectedPRs: ids, errors }, null, 2));
-  return !errors.length;
+  return errors;
 }
+const budgetProblem = (problem: string) => problem.includes("TimingBudgetStop:");
 
 if (import.meta.main) {
   try {
@@ -507,17 +514,21 @@ if (import.meta.main) {
       const flag = args.shift()!;
       if (flag === "--resources") { resources = true; continue; }
       if (flag === "--reservations") { reservations = true; continue; }
-      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
+      if (!["--repo", "--since", "--until", "--run", "--out", "--event", "--scenario", "--seed", "--request-budget", "--reserve"].includes(flag) || !args.length || options.has(flag)) throw new Error("Invalid timing option");
       options.set(flag, args.shift()!);
     }
     const dir = resolve(options.get("--out") ?? "tmp/ci-timings");
     await mkdir(dir, { recursive: true });
     const repository = options.get("--repo") ?? "schlessera/brain-kit";
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("Invalid repository");
-    const api: TimingAPI = { json: async path => JSON.parse(await gh(path, repository)), log: id => gh(`actions/jobs/${id}/logs`, repository, true) };
+    const api = new TimingClient(repository, Number(options.get("--request-budget") ?? 200), Number(options.get("--reserve") ?? 500));
     if (reservations) {
       if (!options.has("--since")) throw new Error("Reservation history requires --since");
-      await Bun.write(join(dir, "reservations.json"), JSON.stringify(collectReservationHistory(repository, options.get("--since")!), null, 2) + "\n");
+      let archive: ReservationArchive;
+      try { archive = collectReservationHistory(repository, options.get("--since")!); }
+      catch (error) { archive = { version: 1, repository, collectedAt: new Date().toISOString(),
+        sourceRef: "refs/heads/brain-integration-reservation", sourceHead: null, leases: [], error: String(error) }; }
+      await Bun.write(join(dir, "reservations.json"), JSON.stringify(archive, null, 2) + "\n");
     }
     if (options.has("--scenario")) await Bun.write(join(dir, "scenario.json"), JSON.stringify(await Bun.file(options.get("--scenario")!).json(), null, 2));
     if (options.has("--since") && options.has("--until")) await Bun.write(join(dir, "analysis-window.json"), JSON.stringify({ since: options.get("--since"), until: options.get("--until"), source: "explicit analysis interval" }));
@@ -533,31 +544,39 @@ if (import.meta.main) {
         if (JSON.stringify(validateWorkEvent(await Bun.file(path).json())) !== JSON.stringify(event)) throw new Error("Event ID already exists with different content");
       }
       console.log(`Recorded ${event.id}`);
-    } else if (mode === "enrich") { if (!await enrich(dir, api, repository, resources)) process.exitCode = 1; await writeReport(dir); console.log(`Enriched ${dir}`); }
+    } else if (mode === "enrich") { if ((await enrich(dir, api, repository, resources)).some(e => !budgetProblem(e.problem))) process.exitCode = 1; await writeReport(dir); console.log(`Enriched ${dir}`); }
     else if (mode === "report") { await writeReport(dir); console.log(`Report written to ${dir}`); }
     else if (mode === "collect") {
-      const cutoff = options.get("--until") ?? new Date().toISOString();
-      let runs: RawRun[];
-      if (options.has("--run")) {
-        if (!/^[1-9]\d*$/.test(options.get("--run")!)) throw new Error("Invalid run ID");
-        runs = [await api.json(`actions/runs/${options.get("--run")}`)];
-      } else {
-        const since = options.get("--since");
-        if (!since) throw new Error("Collection requires --run or --since");
-        runs = [];
-        for (const workflow of WORKFLOWS) runs.push(...await discoverRuns(api, workflow, since, cutoff));
-      }
-      console.log(`Discovered ${runs.length} runs; collecting attempts with four concurrent requests`);
+      const cutoff = options.get("--until") ?? new Date(Date.now() - 15 * 60000).toISOString();
+      const since = options.get("--since");
+      if (!options.has("--run") && !since) throw new Error("Collection requires --run or --since");
+      if (options.has("--run") && !/^[1-9]\d*$/.test(options.get("--run")!)) throw new Error("Invalid run ID");
+      const runs: RawRun[] = [];
       const errors: { run: number; attempt: number; error: string }[] = [];
       const collection = { version: 1, id: crypto.randomUUID(), repository, collectedAt: new Date().toISOString(), status: "collecting",
-        since: options.get("--since") ?? null, until: cutoff, requestedRun: options.get("--run") ?? null,
-        expected: runs.map(r => ({ run: r.id, attempts: r.run_attempt })), resourcesRequested: resources, errors };
+        since: since ?? null, until: cutoff, requestedRun: options.get("--run") ?? null,
+        expected: [] as { run: number; attempts: number }[], resourcesRequested: resources, errors, requestBudget: api.budget,
+        seed: null as Awaited<ReturnType<typeof seedTimings>> | null };
       await Bun.write(join(dir, "collection.json"), JSON.stringify(collection, null, 2) + "\n");
       const collectionArchive = join(dir, "collections", collection.id, "collection.json");
       await Bun.write(collectionArchive, JSON.stringify(collection, null, 2) + "\n");
+      if (options.has("--seed")) {
+        if (!since) throw new Error("Seeding requires --since");
+        collection.seed = await seedTimings(api, repository, options.get("--seed")!, since, cutoff, dir);
+      }
+      if (options.has("--run")) {
+        try { runs.push(await api.json(`actions/runs/${options.get("--run")}`)); }
+        catch (error) { errors.push({ run: Number(options.get("--run")), attempt: 0, error: String(error) }); }
+      } else for (const workflow of WORKFLOWS) {
+        try { runs.push(...await discoverRuns(api, workflow, since!, cutoff)); }
+        catch (error) { errors.push({ run: 0, attempt: 0, error: `${workflow} discovery unavailable: ${String(error)}` }); }
+      }
+      collection.expected = runs.map(r => ({ run: r.id, attempts: r.run_attempt }));
+      console.log(`Discovered ${runs.length} runs; API requests are serialized within the shared request budget`);
       let next = 0, done = 0;
       await Promise.all(Array.from({ length: 4 }, async () => {
         while (next < runs.length) {
+          if (api.budget.stopped) break;
           const raw = runs[next++]!;
           for (let attempt = 1; attempt <= raw.run_attempt; attempt++) {
             const path = join(dir, `run-${raw.id}-attempt-${attempt}.json`);
@@ -580,10 +599,12 @@ if (import.meta.main) {
       }));
       // Link main pushes only by exact squash identity, never by time proximity.
       const snapshots = await readSnapshots(dir);
+      let pulls: PullIdentity[] = [];
       if (!options.has("--run")) {
         try {
-          const pulls = await pullIdentities(api, options.get("--since")!);
+          pulls = await pullIdentities(api, since!);
           for (const s of snapshots) if (s.repository === repository) {
+            if (s.run.event === "push" && s.run.attribution === "exact merged squash SHA") continue;
             attributePR(s, pulls);
             await Bun.write(join(dir, `run-${s.run.id}-attempt-${s.run.attempt}.json`), JSON.stringify(s, null, 2) + "\n");
           }
@@ -598,19 +619,22 @@ if (import.meta.main) {
             const pulls = await api.json(`commits/${s.run.head}/pulls?per_page=100`);
             numbers = pulls.filter((p: any) => p.merged_at && p.merge_commit_sha === s.run.head && p.base?.repo?.full_name === repository).map((p: any) => p.number);
             byHead.set(s.run.head, numbers!);
-          } catch { numbers = []; }
+          } catch (error) { numbers = []; errors.push({ run: s.run.id, attempt: s.run.attempt, error: `Squash attribution unavailable: ${String(error)}` }); }
         }
         s.run.prs = numbers!; s.run.attribution = numbers!.length ? "exact merged squash SHA" : "unresolved exact squash lookup";
         await Bun.write(join(dir, `run-${s.run.id}-attempt-${s.run.attempt}.json`), JSON.stringify(s, null, 2) + "\n");
       }
-      collection.status = "completed";
+      const enrichmentErrors = await enrich(dir, api, repository, false, pulls);
+      if (api.budget.stopped) errors.push({ run: 0, attempt: 0, error: String(new TimingBudgetStop(api.budget.stopped)) });
+      const incomplete = (await readSnapshots(dir)).some(s => s.problems.length || s.run.status !== "completed");
+      collection.status = errors.length || enrichmentErrors.length || incomplete ? "partial" : "completed";
       await Bun.write(join(dir, "collection.json"), JSON.stringify(collection, null, 2) + "\n");
       await Bun.write(collectionArchive, JSON.stringify(collection, null, 2) + "\n");
-      if (!await enrich(dir, api, repository, false)) process.exitCode = 1;
       const report = await writeReport(dir);
       console.log(JSON.stringify({ directory: dir, coverage: report.coverage, errors: errors.length }));
-      if (errors.length || report.collectionCoverage.missingAttempts.length ||
-        (await readSnapshots(dir)).some(s => s.problems.length)) process.exitCode = 1;
-    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--event JSON] [--scenario JSON] [--repo owner/repo] [--out DIR]");
+      if (errors.some(e => !budgetProblem(e.error)) || enrichmentErrors.some(e => !budgetProblem(e.problem)) ||
+        (await readSnapshots(dir)).some(s => s.problems.some(p => !budgetProblem(p))) ||
+        !api.budget.stopped && report.collectionCoverage.missingAttempts.length) process.exitCode = 1;
+    } else throw new Error("usage: bun scripts/ci-timings.ts collect|enrich|report|record [--since ISO --until ISO] [--run ID] [--resources] [--seed DEFAULT_BRANCH] [--request-budget N --reserve N] [--event JSON] [--scenario JSON] [--repo owner/repo] [--out DIR]");
   } catch (error) { console.error(error); process.exitCode = 1; }
 }

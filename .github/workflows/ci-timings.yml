@@ -5,14 +5,14 @@ name: ci-timings
 on:
   workflow_dispatch:
   schedule:
-    - cron: "43 6 * * *"
+    - cron: "43 * * * *"
 
 permissions:
   contents: read
   actions: read
   pull-requests: read
 
-# Daily overlapping windows avoid adding a measurement runner to every PR push.
+# Incremental hourly windows keep acquisition within the shared API quota.
 concurrency:
   group: ci-timings
   cancel-in-progress: false
@@ -29,13 +29,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.2"
-      - name: Archive overlapping two-day job, step and command timings
+      - name: Archive incremental two-day job and step timings
         env:
           GH_TOKEN: ${{ github.token }}
           TIMING_REPO: ${{ github.repository }}
+          TIMING_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           since=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
-          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --resources --reservations
+          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations
       - name: Retain normalized timing archive
         if: always()
         uses: actions/upload-artifact@v7

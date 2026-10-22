@@ -127,6 +127,13 @@ test("collection workflow reads trusted code with a read-only token and no candi
   expect(timingWorkflowProblems(workflow.replace("actions: read", "actions: write"))).toContain("ci-timings.yml: measurement token must remain read-only");
   expect(timingWorkflowProblems(workflow.replace("github.event.repository.default_branch", "github.event.pull_request.head.sha"))).toContain("ci-timings.yml: collector must check out trusted default-branch code without credentials");
   expect(timingWorkflowProblems(workflow.replace("  schedule:", "  workflow_run:\n  schedule:"))).toContain("ci-timings.yml: measurement must use scheduled/manual trusted execution only");
+  for (const unsafe of [workflow.replace("--request-budget 200", "--request-budget 1000"),
+    workflow.replace("--reserve 500", "--reserve 0"), workflow.replace('--seed "$TIMING_DEFAULT_BRANCH" ', ""),
+    workflow.replace("--reservations", "--resources --reservations")]) {
+    expect(timingWorkflowProblems(unsafe)).toContain("ci-timings.yml: timing collection requires seeded acquisition, a hard budget/reserve and no scheduled resource logs");
+  }
+  expect(timingWorkflowProblems(workflow.replace('"43 * * * *"', '"43 6 * * *"')))
+    .toContain("ci-timings.yml: timing collection must remain hourly and incremental");
 });
 
 test("native report CLI persists statistics and missing-acquisition evidence offline", () => {

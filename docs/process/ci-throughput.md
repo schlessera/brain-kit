@@ -27,7 +27,8 @@ its append-only history without changing it. Actor IDs and revocation prose
 are omitted. Protocol expiry establishes authorized lease time, not actual
 worker activity or caller waiting.
 
-Daily collection includes PR lifecycle and reservation history. Explicit
+Hourly incremental collection includes PR lifecycle and reservation history,
+within the [shared API budget](ci-timings.md#api-cost-and-expected-coverage-gaps). Explicit
 `--since`/`--until` choose the half-open throughput analysis interval. Without
 them, collection manifests supply a bounding interval whose gaps need review.
 An interval is not a claim of complete acquisition. `enrichment.json` records

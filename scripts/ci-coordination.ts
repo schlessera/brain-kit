@@ -5,8 +5,8 @@ export interface LeaseObservation {
   endedAt: number | null; ending: "release" | "revoke" | "expiry-inferred"; sources: string[];
 }
 export interface ReservationArchive {
-  version: 1; repository: string; collectedAt: string; sourceRef: string; sourceHead: string;
-  leases: LeaseObservation[];
+  version: 1; repository: string; collectedAt: string; sourceRef: string; sourceHead: string | null;
+  leases: LeaseObservation[]; error?: string;
 }
 
 /** Renewals and later releases enrich one lease rather than adding occupancy. */
@@ -54,7 +54,7 @@ export function reservationObservations(repository: string, rows: { source: stri
   return [...result.values()];
 }
 
-export function collectReservationHistory(repository: string, since: string) {
+export function collectReservationHistory(repository: string, since: string): ReservationArchive {
   const run = (args: string[]) => {
     const p = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe", timeout: 60000 });
     if (p.exitCode !== 0) throw new Error(`Reservation history unavailable: ${new TextDecoder().decode(p.stderr)}`);

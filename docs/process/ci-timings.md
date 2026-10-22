@@ -29,13 +29,17 @@ proof cannot always be distinguished from other skipped jobs. An unavailable
 marker remains unknown, rather than a zero-duration command.
 
 Filtered searches recursively split time ranges at GitHub's 1,000-result cap.
-Run and job listings paginate; up to four runs are acquired concurrently.
+Run and job listings paginate. Four acquisition workers share one serialized
+API client, including discovery, log, seed and lifecycle requests.
 Completed snapshots can be resumed without repeating successful acquisition;
 resource enrichment retries snapshots lacking requested receipts. There is no
 automatic retry that disguises an API error. Acquisition errors and expected
 attempts are recorded in `collection.json`; missing discovered attempts are
-listed in `summary.json`. Run discovery failure exits nonzero before claiming
-a complete collection. Preserve the command exit status with its outputs.
+listed in `summary.json`. Discovery uses a fixed upper bound 15 minutes in the
+past unless `--until` is explicit, to avoid paging a changing creation window.
+A workflow's discovery failure is recorded in the manifest; other workflows
+and the report still run. Non-budget acquisition failures exit nonzero.
+Preserve the command exit status with its outputs.
 
 The output directory contains normalized `run-<id>-attempt-<n>.json` snapshots,
 a collection manifest, and `summary.json` / `summary.md`. Snapshots retain
@@ -48,10 +52,17 @@ proof of a successful candidate.
 ## Automatic archival
 
 `.github/workflows/ci-timings.yml` collects an overlapping two-day creation
-window daily, with command receipts, PR lifecycle and reservation history, and supports manual dispatch. This avoids
-adding a measurement runner to every PR push and contract metadata edit. It
+window hourly, with job/step timings, PR lifecycle and reservation history,
+and supports manual dispatch. Each invocation seeds from the preceding
+default-branch `ci-timings` artifact, then fetches only new or incomplete
+attempts. Completed attempts and unchanged/merged lifecycle observations are
+reused. Resource logs are off on the schedule; request `--resources` for a
+bounded manual enrichment. This avoids adding a measurement runner to every PR
+push and contract metadata edit. It
 runs default-branch code with a read-only token and no dependency install;
-candidate logs are parsed as data. Timing archives are uploaded for 90 days,
+candidate logs and downloaded observations are parsed as data. Manual dispatch
+uses the dispatched ref's workflow YAML even though checkout pins the tooling
+to the default branch; dispatch only a trusted ref. Timing archives are uploaded for 90 days,
 subject to repository retention settings. Collection is separate from merge
 gates. Its own overhead is not included in product CI totals.
 
@@ -61,6 +72,57 @@ rerun of a run created more than two days earlier, needs explicit backfill
 with `--since` or `--run`. Automation does not claim exhaustive retention of
 such older reruns. The schedule starts only once this workflow is on the
 default branch; a local backfill is not evidence that the schedule executed.
+
+### API cost and expected coverage gaps
+
+GitHub's built-in Actions token shares a
+[1,000-request/hour repository quota](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#primary-rate-limit-for-github_token-in-github-actions)
+with proof lookup and aggregation. Every collector API invocation first reads
+`rate_limit`, admits at most **200 requests including that quota read**, and
+stops before issuing another request when remaining quota is **500 or less**.
+Response headers refresh the remaining count after each request; absent quota
+headers on redirected log/archive downloads use a conservative one-request
+debit. All requests use the same serial admission check. A `403`/`429` rate
+limit response stops further requests without retrying. Manual commands use
+the same defaults; explicit `--request-budget N --reserve N` may narrow them
+or allocate a separately approved backfill budget.
+
+A normal seed costs three API calls (measurement run list, artifact list,
+download); checking up to five preceding runs costs at most seven. Discovery
+costs one call per 100 runs per workflow, plus parent queries when a capped
+window splits. Each new/incomplete attempt costs one jobs call per 100 jobs;
+older rerun attempts also need an attempt-identity call. One shared PR index
+costs one call per 100 recently updated PRs. A changed PR normally costs two
+calls (detail and one timeline page), or three when its immutable squash is
+read. Unattributed main heads add an exact-SHA lookup. No resource-job log
+calls occur on the schedule.
+
+For example, a warm run with two discovery pages, one PR-index page, 20 new
+attempts, and five changed merged PRs costs **42 calls**: `1 + 3 + 2 + 1 + 20 +
+15`. This is an explicit workload estimate, not a traffic guarantee. The
+offline CLI saturation control measures **200 calls** as the worst case per
+invocation; the quota probe is free of primary-quota consumption, so at most
+199 charged API requests are admitted. A separate control starts at 503
+remaining and measures four total calls, stopping with 500 remaining. Concurrent
+CI can reduce the observed allowance further; the reserve is not a lock on
+other users of the token.
+
+Budget exhaustion produces a `partial` collection with `requestBudget`,
+acquisition errors and missing attempts in both the manifest and report. It
+exits **0**, so expected collection limits do not add a red `collect` check to
+main. No seed (including the first scheduled run) is an explicit `seed.error`
+gap and collection continues within the same ceiling. Snapshots and lifecycle
+cache entries outside the overlap are not imported, keeping each seed bounded.
+Each artifact retains its own acquisition manifests; download them into
+separate directories to review historical gaps. A cold/busy run can fill the
+budget before it observes the whole window; later seeded hourly runs resume
+the remaining attempts. The window and explicit-backfill limits still apply.
+
+Reservation-history failures are isolated: `reservations.json` records an
+`error`, a null source head and no observations, while timing acquisition
+continues. The report keeps that error in its reservation scopes and sets
+`reservationAcquisition.complete` to false. With no successful reservation
+observations, occupancy remains unknown rather than measured zero.
 
 Download archives before they expire, using their measurement workflow run IDs:
 
