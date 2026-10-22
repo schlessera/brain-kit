@@ -1,0 +1,229 @@
+{
+  "scope": {
+    "issue": "https://github.com/schlessera/brain-kit/issues/1855",
+    "base": "7d1a31d09b96739a85bff5151cc2e1300c9ac4d0",
+    "change": "Only the queue-release observation in ten-drop cases at 320/dark and 1280/light: per-payload native receipt minima, scoped synchronous queue update, existing finite render completion.",
+    "preserved": "All 15 cases, both widths, all ten cycles, native offline/online events, IME, original identity/layout/scroll/draft/upload/no-send assertions. Pre-release recovery and all other negative windows remain.",
+    "observationCallsBefore": 107,
+    "observationCallsAfter": 87,
+    "minimumClaim": null,
+    "limits": "This slice does not establish minima or equivalent completion for the remaining negative windows."
+  },
+  "source": {
+    "original": {
+      "packages/ui-react/tests/connection-continuity-runtime.test.ts": "76473f62a80848a8b247d052b8153ce994bf5ced5a652d73dc36c4751ac9c486",
+      "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "ff39ff5b81bd15dca4a148adc7fb60a32a922f455e180ec9ca4b3282f20c478a",
+      "packages/ui-react/src/stores/follow-up-state.ts": "e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"
+    },
+    "measuredStrictCandidate": {
+      "packages/ui-react/tests/connection-continuity-runtime.test.ts": "adcd56410b794ba6c1418a45b400b8b0db0413526fa2bcb9cc28e023505b2dd2",
+      "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527",
+      "packages/ui-react/src/stores/follow-up-state.ts": "e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"
+    },
+    "finalMinimumCandidate": {
+      "packages/ui-react/tests/connection-continuity-runtime.test.ts": "86e6cd4c0354c4a23cdeb18224876f7d0ce729bad5b74e25fdf8c244f3387a0e",
+      "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527",
+      "packages/ui-react/src/stores/follow-up-state.ts": "e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"
+    },
+    "assertionAudit": {
+      "allOriginalAssertionsRetainedInOrder": true,
+      "originalAssertions": 85,
+      "candidateAssertions": 87,
+      "testNamesUnchanged": true,
+      "helpersUnchanged": true
+    }
+  },
+  "completion": {
+    "branch": "No started/dropped follow-up; held streaming buffer; request already accepted or absent from sends; no drawn queued user; unchanged request sequence. The scope guard does not compare DOM identity or host pill ids.",
+    "receipt": "Raw native WebSocket session_queue payloads counted in the existing post-handler microtask. Cap 128 distinct reports per page; overflow fails. Counts meet expected payload multiplicities and tolerate additional identical reports. Reports have no nonce: this proves delivery/application opportunities for each payload, not unique event identity.",
+    "render": "Installed Zustand synchronously notifies useSyncExternalStore; React forces lane 2 and flushes synchronous roots in a microtask. This mounted, nonsuspending pending-pill branch has no deferred timer/IO/animation. A later page task plus unchanged finishRender precedes original assertions. This is not a general React/asynchronous-handler drain.",
+    "installedVersions": {
+      "react": "19.3.0",
+      "react-dom": "19.3.0",
+      "zustand": "5.0.15"
+    },
+    "bundle": "Exact fixture Bun.build browser options select react-dom-client.development.js.",
+    "bundleSha256": "e686e195ffe347a4283c9cc439e13aa981e0c8eeed627a661868916e6576283e",
+    "dependencySourceHashes": {
+      "node_modules/react/package.json": "6e003e4e9ed25afa7fdd55613f8aa877cefa9b359d9c13f81ee704030248e24e",
+      "node_modules/react-dom/package.json": "136d4af63de473392ea79d6a21932b0ed9eb37fe518ce70f4621250f3d79e9bb",
+      "node_modules/zustand/package.json": "b53b4d5e7f6baeb1e832792390354f8af54edaefbd6fe23b490a4d2d2e37dff1",
+      "node_modules/zustand/esm/react.mjs": "6340189bc149dffcce8b26b74b664776cebb484c9b31d0c0d918fd29611c5816",
+      "node_modules/zustand/esm/vanilla.mjs": "27f48c11ca4de834f68c505b695d5e2db1c1ebface7303c0e920ab3957260357",
+      "node_modules/react-dom/cjs/react-dom-client.development.js": "c10b5e5ad37ca22c88b58bf4ada9a3b655ab79934c0b5cc6bad26f42c774584f"
+    },
+    "lowerProof": "Existing follow-up-queue.test.ts asserts pending immediately after socket.deliver. Deferring actual applyReport write through queueMicrotask fails the original pending-stack assertion; restored full file passes. Native cases retain delivery/render/identity/layout/focus/IME/upload/no-send proof."
+  },
+  "environment": {
+    "bun": "1.4.2",
+    "chrome": "Google Chrome 140.0.7339.127",
+    "nativeExecution": "Fresh user/network namespace, loopback up, empty route table, capabilities dropped; BRAIN_REQUIRE_CHROME=1; original preload and local-origin guards retained.",
+    "wallDefinitions": "commandWallSeconds is the measurement driver, including metadata/version probes and namespace overhead; gnuWallSeconds is the timed native command. Setup plus test bodies do not exhaust either wall; residual harness/cleanup is unattributed.",
+    "cpuMax": "max 100000",
+    "memoryMax": "max",
+    "dependencies": "Private copyfile install and isolated workspace outputs.",
+    "limits": "Sequential equal-selection local commands on an uncontrolled shared host. Setup/build measured separately. One pair is not a CI critical-path or statistically controlled speedup. Maximum RSS is per-command peak, not simultaneous-process sum."
+  },
+  "comparison": {
+    "driverWallSecondsSaved": 17.309029579162598,
+    "gnuWallSecondsSaved": 17.28000000000003,
+    "caseBodyMsSaved": 11808.270000000019,
+    "setupMsSaved": 3094.606120000004,
+    "queueSpanMsSaved": 9703.016069999954,
+    "observationMsSaved": 10038.521034000427,
+    "cpuSecondsSaved": 3.6700000000000017,
+    "candidatePeakRssKiBMinusOriginal": -2792.0
+  },
+  "variantAttribution": {
+    "matchedPair": "candidate-full uses stricter exact-count equality. Final code allows additional identical reports using >= per exact payload; every observed equality satisfies this final predicate. No second matched pair or extra speedup is claimed.",
+    "finalPredicateControls": "candidate-minimum-premature and candidate-duplicate-release exercise the final minimum predicate.",
+    "qualification": "Matched-pair evidence is historical source attribution; required preflight and CI qualify final source separately."
+  },
+  "controls": {
+    "identityFault": "Same production applyReport mutation changes host ids on each report, retaining request ids. Both original and candidate reach released queue then fail unchanged cycle 1, reconnected: no pending pill was removed during recovery; expected 0, received 1. Candidate scope/receipt checks pass first.",
+    "delayedRelease": "First-cycle real queue forwarding delayed 2000 ms. Actual deliveries and measured boundary are recorded; all ten phone cycles pass.",
+    "prematureReceipt": "Remove both receipt waits with the same delayed delivery; exact receipt assertion fails expected [3], received [1]. Final minimum-predicate repetition fails expected [true], received [false]. Both pending timers are cancelled in cleanup, before forwarding. No failure is a timeout or module-load failure.",
+    "duplicateRelease": "An extra identical real queue frame is forwarded each phone cycle, acknowledged beyond expected multiplicity, and all ten cycles pass with final minimum predicate.",
+    "restoration": "Production mutation and timing/control instrumentation removed; instrumented strict native candidate full file passes; restored full lower file passes. Final exact source requires its own qualification."
+  },
+  "rejectedAlternatives": [
+    {
+      "caller": "Scene wheel/scroll",
+      "reason": "scrollend and geometry do not finish delayed 250 ms device persistence and subsequent adoption; snapshotNow would change the operation. No implementation or saving claimed."
+    },
+    {
+      "caller": "IME start/commit",
+      "reason": "Native event/text and host acknowledgement do not finish separate device continuation. Host draft default is 800 ms; device delay 250 ms. No implementation or saving claimed."
+    }
+  ],
+  "studyCost": {
+    "commandWallSeconds": 1608.389589548111,
+    "cpuSeconds": 1119.76,
+    "deliberateFailingControlWallSeconds": 295.88217639923096,
+    "deliberateFailingControlCpuSeconds": 468.27000000000004,
+    "scope": "All recorded viability, fault, delay, premature, matched-full and lower-proof commands; excludes install/source inspection. Initial viability predates bounded recorder/typed refinement and is not a comparison baseline."
+  },
+  "runs": [
+    {
+      "name": "candidate-viability", "startedUtc": "2026-10-16T16:41:41.292876+00:00",
+      "exitCode": 0, "sourceUnchanged": true, "pass": 1.0, "fail": 0.0, "assertions": 738.0,
+      "commandWallSeconds": 172.15116548538208, "gnuWallSeconds": 171.86, "setupMs": null, "caseBodyMs": 89372.24,
+      "userSeconds": 144.18, "systemSeconds": 11.98, "peakRssKiB": 1265620.0,
+      "waits": {"renderCalls":12,"renderMs":809.3479159999843,"observationCalls":22,"observationMs":11036.046532000022,"retainedFrameCalls":22,"retainedFrameMs":545.7407970000495,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 0, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": ["8.19","3.49","1.53"], "loadAfter": ["8.60","5.48","2.61"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"6e2ed5afa3cc2318e295cfbda1d7a9f90ba12dac3e1896ddd13d47362a559d70","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"22644f6358791680a5f84798da10ca4fcb70b945fffd87efe5388d822b2e36fd","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"0a364f65e77fdb4034dc593435ca901c639d8251628bf4cdf6a53e3136e423b4","native.log":"e01ac0650a9032c8c20f92db8b9c01619c2d9e9d177ca1b108a74c1a9e3c9ed8","time.txt":"abebd6731eacbbe20a288f89e03a9b8e988e25ac295451fca2b09d5177a52f3a","diff.patch":"18df5a0c920d8df853f27a50dfa317322e4ad61c7797cd13784f1e504837e448"}
+    },
+    {
+      "name": "original-id-fault", "startedUtc": "2026-10-16T16:45:42.718839+00:00",
+      "exitCode": 1, "sourceUnchanged": true, "pass": 0.0, "fail": 1.0, "assertions": 65.0,
+      "commandWallSeconds": 71.72735214233398, "gnuWallSeconds": 71.51, "setupMs": 55127.667432, "caseBodyMs": 13105.31,
+      "userSeconds": 102.94, "systemSeconds": 8.71, "peakRssKiB": 1251284.0,
+      "waits": {"renderCalls":2,"renderMs":375.65622799999255,"observationCalls":4,"observationMs":2004.615257999998,"retainedFrameCalls":4,"retainedFrameMs":108.4354650000023,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 547.8717630000028, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": ["7.70","5.89","2.96"], "loadAfter": ["4.86","5.43","3.02"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"4cb112fedbbe90aa8711b46da46dfdf7f730b321e5e4e30012d33efcfa79cbe3","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"ff39ff5b81bd15dca4a148adc7fb60a32a922f455e180ec9ca4b3282f20c478a","packages/ui-react/src/stores/follow-up-state.ts":"3d16279b7055c78ec97cea4f021e4a83b789c7659715ea61be727071513faf1a"},
+      "receiptSha256": {"metadata.json":"070afca5dc7217727bd6e7e6096b4dd8309660722c8f9786ce8e79e62851a223","native.log":"39796489c8d68a50e86d82e7ef7cd118319a5c9c2b55b7a4b40fd496666933d9","time.txt":"dcf8d816e7f2ca6192fc851e771e3d5a6287a6d77151858fac285c3f587db496","diff.patch":"de4adb58456ab3783977c5d1a20bce4d2a69c4c25d9cb6d522f42ae1b3699236"}
+    },
+    {
+      "name": "candidate-id-fault", "startedUtc": "2026-10-16T16:47:00.051889+00:00",
+      "exitCode": 1, "sourceUnchanged": true, "pass": 0.0, "fail": 1.0, "assertions": 67.0,
+      "commandWallSeconds": 80.2495231628418, "gnuWallSeconds": 80.09, "setupMs": 62974.344959, "caseBodyMs": 12515.63,
+      "userSeconds": 120.9, "systemSeconds": 9.74, "peakRssKiB": 1257684.0,
+      "waits": {"renderCalls":3,"renderMs":417.09698400000343,"observationCalls":3,"observationMs":1501.6581139999907,"retainedFrameCalls":3,"retainedFrameMs":72.05422999999428,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 65.03572600000189, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": ["5.43","5.54","3.07"], "loadAfter": ["5.84","5.80","3.36"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"86db6926002785110df9abfd01ac3e0063829265ace4556c59ca1a8666975537","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527","packages/ui-react/src/stores/follow-up-state.ts":"3d16279b7055c78ec97cea4f021e4a83b789c7659715ea61be727071513faf1a"},
+      "receiptSha256": {"metadata.json":"35f532b8154f29190c5b4809c1c2f51ea60c6f14a46a479aea86d009726bc002","native.log":"dc090a3fb6781375001a2a3e8d1514f38d6456d7f07661639f390f140ec91aad","time.txt":"187b8d5cdae78fa3bf85b41e3c304e668fb58e2cd02a6a3b9283e2ae8941e76d","diff.patch":"a23d3114bb0af7872ce27551b24b56189f91e513100c638b2f2c5026133a493a"}
+    },
+    {
+      "name": "candidate-delayed-release", "startedUtc": "2026-10-16T16:48:30.135606+00:00",
+      "exitCode": 0, "sourceUnchanged": true, "pass": 1.0, "fail": 0.0, "assertions": 738.0,
+      "commandWallSeconds": 162.58596873283386, "gnuWallSeconds": 162.44, "setupMs": 64230.788556, "caseBodyMs": 91217.97,
+      "userSeconds": 121.57, "systemSeconds": 10.39, "peakRssKiB": 1253200.0,
+      "waits": {"renderCalls":12,"renderMs":814.635440999984,"observationCalls":22,"observationMs":11042.02822000008,"retainedFrameCalls":22,"retainedFrameMs":563.5029840000498,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 2649.9036909999995, "duplicateReceipts": [], "delayedNativeForwardsMs": [2001.9903789999953,2002.0636999999988], "pendingDelaysAtCleanup": 0.0,
+      "loadBefore": ["5.32","5.69","3.35"], "loadAfter": ["5.73","5.80","3.76"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"be98110e487d3177c4df8961eec5460ff5e2fa7f0a6f956f8e96e23b2a04ca64","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"8b5e745cdc01e8eae0682c82fd8f2044770d03d58f44ec0f3f426c4d7ee431d9","native.log":"a52a30087c87d866629548ade129eaec6c882c567ea8394e8edc47663d0eb7f4","time.txt":"5c6b9f02dbf3b113e50fdfc893cda8fcf2626548e89edf0bd9d22745ea7dfa03","diff.patch":"88daec000c2a34c404229ea8e5e9a5260aef6e5557761d9d7916ab4f59e07877"}
+    },
+    {
+      "name": "candidate-premature-receipt", "startedUtc": "2026-10-16T16:53:50.410058+00:00",
+      "exitCode": 1, "sourceUnchanged": true, "pass": 0.0, "fail": 1.0, "assertions": 65.0,
+      "commandWallSeconds": 72.4677734375, "gnuWallSeconds": 72.24, "setupMs": 55204.616173, "caseBodyMs": 12475.17,
+      "userSeconds": 103.72, "systemSeconds": 8.59, "peakRssKiB": 1269932.0,
+      "waits": {"renderCalls":2,"renderMs":379.40920500000357,"observationCalls":3,"observationMs":1505.0528280000071,"retainedFrameCalls":3,"retainedFrameMs":76.06345599999622,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 0, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": 2.0,
+      "loadBefore": ["2.72","4.37","3.54"], "loadAfter": ["6.97","5.18","3.87"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"0af8a4145af51213b57d318e54eed5fb178287babf9b72052a7764d8f8a050b9","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"6795502c50389562fc99d41eb426baa4942fe6e4ad5063d98c255a87a3527ffd","native.log":"d554330c420f88f8c7e074dc48abe3043fff74c1c9b24c0fee2e002cec6af4d7","time.txt":"3009e23e07baf2767473b869620337809220ad691e391f2a3e8f973eee327d8e","diff.patch":"9c191ca0d45aa16d5278c9fe33d76f2969316f6d0e1aecb5c4db55710f81b450"}
+    },
+    {
+      "name": "original-full", "startedUtc": "2026-10-16T16:55:53.526433+00:00",
+      "exitCode": 0, "sourceUnchanged": true, "pass": 15.0, "fail": 0.0, "assertions": 1836.0,
+      "commandWallSeconds": 419.8938105106354, "gnuWallSeconds": 419.73, "setupMs": 53907.531873, "caseBodyMs": 347272.45,
+      "userSeconds": 109.8, "systemSeconds": 13.75, "peakRssKiB": 1247680.0,
+      "waits": {"renderCalls":35,"renderMs":6738.9197140000615,"observationCalls":107,"observationMs":53632.42935600015,"retainedFrameCalls":107,"retainedFrameMs":2665.6144510002487,"pollCalls":12,"pollMs":661.2690889999212},
+      "queueSpanTotalMs": 10973.210701999924, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": ["5.54","5.10","3.91"], "loadAfter": ["3.55","3.65","3.64"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"4cb112fedbbe90aa8711b46da46dfdf7f730b321e5e4e30012d33efcfa79cbe3","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"ff39ff5b81bd15dca4a148adc7fb60a32a922f455e180ec9ca4b3282f20c478a","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"9a223d98a3d0e1e77591f82f774042ece96f8ba511036af83fc7bb06c377fa02","native.log":"685934fea6aa6af3cb88cb3628f9074adbf54568031f1af5da46cf095fe91c0c","time.txt":"e786d5eb940043f6767c1c8fc8139c0726979bb3a8676cf7187dc6a91d57d667","diff.patch":"ab5237de8cd0e44e0786343904016821d88b0073db14404f03d02ca5de1549da"}
+    },
+    {
+      "name": "candidate-full", "startedUtc": "2026-10-16T17:03:19.911815+00:00",
+      "exitCode": 0, "sourceUnchanged": true, "pass": 15.0, "fail": 0.0, "assertions": 1876.0,
+      "commandWallSeconds": 402.5847809314728, "gnuWallSeconds": 402.45, "setupMs": 50812.925752999996, "caseBodyMs": 335464.18,
+      "userSeconds": 106.55, "systemSeconds": 13.33, "peakRssKiB": 1244888.0,
+      "waits": {"renderCalls":55,"renderMs":7638.299932000016,"observationCalls":87,"observationMs":43593.90832199973,"retainedFrameCalls":87,"retainedFrameMs":2176.7542359999425,"pollCalls":12,"pollMs":662.764756999939},
+      "queueSpanTotalMs": 1270.1946319999697, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": ["2.80","3.46","3.57"], "loadAfter": ["3.22","2.41","3.01"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"86db6926002785110df9abfd01ac3e0063829265ace4556c59ca1a8666975537","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"a30ba7d9e5e50c250edce873b12a9787e0354cfe9a8f281269ba454a4ce26896","native.log":"c45c5934296a457c89da1ff1bfbc2ddd86d84c90f62d92ecb430afbfe2466683","time.txt":"83a7068c545c1d54a1e61788d53ca754c92a8487b4413bea81d36e556ac75f2d","diff.patch":"f243d4a6d47e3ef78c82a583038522bf90d6157fa545d19ed725da72eacf4d7c"}
+    },
+    {
+      "name": "candidate-minimum-premature", "startedUtc": "2026-10-16T17:10:46.325602+00:00",
+      "exitCode": 1, "sourceUnchanged": true, "pass": 0.0, "fail": 1.0, "assertions": 65.0,
+      "commandWallSeconds": 70.93510007858276, "gnuWallSeconds": 70.77, "setupMs": 55061.220943, "caseBodyMs": 12311.92,
+      "userSeconds": 104.86, "systemSeconds": 8.47, "peakRssKiB": 1266868.0,
+      "waits": {"renderCalls":2,"renderMs":407.99073399999907,"observationCalls":3,"observationMs":1504.4107409999779,"retainedFrameCalls":3,"retainedFrameMs":82.74812100000418,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 0, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": 2.0,
+      "loadBefore": ["2.45","2.31","2.95"], "loadAfter": ["4.17","2.93","3.13"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"2957f35a6333ec7e4d3a6c43ffe8d5d6961d3889c8bc7e03806435a8b584a8d8","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"d0687d63fc24a33e537b3ecc9afd5d66c37c1d3c1d38b166b245038ecb0aec48","native.log":"27b3ee58f1c705fca9348730b80d1e899700d3e3b8113fc6d04c401b1207347c","time.txt":"05aa893c27ee42491b7786c4c93d5d142d1ab0212ee078955404e7d65c3ff9f9","diff.patch":"634f393aea0a0c1540a76c2e70e8e59f77c68c8e9fca1a3ecae288c8446f302c"}
+    },
+    {
+      "name": "candidate-duplicate-release", "startedUtc": "2026-10-16T17:12:04.949367+00:00",
+      "exitCode": 0, "sourceUnchanged": true, "pass": 1.0, "fail": 0.0, "assertions": 738.0,
+      "commandWallSeconds": 154.95979833602905, "gnuWallSeconds": 154.78, "setupMs": 57513.660268, "caseBodyMs": 90042.79,
+      "userSeconds": 109.82, "systemSeconds": 9.76, "peakRssKiB": 1297056.0,
+      "waits": {"renderCalls":12,"renderMs":784.515673000009,"observationCalls":22,"observationMs":11027.021533000028,"retainedFrameCalls":22,"retainedFrameMs":567.0915779999341,"pollCalls":0,"pollMs":0},
+      "queueSpanTotalMs": 715.7727190000005, "duplicateReceipts": [{"expected":[3],"actual":[4]},{"expected":[6],"actual":[7]},{"expected":[9],"actual":[10]},{"expected":[12],"actual":[13]},{"expected":[15],"actual":[16]},{"expected":[18],"actual":[19]},{"expected":[21],"actual":[22]},{"expected":[24],"actual":[25]},{"expected":[27],"actual":[28]},{"expected":[30],"actual":[31]}], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": ["4.16","2.95","3.13"], "loadAfter": ["7.25","4.65","3.74"],
+      "sourceHashes": {"packages/ui-react/tests/connection-continuity-runtime.test.ts":"96cec4c24853406176c8f61cbfc8f794f2a65884e688f548104f9b321510fd27","packages/ui-react/tests/fixtures/connection-continuity-client.tsx":"c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527","packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503"},
+      "receiptSha256": {"metadata.json":"9f3f73f7d85919118ec1f9791fda823147949186ee3225afcaad86e27897e575","native.log":"e34e1e9b9809fda8649a9c58374684ce6e6d7d88a65b0c9464c61740e90bd5a0","time.txt":"30a523899e3eb19a3d30ddaf26e4d1d706c34671d283315b8653e5b295bec1ff","diff.patch":"6899b6328c97455e0274007de17c3445fdfe8af7cbb7f642be135bd233eea815"}
+    },
+    {
+      "name": "lower-deferred-report", "startedUtc": "2026-10-16T17:15:04.780527+00:00",
+      "exitCode": 1, "sourceUnchanged": true, "pass": 0.0, "fail": 1.0, "assertions": 3.0,
+      "commandWallSeconds": 0.5024275779724121, "gnuWallSeconds": 0.24, "setupMs": null, "caseBodyMs": 19.37,
+      "userSeconds": 0.24, "systemSeconds": 0.1, "peakRssKiB": 82956.0,
+      "waits": null,
+      "queueSpanTotalMs": 0, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": [], "loadAfter": [],
+      "sourceHashes": {"packages/ui-react/src/stores/follow-up-state.ts":"8d1fa256926c6c49634cb193678f444aeca35bf29efb95c6eacf445a55a21d96","packages/ui-react/tests/follow-up-queue.test.ts":"c877084de654d502c2cd9487e2bef351a01d4ea168076a7fcf7ab029536b7ad5"},
+      "receiptSha256": {"metadata.json":"41e1b12abe347f708f8fadcb6c6ff08cfcc346af150d3134ff9248edd43f0fb2","native.log":"84ee270046e9d5666ced81cb3271865ee78acd4fd301dde498b24a2cfafbdb41","time.txt":"c96be5c1b19ec4a80e27a564cba30ee45c98eaf8bea1ceb012f79838e959b326","diff.patch":"e99c28fe018a463e4cca82473115d866e7c4cbcc87bf51a7cb1d452fa0131dfa"}
+    },
+    {
+      "name": "lower-restored-full", "startedUtc": "2026-10-16T17:15:09.814583+00:00",
+      "exitCode": 0, "sourceUnchanged": true, "pass": 20.0, "fail": 0.0, "assertions": 86.0,
+      "commandWallSeconds": 0.33188915252685547, "gnuWallSeconds": 0.24, "setupMs": null, "caseBodyMs": 46.52,
+      "userSeconds": 0.28, "systemSeconds": 0.08, "peakRssKiB": 86120.0,
+      "waits": null,
+      "queueSpanTotalMs": 0, "duplicateReceipts": [], "delayedNativeForwardsMs": [], "pendingDelaysAtCleanup": null,
+      "loadBefore": [], "loadAfter": [],
+      "sourceHashes": {"packages/ui-react/src/stores/follow-up-state.ts":"e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503","packages/ui-react/tests/follow-up-queue.test.ts":"c877084de654d502c2cd9487e2bef351a01d4ea168076a7fcf7ab029536b7ad5"},
+      "receiptSha256": {"metadata.json":"093a2205f24a86565e9308bbdc8883e543a0b6a3949258fce53165187b6e0b82","native.log":"2d94e0f85a3759ca83aaa7a55c970aa88d9ca501f08a3a9d606ab59da2ae1995","time.txt":"50d61acff7c11eed692888b08ec4bb1c120def655a50ef12288f55530b32b9c6","diff.patch":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
+    }
+  ]
+}

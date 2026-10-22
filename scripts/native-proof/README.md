@@ -213,3 +213,29 @@ fails that verification. `index-release-reproduction.json` records this as an
 expected failure with `qualification: false`; it does not turn the failing
 invocation into a healthy fifth matrix cell. The selected hosted runtime job
 therefore exercises the reproduction under its enforced AppArmor profile too.
+
+## Reference pool allocation
+
+`bun scripts/prove-reference-pool.ts` is the reference pool's required runtime
+cell ([#2428](https://github.com/schlessera/brain-kit/issues/2428)). Inside the
+pinned image, `reference-pool-fixture.py` refuses an existing loop2428 or
+loop2429. It owns a fully allocated 1 GiB brain store and a separate sparse
+2 GiB pool volume, mounted `discard=async`. It enables simple quotas through
+`BTRFS_IOC_QUOTA_CTL`, because the image's btrfs-progs 6.6 predates
+`quota enable --simple`. It then runs `reference-pool.native.ts` against the
+real manager with 256 MiB combined and 32 MiB per-operation limits.
+
+The cases cover empty, metadata-heavy, noncompressible, compressed, sparse,
+inline, preallocated, hardlinked, reflinked, partially cloned, snapshotted,
+COW-edited and Git roots. They also cover write-time `EDQUOT`, concurrent
+admissions, a second ledger consumer, deletion of a source a snapshot still
+references, an open hold through the deletion deadline, crashes around each
+durable transition, stale identities, foreign qgroups, nested subvolumes,
+pool ENOSPC, restart reconstruction and the `brain-native-store pool`
+projection.
+
+The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
+`MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN` and `KILL`. It deliberately omits
+`SYS_RESOURCE`, so `quota_override` cannot be set; the unit suite covers that
+refusal. Receipts, including measured physical-to-owner ratios, are kept under
+`tmp/reference-pool-proof/`.

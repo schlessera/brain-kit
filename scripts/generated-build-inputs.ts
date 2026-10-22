@@ -6,17 +6,17 @@ import { isAbsolute, relative, resolve } from "node:path";
 // Tailwind CLI, build-before-browser order, checked exits and post-success receipt.
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
-  "scripts/build.ts": "30c1ecc7272921efe4e437b23e3d088e03d38869a9f5b2365fc08592e248d8d8",
-  "scripts/build-execution.ts": "17ee42de1b37aa8034c6b0719b32ec432ac8fde321fb9c2c3a426799ea996a5e",
-  "scripts/build-receipt.ts": "12c673be0e62aca17a4c11e45e2a915f17788199fd10632ae0833bcf6753b45d",
+  "scripts/build.ts": "6e83f426cf6a084e531f7e1aacc6d1574600dedfca890747df33199e2b3c9fd7",
+  "scripts/build-execution.ts": "89571c3af89489abe25f2b1113411c128c51a06fcd5f5b948e0899e4f6df8e89",
+  "scripts/build-receipt.ts": "b22743a8a943cd63d56519f4551715c4bbf2ff05e17ae8bd65cca2aeed88fa68",
   "scripts/build-repeat-observation.ts": "8c497d87eddbc5682441574674b178960b54352a319228527a62fedff3279047",
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
-  "scripts/workspace-lease.mjs": "dc6dc975e6abdb3fb193b368b79544bc98c60c624f0fd9c9985358284bb07df0",
+  "scripts/workspace-lease.mjs": "d1e427171a70f906f219b43ea6e47f69c628e60c126a2bb7ac30ff5e2c9a81ad",
   "scripts/ci-proof.ts": "094977e01d5549bc518a6aa74ef6ba6ee9267d79fcb841f4fd439c84de202931",
-  "scripts/check-pr.ts": "fef89cc3974e9d3b81aac4c131b8a2bc574ac8ffce812d5248292163088ccdae",
+  "scripts/check-pr.ts": "44edfa9c7da42c301988fda62e9f2bf9e72eb56d9eedfb2bf1b4c77af9764bd0",
   "scripts/ci-runner.ts": "e6b9da9fdf92cb7ade402c620a8f58727bf5a09725bed03000a862866a6f9262",
-  ".github/workflows/ci.yml": "9104bb0945e9f724cfbc690169880121c8f276cdfd86d4e9227d4c657eb8ad4f",
+  ".github/workflows/ci.yml": "ba93d519013905c8bbd943bf8887733a45911e5309a622f34827f70fdef94427",
   "package.json": "0d2ba2667eed49f4b686e57e54578d5f51e6c1b93605de0e1f5c8d08f8d0b188"
 };
 export function generatedCssInputs(root: string, artifact: string): { entry: string; producer: string[] } | undefined {

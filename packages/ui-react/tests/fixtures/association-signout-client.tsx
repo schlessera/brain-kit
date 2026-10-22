@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useStore } from "zustand";
 import { SlidePanel } from "../../src/components/layout/slide-panel.js";
 import { DictationSheet } from "../../src/components/voice/dictation-sheet.js";
 import { createRoot } from "react-dom/client";
@@ -45,9 +46,28 @@ let compose = () => {};
 let replaceRoot = async () => {};
 let shownRoot = root;
 let settingsClosed = 0, dictationCancelled = 0;
+let accountEffectsApplied = async () => {};
+let appliedAccountKey: string | null | undefined;
+let captureEffectAccount: string | null | undefined;
+let accountCommitGate: Promise<void> | null = null;
+let releaseAccountCommit = () => {};
+let accountCommitHeld = false, accountAcknowledgementRequested = false, captureStarted = false;
+let pendingCapture: Promise<void> = Promise.resolve();
 function Fixture() {
   const [composed, setComposed] = useState(false);
   const [providedRoot, setProvidedRoot] = useState(root);
+  const account = useStore(root.stores.connection, state => state.accountKey);
+  const [acknowledgeAccountEffects, setAcknowledgeAccountEffects] = useState<(() => void) | null>(null);
+  accountEffectsApplied = () => new Promise<void>(resolve => {
+    accountAcknowledgementRequested = true;
+    setAcknowledgeAccountEffects(() => resolve);
+  });
+  // Descendant account effects (including tray recovery) start before this
+  // passive effect. The native recording-lock barrier below then drains them.
+  useEffect(() => {
+    appliedAccountKey = account;
+    acknowledgeAccountEffects?.();
+  }, [account, acknowledgeAccountEffects]);
   replaceRoot = async () => {
     shownRoot = createBrainUiRoot({ storagePrefix: "odysseus-replacement-root", localCapture: true });
     // Mount an already probed root, as a consumer may do without remounting its tray.
@@ -58,12 +78,22 @@ function Fixture() {
     setProvidedRoot(shownRoot);
   };
   compose = () => setComposed(true);
+  if (account === null && accountCommitGate) { accountCommitHeld = true; throw accountCommitGate; }
   return <BrainUiProvider root={providedRoot}><ConnectionGate>{composed ? <>
     <DictationSheet open onStop={() => {}} onCancel={() => { dictationCancelled++; root.stores.voice.getState().resetCapture(); }} />
     <SlidePanel open title="Settings" onClose={() => { settingsClosed++; }}><PasskeyTab active /></SlidePanel>
   </> : <div style={{ maxWidth: 720, marginInline: "auto", padding: 12 }}><RecordingsTray /><PasskeyTab active /></div>}</ConnectionGate></BrainUiProvider>;
 }
-createRoot(document.getElementById("app")!).render(<Fixture />);
+createRoot(document.getElementById("app")!).render(<Suspense fallback={null}><Fixture /></Suspense>);
+async function captureUnassigned() {
+  accountAcknowledgementRequested = false; captureStarted = false;
+  root.stores.connection.setState({ accountKey: null });
+  await accountEffectsApplied();
+  await navigator.locks.request("brain-ui:recording", () => {});
+  captureEffectAccount = appliedAccountKey;
+  captureStarted = true;
+  await root.recordings!.start();
+}
 const outcome = (p: Promise<unknown>) => p.then(() => "ok", (error: Error) => error.name);
 const raw = (partition: PartitionId) => createLocalPartitions({ name: "brain-ui-local", heldAccountKey: () => partition === "unassigned" ? null : partition.slice(8) }).open(partition);
 async function readDisk(partition: PartitionId): Promise<Array<{key:string;value:unknown}>> {
@@ -325,7 +355,19 @@ Object.assign(window, { __work: {
   holdRecordingLock: () => new Promise<void>(resolve => { void navigator.locks.request("brain-ui:recording", async () => { lockHeld = true; resolve(); await new Promise<void>(release => { releaseLock = release; }); lockHeld = false; }); }),
   lockHeld: () => lockHeld,
   releaseRecordingLock: () => releaseLock?.(),
-  captureUnassigned: async () => { root.stores.connection.setState({ accountKey: null }); await new Promise(resolve => setTimeout(resolve, 100)); await navigator.locks.request("brain-ui:recording", () => {}); await root.recordings!.start(); },
+  holdAccountCommit: async () => {
+    await accountEffectsApplied(); await inventoryRecovered();
+    accountCommitHeld = false;
+    accountCommitGate = new Promise<void>(resolve => {
+      releaseAccountCommit = () => { accountCommitGate = null; resolve(); };
+    });
+  },
+  releaseAccountCommit: () => releaseAccountCommit(),
+  beginUnassignedCapture: () => { pendingCapture = captureUnassigned(); void pendingCapture.catch(() => {}); },
+  captureDone: () => pendingCapture,
+  captureProgress: () => ({ held: accountCommitHeld, requested: accountAcknowledgementRequested, started: captureStarted }),
+  captureUnassigned,
+  captureEffectAccount: () => captureEffectAccount,
   captureActive: () => root.recordings!.active(),
   stopCapture: () => root.recordings!.stop("user"),
 } });
