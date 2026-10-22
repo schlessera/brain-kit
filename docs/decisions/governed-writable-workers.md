@@ -475,6 +475,12 @@ in host-owned transports instead:
 - **Paid providers.** Calls go through metered relays (see "Cost and budgets"),
   so no worker holds a provider key.
 
+Host Git tokens are stripped from maintenance and agent worker environments,
+including provider-credentialed maintenance. Every strip site uses the same
+credential names (`HOST_GIT_CREDENTIAL_ENV`,
+`packages/ui-sdk/src/server/subprocess-env.ts:193-197`). The mirror transport
+and host skills installer retain their dedicated credentials and generic fallback.
+
 **Interim exposure.** Until the mirror and the relays land, a maintenance
 worker that needs a credential receives it directly. Code the agent can write,
 such as a helper the config imports, could then read it. That is the same
@@ -781,7 +787,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:978-1006`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:981-1009`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1392,7 +1398,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:197`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:198`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -1410,7 +1416,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1625`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1628`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1434,7 +1440,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:334-393`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:335-394`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -1469,7 +1475,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:230-294`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:232-296`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1477,7 +1483,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:90-108`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:91-109`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -1510,9 +1516,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:640-646`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:647-686`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:687-705`).
+`packages/ui-sdk/src/server/worker-launcher.ts:643-649`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:650-689`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:690-708`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -1758,7 +1764,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:221-255`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:222-256`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -1896,11 +1902,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:945-973`;
+`packages/ui-sdk/src/server/worker-launcher.ts:948-976`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:978-1004`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:981-1007`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1137-1210`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1140-1213`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2133,7 +2139,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:445-456`).
+  `packages/ui-server/src/brain/host-boundary.ts:444-455`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
