@@ -18,7 +18,7 @@ import type { CreatePiBackendOptions, PiSessionLike, SessionEnv, SessionToolkit 
 
 interface Init {
   type: "init";
-  backend: Pick<CreatePiBackendOptions, "brainPath" | "profiles" | "model" | "loadExtensions" | "systemPromptAppend">;
+  backend: Pick<CreatePiBackendOptions, "exec" | "brainPath" | "profiles" | "model" | "loadExtensions" | "systemPromptAppend">;
   env: SessionEnv;
   sessionId: string;
   resume: boolean;

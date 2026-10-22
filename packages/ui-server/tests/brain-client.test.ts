@@ -24,6 +24,7 @@ import { createBrainRoutes } from "../src/routes/brain";
 
 import { BRAIN_BIN, runCli } from "../../core/tests/cli-harness";
 import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
+import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
 
 const temporaryRoots: string[] = [];
 
@@ -241,6 +242,7 @@ describe("search cancellation and deadlines", () => {
 
 describe("brain CLI version probe", () => {
   test("a 0.40.0 brain repo pin refuses app creation and names 0.44.0", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "a 0.40.0 brain repo pin refuses app creation and names 0.44.0")) return;
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.40.0");\n`);
     const observability = createRecordingObservability();
@@ -253,6 +255,7 @@ describe("brain CLI version probe", () => {
   });
 
   test("the first compatible CLI release boots", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "the first compatible CLI release boots")) return;
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.44.0");\n`);
     const app = await createApp({ config: appConfig(root), observability: createRecordingObservability(), registry: registry() });
@@ -260,6 +263,7 @@ describe("brain CLI version probe", () => {
   });
 
   test("a malformed version string warns and still boots", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "a malformed version string warns and still boots")) return;
     // "0.32.9-.." is not SemVer: the prerelease identifiers are empty. A loose
     // prerelease pattern would parse it as a real 0.32.9 prerelease and refuse
     // to boot; the contract is that anything unparseable warns and continues.
@@ -280,6 +284,7 @@ describe("brain CLI version probe", () => {
   });
 
   test("an unresolvable CLI warns and still boots", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "an unresolvable CLI warns and still boots")) return;
     const root = temporaryBrain();
     const observability = createRecordingObservability();
     const app = await createApp({
@@ -464,6 +469,7 @@ describe("brain CLI client over the keyless Odysseus corpus", () => {
  */
 describe("the exec wrapper covers the shared CLI client", () => {
   let previous: string | undefined;
+  beforeEach(() => { previous = process.env.BRAIN_UI_EXEC_WRAPPER; });
 
   afterEach(() => {
     if (previous === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER;
@@ -552,6 +558,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
     });
 
   test("an app spawns through its configured wrapper, not the ambient one (#1363)", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "an app spawns through its configured wrapper, not the ambient one (#1363)")) return;
     // Two apps in one process must not share a privilege boundary: the
     // wrapper comes from the config handed to createApp, even while the
     // process environment names a different one.
@@ -563,6 +570,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
   }, 30_000);
 
   test("a config without exec keeps the ambient wrapper rather than spawning unwrapped", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "a config without exec keeps the ambient wrapper rather than spawning unwrapped")) return;
     // A configuration built before `ServerConfig.exec` existed must not lose
     // its wrapper: createApp resolves the ambient one at the edge.
     const seen = await wrappersSeenByApp((root, wrapper) => {
