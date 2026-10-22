@@ -28,7 +28,7 @@ function snapshot(root: string): Map<string, string> {
   const walk = (dir: string): void => {
     for (const name of readdirSync(join(root, dir))) {
       const path = dir ? `${dir}/${name}` : name;
-      if ([".git", ".brain", "node_modules"].includes(name) || name.startsWith("brain.db")) continue;
+      if ([".git", ".brain", ".brain-index", "node_modules"].includes(name)) continue;
       if (lstatSync(join(root, path)).isDirectory()) walk(path);
       else files.set(path, readFileSync(join(root, path)).toString("base64"));
     }

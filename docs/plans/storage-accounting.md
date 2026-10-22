@@ -60,14 +60,14 @@ ownership, not permission to delete.
 Source anchors, checked against the reviewed commit:
 
 - A: root and index resolution (`initContext`, `packages/core/src/lib/context.ts:36-50`);
-  existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:161-212`),
-  available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:216-227`).
+  existing corpus exclusions (`corpusSize`, `packages/core/src/lib/stats.ts:164-215`),
+  available capacity (`freeSpaceBytes`, `packages/core/src/lib/stats.ts:219-230`).
 - B: loose report (`looseObjects`, `packages/core/src/lib/git-storage.ts:57-66`)
   and safe packing (`packRepository`, `packages/core/src/lib/git-storage.ts:78-86`).
   The completed #94 and #398 provide existing stats/maintenance foundations.
 - C: snapshot fields (`snapshotOf`, `packages/core/src/lib/stats-history.ts:132-172`),
   thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`).
-- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:281-317`),
+- D: effective path/journal resolution (`createApp`, `packages/ui-server/src/app.ts:282-318`),
   WAL store (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`), and
   private locations (`statePaths`, `packages/ui-server/src/brain/operational-state.ts:107-113`).
 - E: live/archive paths (`transcriptPaths`, `packages/ui-backend-claude/src/transcript-archive.ts:29-38`).

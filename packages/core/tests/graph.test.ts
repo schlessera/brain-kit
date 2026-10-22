@@ -85,7 +85,7 @@ async function indexCorpus(
   options: { graph?: boolean } = {}
 ): Promise<{ root: string; db: Database }> {
   const root = makeCorpus(files);
-  const db = openDatabase(join(root, "brain.db"));
+  const db = openDatabase(join(root, ".brain-index", "brain.db"));
   await indexAll(db, { root, taxonomy, quiet: true, ...options });
   return { root, db };
 }
@@ -97,7 +97,7 @@ function idFor(db: Database, path: string): number {
 describe("schema v8 migration", () => {
   test("a fresh database lands on the current schema with every graph table present", () => {
     const root = makeCorpus({});
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
 
     const version = db
       .prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'")
@@ -120,7 +120,7 @@ describe("schema v8 migration", () => {
 
   test("re-opening does not re-run the v8 block over existing rows", () => {
     const root = makeCorpus({});
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     const first = openDatabase(dbPath);
     first.run("INSERT INTO documents (path, title, type, created, updated, content, indexed_at) VALUES ('a.md','A','note','2026-01-01','2026-01-01','x','2026-01-01')");
@@ -136,7 +136,7 @@ describe("schema v8 migration", () => {
 
   test("a v7 database migrates up without touching its data", () => {
     const root = makeCorpus({});
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     const seed = openDatabase(dbPath);
     seed.run("INSERT INTO documents (path, title, type, created, updated, content, indexed_at) VALUES ('a.md','A','note','2026-01-01','2026-01-01','x','2026-01-01')");
@@ -165,7 +165,7 @@ describe("schema v8 migration", () => {
 describe("precompute", () => {
   test("unchanged indexing preserves layout and provenance; root and corpus changes invalidate it", async () => {
     const root = makeCorpus(CORPUS);
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     const options = { root, taxonomy, quiet: true };
     const inputHash = () => db.prepare("SELECT value FROM index_metadata WHERE key = 'graph_input_hash'").get();
     try {
@@ -206,7 +206,7 @@ describe("precompute", () => {
 
   test("root configuration, anchor policy, and repaired link rows invalidate cached graphs", async () => {
     const root = makeCorpus(CORPUS);
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       await indexAll(db, { root, taxonomy, quiet: true });
       const configured = buildTaxonomy({ user: { graph: { root: "notes/delta.md" } } });
@@ -273,7 +273,7 @@ describe("precompute", () => {
 
   test("index stats report the graph pass", async () => {
     const root = makeCorpus(CORPUS);
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     const stats = await indexAll(db, { root, taxonomy, quiet: true });
     expect(stats.graphNodes).toBe(8);
     expect(stats.graphMs).toBeGreaterThanOrEqual(0);
@@ -445,7 +445,7 @@ describe("root resolution", () => {
   test("graph.root from brain.config wins over the default entry files", async () => {
     const configured = buildTaxonomy({ user: { graph: { root: "notes/delta.md" } } });
     const root = makeCorpus(CORPUS);
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     await indexAll(db, { root, taxonomy: configured, quiet: true });
 
     const rootKey = db
@@ -596,7 +596,7 @@ describe("queries", () => {
     }
     db.close();
 
-    const readonly = new Database(join(root, "brain.db"), { readonly: true });
+    const readonly = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     expect(getEgoGraph(readonly, { center: "notes/alpha.md" }).nodes.length).toBeGreaterThan(0);
     expect(getClusterGraph(readonly).nodes).toHaveLength(8);
     expect(getDiscoveryGraph(readonly).nodes).toEqual([]);

@@ -310,7 +310,7 @@ async function probe(kind: "brain" | "claude", f: ReturnType<typeof fixture>, ki
 const SETTLEMENT_MARGIN_MS = 1_500;
 describe("boot probe deadline", () => {
   test("brain rejects a printed version when a TERM-ignoring command outlives its deadline", async () => {
-    const f = fixture("0.42.0");
+    const f = fixture("0.44.0");
     // Also exercise the ordinary, unwrapped CLI launch.
     delete f.wrapper;
     const result = await probe("brain", f, undefined, false);
@@ -321,7 +321,7 @@ describe("boot probe deadline", () => {
   for (const kind of ["brain", "claude"] as const) {
     for (const mode of ["missing", "failing", "hung", "noop"] as const) {
       test(`${kind} bounds cleanup with a ${mode} killer`, async () => {
-        const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)");
+        const f = fixture(kind === "brain" ? "0.44.0" : "2.0.0 (Claude Code)");
         const killer = mode === "missing" ? join(f.dir, "absent") : executable(join(f.dir, "killer"),
           mode === "failing" ? "exit 3" : mode === "noop" ? "exit 0" : `echo $$ > '${f.dir}/helper.pid'\nexec sleep 8`);
         const result = await probe(kind, f, killer, mode !== "hung");
@@ -348,7 +348,7 @@ describe("boot probe deadline", () => {
       });
     }
     test(`${kind} bounds inherited output pipes after the probe process exits`, async () => {
-      const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)", dir =>
+      const f = fixture(kind === "brain" ? "0.44.0" : "2.0.0 (Claude Code)", dir =>
         `stdout_endpoint=$(readlink /proc/$$/fd/1)\nstderr_endpoint=$(readlink /proc/$$/fd/2)\nprintf '%s\\n' \"$stdout_endpoint\" > '${dir}/1.endpoint'\nprintf '%s\\n' \"$stderr_endpoint\" > '${dir}/2.endpoint'\nsleep 8 &\necho $! > '${dir}/descendant.owner.pid'\necho $! > '${dir}/descendant.pid'\nexit 0`);
       inheritedDirs.add(f.dir);
       delete f.wrapper;
@@ -366,7 +366,7 @@ describe("boot probe deadline", () => {
       expect(text).toContain("Giving up waiting");
     });
     test(`${kind} calls the group killer at the deadline while the probe is alive`, async () => {
-      const f = fixture(kind === "brain" ? "0.42.0" : "2.0.0 (Claude Code)");
+      const f = fixture(kind === "brain" ? "0.44.0" : "2.0.0 (Claude Code)");
       const killer = executable(join(f.dir, "killer"), `state=dead\nkill -0 "$1" 2>/dev/null && state=alive\necho "$1 $2 $state" > '${f.dir}/killer.log'\nkill -"$2" -"$1"`);
       const result = await probe(kind, f, killer);
       const pid = readFileSync(join(f.dir, "probe.pid"), "utf8").trim();
@@ -387,12 +387,12 @@ describe("boot probe deadline", () => {
 
 describe("primary deadline ownership and restoration", () => {
   test("successful native exit and EOF cancel the captured primary", async () => {
-    const f = fixture("0.42.0", "exit 0");
+    const f = fixture("0.44.0", "exit 0");
     delete f.wrapper;
     const clock = new PrimaryDeadline(f, true);
     controller = clock;
     const result = await clock.track(probeVersionCommand([f.path, "--version"], { cwd: f.dir, env: { PATH: process.env.PATH }, exec: {} }));
-    expect(result.stdout.trim()).toBe("0.42.0");
+    expect(result.stdout.trim()).toBe("0.44.0");
     expect(result.exitCode).toBe(0);
     expect(result.timedOut).toBe(false);
     clock.checkTimers();
@@ -400,7 +400,7 @@ describe("primary deadline ownership and restoration", () => {
   });
 
   test("cleanup disappearance failure still settles native work and restores descriptors", async () => {
-    const f = fixture("0.42.0", dir =>
+    const f = fixture("0.44.0", dir =>
       `stdout_endpoint=$(readlink /proc/$$/fd/1)\nstderr_endpoint=$(readlink /proc/$$/fd/2)\nprintf '%s\\n' "$stdout_endpoint" > '${dir}/1.endpoint'\nprintf '%s\\n' "$stderr_endpoint" > '${dir}/2.endpoint'\nsleep 8 &\necho $! > '${dir}/descendant.owner.pid'\necho $! > '${dir}/descendant.pid'\nexit 0`);
     inheritedDirs.add(f.dir);
     delete f.wrapper;
@@ -425,7 +425,7 @@ describe("primary deadline ownership and restoration", () => {
 
 
 test("assertion failure joins pending native work before restoring the clock", async () => {
-  const f = fixture("0.42.0");
+  const f = fixture("0.44.0");
   delete f.wrapper;
   const clock = new PrimaryDeadline(f, true);
   controller = clock;
@@ -448,7 +448,7 @@ test("assertion failure joins pending native work before restoring the clock", a
 // deadlines remain untouched in these controls.
 for (const [direction, shift] of [["forward", 20_000], ["backward", -20_000]] as const) {
   test(`native probe elapsed survives a ${direction} wall-clock jump`, async () => {
-    const f = fixture("0.42.0");
+    const f = fixture("0.44.0");
     delete f.wrapper;
     const dateDescriptor = Object.getOwnPropertyDescriptor(Date, "now")!;
     const spawnDescriptor = Object.getOwnPropertyDescriptor(Bun, "spawn")!;

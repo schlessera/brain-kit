@@ -406,7 +406,7 @@ test("separate maintenance clients serialize frozen preparation through publicat
 test("app close drains its real deferred maintenance refresh before closing the writer gate database", async () => {
   const fixture = await createTestApp({ prepare(brain) {
     mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-    writeFileSync(join(brain, "node_modules/.bin/brain"), `#!${process.execPath}\nif(process.argv.includes("--version")) console.log("0.42.0");
+    writeFileSync(join(brain, "node_modules/.bin/brain"), `#!${process.execPath}\nif(process.argv.includes("--version")) console.log("0.44.0");
 else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");} else console.log("{}");`, { mode: 0o755 });
   } });
   try {

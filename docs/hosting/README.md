@@ -42,10 +42,13 @@ Browser clients can use other operating systems. The [restricted autonomous
 prompt guide](autonomous-prompt-cache.md) records the trusted prefix boundary and
 the separately authorized cache measurement procedure.
 
-**The server refuses to boot against `@schlessera/brain` older than 0.42.0.**
+**The server refuses to boot against `@schlessera/brain` older than 0.44.0.**
 The floor is enforced at
-(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:100`) and covers
-all commands and flags the server invokes, including 0.42.0’s scratch pin input. Hygiene review requires 0.41.0's
+(`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:109`). 0.44.0
+keeps the search index in `.brain-index/` instead of a root-level `brain.db`;
+the server reads it there, deletes the old root-level copy at boot and starts
+one index run to rebuild it. The floor also covers all commands and flags the
+server invokes, including 0.42.0’s scratch pin input. Hygiene review requires 0.41.0's
 selection, repair, recheck and fingerprint-bound dispositions; module settings
 and `stats --history` require 0.40.0. The command/flag inventory test guards the
 floor when server invocations change.

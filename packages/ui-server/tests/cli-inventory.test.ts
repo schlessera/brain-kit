@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
+import { INDEX_DIRECTORY_CLI_VERSION, MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
 
 // Release evidence: baseline argv is present in the 0.33.0 core tag (including
 // the -- separator). Newer capabilities are recorded in core/CHANGELOG.md:
@@ -204,3 +204,7 @@ test("every server CLI command and flag is available at its enforced baseline or
   }
   expect(tooNew, `MIN_BRAIN_CLI_VERSION ${MIN_BRAIN_CLI_VERSION} is below invoked capabilities`).toEqual([]);
 }, 30_000);
+
+test("the CLI floor admits only releases that keep the index in .brain-index/", () => {
+  expect(Bun.semver.order(MIN_BRAIN_CLI_VERSION, INDEX_DIRECTORY_CLI_VERSION), "INDEX_DIRECTORY_CLI_FLOOR").toBeGreaterThanOrEqual(0);
+});

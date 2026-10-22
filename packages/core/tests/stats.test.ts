@@ -402,7 +402,7 @@ describe("vectors are read through the shared loadVecSupport", () => {
   // so on stderr when the cause is the extension itself (#170).
   test("vec_chunks holding vectors but an extension that will not load → coverage null, and the cause is named", async () => {
     const root = tempDir();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const writer = openDatabase(dbPath);
     const id = insertDoc(writer, { path: "health/a.md", type: "health", updated: "2026-06-20" });
     insertChunk(writer, id, 0);
@@ -443,7 +443,7 @@ describe("vectors are read through the shared loadVecSupport", () => {
     // that has the module, so the damage is done from one that does not —
     // there `vec_chunks_rowids` is a plain table and can be dropped.
     const root = tempDir();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const writer = openDatabase(dbPath);
     const id = insertDoc(writer, { path: "health/a.md", type: "health", updated: "2026-06-20" });
     insertChunk(writer, id, 0);
@@ -486,7 +486,7 @@ describe("vectors are read through the shared loadVecSupport", () => {
 
   test("a brain with no vec_chunks is answered without loading the extension, and warns nothing", async () => {
     const root = tempDir();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const writer = openDatabase(dbPath);
     const id = insertDoc(writer, { path: "health/a.md", type: "health", updated: "2026-06-20" });
     insertChunk(writer, id, 0);
@@ -522,7 +522,7 @@ describe("counting vectors never migrates the index", () => {
   // back.
   test("a legacy vec_chunks table keeps its rows and its schema", async () => {
     const root = tempDir();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const db = openDatabase(dbPath);
     const id = insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
     insertChunk(db, id, 0);
@@ -582,7 +582,7 @@ describe("size figures", () => {
 
     const stats = await collectStats(db, {
       root,
-      dbPath: join(root, "brain.db"),
+      dbPath: join(root, ".brain-index", "brain.db"),
       taxonomy,
       config: null,
       now: NOW,
@@ -620,7 +620,7 @@ describe("size figures", () => {
       const db = openDatabase(":memory:");
       const stats = await collectStats(db, {
         root,
-        dbPath: join(root, "brain.db"),
+        dbPath: join(root, ".brain-index", "brain.db"),
         taxonomy,
         config: null,
         now: NOW,
@@ -635,7 +635,7 @@ describe("size figures", () => {
 
   test("brain.db and its journal sidecars are the index, not the corpus", async () => {
     const root = tempDir();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const db = openDatabase(dbPath);
     insertDoc(db, { path: "health/a.md", type: "health", updated: "2026-06-20" });
     writeFileSync(join(root, "keep.md"), "x".repeat(42));
@@ -718,7 +718,7 @@ describe("size figures", () => {
 
     const stats = await collectStats(db, {
       root,
-      dbPath: join(root, "brain.db"),
+      dbPath: join(root, ".brain-index", "brain.db"),
       taxonomy,
       config: null,
       now: NOW,
@@ -745,7 +745,7 @@ describe("size figures", () => {
     try {
       const stats = await collectStats(db, {
         root,
-        dbPath: join(root, "brain.db"),
+        dbPath: join(root, ".brain-index", "brain.db"),
         taxonomy: taxonomyWith(),
         config: null,
         now: NOW,
@@ -768,7 +768,7 @@ describe("size figures", () => {
     try {
       const stats = await collectStats(db, {
         root,
-        dbPath: join(root, "brain.db"),
+        dbPath: join(root, ".brain-index", "brain.db"),
         taxonomy: taxonomyWith(),
         config: null,
         now: NOW,

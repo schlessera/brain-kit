@@ -1,7 +1,9 @@
 # --- brain-kit defaults ---
 
 # Search index — disposable. Markdown is the source of truth; `brain index
-# --force` rebuilds this from scratch.
+# --force` rebuilds this from scratch. It lives in .brain-index/; the
+# brain.db* line also covers the root-level copy releases before 0.44.0 kept.
+.brain-index/
 brain.db*
 
 # Secrets — your API keys live here.

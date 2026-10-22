@@ -31,7 +31,7 @@ function note(title: string, body: string, fields = "status: active\nrelevance: 
 }
 
 function edit(dir: string, run: (db: Database) => void): void {
-  const db = new Database(join(dir, "brain.db"));
+  const db = new Database(join(dir, ".brain-index", "brain.db"));
   try {
     run(db);
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
@@ -42,7 +42,7 @@ function edit(dir: string, run: (db: Database) => void): void {
 
 function clone(): string {
   const dir = temporary();
-  cpSync(join(root, "brain.db"), join(dir, "brain.db"));
+  cpSync(join(root, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
   return dir;
 }
 
@@ -184,16 +184,17 @@ describe("registered pi query tools refuse incompatible or unusable indexes safe
     const dir = temporary();
     const call = tools(dir);
     await expect(call("brain_list")).rejects.toThrow("Brain database not found — run `brain index` first.");
-    writeFileSync(join(dir, "brain.db"), "Odysseus: unusable index");
+    mkdirSync(join(dir, ".brain-index"));
+    writeFileSync(join(dir, ".brain-index", "brain.db"), "Odysseus: unusable index");
     await expect(call("brain_graph", { path: CENTER })).rejects.toThrow("Brain index is corrupt");
-    rmSync(join(dir, "brain.db"));
-    mkdirSync(join(dir, "brain.db"));
+    rmSync(join(dir, ".brain-index", "brain.db"));
+    mkdirSync(join(dir, ".brain-index", "brain.db"));
     await expect(call("brain_list")).rejects.toThrow("Brain index is unavailable.");
   });
 
   test("a real exclusive lock produces a retryable message within the bounded wait", async () => {
     const dir = clone();
-    const writer = new Database(join(dir, "brain.db"));
+    const writer = new Database(join(dir, ".brain-index", "brain.db"));
     writer.exec("PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE");
     try {
       const started = performance.now();
@@ -233,7 +234,7 @@ describe("registered pi tools keep the core query snapshot and connection lifeti
     const call = tools(dir);
     const before = await graph(call);
     expect(before.nodes.some(n => n.path === ISLAND)).toBe(true);
-    const writer = new Database(join(dir, "brain.db"));
+    const writer = new Database(join(dir, ".brain-index", "brain.db"));
     writer.exec("PRAGMA journal_mode=WAL");
     let committed = false;
     try {
@@ -256,7 +257,7 @@ describe("registered pi tools keep the core query snapshot and connection lifeti
     const call = tools(dir);
     const before = await list(call);
     expect(before.length).toBeGreaterThan(0);
-    const writer = new Database(join(dir, "brain.db"));
+    const writer = new Database(join(dir, ".brain-index", "brain.db"));
     writer.exec("PRAGMA journal_mode=WAL");
     let committed = false;
     try {
@@ -284,7 +285,7 @@ describe("registered pi tools keep the core query snapshot and connection lifeti
     const oldGraph = await graph(call);
     expect(oldList.some(d => d.title !== "Replaced Ithaca")).toBe(true);
     expect(oldGraph.nodes.some(d => d.title !== "Replaced Ithaca")).toBe(true);
-    renameSync(join(replacement, "brain.db"), join(dir, "brain.db"));
+    renameSync(join(replacement, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
     const nextList = await list(call);
     const nextGraph = await graph(call);
     expect(nextList.length).toBeGreaterThan(0);

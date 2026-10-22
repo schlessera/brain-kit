@@ -180,7 +180,7 @@ describe("over a real indexed brain", () => {
   afterAll(() => cleanup(root));
 
   test("the index stores the declaration, and only where it is set", () => {
-    const db = openDatabase(join(root, "brain.db"), { readonly: true });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       const rows = db.prepare("SELECT path, verification FROM documents WHERE verification IS NOT NULL ORDER BY path").all();
       expect(rows).toEqual([
@@ -297,7 +297,7 @@ describe("over a real indexed brain", () => {
 test("opening a schema 14 database adds the verification column and makes the next index re-read its files", () => {
   const dir = mkdtempSync(join(tmpdir(), "brain-verification-"));
   try {
-    const path = join(dir, "brain.db");
+    const path = join(dir, ".brain-index", "brain.db");
     const db = openDatabase(path);
     db.run("ALTER TABLE documents DROP COLUMN verification");
     db.run(
@@ -324,7 +324,7 @@ test("opening a schema 14 database adds the verification column and makes the ne
 test("a schema 14 index is audited read-only before anything migrates it", () => {
   const dir = mkdtempSync(join(tmpdir(), "brain-verification-ro-"));
   try {
-    const path = join(dir, "brain.db");
+    const path = join(dir, ".brain-index", "brain.db");
     const db = openDatabase(path);
     db.run("ALTER TABLE documents DROP COLUMN verification");
     insertDoc(db, "notes/a.md", "[VERIFY: x]");

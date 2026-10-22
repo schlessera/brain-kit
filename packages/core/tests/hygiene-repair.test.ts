@@ -27,7 +27,7 @@ function brain(text = raw()) {
   write(root, "places/eumaeus-hut.md", raw("The swineherd's hut.").replace("Return to Ithaca", "Eumaios hut"));
   return root;
 }
-const context = (root: string): BrainContext => ({ root, dbPath: join(root, "brain.db"), config: null, configPath: join(root, "brain.config.json"), modules: [], taxonomy: buildTaxonomy({ user: brainConfigSchema.parse({ taxonomy: {} }) }) });
+const context = (root: string): BrainContext => ({ root, dbPath: join(root, ".brain-index", "brain.db"), config: null, configPath: join(root, "brain.config.json"), modules: [], taxonomy: buildTaxonomy({ user: brainConfigSchema.parse({ taxonomy: {} }) }) });
 async function cli(root: string, ...args: string[]) {
   const r = await runCli(root, ["hygiene", ...args, "--json"]);
   let out;
@@ -265,7 +265,7 @@ describe("bounded hygiene repair CLI", () => {
     const refused = await runCli(root, ["hygiene", "reconcile", "--json"]); expect(refused.code).toBe(1); expect(refused.stderr).toContain("Invalid brain.config"); expect(snapshot(root)).toEqual(before);
     write(root, "brain.config.json", '{"taxonomy":{}}');
     const fixedBefore = snapshot(root), c = await cli(root, "check", "configuration-blocker");
-    expect(c.code).toBe(0); expect(c.out.status).toBe("ready"); expect(snapshot(root)).toEqual(fixedBefore); expect(existsSync(join(root, "brain.db"))).toBe(false);
+    expect(c.code).toBe(0); expect(c.out.status).toBe("ready"); expect(snapshot(root)).toEqual(fixedBefore); expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
   });
 });
 

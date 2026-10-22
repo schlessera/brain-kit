@@ -126,6 +126,7 @@ import {
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
+import { retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
@@ -413,6 +414,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   reconciled(hostExecution.reconcileExisting());
   await boundary.prepare();
   await probeBrainCliVersion(config.brainPath, brainLog, { exec: config.exec, minimumVersion: brainCliMinimum, boundary });
+  // The CLI now keeps its index in .brain-index/. Delete the root-level copy
+  // an earlier release left (it holds document bodies a provider-restricted
+  // turn must not read); the index is rebuilt below, never moved (#1668).
+  const legacyIndex = retireLegacyIndex(config.brainPath);
+  if (legacyIndex.removed.length || legacyIndex.kept.length) brainLog.emit({ severityText: "WARN",
+    body: `the search index moved to .brain-index/: removed the old root-level ${legacyIndex.removed.join(", ") || "files"}`
+      + (legacyIndex.kept.length ? `; ${legacyIndex.kept.join(", ")} ${legacyIndex.kept.length === 1 ? "is a directory" : "are directories"} and must be removed by hand` : "") });
   // Provision the independently authorized runtime file before opening handles.
   const inboxPokeAuth = createInboxPokeAuth(config.inbox?.pokeTokenFile ?? null);
   const dbLog = observability.logger("db");
@@ -465,6 +473,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const keyedReindex = coalesced(() => brain.index().catch(ignoreShutdown), error => brainLog.emit({ severityText: "WARN",
     body: `the keyed reindex after an application failed: ${error instanceof Error ? error.message : String(error)}` }));
   bootCleanup.push(() => keyedReindex.idle());
+  // A migrating brain rebuilds its index in the new directory once, at boot.
+  if (legacyIndex.removed.length) keyedReindex();
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
   const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
     // Exact-operation approval stays fail-closed unless the gated engine runs.

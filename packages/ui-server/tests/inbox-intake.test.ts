@@ -258,7 +258,7 @@ test("real CLI queues trusted work, survives a lost response and rejects wrong, 
     revokePrincipal(fixture.app.db, principal.id, Date.now());
     expect((await runCli(origin, credentialFile)).body.error?.code).toBe("unauthorized");
     expect(startedTurns).toBe(0);
-    expect(await Bun.file(join(fixture.brainPath, "brain.db")).exists()).toBe(false);
+    expect(await Bun.file(join(fixture.brainPath, ".brain-index", "brain.db")).exists()).toBe(false);
     expect((await readdir(fixture.brainPath)).filter(name => ![".brain-ui", ".brain", "queue-credential.json"].includes(name)).sort()).toEqual([".claude", ".git", "context", "node_modules"]);
     expect(await readdir(join(fixture.brainPath, "node_modules"))).toEqual([]);
     expect(await readdir(join(fixture.brainPath, ".claude"))).toEqual([]);

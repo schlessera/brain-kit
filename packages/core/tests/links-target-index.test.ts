@@ -36,7 +36,7 @@ afterEach(() => {
 function tempDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "brain-links-index-"));
   dirs.push(dir);
-  return join(dir, "brain.db");
+  return join(dir, ".brain-index", "brain.db");
 }
 
 function seed(db: Database, docs: number): void {
@@ -142,7 +142,7 @@ describe("links.target_id index", () => {
     );
     const indexed = await runCli(root, ["index", "--json"]);
     expect(indexed.code, indexed.stderr).toBe(0);
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     downgradeToPreIndex(dbPath);
 
     const dbCheck = async () => {

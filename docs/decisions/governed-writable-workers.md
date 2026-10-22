@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-115`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:55-118`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-115`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:30-120`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -529,8 +529,10 @@ makes in the brain.
 **Deliberately not protected:**
 
 - **`brain.db`.** It is disposable, and the CLI needs it to capture and index.
-  SQLite coordinates writers across processes
-  (`PRAGMA busy_timeout`, `packages/core/src/lib/db.ts:50`). The host never
+  It lives in `.brain-index/` with its sidecars. While provider folders exist,
+  writers retain that directory as a whole (see "The index directory" under
+  G2), but its contents stay writable. SQLite coordinates writers across processes
+  (`PRAGMA busy_timeout`, `packages/core/src/lib/db.ts:57`). The host never
   takes authority from it.
 - **`CLAUDE.md`, `AGENTS.md`, `.claude/skills/`, `.agents/`.** Changing them as
   you go is exactly the flexibility ruling 1 restores. The journal records
@@ -1665,6 +1667,50 @@ only copy:
 Setting a provider restriction therefore costs the affected turns git history,
 and the user is told so when the policy is checked.
 
+**The index directory (maintainer, 2026-10-22, #1668 option B).** A file mask
+cannot hide the real index robustly. Every copy of the index used to be a
+loose root-level file: `brain.db`, `-wal`, `-shm` and `-journal`. Unlinking or
+renaming a mount point from another mount namespace detaches that namespace's
+mount. Measured with bubblewrap on kernel 6.18: worker A binds a private file
+over `brain.db-wal`, peer B runs `rm` on the path and recreates it, and A then
+reads B's file. The trigger is not only a hostile peer. A peer's turn ends, the
+shared plain `index` refresh runs, and native publication renames the rebuilt
+`brain.db` over the live path. That detached a restricted worker's mask
+mid-turn and exposed the full index. A sidecar SQLite creates later cannot be
+masked in advance at all.
+
+So the index moved into its own directory, `<brain>/.brain-index/`, which holds
+the database, its SQLite sidecars and the embedding lock. It is then a whole
+folder like any qualified provider folder:
+
+- **Every writer retains it.** While the policy names provider folders, the
+  retained topology (`retainedFolderRoots`) adds `.brain-index`. Governed
+  writers self-bind it read-write like a provider root. Shared gate plans carry
+  it, so peers lacking it are refused. Native publication refuses to remove it
+  or replace it with a non-directory. Its contents stay writable, so SQLite's
+  cross-process locking and the post-turn shared `index` refresh are
+  unchanged. A refresh renames files *inside* the directory, which no longer
+  detaches anything mounted *over* it.
+- **The host creates it.** Retention needs an existing, unaliased directory.
+  The index directory is the one retained root the host creates before
+  admission, with the brain root's permission bits. It holds nothing
+  authoritative, so this invents no content. Provider folders themselves are
+  still never created.
+- **Migration is a rebuild.** `brain.db` is disposable, so nothing is moved.
+  The first writable command creates the directory and `brain index` fills it.
+  The old root-level files are ignored. They still hold document bodies, so
+  ui-server deletes them at boot and starts one index run, and `brain doctor
+  --fix` deletes them for a CLI-only brain. ui-server requires a content CLI of
+  at least 0.44.0, so no CLI keeps writing the old path.
+
+This was chosen over pinning the four root-level files in every writer (A).
+That would protect `brain.db`, change refresh and publication semantics and
+leave placeholder files in the root. It was also chosen over running
+restricted turns on the strict checkpoint view (C), which reverses the
+2026-10-16 live-model sequencing, and over refusing such turns outright (D).
+The contract change is recorded in the
+[integration contract](../integration-contract.md#index-directory-breaking-0440-1668).
+
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
 a path that may not reach the configured embeddings provider keeps keyword
 search and gets no vectors.
@@ -2147,7 +2193,7 @@ unsupported commands and unobserved working directories remain coverage
 limitations; this finite mapping never claims arbitrary shell/runtime coverage.
 Ignored, oversized, unreadable and opaque genuine inputs remain named as
 classification limitations (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:121-130`).
+`packages/ui-server/src/brain/journal-steering.ts:123-132`).
 
 The journal follows only data-only references with a supported input role;
 quoted strings and file extensions do not establish consumption. Seed selection
@@ -2175,19 +2221,20 @@ Followed JSON resources do not acquire configuration-consumer semantics merely
 from a basename; configuration roles belong to known seeds. Both retained-object
 and sealed-root readers share classification and the
 1 MiB input bound (`nativeJournalSteeringInputs`,
-`packages/ui-server/src/brain/journal-steering.ts:121-130`). Ignored, unreadable,
+`packages/ui-server/src/brain/journal-steering.ts:123-132`). Ignored, unreadable,
 oversized, unsupported or ambiguous inputs are named as coverage limitations;
 unknown never fabricates a consumed path or a claim of complete runtime coverage.
 
 The resolved disposable index and its `-wal`, `-shm`, `-journal` sidecars are
 excluded by exact journal-relative identity before reference lookup. Core's
-current identity is `<root>/brain.db`, established by (`initContext`,
+current identity is `<root>/.brain-index/brain.db` (see "The index directory"
+under G2), established by (`initContext`,
 `packages/core/src/lib/context.ts:36-52`); core has no configurable index-location
 field. Internal callers may supply an already resolved identity without
 executing configuration. This excludes no unrelated same-basename resource.
 The inventory preserves scope boundaries, policy exclusions and bounded
 readers (`steeringInventory`,
-`packages/ui-server/src/brain/journal-steering.ts:20-107`).
+`packages/ui-server/src/brain/journal-steering.ts:21-108`).
 
 The maintainer selected role classification over an index-only exception,
 script-extension whitelist or their combination (#2026): none of those

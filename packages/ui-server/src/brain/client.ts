@@ -93,11 +93,20 @@ interface ExecResult {
 }
 
 /**
- * First core release with every command/flag this server invokes: hygiene
- * next/resolve/check/undo require 0.41.0; scratch pin input requires 0.42.0.
+ * First core release that keeps the index in `.brain-index/` (#1668). The
+ * server reads that index directly and retains the directory for provider
+ * folder turns, so a CLI still writing the old root-level `brain.db` would
+ * leave both reading an index nobody updates.
+ */
+export const INDEX_DIRECTORY_CLI_VERSION = "0.44.0";
+
+/**
+ * First core release with every command/flag this server invokes and the
+ * index layout it reads: hygiene next/resolve/check/undo require 0.41.0;
+ * scratch pin input requires 0.42.0; the index directory requires 0.44.0.
  * tests/cli-inventory.test.ts guards this floor as invocations change.
  */
-export const MIN_BRAIN_CLI_VERSION = "0.42.0";
+export const MIN_BRAIN_CLI_VERSION = "0.44.0";
 
 /**
  * argv prefix for invoking the brain CLI inside `brainPath`.

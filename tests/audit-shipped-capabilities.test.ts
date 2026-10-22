@@ -28,7 +28,7 @@ function applyRegistryRepair(root: string, taxonomy: Taxonomy, finding: AuditIss
 }
 
 test("real generated-region handler changes parseable bytes, preserves prose, clears its finding, and is idempotent", async () => {
-  const f = registryFixture; const p = prepare(f.files); const db = openDatabase(join(p.root, "brain.db"));
+  const f = registryFixture; const p = prepare(f.files); const db = openDatabase(join(p.root, ".brain-index", "brain.db"));
   try {
     await indexAll(db, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true });
     const before = audit(db, p.taxonomy, { root: p.root, now: new Date(DAY) });
@@ -52,7 +52,7 @@ test("real generated-region handler changes parseable bytes, preserves prose, cl
 });
 
 test("real audit --fix ignores unverified provider claims and preserves manual findings without writes", async () => {
-  const f = findingFixtures.brokenLink; const p = prepare(f.files); const dbPath = join(p.root, "brain.db");
+  const f = findingFixtures.brokenLink; const p = prepare(f.files); const dbPath = join(p.root, ".brain-index", "brain.db");
   const db = openDatabase(dbPath); await indexAll(db, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true }); db.close();
   const output = spyOn(console, "log").mockImplementation(() => {});
   const brain = { root: p.root, dbPath, config: p.config, configPath: null, modules: [], taxonomy: p.taxonomy };
@@ -79,7 +79,7 @@ test("real audit --fix ignores unverified provider claims and preserves manual f
 });
 
 test("actual module hygiene contributes detections but no executable repair capability", async () => {
-  const f = findingFixtures.moduleCheck; const p = prepare(f.files); const db = openDatabase(join(p.root, "brain.db"));
+  const f = findingFixtures.moduleCheck; const p = prepare(f.files); const db = openDatabase(join(p.root, ".brain-index", "brain.db"));
   try {
     await indexAll(db, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true });
     const mod: LoadedModule = { key: "fixture-ritual", dir: p.root, config: {}, manifest: { name: "fixture-ritual", hygieneChecks: [() => [f.finding]] } };
@@ -93,7 +93,7 @@ test("actual module hygiene contributes detections but no executable repair capa
 test("actual tag migration fixes a configured alias while corpus tag-noise remains a separate manual finding", async () => {
   const f = findingFixtures.tagNoise; const p = prepare(f.files); const path = f.finding.path === "(corpus)" ? "notes/vocabulary.md" : f.finding.path;
   const raw = document("note", "Vocabulary").replace("[voyage]", "[seafaring]"); writeFileSync(join(p.root, path), raw);
-  const dbPath = join(p.root, "brain.db"); const db = openDatabase(dbPath); await indexAll(db, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true }); db.close();
+  const dbPath = join(p.root, ".brain-index", "brain.db"); const db = openDatabase(dbPath); await indexAll(db, { root: p.root, taxonomy: p.taxonomy, force: true, quiet: true }); db.close();
   const output = spyOn(console, "log").mockImplementation(() => {});
   try {
     const brain = { root: p.root, dbPath, config: p.config, configPath: null, modules: [], taxonomy: p.taxonomy };

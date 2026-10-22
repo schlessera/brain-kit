@@ -31,7 +31,7 @@ function fixture() {
   mkdirSync(brain); mkdirSync(state);
   const sentinel = join(state, "evaluated");
   mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-  writeFileSync(join(brain, "node_modules/.bin/brain"), `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(sentinel)}, "evaluated"); console.log("0.42.0");\n`, { mode: 0o755 });
+  writeFileSync(join(brain, "node_modules/.bin/brain"), `#!/usr/bin/env bun\nawait Bun.write(${JSON.stringify(sentinel)}, "evaluated"); console.log("0.44.0");\n`, { mode: 0o755 });
   return { root, brain, state, sentinel };
 }
 

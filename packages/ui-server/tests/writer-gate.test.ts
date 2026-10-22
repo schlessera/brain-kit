@@ -119,7 +119,7 @@ test("a peer inherits retired provider folders from the active cross-process gat
   try {
     const first = await w.server.acquire("shared", "turn:odysseus");
     try {
-      expect(first.folderPaths).toEqual(["group/private"]);
+      expect(first.folderPaths).toEqual([".brain-index", "group/private"]);
       writeFileSync(policy, "---\nschema_version: 1\nproviders: []\n---\nAthena retires the restriction.\n");
       const second = await w.cron.acquire("shared", "turn:athena");
       try {
@@ -132,7 +132,7 @@ test("a peer inherits retired provider folders from the active cross-process gat
           printf Odysseus > group/public.md || exit 44
         `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
         expect(child.exitCode, `INHERITED_GATE_PLAN_REACHES_NATIVE_FOLDER_PINS: ${child.stdout.toString()} ${child.stderr.toString()}`).toBe(0);
-        expect(second.folderPaths, "ACTIVE_PEER_FOLDER_PLAN_SURVIVES_POLICY_REMOVAL").toEqual(["group/private"]);
+        expect(second.folderPaths, "ACTIVE_PEER_FOLDER_PLAN_SURVIVES_POLICY_REMOVAL").toEqual([".brain-index", "group/private"]);
       } finally { second.release(); }
     } finally { first.release(); }
     const after = await w.cron.acquire("shared", "turn:circe");
@@ -166,7 +166,7 @@ describe("unpinned host writer provenance", () => {
       // A folder policy written while the hosts run applies to later admissions.
       writePolicy(w, "providers: [{ paths: [group/private/**], allow: [anthropic] }]\n");
       const candidate = await w.server.acquire("shared", "turn:circe");
-      expect(candidate.folderPaths).toEqual(["group/private"]);
+      expect(candidate.folderPaths).toEqual([".brain-index", "group/private"]);
       expect(() => candidate.assertPeerFolderPlans!(["group/private"]), "UNPINNED_HOST_PEERS_NEVER_AUTHORIZE_GOVERNED_ADMISSION").toThrow("unpinned host writer");
       first.release(); second.release();
       expect(() => candidate.assertPeerFolderPlans!(["group/private"])).not.toThrow();
@@ -183,7 +183,7 @@ describe("unpinned host writer provenance", () => {
       expect(refusal, "FOLDER_POLICY_REFUSES_HOST_CLASSIFICATION").toBeInstanceOf(HostFallbackRefusedError);
       expect(String(refusal)).toContain("group/private");
       expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id), "REFUSED_HOST_KEEPS_ITS_PLAN")
-        .toEqual({ folder_topology: JSON.stringify(["group/private"]) });
+        .toEqual({ folder_topology: JSON.stringify([".brain-index", "group/private"]) });
       host.release();
       const turn = await w.cron.acquire("shared", "turn:circe");
       expect(() => turn.assertPeerFolderPlans!(["group/private"])).not.toThrow();
@@ -212,7 +212,7 @@ describe("unpinned host writer provenance", () => {
       native.assertPeerFolderPlans!(["group/private"]);
       rmSync(join(w.brain, "context/policies/governance.md"));
       const host = await w.cron.acquire("shared", "host:athena");
-      expect(host.folderPaths, "REMOVED_POLICY_INHERITS_PEER_ROOTS").toEqual(["group/private"]);
+      expect(host.folderPaths, "REMOVED_POLICY_INHERITS_PEER_ROOTS").toEqual([".brain-index", "group/private"]);
       expect(() => markUnpinnedHostWriter(host), "INHERITED_ROOTS_REFUSE_LATE_HOST").toThrow("active peer");
       host.release(); native.release();
       const after = await w.cron.acquire("shared", "host:circe");

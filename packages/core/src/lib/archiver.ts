@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync, existsSync, unlinkSync, statSync } from "fs";
 import { resolve } from "path";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 
 import { openDatabase, migrateVecSchema, storedVectorWidth } from "./db.js";
@@ -124,7 +125,7 @@ export async function archiveDocument(
       await options.reindex(options.db);
     } else {
       const dimensions = options.embeddingDimensions ?? EMBEDDING_DIMENSIONS;
-      const db = openDatabase(resolve(root, "brain.db"), { embeddingDimensions: dimensions });
+      const db = openDatabase(indexDbPath(resolve(root)), { embeddingDimensions: dimensions });
       await migrateVecSchema(db, storedVectorWidth(db, dimensions));
       await options.reindex(db);
       db.close();

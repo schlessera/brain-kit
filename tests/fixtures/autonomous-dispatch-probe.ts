@@ -134,8 +134,8 @@ async function main(): Promise<void> {
   let indexedNote: { path: string; content: string } | null = null;
   const view = createFixtureWorkerStartupView(brainPath);
   try {
-    if (existsSync(join(view.root, "brain.db"))) {
-      const index = new Database(join(view.root, "brain.db"), { readonly: true });
+    if (existsSync(join(view.root, ".brain-index", "brain.db"))) {
+      const index = new Database(join(view.root, ".brain-index", "brain.db"), { readonly: true });
       try { indexedNote = index.query<{ path: string; content: string }, [string]>("SELECT path, content FROM documents WHERE path = ?").get(NOTE); }
       finally { index.close(); }
     }

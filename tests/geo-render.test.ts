@@ -77,7 +77,7 @@ describe.skipIf(!chromePath)("a resolved geo map in actual brain render and Chro
       }
       expect(readFileSync(join(root, "walk.gpx"), "utf8")).toBe(source);
       expect(readFileSync(join(root, "map.png"))).toEqual(local);
-      expect(existsSync(join(root, "brain.db"))).toBe(false);
+      expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
     } finally { cleanup(root); }
   }, 120_000);
 });

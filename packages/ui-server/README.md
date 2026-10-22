@@ -144,9 +144,10 @@ report are errors. An injected registry cannot verify explicit backend
 requirements and is refused; injection remains supported without them, and
 can still use a verified `brainCli` minimum.
 
-The server refuses to boot against a content CLI older than 0.42.0, the first
-release with its ordinary commands and flags, including scratch pin input and
-hygiene review. Optional Storage packing separately probes core 0.44.0 before
+The server refuses to boot against a content CLI older than 0.44.0, the first
+release that keeps its index in `.brain-index/` (the directory the server reads
+and retains for provider folder turns), and that has its ordinary commands and
+flags, including scratch pin input and hygiene review. Optional Storage packing separately probes core 0.44.0 before
 dispatch and refuses older/unknown versions without raising the ordinary floor.
 The CLI always retains this package floor. An explicit `brainCli`
 minimum makes a failed or unknown version an error and rechecks the selected

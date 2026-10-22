@@ -50,7 +50,7 @@ describe("exclude.files configuration loading", () => {
         const result = await runCli(root, [command, "--json"]);
         expect(result.code).not.toBe(0);
         expect(result.stderr + result.stdout).toMatch(/exclude\.files\.0:.*"drafts\/".*exclude\.dirs/);
-        expect(existsSync(join(root, "brain.db"))).toBe(false);
+        expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
       });
     }
   }
@@ -100,7 +100,7 @@ describe("directory pruning agrees with actual indexing", () => {
       // Bypass schema validation deliberately: directory pruning must protect
       // in-process callers independently of the config-loading guard.
       const taxonomy = buildTaxonomy({ user: { exclude } });
-      const dbPath = join(root, "brain.db");
+      const dbPath = join(root, ".brain-index", "brain.db");
       const db = openDatabase(dbPath);
       try {
         await indexAll(db, { root, taxonomy, quiet: true });

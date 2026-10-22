@@ -125,7 +125,7 @@ for (const kind of ["claude", "pi"] as const) {
     const archive = await a.call("brain_archive", { path, expectedBaseHash: next.expectedBaseHash });
     expect(archive.ok, a.indexFailure(archive)).toBe(true); expect(archive.indexed, a.indexFailure(archive)).toBe(true); expect(a.approvals).toHaveLength(1);
     expect(readFileSync(join(root, path), "utf8")).toContain("status: archived");
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     try { expect(db.query("SELECT status FROM documents WHERE path = ?").get(path)).toEqual({ status: "archived" }); }
     finally { db.close(); }
     expect(a.receipts).toHaveLength(3);

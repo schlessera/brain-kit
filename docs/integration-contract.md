@@ -46,6 +46,28 @@ requires a content CLI of at least 0.42.0 for `scratch prune --pins-file`.
 This supersedes the 0.41.0 floor above for the new server; earlier hygiene
 commands retain their original availability versions.
 
+## Index directory (breaking, 0.44.0, #1668)
+
+The disposable index moves from `<brain>/brain.db` into its own directory:
+`<brain>/.brain-index/brain.db`, with every SQLite sidecar (`-wal`, `-shm`,
+`-journal`) and the `index --embeddings` lock database beside it. A direct SQL
+reader opens the new path; the [index read contract](integration-contract/frontmatter.md#braindb-direct-sql-reads)
+states it. The schema, `schema_version` and every CLI, MCP and HTTP shape are
+unchanged; no `--json` field carries the path.
+
+The maintainer ruled this layout on #1668 (option B, 2026-10-22): a directory can
+be retained and replaced as a whole inside a worker's mount namespace, where a
+file mask over a root-level `brain.db` detaches when another writer unlinks or
+renames it. Under the binding rule that `brain.db` is disposable, an existing
+brain migrates by rebuilding, never by moving: the first writable command
+creates `.brain-index/` and `brain index` fills it. The old root-level files are
+ignored. `brain doctor` reports them as `legacy-index` and `--fix` deletes
+them; ui-server deletes them at boot and starts one index run. ui-server
+requires a content CLI of at least 0.44.0, which supersedes the 0.42.0 floor
+above: an older CLI would keep writing the root-level index the server no
+longer reads. The template ignores `.brain-index/`; its existing unanchored
+`brain.db*` line already matches the new files.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).

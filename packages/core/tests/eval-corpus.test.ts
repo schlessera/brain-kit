@@ -225,7 +225,7 @@ describe.skipIf(!vecAvailable)("hybrid fusion plumbing (staged vectors)", () => 
   beforeAll(async () => {
     root = makeTempBrain();
     await embedTempBrain(root, { dimensions: DIMENSIONS });
-    db = openDatabase(join(root, "brain.db"));
+    db = openDatabase(join(root, ".brain-index", "brain.db"));
     await loadVec(db);
     // Replace the fake provider's constant vectors: every chunk of a document
     // points along that document's own axis.
