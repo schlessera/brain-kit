@@ -1700,8 +1700,8 @@ folder like any qualified provider folder:
   The first writable command creates the directory and `brain index` fills it.
   The old root-level files are ignored. They still hold document bodies, so
   ui-server deletes them at boot and starts one index run, and `brain doctor
-  --fix` deletes them for a CLI-only brain. ui-server requires a content CLI of
-  at least 0.44.0, so no CLI keeps writing the old path.
+  --fix` deletes them for a CLI-only brain. The 0.44.0 release raises
+  ui-server's content CLI floor to 0.44.0, so no CLI keeps writing the old path.
 
 This was chosen over pinning the four root-level files in every writer (A).
 That would protect `brain.db`, change refresh and publication semantics and

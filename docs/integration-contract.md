@@ -62,9 +62,9 @@ renames it. Under the binding rule that `brain.db` is disposable, an existing
 brain migrates by rebuilding, never by moving: the first writable command
 creates `.brain-index/` and `brain index` fills it. The old root-level files are
 ignored. `brain doctor` reports them as `legacy-index` and `--fix` deletes
-them; ui-server deletes them at boot and starts one index run. ui-server
-requires a content CLI of at least 0.44.0, which supersedes the 0.42.0 floor
-above: an older CLI would keep writing the root-level index the server no
+them; ui-server deletes them at boot and starts one index run. The 0.44.0
+release raises ui-server's content CLI floor to 0.44.0, superseding the 0.42.0
+floor above: an older CLI would keep writing the root-level index the server no
 longer reads. The template ignores `.brain-index/`; its existing unanchored
 `brain.db*` line already matches the new files.
 

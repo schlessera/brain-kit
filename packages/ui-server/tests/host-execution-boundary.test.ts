@@ -102,7 +102,7 @@ function installCli(brain: string, body = "") {
 const args = process.argv.slice(2);
 if (args[0] !== "--version") await import(process.cwd() + "/brain.config.ts");
 ${body}
-if (args[0] === "--version") console.log("0.44.0");
+if (args[0] === "--version") console.log("0.42.0");
 else if (args[0] === "stats") console.log(JSON.stringify({ documents: 1 }));
 else if (args[0] === "search") console.log(JSON.stringify({ results: [], warnings: [] }));
 else console.log("{}");

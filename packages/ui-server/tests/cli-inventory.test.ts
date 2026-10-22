@@ -206,6 +206,8 @@ test("every server CLI command and flag is available at its enforced baseline or
   expect(tooNew, `MIN_BRAIN_CLI_VERSION ${MIN_BRAIN_CLI_VERSION} is below invoked capabilities`).toEqual([]);
 }, 30_000);
 
-test("the CLI floor admits only releases that keep the index in .brain-index/", () => {
-  expect(Bun.semver.order(MIN_BRAIN_CLI_VERSION, INDEX_DIRECTORY_CLI_VERSION), "INDEX_DIRECTORY_CLI_FLOOR").toBeGreaterThanOrEqual(0);
+test("the release that ships the index directory raises the CLI floor to it", async () => {
+  const { version } = await Bun.file(resolve(root, "packages/ui-server/package.json")).json() as { version: string };
+  if (Bun.semver.order(version, INDEX_DIRECTORY_CLI_VERSION) < 0) return;
+  expect(Bun.semver.order(MIN_BRAIN_CLI_VERSION, INDEX_DIRECTORY_CLI_VERSION), "INDEX_DIRECTORY_CLI_FLOOR_SHIPS_WITH_ITS_RELEASE").toBeGreaterThanOrEqual(0);
 });

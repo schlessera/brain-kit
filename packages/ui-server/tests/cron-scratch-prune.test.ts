@@ -248,7 +248,7 @@ describe("BrainUiApp.close", () => {
     writeFileSync(
       join(binDir, "brain"),
       `#!/usr/bin/env bun\n` +
-        `if (process.argv.includes("--version")) { console.log("0.44.0"); process.exit(0); }\n` +
+        `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
         `await Bun.sleep(60_000);\n`
     );
     chmodSync(join(binDir, "brain"), 0o755);
@@ -288,7 +288,7 @@ describe("the shared test-app helper", () => {
         writeFileSync(
           join(binDir, "brain"),
           `#!/usr/bin/env bun\n` +
-            `if (process.argv.includes("--version")) { console.log("0.44.0"); process.exit(0); }\n` +
+            `if (process.argv.includes("--version")) { console.log("0.42.0"); process.exit(0); }\n` +
             `await Bun.sleep(60_000);\n`
         );
         chmodSync(join(binDir, "brain"), 0o755);
