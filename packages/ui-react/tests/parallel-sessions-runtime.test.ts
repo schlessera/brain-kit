@@ -9,6 +9,7 @@ import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type Request as BrowserRequest } from "playwright";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
+import { requireTurnFreeSpace } from "../../ui-server/tests/helpers/turn-free-space.js";
 import type { ClientMessage, DraftListResponse, ServerMessage, SessionHistoryMessage, SessionRecovery } from "@schlessera/brain-ui-sdk/protocol";
 import { askUserFormSpec } from "@schlessera/brain-ui-sdk/internal/client";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
@@ -227,6 +228,7 @@ beforeAll(async () => {
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-parallel-"));
   const brain = resolve(scratch, "brain");
   await createFixtureBrain(repo, brain);
+  requireTurnFreeSpace(brain);
   assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:{entry:"client.js",chunk:"[name]-[hash].js"},splitting:true}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/parallel-sessions-client.tsx"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
