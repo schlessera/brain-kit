@@ -1078,7 +1078,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:312`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:541`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1710,11 +1710,11 @@ helper the host provides:
 
 - **brain-kit owns the launcher seam** (#1677). An optional host-supplied
   identity helper sits in front of `bwrap`. It follows the exec wrapper's
-  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:39`):
+  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:42`):
   an absolute path in argv position 0, and the worker as its own process
   group. `kill(2)` across uids returns `EPERM`, so every signal goes through
   the kill helper. The helper's protocol
-  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:53`)
+  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:56`)
   gains `STOP` and `CONT`. A scope cap without a delegated cgroup stops and
   resumes the worker through them (see "Scope caps"). Signalling the process
   group is not enough. `bwrap --new-session` puts the payload in a session and
@@ -2178,7 +2178,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:85-129`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:86-130`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely
