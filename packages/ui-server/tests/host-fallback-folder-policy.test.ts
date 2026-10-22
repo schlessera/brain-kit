@@ -72,7 +72,8 @@ test.each(cases)("%s (descendant %s, replaces %s, owner %s): a folder policy ref
     expect(old, "NO_HOST_PROCESS_EXISTS_UNDER_FOLDER_POLICY").toBeUndefined();
   } finally {
     owner.kill("SIGKILL"); await owner.exited;
-    // A host child that started after a failed readiness wait is still owned by this fixture.
+    // A host child that started after a failed readiness wait is still owned by
+    // this fixture; it also exits by itself if it publishes later than this.
     if (old === undefined && existsSync(at("old.pid"))) { old = Number(readFileSync(at("old.pid"), "utf8")); oldStart = processStart(old); }
     if (old !== undefined && oldStart !== null && processStart(old) === oldStart) try { process.kill(old, "SIGKILL"); } catch {}
     peer?.kill(); if (peer) await peer.exited; await peerOutput;

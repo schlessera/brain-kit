@@ -17,7 +17,9 @@ if (!brain || !dbPath || !["launch", "run"].includes(method) || !["group/private
 const db = createUiDb(dbPath), gate = createWriterGate(db, brain);
 const boundary = createHostBoundary({ brainPath: brain, dbPath, requireGate: true, gate: () => gate, history: () => false,
   workerHost: () => ({ ok: false, requirement: "fictional never-governed host" }) });
-const body = `printf "%s" "$$" > old.pid; printf ready > old-ready; while ! test -f old-go; do sleep 0.01; done; mv ${target} ${target}-retired; mkdir -p group/private; printf Athena > group/private/born.md; printf done > old-done`;
+// The host writer publishes its identity atomically and gives up after about
+// 15 seconds, so a failed probe cannot leave it running.
+const body = `printf "%s" "$$" > old.pid.tmp && mv old.pid.tmp old.pid; printf ready > old-ready; i=0; while ! test -f old-go; do i=$((i+1)); test $i -gt 1500 && exit 47; sleep 0.01; done; mv ${target} ${target}-retired; mkdir -p group/private; printf Athena > group/private/born.md; printf done > old-done`;
 const argv = scenario === "detached" ? ["/bin/sh", "-c", 'setsid /bin/sh -c "$1" </dev/null >/dev/null 2>&1 &', "odysseus-detached", body]
   : descendant === "yes" ? ["/bin/sh", "-c", '/bin/sh -c "$1" &', "odysseus-parent", body] : ["/bin/sh", "-c", body];
 try {

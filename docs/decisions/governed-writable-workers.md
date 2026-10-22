@@ -395,7 +395,9 @@ in the current policy or in a plan an active writer retains after the policy
 is removed. A policy file that cannot be read or parsed is treated as unknown
 folder state and refuses too, as does an active writer with unknown or
 unverifiable folder provenance. A valid policy without provider folders, or
-no policy file, leaves host fallback as it was. Managed and governed
+no policy file, leaves host fallback running. The one change there is that
+an ungated command beside an attached gate now also refuses beside a writer
+with unknown provenance, as a gated one already did. Managed and governed
 execution do not change. Host fallback still exists for never-governed hosts.
 
 This ruling does not apply to folders that appear after a host writer
