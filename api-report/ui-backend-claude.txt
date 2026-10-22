@@ -45,6 +45,7 @@ signatures (every public export and the types it is made of)
     }
   ClaudeBackendOptions (packages/ui-backend-claude/src/options.ts)
     export interface ClaudeBackendOptions {
+        exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig;
         maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         versionRequirements?: BackendVersionRequirements;
         brainPath: string;

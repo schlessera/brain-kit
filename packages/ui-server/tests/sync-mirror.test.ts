@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -9,6 +10,7 @@ import { assertMirrorStorage, syncMirrorPath, syncTransportCommand } from "../sr
 import { createHostExecution } from "../src/brain/host-execution";
 import { createUiDb } from "../src/db/client";
 import { createNativeAppFixture } from "./helpers/native-app-fixture.js";
+import { privateMaintenanceTest } from "./helpers/private-maintenance-test.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const TOKEN = "fixture-sync-token-never-for-the-brain";
@@ -30,7 +32,7 @@ function git(root: string, ...args: string[]): string {
 }
 
 function fixture() {
-  const root = mkdtempSync("/var/tmp/brain-sync-fixture-"); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), "brain-sync-fixture-")); roots.push(root);
   const brain = join(root, "brain");
   const remote = join(root, "remote.git");
   const state = join(root, "state"); mkdirSync(state);
@@ -402,6 +404,7 @@ for (const output of ["stdout", "stderr"] as const) {
 }
 
 test("an in-memory host uses its private temporary mirror for a real sync", async () => {
+  if (await privateMaintenanceTest(import.meta.path, "an in-memory host uses its private temporary mirror for a real sync", 120_000)) return;
   const f = fixture();
   // This host has no operational state directory to mask. The configured
   // host credential-file proof belongs to the persistent-database test.

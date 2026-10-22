@@ -1,15 +1,13 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { operationalStateMasks } from "../src/brain/operational-state.js";
 
-// /var/tmp is deliberately outside /tmp and HOST_MASKS: an ambient parent mask
-// must not be what makes this database inaccessible. Every byte is fixture-owned.
+// The private namespace projects this owned fixture outside HOST_MASKS and /tmp.
+// An ambient parent mask must not make the database control pass.
 test.each(["governed", "strict"] as const)("%s shared-uid worker masks the configured database while an unmasked same-uid control remains readable", profile => {
-  const base = realpathSync("/var/tmp");
-  expect(base).not.toBe("/tmp");
-  const root = mkdtempSync(join(base, "odysseus-worker-identity-"));
+  const root = mkdtempSync(join(tmpdir(), "odysseus-worker-identity-"));
   try {
     chmodSync(root, 0o700);
     const brain = join(root, "brain"), state = join(root, "server-state"), control = join(root, "unmasked-control");
@@ -20,9 +18,8 @@ test.each(["governed", "strict"] as const)("%s shared-uid worker masks the confi
     writeFileSync(join(brain, "harbor.md"), "Odysseus arrives.\n");
     const masks = operationalStateMasks({ brainPath: brain, dbPath });
     expect(masks, "CONFIGURED_DATABASE_DIRECTORY_MASK").toContain(state);
-    const sandbox = prepareWorkerSandbox(brain, { profile, areas: [], maskPaths: masks, readPaths: [] });
-    const python = Bun.which("python3", { PATH: "/usr/bin:/bin" }), unshare = Bun.which("unshare");
-    expect(python).not.toBeNull(); expect(unshare).not.toBeNull();
+    const python = Bun.which("python3", { PATH: "/usr/bin:/bin" });
+    expect(python).not.toBeNull();
     const program = `import json,os,pathlib,sys
 try:
     pathlib.Path(sys.argv[1]).read_bytes()
@@ -35,11 +32,11 @@ try:
 except OSError:
     brain_write=False
 print(json.dumps({"uid":os.getuid(),"controlOwner":os.stat(sys.argv[2]).st_uid,"control":pathlib.Path(sys.argv[2]).read_text(),"database":database,"brainWrite":brain_write}))`;
-    const argv = workerCommand({ brainPath: brain, sandbox, env: {}, command: [python!, "-I", "-S", "-c", program, dbPath, control] });
-    // The real worker shares its parent's network as in production; that
-    // parent's network is denied by this explicitly offline native harness.
-    const child = Bun.spawnSync([unshare!, "--user", "--map-current-user", "--net", "--", ...argv],
-      { cwd: "/", env: {}, stdout: "pipe", stderr: "pipe", timeout: 5_000 });
+    const target = "/opt/odysseus-identity";
+    const child = Bun.spawnSync(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/opt", "--bind", root, target,
+      process.execPath, "--preload", resolve(import.meta.dir,"../../../scripts/test-network-child-preload.ts"), join(import.meta.dir,"fixtures/shared-identity-control.ts")],
+      { cwd: "/", env: { PATH: "/usr/bin:/bin" }, stdout: "pipe", stderr: "pipe", timeout: 5_000,
+        stdin: Buffer.from(JSON.stringify({ profile, command: [python!, "-I", "-S", "-c", program, join(target, "server-state/brain-ui.db"), join(target, "unmasked-control")] })) });
     expect(child.exitCode, child.stderr.toString()).toBe(0);
     const result = JSON.parse(child.stdout.toString());
     // Compare identities in each namespace rather than treating a nested

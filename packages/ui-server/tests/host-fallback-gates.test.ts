@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHostBoundary, type BrainExecution, type StreamingExecution } from "../src/brain/host-boundary.js";
-import { createWriterGate, type GateHold } from "../src/brain/writer-gate.js";
+import { createWriterGate, HostFallbackRefusedError, type GateHold } from "../src/brain/writer-gate.js";
 import { createUiDb } from "../src/db/client.js";
 import { acquireHostCredentialExclusion } from "@schlessera/brain-ui-sdk/internal";
 
@@ -72,6 +72,105 @@ for (const method of ["run", "launch"] as const) {
       await expect(running, "LATE_HOST_REFUSES_BEFORE_ACTUAL_PROCESS_CREATION").rejects.toThrow("active peer");
       expect(existsSync(f.ready)).toBe(false);
       expect(f.gate.holders()).toMatchObject([{ purpose: "native protected peer" }]);
+    } finally { await f.close(); }
+  });
+
+  test(`${method}: an active provider folder policy refuses every host fallback before an actual child starts`, async () => {
+    const f = fixture();
+    try {
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+      const entered = `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`;
+      for (const [label, mode, selected] of [["shared", "shared", f.boundary()], ["exclusive", "exclusive", f.boundary()],
+        ["optional missing gate", "shared", f.boundary(false, false)], ["gate none", "none", f.boundary(true, false)]] as const) {
+        const refusal = await f.start(method, mode, selected, entered).then(() => undefined, error => error);
+        expect(refusal, `FOLDER_POLICY_REFUSES_LEGACY_HOST_FALLBACK (${label})`).toBeInstanceOf(HostFallbackRefusedError);
+        expect(String(refusal)).toContain("group/private");
+        expect(String(refusal), "REFUSAL_NAMES_THE_REQUIRED_BOUNDARY").toContain("requires the qualified worker boundary");
+        expect(existsSync(f.ready), `FOLDER_POLICY_REFUSAL_PRECEDES_HOST_PROCESS (${label})`).toBe(false);
+        expect(f.gate.holders(), `FOLDER_POLICY_REFUSAL_RELEASES_ADMISSION (${label})`).toEqual([]);
+      }
+    } finally { await f.close(); }
+  });
+
+  test(`${method}: a folder policy refusal releases credential exclusion and precedes failed launch and cancellation`, async () => {
+    const f = fixture();
+    const directory = join(f.root, "credentials"); mkdirSync(directory, { mode: 0o700 });
+    const domain = { directory };
+    const selected = createHostBoundary({ brainPath: f.brain, gate: () => f.gate, requireGate: true, credentialDomain: domain,
+      workerHost: () => ({ ok: false, requirement: "fictional never-governed fixture" }) });
+    const settle = (running: Promise<unknown>) => running.then(async value => {
+      // A wrongly started streaming child is drained so the named assertion, not cleanup, fails.
+      const child = value as StreamingExecution; child.kill("SIGKILL");
+      await Promise.all([child.stdout.cancel(), child.stderr.cancel(), child.exited]); return value;
+    }, error => error);
+    try {
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+      const entered = `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`;
+      const credentialed = await settle(selected[method]({ ...f.command("shared", entered), credentials: true, signal: undefined }));
+      expect(credentialed, "FOLDER_POLICY_REFUSES_CREDENTIALED_HOST_FALLBACK").toBeInstanceOf(HostFallbackRefusedError);
+      const credential = await acquireHostCredentialExclusion({ domain, timeoutMs: 1000 });
+      credential.release();
+      const missing = await settle(selected[method]({ ...f.command("shared"), signal: undefined, argv: [join(f.root, "missing-program")] }));
+      expect(missing, "FOLDER_POLICY_REFUSAL_PRECEDES_FAILED_LAUNCH").toBeInstanceOf(HostFallbackRefusedError);
+      const exclusive = await f.gate.acquire("exclusive", "existing exclusive owner"); f.holds.push(exclusive);
+      const cancel = new AbortController();
+      const waiting = settle(selected[method]({ ...f.command("shared", entered), signal: cancel.signal }));
+      await Bun.sleep(30); cancel.abort(new Error("Odysseus cancelled"));
+      expect(String(await waiting), "CANCELLED_HOST_REQUEST_SETTLES_WITHOUT_A_CHILD").toContain("Odysseus cancelled");
+      exclusive.release();
+      expect(existsSync(f.ready)).toBe(false);
+      expect(f.gate.holders(), "FOLDER_POLICY_REFUSAL_RELEASES_ADMISSION").toEqual([]);
+    } finally { await f.close(); }
+  });
+
+  test(`${method}: an invalid governance policy is unknown folder state and refuses host fallback`, async () => {
+    const f = fixture();
+    try {
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**] }]\n---\nAthena left a draft.\n");
+      const entered = `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`;
+      for (const [mode, selected] of [["shared", f.boundary()], ["none", f.boundary(true, false)]] as const) {
+        const refusal = await f.start(method, mode, selected, entered).then(() => undefined, error => error);
+        expect(refusal, `INVALID_POLICY_REFUSES_LEGACY_HOST_FALLBACK (${mode})`).toBeInstanceOf(HostFallbackRefusedError);
+        expect(String(refusal)).toContain("cannot be read or parsed");
+        expect(existsSync(f.ready)).toBe(false);
+      }
+      expect(f.gate.holders()).toEqual([]);
+    } finally { await f.close(); }
+  });
+
+  test(`${method}: an ungated host fallback refuses beside a peer that retains provider folders after policy removal`, async () => {
+    const f = fixture();
+    try {
+      const policy = join(f.brain, "context/policies/governance.md");
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(policy, "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+      const native = await f.gate.acquire("shared", "native protected peer"); f.holds.push(native);
+      native.assertPeerFolderPlans!(["group/private"]);
+      rmSync(policy);
+      const entered = `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`;
+      const refusal = await f.start(method, "none", f.boundary(true, true), entered).then(() => undefined, error => error);
+      expect(refusal, "RETAINED_PEER_ROOTS_REFUSE_UNGATED_HOST_FALLBACK").toBeInstanceOf(HostFallbackRefusedError);
+      expect(String(refusal)).toContain("group/private");
+      expect(existsSync(f.ready)).toBe(false);
+      native.release();
+      expect(await f.start(method, "none", f.boundary(true, true), 'console.log("Odysseus reads");'), "RELEASED_PEER_RESTORES_UNGATED_HOST_FALLBACK")
+        .toEqual({ stdout: "Odysseus reads\n", stderr: "", exitCode: 0 });
+    } finally { await f.close(); }
+  });
+
+  test(`${method}: a policy without provider folders keeps the legacy host path`, async () => {
+    const f = fixture();
+    try {
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\n---\nAthena keeps the defaults.\n");
+      for (const [mode, selected] of [["shared", f.boundary()], ["none", f.boundary(true, false)]] as const) {
+        expect(await f.start(method, mode, selected, 'console.log("Odysseus reads");'), `NO_FOLDER_POLICY_KEEPS_HOST_FALLBACK (${mode})`)
+          .toEqual({ stdout: "Odysseus reads\n", stderr: "", exitCode: 0 });
+      }
+      expect(f.gate.holders()).toEqual([]);
     } finally { await f.close(); }
   });
 
@@ -201,5 +300,24 @@ test("streaming parent exit retains writer admission until its actual descendant
     } finally { writeFileSync(f.release, "released"); await child.exited; await draining; }
     const after = await f.gate.acquire("exclusive", "after descendant EOF"); f.holds.push(after);
     expect(f.gate.holders()).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
+test("a synchronous host reader refuses under a provider folder policy and runs without one", async () => {
+  const f = fixture();
+  try {
+    const query = { argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"read");console.log("Odysseus reads")`],
+      env: { PATH: "/usr/bin:/bin" }, credentials: false, purpose: "Odysseus query", timeoutMs: 5000 };
+    expect(f.boundary().runSync(query), "NO_FOLDER_POLICY_KEEPS_SYNC_HOST_READER").toEqual({ stdout: "Odysseus reads\n", stderr: "", exitCode: 0 });
+    rmSync(f.ready);
+    mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+    writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+    expect(() => f.boundary().runSync(query), "FOLDER_POLICY_REFUSES_SYNC_HOST_READER").toThrow(HostFallbackRefusedError);
+    expect(existsSync(f.ready)).toBe(false);
+    const native = await f.gate.acquire("shared", "native protected peer"); f.holds.push(native);
+    native.assertPeerFolderPlans!(["group/private"]);
+    rmSync(join(f.brain, "context/policies/governance.md"));
+    expect(() => f.boundary().runSync(query), "RETAINED_PEER_ROOTS_REFUSE_SYNC_HOST_READER").toThrow(HostFallbackRefusedError);
+    expect(existsSync(f.ready)).toBe(false);
   } finally { await f.close(); }
 });

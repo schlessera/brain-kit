@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 /**
  * #1648: no host process evaluates repository code, runs git or runs the
  * `brain` CLI against a brain a governed turn can write. Each test plants a
@@ -269,7 +270,7 @@ describe("what the brain cannot use to open the boundary (#1648 review)", () => 
   test("an .env that links to a host file is covered in a credential-free worker", async () => {
     if (!supported) return;
     const f = fixture({ config: "plain" });
-    const secret = mkdtempSync("/var/tmp/brain-boundary-secret-");
+    const secret = mkdtempSync(join(tmpdir(), "brain-boundary-secret-"));
     roots.push(secret);
     writeFileSync(join(secret, "credentials"), "BRAIN_DOTENV_MARK=host-secret\n");
     rmSync(join(f.brain, ".env"), { force: true });

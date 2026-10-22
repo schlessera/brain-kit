@@ -1,5 +1,5 @@
 /** Preserve contribution routing, scheduling and hostile-metadata proof on GitHub Actions. */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -157,10 +157,74 @@ describe("the authoritative jobs retain their important phases", () => {
     expect(checkout?.with?.ref).toBe("${{ github.event.pull_request.head.sha }}");
     expect(checkout?.with?.["fetch-depth"]).toBe(0);
     const command = job.steps.find(s => s.run)!;
-    expect(command.run).toBe('bun scripts/check-contract-pr.ts "$BASE_REF" "$HEAD_SHA"');
+    expect(command.run).toBe('bun scripts/check-contract-pr.ts --declared-base "$HEAD_SHA"');
+    expect(command.env?.PR_NUMBER).toBe("${{ github.event.pull_request.number }}");
+    expect(command.env?.GH_TOKEN).toBe("${{ github.token }}");
     expect(command.env?.PR_TITLE).toBe("${{ github.event.pull_request.title }}");
     expect(command.env?.PR_LABELS).toBe("${{ toJSON(github.event.pull_request.labels.*.name) }}");
   });
+});
+
+describe("runtime environment setup and proof budgets", () => {
+  for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
+    const job = ci.jobs[name]!;
+    const setup = job.steps.find(s => s.run === `bash scripts/ci-runtime-setup.sh${name === "unit" ? "" : " --native"}`)!;
+    const proof = job.steps.find(s => s.run === `bun scripts/ci-proof.ts ${name}` || s.run?.startsWith(`bun scripts/ci-proof.ts ${name} `))!;
+    test(`${name} retains a full proof budget after bounded environment setup`, () => {
+      expect(setup["timeout-minutes"]).toBe(12);
+      expect(proof["timeout-minutes"]).toBe(proofMinutes);
+      expect(job["timeout-minutes"]).toBe(12 + proofMinutes + 3);
+      expect(setup.if).toBeUndefined();
+      expect(proof.if).toBeUndefined();
+      expect(setup["continue-on-error"]).toBeUndefined();
+      expect(proof["continue-on-error"]).toBeUndefined();
+      expect(job.steps.indexOf(proof)).toBeGreaterThan(job.steps.indexOf(setup));
+    });
+    test(`${name} workflow guard rejects missing setup bounds, changed proof bounds and a shared job cap`, () => {
+      const source = read("ci.yml");
+      const mutate = (change: (job: Job) => void) => {
+        const workflow = Bun.YAML.parse(source) as Workflow;
+        change(workflow.jobs[name]!);
+        return workflowProblems(Bun.YAML.stringify(workflow), "ci.yml");
+      };
+      expect(workflowProblems(source, "ci.yml")).toEqual([]);
+      expect(mutate(j => { delete j.steps.find(s => s.run === setup.run)!["timeout-minutes"]; }))
+        .toContain(`ci.yml: ${name}: environment setup must have its separate 12-minute limit`);
+      for (const limit of [undefined, proofMinutes - 1, proofMinutes + 1]) {
+        expect(mutate(j => { j.steps.find(s => s.run === proof.run)!["timeout-minutes"] = limit ?? null; }))
+          .toContain(`ci.yml: ${name}: proof must retain its ${proofMinutes}-minute limit`);
+      }
+      expect(mutate(j => { j["timeout-minutes"] = proofMinutes; }))
+        .toContain(`ci.yml: ${name}: job limit must cover setup, proof and 3 minutes of other steps`);
+    });
+    test(`${name} summary distinguishes setup infrastructure failure from proof failure`, () => {
+      const summary = job.steps.find(s => s.name === "Environment setup and proof outcomes")!;
+      expect(summary).toBeDefined();
+      expect(summary.if).toBe("always()");
+      expect(summary.env).toEqual({
+        SETUP_OUTCOME: "${{ steps.runtime_setup.outcome }}",
+        PROOF_OUTCOME: "${{ steps.runtime_proof.outcome }}",
+      });
+      expect(setup.id).toBe("runtime_setup");
+      expect(proof.id).toBe("runtime_proof");
+      expect(job.steps.indexOf(summary)).toBeGreaterThan(job.steps.indexOf(proof));
+      const dir = mkdtempSync(join(tmpdir(), "ci-phase-outcomes-"));
+      try {
+        for (const [setupOutcome, proofOutcome] of [["failure", "skipped"], ["cancelled", "skipped"], ["success", "failure"], ["success", "success"]]) {
+          const output = join(dir, "summary.md");
+          writeFileSync(output, "");
+          const result = Bun.spawnSync(["bash", "-euo", "pipefail", "-c", summary.run!], {
+            env: { ...process.env, GITHUB_STEP_SUMMARY: output, SETUP_OUTCOME: setupOutcome!, PROOF_OUTCOME: proofOutcome! },
+            stdout: "pipe", stderr: "pipe",
+          });
+          expect(result.exitCode).toBe(0);
+          expect(readFileSync(output, "utf8")).toBe(
+            `Environment setup (infrastructure prerequisite, 12-minute limit): ${setupOutcome}\nProof (${proofMinutes}-minute limit): ${proofOutcome}\n`,
+          );
+        }
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+  }
 });
 
 describe("CI concurrency configuration (live scheduler proof remains separate)", () => {
@@ -231,55 +295,156 @@ describe("contributions execute without privileged credentials", () => {
       }
     });
   }
-  test("a fork's hostile title stays inert in the emitted contract step", () => {
-    const adapter = workflows.find(w => w.file === "contract.yml")!.workflow;
-    const steps = Object.values(adapter.jobs).flatMap((job) => job.steps).filter((step) => step.run);
-    expect(steps.length).toBe(1);
-    const step = steps[0]!;
-    const scratch = mkdtempSync(join(tmpdir(), "fork-contract-"));
-    try {
-      const sentinel = join(scratch, "pwned");
-      const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: ROOT });
-      expect(head.exitCode).toBe(0);
-      const sha = new TextDecoder().decode(head.stdout).trim();
-      const context = pullRequest("odysseus/brain-kit", {
-        title: `CONTRACT: feat(core): $(touch ${sentinel}) \`touch ${sentinel}\``,
-        labels: [{ name: "contract" }, { name: `$(touch ${sentinel})` }],
-        head: { sha, repo: { full_name: "odysseus/brain-kit" } },
-      });
-      // The values the runner would place in the step's env.
-      const valueOf = (expression: string): string => {
-        const labels = /^toJSON\(github\.event\.pull_request\.labels\.\*\.name\)$/.exec(expression);
-        const pr = (context.event as Obj).pull_request as Obj;
-        if (labels) return JSON.stringify((pr.labels as Obj[]).map((l) => l.name));
-        if (expression === "github.base_ref") return "HEAD";
-        const value = evaluateValue(expression, { github: context });
-        if (typeof value !== "string") throw new Error(`no value for ${expression}`);
-        return value;
-      };
-      // The runner substitutes expressions in env values and in the script
-      // itself before bash sees it.
-      const substitute = (text: string) =>
-        text.replace(/\$\{\{\s*([^}]*?)\s*\}\}/g, (_, e: string) => valueOf(e));
-      const env: Record<string, string> = {};
-      for (const [key, raw] of Object.entries(step.env ?? {})) env[key] = substitute(String(raw));
-      expect(env.PR_TITLE).toContain("$(touch");
-      // `origin/HEAD` would need a remote; diff the checkout against itself.
-      env.BASE_REF = sha;
-      const result = Bun.spawnSync(["bash", "-e", "-c", substitute(step.run!)], {
-        cwd: ROOT,
-        env: { ...process.env, ...env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
-      });
-      // Nothing in the title or labels was executed.
-      expect(existsSync(sentinel)).toBe(false);
-      // They were read, judged and rejected as text: the title claims a
-      // contract change the empty diff does not make.
-      const stderr = new TextDecoder().decode(result.stderr);
-      expect(stderr).toContain("The title starts with `CONTRACT:`, but docs/integration-contract.md and its authoritative components did not change.");
-      expect(result.exitCode).toBe(1);
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
+});
+
+/**
+ * The installed contract step, executed the way the runner executes it: its
+ * env expressions substituted from an event context, then `bash -e`. The PR
+ * lookup is a loopback server; the fixture repository has the remote-tracking
+ * refs a full-history checkout fetches.
+ */
+describe("the contract gate compares each PR with the base it declares (#2650)", () => {
+  const contract = workflows.find(w => w.file === "contract.yml")!.workflow;
+  const types = (contract.on.pull_request as Obj).types as string[];
+  const step = Object.values(contract.jobs).flatMap((job) => job.steps).filter((s) => s.run);
+  const COMPONENT = "docs/integration-contract/http.md";
+  const OWN = "docs/integration-contract/wire.md";
+  const LOWER = "feat/1665-lower";
+  let repo = "";
+  let heads: Record<"trunk" | "lower" | "upper" | "upperOwn", string>;
+  let pulls: Record<string, { status: number; body?: Json }> = {};
+  let server: ReturnType<typeof Bun.serve>;
+
+  const git = (...args: string[]) => {
+    const result = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd: repo });
+    if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+    return new TextDecoder().decode(result.stdout).trim();
+  };
+  const write = (file: string, text: string) => { mkdirSync(dirname(join(repo, file)), { recursive: true }); writeFileSync(join(repo, file), text); };
+  const commit = (message: string) => { git("add", "-A"); git("commit", "-qm", message); return git("rev-parse", "HEAD"); };
+  const pull = (number: number, base: string, head: string, baseRepo = REPO): Obj => ({ number, base: { ref: base, repo: { full_name: baseRepo } }, head: { sha: head } });
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "contract-declared-base-"));
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "odysseus@example.com");
+    git("config", "user.name", "Odysseus");
+    write("scripts/check-contract-pr.ts", readFileSync(join(ROOT, "scripts/check-contract-pr.ts"), "utf8"));
+    write("docs/integration-contract.md", "Index\n");
+    write(COMPONENT, "Ithaca harbour v1\n");
+    write(OWN, "Wire v1\n");
+    const trunk = commit("trunk");
+    git("checkout", "-qb", LOWER);
+    write(COMPONENT, "Ithaca harbour v2\n");
+    const lower = commit("lower layer changes the HTTP contract");
+    git("checkout", "-qb", "upper");
+    write("packages/core/src/voyage.ts", "export const leg = 2;\n");
+    const upper = commit("upper layer changes code only");
+    git("checkout", "-qb", "upper-own", lower);
+    write(OWN, "Wire v2\n");
+    const upperOwn = commit("upper layer changes its own contract");
+    git("update-ref", "refs/remotes/origin/main", trunk);
+    git("update-ref", `refs/remotes/origin/${LOWER}`, lower);
+    heads = { trunk, lower, upper, upperOwn };
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      const match = new URL(request.url).pathname.match(/^\/repos\/schlessera\/brain-kit\/pulls\/(\d+)$/);
+      const answer = match && request.headers.get("authorization") === "Bearer offline-fixture-token" ? pulls[match[1]!] : undefined;
+      return answer ? Response.json(answer.body ?? { message: "refused" }, { status: answer.status }) : Response.json({ message: "Not Found" }, { status: 404 });
+    } });
+  });
+  afterAll(() => { server?.stop(true); if (repo) rmSync(repo, { recursive: true, force: true }); });
+
+  /** The step's exit code and output for one event context. */
+  async function gate(event: { action: string; base_ref: string; number?: number; head: string; title: string; labels?: string[]; headRepo?: string }) {
+    expect(step.length).toBe(1);
+    const context: Obj = {
+      event_name: "pull_request", repository: REPO, base_ref: event.base_ref, token: "offline-fixture-token",
+      event: { action: event.action, pull_request: { ...(event.number === undefined ? {} : { number: event.number }), title: event.title,
+        labels: (event.labels ?? []).map(name => ({ name })), head: { sha: event.head, repo: { full_name: event.headRepo ?? REPO } } } },
+    };
+    const valueOf = (expression: string): string => {
+      const pr = (context.event as Obj).pull_request as Obj;
+      if (/^toJSON\(github\.event\.pull_request\.labels\.\*\.name\)$/.test(expression)) return JSON.stringify((pr.labels as Obj[]).map((l) => l.name));
+      const value = evaluateValue(expression, { github: context });
+      if (value === null) return ""; // The runner renders a missing property as empty.
+      if (typeof value !== "string" && typeof value !== "number") throw new Error(`no value for ${expression}`);
+      return String(value);
+    };
+    const substitute = (text: string) => text.replace(/\$\{\{\s*([^}]*?)\s*\}\}/g, (_, e: string) => valueOf(e));
+    const env: Record<string, string> = {};
+    for (const [key, raw] of Object.entries(step[0]!.env ?? {})) env[key] = substitute(String(raw));
+    // Async: a synchronous spawn would block the loopback server it calls.
+    const child = Bun.spawn(["bash", "-e", "-c", substitute(step[0]!.run!)], {
+      cwd: repo, stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, ...env, GITHUB_REPOSITORY: REPO, GITHUB_API_URL: server.url.href, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` },
+    });
+    const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    return { exit, stdout, stderr, env };
+  }
+
+  test("every trigger of an upper layer diffs against its parent, even when the event names main", async () => {
+    pulls = { 12: { status: 200, body: pull(12, LOWER, heads.upper) } };
+    expect(types).toEqual(["opened", "edited", "synchronize", "reopened", "labeled", "unlabeled"]);
+    for (const action of types) for (const base_ref of ["main", LOWER]) {
+      const result = await gate({ action, base_ref, number: 12, head: heads.upper, title: "feat(core): chart the next leg" });
+      expect({ action, base_ref, exit: result.exit, stderr: result.stderr }).toEqual({ action, base_ref, exit: 0, stderr: "" });
+      expect(result.stdout).toContain(`Contract base: origin/${LOWER}, declared by PR #12`);
+      expect(result.stdout).toContain("not a contract change");
     }
+  });
+
+  test("an upper layer's own contract edit still needs its title and label", async () => {
+    pulls = { 13: { status: 200, body: pull(13, LOWER, heads.upperOwn) } };
+    const plain = await gate({ action: "edited", base_ref: "main", number: 13, head: heads.upperOwn, title: "feat(core): chart the next leg" });
+    expect(plain.exit).toBe(1);
+    expect(plain.stderr).toContain(`${OWN} changed, but the title does not start with \`CONTRACT:\`.`);
+    expect(plain.stderr).not.toContain(COMPONENT);
+    const marked = await gate({ action: "labeled", base_ref: "main", number: 13, head: heads.upperOwn, title: "CONTRACT: feat(core): chart the next leg", labels: ["contract"] });
+    expect([marked.exit, marked.stdout]).toEqual([0, expect.stringContaining("Contract change")]);
+  });
+
+  test("an ordinary PR against main is judged as before", async () => {
+    pulls = { 14: { status: 200, body: pull(14, "main", heads.lower) } };
+    const plain = await gate({ action: "opened", base_ref: "main", number: 14, head: heads.lower, title: "feat(core): widen the harbour" });
+    expect(plain.exit).toBe(1);
+    expect(plain.stderr).toContain(`${COMPONENT} changed, but the title does not start with \`CONTRACT:\`.`);
+    expect(plain.stdout).toContain("Contract base: origin/main, declared by PR #14; the event agrees.");
+    const marked = await gate({ action: "edited", base_ref: "main", number: 14, head: heads.lower, title: "CONTRACT: feat(core): widen the harbour", labels: ["contract"] });
+    expect(marked.exit).toBe(0);
+  });
+
+  test("an unreadable or unfetched declared base fails the gate instead of choosing main", async () => {
+    pulls = {
+      15: { status: 200, body: pull(15, "feat/1665-unfetched", heads.upper) },
+      16: { status: 200, body: pull(16, LOWER, heads.upper, "odysseus/brain-kit") },
+      17: { status: 200, body: pull(18, LOWER, heads.upper) },
+    };
+    const cases: [number | undefined, string][] = [
+      [undefined, "PR_NUMBER is not a pull request number"],
+      [404, "Reading PR #404 failed: HTTP 404"],
+      [15, "PR #15 declares base feat/1665-unfetched, but the checkout has not fetched origin/feat/1665-unfetched"],
+      [16, "PR #16 declares a base outside schlessera/brain-kit"],
+      [17, "The lookup for PR #17 did not return that pull request"],
+    ];
+    for (const [number, diagnostic] of cases) {
+      const result = await gate({ action: "edited", base_ref: "main", number, head: heads.upper, title: "feat(core): chart the next leg" });
+      expect({ number, exit: result.exit, diagnostic: result.stderr.includes(diagnostic) }).toEqual({ number, exit: 2, diagnostic: true });
+      expect(result.stdout).not.toContain("Contract base");
+    }
+  });
+
+  test("a fork's hostile title stays inert in the emitted contract step", async () => {
+    const sentinel = join(repo, "pwned");
+    pulls = { 7: { status: 200, body: pull(7, "main", heads.trunk) } };
+    const result = await gate({ action: "opened", base_ref: "main", number: 7, head: heads.trunk, headRepo: "odysseus/brain-kit",
+      title: `CONTRACT: feat(core): $(touch ${sentinel}) \`touch ${sentinel}\``, labels: ["contract", `$(touch ${sentinel})`] });
+    expect(result.env.PR_TITLE).toContain("$(touch");
+    // Nothing in the title or labels was executed.
+    expect(existsSync(sentinel)).toBe(false);
+    // They were read, judged and rejected as text: the title claims a
+    // contract change the empty diff does not make.
+    expect(result.stderr).toContain("The title starts with `CONTRACT:`, but docs/integration-contract.md and its authoritative components did not change.");
+    expect(result.exit).toBe(1);
   });
 });
 
@@ -321,6 +486,18 @@ describe("the workflow lint refuses unsafe or duplicate execution shapes", () =>
     expect(workflowProblems("jobs: [", "ci.yml")).toEqual(["ci.yml: invalid YAML"]);
     const dir=mkdtempSync(join(tmpdir(),"ci-workflow-"));
     try { expect(checkCIWorkflows(dir)).toContain("ci.yml: missing authoritative GitHub workflow"); } finally { rmSync(dir,{recursive:true,force:true}); }
+  });
+  test("the contract gate cannot take its base from the event (#2650)", () => {
+    const contract = read("contract.yml");
+    expect(workflowProblems(contract, "contract.yml")).toEqual([]);
+    const problem = "contract.yml: contract: the comparison base must be the PR's declared base, read at run time, never the event's";
+    const eventBase = contract
+      .replace("          EVENT_BASE_REF: ${{ github.base_ref }}\n", "          BASE_REF: origin/${{ github.base_ref }}\n")
+      .replace('--declared-base "$HEAD_SHA"', '"$BASE_REF" "$HEAD_SHA"');
+    expect(workflowProblems(eventBase, "contract.yml")).toContain(problem);
+    expect(workflowProblems(contract.replace("          EVENT_BASE_REF:", "          BASE_SHA: ${{ github.event.pull_request.base.sha }}\n          EVENT_BASE_REF:"), "contract.yml")).toContain(problem);
+    expect(workflowProblems(contract.replace("          PR_NUMBER: ${{ github.event.pull_request.number }}\n", ""), "contract.yml")).toContain(problem);
+    expect(workflowProblems(contract.replace("          GH_TOKEN: ${{ github.token }}\n", ""), "contract.yml")).toContain(problem);
   });
   test("an active Depot definition cannot coexist with GitHub CI", () => {
     const dir=mkdtempSync(join(tmpdir(),"ci-workflow-"));

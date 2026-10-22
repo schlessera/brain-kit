@@ -25,7 +25,7 @@ import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
-import { envSnapshot, resolveExecConfig } from "./config/env.js";
+import { envSnapshot, ambientExecConfig } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import { userMessage } from "./turn-input.js";
@@ -353,7 +353,7 @@ function assembleClaudeSdkTurn(
   }
   // Every runtime-owned executor enters the worker. An optional host exec
   // wrapper runs inside it and can never replace the filesystem boundary.
-  const worker = createWorkerSpawn(backend.brainPath, resolveExecConfig(), abortController.signal,
+  const worker = createWorkerSpawn(backend.brainPath, backend.exec ?? ambientExecConfig(), abortController.signal,
     envelope ? { inferenceDir: envelope.relay.dir } : undefined, sandbox, limits,
     // Files the answer links in turn temp are promoted into scratch and the
     // saved answer links the copies (#1655); a turn that saves nothing has no answer to keep.
