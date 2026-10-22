@@ -47,28 +47,8 @@ export async function exerciseNativeScratchMask(request: Parameters<AgentBackend
       expect(Buffer.from(png), "SCRATCH_MASK_EXACT_BROWSER_BYTES").toEqual(mask);
       return request.bridge.applyImageMask!({ imagePath, maskPath, png });
     };
-    // Spread controls across the existing bounded fresh/warm application phases.
-    if (!warm) {
-      const result = await apply();
-      console.log(JSON.stringify({ nativeScratchMaskApplication: result }));
-      expect(result.ok, "SCRATCH_MASK_VALID_IGNORE_REAL_HOSTED_APPLICATION").toBe(true);
-      expect(readFileSync(join(brain, maskPath)), "SCRATCH_MASK_EXACT_APPLIED_BYTES").toEqual(mask);
-      expect(readFileSync(join(brain, ".brain/scratch/pinned.png")), "SCRATCH_MASK_PRUNE_RETAINS_PIN").toEqual(image);
-      expect(existsSync(join(brain, ".brain/scratch/old.png")), "SCRATCH_MASK_PRUNE_REMOVES_UNPINNED_OLD_FILE").toBe(false);
-      // This control uses the same live turn and exact browser submission. The
-      // host fixture changes inputs between launches, never the admitted worker.
-      const ignored = readFileSync(join(brain, ".gitignore"));
-      writeFileSync(join(brain, ".gitignore"), "node_modules/\n");
-      try {
-        const nonignored = await apply();
-        expect(nonignored.ok).toBe(false); expect(nonignored.changes).toEqual([]);
-        expect(nonignored.message, "SCRATCH_MASK_REAL_NONIGNORED_DIAGNOSTIC").toMatch(/not gitignored as a directory.*brain doctor --fix/s);
-        expect(readFileSync(join(brain, maskPath)), "SCRATCH_MASK_NONIGNORED_NO_OVERWRITE").toEqual(mask);
-        console.log(JSON.stringify({ nativeScratchMaskNonignored: nonignored }));
-      } finally { writeFileSync(join(brain, ".gitignore"), ignored); }
-    } else {
-      // The captured boot writer has already joined before this live turn.
-      // The fixture's final prune join and diagnostics still run afterward.
+    // Verification failures refuse without overwriting the applied mask.
+    const failureControls = async () => {
       const configPath = join(brain, ".git/config"), config = readFileSync(configPath);
       writeFileSync(configPath, "[Odysseus invalid Git configuration\n");
       try {
@@ -92,6 +72,32 @@ export async function exerciseNativeScratchMask(request: Parameters<AgentBackend
         expect(readFileSync(join(brain, maskPath)), "SCRATCH_MASK_LAUNCH_FAILURE_NO_OVERWRITE").toEqual(mask);
         console.log(JSON.stringify({ nativeScratchMaskUnavailable: unavailable }));
       } finally { if (helper === undefined) delete process.env.BRAIN_UI_WORKER_IDENTITY_HELPER; else process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = helper; }
+    };
+    // Fresh carries every control within its existing phase bound; warm
+    // repeats the verification failures against the second server boot.
+    if (!warm) {
+      const result = await apply();
+      console.log(JSON.stringify({ nativeScratchMaskApplication: result }));
+      expect(result.ok, "SCRATCH_MASK_VALID_IGNORE_REAL_HOSTED_APPLICATION").toBe(true);
+      expect(readFileSync(join(brain, maskPath)), "SCRATCH_MASK_EXACT_APPLIED_BYTES").toEqual(mask);
+      expect(readFileSync(join(brain, ".brain/scratch/pinned.png")), "SCRATCH_MASK_PRUNE_RETAINS_PIN").toEqual(image);
+      expect(existsSync(join(brain, ".brain/scratch/old.png")), "SCRATCH_MASK_PRUNE_REMOVES_UNPINNED_OLD_FILE").toBe(false);
+      // This control uses the same live turn and exact browser submission. The
+      // host fixture changes inputs between launches, never the admitted worker.
+      const ignored = readFileSync(join(brain, ".gitignore"));
+      writeFileSync(join(brain, ".gitignore"), "node_modules/\n");
+      try {
+        const nonignored = await apply();
+        expect(nonignored.ok).toBe(false); expect(nonignored.changes).toEqual([]);
+        expect(nonignored.message, "SCRATCH_MASK_REAL_NONIGNORED_DIAGNOSTIC").toMatch(/not gitignored as a directory.*brain doctor --fix/s);
+        expect(readFileSync(join(brain, maskPath)), "SCRATCH_MASK_NONIGNORED_NO_OVERWRITE").toEqual(mask);
+        console.log(JSON.stringify({ nativeScratchMaskNonignored: nonignored }));
+      } finally { writeFileSync(join(brain, ".gitignore"), ignored); }
+      await failureControls();
+    } else {
+      // The captured boot writer has already joined before this live turn.
+      // The fixture's final prune join and diagnostics still run afterward.
+      await failureControls();
     }
   } catch (error) {
     console.log(JSON.stringify({ scratchMaskBackendPrimaryError: { message: error instanceof Error ? error.message : String(error) } }));
