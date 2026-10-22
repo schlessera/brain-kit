@@ -23,6 +23,14 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
     maximum: z.number().int().nonnegative(),
   }).strict(),
   z.object({ operation: z.literal("cancelCheckpointRead"), id: nativeCheckpointId }).strict(),
+  // Reference pool (#2428). Identities are caller-generated UUIDs; the manager
+  // alone chooses paths, qgroups and limits within its configured allowance.
+  z.object({ operation: z.literal("poolStatus") }).strict(),
+  z.object({ operation: z.literal("poolCreate"), id: nativeCheckpointId, purpose: z.enum(["source", "worktree", "staging"]),
+    from: nativeCheckpointId.nullable(), allowanceBytes: z.number().int().positive() }).strict(),
+  z.object({ operation: z.literal("poolSeal"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolRelease"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("listPoolRecovery"), after: nativeCheckpointId.nullable() }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
 export type NativeManagerErrorCode = "unsupported" | "capacity" | "unavailable" | "unknown" | "released" | "invalid";
@@ -76,6 +84,71 @@ export interface NativeStage {
   allowanceBytes: number;
   rootDevice: string;
   rootInode: string;
+}
+/**
+ * One reference-pool root (#2428). `reserved` and `writable` hold their whole
+ * allowance; `sealed`, `deleting` and `deleted` hold measured allocation until
+ * an observation proves reclamation (`reclaimed`).
+ */
+export type NativePoolState = "reserved" | "writable" | "sealed" | "deleting" | "deleted" | "reclaimed";
+export interface NativePoolRootIdentity {
+  /** Btrfs root id, UUID and creation generation; together they fence stale identities. */
+  rootId: string; uuid: string; otransid: string;
+}
+export interface NativePoolRecord {
+  id: string;
+  purpose: "source" | "worktree" | "staging";
+  /** Sealed pool root this one was snapshotted from, or null for an empty root. */
+  from: string | null;
+  allowanceBytes: number;
+  state: NativePoolState;
+  root: NativePoolRootIdentity | null;
+  /** Host path of a live root; never accepted from a requester. */
+  path: string | null;
+  /** Last reconciled owner charge in bytes (simple-quota referenced plus reservations). */
+  ownerBytes: number | null;
+  /** Why a create ended without a root, or why deletion still awaits reclamation. */
+  reason: string | null;
+}
+export interface NativePoolSpace { profile: "single" | "dup"; diskUsed: number; diskTotal: number; bytesUsed: number; bytesReserved: number; bytesMayUse: number; bytesPinned: number }
+export interface NativePoolStatus {
+  qualified: boolean;
+  /** Admission refusal; status and recovery stay usable while it is set. */
+  refusal: { code: "unsupported" | "capacity" | "unknown" | "changing"; message: string } | null;
+  fsid: string;
+  limits: { combinedBytes: number; operationBytes: number; emergencyBytes: number; physicalFloorBytes: number; maxIdentities: number };
+  accounting: {
+    basis: "btrfs-space-info-disk-used+simple-quota-owner";
+    /** Filesystem generation and the stable double read the numbers came from. */
+    observation: { generation: string; enableGeneration: string; reads: number };
+    /** Unique physical allocation across data, metadata and system, profile replication included. */
+    aggregateBytes: number;
+    emergencyAllocatedBytes: number;
+    /** aggregateBytes minus emergency allocation: the amount charged to the combined allowance. */
+    chargedBytes: number;
+    /** Owner-charged bytes summed across pool roots (logical, no profile replication). */
+    ownerBytes: number;
+    /** Physical allocation not attributed to any pool root: global trees, replication and private state. */
+    globalBytes: number;
+    spaces: { data: NativePoolSpace; metadata: NativePoolSpace; system: NativePoolSpace };
+    /** Physical bytes still promised to reserved and writable roots, after their measured use. */
+    pendingBytes: number;
+    /** Physical bytes reserved per remaining owner-charged byte under the qualified profiles. */
+    reservationFactor: { numerator: number; denominator: number };
+    availableBytes: number;
+  } | null;
+  physical: {
+    kind: "dedicated-device" | "sparse-loop";
+    deviceBytes: number;
+    backingAllocatedBytes: number | null;
+    unbackedBytes: number;
+    backingAvailableBytes: number | null;
+    otherConsumersBytes: number | null;
+    /** Backing free space left after the floor, this pool's unbacked bytes and other ledger entries. */
+    headroomBytes: number | null;
+  } | null;
+  counts: Record<NativePoolState, number>;
+  identities: number;
 }
 /** The privileged helper inspects only its bounded upper layer after the worker exits. */
 export interface NativeStageChange { pathHex: string; kind: "entry" | "whiteout" | "opaque" }

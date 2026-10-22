@@ -70,6 +70,17 @@ const mask = async (imagePath: string, bridge: BackendBridge = bridgeWith([])) =
 };
 
 describe("request_image_mask into scratch", () => {
+  test("an unavailable synchronous maintenance reader does not claim the valid ignore rule is missing", () => {
+    ignore();
+    const rootReal = realpathSync(root);
+    let failure: unknown;
+    try { productionAssertScratchMask(rootReal, `${SCRATCH}/draft-mask.png`, join(rootReal, SCRATCH, "draft-mask.png")); }
+    catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message, "SYNC_QUERY_UNAVAILABLE_IS_NOT_NONIGNORED").toContain("Cannot verify");
+    expect((failure as Error).message).not.toMatch(/not gitignored|brain doctor/);
+    expect(existsSync(join(root, SCRATCH, "draft-mask.png"))).toBe(false);
+  });
   test("nested scratch targets retain bytes, exact replacement mode, reporting and one prune", async () => {
     ignore();
     mkdirSync(join(root, SCRATCH, "drafts"));

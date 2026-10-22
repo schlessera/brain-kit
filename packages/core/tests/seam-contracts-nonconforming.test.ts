@@ -34,7 +34,7 @@ import type {
 /** Register a suite into a collector, run every case, and name the ones that threw. */
 async function failingCases(
   register: (primitives: ContractTestPrimitives) => void,
-  controlled = false
+  controlled: boolean | ((name: string) => boolean) = false
 ): Promise<{ ran: number; failed: string[] }> {
   const cases: { name: string; fn: () => void | Promise<void> }[] = [];
   register({
@@ -52,7 +52,7 @@ async function failingCases(
       }
     };
     // Clock failures must escape, never masquerade as expected contract failures.
-    if (controlled) await withContractClock(execute);
+    if (typeof controlled === "function" ? controlled(c.name) : controlled) await withContractClock(execute);
     else await execute();
   }
   return { ran: cases.length, failed };
@@ -61,6 +61,10 @@ async function failingCases(
 /** Only the known in-memory deadline counterexamples opt into logical time. */
 const clockedFailingCases = (register: (primitives: ContractTestPrimitives) => void) =>
   failingCases(register, true);
+
+/** Keep cwd/tool-event IO native; only the in-memory hanging runner uses the clock. */
+const clockedRunnerDeadlines = (register: (primitives: ContractTestPrimitives) => void) =>
+  failingCases(register, name => name.startsWith("run honours timeoutMs:"));
 
 test("clock infrastructure errors escape the expected-failure collector", async () => {
   await expect(clockedFailingCases((p) => {
@@ -263,32 +267,41 @@ const bufferingRunner = (): AgentRunner =>
     },
   });
 
+const nativeSetTimeout = globalThis.setTimeout;
+let nativeRunnerDeadlines = 0;
 const timingOut = (): AgentRunner =>
   echoRunner({
-    run: (_prompt, { timeoutMs }) =>
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), timeoutMs)),
+    run: (_prompt, { timeoutMs }) => {
+      if (globalThis.setTimeout === nativeSetTimeout) nativeRunnerDeadlines++;
+      return new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), timeoutMs));
+    },
   });
 
 describe("AgentRunner contract suite", () => {
   test("a conforming runner passes every case", async () => {
+    const nativeBefore = nativeRunnerDeadlines;
     const result = await failingCases((p) =>
       runAgentRunnerContract({ name: "fake", echoing: () => echoRunner(), hanging: timingOut }, p)
     );
     expect(result).toEqual({ ran: 6, failed: [] });
+    expect(nativeRunnerDeadlines - nativeBefore, "conforming deadlines still run in native time").toBe(2);
   });
 
   test("streaming declared without runStreaming fails the agreement case", async () => {
-    const result = await failingCases((p) =>
+    const nativeBefore = nativeRunnerDeadlines;
+    const result = await clockedRunnerDeadlines((p) =>
       runAgentRunnerContract(
         { name: "claims", echoing: () => echoRunner({ runStreaming: undefined }), hanging: timingOut },
         p
       )
     );
     expect(result.failed).toEqual(["capabilities.streaming agrees with whether runStreaming exists"]);
+    expect(nativeRunnerDeadlines - nativeBefore, "streaming-agreement counterexample spends no native deadlines").toBe(0);
   });
 
   test("a runner that ignores cwd fails the run case", async () => {
-    const result = await failingCases((p) =>
+    const nativeBefore = nativeRunnerDeadlines;
+    const result = await clockedRunnerDeadlines((p) =>
       runAgentRunnerContract(
         {
           name: "elsewhere",
@@ -304,6 +317,7 @@ describe("AgentRunner contract suite", () => {
       )
     );
     expect(result.failed).toEqual(["run executes the agent in cwd on the prompt and resolves to its final text"]);
+    expect(nativeRunnerDeadlines - nativeBefore, "cwd counterexample spends no native deadlines").toBe(0);
   });
 
   test("a runner that ignores timeoutMs fails the timeout case", async () => {

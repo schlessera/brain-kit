@@ -71,7 +71,7 @@ exceptions. Unmeasured means no saving is claimed.
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | Browser `answer-delivery-runtime.test.ts`, lost receipt | Actual default watchdog registration, before/at delivery, same-submission status query, accepted receipt cancellation and correlated native pong | Page logical time owns the 5000 ms policy; the original host-wall elapsed assertion is explicitly redistributed. Native socket/storage/locks and original delivery/settlement oracles remain. See [receipt watchdog evidence](#receipt-watchdog-registration-and-native-completion). |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; released already-accepted queues on held running turns use native per-payload receipt minima and finite rendering; scene drop/recovery, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Finite rendering and per-site native negative-observation horizons | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; released already-accepted queues on held running turns use native per-payload receipt minima and finite rendering; scene drop/recovery, scroll and terminal/history observations retain justified 500 ms native horizons; IME start/commit retain 1000 ms to cross the 800 ms host-save debounce; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -108,13 +108,15 @@ restrict egress. Failed scene preparation closes its owned browser context,
 including its page listeners, before rethrowing the original failure.
 
 The rendering helper (`finishRender`,
-`packages/ui-react/tests/connection-continuity-runtime.test.ts:365-390`) waits
+`packages/ui-react/tests/connection-continuity-runtime.test.ts:373-398`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
 claim arbitrary asynchronous work is finished. The negative-window helper
-(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:399-409`)
-retains the original 500 ms and two animation frames. It does not add a wait for
-all finite animations at these negative-observation sites. The finite-animation
-helper serves the four original rendering call sites, its readiness control,
+(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:406-423`)
+uses explicit per-site native horizons and the original two animation frames.
+It does not add a wait for all finite animations at these negative-observation
+sites. The rationale and execution ownership for all seven sites are below.
+The finite-animation helper serves the four original rendering call sites,
+its readiness control,
 the two newer-turn preparations after their scoped resync acknowledgement,
 the three held-snapshot recoveries after current draft acknowledgement, and
 their drop preparations after the native offline/status/banner checkpoints, and
@@ -124,17 +126,17 @@ the twenty scoped queue releases in the ten-cycle cases.
 | --- | --- | --- |
 | Scene startup; snapshot startup | Connected host and advertised draft support; the ready Send action or streaming Stop state is observed before Enter (streaming keeps Enter available) | Rendering only; no recovery/no-send baseline exists yet. |
 | Scene's first running text before New chat; snapshot's original running text before arranging its race | The expected text is rendered; next navigation/input is a real browser action | Rendering only; later race/recovery observations remain. |
-| Scene after scrolling | Draft Saved plus host revision/content/attachment acknowledgement, then actual wheel movement | 500 ms; captures layout after delayed draft-save/ghost effects. |
-| Scene drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms; late focus, send and upload-state reactions remain observable. |
+| Scene after scrolling | Draft Saved plus host revision/content/attachment acknowledgement, then actual wheel movement | 500 ms = 250 ms device debounce + 250 ms native margin; captures layout after native scroll-context persistence/adoption. See the native-horizon rationale below. |
+| Scene drop | Upload abort processed, disconnected transport, unreachable host and visible banner | 500 ms = 250 ms device debounce + 250 ms native margin; late focus, send and upload-state reactions remain observable. |
 | Snapshot drop | Original native offline/status/visible-banner checkpoints; no held upload or immediate offline geometry oracle | Existing finite-native rendering. Current draft acknowledgement remains on recovery; final no-send and identity observations remain. This does not certify every Motion banner animation or drain future work. |
-| Scene recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held scene histories use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
+| Scene recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held scene histories use their own release/status barrier | 500 ms = 250 ms device debounce + 250 ms native margin; reconnect cannot hide a later focus/send/replacement effect. |
 | Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. Final negative windows remain; no history or storage drain is claimed. |
 | Released queues in ten-cycle cases | Expected multiplicities of held native payloads reach synchronous handlers; additional identical reports are allowed; a scope assertion excludes draft acceptance, transcript adoption and history refresh | Existing finite rendering; all original pill identity/removal, layout, focus, draft, upload and no-send assertions remain. The preceding recovery and final negative windows remain. |
 | Snapshot old turn end | Non-streaming UI plus fresh native idle for the exact old session and turn | Actual host-slot completion before the peer starts its successor. |
 | Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; later negative window remains. |
-| Snapshot released status | After explicit release, the native snapshot reports the current host turn under the delivered history-freshness policy | 500 ms; delayed history/status must not end the live turn or disturb focus. |
-| Recovered turn completion | Terminal text, non-streaming state and queued follow-up text | 500 ms; node identity and disappearance of the consumed pill are checked after delayed rendering. |
-| Native IME start/commit | CDP's real IME operation has returned; expected composition events, text and selection are checked afterward | 500 ms; no forced end/blur from a delayed reaction. Final committed draft also reaches the host. |
+| Snapshot released status | After explicit release, the native snapshot reports the current host turn under the delivered history-freshness policy | 500 ms = 250 ms device debounce + 250 ms native margin; delayed history/status must not end the live turn or disturb focus. |
+| Recovered turn completion | Terminal text, non-streaming state and queued follow-up text | 500 ms = 250 ms device debounce + 250 ms native margin; node identity and disappearance of the consumed pill are checked after delayed native adoption/rendering. |
+| Native IME start/commit | CDP's real IME operation has returned; expected composition events, text and selection are checked afterward | 1000 ms = 800 ms host-save debounce + 200 ms native margin; no forced end/blur from a delayed save reaction. Final committed draft also reaches the host. |
 
 The held-history gap case intentionally releases its final history after the
 recovery observation window. Its later node/text check proves replay continuity;
@@ -182,14 +184,94 @@ variation on an uncontrolled shared host. These are local observations, not a CI
 critical-path claim. The evidence includes CPU, peak RSS and unsuccessful control
 costs. Scroll and IME alternatives retain their windows because their native
 input/host acknowledgement does not complete separate delayed device writes.
-Neither this study nor those source inspections establish a minimum for the
-remaining 87 windows.
+That historical study did not establish durations for the remaining 87 windows.
+The following native-horizon study records their operational bases and margins.
+
+### Native continuity horizons
+
+The [source-bound native-horizon study](evidence/test-wait-continuity-horizons.json)
+attributes all 87 observations to seven boundaries. Every window is retained;
+none is replaced by an intermediate receipt or by stable geometry. The two IME
+sites use 1000 ms rather than 500 ms, since native composition changes the draft
+and the host-save debounce is 800 ms. `observationCalls` and
+`retainedFrameCalls` therefore remain **87 = 87 minus zero replacements**. The
+per-site `sites` counters distinguish attribution from helper-definition counts.
+
+**Native failure mode and operational basis.** A native wheel, selection/focus
+change, upload abort/resume or host draft reconciliation can schedule a separate
+device-context write. That write reads native browser state and enters browser
+locks/IndexedDB before adopting retained draft records back into the mounted
+stores (`context`, `packages/ui-react/src/lib/local-work.ts:296-310`;
+`flush`, `packages/ui-react/src/lib/local-work.ts:313-324`;
+`adoptDeviceRecord`, `packages/ui-react/src/lib/local-work.ts:502-508`). The real
+scroll listener schedules that work (`handleScroll`,
+`packages/ui-react/src/components/chat/chat-page.tsx:274-284`), as do draft,
+track, selection and focus subscriptions (`stores.drafts.subscribe`,
+`packages/ui-react/src/lib/local-work.ts:632-643`). A protocol receipt or the
+first moved wheel frame can precede this native write and its React reaction;
+late adoption can blur the field, change scroll/selection, replace an answer or
+restore a consumed pill. A disconnected upload can similarly be misclassified
+as failed after its abort (`setOnline`,
+`packages/ui-react/src/lib/track-uploads.ts:124-134`). Native offline/online
+checks, actual upload state, held-history release and scoped status/replay
+acknowledgements remain separate positive conditions.
+
+**Duration and margin.** In the quiet scenes, `changed` registers the real
+250 ms device debounce (`LOCAL_WRITE_DELAY_MS`,
+`packages/ui-react/src/lib/local-work.ts:88-90`; `changed`,
+`packages/ui-react/src/lib/local-work.ts:518-531`). The five non-IME boundaries
+retain 500 ms: one 250 ms scheduled opportunity plus 250 ms (100%) headroom
+for native dispatch, storage/lock continuations and React work, followed by
+the original two native animation frames. This is a bounded opportunity to
+observe forbidden effects, not an assertion that arbitrary storage IO drains
+within 500 ms. The 2000 ms maximum coalescing delay governs continuous edits;
+these sites make no continuous edits during the horizon and do not test that
+policy. Draft debounce/backoff correctness remains in the lower draft/device
+suites. Host-save completion is independently acknowledged where the scenario
+requires it; host/network failure maxima and retry intervals are not sleeps to
+be added to these windows.
+
+For real IME start and commit, input also arms the **800 ms host debounce**
+(`SAVE_DELAY_MS`, `packages/ui-react/src/lib/draft-client.ts:33-35`;
+`schedule`, `packages/ui-react/src/lib/draft-client.ts:66-70`). The native horizon
+is 1000 ms: that 800 ms opportunity plus 200 ms (25%) dispatch/IO/render headroom
+and the original two frames. The parallel 250 ms device debounce is inside this
+horizon. The final exact committed draft still has to reach the host. Returning
+from CDP neither completes that save nor proves that native IME focus survives
+its reaction. A 500 ms observation could pass before the production save fires.
+
+**Why native time and which tier.** Advancing JavaScript timers alone does not
+advance native wheel/IME event delivery, socket/abort dispatch, browser locks or
+IndexedDB transactions into their mounted React effects. These cases protect
+the interaction among those real systems, with the original focus, event,
+identity, no-send and upload assertions after an actual elapsed opportunity.
+They are required affected **native runtime** proof in normal unit discovery on
+explicit ready-candidate confirmation and on main, under [the #1854 policy](../decisions/ci-utility.md#scheduling-and-selection).
+Drafts still run cheap gates; these windows are neither moved to standalone
+endurance nor made optional. Margins are chosen operational headroom, not
+measured universal IO bounds or a claim that the durations are mathematically
+minimal. Slow or later IO is not certified by a quiet horizon.
+
+| Issue / boundary | Calls by caller across both widths | Watched original failure |
+| --- | --- | --- |
+| #2627 `sceneDrop` | stale history 2; fresh history 2; missed progress 2; ten-drop case 20; IME two-drop case 4 = **30** | Late blur, unsolicited send, failed rather than paused upload, or moved/replaced scene. |
+| #2627 `sceneRecovery` | stale history 2; fresh history 2; missed progress 2; ten-drop case 20; IME two-drop case 4 = **30** | Reconnect/history adoption hides a later focus/send/replacement effect. Intentionally held history still releases later at its own barrier. |
+| #2628 `sceneScroll` | stale history 2; fresh history 2; missed progress 2; ten-drop case 2; IME case 2 = **10** | Native scroll-context persistence/adoption moves the reader after the first wheel frame and host Saved. |
+| #2628 `imeStart` | native IME case once at each width = **2** | Delayed draft save/adoption forces composition end or blur. |
+| #2628 `imeCommit` | native IME case once at each width = **2** | A save reaction adds an end event, loses focus or moves the committed caret. |
+| #2629 `recoveredTurn` | stale history 2; fresh history 2; missed progress 2; ten-drop case 2; IME case 2 = **10** | Late adoption replaces the original answer, loses the queued reply or restores its consumed pill. |
+| #2629 `releasedSnapshot` | empty/newer, failed/newer and failed/quiet at 320 px = **3** | Delayed history/status or device reconciliation ends the current turn or moves focus/selection. |
+
+The study records original and instrumented matched controls, full-file and
+caller timing, native delayed-fault mutations and restoration. It makes no
+local or CI saving claim: all 87 native opportunities remain, and the four IME
+windows deliberately add 2000 ms of requested observation per complete run.
 
 ## Private conformance counterexamples
 
 `packages/core/tests/seam-contracts-nonconforming.test.ts` runs the published
 contract callbacks against intentionally malformed in-memory implementations.
-Only its six fixed-deadline fixtures and two never-settling controls use the
+Its six fixed-deadline fixtures and two never-settling controls use the
 private clock (`withContractClock`,
 `packages/core/tests/helpers/contract-clock.ts:9-65`). Every original case and exact
 expected failed-case list remains. The clock delivers registered callbacks in
@@ -197,6 +279,14 @@ deadline/registration order, drains their real promise continuations between
 deliveries, and advances `performance.now()` to the delivered deadline. Each
 contract case restores complete timer/elapsed-clock descriptors and discards its
 own pending fake callbacks, including when an assertion fails.
+
+The cwd and streaming-agreement counterexamples also use that clock, limited
+to the two `run honours timeoutMs:` callbacks by `clockedRunnerDeadlines`.
+Their cwd and tool-event callbacks run in native time; the controlled callbacks
+only await the in-memory hanging runner's deadline and contract ceiling, with
+synchronous scratch-directory setup and cleanup. No asynchronous IO or child
+process is driven by the private clock. Their exact expected failed-case lists
+remain asserted.
 
 | Malformed fixture | Actual contract boundary and expected failure |
 | --- | --- |
@@ -217,6 +307,32 @@ The private clock controls have independent before/at/tied-deadline, promise
 outcome, cancellation, failure-cleanup and clean-successor assertions. Clock
 infrastructure errors propagate rather than counting as expected contract
 failures. This scope must not spread to real child processes or IO waits.
+
+## Releasing worker holds and account effects
+
+Worker-state fixtures acknowledge their release gate over stdout, then block
+on a parent-provided stdin line. The parent records admission refusals and held
+bytes before releasing the relevant turn. The parallel-fit case releases both
+workers after observing both reservations; the growth case releases its holder
+after collecting the grower's result. Retry turns append and exit immediately.
+The late-swap background writer acknowledges its initial regular transcript,
+then waits for release before replacing it with a link; the shell joins that
+writer before exiting. Copy-out still observes the final tree after the worker
+namespace is gone. The mount-separation filler similarly acknowledges a full
+filesystem and stays held through the other worker's assertions, with release
+and collection in cleanup.
+
+The association/sign-out fixture's `captureUnassigned` awaits a React passive
+effect acknowledging the account-clear commit. Descendant account effects,
+including recording-tray recovery, start before that acknowledgement. The
+existing native recording-lock barrier then waits for those recoveries before
+capture starts. Both callers also assert the committed effect's account key
+was null at capture start. This completion barrier uses actual React and native
+lock progress rather than advancing a JavaScript timer or native media clock.
+The delayed-commit control suspends the account-clear render until the parent
+releases it. It observes either the effect-acknowledgement request or an actual
+capture start, so deleting the barrier reaches the named early-start assertion
+instead of hanging at a wait for an acknowledgement that was never requested.
 
 ## Measuring a replacement
 
@@ -599,9 +715,11 @@ Several boundaries explain why elapsed cost alone cannot select an optimization:
   established #1108/#1119 proof scope. Expected escapes await their actual hits
   independently. These are retained operational windows, not a measured physical
   minimum. The raw-route marker check uses its own native load boundary.
-- Continuity's 500 ms windows guard delayed focus, save, queue, history and IME
-  effects after their named acknowledgements. Two native frames or a completed
-  animation do not establish that all later forbidden work is drained.
+- At that inventory snapshot, continuity's 500 ms windows guard delayed focus,
+  save, queue, history and IME effects after their named acknowledgements.
+  Current per-site horizons and margins are in [Native continuity horizons](#native-continuity-horizons).
+  Two native frames or a completed animation do not establish that all later
+  forbidden work is drained.
 - Cold capture's 1,300 ms interval permits real audio capture and committed bytes;
   its 350 ms entrance preparation has a different role. The 150 ms held-write
   and no-premature-mount windows remain negative observations. A JavaScript
@@ -1871,3 +1989,30 @@ The follow-ups are bounded children of #1849:
 - **#2639:** a 100 ms account-clear yield.
 
 No test, fixture or production timer changed here.
+
+## Native witnesses and controlled probe deadlines
+
+The scope adapter fixtures write their heartbeat into the worker's writable
+turn temp. The host reads that same file through the launched worker's retained
+tmpfs handle. Tool events start only after two native writes; the freeze checks
+assert a positive witness and retain the real 150 ms no-progress window. Reading
+a missing file as zero cannot establish a freeze.
+
+The running small-tmpfs fixture samples real `statfs` until its native writer
+crosses the 2 GiB floor, then advances the registered journal interval through
+14,999 and 15,000 logical milliseconds. Retention, the 200 ms native freeze
+window, Continue refusal and Stop remain real. Its report separates writer,
+floor-crossing, dispatch and receipt timings. The paused-floor variant retains
+its existing native scheduling.
+
+Five version-probe cases control only their registered 5,000 ms primary deadline.
+The SDK and Claude cases bind the registration in `probeVersionCommand`; the
+governed CLI cases bind `runMaintenanceWorker` after observing their actual
+wrapper child. The callback owner and unchanged default are checked before
+delivery. Real output reads or wrapper readiness precede the 4,999/5,000 ms
+boundary; native completion precedes the 5,001 ms duplicate-delivery check.
+Cleanup budgets, signals, group sweeps, reader closure and natural host exit
+retain native execution. Complete timer and spawn descriptors are restored on
+failure, and an unconfirmed probe's host-exit case restores observers without
+performing fixture cleanup inside that host. The separate boot-probe suite's
+native deadline controls retain their existing ownership.

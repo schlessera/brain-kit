@@ -38,6 +38,7 @@ import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
 import { prepareMaintenanceOutput } from "./maintenance-output.js";
 import { operationalStateMasks, operationalStateRefusal, workerIdentitySentinelDirectory, type OperationalStateLayout, type WorkerProbeState } from "./operational-state.js";
 import { prepareMaintenanceGit } from "./maintenance-git.js";
+import { createScratchIgnoreQuery } from "./scratch-mask-query.js";
 
 /** Why `governed` cannot run on this server. */
 export type { GovernedUnavailableReason };
@@ -448,7 +449,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
 
   return {
     brainPath: brain,
-    maintenance: {tempLimits:maintenanceTemp,maskPaths,...(tempDomain ? {tempDomain} : {})},
+    maintenance: {tempLimits:maintenanceTemp,maskPaths,...(tempDomain ? {tempDomain} : {}),
+      scratchIgnoreQuery: createScratchIgnoreQuery({ brainPath: brain, nativeManager: options.nativeManager, lock: outputLock,
+        maintenance: { tempLimits: maintenanceTemp, maskPaths, ...(tempDomain ? { tempDomain } : {}) } }) },
     isolated,
     governed,
     async prepare(signal, preparedView) {
