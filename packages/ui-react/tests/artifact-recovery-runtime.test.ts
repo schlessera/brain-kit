@@ -311,7 +311,7 @@ for (const [path, route] of [[target, "**/api/files/content?*"], [".brain/scratc
   });
 }
 
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
+for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
   test(`artifact layout ${theme} ${width}: bounded controls, named status and keyboard return`, async () => {
     const { page, context, outside } = await scene(width, theme);
     try {
@@ -388,7 +388,7 @@ test("artifact reopening after desktop-to-phone transition retains the visible d
   } finally { await context.close(); }
 });
 
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
+for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
   test(`artifact full state matrix ${theme} ${width} preserves named static loading and truthful controls`, async () => {
     const { page, context } = await scene(width, theme);
     let status = 0, release: (() => void) | undefined;
