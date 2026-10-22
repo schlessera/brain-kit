@@ -14,19 +14,37 @@ async function wait(check: () => boolean, timeout = 5000) { const end = Date.now
 
 test("real process tree freezes, resumes once per dimension, then stops with event-bound replay and independent grants", async () => {
   const f = scopeFixture({ max_tool_calls: 2, max_bytes_written: 8 }); let child: ReturnType<typeof f.worker> | undefined;
+  const checkpoint = f.native.manager.checkpoint;
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let observations = 0;
   try {
-    await f.begin(); child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done & wait');
+    await f.begin();
+    f.journal.onObservation(turnId => { if (turnId === "voyage") observations++; });
+    // Hold the cap's actual capture so native freeze time cannot masquerade as completion.
+    f.native.manager.checkpoint = async (...args) => {
+      entered.resolve(); await release.promise; return checkpoint(...args);
+    };
+    child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done & wait');
     await wait(() => Bun.file(join(f.brain, "heartbeat")).size > 0);
     f.scope.toolCall("voyage", "loom-1"); f.scope.toolCall("voyage", "loom-1"); f.scope.toolCall("voyage", "loom-2");
+    await entered.promise;
+    expect(f.journal.isHeld(), "SCOPE_CAP_OBSERVATION_HELD").toBe(true);
+    expect(observations, "SCOPE_CAP_OBSERVATION_NOT_COMPLETED_WHILE_HELD").toBe(0);
+    expect(f.scope.decide(f.message("continue", "held-observation"), true).state, "SCOPE_CONTINUE_REFUSED_WHILE_OBSERVATION_HELD").toBe("refused");
     const before = Bun.file(join(f.brain, "heartbeat")).size;
     await Bun.sleep(100);
     expect(Bun.file(join(f.brain, "heartbeat")).size, "SCOPE_RUNTIME_PAUSE_STOPS_RUNNING_DESCENDANT").toBe(before);
     expect(f.receipt()).toMatchObject({ state: "paused", dimension: "tool_calls", cap: 2, count: 2, newCap: 4, frozen: true, overshoot: 0 });
+    release.resolve();
+    // Drain actual capture/commit and scope completion, including its checking guard.
+    await f.journal.idle();
+    expect(observations, "SCOPE_CAP_OBSERVATION_COMPLETED").toBe(1);
+    expect(f.journal.isHeld(), "SCOPE_CAP_OBSERVATION_RELEASED").toBe(false);
     const msg = f.message("continue");
     expect(f.scope.decide({ ...msg, sessionId: "ogygia" }, true).state).toBe("refused");
     expect(f.scope.decide({ ...msg, turnId: "other-turn" }, true).state).toBe("refused");
     expect(f.scope.decide(msg, false).state).toBe("refused");
-    expect(f.scope.decide(msg, true).state).toBe("accepted");
+    expect(f.scope.decide(msg, true).state, "SCOPE_CONTINUE_ACCEPTED_AFTER_OBSERVATION_COMPLETES").toBe("accepted");
     expect(f.scope.decide(msg, true).state).toBe("accepted");
     expect(f.scope.decide({ ...msg, submissionId: "penelope" }, true).state).toBe("answered_elsewhere");
     await wait(() => Bun.file(join(f.brain, "heartbeat")).size > before);
@@ -37,7 +55,10 @@ test("real process tree freezes, resumes once per dimension, then stops with eve
     await child.exited; await f.journal.finish("voyage"); f.scope.finish("voyage");
     expect(f.stopped).toContain("You stopped"); expect(f.journal.summary("voyage").state).toBe("complete");
     expect(f.db.query("SELECT count(*) AS n FROM governance_events WHERE kind='scope_cap'").get()).toEqual({ n: 2 });
-  } finally { child?.kill("SIGKILL"); if (child) await child.exited; await f.close(); }
+  } finally {
+    release.resolve(); f.native.manager.checkpoint = checkpoint;
+    child?.kill("SIGKILL"); if (child) await child.exited; await f.close();
+  }
 });
 
 test("shared snapshots count ignored scratch, workspaces and repeated observed bytes, with independent finite grant", async () => {
