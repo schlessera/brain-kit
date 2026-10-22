@@ -35,7 +35,12 @@ requested PR IDs and errors; missing lifecycle records can undercount deliveries
 New invocations preserve manifests under `collections/<id>/`, so later single-run
 acquisition cannot erase earlier windows. Report recursively merges archived
 PR/event files, preferring newer PR observations and refusing conflicting event
-IDs. Raw GitHub titles, authors, comments and runner host names are not retained.
+IDs. Downloaded acquisition manifests and reservation histories are read
+recursively too. `lifecycleAcquisition` retains the original scopes and lists
+unresolved errors and missing requested PRs. `reservationAcquisition` retains
+source ref/head identities and each deduplicated lease's source commits.
+Conflicting immutable lease identities or endings are refused. Raw GitHub
+titles, authors, comments and runner host names are not retained.
 
 ## What the report measures
 

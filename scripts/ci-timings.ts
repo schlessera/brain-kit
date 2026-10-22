@@ -5,7 +5,7 @@ import { seconds, stats } from "./ci-timing-stats";
 export { seconds, stats } from "./ci-timing-stats";
 import { collectPullObservation, summarizeThroughput, throughputMarkdown, validateWorkEvent,
   type PullObservation, type WorkEvent, type Scenario } from "./ci-throughput";
-import { collectReservationHistory } from "./ci-coordination";
+import { collectReservationHistory, mergeLeaseObservations, type ReservationArchive } from "./ci-coordination";
 
 export interface TimingAPI { json(path: string): Promise<any>; log(job: number): Promise<string>; }
 interface RawRun {
@@ -369,20 +369,64 @@ async function pullIdentities(api: TimingAPI, since: string): Promise<PullIdenti
   }
   return rows;
 }
-async function readOperationalData(dir: string): Promise<{ pulls: PullObservation[]; events: WorkEvent[] }> {
+interface LifecycleAcquisition {
+  version: 1; repository: string; collectedAt: string; expectedPRs: number[];
+  errors: { pr: number; problem: string }[];
+}
+async function readOperationalData(dir: string): Promise<{ pulls: PullObservation[]; events: WorkEvent[];
+  acquisitions: LifecycleAcquisition[]; reservations: ReservationArchive[] }> {
   const pulls: PullObservation[] = [], events: WorkEvent[] = [];
+  const acquisitions: LifecycleAcquisition[] = [], reservations: ReservationArchive[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) { const children = await readOperationalData(path); pulls.push(...children.pulls); events.push(...children.events); }
+    if (entry.isDirectory()) {
+      const children = await readOperationalData(path);
+      pulls.push(...children.pulls); events.push(...children.events);
+      acquisitions.push(...children.acquisitions); reservations.push(...children.reservations);
+    }
     else if (/^pull-\d+\.json$/.test(entry.name)) pulls.push(await Bun.file(path).json());
     else if (/^event-[\w-]+\.json$/.test(entry.name)) events.push(validateWorkEvent(await Bun.file(path).json()));
+    else if (entry.name === "enrichment.json") acquisitions.push(await Bun.file(path).json());
+    else if (entry.name === "reservations.json") reservations.push(await Bun.file(path).json());
   }
   const unique = new Map<string, PullObservation>();
   for (const p of pulls) {
     const key = `${p.repository}/${p.number}`, old = unique.get(key);
     if (!old || p.collectedAt > old.collectedAt) unique.set(key, p);
   }
-  return { pulls: [...unique.values()], events };
+  return { pulls: [...unique.values()], events, acquisitions, reservations };
+}
+
+function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation[]) {
+  if (!input.length) return null;
+  const scopes = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
+    .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
+  const expected = new Set<number>(), latest = new Map<number, { pr: number; problem: string } | null>();
+  for (const scope of scopes) {
+    if (scope.version !== 1 || !stampForWindow(scope.collectedAt) || !Array.isArray(scope.expectedPRs) ||
+      scope.expectedPRs.some(pr => !Number.isSafeInteger(pr) || pr < 1) || !Array.isArray(scope.errors) ||
+      scope.errors.some(e => !Number.isSafeInteger(e.pr) || e.pr < 0 || typeof e.problem !== "string")) throw new Error("Invalid lifecycle acquisition archive");
+    // PR zero records discovery failure; a later successful index resolves it.
+    for (const pr of [0, ...scope.expectedPRs]) {
+      if (pr) expected.add(pr);
+      latest.set(pr, scope.errors.find(e => e.pr === pr) ?? null);
+    }
+  }
+  const expectedPRs = [...expected].sort((a, b) => a - b);
+  return { version: 1, repository: scopes[0]!.repository, collectedAt: scopes.at(-1)!.collectedAt, expectedPRs,
+    errors: [...latest.values()].filter(e => e !== null),
+    missingPRs: expectedPRs.filter(pr => !pulls.some(p => p.number === pr)), scopes };
+}
+
+function reservationCoverage(input: ReservationArchive[]) {
+  if (!input.length) return null;
+  const archives = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
+    .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
+  for (const archive of archives) if (archive.version !== 1 || !stampForWindow(archive.collectedAt) ||
+    archive.sourceRef !== "refs/heads/brain-integration-reservation" || !SHA.test(archive.sourceHead) ||
+    !Array.isArray(archive.leases)) throw new Error("Invalid reservation archive");
+  return { scopes: archives.map(({ repository, collectedAt, sourceRef, sourceHead }) => ({ repository, collectedAt, sourceRef, sourceHead })),
+    leases: mergeLeaseObservations(archives.flatMap(a => a.leases)) };
 }
 async function writeReport(dir: string, scenario?: Scenario) {
   const snapshots = await readSnapshots(dir), rawCollections = await readCollections(dir);
@@ -394,22 +438,24 @@ async function writeReport(dir: string, scenario?: Scenario) {
     if (!observed.has(key)) missing.add(key);
   }
   const basic = summarize(snapshots), operational = await readOperationalData(dir);
+  if (new Set([...snapshots, ...collections, ...operational.pulls, ...operational.events,
+    ...operational.acquisitions, ...operational.reservations].map(s => s.repository)).size > 1) throw new Error("Report one repository at a time");
   const analysisPath = join(dir, "analysis-window.json"), scenarioPath = join(dir, "scenario.json");
   const intervals = collections.filter(c => stampForWindow(c.since) && stampForWindow(c.until));
   const window = await Bun.file(analysisPath).exists() ? await Bun.file(analysisPath).json() : intervals.length ? {
     since: intervals.map(c => c.since).sort()[0], until: intervals.map(c => c.until).sort().at(-1), source: "bounding collection interval; archive gaps must be reviewed" } : null;
   scenario ??= await Bun.file(scenarioPath).exists() ? await Bun.file(scenarioPath).json() : { failedPRFraction: .3, additionalPushes: 2, failedRunCostFraction: 1 };
-  const lifecycleAcquisition = await Bun.file(join(dir, "enrichment.json")).exists() ? await Bun.file(join(dir, "enrichment.json")).json() : null;
-  const reservations = await Bun.file(join(dir, "reservations.json")).exists() ? await Bun.file(join(dir, "reservations.json")).json() : null;
-  if (reservations && snapshots.some(s => s.repository !== reservations.repository)) throw new Error("Reservation archive belongs to another repository");
-  const report = { ...basic, lifecycleAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
-    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservations?.leases) : null,
+  const lifecycleAcquisition = lifecycleCoverage(operational.acquisitions, operational.pulls);
+  const reservationAcquisition = reservationCoverage(operational.reservations);
+  const report = { ...basic, lifecycleAcquisition, reservationAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
+    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.leases) : null,
     collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
       collectedAt: c.collectedAt, status: c.status, errors: c.errors })) } };
   await Bun.write(join(dir, "summary.json"), JSON.stringify(report, null, 2) + "\n");
   await Bun.write(join(dir, "summary.md"), (report.throughput ? "# Reliable integration measurements\n\n" + throughputMarkdown(report.throughput) +
-    `\nLifecycle acquisition errors: ${lifecycleAcquisition?.errors?.length ?? "unknown"}.\n\n` : "") +
+    `\nLifecycle acquisition errors: ${lifecycleAcquisition?.errors.length ?? "unknown"}.\n` +
+    `Missing requested lifecycle PRs: ${lifecycleAcquisition?.missingPRs.length ?? "unknown"}.\n\n` : "") +
     markdown(report).replace("# CI timing observations", report.throughput ? "## CI timing detail" : "# CI timing observations") +
     (report.throughput ? "" : "\nPR lifecycle throughput is unknown until enrichment and an analysis window are available.\n") +
     `\nMissing discovered attempts: ${missing.size}. See summary.json for collection windows and acquisition errors.\n`);

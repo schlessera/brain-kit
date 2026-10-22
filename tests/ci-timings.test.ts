@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attributePR, collectAttempt, deduplicate, discoverRuns, markdown, normalizeJob, resourceFromLog, seconds, stats, summarize,
@@ -9,14 +9,14 @@ import { timingWorkflowProblems } from "../scripts/check-ci-workflows";
 const sha = "a".repeat(40), tree = "b".repeat(40);
 const start = "2026-07-12T10:00:00Z", finish = "2026-07-12T10:01:00Z";
 const rawRun = { id: 12, run_attempt: 1, name: "CI", path: ".github/workflows/ci.yml", event: "pull_request",
-  head_sha: sha, head_branch: "feat/example", created_at: start, run_started_at: start,
+  head_sha: sha, head_branch: "feat/ithaca", created_at: start, run_started_at: start,
   status: "completed", conclusion: "success", pull_requests: [{ number: 42 }] };
 function job(id = 1, name = "unit (1)") {
   return { id, run_id: 12, run_attempt: 1, name, status: "completed", conclusion: "success", started_at: start, completed_at: finish,
     labels: ["ubuntu-24.04"], steps: [{ name: "Complete unit proof", number: 1, status: "completed", conclusion: "success", started_at: start, completed_at: finish }] };
 }
 function snapshot(id = 12): TimingSnapshot {
-  return { version: 1, repository: "example/engine", collectedAt: finish,
+  return { version: 1, repository: "odysseus/chronicle", collectedAt: finish,
     run: { id, attempt: 1, workflow: "CI", path: rawRun.path, event: "pull_request", head: sha,
       createdAt: start, startedAt: start, status: "completed", conclusion: "success", prs: [42], attribution: "run payload" },
     jobs: [normalizeJob(job())], problems: [] };
@@ -68,14 +68,14 @@ test("attempt-specific job pagination, resource identity and missing evidence", 
     if (!path.includes("/jobs?")) return rawRun;
     return { total_count: 2, jobs: [job(path.endsWith("page=1") ? 1 : 2)] };
   }, log: async () => `2026-07-12T10:01:00Z BRAIN_RESOURCE_RECEIPT ${JSON.stringify(resource)}\n` };
-  const s = await collectAttempt(api, "example/engine", rawRun, 1, true, finish);
+  const s = await collectAttempt(api, "odysseus/chronicle", rawRun, 1, true, finish);
   expect(s.jobs.length).toBe(2); expect(s.jobs[0]!.resource?.checkout.tree).toBe(tree);
   expect(s.run.prs).toEqual([42]); expect(s.problems).toEqual([]);
   api.log = async () => "no receipt after cancellation";
-  expect((await collectAttempt(api, "example/engine", rawRun, 1, true)).jobs[0]!.resourceProblem).toContain("missing");
-  await expect(collectAttempt(api, "example/engine", rawRun, 2, false)).rejects.toThrow("identity mismatch");
+  expect((await collectAttempt(api, "odysseus/chronicle", rawRun, 1, true)).jobs[0]!.resourceProblem).toContain("missing");
+  await expect(collectAttempt(api, "odysseus/chronicle", rawRun, 2, false)).rejects.toThrow("identity mismatch");
   api.json = async path => path.includes("/jobs?") ? { total_count: 1, jobs: [{ ...job(), run_id: 99 }] } : rawRun;
-  expect((await collectAttempt(api, "example/engine", rawRun, 1, false)).problems[0]).toContain("identity mismatch");
+  expect((await collectAttempt(api, "odysseus/chronicle", rawRun, 1, false)).problems[0]).toContain("identity mismatch");
 });
 
 test("resource parsing rejects ambiguous, invalid and wrong-category receipts", () => {
@@ -133,10 +133,10 @@ test("native report CLI persists statistics and missing-acquisition evidence off
   const dir = mkdtempSync(join(tmpdir(), "ci-timings-"));
   try {
     writeFileSync(join(dir, "run-12-attempt-1.json"), JSON.stringify(snapshot()));
-    writeFileSync(join(dir, "collection.json"), JSON.stringify({ repository: "example/engine",
+    writeFileSync(join(dir, "collection.json"), JSON.stringify({ repository: "odysseus/chronicle",
       since: "2026-07-12T00:00:00Z", until: "2026-07-13T00:00:00Z",
       expected: [{ run: 12, attempts: 2 }], errors: [{ run: 12, attempt: 2, error: "unavailable" }], status: "completed" }));
-    writeFileSync(join(dir, "pull-42.json"), JSON.stringify({ version: 1, repository: "example/engine", number: 42, collectedAt: finish,
+    writeFileSync(join(dir, "pull-42.json"), JSON.stringify({ version: 1, repository: "odysseus/chronicle", number: 42, collectedAt: finish,
       createdAt: start, mergedAt: finish, closedAt: finish, head: sha, merge: tree, baseBranch: "main", changedFiles: 1, additions: 1, deletions: 0, timeline: [], problems: [] }));
     const child = Bun.spawnSync([process.execPath, "scripts/ci-timings.ts", "report", "--out", dir], { stdout: "pipe", stderr: "pipe" });
     expect(child.exitCode).toBe(0);
@@ -144,7 +144,7 @@ test("native report CLI persists statistics and missing-acquisition evidence off
     expect(report.observedRunnerSeconds).toBe(60);
     expect(report.throughput.coverage.mergedInWindow).toBe(1);
     expect(report.throughput.velocity.firstPassGreen.percent).toBeNull();
-    expect(report.collectionCoverage.missingAttempts).toEqual(["example/engine/12/2"]);
+    expect(report.collectionCoverage.missingAttempts).toEqual(["odysseus/chronicle/12/2"]);
     expect(report.collectionCoverage.scopes[0].errors[0].error).toBe("unavailable");
     expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("Missing discovered attempts: 1");
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -156,8 +156,8 @@ test("job reuse across attempts is refused instead of charged twice", () => {
 });
 
 test("historical attribution requires an exact commit or unique repository/branch", () => {
-  const s = snapshot(); s.run.prs = []; s.run.headRepository = "example/engine"; s.run.branch = "feat/example";
-  const pulls = [{ number: 42, head: tree, branch: "feat/example", repository: "example/engine", merge: "c".repeat(40) }];
+  const s = snapshot(); s.run.prs = []; s.run.headRepository = "odysseus/chronicle"; s.run.branch = "feat/ithaca";
+  const pulls = [{ number: 42, head: tree, branch: "feat/ithaca", repository: "odysseus/chronicle", merge: "c".repeat(40) }];
   attributePR(s, pulls); expect(s.run.prs).toEqual([42]); expect(s.run.attribution).toContain("historical head not independently verified");
   s.run.prs = []; attributePR(s, [...pulls, { ...pulls[0]!, number: 43 }]); expect(s.run.prs).toEqual([]);
   s.run.event = "push"; attributePR(s, pulls); expect(s.run.prs).toEqual([]);
@@ -170,7 +170,7 @@ test("retained browser timing metadata stays distinct from a fresh execution or 
   const api: TimingAPI = { json: async () => ({ total_count: 2, jobs: [
     { ...job(1, "browser (1)"), conclusion: "skipped", steps: [] }, job(2, "proof")] }),
     log: async () => `BRAIN_SELECTED_PROOF_RECEIPT ${JSON.stringify(selection)}` };
-  const s = await collectAttempt(api, "example/engine", rawRun, 1, true, finish);
+  const s = await collectAttempt(api, "odysseus/chronicle", rawRun, 1, true, finish);
   expect(s.jobs[0]!.execution).toBe("retained"); expect(s.jobs[0]!.seconds).toBeNull();
   expect(summarize([s]).coverage.retainedJobs).toBe(1);
   expect(summarize([s]).observedRunnerSeconds).toBe(60);
@@ -178,8 +178,50 @@ test("retained browser timing metadata stays distinct from a fresh execution or 
 
 test("a cancelled attempt with an explicitly empty job inventory remains unobserved", async () => {
   const api: TimingAPI = { json: async () => ({ total_count: 0, jobs: [] }), log: async () => "" };
-  const s = await collectAttempt(api, "example/engine", { ...rawRun, conclusion: "cancelled" }, 1, false, finish);
+  const s = await collectAttempt(api, "odysseus/chronicle", { ...rawRun, conclusion: "cancelled" }, 1, false, finish);
   expect(s.problems).toEqual([]);
   expect(summarize([s]).coverage.unobservedCancelledAttempts).toBe(1);
   expect(summarize([s]).attemptElapsedSeconds.n).toBe(0);
+});
+
+test("native report joins overlapping downloaded reservation and acquisition archives", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ci-downloaded-archives-"));
+  const repository = "odysseus/chronicle", acquired = Date.parse(start);
+  const lease = { id: "1".repeat(32), pr: 42, head: sha, base: tree, acquired,
+    expires: acquired + 300000, cap: acquired + 3600000, endedAt: null,
+    ending: "expiry-inferred", sources: [sha] };
+  try {
+    for (const [i, collectedAt] of [finish, "2026-07-12T11:00:00Z"].entries()) {
+      const archive = join(dir, String(i)); mkdirSync(archive);
+      writeFileSync(join(archive, "run-12-attempt-1.json"), JSON.stringify(snapshot()));
+      writeFileSync(join(archive, "collection.json"), JSON.stringify({ id: String(i), repository,
+        since: "2026-07-12T00:00:00Z", until: "2026-07-13T00:00:00Z", expected: [{ run: 12, attempts: 1 }], errors: [] }));
+      writeFileSync(join(archive, "enrichment.json"), JSON.stringify({ version: 1, repository, collectedAt,
+        expectedPRs: i ? [42] : [42, 43], errors: i ? [] : [{ pr: 42, problem: "temporarily unavailable" }] }));
+      writeFileSync(join(archive, "reservations.json"), JSON.stringify({ version: 1, repository, collectedAt,
+        sourceRef: "refs/heads/brain-integration-reservation", sourceHead: i ? tree : sha,
+        leases: [{ ...lease, ...(i ? { expires: acquired + 540000, endedAt: acquired + 360000, ending: "release", sources: [tree] } : {}) }] }));
+    }
+    writeFileSync(join(dir, "1", "pull-42.json"), JSON.stringify({ version: 1, repository, number: 42, collectedAt: finish,
+      createdAt: start, mergedAt: finish, closedAt: finish, head: sha, merge: tree, baseBranch: "main",
+      changedFiles: 1, additions: 1, deletions: 0, timeline: [], problems: [] }));
+    const invoke = () => Bun.spawnSync([process.execPath, "scripts/ci-timings.ts", "report", "--out", dir], { stdout: "pipe", stderr: "pipe" });
+    expect(invoke().exitCode).toBe(0);
+    const report = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
+    expect(report.throughput.reservation?.activeWallSeconds).toBe(360);
+    expect(report.observedRunnerSeconds).toBe(60);
+    expect(report.lifecycleAcquisition.expectedPRs).toEqual([42, 43]);
+    expect(report.lifecycleAcquisition.errors).toEqual([]);
+    expect(report.lifecycleAcquisition.missingPRs).toEqual([43]);
+    expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("Missing requested lifecycle PRs: 1");
+    expect(report.lifecycleAcquisition.scopes).toHaveLength(2);
+    expect(report.lifecycleAcquisition.scopes[0].errors).toHaveLength(1);
+    expect(report.reservationAcquisition.leases[0].sources).toEqual([sha, tree]);
+    expect(report.reservationAcquisition.scopes.map((s: any) => s.sourceHead)).toEqual([sha, tree]);
+    writeFileSync(join(dir, "1", "reservations.json"), JSON.stringify({ version: 1, repository,
+      collectedAt: finish, sourceHead: tree, sourceRef: "refs/heads/brain-integration-reservation", leases: [{ ...lease, pr: 43 }] }));
+    const conflict = invoke();
+    expect(conflict.exitCode).toBe(1);
+    expect(new TextDecoder().decode(conflict.stderr)).toContain("Conflicting lease history");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

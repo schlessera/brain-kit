@@ -4,6 +4,32 @@ export interface LeaseObservation {
   id: string; pr: number; head: string; base: string; acquired: number; expires: number; cap: number;
   endedAt: number | null; ending: "release" | "revoke" | "expiry-inferred"; sources: string[];
 }
+export interface ReservationArchive {
+  version: 1; repository: string; collectedAt: string; sourceRef: string; sourceHead: string;
+  leases: LeaseObservation[];
+}
+
+/** Renewals and later releases enrich one lease rather than adding occupancy. */
+export function mergeLeaseObservations(rows: LeaseObservation[]): LeaseObservation[] {
+  const result = new Map<string, LeaseObservation>();
+  for (const row of rows) {
+    if (!row || !/^[a-f0-9]{32}$/.test(row.id) || !Number.isSafeInteger(row.pr) || row.pr < 1 ||
+      ![row.head, row.base].every(s => /^[a-f0-9]{40}$/.test(s)) ||
+      ![row.acquired, row.expires, row.cap].every(Number.isFinite) || row.acquired > row.expires || row.expires > row.cap ||
+      !Array.isArray(row.sources) || !row.sources.length || row.sources.some(s => !/^[a-f0-9]{40}$/.test(s)) ||
+      !["release", "revoke", "expiry-inferred"].includes(row.ending) ||
+      (row.ending === "expiry-inferred" ? row.endedAt !== null : !Number.isFinite(row.endedAt) || row.endedAt! < row.acquired)) throw new Error("Invalid archived lease");
+    const old = result.get(row.id);
+    if (old && ((["pr", "head", "base", "acquired", "cap"] as const).some(k => old[k] !== row[k]) ||
+      old.endedAt !== null && row.endedAt !== null && (old.endedAt !== row.endedAt || old.ending !== row.ending))) throw new Error("Conflicting lease history");
+    const merged = structuredClone(old ?? row);
+    merged.expires = Math.max(merged.expires, row.expires);
+    if (row.endedAt !== null) { merged.endedAt = row.endedAt; merged.ending = row.ending; }
+    merged.sources = [...new Set([...(old?.sources ?? []), ...row.sources])].sort();
+    result.set(row.id, merged);
+  }
+  return [...result.values()].sort((a, b) => a.acquired - b.acquired || a.id.localeCompare(b.id));
+}
 export function reservationObservations(repository: string, rows: { source: string; state: any }[]): LeaseObservation[] {
   const result = new Map<string, LeaseObservation>();
   for (const { source, state: raw } of rows) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectPullObservation, concurrency, summarizeThroughput, validateWorkEvent, type PullObservation, type WorkEvent } from "../scripts/ci-throughput";
 import { attachTimingEvidence, type TimingSnapshot } from "../scripts/ci-timings";
-import { collectReservationHistory, reservationObservations } from "../scripts/ci-coordination";
+import { collectReservationHistory, mergeLeaseObservations, reservationObservations, type LeaseObservation } from "../scripts/ci-coordination";
 import { emptyReservation, reservationTransition, GitReservationStore } from "../scripts/integration-reservation";
 
 const repo = "odysseus/chronicle", head = "a".repeat(40), base = "b".repeat(40), tree = "c".repeat(40), merge = "d".repeat(40);
@@ -144,6 +144,18 @@ test("native reservation collection reads an explicitly local offline Git remote
     const history = collectReservationHistory(repo, at(0));
     expect(history.leases.length).toBe(1); expect(history.leases[0]!.pr).toBe(42);
   } finally { process.chdir(cwd); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("archived leases preserve terminal observations and refuse conflicting endings", () => {
+  const lease: LeaseObservation = { id: "3".repeat(32), pr: 42, head, base, acquired: Date.parse(at(0)),
+    expires: Date.parse(at(5)), cap: Date.parse(at(60)), endedAt: null, ending: "expiry-inferred", sources: [head] };
+  const released: LeaseObservation = { ...lease, expires: Date.parse(at(9)), endedAt: Date.parse(at(6)), ending: "release", sources: [base] };
+  const [merged] = mergeLeaseObservations([released, lease, released]);
+  expect(merged).toEqual({ ...released, sources: [head, base] });
+  expect(released.sources).toEqual([base]);
+  expect(() => mergeLeaseObservations([released, { ...released, ending: "revoke" }])).toThrow("Conflicting lease history");
+  expect(() => mergeLeaseObservations([released, { ...released, endedAt: Date.parse(at(7)) }])).toThrow("Conflicting lease history");
+  expect(() => mergeLeaseObservations([{ ...lease, sources: [] }])).toThrow("Invalid archived lease");
 });
 
 test("native event recording is append-only and refuses arbitrary personal fields", () => {

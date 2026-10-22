@@ -72,9 +72,14 @@ bun scripts/ci-timings.ts report --out tmp/ci-timing-archives
 
 Reporting recursively reads normalized snapshots and deduplicates overlapping
 repository/run/attempt identities, retaining richer command receipts. Keep
-archives in separate subdirectories so manifests survive. Mixed repositories
-and conflicting identities are refused. Measurement files are ignored local
-artifacts under `tmp/`; do not commit raw GitHub payloads or full logs.
+archives in separate subdirectories so manifests survive. Lifecycle acquisition
+manifests and reservation histories are also joined across those subdirectories.
+Later successful acquisition resolves an earlier error for the same PR; the
+original manifest stays in the report's acquisition scopes. Renewals and releases
+enrich one lease, preserving its immutable Git sources without duplicating
+occupancy. Mixed repositories and conflicting identities are refused.
+Measurement files are ignored local artifacts under `tmp/`; do not commit raw
+GitHub payloads or full logs.
 
 ## Interpret the results
 
