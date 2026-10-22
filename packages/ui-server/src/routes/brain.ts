@@ -14,10 +14,9 @@ import { realpathSync } from "fs";
 import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
-// Shared across route instances, keyed by the canonical brain root.
-const syncingRoots = new Set<string>();
-
 export interface BrainRoutesDeps {
+  /** App-owned admission state; the host boundary still coordinates repository writers. */
+  syncingRoots?: Set<string>;
   brainCliMinimum?: string;
   log?: Logger;
   brain: BrainClient;
@@ -31,6 +30,7 @@ export interface BrainRoutesDeps {
 
 export function createBrainRoutes(deps: BrainRoutesDeps): Hono {
   const { brain, brainPath, keyterms } = deps;
+  const syncingRoots = deps.syncingRoots ?? new Set<string>();
   const boundary = deps.boundary ?? createHostBoundary({ brainPath, exec: deps.exec });
   let indexing: Promise<void> | null = null;
 

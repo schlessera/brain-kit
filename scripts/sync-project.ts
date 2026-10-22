@@ -63,14 +63,14 @@ const TRACKS: Record<string, { epics: number[]; also: number[]; repo: string }[]
     { epics: [26, 70, 608, 1348], also: [69], repo: "schlessera/brain-kit" },
     { epics: [], also: [1, 2, 3], repo: "schlessera/brain-template" },
   ],
-  Hardening: [{ epics: [1343, 1636, 1642, 1643, 1644, 1645, 1646, 1647, 2539], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
+  Hardening: [{ epics: [1343, 1636, 1642, 1643, 1644, 1645, 1646, 1647, 2539, 2554], also: [38, 152, 251, 282, 1391], repo: "schlessera/brain-kit" }],
   Reliability: [{
-    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347, 2045, 2540, 2542],
+    epics: [89, 191, 366, 367, 577, 578, 735, 736, 902, 1342, 1344, 1346, 1347, 2045, 2540, 2542, 2565, 2587],
     also: [30, 31, 58, 61, 65, 66, 72, 142, 210, 243, 254, 286, 290, 544, 547, 591, 598, 1392],
     repo: "schlessera/brain-kit",
   }],
   "Design system": [{
-    epics: [39, 734, 929],
+    epics: [39, 734, 929, 2553, 2576, 2596],
     also: [46, 47, 48, 88, 93, 541, 543],
     repo: "schlessera/brain-kit",
   }],

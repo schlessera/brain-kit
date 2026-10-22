@@ -399,5 +399,7 @@ if (import.meta.main) {
       head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA,
       base: event.pull_request?.base?.sha ?? event.before,
     } }, null, 2));
+    if (event) console.log(`BRAIN_TIMING_CONTEXT ${JSON.stringify({ cadence: plan.cadence, global: plan.global,
+      head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA })}`);
   } catch (error) { console.error(error); process.exit(1); }
 }
