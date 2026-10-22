@@ -82,7 +82,7 @@ interface ClaudeSdkTurnOptions {
   /** One resolved environment selects both host observation storage and native runtime state. */
   turnEnvironment?: Record<string, string | undefined>;
   /** Concrete host-prepared transport only; ordinary selection/route/lifetime are owned by its caller. */
-  hostInference?: { proxyDir: string };
+  hostInference?: { proxyDir: string; baseUrl?: string };
   fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
@@ -219,7 +219,7 @@ function assembleClaudeSdkTurn(
     ...CLEARED_API_CREDENTIALS,
     CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER,
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
-    ANTHROPIC_BASE_URL: "http://localhost",
+    ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
   } : undefined;
   const childEnv = inferenceEnv ? { ...inheritedEnv, ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and
@@ -234,7 +234,7 @@ function assembleClaudeSdkTurn(
   const stateLimits = resolveWorkerStateLimits(backend.workerState ?? {});
   // And so is turn temp's, next to the tool that frees it (#1703).
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
-  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference))].filter(Boolean).join("\n\n");
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(

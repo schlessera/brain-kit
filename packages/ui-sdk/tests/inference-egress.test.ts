@@ -40,6 +40,20 @@ test("shared inference destination admission refuses before credentials and upst
   } finally { f.stop(); }
 });
 
+test("a zero-byte budget refuses inference before credential release and upstream contact", async () => {
+  let credentials = 0, contacts = 0;
+  const f = await setup(0, () => { contacts++; return new Response("Ithaca"); }, {
+    credentials: async () => { credentials++; return { authorization: "odysseus-host-held" }; },
+  });
+  try {
+    expect((await send(f.relay.socketPath, "/v1/messages")).status).toBe(403);
+    expect(credentials, "ZERO_CAP_PRECEDES_CREDENTIAL_RELEASE").toBe(0);
+    expect(contacts, "ZERO_CAP_PRECEDES_PROVIDER_CONTACT").toBe(0);
+    expect(f.proxy.usedBytes()).toBe(0);
+    expect(f.records).toMatchObject([{ inference: true, outcome: "denied", reason: "max_bytes_per_turn", bytes: 0 }]);
+  } finally { f.stop(); }
+});
+
 test("inference and generic HTTP consume one turn counter and preserve redacted destination records", async () => {
   const f = await setup(5000, request => {
     if (new URL(request.url).pathname === "/v1/messages") expect(request.headers.get("authorization")).toBe("Bearer odysseus-host-held");

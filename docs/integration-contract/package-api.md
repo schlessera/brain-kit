@@ -42,8 +42,11 @@ Cleanup attempts every owned resource and reports any failure.
 
 This member is first-party implementation sharing, with the internal-entry
 classification below; it does not add a supported public proxy extension API.
-Automatic server selection, custom-origin selection and Pi integration are
-separate from this input. Host-owned exact-origin authorization per
+The server supplies it automatically for governed and strict Claude turns,
+and the internal `WorkerNoteFacts` gains optional `egress`. A backend sets it
+only when it actually routed the worker through that proxy, so the
+capabilities note never claims recorded egress for an unrouted worker.
+Custom-origin selection and Pi integration are separate from this input. Host-owned exact-origin authorization per
 credential remains mandatory for custom OAuth recipients. This input neither
 sanitizes arbitrary unrelated provider/command credentials nor completes the
 credential capability and maintenance cutover in #1666.

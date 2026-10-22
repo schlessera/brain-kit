@@ -28,7 +28,7 @@ import type { Logger } from "@opentelemetry/api-logs";
 import {
   WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
-  prepareNativeWorkerStartupView, type WorkerStartupView,
+  prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
@@ -156,6 +156,9 @@ export const hostExecution = {
   cwd: () => process.cwd(),
 };
 
+/** Worker-host status for turn egress (#1665); also stated in docs/hosting/agent-workers.md. */
+const TURN_EGRESS_ACTIVE = "Governed and strict Claude turns on a subscription profile run on their own turn egress proxy and the host inference relay. API-key Claude profiles and Pi turns keep their current network until their relay consumers land.";
+const TURN_EGRESS_INACTIVE = "This host has no managed native storage, so governed and strict turns keep their current network without the turn egress proxy, and their egress is unrecorded.";
 const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
@@ -507,7 +510,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       return { hostExecution: isolated() ? "worker" : "host", ...availability, profile,
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
-        ...identity, configurationView: profile === "governed" ? "live" : "startup" };
+        ...identity, configurationView: profile === "governed" ? "live" : "startup",
+        egress: hasManagedNativeStorage(brain) ? { active: true, detail: TURN_EGRESS_ACTIVE } : { active: false, detail: TURN_EGRESS_INACTIVE } };
     },
     withGate,
     async run(execution) {

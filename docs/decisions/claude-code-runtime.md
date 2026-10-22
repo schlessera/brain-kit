@@ -455,7 +455,7 @@ into them.
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
-  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:182-190`), handed to the SDK
+  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:196-204`), handed to the SDK
   whole (`sdkOptions.env = childEnv`, `sdk-options.ts:424`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
@@ -1169,7 +1169,7 @@ never through host shell evaluation.
 
 The bounded server-only implementation reads the trusted host config directory,
 not a public request path (`resolveClaudeHostOAuth`,
-`packages/ui-backend-claude/src/host-oauth.ts:100-221`). It rereads the record for
+`packages/ui-backend-claude/src/host-oauth.ts:101-222`). It rereads the record for
 every resolution, respects an explicitly supplied setup token, and refreshes
 stored OAuth within five minutes of expiry. The measured production protocol is
 JSON POST to `https://platform.claude.com/v1/oauth/token`, with `refresh_token`,
@@ -1301,6 +1301,25 @@ no request, worker state, native account label, model or cost hint supplies it.
 This amendment changes recipient authority and leaves native endpoint
 precedence as a routing fact. It does not authorize TLS interception, live calls,
 or fabrication of native billing or account observations.
+
+**Host configuration shape — 2026-10-22.** The trusted host configuration is
+the server environment variable `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`: a
+comma-separated list of exact origins that may receive the host's Claude login.
+The coordinator chose this shape for #1665 under the requirement above; the
+maintainer may override it. A turn's route is the server's own selection: the
+profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
+`ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
+route, keeping its base path. Before the prompt is sent, the runner refuses a
+route whose origin is neither first-party nor listed
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:389-399`).
+Each dispatch checks the same list again before the credential is read. Native
+settings may repeat the server's route, compared as a canonical origin and base
+path, but never replace it. A discovered profile never carries a route or a
+credential variable name: its cache lives in the brain, so only the fields
+discovery writes are read back (`function cachedModel`,
+`packages/ui-backend-claude/src/model-discovery.ts:265-273`). An operator whose
+existing custom `ANTHROPIC_BASE_URL` receives the subscription login must list
+that origin when the host gains managed native storage.
 
 The relay can also consume the concrete turn proxy's existing admission,
 shared byte counter and redacted recorder. Inference records carry an internal
