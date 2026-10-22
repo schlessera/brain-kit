@@ -24,9 +24,13 @@ test("real process tree freezes, resumes once per dimension, then stops with eve
     f.native.manager.checkpoint = async (...args) => {
       entered.resolve(); await release.promise; return checkpoint(...args);
     };
-    child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done & wait');
+    // Prime the witness, then gate native writes until the cap freezes the tree.
+    // Startup latency must not exhaust the independent eight-byte scope cap.
+    child = f.worker('(printf x >> heartbeat; while [ ! -e heartbeat-start ]; do sleep 0.02; done; while :; do printf x >> heartbeat; sleep 0.02; done) & wait');
     await wait(() => Bun.file(join(f.brain, "heartbeat")).size > 0);
     f.scope.toolCall("voyage", "loom-1"); f.scope.toolCall("voyage", "loom-1"); f.scope.toolCall("voyage", "loom-2");
+    // An unfrozen descendant can now write throughout the original 100 ms window.
+    writeFileSync(join(f.brain, "heartbeat-start"), "");
     await entered.promise;
     expect(f.journal.isHeld(), "SCOPE_CAP_OBSERVATION_HELD").toBe(true);
     expect(observations, "SCOPE_CAP_OBSERVATION_NOT_COMPLETED_WHILE_HELD").toBe(0);
