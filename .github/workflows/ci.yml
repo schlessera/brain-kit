@@ -155,8 +155,9 @@ jobs:
     needs: changeset
     if: needs.changeset.outputs.unit == 'true'
     runs-on: ubuntu-24.04
-    # Retain all native controls; measured full partitions need bounded outer capacity (#1485).
-    timeout-minutes: 30
+    # Separate network setup from the unchanged proof budget (#2658).
+    # 12 minutes setup + 30 minutes proof + 3 minutes for other steps.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -178,11 +179,23 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
+        id: runtime_setup
+        timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh
       - name: Complete unit proof
+        id: runtime_proof
+        timeout-minutes: 30
         env:
           UNIT_SHARDS: ${{ strategy.job-total }}
         run: bun scripts/ci-proof.ts unit --shard=${{ matrix.shard }}/"$UNIT_SHARDS"
+      - name: Environment setup and proof outcomes
+        if: always()
+        env:
+          SETUP_OUTCOME: ${{ steps.runtime_setup.outcome }}
+          PROOF_OUTCOME: ${{ steps.runtime_proof.outcome }}
+        run: |
+          printf 'Environment setup (infrastructure prerequisite, 12-minute limit): %s\nProof (30-minute limit): %s\n' \
+            "$SETUP_OUTCOME" "$PROOF_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7
@@ -221,7 +234,8 @@ jobs:
     needs: changeset
     if: needs.changeset.outputs.runtime == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 12 minutes setup + unchanged 15 minutes proof + 3 minutes for other steps (#2658).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -238,9 +252,21 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
+        id: runtime_setup
+        timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh --native
       - name: Complete runtime proof
+        id: runtime_proof
+        timeout-minutes: 15
         run: bun scripts/ci-proof.ts runtime
+      - name: Environment setup and proof outcomes
+        if: always()
+        env:
+          SETUP_OUTCOME: ${{ steps.runtime_setup.outcome }}
+          PROOF_OUTCOME: ${{ steps.runtime_proof.outcome }}
+        run: |
+          printf 'Environment setup (infrastructure prerequisite, 12-minute limit): %s\nProof (15-minute limit): %s\n' \
+            "$SETUP_OUTCOME" "$PROOF_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7
@@ -276,7 +302,8 @@ jobs:
     needs: changeset
     if: needs.changeset.outputs.runtime_host == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 12 minutes setup + unchanged 15 minutes proof + 3 minutes for other steps (#2658).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -293,6 +320,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Real Chrome and offline Linux namespace prerequisites
+        id: runtime_setup
+        timeout-minutes: 12
         run: bash scripts/ci-runtime-setup.sh --native
       # Diagnostic only: names the task that queues each deleted checkpoint (#1967).
       - name: Start btrfs dead-root kernel trace
@@ -300,6 +329,8 @@ jobs:
           mkdir -p tmp/native-host-proof
           sudo bash scripts/native-proof/dead-root-trace.sh start tmp/native-host-proof/dead-root-trace.txt
       - name: Complete native hosted runtime proof
+        id: runtime_proof
+        timeout-minutes: 15
         run: bun scripts/ci-proof.ts runtime_host
       - name: Stop and classify btrfs dead-root kernel trace
         if: always()
@@ -308,6 +339,14 @@ jobs:
           if [ -f tmp/native-host-proof/dead-root-trace.txt ]; then
             bun scripts/native-proof/dead-root-trace.ts tmp/native-host-proof/dead-root-trace.txt tmp/native-host-proof
           fi
+      - name: Environment setup and proof outcomes
+        if: always()
+        env:
+          SETUP_OUTCOME: ${{ steps.runtime_setup.outcome }}
+          PROOF_OUTCOME: ${{ steps.runtime_proof.outcome }}
+        run: |
+          printf 'Environment setup (infrastructure prerequisite, 12-minute limit): %s\nProof (15-minute limit): %s\n' \
+            "$SETUP_OUTCOME" "$PROOF_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7

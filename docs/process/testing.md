@@ -522,6 +522,18 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
+step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
+30-minute unit allowance or 15-minute runtime allowance. The job caps are
+45 and 30 minutes respectively, including three minutes for the remaining
+steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
+records the slow-mirror observations and margin. Each job always reports setup
+and proof outcomes separately in its summary: setup failure/cancellation is an
+infrastructure prerequisite failure with proof skipped, while proof failure
+after successful setup belongs to the proof phase. Both leave the job and
+selected aggregate nonpassing. Browser/layout do not call this setup script
+and retain their existing pinned-container proof budgets.
+
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
 install, build output and workspace lease. Full preparation now runs after
