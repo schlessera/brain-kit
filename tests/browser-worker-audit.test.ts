@@ -1,3 +1,4 @@
+import {frozenBrowserSource} from "./frozen-browser-source";
 import {afterEach,expect,test} from "bun:test";
 import {chmodSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -5,7 +6,7 @@ import {dirname,join,resolve} from "node:path";
 import {hasAuditedWorkerBoundary,inspectWorkerAudit,pdfWorkerInput,workerAuditFile,workerAuditIdentity} from "../scripts/browser-worker-audit";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[],guard="scripts/browser-worker-boundary.ts",setup="packages/ui-kit/tests/visual/worker-boundary-setup.ts",config="packages/ui-kit/vitest.config.ts";
 afterEach(()=>{for(const root of roots.splice(0))rmSync(root,{recursive:true,force:true});});
-function fixture(){const root=mkdtempSync(join(tmpdir(),"browser-worker-audit-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};for(const file of [guard,setup,config])write(file,readFileSync(join(repo,file),"utf8"));write("spec.ts","export const specimen=1;");write("data.json",'{"fixture":"Odysseus"}');write("fixtures/a.txt","owned directory bytes");const closure={files:[guard,setup,config,"spec.ts","data.json","fixtures","fixtures/a.txt"].sort(),directories:["fixtures"],external:[],unresolved:[pdfWorkerInput]},selected=[{file:"spec.ts",project:"visual"}];
+function fixture(){const root=mkdtempSync(join(tmpdir(),"browser-worker-audit-"));roots.push(root);const write=(file:string,text:string)=>{mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),text);};for(const file of [guard,setup,config])write(file,frozenBrowserSource(file).toString("utf8"));write("spec.ts","export const specimen=1;");write("data.json",'{"fixture":"Odysseus"}');write("fixtures/a.txt","owned directory bytes");const closure={files:[guard,setup,config,"spec.ts","data.json","fixtures","fixtures/a.txt"].sort(),directories:["fixtures"],external:[],unresolved:[pdfWorkerInput]},selected=[{file:"spec.ts",project:"visual"}];
  const manifest=()=>write(workerAuditFile,JSON.stringify({version:2,category:"browser",identity:workerAuditIdentity(root,closure,selected),guardedFreshProofRequired:true,sourceAudit:{version:1,selected:selected.length,files:closure.files.length},historicalDiagnostic:{observed:1,workerAttempts:0}}));manifest();return{root,write,closure,selected,manifest};}
 test("capability audit joins exact enforced hooks and all selected source/data/resource identities",()=>{
   const {root,closure,selected,write}=fixture();expect(hasAuditedWorkerBoundary(root,closure,selected)).toBe(true);
@@ -65,4 +66,15 @@ test("unknown native inputs expose bounded evidence without admission material",
  expect(diagnostic.unresolved).toContainEqual({code:"undeclared-input",owner:"spec.ts"});
  expect(JSON.stringify(diagnostic)).not.toContain(root);
  expect(JSON.stringify(diagnostic)).not.toContain("secretSourceContents");
+});
+
+// Recomputing candidate metadata must never bless changed enforcement bytes.
+test("current enforced hooks qualify only when they match the frozen audit",()=>{
+ for(const file of [guard,setup,config]){
+  const {root,closure,selected,write,manifest}=fixture();
+  expect(hasAuditedWorkerBoundary(root,closure,selected),"FROZEN_WORKER_CONTROL_QUALIFIES").toBe(true);
+  const current=readFileSync(join(repo,file));write(file,current.toString("utf8"));manifest();
+  expect(hasAuditedWorkerBoundary(root,closure,selected),"CURRENT_ENFORCEMENT_DRIFT_REQUIRES_FRESH_PROOF")
+   .toBe(current.equals(frozenBrowserSource(file)));
+ }
 });

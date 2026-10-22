@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import type { Page, Route } from "playwright";
 import type { BrowserCommand } from "vitest/node";
+import { hygieneCapture } from "./hygiene-capture.ts";
 
 type Op =
   | { op: "start" }
@@ -35,9 +36,7 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
   }
   if (p.op === "capture") {
     const frame = await ctx.frame();
-    const path = resolve(tmpdir(), p.name);
-    await frame.locator(p.selector).screenshot({ path });
-    return path;
+    return hygieneCapture(p.name, path => frame.locator(p.selector).screenshot({ path }));
   }
   if (p.op === "start") {
     const child = spawn(
@@ -234,7 +233,7 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
         await a.getByText("Review complete", { exact: true }).first().waitFor();
         await b.evaluate(() => (window as unknown as { __c5Reconnect(): void }).__c5Reconnect());
         await b.getByText("Review complete", { exact: true }).first().waitFor();
-        await a.screenshot({ path: resolve(tmpdir(), `completion-${p.completion}-${p.width}.png`) });
+        await hygieneCapture(`completion-${p.completion}-${p.width}.png`, path => a.screenshot({ path }));
         // The snapshot remains identical across refresh/reload/reconnect.
         if (JSON.stringify((await patch()).read) !== JSON.stringify(settled.read)) throw new Error("reload/reconnect must retain completed server state");
         return { completion: p.completion, width: p.width, state: settled.read.review.status, operations: operations.length };
@@ -283,9 +282,9 @@ export const hygieneServer: BrowserCommand<[Op], unknown> = async (ctx, p) => {
         throw new Error("local successful fix must not display Resolved on another device");
       await b.getByRole("tab", { name: /^done / }).click();
       await b.locator("[data-hygiene-fixed]").filter({ hasText: "Fixed · re-checked" }).waitFor({ timeout: 5000 });
-      await b.screenshot({ path: resolve(tmpdir(), `c5-local-receipt-${p.theme}-${p.width}.png`) });
+      await hygieneCapture(`c5-local-receipt-${p.theme}-${p.width}.png`, path => b.screenshot({ path }));
       await a.getByText("Resolved on another device", { exact: true }).first().waitFor({ timeout: 5000 });
-      await a.screenshot({ path: resolve(tmpdir(), `c5-native-${p.theme}-${p.width}.png`) });
+      await hygieneCapture(`c5-native-${p.theme}-${p.width}.png`, path => a.screenshot({ path }));
       return { sameAction: true, reload: true, reconnect: true, foreignReceipt: true, localReceipt: true, touch: p.width === 320 };
     } catch (error) {
       for (const page of context.pages()) diagnostics.push((await page.locator("body").innerText()).slice(0, 1000));

@@ -426,11 +426,10 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
   const realGit = Bun.which("git")!;
   const init = Bun.spawnSync([realGit, "-C", brain, "init", "-q"]); expect(init.exitCode, init.stderr.toString()).toBe(0);
   Bun.spawnSync([realGit, "-C", brain, "config", "core.fsmonitor", "false"]);
-  const controller = new AbortController(), previousPath = process.env.PATH;
+  const controller = new AbortController();
   const fakeGit = join(brain, "git");
   if (timing === "during") {
     writeFileSync(fakeGit, `#!/bin/sh\nsleep 0.6\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
-    process.env.PATH = `${brain}:${previousPath}`;
   }
   const which = Bun.which;
   const selectGit = timing === "during" ? spyOn(Bun, "which").mockImplementation((name, options) => name === "git" ? fakeGit : which(name, options)) : undefined;
@@ -441,11 +440,21 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
     if (input.command.includes("mktree") && result.exitCode === 0) { injected = true; controller.abort(new DOMException("after Git preparation", "AbortError")); }
     return result;
   }) : undefined;
-  const dbPath = join(state, "ui.db"), db = createUiDb(dbPath);
-  const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
-  const heldBefore = processStateLedger().outputStagingHeld;
-  let abortedAt = 0;
+  let db: ReturnType<typeof createUiDb> | undefined;
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    spy?.mockRestore(); selectGit?.mockRestore(); db?.close();
+  };
+  // A Bun timeout runs afterEach without unwinding this callback's finally.
+  // Restore before fixture removal, and make a late finally harmless.
+  cleanup.push(restore);
   try {
+    const dbPath = join(state, "ui.db"); db = createUiDb(dbPath);
+    const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
+    const heldBefore = processStateLedger().outputStagingHeld;
+    let abortedAt = 0;
     const pending = execution.boundary.launch({ argv: [process.execPath, "--no-env-file", "-e", 'require("node:fs").writeFileSync(process.env.BRAIN_ROOT+"/harbor.md","cancelled command ran");'],
       env: {}, credentials: false, gate: "exclusive", purpose: "cancel Git preparation", signal: controller.signal })
       .then(async worker => { const streams = Promise.all([new Response(worker.stdout).text(),new Response(worker.stderr).text()]); const code = await worker.exited; await streams; return { code }; }, error => error as Error);
@@ -460,7 +469,7 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
     expect(readFileSync(join(brain, "harbor.md"), "utf8")).toBe("Odysseus before launch.\n");
     expect(execution.gate()!.holders()).toEqual([]);
     expect(processStateLedger().outputStagingHeld).toBe(heldBefore);
-  } finally { spy?.mockRestore(); selectGit?.mockRestore(); if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath; db.close(); }
+  } finally { restore(); }
 });
 
 

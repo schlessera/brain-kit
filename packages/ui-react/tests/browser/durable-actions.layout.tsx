@@ -703,7 +703,7 @@ describe("durable Actions", () => {
 
 
 // Batch 1 of #1379: the same consumer tests run under the layout browser and
-// the three native pointer scenes (imported by navigation-reach.pointer.tsx).
+// the three native pointer scenes (imported by navigation-reach.durable-actions.pointer.tsx).
 const PRICING_NAME = "Pricing refresh is failing — costs may use stale rates. Open Settings";
 const BUTTON_ROWS = [1, 2, 3, 4, 5, 6, 8, 9, 12, 13, 14, 15, 16, 17] as const;
 type ButtonRow = typeof BUTTON_ROWS[number];

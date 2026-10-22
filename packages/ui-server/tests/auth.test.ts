@@ -14,9 +14,9 @@ import {
   assertAuthConfig,
   authGuard,
   authRoutes,
-  consumeLoginToken,
+  createLoginRateLimiter,
   isWsAuthorized,
-  resetLoginRateLimiter,
+  resetVerificationReservations,
   sanitizeLoginLabel,
   type AuthMode,
   type AuthRuntime,
@@ -386,7 +386,7 @@ async function appLogin(app: Hono<AppEnv>, ip: string): Promise<Response> {
 }
 
 describe("login limiter storage", () => {
-  beforeEach(() => resetLoginRateLimiter());
+  beforeEach(() => resetVerificationReservations());
 
   test("a client-derived key cannot overwrite the global password bucket", async () => {
     const runtime = passwordAuth();
@@ -440,6 +440,7 @@ describe("login limiter storage", () => {
   });
 
   test("evicts old buckets when the size cap is reached", () => {
+    const { consumeLoginToken } = createLoginRateLimiter();
     expect(consumeLoginToken("bounded:sentinel", 1)).toBe(true);
     expect(consumeLoginToken("bounded:sentinel", 1)).toBe(false);
 
@@ -749,9 +750,8 @@ const login = (app: Hono, password: string, ip: string) =>
   });
 
 describe("login outcomes are observable", () => {
-  // The rate-limit buckets (per-IP and global) are module state shared with
-  // the earlier login tests; start each test from a full global bucket.
-  beforeEach(() => resetLoginRateLimiter());
+  // Clear only the process-wide CPU reservations; failure windows belong to each app.
+  beforeEach(() => resetVerificationReservations());
 
   test("a wrong password is a WARN and an auth.failures count — without the password", async () => {
     const { app, observability } = observedPasswordApp();
@@ -840,7 +840,7 @@ describe("login outcomes are observable", () => {
 });
 
 describe.skipIf(!CAN_BIND_LOOPBACK)("password login over a real socket", () => {
-  beforeEach(() => resetLoginRateLimiter());
+  beforeEach(() => resetVerificationReservations());
 
   test("a chunked over-cap body gets 413 without losing the socket IP", async () => {
     const runtime = auth({
@@ -898,7 +898,7 @@ describe.skipIf(!CAN_BIND_LOOPBACK)("password login over a real socket", () => {
 });
 
 describe("password login admission", () => {
-  beforeEach(() => resetLoginRateLimiter());
+  beforeEach(() => resetVerificationReservations());
 
   test("a blocked client gets 429 without waiting for its body to finish", async () => {
     const runtime = auth({
