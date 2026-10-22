@@ -357,6 +357,9 @@ The server is not refused for it
 under: `enforced` entries `{ limit, source, value }` and `absent` entries
 `{ limit, source, reason }`
 ([contract](integration-contract/http.md#worker-resource-limits-additive-1660)).
+`workerHost.governed.egress` (#1665) is `{ active, detail }`: whether governed
+and strict turns run on their own turn egress proxy, which needs managed native
+storage ([contract](integration-contract/http.md#governed-profile-status-additive-0420-1649)).
 `workerHost.governed` (#1648) says whether the `governed` profile can run and
 where the server evaluates the brain's own code: `{ available, hostExecution }`,
 with `reason` (`server_cwd_in_brain`, `database_in_brain`, `private_state_in_brain` or
@@ -1161,6 +1164,7 @@ read by any authenticated principal.
 
 | Kind | Version | Fields | Meaning |
 | --- | --- | --- | --- |
+| `egress_connection` | 1 | `host`, `port`, `method`, `path` (optional), `bytes`, `accounting`, `durationMs`, `outcome`, `inference` (optional), `reason` (optional) | A completed, denied, failed or cancelled proxy connection. HTTP has a path and conservative wire accounting; opaque CONNECT has no path or plaintext claim. Only the concrete inference relay sets `inference: true`. Headers, query strings and content are absent. |
 | `steering_change` | 1 | `path`, `sequence`, `beforeHash`, `afterHash`, `taintSourceEventId`, `overlappingTurnIds` | One observed steering change, attributed to its turn. Hashes identify retained regular-file versions or are `null`; the source is an existing prior taint event or `null`. Shared windows remain shared, not exclusive writer claims. |
 | `policy_change` | 1 | `requestId`, `baseHash`, `proposedHash`, `sections`, `outcome` | Explicit user-approved policy publication. Actor is `user`; outcome is `updated`; hashes identify the exact reviewed and written bytes. |
 | `scratch_overage` | 1 | `bytes`, `pinnedFiles`, `pinnedBytes`, `overageBytes` | Scratch remains above its cap after a prune that preserved retained links. Counts are remaining bytes and pinned files/bytes; `overageBytes` is the excess. A background pass has actor `server` and no session or turn; unbound retention applies. |

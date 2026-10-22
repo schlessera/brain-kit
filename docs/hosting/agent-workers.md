@@ -1228,6 +1228,57 @@ unchanged. In particular, this transport does not replace native account login
 with a setup token or grant a network connection from a tool-classification
 observation alone.
 
+### First-party path measurement (#1665)
+
+`tests/egress-first-party-paths.test.ts` runs each first-party path in a real
+governed worker on its private network namespace, with the turn proxy as its
+only way out. The whole fixture runs in its own network namespace with a
+fixture `/etc/hosts` and `/run`, so the fictional origin host and every
+upstream are loopback fixtures; nothing public is reachable. A path passes
+when its worker succeeds and the proxy records a completed opaque CONNECT to
+the fixture origin. The run writes `tmp/egress-first-party-paths.json`.
+
+Measured 2026-10-22 on Linux x86_64 (WSL2 kernel 6.18), Bun 1.4.2,
+bubblewrap 0.9.0, Git 2.51.0, OpenSSH 9.6p1, curl 8.5.0 and Google Chrome 140.
+This is a measurement of the paths, not a qualified host tuple.
+
+| Path | Result |
+| --- | --- |
+| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`); the existing offline relay controls qualify it. Ordinary server turns do not compose the relay yet. |
+| Pi inference through the relay | Not measured. Pi has no ordinary relay consumer yet; this is a stated gap. |
+| `git` over HTTPS | Passes: clone through CONNECT, opaque bytes recorded. |
+| `git` over SSH | Passes: clone through the first-party CONNECT helper, which the worker bootstrap sets as Git's `ProxyCommand` unless the caller already chose `GIT_SSH_COMMAND`. OpenSSH reads `~/.ssh` from the passwd home, which the worker masks, so keys and host keys must be supplied explicitly. |
+| `curl` | Passes: HTTPS through CONNECT. |
+| The `brain` CLI's providers | Passes: `brain index --embeddings` with the Gemini provider's native endpoint override, through CONNECT. Bun honours the proxy variables and `NODE_EXTRA_CA_CERTS`. |
+| Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
+| Socket walk | Passes in both profiles. The relay and proxy sockets are the only sockets below a mask, fixture sockets under `/run` and a home directory are unreachable, and the walk of the rest of the visible filesystem completed without finding a host socket. Before all of `/var` was masked ([#2657](https://github.com/schlessera/brain-kit/pull/2657)), a CUPS socket under `/var/snap` accepted a connection on this host. |
+
+Pi inference does not pass yet. Following the gate's rule, default-on goes
+ahead with that gap stated in the capabilities note, on hosts with managed
+native storage only:
+
+- **Claude.** A governed or strict Claude turn runs on its own turn proxy and
+  the host inference relay. Every connection is a governance event, and a
+  connection to an outward host waits for approval unless the call in progress
+  was classified as a read or an approved outward action. The note says so.
+- **Not routed yet.** An API-key Claude profile and every Pi turn keep their
+  current network, and their note still says egress is unrecorded.
+- **No managed native storage.** Governed and strict turns keep their current
+  network without the turn proxy, and their note says egress is unrecorded.
+  `GET /api/status` reports this as `runtime.workerHost.governed.egress`
+  (`{ active, detail }`).
+
+**Custom inference origins.** A turn's relay forwards to the route the server
+selects: the profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the
+server's `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`. Only
+first-party inference may receive the host's Claude login by default. To send
+it to another origin, list that exact origin (scheme, host and port, no path)
+in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
+`BRAIN_UI_CLAUDE_OAUTH_ORIGINS=https://gateway.ithaca.invalid`. An unlisted
+custom origin refuses the turn before its prompt is sent or the login is read.
+A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
+must add this variable when it moves to managed native storage.
+
 ### Pre-proxy command ingestion records
 
 For interactive and voice turns, the host recorder recognizes completed `Bash`

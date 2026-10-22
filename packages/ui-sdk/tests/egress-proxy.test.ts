@@ -25,6 +25,13 @@ function tunnel(socketPath: string, target: string, body: string): Promise<strin
   });
 }
 
+test("invalid byte ceilings are rejected before creating a proxy", async () => {
+  for (const maxBytes of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    await expect(startEgressProxy({ ...defaults([]), maxBytes }), `INVALID_EGRESS_BYTE_CEILING_${maxBytes}`)
+      .rejects.toThrow("Egress maxBytes must be a finite nonnegative integer");
+  }
+});
+
 test("real Unix HTTP proxy forwards cleartext and records only path and payload accounting", async () => {
   const records: EgressRecord[] = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });

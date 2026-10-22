@@ -2,7 +2,7 @@
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandbox, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandbox, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
@@ -14,6 +14,11 @@ export interface GovernedTurnHold {
   readonly sandbox: WorkerSandbox;
   readonly policy: TurnGovernancePolicy;
   readonly startupView?: WorkerStartupView;
+  /**
+   * The configured native manager acquired this turn's startup view with its
+   * stage operations. Only such a turn runs on the turn egress proxy (#1665).
+   */
+  readonly managedStorage: boolean;
   /** Call only once every worker has exited. Quarantine precedes gate release. */
   end(): Promise<Reconciliation | null>;
 }
@@ -102,11 +107,12 @@ export function createGovernedTurns(options: {
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
         for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
+        const managedStorage = isManagedWorkerStartupView(startupView);
         if (governed) { await startupView.cleanup(); startupView = undefined; }
         signal.throwIfAborted();
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
-        return { sandbox, policy, ...(startupView ? { startupView } : {}), async end() {
+        return { sandbox, policy, managedStorage, ...(startupView ? { startupView } : {}), async end() {
           if (ended) return null;
           ended = true;
           try {

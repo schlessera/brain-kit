@@ -183,6 +183,12 @@ model, profile, payload }`. The [HTTP specification](../http-api.md#governance-e
 holds the parameters, the errors, the attribution values and every kind's
 payload fields.
 
+The additive `egress_connection` kind records the concrete turn proxy's host,
+port, visible HTTP method/path, bytes, accounting scope, duration and outcome.
+CONNECT records opaque bytes without a path or content claim; the inference
+tag comes only from the actual relay. Existing `egress_denial` remains named
+and versioned as before. Header values, query strings and bodies are excluded.
+
 The kinds and each kind's payload are versioned separately. A payload change
 that is not purely additive bumps that kind's `schemaVersion`, and stored
 events keep the version they were written with, so a new version or a new
@@ -427,6 +433,12 @@ log; pinned files remain protected. The closed kind/payload specification is in
 is `read_only`, `mask_file`, `mask_directory` or `absent`. These describe the
 current ordinary-turn default; each turn resolves its protections again.
 The existing availability and host-execution fields keep their meaning.
+
+`runtime.workerHost.governed.egress` (additive, 0.44.0, #1665) is
+`{ active, detail }`: whether governed and strict turns run on their own turn
+egress proxy. It is `active: true` only on a host with managed native storage;
+`detail` says which turns are routed and, when inactive, that their egress is
+unrecorded.
 
 ### Operational-state layout refusal (additive, #1649)
 
