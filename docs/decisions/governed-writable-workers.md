@@ -1714,7 +1714,7 @@ rewrite. The collector imports no brain code, gains no network, and cannot
 select a new input root. The host binds its root receipt to the retained
 checkpoint and revalidates the original view, command and output identity
 before consuming it (`privateGitSources`,
-`packages/ui-server/src/brain/maintenance-git.ts:14-41`).
+`packages/ui-server/src/brain/maintenance-git.ts:15-50`).
 
 Attribute bytes round-trip UTF-8 exactly; aliases, unsupported types, unreadable
 inputs and bound/depth/entry overflow refuse instead of inventing absent
@@ -1723,7 +1723,51 @@ actual configuration query keeps the same host-resolved runtime and cleared
 worker environment; the existing adapter supplies the immutable hooks and
 attributes to later Git consumers. Credentialed and no-helper preparation keep
 their existing paths (`collectMaintenanceGitSources`,
-`packages/ui-server/src/brain/maintenance-git-source.ts:59-173`).
+`packages/ui-server/src/brain/maintenance-git-source.ts:66-187`).
+
+**Server-owned strict output — 2026-10-22.** A strict worker can publish a
+private directory into its scratch area. Native publication installs those
+nodes under the server's identity and keeps their `0700`/`0600` modes, so the
+worker-identity collector above cannot search them. The maintainer selected
+option A in [#2364](https://github.com/schlessera/brain-kit/issues/2364):
+ordinary maintenance must still work over that persistent output, through one
+narrowly bounded trusted read, without widening modes, changing publication
+ownership or giving the maintenance helper server authority.
+
+The boundary follows ownership: each identity reads only what it owns. The
+worker collector does not enter a directory its identity cannot search. It
+records the directory's path and the exact metadata it observed
+(device, inode, mode, link count, size and times), and only permission denial
+withholds; every other failure still refuses. The server then reads only
+those withheld directories, under its own identity, from the same retained
+checkpoint root (`collectOwnedGitAttributes`,
+`packages/ui-server/src/brain/maintenance-git-source.ts:227-302`):
+
+- The root must be the checkpoint whose identity the worker receipt is bound
+  to. Each withheld path is walked by descriptor, without following aliases
+  and without leaving the checkpoint's device, and must still name the exact
+  node the worker observed.
+- The server opens a withheld directory, a directory below it or an
+  attributes file only when the server owns it. A worker-owned, root-owned or
+  other foreign node refuses, even when its group would let the server read
+  it.
+- It reads nested `.gitattributes` bytes and nothing else, with the same
+  rules as the worker: regular single-link files, exact UTF-8, and the shared
+  byte, entry and depth bounds. `.git` and `node_modules` are skipped, and the
+  receipt parser refuses withheld paths that escape, nest, name `.git` or
+  carry malformed identities.
+- Nothing is executed and no repository code is imported. The freeze
+  revalidates the original view, command and output identity after the read.
+
+The worker receipt therefore names only directories; it cannot choose a root,
+an identity, a file or an operation. A forged receipt can at most select
+attributes files the server already owns inside the checkpoint. A worker's own
+private inputs keep their worker-identity path, and an unreadable, aliased,
+foreign or replaced input still refuses the whole preparation with a bounded
+`maintenance Git owner input refused` diagnostic. The default native identity
+proof keeps the strict publication in place and indexes over it, with a
+foreign worker-owned directory and a private alias to a server secret as its
+refusal controls.
 
 
 **Verification from inside a real worker.** The probe checks:

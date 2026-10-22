@@ -129,6 +129,13 @@ try {
     diagnostics: observability.logs.records().filter(log => String(log.body).includes("version probe failed") || String(log.body).includes("scratch prune failed")).map(log => ({ body: log.body, attributes: log.attributes })) }));
   expect(index.status, warm ? "ACTUAL_MANAGED_WARM_AUTHENTICATED_INDEX" : "ACTUAL_MANAGED_AUTHENTICATED_INDEX").toBe(200);
   expect(JSON.parse(indexed), "ACTUAL_MANAGED_AUTHENTICATED_INDEX_PUBLISHED").toEqual({ success: true });
+  if (!sharedGit) {
+    // The default composition indexes over the strict worker's persistent private publication (#2364).
+    const retained = [".brain/scratch/private", ".brain/scratch/private/result.md"].map(path => {
+      const info = lstatSync(join(brain, path)); return [info.uid, info.mode & 0o7777];
+    });
+    expect(retained, "ACTUAL_MANAGED_INDEX_OVER_PERSISTENT_STRICT_PRIVATE_OUTPUT").toEqual([[21001, 0o700], [21001, 0o600]]);
+  }
   if (dbObservation) {
     dbObservation.published(1, index.status, JSON.parse(indexed));
     stage("repeat-index:start");
