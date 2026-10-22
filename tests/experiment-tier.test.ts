@@ -16,7 +16,7 @@ import {
 } from "../scripts/test-experiments";
 
 const ROOT = join(import.meta.dir, "..");
-const SCRIPTS = ["test.ts", "test-experiments.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts",
+const SCRIPTS = ["test.ts", "runtime-test-builds.ts", "test-invocation.ts", "test-invocation-child.ts", "publishable-packages.ts", "test-experiments.ts", "test-shards.ts", "test-shard-costs.json", "test-network-preload.ts",
   "test-network-guard.ts", "test-network-child-preload.ts", "workspace-lease.mjs"];
 
 const passing = (name: string) => `import { expect, test } from "bun:test";\ntest(${JSON.stringify(name)}, () => expect(1).toBe(1));\n`;
