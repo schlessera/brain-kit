@@ -28,9 +28,22 @@ owned. Its writer, freezer, process tree and Stop lifecycle are real.
 | Stop and child exit | Retains Stop and awaited exit, adds accepted decision and SIGKILL exit-code assertions. |
 | Shutdown | Adds cancellation of the actual captured interval handle and no dispatch across two subsequent deadlines; restores both complete global timer descriptors even on failure. |
 
-An added cleanup-failure control checks that every teardown action is attempted, errors are collected, full timer descriptors are restored and a successor uses native scheduling. No other existing case changes its coverage or timing. The two
-periodic productive-worker/capture-failure cases still use their native
-15-second intervals.
+An added cleanup-failure control checks that every teardown action is attempted, errors are collected, full timer descriptors are restored and a successor uses native scheduling.
+
+The periodic productive-worker/capture-failure case also controls the interval
+registered by the real journal. Both arms assert its 15,000 ms default, no
+freeze or capture at 14,999, and dispatch with a confirmed freeze at 15,000.
+A parent gate holds the actual copied checkpoint; neither arm may resume
+before release. After release, the test awaits `journal.idle()` through capture,
+retention and temporary-hold release, retaining the 16,000 ms failure maximum
+and the 45,000 ms test maximum. This avoids spending almost the entire failure
+budget waiting for the native interval before asynchronous capture begins.
+The successful arm retains its real 200 ms downstream-consumer window, native
+heartbeat stability and subsequent progress. The failure arm still makes the
+owned CAS store read-only and requires worker termination without resumption,
+a stop reason and partial journal state. Cleanup releases the gate, drains the
+fixture and restores the complete timer descriptors even when an assertion
+fails. No production timer, worker clock or native observation window changes.
 
 ## Real-time minimum and execution ownership
 
