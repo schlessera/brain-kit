@@ -1,0 +1,1547 @@
+{
+  "schemaVersion": 1,
+  "scope": "Pins the 122 source-family review rows of the #1855 accounting, the 46-row delivered observation union and the 76 remaining review rows, and assigns each remaining row to #2630, #2631 or #2632 by the shared file-path rule. Membership only: the per-row reviews are in the reviews section. No row is a mandatory rerun.",
+  "issues": {
+    "parent": 1849,
+    "origin": 1855,
+    "inventories": [
+      2630,
+      2631,
+      2632
+    ]
+  },
+  "source": {
+    "basisArtifact": "docs/process/evidence/test-wait-operational-basis.json",
+    "basisSha256": "90806622796db36351485404a420ab8945ea9aa110c4a963aaf463adec6cbada",
+    "basisFrozenSource": "04a659593379a0c8da9c049fa649124d6fd54f70",
+    "historicalSource": "5dc2595ca07042f2e2024c95bbc361f31637559f",
+    "reconstructedAt": "444174de82ee1e2e41e26aa5c032841e7981ec15"
+  },
+  "selection": {
+    "rule": "sourceRows whose runtimeClassification is one of the listed values",
+    "runtimeClassifications": [
+      "file receipt exists; exact helper/imported/site mapping still required",
+      "shared helper/fixture; caller attribution required"
+    ],
+    "counts": {
+      "file receipt exists; exact helper/imported/site mapping still required": 83,
+      "shared helper/fixture; caller attribution required": 39
+    },
+    "total": 122
+  },
+  "deliveredUnion": {
+    "definition": "A row is delivered when an accepted observation record in a merged evidence artifact attributes an observed call or callback count, or an observed span, to that row index. Source reviews, control-flow inferences, records the artifact itself rejects, and multi-site candidates without a row-level attribution do not count.",
+    "components": [
+      {
+        "artifact": "test-wait-child-observations.json",
+        "pr": 1951,
+        "squash": "4db852bb7",
+        "paths": [
+          {
+            "path": "fragmentChildren.sourceRows",
+            "rows": [
+              1,
+              2
+            ]
+          },
+          {
+            "path": "geoChild.sourceRow",
+            "rows": [
+              20
+            ]
+          },
+          {
+            "path": "leaves.records[].row",
+            "rows": [
+              21,
+              64,
+              97,
+              103,
+              289
+            ]
+          },
+          {
+            "path": "hostProcessHelper.sourceRows",
+            "rows": [
+              378
+            ]
+          },
+          {
+            "path": "recoveredDispatchTrace.sourceRow",
+            "rows": [
+              636
+            ],
+            "note": "Observed rAF callback counts from the original trace capture (callbacksByOriginalCapture). The artifact excludes this record from its new-execution totals because no rerun was made; the observed count still attributes the row."
+          }
+        ],
+        "sha256": "eb0321ea077f2034594de281d8782a3463c9236dc230e51b127736a8bdd29ba2"
+      },
+      {
+        "artifact": "test-wait-native-child-observations.json",
+        "pr": 1953,
+        "squash": "085d8ccf4",
+        "paths": [
+          {
+            "path": "sourceRowIndex[].sourceRow",
+            "rows": [
+              7,
+              11,
+              12,
+              333,
+              336,
+              349,
+              350,
+              359,
+              368,
+              369,
+              370,
+              371,
+              372,
+              373,
+              374,
+              431,
+              434,
+              562,
+              730
+            ],
+            "note": "Equals the artifact's totals.distinctSourceRows (19)."
+          }
+        ],
+        "sha256": "b04369e63b68adba3bd038d2d28d540f378caa62a3bfc9516180ed0d4a0c9690"
+      },
+      {
+        "artifact": "test-wait-native-lifecycle-completion.json",
+        "pr": 1959,
+        "squash": "1b2a2e816",
+        "paths": [
+          {
+            "path": "totals.additionalSourceRows",
+            "rows": [
+              53,
+              54,
+              95,
+              465,
+              672,
+              673,
+              674,
+              675,
+              722
+            ],
+            "note": "Rows 333 and 336 extend earlier observations (totals.sourceRowsExtendingExistingObservations) and are counted once, under test-wait-native-child-observations.json."
+          }
+        ],
+        "sha256": "0c9afb9321a65a7d26872a004324abcfcbfb8f541c74f0a8e0bc2201c7281fd3"
+      },
+      {
+        "artifact": "test-wait-agent-runner-observations.json",
+        "pr": 1954,
+        "squash": "5c453d865",
+        "paths": [
+          {
+            "path": "sourceRows",
+            "rows": [
+              8,
+              9,
+              10
+            ]
+          }
+        ],
+        "sha256": "bda8d8df330534d9239753e80cbda55438de1fa05eee42e9a025518f9f43e338"
+      },
+      {
+        "artifact": "test-wait-maintenance-gates.json",
+        "pr": 1954,
+        "squash": "5c453d865",
+        "paths": [
+          {
+            "path": "sourceRows",
+            "rows": [
+              423,
+              424,
+              425
+            ]
+          }
+        ],
+        "sha256": "4e285fd5effc43c55c94d08554898ad5d64e767a99bb7ee7c366bc8fb3b5753f"
+      },
+      {
+        "artifact": "test-wait-index-observations.json",
+        "pr": 1954,
+        "squash": "5c453d865",
+        "paths": [
+          {
+            "path": "runs[].sourceRow",
+            "rows": [
+              357,
+              428
+            ]
+          }
+        ],
+        "sha256": "5e1eadd8cc6578879baaf50b28bb551d80c686424ee48b7172330ad15c895bc0"
+      }
+    ],
+    "total": 46,
+    "publishedTotals": [
+      {
+        "value": 38,
+        "scope": "delivered-only coverage at #1959 squash 1b2a2e816",
+        "source": "https://github.com/schlessera/brain-kit/issues/1855#issuecomment-6182513218",
+        "reproduced": "the #1951, #1953 and #1959 components above: 10 + 19 + 9"
+      },
+      {
+        "value": 46,
+        "scope": "reviewed union including #1954 (2026-10-15 #1855 accounting)",
+        "source": "https://github.com/schlessera/brain-kit/issues/1855",
+        "reproduced": "adds the three #1954 components: 3 + 3 + 2"
+      }
+    ],
+    "notCounted": [
+      {
+        "artifact": "test-wait-native-child-observations.json",
+        "path": "canvasWorkObservation.sourceRows",
+        "rows": [
+          614,
+          615
+        ],
+        "reason": "Its limits field says frames counts completed CPU-work frames, and the initial rAF and per-frame rearm counts remain source-control-flow inferences. No row-level call count is observed."
+      },
+      {
+        "artifact": "test-wait-native-child-observations.json",
+        "path": "excludedDiagnosticAttempts.recursiveObserver.sourceRows",
+        "rows": [
+          7
+        ],
+        "reason": "Rejected diagnostic attempt, excluded by the artifact. Row 7 is delivered through sourceRowIndex instead."
+      },
+      {
+        "artifact": "test-wait-completion-observations.json",
+        "path": "runs[] setTimeout records for packages/core/tests/seam-contracts-nonconforming.test.ts",
+        "rows": [
+          14,
+          16,
+          17
+        ],
+        "reason": "Each observed timer lists all three sites as sourceCandidates; no observation is attributed to one row. The basis, published in the same commit, keeps these rows at 'exact helper/imported/site mapping still required'."
+      }
+    ],
+    "leadReconciliation": "The 2026-10-22 split check counted integer row references only and found 43. It missed the five string-valued leaves.records[].row references (21, 64, 97, 103, 289) and counted the canvas rows 614 and 615: 43 + 5 - 2 = 46."
+  },
+  "partitionRule": {
+    "order": "Apply in order to the row's file; the first match wins.",
+    "rules": [
+      {
+        "issue": 2632,
+        "name": "browser inventory",
+        "match": "path starts with packages/ui-react/tests/ or packages/ui-kit/tests/, or contains scrape/tests/browser"
+      },
+      {
+        "issue": 2631,
+        "name": "native-process inventory",
+        "match": "path contains any of fixtures/, -child.ts, -probe.ts, worker, helpers/host-processes, maintenance-temp, exec-wrapper, subscription, runtime-probe, boot",
+        "substrings": [
+          "fixtures/",
+          "-child.ts",
+          "-probe.ts",
+          "worker",
+          "helpers/host-processes",
+          "maintenance-temp",
+          "exec-wrapper",
+          "subscription",
+          "runtime-probe",
+          "boot"
+        ]
+      },
+      {
+        "issue": 2630,
+        "name": "in-process scheduling inventory",
+        "match": "every remaining row"
+      }
+    ]
+  },
+  "counts": {
+    "selected": 122,
+    "delivered": 46,
+    "review": 76,
+    "byIssue": {
+      "2630": 23,
+      "2631": 44,
+      "2632": 9
+    }
+  },
+  "partition": {
+    "2630": [
+      14,
+      16,
+      17,
+      361,
+      362,
+      363,
+      383,
+      586,
+      676,
+      677,
+      683,
+      690,
+      691,
+      692,
+      693,
+      695,
+      696,
+      707,
+      718,
+      719,
+      720,
+      724,
+      726
+    ],
+    "2631": [
+      375,
+      376,
+      377,
+      430,
+      570,
+      571,
+      572,
+      576,
+      577,
+      578,
+      579,
+      598,
+      606,
+      607,
+      608,
+      609,
+      610,
+      611,
+      612,
+      613,
+      670,
+      671,
+      678,
+      679,
+      680,
+      681,
+      682,
+      684,
+      685,
+      686,
+      687,
+      688,
+      689,
+      694,
+      708,
+      709,
+      710,
+      711,
+      712,
+      713,
+      714,
+      725,
+      728,
+      731
+    ],
+    "2632": [
+      29,
+      76,
+      193,
+      194,
+      197,
+      614,
+      615,
+      632,
+      658
+    ]
+  },
+  "rows": [
+    {
+      "index": 1,
+      "file": "experiments/measurement-results.test.ts",
+      "historicalLine": 27,
+      "frozenLine": 27,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#fragmentChildren.sourceRows"
+      ]
+    },
+    {
+      "index": 2,
+      "file": "experiments/measurement-results.test.ts",
+      "historicalLine": 30,
+      "frozenLine": 30,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#fragmentChildren.sourceRows"
+      ]
+    },
+    {
+      "index": 7,
+      "file": "experiments/turn-surface-stdout.test.ts",
+      "historicalLine": 64,
+      "frozenLine": 64,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 8,
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "historicalLine": 42,
+      "frozenLine": 42,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-agent-runner-observations.json#sourceRows"
+      ]
+    },
+    {
+      "index": 9,
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "historicalLine": 50,
+      "frozenLine": 50,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-agent-runner-observations.json#sourceRows"
+      ]
+    },
+    {
+      "index": 10,
+      "file": "packages/core/tests/agent-runner-contracts.test.ts",
+      "historicalLine": 78,
+      "frozenLine": 78,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-agent-runner-observations.json#sourceRows"
+      ]
+    },
+    {
+      "index": 11,
+      "file": "packages/core/tests/cli-output-completion.test.ts",
+      "historicalLine": 89,
+      "frozenLine": 89,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 12,
+      "file": "packages/core/tests/module-mcp-tools.test.ts",
+      "historicalLine": 202,
+      "frozenLine": 202,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 14,
+      "file": "packages/core/tests/seam-contracts-nonconforming.test.ts",
+      "historicalLine": 134,
+      "frozenLine": 134,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 16,
+      "file": "packages/core/tests/seam-contracts-nonconforming.test.ts",
+      "historicalLine": 251,
+      "frozenLine": 251,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 17,
+      "file": "packages/core/tests/seam-contracts-nonconforming.test.ts",
+      "historicalLine": 316,
+      "frozenLine": 316,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 20,
+      "file": "packages/geo/tests/fixtures/admission-worker.ts",
+      "historicalLine": 11,
+      "frozenLine": 11,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#geoChild.sourceRow"
+      ]
+    },
+    {
+      "index": 21,
+      "file": "packages/geo/tests/io.test.ts",
+      "historicalLine": 91,
+      "frozenLine": 91,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#leaves.records[].row"
+      ]
+    },
+    {
+      "index": 29,
+      "file": "packages/scrape/tests/browser-politeness.test.ts",
+      "historicalLine": 39,
+      "frozenLine": 39,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 53,
+      "file": "packages/ui-backend-claude/tests/state-room-sdk-hook.test.ts",
+      "historicalLine": 16,
+      "frozenLine": 16,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 54,
+      "file": "packages/ui-backend-claude/tests/state-room-sdk-hook.test.ts",
+      "historicalLine": 33,
+      "frozenLine": 33,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 64,
+      "file": "packages/ui-backend-pi/tests/auth.test.ts",
+      "historicalLine": 150,
+      "frozenLine": 150,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#leaves.records[].row"
+      ]
+    },
+    {
+      "index": 76,
+      "file": "packages/ui-kit/tests/ghost-text.test.tsx",
+      "historicalLine": 269,
+      "frozenLine": 269,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 95,
+      "file": "packages/ui-react/tests/api-client-sync.test.ts",
+      "historicalLine": 83,
+      "frozenLine": 83,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 97,
+      "file": "packages/ui-react/tests/api-client-sync.test.ts",
+      "historicalLine": 183,
+      "frozenLine": 183,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#leaves.records[].row"
+      ]
+    },
+    {
+      "index": 103,
+      "file": "packages/ui-react/tests/association-signout-runtime.test.ts",
+      "historicalLine": 571,
+      "frozenLine": 571,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#leaves.records[].row"
+      ]
+    },
+    {
+      "index": 193,
+      "file": "packages/ui-react/tests/fixtures/association-signout-client.tsx",
+      "historicalLine": 328,
+      "frozenLine": 328,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 194,
+      "file": "packages/ui-react/tests/fixtures/external-speech-client.ts",
+      "historicalLine": 57,
+      "frozenLine": 57,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 197,
+      "file": "packages/ui-react/tests/html-preview-runtime.test.ts",
+      "historicalLine": 77,
+      "frozenLine": 77,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 289,
+      "file": "packages/ui-react/tests/render/render-smoke.test.tsx",
+      "historicalLine": 2639,
+      "frozenLine": 2639,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#leaves.records[].row"
+      ]
+    },
+    {
+      "index": 333,
+      "file": "packages/ui-sdk/tests/maintenance-temp-ledger-protocol.ts",
+      "historicalLine": 7,
+      "frozenLine": 7,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 336,
+      "file": "packages/ui-sdk/tests/rtk.test.ts",
+      "historicalLine": 57,
+      "frozenLine": 57,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 349,
+      "file": "packages/ui-server/tests/auth.test.ts",
+      "historicalLine": 366,
+      "frozenLine": 366,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 350,
+      "file": "packages/ui-server/tests/auth.test.ts",
+      "historicalLine": 955,
+      "frozenLine": 955,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 357,
+      "file": "packages/ui-server/tests/capture-outcome.test.ts",
+      "historicalLine": 17,
+      "frozenLine": 17,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-index-observations.json#runs[].sourceRow"
+      ]
+    },
+    {
+      "index": 359,
+      "file": "packages/ui-server/tests/cron-run-job.test.ts",
+      "historicalLine": 348,
+      "frozenLine": 348,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 361,
+      "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "historicalLine": 218,
+      "frozenLine": 218,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 362,
+      "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "historicalLine": 252,
+      "frozenLine": 252,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 363,
+      "file": "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "historicalLine": 292,
+      "frozenLine": 292,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 368,
+      "file": "packages/ui-server/tests/fixtures/inbox-actions-worker.ts",
+      "historicalLine": 29,
+      "frozenLine": 29,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 369,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "historicalLine": 26,
+      "frozenLine": 26,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 370,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "historicalLine": 35,
+      "frozenLine": 35,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 371,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "historicalLine": 36,
+      "frozenLine": 36,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 372,
+      "file": "packages/ui-server/tests/fixtures/inbox-runtime-worker.ts",
+      "historicalLine": 47,
+      "frozenLine": 47,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 373,
+      "file": "packages/ui-server/tests/fixtures/inbox-unwind-worker.ts",
+      "historicalLine": 31,
+      "frozenLine": 31,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 374,
+      "file": "packages/ui-server/tests/fixtures/schedule-admission-worker.ts",
+      "historicalLine": 31,
+      "frozenLine": 31,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 375,
+      "file": "packages/ui-server/tests/fixtures/scope-restart-probe.ts",
+      "historicalLine": 5,
+      "frozenLine": 5,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 376,
+      "file": "packages/ui-server/tests/fixtures/scope-tmpfs-probe.ts",
+      "historicalLine": 21,
+      "frozenLine": 21,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 377,
+      "file": "packages/ui-server/tests/fixtures/scope-tmpfs-probe.ts",
+      "historicalLine": 24,
+      "frozenLine": 24,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 378,
+      "file": "packages/ui-server/tests/helpers/host-processes.ts",
+      "historicalLine": 14,
+      "frozenLine": 14,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#hostProcessHelper.sourceRows"
+      ]
+    },
+    {
+      "index": 383,
+      "file": "packages/ui-server/tests/host-execution-boundary.test.ts",
+      "historicalLine": 317,
+      "frozenLine": 317,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 423,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "historicalLine": 167,
+      "frozenLine": 167,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-maintenance-gates.json#sourceRows"
+      ]
+    },
+    {
+      "index": 424,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "historicalLine": 239,
+      "frozenLine": 239,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-maintenance-gates.json#sourceRows"
+      ]
+    },
+    {
+      "index": 425,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "historicalLine": 378,
+      "frozenLine": 378,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-maintenance-gates.json#sourceRows"
+      ]
+    },
+    {
+      "index": 428,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "historicalLine": 409,
+      "frozenLine": 409,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-index-observations.json#runs[].sourceRow"
+      ]
+    },
+    {
+      "index": 430,
+      "file": "packages/ui-server/tests/maintenance-temp-shared-uid-proof.ts",
+      "historicalLine": 34,
+      "frozenLine": 34,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 431,
+      "file": "packages/ui-server/tests/model-pricing.test.ts",
+      "historicalLine": 545,
+      "frozenLine": 545,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 434,
+      "file": "packages/ui-server/tests/passkeys.test.ts",
+      "historicalLine": 693,
+      "frozenLine": 693,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 465,
+      "file": "packages/ui-server/tests/sync-reservation.test.ts",
+      "historicalLine": 31,
+      "frozenLine": 31,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 562,
+      "file": "tests/ci-runner.test.ts",
+      "historicalLine": 18,
+      "frozenLine": 18,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 570,
+      "file": "tests/fixtures/governed-socket-probe.ts",
+      "historicalLine": 10,
+      "frozenLine": 10,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 571,
+      "file": "tests/fixtures/pi-worker-probe.ts",
+      "historicalLine": 71,
+      "frozenLine": 71,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 572,
+      "file": "tests/fixtures/pi-worker-probe.ts",
+      "historicalLine": 76,
+      "frozenLine": 76,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 576,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 75,
+      "frozenLine": 75,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 577,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 97,
+      "frozenLine": 97,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 578,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 148,
+      "frozenLine": 148,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 579,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 166,
+      "frozenLine": 166,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 586,
+      "file": "tests/test-script.test.ts",
+      "historicalLine": 160,
+      "frozenLine": 160,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 598,
+      "file": "packages/core/tests/claude-runner-subscription.test.ts",
+      "historicalLine": 181,
+      "frozenLine": 181,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 606,
+      "file": "packages/ui-backend-claude/tests/runtime-probe.test.ts",
+      "historicalLine": 178,
+      "frozenLine": 178,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 607,
+      "file": "packages/ui-backend-claude/tests/subscription-billing.test.ts",
+      "historicalLine": 271,
+      "frozenLine": 271,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 608,
+      "file": "packages/ui-backend-claude/tests/subscription-gate.test.ts",
+      "historicalLine": 150,
+      "frozenLine": 150,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 609,
+      "file": "packages/ui-backend-claude/tests/subscription.test.ts",
+      "historicalLine": 82,
+      "frozenLine": 82,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 610,
+      "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+      "historicalLine": 48,
+      "frozenLine": 48,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 611,
+      "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+      "historicalLine": 54,
+      "frozenLine": 54,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 612,
+      "file": "packages/ui-backend-claude/tests/worker-exhaustion.test.ts",
+      "historicalLine": 59,
+      "frozenLine": 59,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 613,
+      "file": "packages/ui-backend-claude/tests/worker.test.ts",
+      "historicalLine": 124,
+      "frozenLine": 124,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 614,
+      "file": "packages/ui-kit/tests/visual/canvas-encoding-load.ts",
+      "historicalLine": 44,
+      "frozenLine": 44,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 615,
+      "file": "packages/ui-kit/tests/visual/canvas-encoding-load.ts",
+      "historicalLine": 46,
+      "frozenLine": 46,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 632,
+      "file": "packages/ui-react/tests/browser/destination-press.pointer.tsx",
+      "historicalLine": 516,
+      "frozenLine": 516,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 636,
+      "file": "packages/ui-react/tests/browser/dispatch-actions-scene.tsx",
+      "historicalLine": 37,
+      "frozenLine": 37,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-child-observations.json#recoveredDispatchTrace.sourceRow"
+      ]
+    },
+    {
+      "index": 658,
+      "file": "packages/ui-react/tests/fixtures/hygiene-loop-server.ts",
+      "historicalLine": 28,
+      "frozenLine": 28,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2632
+    },
+    {
+      "index": 670,
+      "file": "packages/ui-sdk/tests/exec-wrapper.test.ts",
+      "historicalLine": 297,
+      "frozenLine": 297,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 671,
+      "file": "packages/ui-sdk/tests/fixtures/worker-cgroup-probe.ts",
+      "historicalLine": 60,
+      "frozenLine": 60,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 672,
+      "file": "packages/ui-sdk/tests/governed-worker.test.ts",
+      "historicalLine": 78,
+      "frozenLine": 78,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 673,
+      "file": "packages/ui-sdk/tests/governed-worker.test.ts",
+      "historicalLine": 81,
+      "frozenLine": 81,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 674,
+      "file": "packages/ui-sdk/tests/rtk.test.ts",
+      "historicalLine": 31,
+      "frozenLine": 31,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 675,
+      "file": "packages/ui-sdk/tests/version-probe.test.ts",
+      "historicalLine": 19,
+      "frozenLine": 19,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 676,
+      "file": "packages/ui-sdk/tests/version-probe.test.ts",
+      "historicalLine": 38,
+      "frozenLine": 38,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 677,
+      "file": "packages/ui-sdk/tests/version-probe.test.ts",
+      "historicalLine": 67,
+      "frozenLine": 67,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 678,
+      "file": "packages/ui-sdk/tests/worker-state-mount.test.ts",
+      "historicalLine": 64,
+      "frozenLine": 64,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 679,
+      "file": "packages/ui-sdk/tests/worker-turn-temp.test.ts",
+      "historicalLine": 73,
+      "frozenLine": 73,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 680,
+      "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "historicalLine": 31,
+      "frozenLine": 31,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 681,
+      "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "historicalLine": 70,
+      "frozenLine": 70,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 682,
+      "file": "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "historicalLine": 95,
+      "frozenLine": 95,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 683,
+      "file": "packages/ui-server/tests/brain-client.test.ts",
+      "historicalLine": 600,
+      "frozenLine": 600,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 684,
+      "file": "packages/ui-server/tests/fixtures/hygiene-review-worker.ts",
+      "historicalLine": 19,
+      "frozenLine": 19,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 685,
+      "file": "packages/ui-server/tests/fixtures/inbox-snapshot-worker.ts",
+      "historicalLine": 26,
+      "frozenLine": 26,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 686,
+      "file": "packages/ui-server/tests/fixtures/inbox-snapshot-worker.ts",
+      "historicalLine": 30,
+      "frozenLine": 30,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 687,
+      "file": "packages/ui-server/tests/fixtures/scope-pi-worker.ts",
+      "historicalLine": 13,
+      "frozenLine": 13,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 688,
+      "file": "packages/ui-server/tests/fixtures/scope-restart-probe.ts",
+      "historicalLine": 4,
+      "frozenLine": 4,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 689,
+      "file": "packages/ui-server/tests/fixtures/scope-tmpfs-probe.ts",
+      "historicalLine": 11,
+      "frozenLine": 11,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 690,
+      "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+      "historicalLine": 189,
+      "frozenLine": 189,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 691,
+      "file": "packages/ui-server/tests/host-version-requirements.test.ts",
+      "historicalLine": 240,
+      "frozenLine": 240,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 692,
+      "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+      "historicalLine": 499,
+      "frozenLine": 499,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 693,
+      "file": "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "historicalLine": 432,
+      "frozenLine": 432,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 694,
+      "file": "packages/ui-server/tests/runtime-boot.test.ts",
+      "historicalLine": 141,
+      "frozenLine": 141,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 695,
+      "file": "packages/ui-server/tests/sync-mirror.test.ts",
+      "historicalLine": 193,
+      "frozenLine": 193,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 696,
+      "file": "packages/ui-server/tests/sync-mirror.test.ts",
+      "historicalLine": 305,
+      "frozenLine": 305,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 707,
+      "file": "packages/ui-server/tests/ws-scope-caps.test.ts",
+      "historicalLine": 32,
+      "frozenLine": 32,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 708,
+      "file": "tests/fixtures/pi-worker-probe.ts",
+      "historicalLine": 75,
+      "frozenLine": 75,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 709,
+      "file": "tests/fixtures/policy-boundary-probe.ts",
+      "historicalLine": 369,
+      "frozenLine": 369,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 710,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 65,
+      "frozenLine": 65,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 711,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 96,
+      "frozenLine": 96,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 712,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 123,
+      "frozenLine": 123,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 713,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 146,
+      "frozenLine": 146,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 714,
+      "file": "tests/fixtures/worker-state-tmpfs-probe.ts",
+      "historicalLine": 164,
+      "frozenLine": 164,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 718,
+      "file": "experiments/measurement-results.test.ts",
+      "historicalLine": 105,
+      "frozenLine": 105,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 719,
+      "file": "packages/core/tests/cli-output-completion.test.ts",
+      "historicalLine": 137,
+      "frozenLine": 137,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 720,
+      "file": "packages/core/tests/indexer-reliability.test.ts",
+      "historicalLine": 196,
+      "frozenLine": 196,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 722,
+      "file": "packages/ui-sdk/tests/maintenance-temp-ledger-child.ts",
+      "historicalLine": 13,
+      "frozenLine": 13,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-lifecycle-completion.json#totals.additionalSourceRows"
+      ]
+    },
+    {
+      "index": 724,
+      "file": "packages/ui-server/tests/brain-client.test.ts",
+      "historicalLine": 176,
+      "frozenLine": 176,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 725,
+      "file": "packages/ui-server/tests/fixtures/scope-pi-worker.ts",
+      "historicalLine": 16,
+      "frozenLine": 16,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 726,
+      "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+      "historicalLine": 44,
+      "frozenLine": 44,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2630
+    },
+    {
+      "index": 728,
+      "file": "packages/ui-server/tests/maintenance-temp-boundary-child.ts",
+      "historicalLine": 17,
+      "frozenLine": 17,
+      "runtimeClassification": "shared helper/fixture; caller attribution required",
+      "status": "review",
+      "issue": 2631
+    },
+    {
+      "index": 730,
+      "file": "tests/ci-runner.test.ts",
+      "historicalLine": 34,
+      "frozenLine": 34,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "delivered",
+      "coveredBy": [
+        "test-wait-native-child-observations.json#sourceRowIndex[].sourceRow"
+      ]
+    },
+    {
+      "index": 731,
+      "file": "tests/fixtures/policy-boundary-probe.ts",
+      "historicalLine": 175,
+      "frozenLine": 175,
+      "runtimeClassification": "file receipt exists; exact helper/imported/site mapping still required",
+      "status": "review",
+      "issue": 2631
+    }
+  ]
+}
