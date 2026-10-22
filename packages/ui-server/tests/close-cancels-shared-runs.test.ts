@@ -41,7 +41,7 @@ function brainWithCli(command: string, output: unknown, afterMs: number | null) 
   const cli = join(bin, "brain");
   writeFileSync(cli, `#!/usr/bin/env bun
 const args = process.argv.slice(2);
-if (args.includes("--version")) { console.log("0.44.0"); process.exit(0); }
+if (args.includes("--version")) { console.log("0.42.0"); process.exit(0); }
 if (args[0] !== ${JSON.stringify(command)}) { console.log("{}"); process.exit(0); }
 ${afterMs === null ? "setInterval(() => {}, 1000);" : `await Bun.sleep(${afterMs});\nconsole.log(${JSON.stringify(JSON.stringify(output))});`}
 `);

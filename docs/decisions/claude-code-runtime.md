@@ -63,7 +63,7 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:130-198`, called at
+  `packages/ui-server/src/brain/client.ts:132-200`, called at
   `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:416`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:501-505`) — the user's own Claude
@@ -243,7 +243,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:130`). The SDK's
+  `packages/ui-server/src/brain/client.ts:132`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands

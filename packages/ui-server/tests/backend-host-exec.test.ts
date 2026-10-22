@@ -55,7 +55,7 @@ for (const backendId of ["claude", "pi"] as const) test(`apps pass their host wr
     for (const [index, exec] of [{ wrapper: a.path }, { wrapper: c.path }, {}, undefined].entries()) {
       const brain = join(root, "brain-" + index);
       mkdirSync(join(brain, "node_modules/.bin"), { recursive: true });
-      writeFileSync(join(brain, "node_modules/.bin/brain"), '#!/bin/sh\necho "0.44.0"\n', { mode: 0o755 });
+      writeFileSync(join(brain, "node_modules/.bin/brain"), '#!/bin/sh\necho "0.42.0"\n', { mode: 0o755 });
       const config = resolveServerConfig({ NODE_ENV: "test", AUTH_MODE: "none", HOST: "127.0.0.1",
         DB_PATH: ":memory:", BRAIN_PATH: brain, AGENT_BACKEND: backendId, CLAUDE_CODE_PATH: binary,
         PI_MODEL: "anthropic/claude-sonnet-4-5", BRAIN_UI_PRICING_DISCOVERY: "0" });

@@ -241,8 +241,8 @@ describe("search cancellation and deadlines", () => {
 });
 
 describe("brain CLI version probe", () => {
-  test("a 0.40.0 brain repo pin refuses app creation and names 0.44.0", async () => {
-    if (await privateMaintenanceTest(import.meta.path, "a 0.40.0 brain repo pin refuses app creation and names 0.44.0")) return;
+  test("a 0.40.0 brain repo pin refuses app creation and names 0.42.0", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "a 0.40.0 brain repo pin refuses app creation and names 0.42.0")) return;
     const root = temporaryBrain();
     installBrainCli(root, `console.log("0.40.0");\n`);
     const observability = createRecordingObservability();
@@ -251,13 +251,13 @@ describe("brain CLI version probe", () => {
         config: appConfig(root),
         observability,
         registry: registry(),
-      })).rejects.toThrow(/brain CLI version 0\.40\.0.*version 0\.44\.0.*bump the brain repo's @schlessera\/brain pin/);
+      })).rejects.toThrow(/brain CLI version 0\.40\.0.*version 0\.42\.0.*bump the brain repo's @schlessera\/brain pin/);
   });
 
   test("the first compatible CLI release boots", async () => {
     if (await privateMaintenanceTest(import.meta.path, "the first compatible CLI release boots")) return;
     const root = temporaryBrain();
-    installBrainCli(root, `console.log("0.44.0");\n`);
+    installBrainCli(root, `console.log("0.42.0");\n`);
     const app = await createApp({ config: appConfig(root), observability: createRecordingObservability(), registry: registry() });
     await app.close();
   });
@@ -515,7 +515,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
     installBrainCli(
       root,
       `const args = process.argv.slice(2);\n` +
-        `if (args.includes("--version")) console.log("0.44.0");\n` +
+        `if (args.includes("--version")) console.log("0.42.0");\n` +
         `else if (args.includes("search")) console.log(JSON.stringify({ results: [], warnings: [] }));\n` +
         `else console.log("synced");\n`
     );
@@ -601,7 +601,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
     // supervising wrapper is the wrapper — the CLI it launched keeps running.
     const root = temporaryBrain();
     const marker = `odysseus-wrapper-child-${root.split("/").at(-1)}`;
-    installBrainCli(root, `console.log("0.44.0");\n`);
+    installBrainCli(root, `console.log("0.42.0");\n`);
 
     const wrapper = join(root, "supervise.sh");
     writeFileSync(
@@ -631,7 +631,7 @@ describe("the exec wrapper covers the shared CLI client", () => {
 
   test("the version probe goes through it too, so a broken wrapper fails at boot", async () => {
     const root = temporaryBrain();
-    installBrainCli(root, `console.log("0.44.0");\n`);
+    installBrainCli(root, `console.log("0.42.0");\n`);
     const log = installWrapper(root);
 
     await probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper: join(root, "wrapper.sh") } });

@@ -313,9 +313,11 @@ bun run release        # build, publish, `changeset tag`, publish the template
 ## After publishing
 
 - **Bump the content repo's `@schlessera/brain` pin BEFORE the deploy.**
-  It must satisfy ui-server's `MIN_BRAIN_CLI_VERSION` (currently 0.44.0),
+  It must satisfy ui-server's `MIN_BRAIN_CLI_VERSION` (currently 0.42.0),
   including every command and flag the server invokes. The `.brain-index/`
-  index location needs 0.44.0; scratch pin input needs 0.42.0; hygiene review needs
+  index location needs 0.44.0: the 0.44.0 version PR raises the floor to
+  `INDEX_DIRECTORY_CLI_VERSION`, and `tests/cli-inventory.test.ts` fails that
+  version bump until it does. Scratch pin input needs 0.42.0; hygiene review needs
   0.41.0; `stats --history` and module settings need 0.40.0. The original
   0.33.0 floor covered the `--` separator but did not cover those later calls.
   A CLI below the floor refuses server startup with the required version.
