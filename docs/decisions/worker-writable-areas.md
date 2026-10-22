@@ -303,3 +303,17 @@ effective through runtime aliases. Existing private-temp allowances, writable
 area/profile boundaries, dropped capabilities and cleanup are unchanged. See
 the [binding runtime amendment](governed-writable-workers.md#owned-runtime-placement-beneath-tmp--2026-10-14)
 for the selected policy and separately attributed original controls.
+
+## Private output published from a strict area — 2026-10-22
+
+A strict worker may make its own scratch output private: a `0700` directory
+with `0600` files. Native publication keeps those modes and installs the nodes
+under the server's identity, so a later separate-UID maintenance worker cannot
+search them. Ordinary maintenance still works over that output
+([#2364](https://github.com/schlessera/brain-kit/issues/2364), option A). The
+published modes and ownership are not rewritten, and the maintenance worker
+gains no server authority: the worker's Git input collector withholds the
+directory it cannot search, and the server reads only the nested
+`.gitattributes` of directories it owns, from the retained checkpoint. Aliases,
+foreign owners and changed identities refuse. The bounds and the rationale are
+in the [governed-writable-workers record](governed-writable-workers.md), under "Server-owned strict output".
