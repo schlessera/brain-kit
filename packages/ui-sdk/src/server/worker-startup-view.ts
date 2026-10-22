@@ -30,6 +30,15 @@ export function nativeWorkerStartupInput(view: WorkerStartupView) {
   return input as { checkpoint: NativeCheckpoint; manager: NativeClient };
 }
 const releasedViews = new WeakSet<WorkerStartupView>();
+/**
+ * Whether the configured native manager acquired this live view with its stage
+ * operations: the managed native storage the turn egress relay requires.
+ */
+export function isManagedWorkerStartupView(view: WorkerStartupView | undefined): boolean {
+  if (!view || releasedViews.has(view)) return false;
+  const input = nativeInputs.get(view);
+  return Boolean(input?.manager.prepareStage && input.manager.inspectStage && input.manager.releaseStage);
+}
 const nativeRoots = new Set<string>();
 const nativeBrains = new Map<string, { dev: bigint; ino: bigint; fsid: string; sourceUuid: string }>();
 
@@ -45,6 +54,17 @@ export function hasNativeBrainBoundary(brain: string): boolean {
   } catch { /* A missing/replaced/unreadable root loses its attestation. */ }
   nativeBrains.delete(brain);
   return false;
+}
+
+/**
+ * Whether the brain has the managed native storage shape: a Btrfs subvolume
+ * root named `brain`. For status only; a turn relies on its acquired view.
+ */
+export function hasManagedNativeStorage(brainPath: string): boolean {
+  try {
+    const brain = realpathSync(brainPath), info = lstatSync(brain, { bigint: true });
+    return brain === join(dirname(brain), "brain") && info.isDirectory() && info.ino === 256n && statfsSync(brain).type === 0x9123683e;
+  } catch { return false; }
 }
 
 /** Output staging accepts only a checkpoint whose native owner is still held. */

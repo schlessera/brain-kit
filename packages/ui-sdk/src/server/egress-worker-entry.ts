@@ -22,8 +22,14 @@ await new Promise<void>((resolve, reject) => {
 const port = (forwarder.address() as { port: number }).port;
 const proxy = `http://127.0.0.1:${port}`;
 // Preserve runtime authentication and endpoint selection. Only transport changes.
-const env = { ...workerEgressEnvironment(), HTTP_PROXY: proxy, HTTPS_PROXY: proxy, ALL_PROXY: proxy,
-  http_proxy: proxy, https_proxy: proxy, all_proxy: proxy, NO_PROXY: "", no_proxy: "" };
+const quote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+// SSH has no proxy variable: Git's SSH transport reaches the same socket through
+// a first-party CONNECT helper. An explicit caller choice is kept as given.
+const sshProxy = `ProxyCommand=${quote(process.execPath)} ${quote(Bun.resolveSync("./egress-connect", import.meta.dir))} %h %p`;
+const inherited = workerEgressEnvironment();
+const env = { ...inherited, HTTP_PROXY: proxy, HTTPS_PROXY: proxy, ALL_PROXY: proxy,
+  http_proxy: proxy, https_proxy: proxy, all_proxy: proxy, NO_PROXY: "", no_proxy: "",
+  GIT_SSH_COMMAND: inherited.GIT_SSH_COMMAND ?? `ssh -o ${quote(sshProxy)}` };
 const child = Bun.spawn(command, { env, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
 const terminate = () => child.kill("SIGTERM");
 process.on("SIGTERM", terminate); process.on("SIGINT", terminate);
