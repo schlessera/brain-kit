@@ -163,6 +163,68 @@ describe("the authoritative jobs retain their important phases", () => {
   });
 });
 
+describe("runtime environment setup and proof budgets", () => {
+  for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
+    const job = ci.jobs[name]!;
+    const setup = job.steps.find(s => s.run === `bash scripts/ci-runtime-setup.sh${name === "unit" ? "" : " --native"}`)!;
+    const proof = job.steps.find(s => s.run === `bun scripts/ci-proof.ts ${name}` || s.run?.startsWith(`bun scripts/ci-proof.ts ${name} `))!;
+    test(`${name} retains a full proof budget after bounded environment setup`, () => {
+      expect(setup["timeout-minutes"]).toBe(12);
+      expect(proof["timeout-minutes"]).toBe(proofMinutes);
+      expect(job["timeout-minutes"]).toBe(12 + proofMinutes + 3);
+      expect(setup.if).toBeUndefined();
+      expect(proof.if).toBeUndefined();
+      expect(setup["continue-on-error"]).toBeUndefined();
+      expect(proof["continue-on-error"]).toBeUndefined();
+      expect(job.steps.indexOf(proof)).toBeGreaterThan(job.steps.indexOf(setup));
+    });
+    test(`${name} workflow guard rejects missing setup bounds, changed proof bounds and a shared job cap`, () => {
+      const source = read("ci.yml");
+      const mutate = (change: (job: Job) => void) => {
+        const workflow = Bun.YAML.parse(source) as Workflow;
+        change(workflow.jobs[name]!);
+        return workflowProblems(Bun.YAML.stringify(workflow), "ci.yml");
+      };
+      expect(workflowProblems(source, "ci.yml")).toEqual([]);
+      expect(mutate(j => { delete j.steps.find(s => s.run === setup.run)!["timeout-minutes"]; }))
+        .toContain(`ci.yml: ${name}: environment setup must have its separate 12-minute limit`);
+      for (const limit of [undefined, proofMinutes - 1, proofMinutes + 1]) {
+        expect(mutate(j => { j.steps.find(s => s.run === proof.run)!["timeout-minutes"] = limit ?? null; }))
+          .toContain(`ci.yml: ${name}: proof must retain its ${proofMinutes}-minute limit`);
+      }
+      expect(mutate(j => { j["timeout-minutes"] = proofMinutes; }))
+        .toContain(`ci.yml: ${name}: job limit must cover setup, proof and 3 minutes of other steps`);
+    });
+    test(`${name} summary distinguishes setup infrastructure failure from proof failure`, () => {
+      const summary = job.steps.find(s => s.name === "Environment setup and proof outcomes")!;
+      expect(summary).toBeDefined();
+      expect(summary.if).toBe("always()");
+      expect(summary.env).toEqual({
+        SETUP_OUTCOME: "${{ steps.runtime_setup.outcome }}",
+        PROOF_OUTCOME: "${{ steps.runtime_proof.outcome }}",
+      });
+      expect(setup.id).toBe("runtime_setup");
+      expect(proof.id).toBe("runtime_proof");
+      expect(job.steps.indexOf(summary)).toBeGreaterThan(job.steps.indexOf(proof));
+      const dir = mkdtempSync(join(tmpdir(), "ci-phase-outcomes-"));
+      try {
+        for (const [setupOutcome, proofOutcome] of [["failure", "skipped"], ["cancelled", "skipped"], ["success", "failure"], ["success", "success"]]) {
+          const output = join(dir, "summary.md");
+          writeFileSync(output, "");
+          const result = Bun.spawnSync(["bash", "-euo", "pipefail", "-c", summary.run!], {
+            env: { ...process.env, GITHUB_STEP_SUMMARY: output, SETUP_OUTCOME: setupOutcome!, PROOF_OUTCOME: proofOutcome! },
+            stdout: "pipe", stderr: "pipe",
+          });
+          expect(result.exitCode).toBe(0);
+          expect(readFileSync(output, "utf8")).toBe(
+            `Environment setup (infrastructure prerequisite, 12-minute limit): ${setupOutcome}\nProof (${proofMinutes}-minute limit): ${proofOutcome}\n`,
+          );
+        }
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+  }
+});
+
 describe("CI concurrency configuration (live scheduler proof remains separate)", () => {
   const push = (sha: string): Obj => ({ event_name: "push", ref: "refs/heads/main", sha });
   const pr = (number: number, sha: string): Obj => ({ event_name: "pull_request", ref: `refs/pull/${number}/merge`, sha });

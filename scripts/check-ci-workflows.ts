@@ -5,12 +5,12 @@ import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
-type Step = { uses?: string; run?: string; if?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
+type Step = { uses?: string; run?: string; if?: string; "timeout-minutes"?: unknown; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
   permissions?: Record<string, unknown>;
-  jobs?: Record<string, { name?: string; "runs-on"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
+  jobs?: Record<string, { name?: string; "runs-on"?: unknown; "timeout-minutes"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
 };
 
 export function workflowProblems(text: string, file: string): string[] {
@@ -56,6 +56,17 @@ export function workflowProblems(text: string, file: string): string[] {
       if (job?.needs !== "changeset") fail(`${name}: independent proof must depend only on metadata`);
       const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
       if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
+    }
+    // Network prerequisites cannot spend proof capacity; measured basis: docs/decisions/ci-utility.md (#2658).
+    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
+      const job = workflow.jobs?.[name];
+      const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" ? "" : " --native"}`);
+      const command = `bun scripts/ci-proof.ts ${name}`;
+      const proof = job?.steps?.find(step => step.run === command || step.run?.startsWith(`${command} `));
+      if (setup?.["timeout-minutes"] !== 12) fail(`${name}: environment setup must have its separate 12-minute limit`);
+      if (proof?.["timeout-minutes"] !== proofMinutes) fail(`${name}: proof must retain its ${proofMinutes}-minute limit`);
+      const limit = job?.["timeout-minutes"];
+      if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 12 + proofMinutes + 3) fail(`${name}: job limit must cover setup, proof and 3 minutes of other steps`);
     }
     // Matrices, retention and refresh share one shard table; a drifted matrix would strand a partition.
     for (const domain of Object.keys(PROOF_SHARDS) as ShardedDomain[]) {

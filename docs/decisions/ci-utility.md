@@ -191,7 +191,13 @@ SDK groups retain explicit lower bounds without being passing proof. #1485
 raises only the bounded outer unit-job capacity to30minutes, preserving
 four partitions, every discovered test, all per-test/native deadlines and
 browser/product budgets. Queue, cancellation and elapsed evidence remain in
-the observation record. Browser sharding uses the committed per-project/
+the observation record.
+
+> **2026-10-22 — Budget separation.** The 30-minute unit allowance is now an
+> explicit proof-step limit. [Separate setup capacity](#separate-environment-setup-and-proof-budgets)
+> raises the combined job cap to 45 minutes without changing proof deadlines.
+
+Browser sharding uses the committed per-project/
 file table under #1082, rather than grouping every pointer variant of a costly
 file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
@@ -211,6 +217,43 @@ Layout keeps two shards; per-project serial execution and all test deadlines rem
 Browser proof runs in three shards and its jobs have a 20-minute bound. It was raised from 15 minutes after browser
 (2) reached 887 s on main and 917 s on a ready PR ([#2414](https://github.com/schlessera/brain-kit/issues/2414)). A weight refresh still
 qualifies by measured whole-job elapsed time, not by the bound.
+
+### Separate environment setup and proof budgets
+
+The maintainer's [#2658 ruling](https://github.com/schlessera/brain-kit/issues/2658#issuecomment-6342812579)
+separates network prerequisites from proof capacity. In successful main run
+[39784542134](https://github.com/schlessera/brain-kit/actions/runs/39784542134),
+`runtime_host` setup took 68 seconds and proof took 676 seconds (11 min 16 s).
+Run [39785773042](https://github.com/schlessera/brain-kit/actions/runs/39785773042)
+reported setup durations of 8 min 52 s and 6 min 32 s; the latter included
+6 min 3 s fetching 33.6 MB from the Ubuntu mirror during the native image
+build. Both attempts exhausted the shared 15-minute job cap while proof was
+still progressing. The supplied raw and step-labelled slow-log exports both
+describe the 6 min 32 s attempt; they are not independent measurements.
+
+Every workflow call to `ci-runtime-setup.sh` now has a 12-minute step limit.
+This leaves 3 min 8 s above the longest reported setup, bounding mirror stalls
+without spending the proof allowance. The proof steps explicitly retain the
+former job ceilings: 15 minutes for `runtime` and `runtime_host`, and 30 minutes
+for each `unit` partition under #1485. Job limits are the sum of setup and
+proof plus three minutes for checkout, dependency install, planning, tracing,
+summaries and artifact upload: 30 minutes for either runtime job and 45 minutes
+for unit. In the supplied successful and slow logs, checkout/install/planning
+plus trace startup took less than 30 seconds, so this reserve has margin;
+it is finite, not a guarantee against arbitrarily stalled unrelated steps.
+
+The shared-script audit includes unit's network package installation. Browser,
+layout, captures and endurance do not call this setup script; their pinned
+container setup remains inside their existing proof jobs and keeps its bounds.
+The [step timeout](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepstimeout-minutes)
+terminates setup independently; default failure handling skips proof when a
+prerequisite fails. An `always()` summary prints separate setup and proof
+outcomes and limits, identifying setup as an infrastructure prerequisite. Setup
+timeout/failure with skipped proof therefore differs from successful setup
+followed by proof failure/cancellation. Workflow lint guards the setup limit,
+unchanged proof limits and combined job capacity. All native assertions,
+per-command deadlines, selection gates, runtime/action pins, offline images
+and diagnostic uploads retain their existing behavior.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
