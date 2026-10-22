@@ -29,7 +29,10 @@
  * the argv, the spawn options are empty, and a kill is the plain kill it
  * always was. That path is what every existing deployment is on.
  */
+import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
+
+import { BackendRequestError } from "./backend.js";
 
 /**
  * The environment variable each package's chokepoint reads this from.
@@ -127,6 +130,27 @@ function absoluteProgram(program: string, wrapper: string): string {
     );
   }
   return resolved;
+}
+
+/**
+ * The helpers a worker runs itself, as the read-only paths its view needs
+ * (#1429). Each names a regular file, directly or through a symlink: binding a
+ * directory would hand the worker its siblings. Checked before any relay,
+ * reservation or worker is acquired; the host keeps its targets stable from
+ * here through launch.
+ */
+export function workerExecHelpers(config: ExecWrapperConfig): string[] {
+  const helpers: string[] = [];
+  for (const [role, path] of [["wrapper", config.wrapper], ["killer", config.killer]] as const) {
+    if (!path) continue;
+    let regular = false;
+    try { regular = isAbsolute(path) && statSync(path).isFile(); } catch { /* Missing or unreadable: refused below. */ }
+    if (!regular) {
+      throw new BackendRequestError(`The exec ${role} ${JSON.stringify(path)} must be an absolute path to a regular file an agent worker can run.`);
+    }
+    helpers.push(path);
+  }
+  return helpers;
 }
 
 /**

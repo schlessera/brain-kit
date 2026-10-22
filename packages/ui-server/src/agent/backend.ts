@@ -41,6 +41,8 @@ function toBackendLog(log: Logger): BackendLogFn {
 }
 
 export interface BackendRegistryOptions {
+  /** Resolved host wrapper. Explicit {} disables wrapping; omission retains ambient compatibility. */
+  exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** Explicit host minima forwarded to every active descriptor. */
   versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>;
@@ -394,13 +396,15 @@ export async function probeBackendRuntimes(
   brainPath: string,
   log?: Logger,
   load: (specifier: string) => unknown = (specifier) => createRequire(import.meta.url)(specifier),
-  versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>
+  versionRequirements?: Readonly<Record<string, BackendVersionRequirements>>,
+  exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig
 ): Promise<BackendRuntimeProbe[]> {
   const validated = validateBackendVersionRequirements(agent, versionRequirements);
   const probes: BackendRuntimeProbe[] = [];
   for (const entry of activeFirstPartyBackends(agent)) {
     const descriptor = backendDescriptorFromModule(entry.id, load(entry.specifier));
     const report = await verifyBackendRequirements(descriptor, {
+      exec,
       brainPath,
       config: { ...agent },
       profiles: [],
@@ -495,6 +499,7 @@ export function createBackendRegistry(options: BackendRegistryOptions): BackendR
       const { descriptor } = parsed;
 
       const baseContext: BackendModuleContext = {
+        exec: options.exec,
         ...(options.maintenance ? { maintenance: options.maintenance } : {}),
         brainPath,
         config: { ...agent },

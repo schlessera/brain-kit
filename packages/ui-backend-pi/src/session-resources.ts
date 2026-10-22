@@ -53,6 +53,7 @@ export function createSessionResources(options: {
   function buildToolkit(caps: SessionCaps): SessionToolkit {
     const turnContext = createTurnContext();
     const tools = createBrainTools({
+      exec: backend.exec,
       brain,
       turn: turnContext,
       lock,
