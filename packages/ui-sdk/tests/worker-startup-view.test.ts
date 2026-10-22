@@ -172,7 +172,7 @@ for (const mode of ["strict", "restricted", "maintenance"] as const) for (const 
       expect(result.exitCode, result.stderr).toBe(0); output = result.stdout;
     } else {
       const sandbox = prepareWorkerSandbox(brain, { profile: "strict", restricted: mode === "restricted", areas: [], readPaths: [process.execPath] });
-      const inferenceDir = mode === "restricted" ? mkdtempSync("/var/tmp/odysseus-secret-relay-") : undefined;
+      const inferenceDir = mode === "restricted" ? mkdtempSync(join(tmpdir(), "odysseus-secret-relay-")) : undefined;
       if (inferenceDir) {
         cleanup.push(() => rmSync(inferenceDir, { recursive: true, force: true }));
         const relay = Bun.serve({ unix: join(inferenceDir, "relay.sock"), fetch: () => new Response("ithaca") });

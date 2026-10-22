@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worke
 const previousPath = "/usr/bin:/bin:/usr/bin";
 for (const backend of ["Claude", "Pi"] as const) for (const profile of ["governed", "strict", "restricted"] as const) for (const installed of [true, false]) {
   test(`${backend} native ${profile} worker PATH with CLI ${installed ? "installed" : "missing"}`, async () => {
-    const root = mkdtempSync("/var/tmp/odysseus-cli-path-"), brain = join(root, "brain"), config = join(root, "config");
+    const root = mkdtempSync(join(tmpdir(), "odysseus-cli-path-")), brain = join(root, "brain"), config = join(root, "config");
     mkdirSync(join(brain, "node_modules/.bin"), { recursive: true }); mkdirSync(config);
     writeFileSync(join(config, "settings.json"), "{}");
     const bin = join(brain, "node_modules/.bin"), cli = join(bin, "brain");

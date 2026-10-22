@@ -118,7 +118,7 @@ async function productionTurn(brainPath: string): Promise<BackendActivityEvent[]
 /** An exec wrapper that records the command the SDK chose, and runs nothing. */
 function recordingWrapper(): { wrapper: string; commands: () => string[] } {
   // /tmp is fresh inside the worker; this fixture executable stays read-only.
-  const dir = mkdtempSync("/var/tmp/bundled-wrapper-");
+  const dir = mkdtempSync(join(tmpdir(), "bundled-wrapper-"));
   scratch.push(dir);
   const wrapper = join(dir, "wrapper");
   const report = `await fetch("http://127.0.0.1:${server.port}/fixture-command", {method:"POST", body:process.argv.at(-1)});`;
@@ -135,7 +135,7 @@ describe("the binary a turn runs", () => {
     const { wrapper, commands } = recordingWrapper();
     const brainPath = arrangeHost({ BRAIN_UI_EXEC_WRAPPER: wrapper });
     await productionTurn(brainPath);
-    expect(commands()).toEqual([bundledClaudeBinary()]);
+    expect(commands(), "BUNDLED_EXECUTABLE_RECORDED").toEqual([bundledClaudeBinary()]);
     // The backend's only input to the option: nothing is configured, so
     // claude-code-path.test.ts's "absent" case is the one that applies.
     expect(resolveServerConfig(process.env).agent.claudeCodePath).toBeNull();
@@ -146,7 +146,7 @@ describe("the binary a turn runs", () => {
     const hostBinary = join(tempDir("bundled-host-"), "claude");
     const brainPath = arrangeHost({ BRAIN_UI_EXEC_WRAPPER: wrapper, CLAUDE_CODE_PATH: hostBinary });
     await productionTurn(brainPath);
-    expect(commands()).toEqual([hostBinary]);
+    expect(commands(), "CONFIGURED_EXECUTABLE_RECORDED").toEqual([hostBinary]);
   });
 
   test("the built-in binary, keyless, sends the subscription token and no API key", async () => {

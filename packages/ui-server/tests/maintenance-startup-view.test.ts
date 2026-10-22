@@ -1,3 +1,4 @@
+import { controlDirectory } from "./helpers/control-directory.js";
 import * as fs from "node:fs";
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -28,7 +29,7 @@ function fixture() {
 
 test("hostile output permissions release the real writer gate and all staging storage", async () => {
   const brain = fixture();
-  const state = mkdtempSync("/var/tmp/odysseus-cleanup-state-");
+  const state = mkdtempSync(join(tmpdir(), "odysseus-cleanup-state-"));
   cleanup.push(() => rmSync(state, { recursive: true, force: true }));
   const dbPath = join(state, "ui.db");
   const db = createUiDb(dbPath);
@@ -57,7 +58,7 @@ test("hostile output permissions release the real writer gate and all staging st
 
 test("failed launch cleans read-only copies without changing the live brain mode", async () => {
   const brain = fixture();
-  const state = mkdtempSync("/var/tmp/odysseus-failed-start-");
+  const state = mkdtempSync(join(tmpdir(), "odysseus-failed-start-"));
   cleanup.push(() => rmSync(state, { recursive: true, force: true }));
   const dbPath = join(state, "ui.db");
   const db = createUiDb(dbPath);
@@ -161,7 +162,7 @@ test("maintenance publishes explicit output without opening the execution view f
 });
 test("an already-running maintenance reader retains dependency bytes and absence", async () => {
   const brain = fixture();
-  const control = mkdtempSync("/var/tmp/odysseus-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
+  const control = controlDirectory("odysseus-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
   const go = join(control, "go");
   const boundary = createHostBoundary({ brainPath: brain });
   const program = `console.log("ready"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5); console.log((await import("./brain.config.ts")).default); console.log(await Bun.file(".mcp.json").exists());`;
@@ -175,7 +176,7 @@ test("an already-running maintenance reader retains dependency bytes and absence
     let output = "";
     for (;;) { const next = await stream.read(); if (next.done) break; output += Buffer.from(next.value).toString(); }
     expect(await worker.exited, await new Response(worker.stderr).text()).toBe(0);
-    expect(output).toBe("before launch\nfalse\n");
+    expect(output, "MAINTENANCE_STARTUP_BYTES_AND_ABSENCE").toBe("before launch\nfalse\n");
     expect(readFileSync(join(brain, "helper.ts"), "utf8")).toContain("during launch");
   } finally { worker.kill("SIGKILL"); }
 });
@@ -233,7 +234,7 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
   writeFileSync(join(brain, "filters/clean.sh"), "cat filters/value.txt; cat\n");
   writeFileSync(join(brain, "filters/value.txt"), "before launch\n");
   writeFileSync(join(brain, ".gitattributes"), "*.md filter=crew\n");
-  const control = mkdtempSync("/var/tmp/odysseus-git-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
+  const control = controlDirectory("odysseus-git-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
   const go = join(control, "go");
   const boundary = createHostBoundary({ brainPath: brain });
   const program = `console.log("ready"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5);
@@ -368,7 +369,7 @@ for (const moved of [false, true]) test(`finalizing a child with parent search r
 
 
 test("separate maintenance clients serialize frozen preparation through publication", async () => {
-  const brain = fixture(), control = mkdtempSync("/var/tmp/odysseus-output-serialization-");
+  const brain = fixture(), control = controlDirectory("odysseus-output-serialization-");
   cleanup.push(() => rmSync(control, { recursive: true, force: true }));
   const events = join(control, "events"), release = join(control, "release");
   writeFileSync(events, ""); writeFileSync(join(brain, "counter.txt"), "0");
@@ -421,7 +422,7 @@ else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");
 });
 
 for (const timing of ["during", "after"] as const) test(`cancellation ${timing} Git preparation starts no maintenance command and releases admission`, async () => {
-  const brain = fixture(), state = mkdtempSync("/var/tmp/odysseus-cancel-git-");
+  const brain = fixture(), state = mkdtempSync(join(tmpdir(), "odysseus-cancel-git-"));
   cleanup.push(() => rmSync(state, { recursive: true, force: true }));
   const realGit = Bun.which("git")!;
   const init = Bun.spawnSync([realGit, "-C", brain, "init", "-q"]); expect(init.exitCode, init.stderr.toString()).toBe(0);

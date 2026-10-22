@@ -215,8 +215,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **Y — Sync reservation.**
 
-- `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:19-70`)
-- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:72-84`)
+- `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:20-71`)
+- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:73-85`)
 
 **V — Mounted validation.**
 
