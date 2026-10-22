@@ -8,11 +8,11 @@
  * which would make the prefix mean nothing to whoever audits by it.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { changedFiles, CONTRACT_DOC, judge, parseLabels } from "../scripts/check-contract-pr.ts";
+import { changedFiles, CONTRACT_DOC, declaredBase, judge, parseLabels } from "../scripts/check-contract-pr.ts";
 
 const title = "CONTRACT: feat(core): add a field to brain stats --json";
 const plainTitle = "feat(core): add a field to brain stats --json";
@@ -192,5 +192,80 @@ describe("contract gate diff", () => {
 
   test("a ref git cannot resolve is not an empty diff", () => {
     expect(changedFiles(process.cwd(), "no-such-ref", "HEAD")).toBeNull();
+  });
+});
+
+describe("the declared base lookup (#2650)", () => {
+  const env = { PR_NUMBER: "21", GITHUB_REPOSITORY: "schlessera/brain-kit", GH_TOKEN: "offline-fixture-token", GITHUB_API_URL: "https://api.github.invalid" };
+  const pr = (ref: unknown, number = 21, repo = "schlessera/brain-kit") => ({ number, base: { ref, repo: { full_name: repo } } });
+  /** Answers in order; records what was requested. */
+  function api(...answers: (Response | Error)[]) {
+    const calls: { url: string; auth: string | null }[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, auth: new Headers(init?.headers).get("authorization") });
+      const answer = answers.shift();
+      if (!answer) throw new Error("unexpected extra lookup");
+      if (answer instanceof Error) throw answer;
+      return answer;
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls };
+  }
+  let repo = "";
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "contract-lookup-"));
+    for (const args of [["init", "-q", "-b", "main"], ["-c", "user.email=odysseus@example.com", "-c", "user.name=Odysseus", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "trunk"],
+      ["update-ref", "refs/remotes/origin/feat/ithaca", "HEAD"]]) {
+      expect(Bun.spawnSync(["git", ...args], { cwd: repo }).exitCode).toBe(0);
+    }
+  });
+  afterAll(() => { if (repo) rmSync(repo, { recursive: true, force: true }); });
+
+  test("the PR object names the base, whatever the event said", async () => {
+    const { fetchImpl, calls } = api(Response.json(pr("feat/ithaca")));
+    expect(await declaredBase(repo, { ...env, EVENT_BASE_REF: "main" }, fetchImpl, 0)).toBe("refs/remotes/origin/feat/ithaca");
+    expect(calls).toEqual([{ url: "https://api.github.invalid/repos/schlessera/brain-kit/pulls/21", auth: "Bearer offline-fixture-token" }]);
+  });
+
+  test("server and network failures are retried, then fail closed", async () => {
+    const recovered = api(new Response("", { status: 502 }), new TypeError("socket closed"), Response.json(pr("feat/ithaca")));
+    expect(await declaredBase(repo, env, recovered.fetchImpl, 0)).toBe("refs/remotes/origin/feat/ithaca");
+    expect(recovered.calls.length).toBe(3);
+    const down = api(new Response("", { status: 500 }), new Response("", { status: 503 }), new TypeError("socket closed"));
+    await expect(declaredBase(repo, env, down.fetchImpl, 0)).rejects.toThrow("Reading PR #21 failed after 3 attempts: socket closed");
+  });
+
+  test("a refusal is final", async () => {
+    const refused = api(new Response("", { status: 403 }));
+    await expect(declaredBase(repo, env, refused.fetchImpl, 0)).rejects.toThrow("Reading PR #21 failed: HTTP 403");
+    expect(refused.calls.length).toBe(1);
+  });
+
+  test("an answer that does not identify the PR's base in this repository fails closed", async () => {
+    for (const [body, message] of [
+      ["not json", "did not return that pull request"],
+      [pr("feat/ithaca", 22), "did not return that pull request"],
+      [pr("feat/ithaca", 21, "odysseus/brain-kit"), "declares a base outside schlessera/brain-kit"],
+      [pr(null), "declares no valid base branch: null"],
+      [pr("-x"), "declares no valid base branch"],
+      [pr("feat/..ithaca"), "declares no valid base branch"],
+      [pr("feat/troy"), "declares base feat/troy, but the checkout has not fetched origin/feat/troy"],
+    ] as const) {
+      const response = typeof body === "string" ? new Response(body, { status: 200 }) : Response.json(body);
+      await expect(declaredBase(repo, env, api(response).fetchImpl, 0)).rejects.toThrow(message);
+    }
+  });
+
+  test("missing identity or an unsafe API endpoint never reaches the network", async () => {
+    for (const [override, message] of [
+      [{ PR_NUMBER: undefined }, "PR_NUMBER is not a pull request number"],
+      [{ PR_NUMBER: "21; true" }, "PR_NUMBER is not a pull request number"],
+      [{ GITHUB_REPOSITORY: "" }, "GITHUB_REPOSITORY is not owner/name"],
+      [{ GH_TOKEN: "" }, "GH_TOKEN is required"],
+      [{ GITHUB_API_URL: "http://api.github.invalid" }, "GITHUB_API_URL must be https"],
+    ] as const) {
+      const { fetchImpl, calls } = api();
+      await expect(declaredBase(repo, { ...env, ...override }, fetchImpl, 0)).rejects.toThrow(message);
+      expect(calls).toEqual([]);
+    }
   });
 });

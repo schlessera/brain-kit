@@ -1999,7 +1999,7 @@
         "basis": "Embedded `brain` CLI body written by brainWithCli or an inline fake bin; the test spawns it through the brain client and never waits for the literal. The hold exists so the cancellation path has a live child to kill. No completed elapsed minimum is implied by the literal.",
         "noElapsedMinimumImplied": true,
         "raceWinner": "controller.abort() after the host PID is seen wins; the 60000 ms sleep never completes in a passing run",
-        "holdEnd": "SIGKILL: the client's execBrain passes killSignal SIGKILL with the abort signal (packages/ui-server/src/brain/client.ts:263-265). The test asserts the rejection arrives only after the child stops answering signal 0."
+        "holdEnd": "SIGKILL: the client's execBrain passes killSignal SIGKILL with the abort signal (packages/ui-server/src/brain/client.ts:274-276). The test asserts the rejection arrives only after the child stops answering signal 0."
       },
       "observation": null,
       "followUp": null

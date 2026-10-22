@@ -44,7 +44,7 @@ next to it.
   `packages/ui-server/src/config/env.ts:506-506`) and is null when unset
   (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1075`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:500`), read back as a string
+  `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:351`). Because of the `||`
@@ -59,12 +59,12 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:86-291`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:86-293`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:121-187`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:413`).
+  `packages/ui-server/src/brain/client.ts:121-189`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:415`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:358-363`).
+  `packages/ui-server/src/app.ts:360-365`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the

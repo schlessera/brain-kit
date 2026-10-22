@@ -14,7 +14,7 @@ export { GIT_LOCK_KEY } from "./server/lock-keys.js";
 export { VERSION_PROBE_TIMEOUT_MS } from "./server/version-probe.js";
 export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS, hasWebSearchCredential, readWebSearchOverride, readWebSearchRouting, resolveWebSearchConfigPath, webSearchBrief, webSearchProvider } from "./server/web-search.js";
 export { canonicalModelId } from "./protocol-helpers.js";
-export { execWrapperSpawnOptions } from "./server/exec-wrapper.js";
+export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrapper.js";
 
 export { assertScratchMask, assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_DIR, WORKER_INFERENCE_SOCKET, MAX_INFERENCE_REQUEST_BYTES } from "./server/inference-relay.js";

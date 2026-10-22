@@ -10,7 +10,7 @@ import { defineBackendModule } from "@schlessera/brain-ui-sdk/server";
 import { isThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { createClaudeBackend } from "./backend.js";
-import { readEnvVar, resolveExecConfig } from "./config/env.js";
+import { readEnvVar, ambientExecConfig } from "./config/env.js";
 import { createModelSource } from "./model-discovery.js";
 import { probeClaudeRuntime } from "./runtime-probe.js";
 import { turnEnv } from "./sdk-options.js";
@@ -167,7 +167,7 @@ export const backendModule: BackendModule = defineBackendModule({
       // The environment a turn on the default profile gets: the built-in one,
       // resolved as resolveFromEnv resolves it.
       env: turnEnv(defineProfiles([builtinWithDefaultModel(BUILTIN_PROFILE, context)])[0]!),
-      exec: resolveExecConfig(),
+      exec: context.exec ?? ambientExecConfig(),
       ...(context.versionRequirements ? { versionRequirements: context.versionRequirements } : {}),
       ...(context.log ? { log: context.log } : {}),
     });
@@ -269,6 +269,7 @@ export const backendModule: BackendModule = defineBackendModule({
       const turnTempBytes = configNumber(context, "turnTempBytes");
       const turnTempBudgetBytes = configNumber(context, "turnTempBudgetBytes");
       const backend = createClaudeBackend({
+        exec: context.exec,
         ...(context.maintenance ? { maintenance: context.maintenance } : {}),
         brainPath: context.brainPath,
         workerState: { ...(allowanceBytes !== undefined ? { allowanceBytes } : {}), ...(budgetBytes !== undefined ? { budgetBytes } : {}) },
