@@ -16,7 +16,7 @@ export { WEB_SEARCH_FALLBACK_ON, WEB_SEARCH_PROVIDERS, WEB_SEARCH_PROVIDER_KEYS,
 export { canonicalModelId } from "./protocol-helpers.js";
 export { execWrapperSpawnOptions } from "./server/exec-wrapper.js";
 
-export { assertScratchMask } from "./server/bridge-tools/mask.js";
+export { assertScratchMask, assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_DIR, WORKER_INFERENCE_SOCKET, MAX_INFERENCE_REQUEST_BYTES } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
 export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET } from "./server/egress-proxy.js";
@@ -80,6 +80,7 @@ export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutput
 
 export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
 export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";
+export type { NativePoolRecord, NativePoolStatus, NativePoolState } from "./server/native-brain-manager-protocol.js";
 
 export { RTK_WORKER_ENV } from "./server/rtk.js";
 export { sessionPromptContext } from "./server/session-prompt-context.js";

@@ -1,3 +1,4 @@
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 /**
  * Answer delivery (#910) in real Chrome, on the public ChatPage, against the
  * real host (`createApp`, its WebSocket, SQLite catalog and dispatch) with a
@@ -82,8 +83,7 @@ beforeAll(async () => {
   // Unit shards start without dist. Generate the real package styles (and
   // their exported token dependency), as the sibling styled runtime fixtures
   // do, instead of depending on another test having built them first.
-  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [buildOut, buildErr, buildCode] = await hook.child("package-build", build);
+  const [buildOut, buildErr, buildCode] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
   if (buildCode !== 0) throw new Error(`Answer delivery fixture build failed (${buildCode}): ${buildOut}\n${buildErr}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-answer-delivery-"));
   const brain = resolve(scratch, "brain");

@@ -122,7 +122,7 @@ const copy=fs.copyFileSync;mock.module("node:fs",()=>({...fs,copyFileSync:(sourc
     const child = Bun.spawn([process.execPath, "--preload", preload, "-e", `
       import {runUnitWorkers} from ${JSON.stringify(join(import.meta.dir, "../scripts/unit-workers.ts"))};
       let failure; try { await runUnitWorkers(${JSON.stringify(root)},${JSON.stringify(files)},undefined,${JSON.stringify(reports)}); } catch(error) { failure=error; }
-      if(!(failure instanceof AggregateError) || !failure.errors.some(error=>String(error).includes("private package build"))) throw Error("ORIGINAL_PREBUILD_FAILURE_RETAINED");
+      if(!(failure instanceof AggregateError) || !failure.errors.some(error=>String(error).includes("complete unit worker"))) throw Error("ORIGINAL_PREBUILD_FAILURE_RETAINED");
       console.log("COLLECTOR_FAILURE_EXPLICIT",failure.errors.length);
     `], { stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);

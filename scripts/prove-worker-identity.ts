@@ -65,7 +65,7 @@ process.exitCode = code;
   return { shim, host, hashes: { originalCollector: collectorHash, originalHost: digest(hostSource), shim: digest(shim), variantHost: digest(host) } };
 }
 
-export function workerIdentityDockerArgs(source: string, artifact: string, container: string, image: string, apparmor: boolean, variants: { db: boolean; boot: boolean; prune: boolean; inventory: boolean }, bun: string): string[] {
+export function workerIdentityDockerArgs(source: string, artifact: string, container: string, image: string, apparmor: boolean, variants: { db: boolean; boot: boolean; prune: boolean; inventory: boolean; scratch: boolean }, bun: string): string[] {
   const capabilities = ["SYS_ADMIN", "SYS_CHROOT", "MKNOD", "DAC_OVERRIDE", "FOWNER", "KILL", "CHOWN", "SETUID", "SETGID"];
   return ["docker", "run", "--name", container, "--rm", "--pull=never", "--network=none", "--cap-drop=ALL", ...capabilities.map(cap => `--cap-add=${cap}`),
     `--security-opt=seccomp=${join(source, "scripts/native-proof/seccomp.json")}`,
@@ -75,7 +75,7 @@ export function workerIdentityDockerArgs(source: string, artifact: string, conta
     "--mount", `type=bind,source=${source},target=/repo,readonly`,
     "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
     "--workdir=/repo", "--entrypoint=/bin/sh", image, "/repo/scripts/native-proof/stable-run.sh", basename(artifact), "identity",
-    ...(variants.db ? ["db"] : []), ...(variants.boot ? ["boot"] : []), ...(variants.prune ? ["prune"] : []), ...(variants.inventory ? ["inventory"] : []), "--", "/bin/sh", "/setup.sh"];
+    ...(variants.db ? ["db"] : []), ...(variants.boot ? ["boot"] : []), ...(variants.prune ? ["prune"] : []), ...(variants.inventory ? ["inventory"] : []), ...(variants.scratch ? ["scratch"] : []), "--", "/bin/sh", "/setup.sh"];
 
 }
 
@@ -83,7 +83,7 @@ if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
     const options = process.argv.slice(2);
-    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--application-qualification" && arg !== "--owned-prune-diagnostic" && arg !== "--boot-prune-capture" && !/^--application-scenario=(governed|strict|db-repeat)$/.test(arg)) || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification] [--owned-prune-diagnostic] [--boot-prune-capture] [--application-scenario=governed|strict|db-repeat]");
+    if (options.some(arg => !/^--image=[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(arg) && !/^--mutation=(ignored-signals|supervisor-zombie|sentinel-modes)$/.test(arg) && arg !== "--shared-git" && arg !== "--private-git-inputs" && arg !== "--native-phase-only" && arg !== "--collector-inventory" && arg !== "--probe-state-placement" && arg !== "--omit-probe-state-placement" && arg !== "--scratch-mask" && arg !== "--application-qualification" && arg !== "--owned-prune-diagnostic" && arg !== "--boot-prune-capture" && !/^--application-scenario=(governed|strict|db-repeat)$/.test(arg)) || new Set(options.map(arg=>arg.split("=")[0])).size!==options.length) throw Error("Usage: prove-worker-identity.ts [--image=<prepared-native-image>] [--mutation=ignored-signals|supervisor-zombie|sentinel-modes] [--shared-git] [--private-git-inputs] [--native-phase-only] [--collector-inventory] [--probe-state-placement] [--omit-probe-state-placement] [--application-qualification] [--scratch-mask] [--owned-prune-diagnostic] [--boot-prune-capture] [--application-scenario=governed|strict|db-repeat]");
     const applicationQualification = applicationQualificationSelected(options);
     const ownedPruneDiagnostic = ownedPruneDiagnosticSelected(options, applicationQualification);
     const bootPruneCapture = bootPruneCaptureSelected(options, applicationQualification);
@@ -94,6 +94,8 @@ if (import.meta.main) {
     const privateGitInputs = options.includes("--private-git-inputs");
     if (privateGitInputs && !sharedGit) throw Error("Private Git input proof requires the separate shared Git composition");
     const nativePhaseOnly = options.includes("--native-phase-only");
+    const scratchMask = options.includes("--scratch-mask");
+    if (scratchMask && (!applicationQualification || !bootPruneCapture || applicationScenario || ownedPruneDiagnostic)) throw Error("Scratch mask proof requires boot-captured application qualification without other variants");
     const probeStatePlacement = options.includes("--probe-state-placement");
     const omitProbeStatePlacement = options.includes("--omit-probe-state-placement");
     if (probeStatePlacement && (!nativePhaseOnly || !sharedGit || privateGitInputs || options.includes("--collector-inventory"))) throw Error("Probe-state proof requires its separate shared native composition");
@@ -127,6 +129,7 @@ if (import.meta.main) {
       writeFileSync(join(artifact, "boot-scratch-prune.fixture.ts"), bootVariant.cron);
       writeFileSync(join(artifact, "boot-prune-substitution.json"), JSON.stringify(bootVariant.substitution, null, 2));
     }
+    if (scratchMask) writeFileSync(join(artifact, "scratch-mask-identity-ws.fixture.ts"), readFileSync(join(source, "packages/ui-sdk/tests/fixtures/scratch-mask-identity-ws.ts")));
     const dbVariant = applicationScenario === "db-repeat" ? dbRepeatStageVariant(readFileSync(join(source, "packages/ui-sdk/src/server/worker-native-output.ts"), "utf8")) : undefined;
     if (dbVariant) {
       writeFileSync(join(artifact, "db-repeat-output.fixture.ts"), dbVariant.source);
@@ -312,7 +315,7 @@ exit "$case_code"
     const metadata = { image, applicationPhases, applicationTimeoutMs, containerTimeoutMs,
       applicationScenario: applicationScenario ?? null, skippedAppPhases: applicationScenario === "governed" || applicationScenario === "db-repeat" ? ["strict"] : applicationScenario === "strict" ? ["fresh-app", "warm"] : [],
       skippedGitPhases: applicationScenario === "db-repeat" ? ["fresh-standalone", "warm-standalone"] : [],
-      proofScope: applicationScenario === "db-repeat" ? "application-scenario-db-repeat-boot-prune-capture-stage-observation-variant" : applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
+      proofScope: scratchMask ? "scratch-mask-application-qualification-boot-prune-capture-variant" : applicationScenario === "db-repeat" ? "application-scenario-db-repeat-boot-prune-capture-stage-observation-variant" : applicationScenario ? `application-scenario-${applicationScenario}-boot-prune-capture${ownedPruneDiagnostic ? "-diagnostic" : ""}-variant` : bootPruneCapture ? (ownedPruneDiagnostic ? "application-qualification-boot-prune-capture-diagnostic-variant" : "application-qualification-boot-prune-capture-variant") : ownedPruneDiagnostic ? "application-qualification-owned-prune-variant" : applicationQualification ? "application-qualification-only" : probeStatePlacement ? (omitProbeStatePlacement ? "probe-state-checkpoint-omission-mutant" : "probe-state-checkpoint-causal") : collectorInventory ? "native-phase-only-collector-inventory-variant" : nativePhaseOnly ? "native-phase-only" : "complete", privateGitInputs,
       collectorInventoryHashes: inventoryVariant?.hashes ?? null, ownedPruneHashes: pruneVariant?.hashes ?? null, bootPruneHashes: bootVariant?.hashes ?? null, dbRepeatStageHashes: dbVariant?.hashes ?? null,
       skippedCategories: nativePhaseOnly ? ["identity-broker-and-sdk", "checkpoint-reader-controls", ...(applicationQualification ? APPLICATION_SKIPPED_CONTROLS : []), ...(probeStatePlacement ? ["private-git-inputs", "fresh-controls", "fresh-app", "warm-app", "strict-app"] : [])] : [], gitFixture: sharedGit ? "documented-shared-group-fresh-without-prior-journal-mutations" : "original-private-metadata", mutation: mutation ?? null, imageId: inspect.stdout.toString().trim(), capabilities, apparmor,
       outerNoNewPrivileges: false, reason: "test-only setuid identity fixture; actual worker asserts NoNewPrivs=1 and CapEff=0",
@@ -321,7 +324,7 @@ exit "$case_code"
     writeFileSync(join(artifact, "environment.json"), JSON.stringify(metadata, null, 2));
     writeFileSync(join(artifact, "native-environment.json"), JSON.stringify({ apparmor }));
     const container = `brain-kit-identity-proof-${crypto.randomUUID()}`;
-    const argv = workerIdentityDockerArgs(source, artifact, container, image, apparmor, { db: !!dbVariant, boot: !!bootVariant, prune: !!pruneVariant, inventory: !!inventoryVariant }, realpathSync(process.execPath));
+    const argv = workerIdentityDockerArgs(source, artifact, container, image, apparmor, { db: !!dbVariant, boot: !!bootVariant, prune: !!pruneVariant, inventory: !!inventoryVariant, scratch: scratchMask }, realpathSync(process.execPath));
     console.log(`Worker identity proof artifacts: ${artifact}`);
     const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const forward = (signal: NodeJS.Signals) => child.kill(signal);

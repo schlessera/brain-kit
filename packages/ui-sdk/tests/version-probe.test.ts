@@ -1,11 +1,16 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeVersionCommand, VERSION_PROBE_TIMEOUT_MS } from "../src/server/version-probe";
+import { registeredVersionDeadline } from "./helpers/registered-version-deadline";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+test("the production version probe deadline remains five seconds", () => {
+  expect(VERSION_PROBE_TIMEOUT_MS).toBe(5_000);
+});
 
 test("a completed async probe clears its deadline and retains both output streams and exit code", async () => {
   const dir = mkdtempSync(join(tmpdir(), "version-probe-"));
@@ -41,12 +46,22 @@ test("giving up on an unconfirmed probe closes readers and does not keep its hos
   const killer = join(dir, "noop");
   writeFileSync(killer, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const script = join(dir, "host.ts");
-  writeFileSync(script, `import {probeVersionCommand} from ${JSON.stringify(new URL("../src/server/version-probe.ts", import.meta.url).pathname)};\nconst r = await probeVersionCommand([${JSON.stringify(binary)}, "--version"], {cwd: ${JSON.stringify(dir)}, env: {}, exec: {wrapper: ${JSON.stringify(wrapper)}, killer: ${JSON.stringify(killer)}}});\nconsole.log(JSON.stringify(r));\n`);
+  writeFileSync(script, `import {probeVersionCommand} from ${JSON.stringify(new URL("../src/server/version-probe.ts", import.meta.url).pathname)};
+import {registeredVersionDeadline} from ${JSON.stringify(new URL("./helpers/registered-version-deadline.ts", import.meta.url).pathname)};
+const clock = registeredVersionDeadline();
+try {
+  const pending = clock.track(probeVersionCommand([${JSON.stringify(binary)}, "--version"], {cwd: ${JSON.stringify(dir)}, env: {}, exec: {wrapper: ${JSON.stringify(wrapper)}, killer: ${JSON.stringify(killer)}}}));
+  await clock.expire("version\\n");
+  const r = await pending;
+  clock.assertSettled();
+  console.log(JSON.stringify(r));
+} finally { clock.restore(); }
+`);
   const host = Bun.spawn([process.execPath, script], { stdout: "pipe", stderr: "pipe" });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const code = await Promise.race([host.exited, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 6_500); })]);
-    expect(code).toBe(0);
+    expect(code, "VERSION_PROBE_HOST_EXITS").toBe(0);
     const report = JSON.parse(await new Response(host.stdout).text());
     expect(report.timedOut).toBe(true);
     expect(report.cleanupWarnings.join(" ")).toContain("Giving up waiting");
@@ -64,7 +79,8 @@ test("exit and deadline racing settle once, with one group sweep and no unhandle
   const dir = mkdtempSync(join(tmpdir(), "version-exit-race-"));
   dirs.push(dir);
   const binary = join(dir, "version");
-  writeFileSync(binary, "#!/bin/sh\necho version\nexec sleep 5\n", { mode: 0o755 });
+  const release = join(dir, "release");
+  writeFileSync(binary, `#!/bin/sh\necho version\nwhile [ ! -e '${release}' ]; do sleep 0.01; done\n`, { mode: 0o755 });
   const wrapper = join(dir, "wrapper");
   writeFileSync(wrapper, '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
   const log = join(dir, "killer.log");
@@ -73,12 +89,33 @@ test("exit and deadline racing settle once, with one group sweep and no unhandle
   const rejected: unknown[] = [];
   const onRejected = (error: unknown) => { rejected.push(error); };
   process.on("unhandledRejection", onRejected);
+  const clock = registeredVersionDeadline();
   try {
-    const result = await probeVersionCommand([binary, "--version"], { cwd: dir, env: {}, exec: { wrapper, killer } });
+    const pending = clock.track(probeVersionCommand([binary, "--version"], { cwd: dir, env: {}, exec: { wrapper, killer } }));
+    await clock.expire("version\n", () => writeFileSync(release, "Ithaca"));
+    const result = await pending;
+    clock.assertSettled();
     expect(result.stdout).toBe("version\n");
     if (!result.timedOut) expect(result.exitCode).toBe(0);
     await Bun.sleep(100);
-    expect((await Bun.file(log).text()).trim().split("\n")).toHaveLength(1);
+    expect(existsSync(log), "VERSION_PROBE_GROUP_SWEEP_RECORDED").toBe(true);
+    expect((await Bun.file(log).text()).trim().split("\n"), "VERSION_PROBE_SINGLE_GROUP_SWEEP").toHaveLength(1);
     expect(rejected).toEqual([]);
-  } finally { process.off("unhandledRejection", onRejected); }
+  } finally { try { await clock.dispose(); } finally { process.off("unhandledRejection", onRejected); } }
+});
+
+test("a failed deadline assertion joins native work and restores complete descriptors", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "version-deadline-cleanup-")); dirs.push(dir);
+  const properties: [object, PropertyKey][] = [[globalThis, "setTimeout"], [globalThis, "clearTimeout"], [Bun, "spawn"]];
+  const before = properties.map(([object, key]) => Object.getOwnPropertyDescriptor(object, key));
+  const clock = registeredVersionDeadline();
+  let failure: unknown;
+  const pending = clock.track(probeVersionCommand(["/bin/sh", "-c", "echo version; exec sleep 8"], { cwd: dir, env: {}, exec: {} }));
+  try {
+    await clock.expire("version\n", () => { expect("deliberate failure").toBe("passing deadline assertion"); });
+  } catch (error) { failure = error; }
+  finally { await clock.dispose(); }
+  expect(String(failure)).toContain("passing deadline assertion");
+  expect((await pending).timedOut).toBe(false);
+  expect(properties.map(([object, key]) => Object.getOwnPropertyDescriptor(object, key))).toEqual(before);
 });

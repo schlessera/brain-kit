@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { parseMaintenanceGitSources, parseMaintenanceGitFailure, reportMaintenanceGitFailure } from "../src/brain/maintenance-git-source.js";
+import { collectOwnedGitAttributes, parseMaintenanceGitSources, parseMaintenanceGitFailure, reportMaintenanceGitFailure, reportOwnedGitFailure } from "../src/brain/maintenance-git-source.js";
 const entry = resolve(import.meta.dir, "../src/brain/maintenance-git-source.ts");
 const git = Bun.which("git")!;
 function fixture(run: (root: string, home: string) => void) {
@@ -69,7 +69,7 @@ test("serialized receipt and depth bounds refuse rather than omit attribute poli
   });
 });
 test("receipt parser rejects escaping, duplicate and foreign attribute records", () => {
-  const base = { rootIdentity: "1:2", repository: true, config: [], hookNames: [], attributes: [] };
+  const base = { rootIdentity: "1:2", repository: true, config: [], hookNames: [], attributes: [], withheld: [] };
   for (const paths of [["../.gitattributes"], [".gitattributes", ".gitattributes"], [".git/config"]]) {
     expect(() => parseMaintenanceGitSources(JSON.stringify({ ...base, attributes: paths.map(path => ({ path, data: "" })) }), 4096, "1:2")).toThrow();
   }
@@ -132,4 +132,84 @@ test("collector refusal uses injected structured logging without forwarding untr
     "maintenance.git.phase": "unknown", "maintenance.git.errorClass": "unknown", "maintenance.git.errno": "unknown" });
   expect(JSON.stringify(logs.records())).not.toContain("Odysseus hidden worker stderr");
   reportMaintenanceGitFailure(undefined, { exitCode: 1, stderr: "" });
+});
+
+const stampOf = (path: string) => { const info = lstatSync(path); return `${info.dev}:${info.ino}:${info.mode}:${info.nlink}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`; };
+const owned = (root: string, withheld: { path: string; stamp: string }[], attributes: { path: string; data: string }[] = [], maximum = 1024 ** 2) => {
+  const info = lstatSync(root), rootIdentity = `${info.dev}:${info.ino}`;
+  return collectOwnedGitAttributes(root, { rootIdentity, repository: true, config: [], hookNames: [], attributes, withheld }, maximum, rootIdentity);
+};
+test("an unsearchable directory is withheld for its owner, never entered or treated as absent policy", () => fixture((root, home) => {
+  if (process.geteuid?.() === 0) return; // Root bypasses the permission this control needs.
+  mkdirSync(join(root, "private/nested"), { recursive: true });
+  writeFileSync(join(root, "private/nested/.gitattributes"), "*.md odysseus=ithaca\n");
+  chmodSync(join(root, "private"), 0);
+  try {
+    const result = collect(root, home); expect(result.code, result.error).toBe(0);
+    const answer = parseMaintenanceGitSources(result.output, 1024 ** 2, result.identity);
+    expect(answer.attributes, "WORKER_NEVER_ENTERS_WITHHELD_DIRECTORY").toEqual([]);
+    expect(answer.withheld, "UNSEARCHABLE_DIRECTORY_WITHHELD_WITH_OBSERVED_IDENTITY").toEqual([{ path: "private", stamp: stampOf(join(root, "private")) }]);
+  } finally { chmodSync(join(root, "private"), 0o700); }
+}));
+test("the owner reads only nested attributes below the exact withheld directory", () => fixture(root => {
+  mkdirSync(join(root, "private/nested/node_modules"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(root, "private/.gitattributes"), "*.md odysseus=ithaca\n", { mode: 0o600 });
+  writeFileSync(join(root, "private/nested/.gitattributes"), "*.txt penelope=loom\n", { mode: 0o600 });
+  writeFileSync(join(root, "private/nested/node_modules/.gitattributes"), "*.js ignored=yes\n", { mode: 0o600 });
+  writeFileSync(join(root, "private/result.md"), "Odysseus private voyage\n", { mode: 0o600 });
+  const answer = owned(root, [{ path: "private", stamp: stampOf(join(root, "private")) }], [{ path: ".gitattributes", data: "* text\n" }]);
+  expect(answer.withheld).toEqual([]);
+  expect(answer.attributes, "OWNER_READS_ONLY_WITHHELD_ATTRIBUTES").toEqual([{ path: ".gitattributes", data: "* text\n" },
+    { path: "private/.gitattributes", data: "*.md odysseus=ithaca\n" }, { path: "private/nested/.gitattributes", data: "*.txt penelope=loom\n" }]);
+  expect(JSON.stringify(answer)).not.toContain("Odysseus private voyage");
+  expect(lstatSync(join(root, "private")).mode & 0o777, "OWNER_READ_PRESERVES_PRIVATE_MODES").toBe(0o700);
+  expect(() => parseMaintenanceGitSources(JSON.stringify(answer), 1024 ** 2, answer.rootIdentity)).not.toThrow();
+}));
+test("the owner read refuses replaced identities, aliases, foreign roots and bound overflow", () => {
+  const cases = ["replaced", "directory-alias", "ancestor-alias", "attribute-alias", "attribute-hardlink", "foreign-root", "bound"] as const;
+  for (const kind of cases) fixture((root, home) => {
+    const secret = join(home, "server-secret"); writeFileSync(secret, "Odysseus private server sentinel", { mode: 0o600 });
+    mkdirSync(join(root, "outer/private"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(root, "outer/private/.gitattributes"), "*.md odysseus=ithaca\n", { mode: 0o600 });
+    let path = "outer/private", stamp = stampOf(join(root, path));
+    if (kind === "replaced") { rmSync(join(root, path), { recursive: true }); mkdirSync(join(root, path), { mode: 0o700 }); }
+    if (kind === "directory-alias") { symlinkSync(join(root, path), join(root, "alias")); path = "alias"; stamp = stampOf(join(root, "alias")); }
+    if (kind === "ancestor-alias") { symlinkSync(join(root, "outer"), join(root, "link")); path = "link/private"; }
+    if (kind === "attribute-alias") { rmSync(join(root, path, ".gitattributes")); symlinkSync(secret, join(root, path, ".gitattributes")); stamp = stampOf(join(root, path)); }
+    if (kind === "attribute-hardlink") { rmSync(join(root, path, ".gitattributes")); linkSync(secret, join(root, path, ".gitattributes")); stamp = stampOf(join(root, path)); }
+    let failure: unknown;
+    try {
+      if (kind === "foreign-root") {
+        const info = lstatSync(home), foreign = `${info.dev}:${info.ino}`;
+        collectOwnedGitAttributes(home, { rootIdentity: foreign, repository: true, config: [], hookNames: [], attributes: [], withheld: [{ path, stamp }] }, 1024 ** 2, lstatSync(root).dev + ":" + lstatSync(root).ino);
+      } else owned(root, [{ path, stamp }], [], kind === "bound" ? 200 : 1024 ** 2);
+    } catch (error) { failure = error; }
+    expect(failure, `OWNER_READ_REFUSES_${kind}`).toBeInstanceOf(Error);
+    expect(String(failure), kind).toContain("Concrete Git source collection refused");
+    expect(JSON.stringify((failure as { diagnostic?: unknown }).diagnostic ?? null), kind).not.toContain("Odysseus private server sentinel");
+  });
+});
+test("the receipt parser refuses withheld paths that escape, nest or carry malformed identities", () => {
+  const base = { rootIdentity: "1:2", repository: true, config: [], hookNames: [], attributes: [] as { path: string; data: string }[] };
+  const stamp = "1:3:16832:2:0:1792657436952.9451:1792657436952";
+  expect(parseMaintenanceGitSources(JSON.stringify({ ...base, withheld: [{ path: ".brain/scratch/private", stamp }] }), 4096, "1:2").withheld).toHaveLength(1);
+  for (const [withheld, attributes] of [
+    [[{ path: "../private", stamp }], []], [[{ path: ".git/hooks", stamp }], []], [[{ path: "private", stamp: "odysseus" }], []],
+    [[{ path: "private", stamp }, { path: "private/nested", stamp }], []], [[{ path: "private", stamp }], [{ path: "private/.gitattributes", data: "" }]],
+    [[{ path: "private", stamp, extra: true }], []], [[{ path: "private", stamp }, { path: "private", stamp }], []],
+  ] as const) expect(() => parseMaintenanceGitSources(JSON.stringify({ ...base, attributes, withheld }), 4096, "1:2"), JSON.stringify(withheld)).toThrow();
+  expect(() => parseMaintenanceGitSources(JSON.stringify({ ...base, repository: false, attributes: [], config: [], withheld: [{ path: "private", stamp }] }), 4096, "1:2")).toThrow();
+});
+
+test("owner-read refusal reaches the injected logger with only fixed topology fields", async () => {
+  const { createRecordingLoggerProvider } = await import("../src/observability/loggers.js");
+  const logs = createRecordingLoggerProvider(), log = logs.getLogger("maintenance");
+  fixture(root => {
+    mkdirSync(join(root, "private"), { mode: 0o700 });
+    try { owned(root, [{ path: "private", stamp: "0:0:0:0:0:0:0" }]); } catch (error) { reportOwnedGitFailure(log, error); }
+  });
+  const info = { uid: process.getuid!(), gid: process.getgid!() };
+  expect(logs.records().map(row => [row.body, row.attributes]), "OWNER_READ_REFUSAL_IS_REPORTED").toEqual([["maintenance Git owner input refused", {
+    "maintenance.git.phase": "owner", "maintenance.git.errorClass": "Error", "maintenance.git.errno": "unknown", "maintenance.git.rootClass": "private",
+    "maintenance.git.depth": 1, "maintenance.git.uid": info.uid, "maintenance.git.gid": info.gid, "maintenance.git.mode": 0o700, "maintenance.git.type": "directory" }]]);
 });

@@ -1,0 +1,990 @@
+{
+  "study": "continuity retained native observation horizons",
+  "date": "2026-10-22",
+  "issues": [
+    "https://github.com/schlessera/brain-kit/issues/2627",
+    "https://github.com/schlessera/brain-kit/issues/2628",
+    "https://github.com/schlessera/brain-kit/issues/2629"
+  ],
+  "source": {
+    "base": "444174de82ee1e2e41e26aa5c032841e7981ec15",
+    "runtime": {
+      "bun": "1.4.2",
+      "platform": "linux",
+      "architecture": "x64",
+      "chrome": "140.0.7339.127",
+      "playwright": "1.63.0",
+      "react": "19.3.0",
+      "zustand": "5.0.15"
+    },
+    "resources": {
+      "logicalCpus": 32,
+      "totalMemoryBytes": 50511130624,
+      "loadControlled": false,
+      "sameHostForPair": true
+    },
+    "inputSha256": {
+      "bun.lock": "5bbd5f6651f111db3fcfabeda512d44a21163cba54c58993f8878012d548cc14",
+      "scripts/test.ts": "7a9505662f2129f920d090ee09023b3cad6b968d542bff58eafcc0e50c7c1682",
+      "scripts/test-offline.sh": "8eaea79a4ad0d0132218b94abd17e2f495fd920a1c2f309d0674c06bf061b7b6",
+      "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "c01abb1cbc801fc09adf9d23f709696270202cf3dd699da97e0a9b15384e0527",
+      "packages/ui-react/tests/fixtures/runtime-package-build.ts": "2a8a9f5376b7c0179e579642fb72b0a7ed855e3372f54b00e4f88fc7bc45777a",
+      "packages/ui-react/src/root.ts": "2a6f639cc21ced39bccb9e201549b147c90be5eac68440a16e505378ade17c14",
+      "packages/ui-react/src/lib/local-work.ts": "6999cb6c77fb6f9da500bf72377c790fce2cc43734d87a1da746a4ff3d1f34bc",
+      "packages/ui-react/src/lib/draft-client.ts": "19a81c2d7f35374f61cc69e090c914c284b84e9d8f5e9da69c233af2fc067da1",
+      "packages/ui-react/src/lib/track-uploads.ts": "c21f8d1492936aefd3fdd138d36708616649e3ddba53e1c0aff3e35f1bb7e4c0",
+      "packages/ui-react/src/components/chat/composer.tsx": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "packages/ui-react/src/components/chat/chat-page.tsx": "0c0f7b5ad1cc6664228cbc17a733b251038742f1d93d34ccfdab4e10b483925e",
+      "packages/ui-react/src/hooks/websocket-handlers/chat.ts": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d",
+      "packages/ui-react/src/lib/local-partitions.ts": "5f185df6bf65462fd71ead0e0c64cc55a9a5eb1757f8c928c94944bc9549a4ec",
+      "node_modules/react-dom/cjs/react-dom-client.development.js": "c10b5e5ad37ca22c88b58bf4ada9a3b655ab79934c0b5cc6bad26f42c774584f",
+      "node_modules/react-dom/cjs/react-dom-client.production.js": "8a8147c1cebdb19d82fd11bdb76391be9b20d00edf67cc8e8b30f44e850ce693"
+    },
+    "testFile": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+    "untouchedTestSha256": "8223505b99d799d41b5dc43a5d38632556816f0aacc6ff411cdbce1ea99e688a",
+    "instrumentedBeforeTestSha256": "76432b89a7a434f8a1f795f7499ace7f0dc1056361e8ee9674c4ce5d2f4cb00a",
+    "afterTestSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+    "baselineReconstruction": "Use the final test source with only imeStart and imeCommit budgets changed from 1_000 to 500; all measurement code and assertion/case definitions are identical. The untouched original is the test file at base.",
+    "productionRestoredByteIdentically": true
+  },
+  "preserved": {
+    "originalExpectSites": 87,
+    "originalTestDefinitions": 7,
+    "executedCases": 15,
+    "assertionExecutionsPerFullFile": 1876,
+    "widths": [
+      320,
+      1280
+    ],
+    "themes": [
+      "dark",
+      "light"
+    ],
+    "tenDropCyclesPerWidth": 10,
+    "imeDropCyclesPerWidth": 2,
+    "snapshotCasesAt320": 3,
+    "allOriginalExpectCallTextsAndTestTitlesByteIdentical": true,
+    "cleanupUnchanged": true,
+    "nativeConnectivityChecksUnchanged": true,
+    "postWindowTwoFramesUnchanged": true
+  },
+  "guards": {
+    "launcher": "scripts/test-offline.sh",
+    "BRAIN_REQUIRE_CHROME": "1",
+    "bunPreloadEnabled": true,
+    "browserOriginGuardsEnabled": true,
+    "freshUserAndNetworkNamespaces": true,
+    "loopbackAndDummyOnly": true,
+    "ipv4AndIpv6MainRoutesEmpty": true,
+    "allFiveCapabilitySetsZero": true,
+    "navigatorOrCompositionOverrides": false,
+    "exclusiveBtrfsFixtureLockUsed": false
+  },
+  "commands": {
+    "matchedPair": "BRAIN_REQUIRE_CHROME=1 scripts/test-offline.sh -- bun run test ./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+    "timing": "/usr/bin/time -v around the exact matched command; sequential on the same host, without the exclusive native lock",
+    "mutationSelection": "each mutation uses the same launcher/test preload and its recorded -t pattern"
+  },
+  "nativeHorizons": {
+    "sceneScroll": {
+      "durationMs": 500,
+      "basisMs": 250,
+      "marginMs": 250,
+      "calls": 10,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "device-context changed() schedules native locks/IndexedDB work after 250ms; quiet scene does not exercise continuous-edit 2000ms coalescing",
+      "failureMode": "late native scroll-context adoption moves scrollTop after first wheel frame and host Saved",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    },
+    "sceneDrop": {
+      "durationMs": 500,
+      "basisMs": 250,
+      "marginMs": 250,
+      "calls": 30,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "device-context changed() schedules native locks/IndexedDB work after 250ms; quiet scene does not exercise continuous-edit 2000ms coalescing",
+      "failureMode": "native abort/offline reactions later blur, send, fail the paused upload or replace/move the scene",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    },
+    "sceneRecovery": {
+      "durationMs": 500,
+      "basisMs": 250,
+      "marginMs": 250,
+      "calls": 30,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "device-context changed() schedules native locks/IndexedDB work after 250ms; quiet scene does not exercise continuous-edit 2000ms coalescing",
+      "failureMode": "native reconnect/draft/track reconciliation later blurs, sends or replaces retained content after protocol status/replay",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    },
+    "recoveredTurn": {
+      "durationMs": 500,
+      "basisMs": 250,
+      "marginMs": 250,
+      "calls": 10,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "device-context changed() schedules native locks/IndexedDB work after 250ms; quiet scene does not exercise continuous-edit 2000ms coalescing",
+      "failureMode": "late native adoption/React commit replaces answer, loses queued reply or restores consumed pill after terminal text/status",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    },
+    "releasedSnapshot": {
+      "durationMs": 500,
+      "basisMs": 250,
+      "marginMs": 250,
+      "calls": 3,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "device-context changed() schedules native locks/IndexedDB work after 250ms; quiet scene does not exercise continuous-edit 2000ms coalescing",
+      "failureMode": "delayed snapshot/status/device reconciliation terminates current live turn or moves focus/selection",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    },
+    "imeStart": {
+      "durationMs": 1000,
+      "basisMs": 800,
+      "marginMs": 200,
+      "calls": 2,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "host draft save schedule at default 800ms; device write at 250ms runs in parallel",
+      "failureMode": "a draft-save/native device reaction forces composition end or blur after CDP composition return",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    },
+    "imeCommit": {
+      "durationMs": 1000,
+      "basisMs": 800,
+      "marginMs": 200,
+      "calls": 2,
+      "resolution": "retained-native-horizon",
+      "executionTier": "required affected native runtime in normal unit discovery; explicit ready-candidate and main proof; draft cheap gates unchanged",
+      "operationalBasis": "host draft save schedule at default 800ms; device write at 250ms runs in parallel",
+      "failureMode": "a post-commit save/native device reaction blurs, adds an end event or moves the committed caret",
+      "completionLimit": "native input/protocol receipt and quiet geometry do not complete separate browser lock/IndexedDB work; fake JS timer progress alone cannot advance that native work; horizon is an opportunity, not an arbitrary IO drain"
+    }
+  },
+  "perIssue": {
+    "2627": {
+      "sites": [
+        "sceneDrop",
+        "sceneRecovery"
+      ],
+      "originalWindows": 60,
+      "replacedWindows": 0,
+      "retainedWindows": 60,
+      "mutationControls": [
+        "drop-blur",
+        "recovery-blur",
+        "drop-upload-failure"
+      ],
+      "timing": {
+        "before": {
+          "calls": 60,
+          "requestedWindowMs": 30000,
+          "observedWindowMs": 30923.661,
+          "postWindowFrameMs": 1694.021,
+          "targetCases": 10,
+          "summedTargetCaseBodyMs": 366879.67,
+          "wholeCommandMs": 466610.0,
+          "wholeCommandScope": "shared full-file command, not an isolated per-issue command"
+        },
+        "after": {
+          "calls": 60,
+          "requestedWindowMs": 30000,
+          "observedWindowMs": 30640.592,
+          "postWindowFrameMs": 1813.011,
+          "targetCases": 10,
+          "summedTargetCaseBodyMs": 365885.06,
+          "wholeCommandMs": 468960.0,
+          "wholeCommandScope": "shared full-file command, not an isolated per-issue command"
+        }
+      }
+    },
+    "2628": {
+      "sites": [
+        "sceneScroll",
+        "imeStart",
+        "imeCommit"
+      ],
+      "originalWindows": 14,
+      "replacedWindows": 0,
+      "retainedWindows": 14,
+      "mutationControls": [
+        "wheel-late-scroll",
+        "ime-start-late-blur",
+        "ime-commit-original-horizon-control",
+        "ime-commit-late-blur"
+      ],
+      "timing": {
+        "before": {
+          "calls": 14,
+          "requestedWindowMs": 7000,
+          "observedWindowMs": 7018.433,
+          "postWindowFrameMs": 415.25,
+          "targetCases": 10,
+          "summedTargetCaseBodyMs": 366879.67,
+          "wholeCommandMs": 466610.0,
+          "wholeCommandScope": "shared full-file command, not an isolated per-issue command"
+        },
+        "after": {
+          "calls": 14,
+          "requestedWindowMs": 9000,
+          "observedWindowMs": 9007.192,
+          "postWindowFrameMs": 429.131,
+          "targetCases": 10,
+          "summedTargetCaseBodyMs": 365885.06,
+          "wholeCommandMs": 468960.0,
+          "wholeCommandScope": "shared full-file command, not an isolated per-issue command"
+        }
+      }
+    },
+    "2629": {
+      "sites": [
+        "recoveredTurn",
+        "releasedSnapshot"
+      ],
+      "originalWindows": 13,
+      "replacedWindows": 0,
+      "retainedWindows": 13,
+      "mutationControls": [
+        "terminal-late-answer-replacement",
+        "snapshot-late-termination"
+      ],
+      "timing": {
+        "before": {
+          "calls": 13,
+          "requestedWindowMs": 6500,
+          "observedWindowMs": 6525.551,
+          "postWindowFrameMs": 192.557,
+          "targetCases": 13,
+          "summedTargetCaseBodyMs": 407495.78,
+          "wholeCommandMs": 466610.0,
+          "wholeCommandScope": "shared full-file command, not an isolated per-issue command"
+        },
+        "after": {
+          "calls": 13,
+          "requestedWindowMs": 6500,
+          "observedWindowMs": 6517.539,
+          "postWindowFrameMs": 188.614,
+          "targetCases": 13,
+          "summedTargetCaseBodyMs": 407752.8,
+          "wholeCommandMs": 468960.0,
+          "wholeCommandScope": "shared full-file command, not an isolated per-issue command"
+        }
+      }
+    }
+  },
+  "measurements": {
+    "before": {
+      "passed": 15,
+      "failed": 0,
+      "assertions": 1876,
+      "skips": 0,
+      "exitCode": 0,
+      "commandMs": 466610.0,
+      "fileRunnerMs": 414640.0,
+      "testBodyMs": 408326.74,
+      "fileHooksAndRunnerRemainderMs": 6313.26,
+      "sharedInvocationBuildMs": 51659.045709,
+      "commandMinusFileAndBuildMs": 310.954,
+      "cpuUserSeconds": 118.77,
+      "cpuSystemSeconds": 22.63,
+      "peakRssKiB": 1295780,
+      "waitMetrics": {
+        "renderCalls": 55,
+        "renderMs": 5245.629606000005,
+        "observationCalls": 87,
+        "observationMs": 44467.64509900014,
+        "retainedFrameCalls": 87,
+        "retainedFrameMs": 2301.8283609997725,
+        "pollCalls": 15,
+        "pollMs": 1115.91964800001,
+        "sites": {
+          "sceneScroll": {
+            "calls": 10,
+            "requestedMs": 5000,
+            "observationMs": 5013.603868000004,
+            "frameMs": 310.98382200001834
+          },
+          "sceneDrop": {
+            "calls": 30,
+            "requestedMs": 15000,
+            "observationMs": 15220.652601999955,
+            "frameMs": 826.2988169998971
+          },
+          "sceneRecovery": {
+            "calls": 30,
+            "requestedMs": 15000,
+            "observationMs": 15703.00880500014,
+            "frameMs": 867.7224539998933
+          },
+          "recoveredTurn": {
+            "calls": 10,
+            "requestedMs": 5000,
+            "observationMs": 5023.463967000058,
+            "frameMs": 93.4413289999502
+          },
+          "releasedSnapshot": {
+            "calls": 3,
+            "requestedMs": 1500,
+            "observationMs": 1502.086634999985,
+            "frameMs": 99.11607799999183
+          },
+          "imeStart": {
+            "calls": 2,
+            "requestedMs": 1000,
+            "observationMs": 1000.8147129999998,
+            "frameMs": 56.69967200004612
+          },
+          "imeCommit": {
+            "calls": 2,
+            "requestedMs": 1000,
+            "observationMs": 1004.0145090000005,
+            "frameMs": 47.566188999975566
+          }
+        }
+      },
+      "cases": [
+        {
+          "name": "320 phone, dark: a stale late history read retains the settled queued reply",
+          "bodyMs": 19161.93
+        },
+        {
+          "name": "320 phone, dark: a fresh late history read retains the settled queued reply",
+          "bodyMs": 19974.02
+        },
+        {
+          "name": "1280 desktop, light: a stale late history read retains the settled queued reply",
+          "bodyMs": 19975.97
+        },
+        {
+          "name": "1280 desktop, light: a fresh late history read retains the settled queued reply",
+          "bodyMs": 19913.34
+        },
+        {
+          "name": "failed native scene preparation closes its browser context",
+          "bodyMs": 464.35
+        },
+        {
+          "name": "render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 366.61
+        },
+        {
+          "name": "single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 14011.19
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 14497.74
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 12107.18
+        },
+        {
+          "name": "320 phone, dark: progress missed during the outage rejoins the original answer",
+          "bodyMs": 18059.92
+        },
+        {
+          "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "bodyMs": 96694.51
+        },
+        {
+          "name": "320 phone, dark: an IME composition started before a drop is still active after two drops and commits normally",
+          "bodyMs": 27868.89
+        },
+        {
+          "name": "1280 desktop, light: progress missed during the outage rejoins the original answer",
+          "bodyMs": 18583.39
+        },
+        {
+          "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "bodyMs": 97904.38
+        },
+        {
+          "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+          "bodyMs": 28743.32
+        }
+      ],
+      "logSha256": "254eeddf38074c0a5c0dc66aa1a2163461be6c2597f02ec78a1c18051f54fa4e",
+      "timeReceiptSha256": "d3eb51781b1c58387463308e58e624c86d02985ed905a0f14d7a3db7bd6a0ffe"
+    },
+    "after": {
+      "passed": 15,
+      "failed": 0,
+      "assertions": 1876,
+      "skips": 0,
+      "exitCode": 0,
+      "commandMs": 468960.0,
+      "fileRunnerMs": 414350.0,
+      "testBodyMs": 408500.09,
+      "fileHooksAndRunnerRemainderMs": 5849.91,
+      "sharedInvocationBuildMs": 54167.812273,
+      "commandMinusFileAndBuildMs": 442.188,
+      "cpuUserSeconds": 123.25,
+      "cpuSystemSeconds": 23.57,
+      "peakRssKiB": 1257388,
+      "waitMetrics": {
+        "renderCalls": 55,
+        "renderMs": 5428.810802000065,
+        "observationCalls": 87,
+        "observationMs": 46165.32267999984,
+        "retainedFrameCalls": 87,
+        "retainedFrameMs": 2430.7562620000426,
+        "pollCalls": 9,
+        "pollMs": 420.713173000011,
+        "sites": {
+          "sceneScroll": {
+            "calls": 10,
+            "requestedMs": 5000,
+            "observationMs": 5005.404805,
+            "frameMs": 319.8266640000111
+          },
+          "sceneDrop": {
+            "calls": 30,
+            "requestedMs": 15000,
+            "observationMs": 15098.657027999921,
+            "frameMs": 736.5797880000064
+          },
+          "sceneRecovery": {
+            "calls": 30,
+            "requestedMs": 15000,
+            "observationMs": 15541.934692000028,
+            "frameMs": 1076.4308220000385
+          },
+          "recoveredTurn": {
+            "calls": 10,
+            "requestedMs": 5000,
+            "observationMs": 5015.973267999903,
+            "frameMs": 122.29757199996311
+          },
+          "releasedSnapshot": {
+            "calls": 3,
+            "requestedMs": 1500,
+            "observationMs": 1501.566028000001,
+            "frameMs": 66.31658400000015
+          },
+          "imeStart": {
+            "calls": 2,
+            "requestedMs": 2000,
+            "observationMs": 2000.87060200001,
+            "frameMs": 55.15755799997714
+          },
+          "imeCommit": {
+            "calls": 2,
+            "requestedMs": 2000,
+            "observationMs": 2000.9162569999753,
+            "frameMs": 54.14727400004631
+          }
+        }
+      },
+      "cases": [
+        {
+          "name": "320 phone, dark: a stale late history read retains the settled queued reply",
+          "bodyMs": 18806.02
+        },
+        {
+          "name": "320 phone, dark: a fresh late history read retains the settled queued reply",
+          "bodyMs": 18518.51
+        },
+        {
+          "name": "1280 desktop, light: a stale late history read retains the settled queued reply",
+          "bodyMs": 18897.9
+        },
+        {
+          "name": "1280 desktop, light: a fresh late history read retains the settled queued reply",
+          "bodyMs": 20161.44
+        },
+        {
+          "name": "failed native scene preparation closes its browser context",
+          "bodyMs": 388.43
+        },
+        {
+          "name": "render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 358.86
+        },
+        {
+          "name": "single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 14566.34
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 15161.94
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 12139.46
+        },
+        {
+          "name": "320 phone, dark: progress missed during the outage rejoins the original answer",
+          "bodyMs": 18249.28
+        },
+        {
+          "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "bodyMs": 96063.1
+        },
+        {
+          "name": "320 phone, dark: an IME composition started before a drop is still active after two drops and commits normally",
+          "bodyMs": 28364.71
+        },
+        {
+          "name": "1280 desktop, light: progress missed during the outage rejoins the original answer",
+          "bodyMs": 18405.98
+        },
+        {
+          "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "bodyMs": 99004.65
+        },
+        {
+          "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+          "bodyMs": 29413.47
+        }
+      ],
+      "logSha256": "6200303a39ef9bf0366be51400ddf5597c5b671f9a2dc769977e9090d623a831",
+      "timeReceiptSha256": "7d3b4254347288d71c480e864710e6abf27fb17e5f1729f12855e30467321908"
+    },
+    "untouchedControl": {
+      "passed": 15,
+      "failed": 0,
+      "assertions": 1876,
+      "skips": 0,
+      "exitCode": 0,
+      "commandMs": 472750.0,
+      "fileRunnerMs": 418580.0,
+      "testBodyMs": 412416.39,
+      "fileHooksAndRunnerRemainderMs": 6163.61,
+      "sharedInvocationBuildMs": 53817.582725,
+      "commandMinusFileAndBuildMs": 352.417,
+      "cpuUserSeconds": 126.42,
+      "cpuSystemSeconds": 24.62,
+      "peakRssKiB": 1282356,
+      "waitMetrics": {
+        "renderCalls": 55,
+        "renderMs": 4920.32885599996,
+        "observationCalls": 87,
+        "observationMs": 44229.01729400016,
+        "retainedFrameCalls": 87,
+        "retainedFrameMs": 2215.5844689999085,
+        "pollCalls": 15,
+        "pollMs": 1047.910151000062
+      },
+      "cases": [
+        {
+          "name": "320 phone, dark: a stale late history read retains the settled queued reply",
+          "bodyMs": 18946.53
+        },
+        {
+          "name": "320 phone, dark: a fresh late history read retains the settled queued reply",
+          "bodyMs": 19519.76
+        },
+        {
+          "name": "1280 desktop, light: a stale late history read retains the settled queued reply",
+          "bodyMs": 20100.96
+        },
+        {
+          "name": "1280 desktop, light: a fresh late history read retains the settled queued reply",
+          "bodyMs": 19922.74
+        },
+        {
+          "name": "failed native scene preparation closes its browser context",
+          "bodyMs": 473.43
+        },
+        {
+          "name": "render readiness waits for a finite entrance even when its initial geometry is quiet",
+          "bodyMs": 361.59
+        },
+        {
+          "name": "single running session: a captured empty history snapshot cannot end a newer turn",
+          "bodyMs": 14263.17
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end a newer turn",
+          "bodyMs": 14496.74
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end its quiet turn",
+          "bodyMs": 11883.48
+        },
+        {
+          "name": "320 phone, dark: progress missed during the outage rejoins the original answer",
+          "bodyMs": 17866.46
+        },
+        {
+          "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "bodyMs": 97458.15
+        },
+        {
+          "name": "320 phone, dark: an IME composition started before a drop is still active after two drops and commits normally",
+          "bodyMs": 28764.25
+        },
+        {
+          "name": "1280 desktop, light: progress missed during the outage rejoins the original answer",
+          "bodyMs": 18835.69
+        },
+        {
+          "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "bodyMs": 100147.8
+        },
+        {
+          "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+          "bodyMs": 29375.64
+        }
+      ],
+      "logSha256": "57d3e7583f486b5dd3e8d0ba260ce3b83c4dbf5e6673bc2295247829e5ea3623",
+      "timeReceiptSha256": "782220e8bff1396e22ed0a33be7dba1688040136eb34cc2dad7a0537de69450a"
+    }
+  },
+  "controls": [
+    {
+      "name": "drop-blur",
+      "issue": 2627,
+      "file": "packages/ui-react/src/components/chat/composer.tsx",
+      "originalSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "mutatedSha256": "c640dcc59439fa6e25ae547f17f8806433c875c9c1373dcb0f1ae6cd68f1b351",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "    const changed = () => trackUploads.setOnline(wsStatus === \"connected\" && navigator.onLine !== false);",
+      "replacement": "    const changed = () => trackUploads.setOnline(wsStatus === \"connected\" && navigator.onLine !== false);\n    if (wsStatus !== \"connected\" && trackUploads.files.length) setTimeout(() => frameRef.current?.querySelector(\"textarea\")?.blur(), 300);",
+      "pattern": "320 phone, dark: ten drops",
+      "expectedAssertion": "cycle 1, offline: the textarea keeps focus",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 68874.78298899987,
+      "logSha256": "012d3895e97c93ead6a9ab37e763b8415cdbc898fe8eb9efd774a371fe7770ff",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "assertionDiagnostic": "error: cycle 1, offline: the textarea keeps focus\n\nExpected: true\nReceived: false",
+      "selectedCases": 1,
+      "assertionsExecuted": 39,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: ten drops"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "recovery-blur",
+      "issue": 2627,
+      "file": "packages/ui-react/src/components/chat/composer.tsx",
+      "originalSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "mutatedSha256": "0776cbe3bfcc73fc6f71813a974a703c9e791da51d277156937cad7f55112e92",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "    const changed = () => trackUploads.setOnline(wsStatus === \"connected\" && navigator.onLine !== false);",
+      "replacement": "    const changed = () => trackUploads.setOnline(wsStatus === \"connected\" && navigator.onLine !== false);\n    if (wsStatus === \"connected\" && trackUploads.files.length) setTimeout(() => frameRef.current?.querySelector(\"textarea\")?.blur(), 300);",
+      "pattern": "320 phone, dark: ten drops",
+      "expectedAssertion": "cycle 1, queue report still delayed: the textarea keeps focus",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 69606.32673600048,
+      "logSha256": "c51805e2a14e6d55fec96d3abf4bf4ffd472db025927046ed25b7eb4ed8ad8b3",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "assertionDiagnostic": "error: cycle 1, queue report still delayed: the textarea keeps focus\n\nExpected: true\nReceived: false",
+      "selectedCases": 1,
+      "assertionsExecuted": 59,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: ten drops"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "drop-upload-failure",
+      "issue": 2627,
+      "file": "packages/ui-react/src/lib/track-uploads.ts",
+      "originalSha256": "c21f8d1492936aefd3fdd138d36708616649e3ddba53e1c0aff3e35f1bb7e4c0",
+      "mutatedSha256": "62812f4e8b8e81bb5d35525e90bc627ca9c28a09edff028a831d6e4406c5b37d",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "      notify(); pump();\n    },\n    dispose()",
+      "replacement": "      if (!value) setTimeout(() => { for (const file of files) update(file.id, { state: \"failed\", error: \"Upload failed\" }); }, 300);\n      notify(); pump();\n    },\n    dispose()",
+      "pattern": "320 phone, dark: ten drops",
+      "expectedAssertion": "cycle 1: the upload waits rather than failing",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 70469.72798199931,
+      "logSha256": "6f64b93bd39e32f1d3d5f7f8259203af00fa975a4432bdf7072af44cdb9a4044",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "c21f8d1492936aefd3fdd138d36708616649e3ddba53e1c0aff3e35f1bb7e4c0",
+      "assertionDiagnostic": "error: cycle 1: the upload waits rather than failing\n\nExpected to contain: \"waiting for connection\"\nReceived: \"ithaca-to-pylos-coastal-route-day-3.geojson, track file track, 202 B, Upload failed\"",
+      "selectedCases": 1,
+      "assertionsExecuted": 44,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: ten drops"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "wheel-late-scroll",
+      "issue": 2628,
+      "file": "packages/ui-react/src/components/chat/chat-page.tsx",
+      "originalSha256": "0c0f7b5ad1cc6664228cbc17a733b251038742f1d93d34ccfdab4e10b483925e",
+      "mutatedSha256": "77f74dd4083266a89df63d6a7013848bd876e0cd2eea3d497960d4227f81e439",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "    el.addEventListener(\"scroll\", handleScroll, { passive: true });",
+      "replacement": "    el.addEventListener(\"wheel\", () => { setTimeout(() => { el.scrollTop = 0; }, 300); }, { once: true, passive: true });\n    el.addEventListener(\"scroll\", handleScroll, { passive: true });",
+      "pattern": "320 phone, dark: a stale late history",
+      "expectedAssertion": "scrolled away from the top",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 63723.192696001206,
+      "logSha256": "c5893d7540cf45d654bd8a787cd0b4ff251bf1f79e48c8ed5babaa9193732088",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "0c0f7b5ad1cc6664228cbc17a733b251038742f1d93d34ccfdab4e10b483925e",
+      "assertionDiagnostic": "error: scrolled away from the top\n\nExpected: > 100\nReceived: 0",
+      "selectedCases": 1,
+      "assertionsExecuted": 5,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: a stale late history"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "ime-start-late-blur",
+      "issue": 2628,
+      "file": "packages/ui-react/src/components/chat/composer.tsx",
+      "originalSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "mutatedSha256": "0bf40fe5979a831938b15abf54e82a0d3002c6129a5a0747bed0303b3a314984",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "    store.edit(draftId, sessionId, { text: typeof value === \"function\" ? value(current) : value });",
+      "replacement": "    store.edit(draftId, sessionId, { text: typeof value === \"function\" ? value(current) : value });\n    if (typeof value === \"string\" && value.includes(\"ἰθάκ\")) setTimeout(() => frameRef.current?.querySelector(\"textarea\")?.blur(), 300);",
+      "pattern": "320 phone, dark: an IME composition",
+      "expectedAssertion": "a composition is open",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 64012.50560599874,
+      "logSha256": "09b4d55ab34390e7ee8bee541451a53126bae7038a21d7719571d02c005aaa28",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "assertionDiagnostic": "error: a composition is open\n\n  [\n    \"compositionstart\",\n+   \"compositionend\",\n+   \"blur\",\n+   \"focusout\",\n  ]\n\n- Expected  - 0\n+ Received  + 3",
+      "selectedCases": 1,
+      "assertionsExecuted": 8,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: an IME composition"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "ime-commit-original-horizon-control",
+      "issue": 2628,
+      "file": "packages/ui-react/src/components/chat/composer.tsx",
+      "originalSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "mutatedSha256": "9a1dbf70a1536425b9700bd76bc8d374d9da897424b94fa8f175302d13851178",
+      "testSha256": "76432b89a7a434f8a1f795f7499ace7f0dc1056361e8ee9674c4ce5d2f4cb00a",
+      "needle": "    store.edit(draftId, sessionId, { text: typeof value === \"function\" ? value(current) : value });",
+      "replacement": "    store.edit(draftId, sessionId, { text: typeof value === \"function\" ? value(current) : value });\n    if (typeof value === \"string\" && value.includes(\"Ἰθάκη\")) setTimeout(() => frameRef.current?.querySelector(\"textarea\")?.blur(), 850);",
+      "pattern": "320 phone, dark: an IME composition",
+      "expectedAssertion": null,
+      "expectedExit": 0,
+      "exitCode": 0,
+      "commandMs": 84692.39653800105,
+      "logSha256": "6290daba99c143c91ba922e85eb1e78329d575a538f86fe9a04de0660842c320",
+      "matchedExpectedAssertion": null,
+      "validReceipt": true,
+      "restoredSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "selectedCases": 1,
+      "assertionsExecuted": 86,
+      "outcome": "passed-control",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: an IME composition"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "ime-commit-late-blur",
+      "issue": 2628,
+      "file": "packages/ui-react/src/components/chat/composer.tsx",
+      "originalSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "mutatedSha256": "9a1dbf70a1536425b9700bd76bc8d374d9da897424b94fa8f175302d13851178",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "    store.edit(draftId, sessionId, { text: typeof value === \"function\" ? value(current) : value });",
+      "replacement": "    store.edit(draftId, sessionId, { text: typeof value === \"function\" ? value(current) : value });\n    if (typeof value === \"string\" && value.includes(\"Ἰθάκη\")) setTimeout(() => frameRef.current?.querySelector(\"textarea\")?.blur(), 850);",
+      "pattern": "320 phone, dark: an IME composition",
+      "expectedAssertion": "the commit ended the composition once",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 77988.72923499948,
+      "logSha256": "194febccbc8c2ae38a7a88e0e1b98a1d212f884e7d49ed80e2b4b40c605004d4",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "c9e619543af554b3b51db18f68ab9ceace0daf145b093f2983fb43886592e010",
+      "assertionDiagnostic": "error: the commit ended the composition once\n\n  [\n    {\n      \"asked\": false,\n      \"data\": \"\",\n      \"type\": \"compositionstart\",\n    },\n    {\n      \"asked\": true,\n      \"data\": \"Ἰθάκη\",\n      \"type\": \"compositionend\",\n    },\n+   {\n+     \"asked\": true,\n+     \"data\": null,\n+     \"type\": \"blur\",\n+   },\n+   {\n+     \"asked\": true,\n+     \"data\": null,\n+     \"type\": \"focusout\",\n+   },\n  ]\n\n- Expected  - 0\n+ Received  + 10",
+      "selectedCases": 1,
+      "assertionsExecuted": 79,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: an IME composition"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "terminal-late-answer-replacement",
+      "issue": 2629,
+      "file": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
+      "originalSha256": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d",
+      "mutatedSha256": "db2cb8c9bb8805e0d688ffdcba3f725351a8f64b5dcaf9c2f9dc36b2bea64e1f",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "  result: (msg, context) => {",
+      "replacement": "  result: (msg, context) => {\n    if (context.buffer()?.messages.some(message => message.content === \"Noted: Then bind me to the mast.\")) setTimeout(() => { const answer = document.querySelector(\"[data-reading-column]\")?.children[1]; if (answer) answer.replaceWith(answer.cloneNode(true)); }, 300);",
+      "pattern": "320 phone, dark: a stale late history",
+      "expectedAssertion": "recovered text and the terminal replay kept the original answer node",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 70087.09342300062,
+      "logSha256": "a260111e1d1e6044bd8f8335305bb894de35adf9c87091ce109fa9ad8a4684fb",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d",
+      "assertionDiagnostic": "error: recovered text and the terminal replay kept the original answer node\n\nExpected: true\nReceived: false",
+      "selectedCases": 1,
+      "assertionsExecuted": 18,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "320 phone, dark: a stale late history"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    },
+    {
+      "name": "snapshot-late-termination",
+      "issue": 2629,
+      "file": "packages/ui-react/src/hooks/websocket-handlers/chat.ts",
+      "originalSha256": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d",
+      "mutatedSha256": "f7b6cdc5b7ffb479a673fae17a3377f45be536ef736bb82d88989c3f1bf15e7a",
+      "testSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "needle": "  status: (msg, context) => {",
+      "replacement": "  status: (msg, context) => {\n    const field = document.querySelector<HTMLTextAreaElement>(\"textarea[data-composer]\");\n    if (msg.detail === \"Session in progress\" && field?.selectionStart === 6 && field.selectionEnd === 12) setTimeout(() => context.state.finishAssistantMessage(context.key), 300);",
+      "pattern": "single running session: a captured failed history snapshot cannot end its quiet turn",
+      "expectedAssertion": "a quiet failed history read cannot end the actual running answer",
+      "expectedExit": 1,
+      "exitCode": 1,
+      "commandMs": 64579.89774199996,
+      "logSha256": "e3b88f1836cec0493146b7c358f7ae807f5bb6171f3290b3e868fa0c2fa3cdc6",
+      "matchedExpectedAssertion": true,
+      "validReceipt": true,
+      "restoredSha256": "50bd80b3dd6f9fc0f167f55e3596e64d35b471bb668f160d6c83424cb7edc11d",
+      "assertionDiagnostic": "error: a quiet failed history read cannot end the actual running answer\n\nExpected: true\nReceived: false",
+      "selectedCases": 1,
+      "assertionsExecuted": 17,
+      "outcome": "failed-original-assertion",
+      "commandArgv": [
+        "scripts/test-offline.sh",
+        "--",
+        "bun",
+        "run",
+        "test",
+        "./packages/ui-react/tests/connection-continuity-runtime.test.ts",
+        "-t",
+        "single running session: a captured failed history snapshot cannot end its quiet turn"
+      ],
+      "environment": {
+        "BRAIN_REQUIRE_CHROME": "1"
+      },
+      "restoration": "byte-identical production source, then shared final full-file pass"
+    }
+  ],
+  "failingFirst": {
+    "mutation": "ime-commit-late-blur",
+    "productionFaultDelayMs": 850,
+    "sameMutatedProductionSha256": "9a1dbf70a1536425b9700bd76bc8d374d9da897424b94fa8f175302d13851178",
+    "original500msHorizon": "same fault passes 1 native case / 86 assertions; event/focus assertions ran before the 850ms reaction",
+    "new1000msHorizon": "same fault fails original the commit ended the composition once assertion; native blur/focusout now observed",
+    "restored": "after removing all mutations, all 15 cases / 1876 assertions pass"
+  },
+  "measurementLimits": [
+    "Retained 60 + 14 + 13 = 87 windows; zero replacements, so the expected counter is 87 minus zero.",
+    "The four IME windows add exactly 2000ms of requested observation per full run.",
+    "Per-issue target sets overlap: transport and wheel/IME each cover the same ten scene cases; terminal/history adds three snapshots. Do not sum their case/command costs.",
+    "File runner time minus summed case bodies is hooks/cleanup/runner remainder, not a directly sampled setup hook. Shared invocation build is separately measured.",
+    "The untouched first control has no per-site counters; the matched before/after pair uses identical per-site instrumentation.",
+    "Sequential single pairs on a shared host; unrelated load, network scheduling and storage latency are uncontrolled. No local or CI saving/critical-path claim.",
+    "Chosen margins supply bounded operational opportunities. They are not measured universal IO bounds or mathematically minimal durations.",
+    "Complete selected hosted candidate proof and merge belong to the coordinator; this study is local native proof."
+  ]
+}

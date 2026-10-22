@@ -23,10 +23,11 @@ test("native host Docker bind sources remain stable across backend/run identitie
 });
 
 test("worker identity Docker bind sources remain stable including every diagnostic variant", () => {
-  for (const variants of [{ db: false, boot: false, prune: false, inventory: false },
-    { db: true, boot: false, prune: false, inventory: false },
-    { db: false, boot: true, prune: true, inventory: false },
-    { db: false, boot: false, prune: false, inventory: true }]) {
+  for (const variants of [{ db: false, boot: false, prune: false, inventory: false, scratch: false },
+    { db: true, boot: false, prune: false, inventory: false, scratch: false },
+    { db: false, boot: true, prune: true, inventory: false, scratch: false },
+    { db: false, boot: false, prune: false, inventory: true, scratch: false },
+    { db: false, boot: true, prune: false, inventory: false, scratch: true }]) {
     const argv = ["run-first", "run-second"].map(run =>
       workerIdentityDockerArgs(repo, `${repo}/tmp/worker-identity-proof/${run}`, run, "native-image", false, variants, bun));
     expect(bindSources(argv[0]!), "WORKER_IDENTITY_BIND_SOURCES_STABLE").toEqual(bindSources(argv[1]!));

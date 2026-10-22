@@ -7,6 +7,7 @@ import { launchFixtureAgentWorker as launchAgentWorker } from "./helpers/worker-
  * gone.
  */
 import { describe, expect, test } from "bun:test";
+import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { probeWorkerHost, workerCommand, WORKER_STATE } from "../src/server/worker-launcher";
@@ -61,17 +62,23 @@ describe("private runtime-state tmpfs", () => {
     const f = fixture();
     try {
       const filler = launchAgentWorker({ brainPath: f.brain, stateBytes: 4 * MiB, env: { PATH: "/usr/bin:/bin" },
-        command: ["/bin/sh", "-c", `head -c ${8 * MiB} /dev/zero > "${WORKER_STATE}/flood" 2>/dev/null; sleep 1`] });
-      filler.stdin.end();
-      await Bun.sleep(300);
-      const other = await run(f.brain, 4 * MiB, `head -c ${3 * MiB} /dev/zero > "${WORKER_STATE}/own" && echo own-ok; ls "${WORKER_STATE}"`);
+        command: ["/bin/sh", "-c", `head -c ${8 * MiB} /dev/zero > "${WORKER_STATE}/flood" 2>/dev/null; echo filled; IFS= read -r release && [ "$release" = release ]`] });
+      const out = collect(filler.stdout), err = collect(filler.stderr);
       try {
-        expect(other.code, other.err).toBe(0);
-        expect(other.out.trim().split("\n")).toEqual(["own-ok", "own"]);
-        expect(filler.state!.space().free, "the filler did fill its own").toBe(0);
-      } finally { other.state.close(); }
-      await Promise.all([filler.exited, collect(filler.stdout), collect(filler.stderr)]);
-      filler.state!.close();
+        await Promise.race([once(filler.stdout, "data"), filler.exited.then(() => { throw new Error("Filler exited before its release gate"); })]);
+        const other = await run(f.brain, 4 * MiB, `head -c ${3 * MiB} /dev/zero > "${WORKER_STATE}/own" && echo own-ok; ls "${WORKER_STATE}"`);
+        try {
+          expect(other.code, other.err).toBe(0);
+          expect(other.out.trim().split("\n")).toEqual(["own-ok", "own"]);
+          expect(filler.state!.space().free, "the filler did fill its own").toBe(0);
+        } finally { other.state.close(); }
+      } finally {
+        filler.stdin.end("release\n");
+        const [code, output, error] = await Promise.all([filler.exited, out, err]);
+        filler.state!.close();
+        expect(code, error).toBe(0);
+        expect(output).toBe("filled\n");
+      }
     } finally { f.cleanup(); }
   });
 
