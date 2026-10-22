@@ -23,6 +23,13 @@ function record(stage: string, detail: Record<string, unknown> = {}) {
     epoch: ui?.authLock.epoch(), ...detail });
 }
 const approvalSelector = '[data-policy-change] [data-kit-approval-actions] [role="button"]';
+// Turn admission and journal observation are the real host's serial durable
+// work: each journal write checkpoints SQLite's WAL and commits with
+// synchronous=FULL. One approval waits on about 37 fsyncs and the first
+// proposal on about 50, using 0.2-0.75 s of Vitest's 1 s poll default on a
+// quiet host. 30 ms of added flush latency alone fails both (#2004, #1872).
+// This is a failure maximum, not a wait: each poll exits on its condition.
+const HOST_COMPLETION_MS = 5_000;
 const viewport = { width: innerWidth, height: innerHeight }, themeBefore = document.documentElement.dataset.theme;
 const sent: ClientMessage[] = [];
 const received: unknown[] = [];
@@ -43,7 +50,7 @@ async function policyFailure(error: unknown, readFixture = patch, boundary = "re
   return new Error(`${browser}\nFixture (sampled after browser snapshot): ${JSON.stringify(fixtureState)}\nFixture sample (browser milliseconds from scene start): ${JSON.stringify({ started, completed })}`);
 }
 async function waitForPolicyUpdate(element: HTMLDivElement) {
-  try { await expect.poll(() => element.querySelector('[data-policy-state="updated"]')).not.toBeNull(); }
+  try { await expect.poll(() => element.querySelector('[data-policy-state="updated"]'), { timeout: HOST_COMPLETION_MS }).not.toBeNull(); }
   catch (error) { throw await policyFailure(error, patch, "publication"); }
 }
 async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectReceipt = false) {
@@ -108,7 +115,7 @@ async function scene(width = 320, theme = "dark", zoom = 1, mode = "", rejectRec
   record("chat-send");
   ui.connection.send({ type: "chat_message", text: "Propose strict for the voyage.", source: "voice-dictate" });
   if (mode !== "bad-proposal") {
-    try { await expect.poll(() => host!.querySelector(approvalSelector)).not.toBeNull(); }
+    try { await expect.poll(() => host!.querySelector(approvalSelector), { timeout: HOST_COMPLETION_MS }).not.toBeNull(); }
     catch (error) { throw await policyFailure(error); }
   }
   return host;
@@ -138,7 +145,8 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) for (con
   expect(receipt.events).toEqual([expect.objectContaining({ actor: "user", kind: "policy_change" })]);
   expect(receipt.journalChanges).toContainEqual({ path: "context/policies/governance.md", actor: "user", class: "policy" });
   socket!.send(JSON.stringify({ type: "chat_message", sessionId: "policy-session", text: "Read the current policy." }));
-  await expect.poll(async () => (await patch()).admitted.length).toBe(2);
+  // Admission records its policy before the journal inserts the turn's row.
+  await expect.poll(async () => { const state = await patch(); return [state.admitted.length, state.journalPolicies.length]; }, { timeout: HOST_COMPLETION_MS }).toEqual([2, 2]);
   const next = await patch(); expect(next.admitted.at(-1)?.hash).toBe(receipt.policy.hash); expect(next.journalPolicies.at(-1)?.policy_hash).toBe(receipt.policy.hash);
   expect(sent.filter(message => message.type === "tool_approval")).toHaveLength(1);
 });
