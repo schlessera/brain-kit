@@ -1,3 +1,4 @@
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { statSync, mkdtempSync, rmSync } from "node:fs";
@@ -15,8 +16,7 @@ const hook = runtimeHookPhases("haiku-model-runtime.test.ts");
 beforeAll(() => hook.phase("setup", async () => {
   // Browser consumers follow the published default exports, which resolve to
   // dist. Build those outputs; never force a Bun condition in the consumer.
-  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react"], { cwd: join(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await hook.child("package-build", build);
+  const [out, err, code] = await runtimePackageBuild(join(import.meta.dir, "../../.."), ["ui-react"], hook);
   if (code !== 0) throw new Error(`Haiku fixture build failed (${code}): ${out}\n${err}`);
   const built = await hook.phase("client-build", () => Bun.build({ entrypoints: [join(import.meta.dir, "fixtures/haiku-model-browser.tsx")], target: "browser", outdir: scratch, naming: "client.js" }));
   if (!built.success) throw new Error(JSON.stringify(built.logs));

@@ -108,10 +108,10 @@ restrict egress. Failed scene preparation closes its owned browser context,
 including its page listeners, before rethrowing the original failure.
 
 The rendering helper (`finishRender`,
-`packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
+`packages/ui-react/tests/connection-continuity-runtime.test.ts:363-388`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
 claim arbitrary asynchronous work is finished. The negative-window helper
-(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:394-404`)
+(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:397-407`)
 retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
 helper serves the four original rendering call sites, its readiness control,

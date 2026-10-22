@@ -1,0 +1,47 @@
+# Measurement only: never a proof/merge gate. Execute trusted default-branch
+# tooling; candidate logs are parsed as data, never sourced or executed.
+name: ci-timings
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 * * * *"
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+# Incremental hourly windows keep acquisition within the shared API quota.
+concurrency:
+  group: ci-timings
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Archive incremental two-day job and step timings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIMING_REPO: ${{ github.repository }}
+          TIMING_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          since=$(date -u -d '2 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations
+      - name: Retain normalized timing archive
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-timings
+          path: tmp/ci-timings/
+          if-no-files-found: error
+          retention-days: 90
