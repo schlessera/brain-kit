@@ -1251,11 +1251,11 @@ This is a measurement of the paths, not a qualified host tuple.
 | `curl` | Passes: HTTPS through CONNECT. |
 | The `brain` CLI's providers | Passes: `brain index --embeddings` with the Gemini provider's native endpoint override, through CONNECT. Bun honours the proxy variables and `NODE_EXTRA_CA_CERTS`. |
 | Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
-| Socket walk | Not passed. The relay and proxy sockets are present, no socket below a mask is visible, and fixture sockets under `/run` and a home directory are unreachable. Host sockets outside today's masks stay visible: on the measured host a CUPS socket under `/var/snap` accepted a connection, and sockets under `/var/spool` and `/var/tmp` were visible but refused. |
+| Socket walk | Passes in both profiles. The relay and proxy sockets are the only sockets below a mask, fixture sockets under `/run` and a home directory are unreachable, and the walk of the rest of the visible filesystem completed without finding a host socket. Before all of `/var` was masked ([#2657](https://github.com/schlessera/brain-kit/pull/2657)), a CUPS socket under `/var/snap` accepted a connection on this host. |
 
-The gate does not pass while the socket walk finds a reachable host socket
-and Pi inference is unmeasured, so ordinary turns keep their current network
-and the capabilities note keeps saying egress is unrecorded.
+The gate does not pass while Pi inference is unmeasured, so ordinary turns
+keep their current network and the capabilities note keeps saying egress is
+unrecorded.
 
 ### Pre-proxy command ingestion records
 

@@ -166,7 +166,7 @@ try {
   // Every visible socket, from inside each profile's worker.
   // Reachability first, then every mask root completely (each is a small
   // empty tmpfs plus runtime binds), then the rest of the visible filesystem
-  // under a deadline, for the report of sockets outside today's masks.
+  // under a deadline, for sockets outside the masks.
   const walk = `
     const { lstatSync, readdirSync, realpathSync } = require("node:fs");
     const net = require("node:net");

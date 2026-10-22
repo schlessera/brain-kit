@@ -85,7 +85,7 @@ describe("first-party egress paths through the turn proxy", () => {
     expect(run.results.chromium!.stdout, "EGRESS_CHROMIUM_PAGE").toContain("Odysseus reaches Ithaca");
   }, 300_000);
 
-  test.each(["governed", "strict"])("the %s socket walk finds no host socket below a mask and cannot reach the fixture host sockets", async profile => {
+  test.each(["governed", "strict"])("the %s socket walk finds no host socket below a mask and reaches no host socket", async profile => {
     const run = await measure();
     const row = run.results[`socketWalk_${profile}`]!;
     expect(row.exit, row.stderr).toBe(0);
@@ -96,8 +96,9 @@ describe("first-party egress paths through the turn proxy", () => {
     expect(run.hostConnections).toBe(0);
     expect(walk.masked.sort(), "EGRESS_SOCKET_WALK_MASKS_HOLD_ONLY_APPROVED")
       .toEqual(["/run/brain-egress/inference.sock", "/run/brain-egress/proxy.sock"]);
-    // Sockets outside today's masks are the measured gap the capabilities
-    // note states; they are reported, not counted as approved.
+    // A socket outside the masks that accepts a connection is an unrecorded
+    // way out. The bounded walk's coverage and visible sockets are reported.
     console.log(`EGRESS_SOCKET_WALK_OUTSIDE_MASKS_${profile}=${JSON.stringify({ complete: walk.complete, reachable: walk.reachable })}`);
+    expect(Object.keys(walk.reachable).filter(path => walk.reachable[path] === true), "EGRESS_SOCKET_WALK_NO_REACHABLE_HOST_SOCKET").toEqual([]);
   }, 300_000);
 });
