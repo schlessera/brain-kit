@@ -1795,3 +1795,77 @@ Every fault closes its browser context and loopback server; restored fine and
 coarse controls pass. Temporary sources and DOM state are confined to those
 controls and restored. Narrow dark/light screenshots were inspected with the
 original accessibility, fitting, privacy and recording assertions retained.
+
+## Remaining source review rows
+
+The [review partition](evidence/test-wait-review-partition.json) pins the
+#1855 accounting row by row. The
+[operational basis](evidence/test-wait-operational-basis.json) leaves 122
+source-family rows awaiting caller or site attribution: 83 file receipts that
+still need exact site mapping and 39 shared helpers that still need their
+callers. Delivered observation records attribute an observed count or span to
+46 of them:
+
+- #1951: 10 rows
+- #1953: 19 rows
+- #1959: 9 rows
+- #1954: 8 rows
+
+Without #1954 that is the 38 published at #1959, and with it the 46 of the
+2026-10-15 accounting.
+
+Three kinds of record are not counted:
+
+- The canvas rAF counts, which the record itself labels as inference.
+- A rejected diagnostic attempt.
+- Timers whose observations list three candidate sites at once.
+
+A shared file-path rule assigns each of the remaining 76 rows to exactly one
+inventory: browser rows to #2632, native-process rows to
+#2631, and every other row to the in-process inventory, #2630.
+`tests/test-wait-review-partition.test.ts` recomputes the selection, the union
+and the rule from the cited artifacts. It also checks that every remaining row
+has one complete review.
+
+Each review pins the row at `444174de8`. That means the current line and source,
+the enclosing declaration, every caller (aliases are followed to their callers,
+and embedded programs to the code that writes or spawns them) and the file
+hash. It names any existing owner and closes with one of two outcomes:
+
+- **An observed outcome.** These come from selected runs under the test
+  preload: browser runs use the offline launcher with Chrome required.
+  Instrumentation was restored byte-identical and its hashes are recorded.
+- **A non-elapsed classification.** Its source basis or labelled control-flow
+  inference is recorded. A non-elapsed classification does not imply a
+  completed elapsed minimum.
+
+| Inventory | Rows | Classification | Owners and retirements | Follow-ups |
+| --- | --- | --- | --- | --- |
+| #2630 in-process | 23 | 11 fixture holds ended by cancellation, 4 killed keepalives, 3 logical scheduler declarations, 3 observed, 1 polling cadence, 1 natural-exit hold; 8 rows with selected runs | Rows 14 and 17 sit on #1943's private contract clock. Row 16 keeps native time under [private conformance counterexamples](#private-conformance-counterexamples). Row 718 is in the experiment entry of the [attributed inventory](#attributed-source-inventory). None retired. | #2634, #2635, #2637 |
+| #2631 native-process | 44 | 19 observed, 8 fixture holds ended by cancellation, 7 killed keepalives, 4 never-executed strings, 4 polling cadences, 1 failure ceiling, 1 retired; 22 rows with selected runs | No owner. #1939's controlled deadlines cover `boot-probe-deadline.test.ts` only. Row 679 was retired by `7d1a31d09` (#2069). | #2634, #2636, #2637, #2638 |
+| #2632 browser | 9 | 2 observed, 2 cancelled background frame workloads, 1 frame readiness report, 1 failure ceiling, 1 polling cadence, 1 SIGKILL-ended hold, 1 retired | Row 76 was retired by `615b97f50` (#1930), owned by #1929. | #2639 |
+
+Each review records its own inventory-specific evidence:
+
+- **Failure ceilings and watchdogs** name the condition that wins in passing
+  runs.
+- **Native holds** record how they end: natural exit, cancellation or SIGKILL.
+  Where a selected run was made, they also record the observed lifetime.
+- **Browser rows** name the animation frame, media, policy-event or effect
+  clock they depend on. Only row 193's page timer would advance under JavaScript
+  timer control, and advancing it would not complete the account effect it
+  stands in for.
+
+The follow-ups are bounded children of #1849:
+
+- **#2634:** five version-probe cases spend the production 5 s deadline in real
+  time.
+- **#2635:** two contract counterexamples spend native deadlines.
+- **#2636:** the tmpfs floor case waits about 28 s for the real observation
+  tick.
+- **#2637:** the ws-scope-caps freeze assertions read a heartbeat file that
+  never exists on the host, so both of them compare zero with zero.
+- **#2638:** the worker-state fixtures hold turns with fixed shell sleeps.
+- **#2639:** a 100 ms account-clear yield.
+
+No test, fixture or production timer changed here.
