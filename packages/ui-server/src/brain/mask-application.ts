@@ -3,7 +3,7 @@ import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, open
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { BRAIN_LOCK_KEY, BRAIN_MASK_MAX_BYTES, type BrainMaskInput, type BrainApplicationResult, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { assertScratchMask, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
+import { assertScratchMaskAsync, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
 import { isProtectedTarget } from "./protected-target.js";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -135,6 +135,15 @@ export function createMaskApplication(options: {
       // Own the bytes before lock admission; caller mutation cannot change the
       // signature, bounds or exact effect after validation.
       const png = Uint8Array.from(input.png);
+      const scratch = input.maskPath.startsWith(".brain/scratch/");
+      const hostedQuery = scratch && Boolean(options.maintenance?.scratchIgnoreQuery);
+      // Maintenance admission precedes the application lock, just as it does
+      // for index/publication. Await the read-only query without reversing that
+      // order; live authority, paths and both bases are checked again below.
+      if (hostedQuery) {
+        validateTarget(input.maskPath);
+        await assertScratchMaskAsync(root, input.maskPath, join(root, input.maskPath), options.maintenance, options.signal);
+      }
       result = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(request.principalId, request.turnId);
         validateTarget(input.maskPath);
@@ -145,8 +154,7 @@ export function createMaskApplication(options: {
         try { mask = open(root, input.maskPath); } catch (error) { close(image); throw error; }
         let temp: string | undefined;
         try {
-          const scratch = input.maskPath.startsWith(".brain/scratch/");
-          if (scratch) assertScratchMask(root, input.maskPath, join(root, input.maskPath), options.maintenance);
+          if (scratch && !hostedQuery) await assertScratchMaskAsync(root, input.maskPath, join(root, input.maskPath), options.maintenance, options.signal);
           temp = `/proc/self/fd/${mask.chain.at(-1)!.fd}/.brain-mask-${crypto.randomUUID()}`;
           const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, mask.mode ?? 0o600);
           try { if (mask.mode !== undefined) fchmodSync(fd, mask.mode); writeFileSync(fd, png); fsyncSync(fd); } finally { closeSync(fd); }

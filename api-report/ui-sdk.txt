@@ -1053,6 +1053,7 @@ export "./internal" (./src/internal.ts)
   applyClassification
   archivesDocument
   assertScratchMask
+  assertScratchMaskAsync
   bashCommand
   brainGitSync
   canonicalModelId

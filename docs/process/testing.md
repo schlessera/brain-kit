@@ -628,3 +628,23 @@ The read-only [CI timing collector](ci-timings.md) archives job, step and option
 command observations independently of proof gates. Its reports distinguish
 elapsed time, observed runner consumption, missing evidence and historical
 full-proof estimates; timing archives never replace candidate proof.
+
+## Focused native scratch-mask proof
+
+The separately named scratch variant uses the existing identity/Btrfs fixture:
+
+```sh
+bun scripts/prove-worker-identity.ts --image="$NATIVE_PROOF_IMAGE" \
+  --shared-git --private-git-inputs --native-phase-only \
+  --application-qualification --scratch-mask --boot-prune-capture
+```
+
+It joins the captured real boot prune before opening its governed turns. The
+fresh turn checks native agent identity and Git ignore, exact browser PNG
+application, genuine nonignored refusal, pin retention and pruning, then
+failed-query and unavailable-worker refusals without overwriting the applied
+mask. The warm turn repeats both refusals against the second server boot.
+The dedicated backend drives the real host bridge; it does not call an image
+provider. The ordinary native SDK fixture remains unchanged.
+All selected phase deadlines, final joins, diagnostics and owned cleanup remain
+required. This partial composition does not replace complete PR proof.
