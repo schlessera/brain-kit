@@ -1,3 +1,4 @@
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 // #544: the actual scanner -> clicked FileLink -> store -> served app ->
 // PDF/image viewer chain. Regex/classifier controls alone missed this failure.
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
@@ -30,7 +31,7 @@ const bytes: Record<string, Buffer> = {};
 
 async function child(args: string[], cwd = repo): Promise<void> {
   const process = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await hook.child(args[1] === "scripts/build.ts" ? "package-build" : "client-build", process);
+  const [out, err, code] = await hook.child("client-build", process);
   if (code !== 0) throw new Error(`Scratch fixture preparation failed (${code}): ${out}\n${err}`);
 }
 
@@ -40,7 +41,7 @@ beforeAll(async () => {
   if (!executablePath) return;
   // The client bundle uses fresh source plus ordinary package resolution.
   // Rebuild dependencies so a runtime mutation cannot hide behind stale dist.
-  await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
+  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-scratch-links-"));
   brain = resolve(fixture, "brain");
   await hook.phase("fixture-brain", () => createFixtureBrain(repo, brain));

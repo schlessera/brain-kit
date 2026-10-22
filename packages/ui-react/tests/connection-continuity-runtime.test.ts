@@ -1,3 +1,5 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -204,8 +206,7 @@ function listen() {
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("connection-continuity-runtime.test.ts"));
   if (code !== 0) throw new Error(`Connection-continuity fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-continuity-"));
   const brain = resolve(scratch, "brain");
