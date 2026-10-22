@@ -8,6 +8,15 @@ import { contactedHosts, recordFirstTaint, sessionTaint } from "../governance/se
 
 type Classification = Extract<BackendActivityEvent, { kind: "outward_classification" }>["classification"];
 const GITHUB_API_HOSTS = ["api.github.com", "uploads.github.com"] as const;
+/**
+ * Built-in mail submission (G5). SMTP submission is defined by its port, so
+ * any host on these ports is outward; the hosts are HTTP mail-send APIs and
+ * provider relays on alternate ports. `outward.hosts` adds the rest.
+ */
+export const MAIL_SUBMISSION_PORTS = [25, 465, 587] as const;
+export const MAIL_SUBMISSION_HOSTS = ["gmail.googleapis.com", "graph.microsoft.com", "outlook.office365.com",
+  "api.fastmail.com", "api.sendgrid.com", "smtp.sendgrid.net", "api.mailgun.net", "api.eu.mailgun.net", "smtp.mailgun.org",
+  "smtp.eu.mailgun.org", "api.postmarkapp.com", "smtp.postmarkapp.com", "api.resend.com", "smtp.resend.com"] as const;
 
 /** Hosts an approved visible action names; an unresolved destination names none. */
 function actionHosts(action: Classification["actions"][number]): readonly string[] {
@@ -103,7 +112,8 @@ export async function prepareTurnEgress(options: {
   };
   const proxy = await startEgressProxy({ mode: options.policy.egress.mode, allow: options.policy.egress.allow,
     deny: options.policy.egress.deny, maxBytes: options.policy.egress.max_bytes_per_turn ?? Number.MAX_SAFE_INTEGER,
-    outwardHosts: [...new Set(["api.github.com", "uploads.github.com", ...options.policy.outward.hosts])],
+    outwardHosts: [...new Set([...GITHUB_API_HOSTS, ...MAIL_SUBMISSION_HOSTS, ...options.policy.outward.hosts])],
+    outwardPorts: MAIL_SUBMISSION_PORTS,
     signal: options.controller.signal, observe: report, admitted, ...(taint ? { taint } : {}),
     approveOutward: async (destination, signal) => {
       if (calls.covers(destination.host)) return !signal.aborted;

@@ -75,7 +75,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:65-71`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:70-76`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -1260,7 +1260,9 @@ native storage only:
 - **Claude.** A governed or strict Claude turn runs on its own turn proxy and
   the host inference relay. Every connection is a governance event, and a
   connection to an outward host waits for approval unless the call in progress
-  was classified as a read or an approved outward action. The note says so.
+  was classified as a read or an approved outward action. Outward hosts are
+  the GitHub API, mail submission (any host on port 25, 465 or 587, and the
+  built-in mail-send APIs) and the policy's `outward.hosts`. The note says so.
 - **Not routed yet.** An API-key Claude profile and every Pi turn keep their
   current network, and their note still says egress is unrecorded.
 - **No managed native storage.** Governed and strict turns keep their current

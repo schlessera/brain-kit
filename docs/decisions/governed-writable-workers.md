@@ -1416,7 +1416,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:49-124`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:58-134`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy;
 an API-key Claude profile is not routed yet. Its note still says
 "Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
@@ -2136,10 +2136,24 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:26-47`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:35-56`).
 A background process left by an earlier call can still connect inside such a
-window; the proxy records it either way. No mail-submission host is built in
-yet. Only the GitHub API hosts are defaults, and `outward.hosts` adds the rest.
+window; the proxy records it either way.
+
+**Built-in outward destinations — 2026-10-22.** The defaults are the GitHub
+API hosts and mail submission, and `outward.hosts` adds the rest; a policy
+cannot remove a default. SMTP submission is defined by its port rather than
+its host, so a connection to port 25, 465 or 587 on any host is outward. The
+built-in mail hosts are HTTP mail-send APIs and provider relays that also
+listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
+`outlook.office365.com`, `api.fastmail.com`, `api.sendgrid.com`,
+`smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
+`smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
+`smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:16-19`).
+Microsoft Graph and Exchange Online carry more than mail, so their reads by
+an opaque script also wait on the card. The coordinator chose this list for
+#1665; the maintainer may override it.
 
 ### Untrusted input (G6)
 
@@ -2207,7 +2221,7 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:49-124`). Pi turns, API-key
+`packages/ui-server/src/brain/turn-egress.ts:58-134`). Pi turns, API-key
 Claude profiles and hosts without managed native storage have no proxy, so the
 Bash classifier remains their shell rule and nothing narrows their egress.
 
