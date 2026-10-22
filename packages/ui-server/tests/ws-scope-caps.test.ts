@@ -15,25 +15,30 @@ import { handleChatMessage } from "../src/ws/run-session.js";
 import { createWsHandlers } from "../src/ws/connection.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
+import { scopePiProgress } from "./helpers/scope-pi-progress.js";
 import type { ServerMessage, ScopeCapReceipt } from "@schlessera/brain-ui-sdk/protocol";
 
 async function wait(check: () => boolean, detail: () => unknown) { const end = Date.now() + 8000; while (!check()) { if (Date.now() > end) throw Error(JSON.stringify(detail())); await Bun.sleep(10); } }
-for (const adapter of ["claude", "pi"] as const) for (const voice of [false, true]) test(`${adapter}: ${voice ? (adapter === "pi" ? "voice admission refuses before a worker" : "true voice stops without a grant") : "dictation pauses, grants once, refuses a second grant and Stops normally"}`, async () => {
+const cases = (["claude", "pi"] as const).flatMap(adapter => [false, true].map(voice => ({ adapter, voice, overshoot: false })));
+cases.push({ adapter: "pi", voice: false, overshoot: true });
+for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot ? "backlogged four-call overshoot is Stop-only" : voice ? (adapter === "pi" ? "voice admission refuses before a worker" : "true voice stops without a grant") : "dictation pauses, grants once, refuses a second grant and Stops normally"}`, async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-scope-adapter-")), brain = join(root, "brain"), config = join(root, "agent"), home = join(root, "home");
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain); mkdirSync(config); mkdirSync(home);
   writeFileSync(join(config, "settings.json"), "{}"); mkdirSync(join(brain, "context/policies"), { recursive: true });
   writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nscope: { max_tool_calls: 2 }\n---\nAthena bounds the voyage.\n");
   let spawn: ReturnType<typeof spyOn> | undefined;
   let heartbeatPath: string | undefined;
+  let piProgress: ReturnType<typeof scopePiProgress> | undefined;
   const heartbeatSize = () => heartbeatPath ? Bun.file(heartbeatPath).size : 0;
   const originalLaunch = workers.launchAgentWorker;
   const priorPi = process.env.PI_CODING_AGENT_DIR; process.env.PI_CODING_AGENT_DIR = config;
   spawn = spyOn(workers, "launchAgentWorker").mockImplementation(input => {
     const worker = originalLaunch(adapter === "pi" ? { ...input,
-      command: [process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-pi-worker.ts")], env: { PATH: "/usr/bin:/bin" } } : input);
+      command: [process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-pi-worker.ts")], env: { PATH: "/usr/bin:/bin", ...(overshoot ? { SCOPE_FIXTURE_CHECKPOINT: "4" } : {}) } } : input);
     // Read the actual worker's private writable tmpfs through its retained host handle.
     expect(worker.turnTemp, "SCOPE_ADAPTER_NATIVE_TURN_TEMP_PRESENT").toBeDefined();
     heartbeatPath = join(worker.turnTemp!.root, relative("/tmp", workers.WORKER_SCRATCH), "adapter-heartbeat");
+    if (adapter === "pi") { piProgress = scopePiProgress(worker); return piProgress.worker; }
     return worker;
   });
   const backend = adapter === "pi" ? createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), loadExtensions: false })
@@ -111,7 +116,15 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     await wait(paused, () => frames);
     const first = latest()!, receipt = first.journal.scope!.receipts.at(-1)!;
     expect(first.journal.budget, "COMBINED_SCOPE_PAUSE_RETAINS_BUDGET_FACTS").toBeDefined();
-    expect(receipt, "SCOPE_ADAPTER_PAUSES_WITH_EXACT_FINITE_CEILING").toMatchObject({ dimension: "tool_calls", cap: 2, count: 2, newCap: 4, frozen: true, state: "paused" });
+    if (overshoot) {
+      expect(receipt, "PI_BACKLOGGED_OVERSHOOT_REMAINS_STOP_ONLY").toMatchObject({ dimension: "tool_calls", cap: 2, count: 4, overshoot: 2, frozen: true, state: "paused", reason: "The finite continuation ceiling of 4 tool calls is already exhausted. Stop only." });
+      expect(receipt.newCap, "PI_EXHAUSTED_CEILING_HAS_NO_FINITE_GRANT").toBeUndefined();
+      expect(piProgress!.checkpoint, "PI_OVERSHOOT_CONTROL_DELIVERS_FOUR_BUFFERED_CALLS").toBe(4);
+    } else expect(receipt, "SCOPE_ADAPTER_PAUSES_WITH_EXACT_FINITE_CEILING").toMatchObject({ dimension: "tool_calls", cap: 2, count: 2, newCap: 4, frozen: true, state: "paused" });
+    if (adapter === "pi" && !overshoot) {
+      expect(piProgress!.checkpoint, "PI_BACKLOG_CHECKPOINT_AFTER_EXACTLY_TWO_CALLS").toBe(2);
+      expect(piProgress!.calls, "PI_REMAINING_CALLS_HELD_BEFORE_PAUSE").toEqual(["loom-1", "loom-2"]);
+    }
     if (adapter === "pi") await wait(() => observationHeld, () => frames);
     expect(runningHeartbeat, "SCOPE_ADAPTER_HEARTBEAT_GROWS_WHILE_RUNNING").toBeGreaterThan(1);
     const heartbeat = heartbeatSize();
@@ -123,6 +136,17 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     await wait(() => frames.some(frame => frame.type === "scope_decision_receipt" && frame.submissionId === "wrong-session"), () => frames);
     expect(frames.find(frame => frame.type === "scope_decision_receipt" && frame.submissionId === "wrong-session")).toMatchObject({ state: "refused" });
     const decisions = (submissionId: string) => frames.filter((frame): frame is Extract<ServerMessage, { type: "scope_decision_receipt" }> => frame.type === "scope_decision_receipt" && frame.submissionId === submissionId);
+    if (overshoot) {
+      releaseObservation(); await app.wsHost.journal!.idle();
+      send(decision(receipt, "continue", "exhausted-grant"));
+      await wait(() => decisions("exhausted-grant").length === 1, () => frames);
+      expect(decisions("exhausted-grant")[0], "PI_OVERSHOOT_CONTINUE_REFUSED").toMatchObject({ state: "refused" });
+      send(decision(receipt, "stop", "exhausted-stop"));
+      await wait(() => !app!.wsHost.coordinator.isTurnActive(), () => frames);
+      expect(latest()!.journal.scope!.receipts.at(-1), "PI_OVERSHOOT_NATIVE_STOP").toMatchObject({ state: "stopped", count: 4 });
+      expect(frames.some(frame => frame.type === "error"), "PI_OVERSHOOT_STOP_NORMAL_NOT_FAILURE").toBe(false);
+      return;
+    }
     if (adapter === "pi") {
       expect(app.wsHost.journal!.isHeld(), "SCOPE_ADAPTER_REAL_OBSERVATION_COMMIT_HELD").toBe(true);
       send(decision(receipt, "continue", "athena-held"));
@@ -138,6 +162,11 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     send(decision(receipt, "continue", "athena-grant")); send(decision(receipt, "continue", "athena-grant"));
     await wait(() => decisions("athena-grant").length === 2, () => frames);
     expect(decisions("athena-grant").map(frame => frame.state), "SCOPE_ADAPTER_FIRST_GRANT_AND_DUPLICATE_ACCEPTED").toEqual(["accepted", "accepted"]);
+    if (adapter === "pi") {
+      expect(piProgress!.calls, "PI_REMAINING_CALLS_HELD_UNTIL_OBSERVATION_AND_ACCEPTED_CONTINUE").toEqual(["loom-1", "loom-2"]);
+      piProgress!.release();
+      await wait(() => piProgress!.continued, () => frames);
+    }
     await wait(() => latest()?.journal.scope!.receipts.length === 2, () => frames);
     const second = latest()!.journal.scope!.receipts.at(-1)!;
     expect(second).toMatchObject({ cap: 4, count: 4, frozen: true, state: "paused" }); expect(second.newCap).toBeUndefined();
@@ -157,7 +186,11 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     expect(block.eventIds).toHaveLength(2);
   } finally {
     releaseObservation();
+    piProgress?.release();
     try { await app?.close(); }
-    finally { captureSpy?.mockRestore(); spawn?.mockRestore(); if (priorPi === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = priorPi; rmSync(root, { recursive: true, force: true }); }
+    finally {
+      try { if (piProgress) { await piProgress.worker.exited; piProgress.close(); } }
+      finally { captureSpy?.mockRestore(); spawn?.mockRestore(); if (priorPi === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = priorPi; rmSync(root, { recursive: true, force: true }); }
+    }
   }
 }, 30_000);

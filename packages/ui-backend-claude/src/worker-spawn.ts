@@ -6,7 +6,7 @@ import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { prepareRecoveredWorkerFiles, createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
+import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -91,6 +91,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
   /** Host-prepared ordinary transport; selecting it keeps native credentials on the host. */
   egress?: { proxyDir: string }) {
+  // The wrapper becomes the worker's first program: a regular file, never a directory bound into its view (#1429).
+  if (!restricted) workerExecHelpers({ wrapper: config.wrapper });
   const completions: Promise<void>[] = [];
   const reports: Array<() => WorkerLimitReport> = [];
   const limits = () => mergeLimitReports(reports.map(report => report()));

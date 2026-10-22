@@ -373,7 +373,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // nothing behind. Skipped with an injected registry, like the check above.
   const runtimeProbes = options.registry
     ? []
-    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements);
+    : await probeBackendRuntimes(config.agent, config.brainPath, observability.logger("agent"), undefined, backendRequirements, config.exec);
 
   // Per-instance state: the app's own database, the brain CLI wrapper, the
   // backend registry, and the WebSocket host. No module-level singletons —
@@ -498,6 +498,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const registry =
     options.registry ??
     createBackendRegistry({
+      exec: config.exec,
       maintenance: boundary.maintenance,
       versionRequirements: backendRequirements,
       brainPath: config.brainPath,

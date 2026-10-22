@@ -135,6 +135,7 @@ Original fragment identities remain available at this entry point.
 <a id="exec-wrapper-in-app-configuration-additive-1363"></a>
 
 - [Exec wrapper in app configuration (additive, #1363)](integration-contract/package-api.md#exec-wrapper-in-app-configuration-additive-1363) (original line 410).
+- [Backend host exec configuration (additive, #1429)](integration-contract/package-api.md#backend-host-exec-configuration-additive-1429).
 
 <a id="logo-assets-additive-1424-1425"></a>
 

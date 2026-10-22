@@ -94,6 +94,8 @@ export interface BackendModelSource {
 
 /** @experimental Inputs a host supplies without knowing a backend's implementation. */
 export interface BackendModuleContext {
+  /** Resolved host wrapper. Explicit {} disables wrapping; omission retains ambient compatibility. */
+  exec?: import("./exec-wrapper.js").ExecWrapperConfig;
   /** Trusted host maintenance admission for startup helpers; never worker authority. */
   maintenance?: import("./maintenance-worker.js").MaintenanceHost;
   brainPath: string;
