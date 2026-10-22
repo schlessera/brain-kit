@@ -32,7 +32,7 @@ import { createTurnJournal } from "./brain/turn-journal.js";
 import { createJournalRoutes } from "./routes/journal.js";
 import { createTurnReverts } from "./brain/turn-revert.js";
 import { createTurnRevertRoutes } from "./routes/turn-revert.js";
-import { ambientExecConfig, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
+import { ambientExecConfig, referenceCredentialValues, resolveServerConfig, subprocessEnv, type ServerConfig } from "./config/env.js";
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
@@ -143,6 +143,8 @@ import { isSameOriginRequest, originPolicy } from "./middleware/origin.js";
 import type { AppEnv } from "./app-env.js";
 
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
+import { createReferenceSources } from "./brain/reference-source.js";
+import { createReferenceTransport } from "./brain/reference-transport.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
@@ -419,6 +421,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const db = createUiDb(config.dbPath, { log: dbLog });
   bootCleanup.push(() => db.close());
   reconciled(hostExecution.attach(db));
+  // Shared reference source (#2429) runs only where the native manager owns a reference pool.
+  const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
+  const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentialValues(),
+    transport: createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
+      ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) }), ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog }) : undefined;
+  if (referenceSources) {
+    bootCleanup.push(() => referenceSources.close());
+    const recovered = await referenceSources.recover().catch((error: Error) => ({ released: [], retained: [error.message] }));
+    if (recovered.retained.length) brainLog.emit({ severityText: "WARN", body: `Reference source recovery retained ${recovered.retained.length} unresolved pool root(s).` });
+  }
   assertInboxRecoveryReady(db);
   // One package-local pricing instance, shared by admission and Activity.
   // Refresh warms in the background; resolve() is synchronous and rollups
@@ -808,6 +820,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       db,
       revoker: host,
       log: authLog, brain: nativeReady.brainUuid,
+      referenceAuthorityRevoked: (input) => { void referenceSources?.revoke(input).catch((error: Error) => authLog.emit({ severityText: "WARN", body: `reference revocation cleanup failed: ${error.message}` })); },
     })
   );
   app.route(
@@ -1111,6 +1124,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => keyedReindex.idle());
       await attempt(async () => { await host.governedTurns?.close(); });
       await attempt(() => journal.close());
+      await attempt(async () => { await referenceSources?.close(); });
       await attempt(() => nativeLeases.close());
       if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
       await attempt(() => activity.close());

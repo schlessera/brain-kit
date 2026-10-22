@@ -1065,6 +1065,11 @@ signatures (every public export and the types it is made of)
             maxDeltaBytes: number;
             leasePath?: string;
         };
+        referenceSource?: {
+            validationMs: number;
+            refreshMs: number;
+            operations: number;
+        };
         maintenanceTemp?: {
             allowanceBytes: number;
             budgetBytes: number;

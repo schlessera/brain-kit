@@ -568,3 +568,9 @@ The native manager client and lease owner gain `poolPublish`/`poolUnpublish`/`po
 which publish sealed reference roots into per-domain view directories, and
 `NativePoolRecord` gains `view`; described in
 [the package API](integration-contract/package-api.md#reference-publication-additive-2429).
+
+## Reference source acquisition (additive, #2429)
+
+`ServerConfig` gains optional `referenceSource` clocks and admission, resolved
+from three documented environment inputs; described in
+[the package API](integration-contract/package-api.md#reference-source-acquisition-additive-2429).

@@ -121,7 +121,7 @@ export interface WorkerLaunch {
    */
   maintenance?: MaintenanceEnvelope;
   /** Host Git transport: an empty root, explicit system/runtime mounts, and no brain mount. */
-  transport?: { mirror: string; readPaths: readonly string[]; writePaths?: readonly string[]; tempBytes?: number };
+  transport?: { mirror: string; readPaths: readonly string[]; writePaths?: readonly string[]; tempBytes?: number; /** False removes the network (#2429). */ network?: boolean };
   /** Trusted maintenance admission attached by the bootstrap before exec. */
   maintenanceReservation?: { id: string; directory: string; statePath?: string };
 }
@@ -547,7 +547,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     // Explicit maintainer approval on #1708: maintenance commands cannot
     // create nested user namespaces; startup asserts that enforcement.
     ...(maintenance || transport ? ["--disable-userns", "--assert-userns-disabled"] : []),
-    ...(input.restricted || input.egress || (maintenance && !maintenance.network) ? ["--unshare-net"] : []),
+    ...(input.restricted || input.egress || (maintenance && !maintenance.network) || transport?.network === false ? ["--unshare-net"] : []),
     "--die-with-parent", "--new-session", "--cap-drop", "ALL",
     // The restricted envelope starts from an empty root; others see the host read-only.
     ...(input.restricted || transport ? [] : ["--ro-bind", "/", "/"]),
