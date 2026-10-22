@@ -493,7 +493,6 @@ interface Bucket {
   failures: number;
   resetAt: number;
 }
-const loginBuckets = new Map<string, Bucket>();
 
 interface InFlightBucket {
   count: number;
@@ -506,54 +505,69 @@ interface VerificationReservations {
   reset(): void;
 }
 
-function pruneExpiredBuckets(now: number): void {
-  for (const [key, bucket] of loginBuckets) {
-    if (now >= bucket.resetAt) loginBuckets.delete(key);
+/** App-owned failure windows, shared by its password and passkey routes. */
+export function createLoginRateLimiter() {
+  const loginBuckets = new Map<string, Bucket>();
+  function pruneExpiredBuckets(now: number): void {
+    for (const [key, bucket] of loginBuckets) {
+      if (now >= bucket.resetAt) loginBuckets.delete(key);
+    }
   }
-}
 
-function makeBucketRoom(): void {
-  while (loginBuckets.size >= LOGIN_BUCKET_CAP) {
-    // Keep the global password bucket authoritative. The cap is larger than
-    // its maximum number of per-IP contributors in one window, so ordinary
-    // password traffic never needs to evict an active per-IP failure record.
-    const oldest = [...loginBuckets.keys()].find(
-      (key) => key !== PASSWORD_GLOBAL_BUCKET
-    );
-    if (oldest === undefined) break;
-    loginBuckets.delete(oldest);
+  function makeBucketRoom(): void {
+    while (loginBuckets.size >= LOGIN_BUCKET_CAP) {
+      // Keep the global password bucket authoritative. The cap is larger than
+      // its maximum number of per-IP contributors in one window, so ordinary
+      // password traffic never needs to evict an active per-IP failure record.
+      const oldest = [...loginBuckets.keys()].find(
+        (key) => key !== PASSWORD_GLOBAL_BUCKET
+      );
+      if (oldest === undefined) break;
+      loginBuckets.delete(oldest);
+    }
   }
-}
 
-function bucketForWrite(key: string, now: number): Bucket {
-  pruneExpiredBuckets(now);
-  const existing = loginBuckets.get(key);
-  if (existing) return existing;
-  makeBucketRoom();
-  const bucket = { failures: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
-  loginBuckets.set(key, bucket);
-  return bucket;
-}
-
-/** Record one genuine authentication failure in a fixed one-minute window. */
-export function recordLoginFailure(key: string, limit: number): void {
-  const bucket = bucketForWrite(key, Date.now());
-  // Saturate: callers only care whether the limit was reached, and this avoids
-  // an unbounded counter if a test or future caller records after blocking.
-  bucket.failures = Math.min(limit, bucket.failures + 1);
-}
-
-/** Read without allocating: junk requests cannot grow the failure map. */
-export function isLoginBlocked(key: string, limit: number): boolean {
-  const now = Date.now();
-  const bucket = loginBuckets.get(key);
-  if (!bucket) return false;
-  if (now >= bucket.resetAt) {
-    loginBuckets.delete(key);
-    return false;
+  function bucketForWrite(key: string, now: number): Bucket {
+    pruneExpiredBuckets(now);
+    const existing = loginBuckets.get(key);
+    if (existing) return existing;
+    makeBucketRoom();
+    const bucket = { failures: 0, resetAt: now + LOGIN_RATE_WINDOW_MS };
+    loginBuckets.set(key, bucket);
+    return bucket;
   }
-  return bucket.failures >= limit;
+
+  /** Record one genuine authentication failure in a fixed one-minute window. */
+  function recordLoginFailure(key: string, limit: number): void {
+    const bucket = bucketForWrite(key, Date.now());
+    // Saturate: callers only care whether the limit was reached, and this avoids
+    // an unbounded counter if a test or future caller records after blocking.
+    bucket.failures = Math.min(limit, bucket.failures + 1);
+  }
+
+  /** Read without allocating: junk requests cannot grow the failure map. */
+  function isLoginBlocked(key: string, limit: number): boolean {
+    const now = Date.now();
+    const bucket = loginBuckets.get(key);
+    if (!bucket) return false;
+    if (now >= bucket.resetAt) {
+      loginBuckets.delete(key);
+      return false;
+    }
+    return bucket.failures >= limit;
+  }
+
+  /** Attempt-counting bucket retained for passkey option generation. */
+  function consumeLoginToken(key: string, limit: number): boolean {
+    if (isLoginBlocked(key, limit)) return false;
+    recordLoginFailure(key, limit);
+    return true;
+  }
+
+  return { recordLoginFailure, isLoginBlocked, consumeLoginToken };
 }
+
+export type LoginRateLimiter = ReturnType<typeof createLoginRateLimiter>;
 
 function createVerificationReservations(
   perIpLimit: number,
@@ -631,18 +645,10 @@ export function releasePasskeyVerification(ip: string): void {
   passkeyVerifications.release(ip);
 }
 
-/** Test-only: clear all rate-limit buckets (they are module-global state). */
-export function resetLoginRateLimiter(): void {
-  loginBuckets.clear();
+/** Test-only: clear process-wide CPU reservations after settled requests. */
+export function resetVerificationReservations(): void {
   passwordVerifications.reset();
   passkeyVerifications.reset();
-}
-
-/** Attempt-counting bucket retained for passkey option generation. */
-export function consumeLoginToken(key: string, limit: number): boolean {
-  if (isLoginBlocked(key, limit)) return false;
-  recordLoginFailure(key, limit);
-  return true;
 }
 
 /** Login/logout routes. Only functional in `password` mode. */
@@ -650,6 +656,8 @@ export function authRoutes(
   mode: AuthMode,
   auth: AuthRuntime,
   deps: {
+    /** App-owned failure windows; standalone route instances own theirs. */
+    rateLimiter?: LoginRateLimiter;
     /** Authoritative session state. */
     db: Database;
     /** Runtime connections and queued work invalidated by principal revocation. */
@@ -672,6 +680,7 @@ export function authRoutes(
   const app = new Hono<AppEnv>();
   const { log, failures } = deps;
   const verifyPassword = deps.verifyPassword ?? Bun.password.verify;
+  const { isLoginBlocked, recordLoginFailure } = deps.rateLimiter ?? createLoginRateLimiter();
   let warnedUntrustedForwardedFor = false;
 
   app.post("/auth/login", requireJson(), async (c) => {

@@ -71,7 +71,7 @@ exceptions. Unmeasured means no saving is claimed.
 | SDK `ws-client-liveness.test.ts`, idle/reply/backoff cases | Production timers and negative windows; real registered callbacks, default 15000/5000 ms, early/at boundaries, reset, foreground, wrong nonce, retired sockets, close cancellation and explicit configuration | Fixed elapsed waits replaced by controlled time; fake socket remains the unit boundary. |
 | Browser `answer-delivery-runtime.test.ts`, Liveness B | Default timer configuration through the real root/client, Chrome socket route, healthy correlated pong, no premature replacement, missing-pong replacement, replacement hello and actual session history resync | 35000 ms logical timer progression is controlled; native events are awaited separately. No native media or child clock is advanced. |
 | Browser `answer-delivery-runtime.test.ts`, lost receipt | Actual default watchdog registration, before/at delivery, same-submission status query, accepted receipt cancellation and correlated native pong | Page logical time owns the 5000 ms policy; the original host-wall elapsed assertion is explicitly redistributed. Native socket/storage/locks and original delivery/settlement oracles remain. See [receipt watchdog evidence](#receipt-watchdog-registration-and-native-completion). |
-| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; scene drop/recovery, queue, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
+| `connection-continuity-runtime.test.ts`, repeated recovery | Fixed 500 ms rendering waits mixed with negative observation | Rendering preparations use actual ready/streaming composer state and fonts/finite animations/stable geometry. The two old-slot snapshot preparations await fresh scoped native idle, and the two newer-turn preparations await current-socket resync completion plus finite rendering, and the three held-snapshot recoveries await current draft acknowledgement and held-read admission. Snapshot drop preparations retain native offline/status/banner checkpoints and use finite rendering; released already-accepted queues on held running turns use native per-payload receipt minima and finite rendering; scene drop/recovery, save, scroll and IME observations retain 500 ms for delayed focus/save/ghost and no-send effects; add final scoped-status/replay, released-queue and native wheel barriers. Held-history races keep their explicit release/status barriers. Both viewport paths and all ten cycles remain; theme-only copies follow the [central continuity assertion map](theme-parity.md#connection-continuity-runtime-matrix). |
 | `html-preview-runtime.test.ts`, escape attempts | Positive navigation and every original denial attempt retain native completion evidence and original escape assertions | Exact destination load for self-navigation; original call return plus native correlated denial for popup/form/top. Downloads require complete native tracing with the sandbox-denial event inside the exact anchor call on the same document and renderer thread. Missing evidence fails; actual escape reaches original assertions. Delayed-call, premature-completion and real-policy mutations cover the boundaries. |
 | Same preview file, raw endpoint | The former 500 ms wait is removed; explicit native `load` retains the original inline-script marker assertion | The actual served-CSP mutation fails that unchanged marker at the load boundary, and restoring CSP passes. See the [raw-load experiment](#native-child-completion-and-deadline-snapshots) and its [source-bound evidence](evidence/test-wait-native-child-observations.json). This does not shorten the separate denied-action windows. |
 | `turn-scope.test.ts`, long Bash loop | Registered 15 s host observer is controlled; independent 20 ms observer, 50 ms writer and freeze windows remain native | [Scope observer proof](scope-observer-proof.md) retains actual dispatch, overshoot, confirmed freeze and copied-snapshot counts. Before capture, at least eight native observations span 150 ms; the final 150 ms no-progress window requires at least five ticks. Other scope cases retain their own timing obligations. |
@@ -108,16 +108,17 @@ restrict egress. Failed scene preparation closes its owned browser context,
 including its page listeners, before rethrowing the original failure.
 
 The rendering helper (`finishRender`,
-`packages/ui-react/tests/connection-continuity-runtime.test.ts:360-385`) waits
+`packages/ui-react/tests/connection-continuity-runtime.test.ts:365-390`) waits
 finite animation completion, fonts and two stable geometry frames. It does **not**
 claim arbitrary asynchronous work is finished. The negative-window helper
-(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:394-404`)
+(`settle`, `packages/ui-react/tests/connection-continuity-runtime.test.ts:399-409`)
 retains the original 500 ms and two animation frames. It does not add a wait for
 all finite animations at these negative-observation sites. The finite-animation
 helper serves the four original rendering call sites, its readiness control,
 the two newer-turn preparations after their scoped resync acknowledgement,
 the three held-snapshot recoveries after current draft acknowledgement, and
-their drop preparations after the native offline/status/banner checkpoints.
+their drop preparations after the native offline/status/banner checkpoints, and
+the twenty scoped queue releases in the ten-cycle cases.
 
 | Call site | Causal completion before measuring | Observation retained |
 | --- | --- | --- |
@@ -128,7 +129,7 @@ their drop preparations after the native offline/status/banner checkpoints.
 | Snapshot drop | Original native offline/status/visible-banner checkpoints; no held upload or immediate offline geometry oracle | Existing finite-native rendering. Current draft acknowledgement remains on recovery; final no-send and identity observations remain. This does not certify every Motion banner animation or drain future work. |
 | Scene recovery | Connected host, removed banner, final scoped status and completed replay; intentionally held scene histories use their own release/status barrier | 500 ms; reconnect cannot hide a later focus/send/ghost effect. |
 | Snapshot recovery | Connected host and removed banner; initial native restore, acknowledged current draft, and actual current-socket resume/connect reads admitted to the held backend gate | Scoped acknowledgement plus finite rendering. Final negative windows remain; no history or storage drain is claimed. |
-| Released queues | Every held queue frame is observed by the receiving page; expected upload state is awaited before its assertion | 500 ms; pending-pill identity/removal remains guarded through delayed work. |
+| Released queues in ten-cycle cases | Expected multiplicities of held native payloads reach synchronous handlers; additional identical reports are allowed; a scope assertion excludes draft acceptance, transcript adoption and history refresh | Existing finite rendering; all original pill identity/removal, layout, focus, draft, upload and no-send assertions remain. The preceding recovery and final negative windows remain. |
 | Snapshot old turn end | Non-streaming UI plus fresh native idle for the exact old session and turn | Actual host-slot completion before the peer starts its successor. |
 | Snapshot newer turn text | Initial reconnect reads are held; subsequent current-socket resume/history/detail completion, committed newer turn and clean current draft | Actual scoped acknowledgement plus finite-render readiness before selection; later negative window remains. |
 | Snapshot released status | After explicit release, the native snapshot reports the current host turn under the delivered history-freshness policy | 500 ms; delayed history/status must not end the live turn or disturb focus. |
@@ -150,6 +151,39 @@ queue adoption updates the follow-up/draft stores synchronously (`if (msg.type =
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
+
+The queue replacement applies only to an already-accepted queue on a held running
+turn, with no started/dropped entry or drawn queued user. The fixture checks that
+scope before release and counts per-payload receipt minima after the synchronous
+handlers. Payloads have no nonce, so this proves application opportunities, not
+unique event identity. Its bounded recorder fails on overflow. In the installed
+Zustand 5.0.15 and React 19.3.0 path, the store subscription uses `useSyncExternalStore`; changes
+schedule synchronous React work in a microtask. The mounted pending-pill branch
+has no deferred timer, IO, animation or suspense. The later page-task receipt and
+existing finite-render helper therefore precede the original identity assertions.
+This conclusion does not apply to arbitrary React or asynchronous handler work.
+
+The existing immediate pending-stack assertion in `follow-up-queue.test.ts` owns
+the synchronous store guarantee: deferring the production report write through
+`queueMicrotask` fails it, and the restored full lower file passes. Native controls
+retain the other half: the same production unstable-id fault fails the unchanged
+removed-pill assertion with both old and new waits; a two-second native delivery
+delay is awaited; bypassing the receipt barrier fails on missing reports before
+those deliveries. An extra identical native report is accepted in every phone
+cycle. The fifteen-case native comparison passes with both widths and
+all ten cycles; all 1,836 original assertion executions remain across the same
+85 assertion sites, with forty added scope and receipt checks. No remaining negative window is shortened.
+
+The [source-bound queue study](evidence/test-wait-continuity-queue.json) records
+107 versus 87 negative observations. The twenty queue boundaries saved
+9.703 seconds in the sequential local pair; total test-body time was lower by
+11.808 seconds and whole-command time by 17.280 seconds, including build/setup
+variation on an uncontrolled shared host. These are local observations, not a CI
+critical-path claim. The evidence includes CPU, peak RSS and unsuccessful control
+costs. Scroll and IME alternatives retain their windows because their native
+input/host acknowledgement does not complete separate delayed device writes.
+Neither this study nor those source inspections establish a minimum for the
+remaining 87 windows.
 
 ## Private conformance counterexamples
 
@@ -1761,3 +1795,79 @@ Every fault closes its browser context and loopback server; restored fine and
 coarse controls pass. Temporary sources and DOM state are confined to those
 controls and restored. Narrow dark/light screenshots were inspected with the
 original accessibility, fitting, privacy and recording assertions retained.
+
+## Remaining source review rows
+
+The [review partition](evidence/test-wait-review-partition.json) pins the
+#1855 accounting row by row. The
+[operational basis](evidence/test-wait-operational-basis.json) leaves 122
+source-family rows awaiting caller or site attribution: 83 file receipts that
+still need exact site mapping and 39 shared helpers that still need their
+callers. Delivered observation records attribute an observed count or span to
+46 of them:
+
+- #1951: 10 rows
+- #1953: 19 rows
+- #1959: 9 rows
+- #1954: 8 rows
+
+Without #1954 that is the 38 published at #1959, and with it the 46 of the
+2026-10-15 accounting.
+
+Three kinds of record are not counted:
+
+- The canvas rAF counts, which the record itself labels as inference.
+- A rejected diagnostic attempt.
+- Timers whose observations list three candidate sites at once.
+
+A shared file-path rule assigns each of the remaining 76 rows to exactly one
+inventory: browser rows to #2632, native-process rows to
+#2631, and every other row to the in-process inventory, #2630.
+`tests/test-wait-review-partition.test.ts` recomputes the selection, the union
+and the rule from the cited artifacts. It also checks that every remaining row
+has one complete review.
+
+Each review pins the row at `444174de8`. That means the current line and source,
+the enclosing declaration, every caller (aliases are followed to their callers,
+and embedded programs to the code that writes or spawns them) and the file
+hash. It names any existing owner and closes with one of two outcomes:
+
+- **An observed outcome.** These come from selected runs under the test
+  preload: browser runs use the offline launcher with Chrome required.
+  Instrumentation was restored byte-identical and its hashes are recorded.
+- **A non-elapsed classification.** Its source basis or labelled control-flow
+  inference is recorded. A non-elapsed classification does not imply a
+  completed elapsed minimum.
+
+| Inventory | Rows | Classification | Owners and retirements | Follow-ups |
+| --- | --- | --- | --- | --- |
+| #2630 in-process | 23 | 11 fixture holds ended by cancellation, 4 killed keepalives, 3 logical scheduler declarations, 3 observed, 1 polling cadence, 1 natural-exit hold; 8 rows with selected runs | Rows 14 and 17 sit on #1943's private contract clock. Row 16 keeps native time under [private conformance counterexamples](#private-conformance-counterexamples). Row 718 is in the experiment entry of the [attributed inventory](#attributed-source-inventory). None retired. | #2634, #2635, #2637 |
+| #2631 native-process | 44 | 18 observed, 9 fixture holds ended by cancellation, 7 killed keepalives, 4 never-executed strings, 4 polling cadences, 1 failure ceiling, 1 retired; 21 rows with selected runs | No owner. #1939's controlled deadlines cover `boot-probe-deadline.test.ts` only. Row 679 was retired by `7d1a31d09` (#2069). | #2634, #2636, #2637, #2638 |
+| #2632 browser | 9 | 2 observed, 2 cancelled background frame workloads, 1 frame readiness report, 1 failure ceiling, 1 polling cadence, 1 SIGKILL-ended hold, 1 retired | Row 76 was retired by `615b97f50` (#1930), owned by #1929. | #2639 |
+
+Each review records its own inventory-specific evidence:
+
+- **Failure ceilings and watchdogs** name the condition that wins in passing
+  runs.
+- **Native holds** record how they end: natural exit, cancellation or SIGKILL.
+  Where a selected run was made, they also record the observed lifetime.
+- **Browser rows** name the animation frame, media, policy-event or effect
+  clock they depend on. Only row 193's page timer would advance under JavaScript
+  timer control, and advancing it would not complete the account effect it
+  stands in for.
+
+The follow-ups are bounded children of #1849:
+
+- **#2634:** five version-probe cases spend the production 5 s deadline in real
+  time.
+- **#2635:** two contract counterexamples spend native deadlines.
+- **#2636:** the tmpfs floor case waits about 28 s for the real observation
+  tick.
+- **#2637:** the ws-scope-caps freeze assertions read a heartbeat file that
+  never exists on the host, so both of them compare zero with zero. A
+  host-side diagnostic run recorded the missing file; it is not counted as an
+  observation of the writer loop.
+- **#2638:** the worker-state fixtures hold turns with fixed shell sleeps.
+- **#2639:** a 100 ms account-clear yield.
+
+No test, fixture or production timer changed here.

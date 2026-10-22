@@ -51,6 +51,98 @@ inspecting CI on a PR live in the `work-issue` skill's
   commands and explicitly preloaded child probes. Production invocations keep
   their own policy. The startup-view copier still refuses concurrent changes.
 
+### Deliberate offline commands on Linux
+
+Use the repository launcher when a manual test command needs OS-level network
+isolation, including browser children that the Bun preload cannot instrument:
+
+```sh
+BRAIN_REQUIRE_CHROME=1 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome \
+  scripts/test-offline.sh -- bun run test \
+  ./packages/ui-react/tests/share-draft-runtime.test.ts \
+  ./packages/ui-server/tests/inbox-runtime.test.ts
+```
+
+It requires Bash, util-linux `unshare`/`setpriv`, iproute2 `ip`, `readlink` and
+permitted Linux user/network namespaces. Escalate only the test command when
+an agent sandbox blocks those prerequisites; a refusal is not a skipped test.
+The dummy driver must already be initialized and visible at `/sys/module/dummy`.
+The launcher refuses driver autoload: Linux's [dummy initialization](https://github.com/torvalds/linux/blob/v6.18/drivers/net/dummy.c)
+can create a default `dummy0` in the initial host network namespace even when
+requested from a private namespace. Driver loading is a host prerequisite,
+outside this launcher's authority.
+The launcher preserves stdin, arguments, cwd, environment, UID/GID and umask,
+then returns the command's exit status. Namespace and link/address/route
+inventories and the five capability sets go to stderr.
+
+Each invocation verifies fresh user/network namespaces before changing links.
+It brings up loopback and a `proof-dummy` interface at `198.18.0.1/32` with
+`noprefixroute`, setting `addrgenmode none` on that dummy before link-up.
+Both IPv4 and IPv6 main route tables must be empty. This keeps external
+networking unavailable while letting real Chrome report `navigator.onLine`
+as true for local fixtures. Loopback alone reports false and correctly pauses
+share upload before the ownership assertions (#2401). Keep browser egress
+guards and the test preload enabled.
+
+Setup needs `unshare --keep-caps`, but retaining those capabilities for tests
+makes bubblewrap refuse with `Unexpected capabilities but not setuid`.
+The launcher drops inherited, ambient and bounding capabilities through
+`setpriv`, then requires all five sets, including effective and permitted, to
+be zero before executing the command. Do not remove that drop or bypass its
+verification to get past a fixture failure.
+
+`scripts/test-offline.sh --mount -- <command>` also creates and verifies a
+private mount namespace with private propagation. It does not provision
+storage. For a caller-owned tmpfs, mount it in a separate private user/mount
+namespace before invoking the launcher; it inherits that filesystem while
+still creating fresh user/network namespaces and dropping capabilities before
+tests. This supports the storage-capacity controls in #2394 without changing
+the caller's mounts, interfaces, IPv6 configuration or DNS. Generic test runs,
+hosted unit workers and `check:pr`'s existing probe namespaces keep their
+current launch paths.
+
+For example, explicitly provision a 4 GiB fixture filesystem for one command:
+
+```sh
+proof_tmp=$(mktemp -d)
+trap 'rmdir "$proof_tmp"' EXIT
+unshare --user --map-current-user --keep-caps --mount sh -eu -c '
+  mount --make-rprivate /
+  mount -t tmpfs -o size=4g tmpfs "$1"
+  export TMPDIR="$1"
+  shift
+  exec scripts/test-offline.sh --mount -- "$@"
+' offline-storage "$proof_tmp" bun run test ./packages/ui-react/tests/share-draft-runtime.test.ts
+```
+
+### Capacity for fixtures that require running turns
+
+The connection-continuity, parallel-sessions and Claude cancellation fixtures
+explicitly call the test-only `requireTurnFreeSpace` helper before their first
+turn. It reads `statfs` on the actual brain path and requires available bytes
+(`bavail * bsize`) to meet `max(5% of total bytes, SCOPE_FREE_BYTES)`.
+`SCOPE_FREE_BYTES` is the production 2 GiB minimum. Equality passes. On a large
+filesystem the 5% term can require much more than 2 GiB free.
+
+Below that floor, `TurnFixtureFreeSpaceError` names the brain path, available
+bytes, required bytes and the remedy: point `TMPDIR` at a sufficiently
+provisioned filesystem. Provision storage explicitly before starting proof;
+neither the helper, `createFixtureApp` nor the offline launcher mounts it for
+you. Suites that do not need running turns have no blanket capacity check.
+This is a test prerequisite selected in
+[#2394](https://github.com/schlessera/brain-kit/issues/2394), not a replacement
+for the real runtime monitor. The production floor and its Stop-only behavior
+remain enforced, including if free space falls during a turn.
+
+For the negative control, use the private tmpfs recipe above with `size=3g`
+and run `fallocate -l 1600M "$1/fill"` immediately after mounting. The affected
+fixtures must refuse with the named error before sending their first turn,
+without reaching a recovery/approval timeout. Remove the explicit helper call
+temporarily to reproduce the original timeout, then restore it. The unfilled
+arm must pass every original behavioral assertion. Keep both arms offline via
+`scripts/test-offline.sh`, with setup capabilities dropped, and record total,
+available and required bytes alongside the runtime and mutation receipts.
+
 ## Runtimes, browsers and doubles
 
 - Predicate-only unit tests are not proof for anything with a runtime: the
@@ -432,7 +524,15 @@ credentials. A fork run awaiting maintainer approval has not passed.
 
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
-install, build output and workspace lease. The wrapper preserves the caller's
+install, build output and workspace lease. Full preparation now runs after
+namespace entry inside the test wrapper, under one continuous build/test lease;
+the two workers keep independent invocation identities and serial compilers.
+A prepared worker may start tests while its sibling is still building. Account
+for that scheduling change separately from duplicate hook builds. Runtime hooks
+verify the live invocation and successful closure receipt before reuse; missing
+authority rebuilds, and a failed preparation stops before tests without retry.
+See [the invocation rule](../decisions/ci-utility.md#one-fresh-build-per-test-invocation).
+The wrapper preserves the caller's
 umask, drops setup capabilities and binds a private maintenance ledger without
 changing within-worker child limits or hiding the host's `/tmp` from Docker.
 Its checkout container lives outside host `/tmp`, which native workers replace
@@ -443,6 +543,56 @@ and `check:pr` defaults keep their existing behavior. Use the internal unit
 proof `--workers=1` diagnostic for a serial measurement, preserving the actual
 source identity; performance qualification and remaining evidence live in
 [#2121](https://github.com/schlessera/brain-kit/issues/2121).
+
+Screenshot evidence includes kit, consumer and repository-root attachment
+directories. Hygiene commands keep their local scratch captures and retain the
+same bytes in separate `tmp/hygiene-proof/capture-*` directories for the layout
+artifact. Browser artifacts also retain exactly the prepared native diagram
+`release.svg/png/pdf`, `origin.svg/png/pdf` and `producer.json` files under each
+preparation session and engine. This preserves the producer's checkout,
+source, installation and runtime identity even if a later browser case fails.
+
+The other consumer screenshot destinations have these explicit boundaries:
+
+- Fixture-owned temporary `artifact-*.png` captures show the recovery UI before
+  later zoom and keyboard assertions. Retain their exact returned bytes in
+  `packages/ui-react/.vitest-attachments/artifact-recovery/capture-*`, preserving
+  the original scratch captures and fixture teardown. Unique directories keep
+  repeated names from replacing earlier evidence (`artifactRecoveryCapture`,
+  `packages/ui-react/tests/fixtures/artifact-recovery-capture.ts:5-12`). The
+  existing unit-worker attachment handoff and unit artifact upload collect
+  these copies even after a later assertion fails and the fixture is removed.
+- Opt-in external captures stay **local-only**: `BRAIN_ARTIFACT_SCREENSHOTS`
+  directs additional artifact captures to a caller-chosen directory
+  (`if (process.env.BRAIN_ARTIFACT_SCREENSHOTS)`,
+  `packages/ui-react/tests/artifact-recovery-runtime.test.ts:333-333`), while
+  `BRAIN_REVIEW_CAPTURES` does the same for association/signout review
+  (`if (process.env.BRAIN_REVIEW_CAPTURES)`,
+  `packages/ui-react/tests/association-signout-runtime.test.ts:216-216`;
+  `if (process.env.BRAIN_REVIEW_CAPTURES)`,
+  `packages/ui-react/tests/association-signout-runtime.test.ts:250-250`). Hosted
+  proof sets neither variable. These are optional manual review exports;
+  collectors do not search arbitrary external directories.
+- Standalone navigation/software diagnostics stay **local-only**. The manual
+  navigation probe writes `navigation-*.png` to its caller-supplied output or
+  `/tmp/brain-navigation-recovery` (`const output`,
+  `scripts/probes/navigation-recovery/harness.ts:22-22`;
+  `await p.screenshot`, `scripts/probes/navigation-recovery/navigation.ts:124-130`).
+  It is outside default test discovery and is not invoked by hosted proof.
+  The selected software-identity tests still run normally; their
+  `/tmp/brain-kit-software-*.png` exports occur only after every case assertion
+  has passed (`expect(result.values)`, `tests/stats-answer-render.test.tsx:192-197`).
+  Those successful-state review conveniences cannot diagnose an earlier failed
+  assertion and are not automatic failure screenshots. Keep their local paths;
+  do not collect broad `/tmp` contents as hosted failure evidence.
+
+Verify retention from downloaded artifact ZIPs: compare the archive SHA-256 to
+the Actions artifact digest, check ZIP CRCs and safe paths, then record each
+PNG's nonzero dimensions, byte size and SHA-256. Match checkout receipts to
+the actual job checkout; compare native exports with `producer.json` hashes.
+Report generated captures separately from unchanged tracked references, and
+name any still-missing automatic failure screenshots. Passing cases, local
+files and upload patterns alone do not establish hosted retention.
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
@@ -471,3 +621,10 @@ fresh execution; registration alone is not invocation. Registered dormant
 callbacks require the same complete call/escape audit, and a mutation of that
 activation guard must fail the named assertion.
 The exact audited configuration/source guard makes unsupported edits fresh.
+
+## Cross-PR timing collection
+
+The read-only [CI timing collector](ci-timings.md) archives job, step and optional
+command observations independently of proof gates. Its reports distinguish
+elapsed time, observed runner consumption, missing evidence and historical
+full-proof estimates; timing archives never replace candidate proof.

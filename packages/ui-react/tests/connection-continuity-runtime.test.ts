@@ -1,3 +1,5 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -7,6 +9,7 @@ import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type Page, type Route } from "playwright";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
+import { requireTurnFreeSpace } from "../../ui-server/tests/helpers/turn-free-space.js";
 import type { DraftListResponse, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -203,12 +206,12 @@ function listen() {
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("connection-continuity-runtime.test.ts"));
   if (code !== 0) throw new Error(`Connection-continuity fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-continuity-"));
   const brain = resolve(scratch, "brain");
   await createFixtureBrain(repo, brain);
+  requireTurnFreeSpace(brain);
   const assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:{entry:"client.js",chunk:"[name]-[hash].js"},splitting:true}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/connection-continuity-client.tsx"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
@@ -256,6 +259,8 @@ afterAll(async () => {
 type Probe = {
   connected(): boolean;
   received(type: string, sessionId: string): number;
+  queueOnlyUpdate(message: string): boolean;
+  queueReceipts(messages: string[]): number[];
   replayComplete(sessionId: string): boolean;
   wsStatus(): string;
   vpnStatus(): string;
@@ -325,7 +330,7 @@ type Net = {
   /** Every frame the page sent, by type. */
   sent: string[];
   holdQueues: boolean;
-  queues: Array<() => void>;
+  queues: Array<{ message: string; release(): void }>;
   trace: Array<{ at: number; stage: string; frame: ReturnType<typeof describeFrame> }>;
 };
 type Scene = { context: BrowserContext; page: Page; net: Net; A: string; B: string; draft: string };
@@ -435,7 +440,7 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
       };
       record("host-received");
       const send = () => { record("client-forwarded"); socket.send(message); };
-      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push(send);
+      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push({ message, release: send });
       else send();
     });
   });
@@ -1014,9 +1019,22 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           net.holdQueues = false;
           const queueBefore = await probe(page, p => p.received("session_queue", "*"));
           const queued = net.queues.splice(0);
-          for (const release of queued) release();
+          const reports = [...new Set(queued.map(queue => queue.message))];
+          expect(await page.evaluate(messages => messages.every(message => (window as unknown as { __continuity: Probe }).__continuity.queueOnlyUpdate(message)), reports),
+            "released reports only refresh already-accepted queues on held running turns").toBe(true);
+          const receipts = () => page.evaluate(messages => (window as unknown as { __continuity: Probe }).__continuity.queueReceipts(messages), reports);
+          const before = await receipts();
+          const expected = before.map((count, index) => count + queued.filter(queue => queue.message === reports[index]).length);
+          for (const queue of queued) queue.release();
           await until(page, `p.received("session_queue", "*") >= ${queueBefore + queued.length}`);
-          await settle(page);
+          await until(page, `p.queueReceipts(${JSON.stringify(reports)}).every((count, index) => count >= ${JSON.stringify(expected)}[index])`);
+          expect((await receipts()).map((count, index) => count >= expected[index]!),
+            "expected queue payload multiplicities reached their synchronous handlers").toEqual(expected.map(() => true));
+          // This branch only updates the retained keyed pills. Expected payloads
+          // reached synchronous handlers; finish their finite rendering before the
+          // original identity/layout assertions. Recovery's preceding 500ms
+          // window and every drop/final/IME window remain independent.
+          await finishRender(page);
           if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           expect(net.uploads, `cycle ${cycle}: the upload resumed after reconnect`).toBe(uploadsBefore + 1);

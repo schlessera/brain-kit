@@ -18,7 +18,11 @@
 
 import { constants } from "node:os";
 import { join, resolve } from "node:path";
-import { ensureWorkspaceLease, inheritWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
+import { realpathSync } from "node:fs";
+import { invocationChild } from "./test-invocation-child";
+import { runtimeBuildSelection } from "./runtime-test-builds";
+import { acceptsSpeechDelegation, clearInvocation, prepareInvocation } from "./test-invocation";
+import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
 
 /** What runs when the caller names no path. */
 export const DEFAULT_ROOTS: readonly string[] = ["packages", "tests"];
@@ -95,12 +99,12 @@ function shortTakesNext(token: string): boolean {
 }
 
 /** The `bun test` argv for the arguments `bun run test` received. */
-export function testArgv(args: readonly string[]): string[] {
-  let hasPath = false;
+export function testPaths(args: readonly string[]): string[] {
+  const paths: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--") {
-      hasPath ||= i + 1 < args.length;
+      paths.push(...args.slice(i + 1));
       break;
     }
     // A bare `-` is a positional to Bun, like any other path.
@@ -112,9 +116,13 @@ export function testArgv(args: readonly string[]): string[] {
       }
       continue;
     }
-    hasPath = true;
+    paths.push(arg);
   }
-  return hasPath ? [...args] : [...DEFAULT_PATH_ARGS, ...args];
+  return paths;
+}
+
+export function testArgv(args: readonly string[]): string[] {
+  return testPaths(args).length ? [...args] : [...DEFAULT_PATH_ARGS, ...args];
 }
 
 if (import.meta.main) {
@@ -122,6 +130,7 @@ if (import.meta.main) {
   if (coordinated !== undefined) process.exit(coordinated);
   let args = process.argv.slice(2);
   let argv: string[];
+  let fullPreparation = false, delegatedSpeech = false, help = false, unsupported = realpathSync(process.cwd()) !== realpathSync(resolve(import.meta.dir, ".."));
   try {
     const balanced: string[] = [];
     const forwarded: string[] = [];
@@ -131,6 +140,11 @@ if (import.meta.main) {
         forwarded.push(...args.slice(i));
         break;
       }
+      if (arg === "--internal-full-preparation") { fullPreparation = true; continue; }
+      if (arg === "--internal-external-speech") { delegatedSpeech = true; continue; }
+      // Bun prints usage and runs nothing, so help never builds or fails on a compiler error.
+      if (arg === "--help" || arg === "-h") help = true;
+      if (["--watch", "--hot", "--cwd"].some(flag => arg === flag || arg.startsWith(`${flag}=`))) unsupported = true;
       if (arg === "--balanced-shard") throw new Error("Expected --balanced-shard=M/N");
       if (arg.startsWith("--balanced-shard=")) {
         balanced.push(arg);
@@ -157,15 +171,47 @@ if (import.meta.main) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  const proc = Bun.spawn([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], inheritWorkspaceLease({
-    stdio: ["inherit", "inherit", "inherit"],
-  }));
-  // A cancellation aimed at this process's PID (a CI runner stopping the
-  // step, `kill <pid>`) must stop the tests too, not orphan them. Ctrl-C in a
-  // terminal already reaches both through the foreground process group.
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(signal, () => proc.kill(signal));
+  const root = resolve(import.meta.dir, "..");
+  // Cancellation covers preparation as well as tests; an interrupted build is
+  // never retried and cannot launch tests, even if it was just exiting zero.
+  let cancelled: NodeJS.Signals | undefined;
+  const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+  let owned: ReturnType<typeof invocationChild> | undefined;
+  const stopping: Promise<void>[] = [];
+  const stop = (signal: NodeJS.Signals) => { const pending = owned?.stop(signal); if (pending) { stopping.push(pending); void pending.catch(() => {}); } };
+  const started = (child: ReturnType<typeof invocationChild>) => { owned = child; if (cancelled) stop(cancelled); };
+  const listeners = signals.map(signal => () => { cancelled = signal; stop(signal); });
+  signals.forEach((signal, index) => process.on(signal, listeners[index]!));
+  let dispose = () => {};
+  let result = 1;
+  try {
+    const paths = testPaths(argv);
+    const borrowed = !unsupported && workspaceTestAccess() === "write" && delegatedSpeech && acceptsSpeechDelegation(root, paths);
+    if (!borrowed) clearInvocation();
+    if (fullPreparation && workspaceTestAccess() !== "write") throw new Error("Read-only verification cannot prepare workspace output");
+    const directories = runtimeBuildSelection(root, process.cwd(), paths);
+    if (!help && !borrowed && !unsupported && workspaceTestAccess() === "write" && (fullPreparation || directories.length)) {
+      const preparation = await prepareInvocation(root, fullPreparation ? undefined : directories, started);
+      dispose = preparation.dispose;
+      if (preparation.code !== 0) { result = preparation.code; throw new Error(`Test invocation preparation failed (${result})`); }
+    }
+    if (!cancelled) {
+      const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit" });
+      started(tests);
+      await tests.ready;
+      const relay = async (stream: ReadableStream<Uint8Array>, channel: "stdout" | "stderr") => { for await (const chunk of stream) process[channel].write(chunk); };
+      const joined = await Promise.allSettled([tests.exited, relay(tests.stdout, "stdout"), relay(tests.stderr, "stderr")]);
+      await tests.finish();
+      result = joined[0].status === "fulfilled" ? joined[0].value : 1;
+      if (joined.some(item => item.status === "rejected")) result = result || 1;
+      if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
+    }
+  } catch (error) { console.error(error); }
+  finally {
+    const stopped = await Promise.allSettled(stopping);
+    if (stopped.some(item => item.status === "rejected")) { console.error("Invocation child cleanup failed", stopped); result = result || 1; }
+    dispose();
+    signals.forEach((signal, index) => process.off(signal, listeners[index]!));
   }
-  const code = await proc.exited;
-  process.exit(proc.signalCode ? 128 + (constants.signals[proc.signalCode] ?? 0) : code);
+  process.exit(cancelled ? 128 + (constants.signals[cancelled] ?? 0) : result);
 }

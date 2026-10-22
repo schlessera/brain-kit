@@ -1,3 +1,4 @@
+import { runtimePackageBuild, externalSpeechDelegation } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
@@ -33,8 +34,7 @@ if (worker) {
     if (!executablePath) return;
     const repo = resolve(import.meta.dir, "../../..");
     process.stderr.write("[external-speech] building packages\n");
-    const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-    const [out, err, code] = await runtimeHookPhases("external-speech-runtime").child("package-build", build, relay);
+    const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("external-speech-runtime"), relay);
     if (code !== 0) throw new Error(`Speech fixture package build failed: ${out}\n${err}`);
     process.stderr.write("[external-speech] constructing local speech and application servers\n");
     speechServer = Bun.serve<{ audio: number }>({ hostname: "127.0.0.1", port: 0,
@@ -153,9 +153,9 @@ if (worker) describe.skipIf(!executablePath)("external speech through public app
 else test.skipIf(!executablePath)("external speech: actual browser audio drains and unmount hard-stops capture in an isolated process", async () => {
   // Parent test files may install DOM/transport globals. The real app/build/
   // Chrome harness gets a fresh runtime, as the existing media proof does.
-  const child = Bun.spawn([process.execPath, "run", "test", import.meta.path], {
+  const child = Bun.spawn([process.execPath, "run", "test", "--internal-external-speech", import.meta.path], {
     cwd: resolve(import.meta.dir, "../../.."),
-    env: { ...process.env, BRAIN_EXTERNAL_SPEECH_WORKER: "1" },
+    env: { ...externalSpeechDelegation(resolve(import.meta.dir, "../../..")), BRAIN_EXTERNAL_SPEECH_WORKER: "1" },
     stdin: "ignore", stdout: "pipe", stderr: "pipe",
   });
   // Keep stage evidence even if the runner times out before the child exits.
