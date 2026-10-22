@@ -1955,3 +1955,30 @@ The follow-ups are bounded children of #1849:
 - **#2639:** a 100 ms account-clear yield.
 
 No test, fixture or production timer changed here.
+
+## Native witnesses and controlled probe deadlines
+
+The scope adapter fixtures write their heartbeat into the worker's writable
+turn temp. The host reads that same file through the launched worker's retained
+tmpfs handle. Tool events start only after two native writes; the freeze checks
+assert a positive witness and retain the real 150 ms no-progress window. Reading
+a missing file as zero cannot establish a freeze.
+
+The running small-tmpfs fixture samples real `statfs` until its native writer
+crosses the 2 GiB floor, then advances the registered journal interval through
+14,999 and 15,000 logical milliseconds. Retention, the 200 ms native freeze
+window, Continue refusal and Stop remain real. Its report separates writer,
+floor-crossing, dispatch and receipt timings. The paused-floor variant retains
+its existing native scheduling.
+
+Five version-probe cases control only their registered 5,000 ms primary deadline.
+The SDK and Claude cases bind the registration in `probeVersionCommand`; the
+governed CLI cases bind `runMaintenanceWorker` after observing their actual
+wrapper child. The callback owner and unchanged default are checked before
+delivery. Real output reads or wrapper readiness precede the 4,999/5,000 ms
+boundary; native completion precedes the 5,001 ms duplicate-delivery check.
+Cleanup budgets, signals, group sweeps, reader closure and natural host exit
+retain native execution. Complete timer and spawn descriptors are restored on
+failure, and an unconfirmed probe's host-exit case restores observers without
+performing fixture cleanup inside that host. The separate boot-probe suite's
+native deadline controls retain their existing ownership.
