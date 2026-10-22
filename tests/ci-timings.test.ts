@@ -226,6 +226,14 @@ test("native report joins overlapping downloaded reservation and acquisition arc
     expect(report.lifecycleAcquisition.scopes[0].errors).toHaveLength(2);
     expect(report.reservationAcquisition.leases[0].sources).toEqual([sha, tree]);
     expect(report.reservationAcquisition.scopes.map((s: any) => s.sourceHead)).toEqual([sha, tree]);
+    mkdirSync(join(dir, "2"));
+    writeFileSync(join(dir, "2", "reservations.json"), JSON.stringify({ version: 1, repository, collectedAt: finish,
+      sourceRef: "refs/heads/brain-integration-reservation", sourceHead: null, leases: [], error: "Reservation ref unavailable" }));
+    expect(invoke().exitCode).toBe(0);
+    const partial = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
+    expect(partial.throughput.reservation).toBeNull();
+    expect(partial.reservationAcquisition.complete).toBe(false);
+    expect(partial.reservationAcquisition.leases[0].sources).toEqual([sha, tree]);
     writeFileSync(join(dir, "1", "reservations.json"), JSON.stringify({ version: 1, repository,
       collectedAt: finish, sourceHead: tree, sourceRef: "refs/heads/brain-integration-reservation", leases: [{ ...lease, pr: 43 }] }));
     const conflict = invoke();

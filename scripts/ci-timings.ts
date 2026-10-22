@@ -447,7 +447,7 @@ async function writeReport(dir: string, scenario?: Scenario) {
   const lifecycleAcquisition = lifecycleCoverage(operational.acquisitions, operational.pulls);
   const reservationAcquisition = reservationCoverage(operational.reservations);
   const report = { ...basic, lifecycleAcquisition, reservationAcquisition, throughput: window && operational.pulls.length ? summarizeThroughput(deduplicate(snapshots), operational.pulls, operational.events, window,
-    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.observed ? reservationAcquisition.leases : undefined) : null,
+    { runnerSeconds: basic.baseline.runnerSeconds.median, elapsedSeconds: basic.baseline.elapsedSeconds.median, samples: basic.baseline.samples.length }, scenario!, reservationAcquisition?.complete ? reservationAcquisition.leases : undefined) : null,
     collectionCoverage: { missingAttempts: [...missing],
     scopes: collections.map(c => ({ repository: c.repository, since: c.since, until: c.until, requestedRun: c.requestedRun,
       collectedAt: c.collectedAt, status: c.status, errors: c.errors, requestBudget: c.requestBudget, seed: c.seed })) } };

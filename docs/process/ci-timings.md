@@ -121,8 +121,9 @@ the remaining attempts. The window and explicit-backfill limits still apply.
 Reservation-history failures are isolated: `reservations.json` records an
 `error`, a null source head and no observations, while timing acquisition
 continues. The report keeps that error in its reservation scopes and sets
-`reservationAcquisition.complete` to false. With no successful reservation
-observations, occupancy remains unknown rather than measured zero.
+`reservationAcquisition.complete` to false. Any failed reservation scope leaves
+total occupancy unknown; successful lease observations remain available in
+`reservationAcquisition.leases` for inspection.
 
 Download archives before they expire, using their measurement workflow run IDs:
 
