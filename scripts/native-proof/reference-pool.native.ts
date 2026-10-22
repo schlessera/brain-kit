@@ -39,7 +39,8 @@ async function call<T>(request: Record<string, unknown>): Promise<T> {
 }
 async function refusal(request: Record<string, unknown>): Promise<{ code: string; message: string }> {
   try { await manager.run(request as never); } catch (error) { return { code: (error as { code: string }).code, message: String((error as Error).message) }; }
-  throw Error(`Expected a refusal for ${JSON.stringify(request)}`);
+  // An unexpected success reaches the caller's named assertion instead of a generic throw.
+  return { code: "none", message: `No refusal for ${JSON.stringify(request)}` };
 }
 const status = () => call<NativePoolStatus>({ operation: "poolStatus" });
 const create = (purpose: string, allowanceBytes: number, from: string | null = null, id = randomUUID()) => call<NativePoolRecord>({ operation: "poolCreate", id, purpose, from, allowanceBytes });
