@@ -31,4 +31,5 @@ test("installed Vitest and Bun discovery assign every actual product execution a
   expect(recording!.assertions.length).toBeGreaterThanOrEqual(7);
   expect(inventory.rows.some(row => row.domain === "layout" && row.file.endsWith("recording-limits.offline.tsx"))).toBe(true);
   expect(inventory.rows.filter(row => row.file.endsWith("recordings.endurance.tsx"))).toHaveLength(1);
-});
+  // Bound native discovery at 30 s, then allow ownership/source scanning and cleanup.
+}, 60000);
