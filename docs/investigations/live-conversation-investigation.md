@@ -55,7 +55,6 @@ const config = {
     name: "host_task",
     description: "Request host-owned agent work for the current committed utterance.",
     behavior: "NON_BLOCKING",
-    parameters: { type: "OBJECT", properties: {}, additionalProperties: false },
   }] }],
 };
 ```
@@ -64,6 +63,13 @@ This single native function requests delegation, not a second brain tool
 catalog. Its untrusted call maps to host-owned committed utterance/context.
 Never execute model-provided task arguments as authorization. No vendor
 built-in tools, image/video input or automatic callable-tool executor is used.
+The function takes no parameters, so its declaration omits `parameters`.
+The 2026-10-17 live setup probe rejected the original `additionalProperties`
+field inside that protobuf `Schema` before `setupComplete` (#2356).
+The [function declaration reference](https://ai.google.dev/api/generate-content#FunctionDeclaration)
+makes `parameters` optional; JSON Schema is a separate `parametersJsonSchema`
+field, not interchangeable with `parameters`. This correction supplies no audio
+or device qualification.
 Input is mono signed PCM16 at 16 kHz; output is PCM at 24 kHz. Wait for
 `setupComplete`; send manual `activityStart`, audio chunks and `activityEnd`.
 Activity ending is evidence for a candidate endpoint, not permission to
@@ -230,7 +236,7 @@ requestId)`; actual tool requests additionally use their existing `toolUseId`.
 Only committed original input supplies `StartTurnRequest.prompt`. The host
 selects the pinned existing backend/profile, cancellation signal and
 `BackendBridge`, and enforces the voice posture on new voice turns
-(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:496-591`).
+(`export interface StartTurnRequest`, `packages/ui-sdk/src/server/backend.ts:496-593`).
 Do not feed approximate fragments or native task descriptions directly into
 execution. Keep raw outputs/private memory in the host and return only reviewed
 bounded facts needed by the voice service.
@@ -239,7 +245,7 @@ Backend reuse is structurally feasible for **both** adapters. `startTurn` is
 already asynchronous and accepts a host AbortSignal. A busy same-session turn
 is queued; new committed details use `followUp` only when the backend advertises
 it, otherwise remain queued/reviewable
-(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:670-700`).
+(`export interface AgentBackend`, `packages/ui-sdk/src/server/backend.ts:672-704`).
 Continued voice interaction never requires unsafe concurrent `startTurn`s.
 This is source evidence and design mapping, not a real provider/backend trial.
 
@@ -288,13 +294,13 @@ is unknown, not queued against a replacement request.
 Terminal state invalidates every pending exchange for that turn without waiting
 for `tool_result`. Current client terminal handling finishes the assistant
 message and resyncs; its message-state helper only marks streaming false
-(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1786-1791`).
+(`finishAssistantMessage`, `packages/ui-react/src/stores/chat-state.ts:1818-1823`).
 This observation is a required integration check, not proof that all cards
 currently clear. A host terminal event plus local audio drain/discard defines
 conversation completion; provider turn/audio end does not.
 
 Voice question binding retains the existing one-question rule
-(`questionForTypedAnswer`, `packages/ui-react/src/components/chat/ask-user-typed.ts:33-35`).
+(`questionForTypedAnswer`, `packages/ui-react/src/lib/ask-user-typed.ts:33-35`).
 Multi-question, list, rank, form and permission-card interactions keep their
 visual boundaries. Under `noGrantSurface`, tools requiring those surfaces
 remain withheld. Starting voice on an ordinary turn does not erase its cards.

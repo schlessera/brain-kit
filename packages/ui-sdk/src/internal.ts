@@ -19,6 +19,8 @@ export { execWrapperSpawnOptions } from "./server/exec-wrapper.js";
 export { assertScratchMask } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_DIR, WORKER_INFERENCE_SOCKET, MAX_INFERENCE_REQUEST_BYTES } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
+export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET } from "./server/egress-proxy.js";
+export type { EgressProxyOptions, EgressRecord } from "./server/egress-proxy.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox } from "./server/worker-launcher.js";
@@ -43,9 +45,9 @@ export { DEFAULT_MAINTENANCE_TEMP_BYTES, DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES, 
 export { hostMaintenanceTempLimits } from "./server/maintenance-temp-limits.js";
 export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME } from "./server/worker-launcher.js";
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
-export { brainGitSync, CREDENTIAL_FREE_ENV, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
+export { brainGitSync, CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
-export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView } from "./server/worker-startup-view.js";
+export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";
 export function maintenanceGitEntry(): string { return Bun.resolveSync("./server/maintenance-git-entry", import.meta.dir); }
 export { isEnvName, protectedPaths, PROTECTED_ENV_PREFIX, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./server/protected-paths.js";
@@ -89,3 +91,6 @@ export { sessionReplay } from "./server/session-replay.js";
 export type { ReplayReceipt } from "./server/session-replay.js";
 
 export { promptPrefixFingerprint } from "./server/prompt-fingerprint.js";
+
+export { rewriteWorkerRtk } from "./server/worker-rtk.js";
+export { acquireHostCredentialExclusion, HostCredentialExclusionError, type HostCredentialDomain } from "./server/credential-exclusion.js";

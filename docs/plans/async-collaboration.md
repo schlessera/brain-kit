@@ -79,7 +79,7 @@ is a security-critical build for both first-party backends (tool availability co
 environment, `strictMcpConfig`, real-subprocess containment testing), not a configuration
 change — the current backend auto-allows `Bash`, `Write`, `Edit`, `WebFetch`, `WebSearch`,
 and `Agent` (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) and automatic SDK permission paths can bypass
-`canUseTool`; the existing mandatory posture catches measured bypasses with hooks (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:198-227`).
+`canUseTool`; the existing mandatory posture catches measured bypasses with hooks (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`).
 
 Because nothing ships until containment passes, **U14 and U15 are sequenced early** (see
 Sequencing below) rather than in unit order. Discovering a containment problem after the
@@ -125,38 +125,38 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 ### Relevant Code and Patterns
 
 - **Cursors and transactional snapshots:** (`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`)
-  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:872-901`). Reuse the algorithm; the
+  and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:877-906`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
 - **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:55-194`). Cron's scheduler
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
-- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:746`) follows public routes;
+- **Auth mounting:** (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:781`) follows public routes;
   (`export function authGuard(`, `packages/ui-server/src/middleware/auth.ts:189-249`) binds principals in each auth mode.
   An internal poke needs independent token authorization before this guard.
 - **Permission parking:** (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:281-375`). Timeout unwind is
   (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:384-390`). Durable escalation must checkpoint
   before unwinding; the existing ordinary bridge does not do that.
-- **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:198-227`) closes measured bypasses.
+- **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:182-190`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:93-453`). Restricted execution needs
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:96-472`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-144`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:95-124`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
-- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:650`) settles after execution;
+- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:651`) settles after execution;
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:91-127`) and
-  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`) are run-bound and do not
+  (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:197-244`) are run-bound and do not
   maintain an Actions aggregate count.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:95`) assigns the source in server code.
-  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2329`) bounds text, not binary uploads;
+  (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2342`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
-- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1168-1180`) gates WS starts;
+- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1169-1181`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
   Shared-target priority and cooperative yield belong to the keyed lock and backend lifecycle.
 
@@ -717,7 +717,7 @@ recovered tick after killing the interval
   model-bearing operation; folded compaction is included in its existing call.
 
 **Patterns to follow:** the frozen-at-first-computation discipline of effective cost
-(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:516-618`); env descriptor array for the new configuration values
+(`function rollupRunInTx(runId: string) {`, `packages/ui-server/src/activity/store.ts:518-620`); env descriptor array for the new configuration values
 
 **Test scenarios:**
 - Covers AE11: two claims that would each fit but jointly exceed the cap — the second is
@@ -807,7 +807,7 @@ recovered tick after killing the interval
 - T1: one batched classification call producing **independent structured output per item**, so
   one malformed item does not poison the batch
 - Batching bounded by a **token/byte budget**, not a count, with per-item truncation — a single
-  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2329`). Budget: **40k input tokens per
+  share may carry ~200 KB (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2342`). Budget: **40k input tokens per
   batch, 4k per item**
 - **Batch completeness is verified, and missing items are re-submitted individually.** Every
   submitted item id must come back; any that does not is retried alone, then escalated if it
@@ -1189,7 +1189,7 @@ and a server-selected tool policy.
 **Files:**
 - Modify: `packages/ui-sdk/src/server/backend.ts` (the additive `StartTurnRequest.autonomous` mode carries persistence,
   origin, tool policy and prompt configuration —
-  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:496-584`))
+  (`export interface StartTurnRequest {`, `packages/ui-sdk/src/server/backend.ts:496-586`))
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (server-selected
@@ -1274,7 +1274,7 @@ full-v1 enablement; predicates and schema tests cannot substitute for it.
 
 **Approach:** **hybrid — reserve capacity normally, yield only at denial risk.**
 `MAX_AUTONOMOUS_RUNS` (default 2) is necessary but not sufficient: the host cap applies only at
-WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1168-1180`) and an autonomous turn can hold a path write lock
+WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1169-1181`) and an autonomous turn can hold a path write lock
 while an interactive turn waits or is denied at 30s
 (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`).
 
@@ -1318,7 +1318,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:93-453`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:96-472`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, deterministic package-owned trusted instructions,

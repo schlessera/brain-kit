@@ -153,7 +153,7 @@ export function FileLink({ path, children, style }: { path: string; children?: R
  * slugs are looked up by basename. An `#anchor` suffix is stripped before
  * lookup.
  */
-function resolveWikilinkTarget(
+export function resolveWikilinkTarget(
   raw: string,
   slugMap: Record<string, string>
 ): string | null {
@@ -355,4 +355,14 @@ export function linkifyPaths(text: string): React.ReactNode {
   const parts = renderBarePathsInText(text);
   if (parts.length === 1 && typeof parts[0] === "string") return parts[0];
   return <>{parts}</>;
+}
+
+/** Shared concrete navigation for bundled diagram nodes and Markdown links. */
+export function useWikiLinkNavigation(): { resolve(target: string): string | null; open(target: string, opener: HTMLElement | SVGElement, keyboard: boolean): boolean } {
+ const root = useBrainUiRoot();
+ const map = useFileStore(s => s.wikilinkMap);
+ const openFile = useFileStore(s => s.openFile);
+ const setFilePanelOpen = useUIStore(s => s.setFilePanelOpen);
+ const resolve = (raw: string) => resolveWikilinkTarget(raw.replace(/^\[\[|\]\]$/g, "").split("|")[0]!, map);
+ return { resolve, open(target, opener, keyboard) { const path = resolve(target); if (!path) return false; const returnTarget = opener instanceof HTMLElement ? opener : opener.closest<HTMLElement>("figure"); if(returnTarget){if(!returnTarget.hasAttribute("tabindex"))returnTarget.tabIndex=-1;rememberFileEntry(root,returnTarget,keyboard);} setFilePanelOpen(true); void openFile(path); return true; } };
 }

@@ -356,7 +356,7 @@ async function runRetainedSession(
       // Before transcript/source/failure recording or any runtime initialization.
       // Every queued interactive or voice turn repeats the actual host check.
       try {
-        const workerHost = requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime);
+        const workerHost = requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
         if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) workerIdentity = { kind: "separate_uid", workerUid: workerHost.workerUid };
         // Pi turn-runner declares no voice tool posture. Keep this early
         // admission refusal aligned with that direct-consumer guard if Pi
@@ -651,6 +651,7 @@ async function runRetainedSession(
         lifecycle?.mark("backendInvokedAt");
         await backend.startTurn({
           applicationAuthority: "server",
+          ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {

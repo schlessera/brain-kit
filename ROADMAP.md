@@ -89,6 +89,10 @@ when it was made — not a preference.
    version bump; it never merges into your content, and your taxonomy is built
    by onboarding rather than shipped by us.
 7. **Extension interfaces are `@experimental` until 1.0.**
+8. **Provider history is append-only.** What a provider received for one turn
+   is the prefix of what it receives for the next: same tools, same system
+   prompt, earlier messages unchanged. Internal data never enters that
+   history. See [docs/decisions/provider-history.md](docs/decisions/provider-history.md).
 
 Why each of these looks the way it does, and what was rejected on the way, is in
 [docs/decisions/](docs/decisions/README.md).

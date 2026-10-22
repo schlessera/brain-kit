@@ -4,6 +4,8 @@
  * boot, and nothing here admits a turn: every turn runs its own probe, which
  * re-records the outcome (worker-host-gate.test.ts proves the turn half).
  */
+import { dirname } from "node:path";
+import { mockQualifiedIdentityHelper } from "./helpers/qualified-identity-helper";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { WorkerStateError, workerHostBoundary, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
@@ -26,6 +28,10 @@ function probeAnswers(...answers: WorkerHostProbe[]) {
   return probe;
 }
 const workerHostOf = async (response: Response) => ((await response.json()) as SystemStatus).runtime?.workerHost;
+let helper: ReturnType<typeof mockQualifiedIdentityHelper> | undefined;
+afterEach(() => { helper?.restore(); helper = undefined; });
+function qualifiedHelper() { helper = mockQualifiedIdentityHelper(); return helper.path; }
+
 
 // The server's uid is faked for every test, non-root unless a test says
 // otherwise, so the exact status shapes below hold under any test runner uid.
@@ -250,21 +256,23 @@ describe("maintenance resource refusals (#1778)", () => {
 
 describe("qualified cross-UID identity", () => {
   test("real status routes retain the actual qualified UID without deriving it from configuration", async () => {
-    probeAnswers({ ok: true, identity: "separate_uid", workerUid: 21002 });
-    const t = await createTestApp({ env: { BRAIN_UI_WORKER_IDENTITY_HELPER: "/fixture/identity-helper" } });
+    const observed = probeAnswers({ ok: true, identity: "separate_uid", workerUid: 21002 });
+    const t = await createTestApp({ env: { BRAIN_UI_WORKER_IDENTITY_HELPER: qualifiedHelper() } });
     try {
       const status = await workerHostOf(await t.fetch("/api/status"));
       expect(status?.ordinary, "VERIFIED_UID_REACHES_HTTP_STATUS").toMatchObject({available: true, identity: "separate_uid", workerUid: 21002});
       expect(status?.governed, "VERIFIED_UID_REACHES_GOVERNED_STATUS").toMatchObject({identity: "separate_uid", workerUid: 21002});
       const checked = await (await t.fetch("/api/status/worker-host", {method:"POST"})).json() as WorkerHostStatus;
       expect(checked.governed).toMatchObject({identity:"separate_uid",workerUid:21002});
+      for (const [, options] of observed.mock.calls) expect(options?.identitySentinelDirectory, "APP_BOOT_CHECK_FILE_DB_PLACEMENT").toBe(dirname(t.dbPath));
+      expect(t.app.wsHost.identitySentinelDirectory).toBe(dirname(t.dbPath));
     } finally { await t.teardown(); }
   });
 
   test("a configured helper with failed qualification never claims shared or verified identity", async () => {
     probeAnswers({ok:false,requirement:"worker_identity_wrong_uid"});
     const observability = createRecordingObservability();
-    const t = await createTestApp({env:{BRAIN_UI_WORKER_IDENTITY_HELPER:"/fixture/identity-helper"},appOptions:{observability}});
+    const t = await createTestApp({env:{BRAIN_UI_WORKER_IDENTITY_HELPER:qualifiedHelper()},appOptions:{observability}});
     try {
       const status = await workerHostOf(await t.fetch("/api/status"));
       expect(status?.governed, "FAILED_HELPER_QUALIFICATION_IS_UNAVAILABLE").toMatchObject({available:false,reason:"worker_host_unavailable",detail:"worker_identity_wrong_uid"});
@@ -275,4 +283,28 @@ describe("qualified cross-UID identity", () => {
       expect(String(report?.body), "FAILED_HELPER_NEVER_PROMISES_STRICT_FALLBACK").not.toContain("turns run under strict");
     } finally { await t.teardown(); }
   });
+});
+
+
+test("memory createApp carries the exact native lease parent through boot/check and the autonomous owner context", async () => {
+  const observed = probeAnswers({ ok: false, requirement: "fixture host refusal" });
+  const t = await createTestApp({ env: { BRAIN_UI_WORKER_IDENTITY_HELPER: qualifiedHelper(), BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY: "100" },
+    appOptions: { dbPath: ":memory:", [INBOX_DISPATCH_FIXTURE]: { select: async () => null } } as never });
+  try {
+    const directory = dirname(process.env.BRAIN_UI_NATIVE_BRAIN_LEASE_PATH!);
+    expect(t.app.wsHost.identitySentinelDirectory, "MEMORY_APP_TRUSTED_LEASE_PARENT").toBe(directory);
+    await t.fetch("/api/status/worker-host", { method: "POST" });
+    expect(observed.mock.calls).toHaveLength(4);
+    for (const [, options] of observed.mock.calls) expect(options?.identitySentinelDirectory, "MEMORY_BOOT_CHECK_BOTH_ENVELOPES").toBe(directory);
+  } finally { await t.teardown(); }
+});
+
+test("invalid helper configuration stays a recorded refusal rather than crashing boot", async () => {
+  const observed = probeAnswers({ ok: true });
+  const t = await createTestApp({ env: { BRAIN_UI_WORKER_IDENTITY_HELPER: "/fixture/identity-helper" } });
+  try {
+    expect((await t.fetch("/api/health")).status).toBe(200);
+    expect((await workerHostOf(await t.fetch("/api/status")))?.ordinary).toMatchObject({ available: false });
+    expect(observed).not.toHaveBeenCalled();
+  } finally { await t.teardown(); }
 });

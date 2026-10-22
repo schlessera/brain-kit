@@ -3115,14 +3115,14 @@ describe("activity and device root ownership", () => {
     const panel = (root: BrainUiRoot) => <BrainUiProvider root={root}><AppShell><DevicesAgentsTab active /></AppShell></BrainUiProvider>;
     const view = render(panel(a.root));
     try {
-      await act(async () => { a.requests[0].response.resolve(principalResponse([])); await flushPromises(); });
+      await act(async () => { a.matching("/auth/principals")[0].response.resolve(principalResponse([])); await flushPromises(); });
       changeControlledInput(view.getByLabelText("Label") as HTMLInputElement, "Alpha helper");
       fireEvent.click(view.getByRole("button", { name: "Create agent credential" }));
-      expect(a.requests[1].init?.method).toBe("POST");
+      expect(a.matching("/auth/principals")[1].init?.method).toBe("POST");
       view.rerender(panel(b.root));
       await act(async () => {
-        b.requests[0].response.resolve(principalResponse([]));
-        a.requests[1].response.resolve(Response.json({ id: "issued", label: "Alpha helper", expiresAt: 1, cookie: "alpha-once" }));
+        b.matching("/auth/principals")[0].response.resolve(principalResponse([]));
+        a.matching("/auth/principals")[1].response.resolve(Response.json({ id: "issued", label: "Alpha helper", expiresAt: 1, cookie: "alpha-once" }));
         await flushPromises();
       });
       expect(a.root.stores.principal.getState().oneTimeCredential?.cookie).toBe("alpha-once");
@@ -4291,10 +4291,10 @@ describe("DesktopPalette on the kit CommandPalette", () => {
     const dialog = view.getByRole("dialog", { name: "Command palette" });
     expect(dialog).toBeTruthy();
     const names = view.getAllByRole("option").map((o) => o.textContent);
-    // Jump to: the five destinations with their remapped keys, then Graph
-    // with none, then New chat. Sessions is one row, not two (D52 §1).
-    expect(names.slice(0, 7).map((n) => n?.replace(/⏎/g, ""))).toEqual([
-      "Chat⌘1", "Sessions⌘2", "Actions⌘3", "Files⌘4", "Settings⌘5", "Graph", "New chat",
+    // Jump to: the five destinations with their remapped keys, then keyless
+    // Storage and Graph, then New chat. Sessions is one row, not two (D52 §1).
+    expect(names.slice(0, 8).map((n) => n?.replace(/⏎/g, ""))).toEqual([
+      "Chat⌘1", "Sessions⌘2", "Actions⌘3", "Files⌘4", "Settings⌘5", "Storage", "Graph", "New chat",
     ]);
     expect(names.filter((n) => n?.includes("Sessions"))).toHaveLength(1);
     // Every other route is still here, the rail's acts included.
@@ -4752,7 +4752,7 @@ describe("desktop panes (D37)", () => {
     const onClose = mock(() => {});
     const view = render(<SettingsPanel open onClose={onClose} />);
     const tabs = view.getAllByRole("tab").map((t) => t.getAttribute("aria-label") ?? t.textContent);
-    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Security", "Devices & agents"]);
+    expect(tabs).toEqual(["Appearance & input", "Models", "Accounts", "Skills", "Modules", "Storage", "Security", "Devices & agents"]);
     fireEvent.click(view.getByRole("tab", { name: "Appearance & input" }));
     expect(useUIStore.getState().settingsTab).toBe("appearance");
     expect(view.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
@@ -6776,10 +6776,11 @@ test("code without an info string has no invented language or sample or copy gly
   expect(view.container.textContent).toBe("");
   expect(view.container.querySelectorAll("svg")).toHaveLength(0);
 });
-test("Mermaid keeps its renderer instead of a code card", () => {
+test("Mermaid keeps its renderer instead of a code card", async () => {
   const root = createBrainUiRoot({ storage: null });
   try {
     const view = render(<BrainUiProvider root={root}><RuntimeMarkdownPre><code className="language-mermaid">{"graph LR; Troy-->Ithaca\n"}</code></RuntimeMarkdownPre></BrainUiProvider>);
+    await waitFor(() => expect(view.container.querySelector('[data-content-renderer="mermaid"]'), "MERMAID_LAZY_RENDERER_SETTLED").toBeTruthy());
     expect(view.container.querySelectorAll('[data-kit-code-block]')).toHaveLength(0);
     expect(view.container.textContent).toContain("graph LR; Troy-->Ithaca");
   } finally { root.dispose(); }

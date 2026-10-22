@@ -21,7 +21,7 @@ Core corpus history is intentionally different (`snapshotOf`,
 health fields; thinning (`thin`, `packages/core/src/lib/stats-history.ts:232-244`) retains
 recent days and older weekly observations. Neither contract supplies server
 capacity identity or a lifetime byte bound. Caller availability alone
-(`freeSpaceBytes`, `packages/core/src/lib/stats.ts:213-224`) is not quota headroom.
+(`freeSpaceBytes`, `packages/core/src/lib/stats.ts:216-227`) is not quota headroom.
 [Accounting discovery](storage-accounting.md) and
 [native brain storage](../decisions/native-brain-storage.md) bind all quantities.
 
@@ -200,7 +200,7 @@ throughout a window. Never use logical/allocated App growth to forecast capacity
 | Window | Evidence |
 | --- | --- |
 | Short | Recent points within seven days; at least five distinct endpoints spanning 48 hours; no interval over 12 hours. |
-| Long | Completed Daily endpoints within 28 days plus the latest Recent endpoint; at least 15 distinct endpoints spanning 14 days; no interval over 48 hours. |
+| Long | Completed Daily endpoints within 30 days plus the latest Recent endpoint; at least 15 distinct endpoints spanning 14 days; no interval over 48 hours. |
 
 Deduplicate identical timestamps. The latest point must be the current complete
 capacity observation and at most six hours old, with no future timestamp. Walk

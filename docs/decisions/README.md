@@ -13,6 +13,7 @@ somebody already learn the hard way?*
 | --- | --- |
 | [github-actions-ci.md](github-actions-ci.md) | GitHub Actions as the sole CI provider, with preserved automatic/local guarantees and safe fork execution. |
 | [ci-utility.md](ci-utility.md) | Complete affected hosted proof, cheap local feedback and concurrent ready-PR scheduling without removing tests or blocking unrelated merges. |
+| [isolated-ci-build.md](isolated-ci-build.md) | Dormant fixed CI build operation, explicit activation deferral and conservative ordinary-build fallback. |
 | [tag-aliases.md](tag-aliases.md) | No-go for the tested semantic alias pipeline: Jev recognizes the aliases, but candidate retrieval misses one found by the shipped audit skill. |
 | [example-corpus.md](example-corpus.md) | Odysseus as the sole example world across core, CLI, docs and presentation; separate technical representations and historical evidence. |
 | [design-kit.md](design-kit.md) | The design kit and the chat surface: D1–D53, dated. Component API, tokens, the light theme, the accessibility gate, the in-chat tool contracts, the classification pass, how the bridge tools reach the model, what a model-authored link may show, the follow-ups a model may offer, recoverable turn failures, the navigation, session-tracker and per-session draft design, ghost-text loading, and offline continuity with committed recording boundaries and measured browser limits. |
@@ -35,6 +36,7 @@ somebody already learn the hard way?*
 | [container-fresh-proc.md](container-fresh-proc.md) | Why the agent worker keeps a fresh `/proc` in a container rather than binding the container's or dropping its PID namespace, what Docker must allow at each launcher step, and what `systempaths=unconfined` costs. |
 | [storage-guidance.md](storage-guidance.md) | Layered bounded capacity history, qualified exhaustion scenarios, warning recovery and owner-only Critical notifications. |
 | [native-brain-storage.md](native-brain-storage.md) | Why hosted governed mode requires short-lived native Btrfs checkpoints, changed-only retained undo and a separately bounded managed store. |
+| [reference-worktrees.md](reference-worktrees.md) | Why read-only shared source and centrally managed governed worktrees use separate authority/freshness clocks, an actual-allocation Btrfs budget and preservation-aware cleanup. |
 | [governed-writable-workers.md](governed-writable-workers.md) | Why interactive and voice turns write the brain directly again inside the worker: the four guardrail classes, in-brain policy read-only to agents, protected paths with self-bound ancestors, the per-turn journal with revert, budgets, scope caps, egress, the three write areas and roadblock tracking. Supersedes parts of policy-write-boundary.md. |
 | [action-notifications.md](action-notifications.md) | Why Action notices use fixed cross-thread batches, client-local quiet/digest schedules, new waiting episodes and durable per-destination submission/coverage history. |
 | [hygiene-review.md](hygiene-review.md) | Why async hygiene review orders eligible findings by severity/known urgency, merges equivalent source reports and invalidates dispositions only on relevant evidence changes. |
@@ -49,6 +51,7 @@ somebody already learn the hard way?*
 | [public-export-boundary.md](public-export-boundary.md) | Why public exports were reduced before 1.0 instead of frozen, what ordinary and `/internal` entry points promise, how signature-reachable types are checked, and the migration for every removed or moved import. |
 | [backend-authoring-toolkit.md](backend-authoring-toolkit.md) | The supported permission toolkit, reachable types, internal policy inventory and migration under the Q1/Q2 rulings. |
 | [confirm-patterns.md](confirm-patterns.md) | Why a nonempty confirmation-pattern list with no valid regex rejects backend initialization, while explicit empty lists and mixed valid/invalid lists retain their meaning. |
+| [provider-history.md](provider-history.md) | Why the tools, system prompt and earlier messages sent to a model provider stay byte-identical across a session's turns, why internal data never enters that history, and the keyless guard that checks it. |
 | [claude-code-runtime.md](claude-code-runtime.md) | Which Claude Code binary the Claude backend runs (the one the Agent SDK ships, pinned by the lockfile), why the server records the version that ran, and how the behaviours measured against one version are re-checked when it moves. |
 | [turn-surface-routing.md](turn-surface-routing.md) | Why the fresh four-arm Sonnet 5.5/Jev comparison retains the shipped tool and skill surface, including actual token/cache counts, repeated tool misses, latency spread and bounded scoring limits. |
 | [triage-classifier.md](triage-classifier.md) | Why Jev's four-way route Choice at a 0.4 floor is the T1 triage classifier, why the decomposed Noul arm is rejected, and how the floor was calibrated against a Sonnet 5.5 baseline that lost a batch. |
@@ -171,7 +174,7 @@ it is told something confidently wrong. So name what you point at, and let the
 range follow it:
 
 ```md
-(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:198-227`)
+(`enforcementHook`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`)
 ```
 
 - **The anchor** is the code span immediately before the citation, joined to it

@@ -10,4 +10,4 @@
  */
 export * from "./protocol.js";
 export { ENV_VARS } from "./config/env-vars.js";
-export type { ModuleSettingsField, ModuleSettingsOption, ModuleSettingsSnapshot, ModuleSettingsFailure, ConfiguredModule, ModuleSettingsMigrationPreview } from "./module-settings.js";
+export type { ModuleSettingsField, ModuleSettingsOption, ModuleSettingsSnapshot, ModuleSettingsFailure, ContentRendererDeclaration, ConfiguredModule, ModuleSettingsMigrationPreview } from "./module-settings.js";

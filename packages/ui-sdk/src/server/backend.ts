@@ -502,6 +502,8 @@ export interface StartTurnRequest {
   workerStartupView?: import("./worker-startup-view.js").WorkerStartupView;
   /** @internal Parent-owned lifecycle control; never serialized into a worker. */
   workerStarted?: (worker: Pick<import("./worker-launcher.js").LaunchedWorker, "freeze" | "resume" | "kill" | "exited">) => void;
+  /** @internal Host-only observation of validated native memory copy-out, never a worker/client destination. */
+  persistClaudeMemory?: (change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void) => void;
   /** @internal Host-resolved filesystem view, never a client or model grant. */
   workerSandbox?: import("./worker-sandbox.js").WorkerSandbox;
   /** @internal The host's shared contention locks, including server applications. */
@@ -693,6 +695,8 @@ export interface AgentBackend {
    * queues a message refused that way as the session's next turn.
    */
   followUp?(req: FollowUpRequest): Promise<void>;
+  /** Host-only read-only roots already owned by this backend. Never passed to a worker bridge. */
+  storageRoots?(): readonly { kind: "transcripts" | "archive"; path: string }[];
   /** Sessions this backend owns (its own transcript store). */
   listSessions(): Promise<ChatSession[]>;
   /** Normalized-at-read history; backends own raw transcripts. */

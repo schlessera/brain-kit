@@ -58,6 +58,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: bun scripts/ci-plan.ts
+      - name: Validate requested candidate before product proof
+        if: steps.plan.outputs.cadence == 'confirmation'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/candidate-proof.ts
       - name: Discover product scenario and assertion ownership
         if: steps.plan.outputs.cadence != 'draft'
         run: bun scripts/proof-inventory.ts
@@ -137,7 +142,7 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - run: bun run build
+      - run: bun run build --jobs=2
       - name: Pack, install and probe every publishable package
         # One table-driven script (scripts/ci-pack.ts): workspace pins first,
         # then each package's tarball entries, Bun and Node consumer imports
@@ -190,11 +195,24 @@ jobs:
             tmp/unit-report-summary.json
             tmp/unit-worker-*.xml
             tmp/unit-worker-*.json
+            tmp/unit-worker-diagnostics/
             tmp/unit-timings.json
             tmp/measure-claude-*.json
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -238,6 +256,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -294,6 +324,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -302,11 +344,11 @@ jobs:
     needs: changeset
     if: needs.changeset.outputs.browser == 'true' && needs.changeset.outputs.run_browser == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -323,7 +365,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun scripts/ci-plan.ts
       - name: Complete browser proof
-        run: bun scripts/ci-proof.ts browser --shard=${{ matrix.shard }}/2
+        run: bun scripts/ci-proof.ts browser --shard=${{ matrix.shard }}/3
       - name: Proof receipts and failure diagnostics
         if: always()
         uses: actions/upload-artifact@v7
@@ -339,6 +381,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -384,6 +438,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -424,6 +490,18 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
@@ -465,12 +543,24 @@ jobs:
             tmp/*-probe.json
             tmp/feature-capture-verification/
             packages/ui-kit/.vitest-attachments/
+            packages/ui-react/.vitest-attachments/
+            .vitest-attachments/
+            tmp/diagram-renderer-proof/
+            tmp/mermaid-renderer-proof/
+            tmp/diagram-export-proof/
+            tmp/cold-capture/
+            tmp/share-review/
+            tmp/svg-proof/
+            packages/ui-kit/**/__screenshots__/**/*-[0-9]*.png
+            packages/ui-react/**/__screenshots__/**/*-[0-9]*.png
+            !packages/ui-kit/**/__screenshots__/**/*-linux.png
+            !packages/ui-react/**/__screenshots__/**/*-linux.png
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
 
   proof:
-    name: ${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}
+    name: ${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}
     # Evaluate even after failures or skips; never interpret missing selected proof as green.
     needs: [changeset, verify, pack, unit, runtime, runtime_host, browser, layout, captures, endurance]
     if: ${{ always() && !cancelled() }}

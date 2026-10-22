@@ -143,13 +143,46 @@ case observes that later effect through its retained native window.
 The history and queue receiving observer is only a barrier for the current
 synchronous production handlers, not a generic asynchronous-handler completion
 claim: `session_history` and scoped `status` update the chat store synchronously
-(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:436-456`;
-`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:457-481`), while
+(`session_history`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:437-457`;
+`status`, `packages/ui-react/src/hooks/websocket-handlers/chat.ts:458-483`), while
 queue adoption updates the follow-up/draft stores synchronously (`if (msg.type ===
-"session_queue")`, `packages/ui-react/src/connection.ts:379-391`). Native protocol
+"session_queue")`, `packages/ui-react/src/connection.ts:395-407`). Native protocol
 completion, committed store state and the retained observation window serve
 different purposes. A future asynchronous handler needs its own committed-state
 acknowledgement before this barrier remains sufficient.
+
+## Private conformance counterexamples
+
+`packages/core/tests/seam-contracts-nonconforming.test.ts` runs the published
+contract callbacks against intentionally malformed in-memory implementations.
+Only its six fixed-deadline fixtures and two never-settling controls use the
+private clock (`withContractClock`,
+`packages/core/tests/helpers/contract-clock.ts:9-65`). Every original case and exact
+expected failed-case list remains. The clock delivers registered callbacks in
+deadline/registration order, drains their real promise continuations between
+deliveries, and advances `performance.now()` to the delivered deadline. Each
+contract case restores complete timer/elapsed-clock descriptors and discards its
+own pending fake callbacks, including when an assertion fails.
+
+| Malformed fixture | Actual contract boundary and expected failure |
+| --- | --- |
+| Embedding rejects at 40 or 300 ms regardless of signal | Fails the live-signal case requiring 1000 ms pending. The separate early/late abort case still observes actual rejected promises. |
+| Embedding rejects at 1500 ms | Passes the 1000 ms live-signal observation, but misses rejection within 400 ms of the 50 ms and 700 ms aborts. |
+| Embedding ignores abort forever | Passes the live-signal observation; fails the early/late rejection case at its actual 450/1100 ms horizons. |
+| Runner rejects at fixed 600 or 1200 ms | Passes the short case (elapsed greater than 350 ms, settled by 1500 ms); fails the long case's elapsed lower bound of greater than 2450 ms. |
+| Runner rejects at fixed 3000 ms | Misses the short case's 1500 ms horizon; passes the long case (elapsed greater than 2450 ms, settled by 3600 ms). |
+| Runner ignores deadlines forever | Fails both the short 1500 ms and long 3600 ms settlement horizons. |
+
+These fixtures prove the oracle rejects those counterexamples; they do not
+measure native runtimes. Published helpers and timing bounds are unchanged.
+`seam-contracts.test.ts` retains native-time provider/transport conformance, and
+`agent-runner-contracts.test.ts` retains the actual built-in runners, stand-in
+child CLIs, real elapsed deadlines, exit-code checks and all six cases per
+runner. Conforming and buffered-streaming self-tests also retain native time.
+The private clock controls have independent before/at/tied-deadline, promise
+outcome, cancellation, failure-cleanup and clean-successor assertions. Clock
+infrastructure errors propagate rather than counting as expected contract
+failures. This scope must not spread to real child processes or IO waits.
 
 ## Measuring a replacement
 
@@ -396,13 +429,25 @@ failed cases, repeated controls and unexecuted paths remain distinguishable.
 
 The observations separate several temporal contracts:
 
-- The native boot-probe suite keeps thirteen real process-deadline cases. Its
-  existing lower oracle is 4950 ms for a 5000 ms deadline, with a 1500 ms
-  settlement margin for loaded scheduling. The eight-second fixture holds do
-  not run to completion. These bounds explain the present 66.73 second command;
-  they do not prove that five seconds of wall time is necessary to test every
-  deadline branch. A clock replacement still needs actual registered callbacks,
-  real process termination, ineffective-killer behavior and cleanup witnesses.
+- The boot-probe suite preserves thirteen original subprocess scenarios and two
+  native five-second forward/backward wall-clock-jump controls from #2180. The unwrapped
+  target and both hung-helper cases retain native 4950–6500 ms elapsed proof.
+  Ten other cases capture the actual source-owned 5000 ms primary callback;
+  after real version output, subsequent pending stdout/stderr reads and native
+  target readiness, 4999 ms cannot deliver it and 5000 ms delivers it once.
+  Their elapsed operand explicitly combines logical primary time and native
+  settlement, retaining the 1500 ms settlement allowance. Cleanup (250 ms),
+  helper cleanup (200 ms), signals, pipes and subprocess exits remain native.
+  Elapsed observations and bounded readiness/cleanup polls use monotonic time;
+  only the two native jump controls patch Date.now, with full restoration.
+  Inherited-pipe readiness compares the live descendant's actual endpoints
+  with the exited parent's endpoints. Successful exit/EOF proves cancellation;
+  assertion and actual disappearance-failure witnesses prove pending-work
+  settlement and complete descriptor restoration. Eight-second fixture holds
+  end in owned cleanup. Historical 66.73-second measurements describe the
+  original native file; delivery measurements and fault receipts belong to
+  [#1939](https://github.com/schlessera/brain-kit/issues/1939). They do not
+  resolve the independent historical helper-PID investigation in #1310.
 - Seven stale-write watchdogs requested 20000 ms; none fired, and all seven were
   cleared after roughly 329–357 ms. A supplemental HTTP observation recorded
   four 3000 ms watchdogs, also cleared without firing. These registration-to-clear

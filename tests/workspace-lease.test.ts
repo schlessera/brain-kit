@@ -3,6 +3,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { workspaceLeaseDockerArgs } from "../scripts/workspace-lease-container.ts";
+import { resolveBrowserPin } from "../scripts/captures/provenance.ts";
 
 const project = resolve(import.meta.dir, "..");
 const helper = pathToFileURL(join(project, "scripts/workspace-lease.mjs")).href;
@@ -15,8 +17,9 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(leaseHelper = helper, pauseBeforeRemoval = false) {
-  const root = mkdtempSync(join(tmpdir(), "brain-workspace-lease-")); dirs.push(root);
+function fixture(leaseHelper = helper, pauseBeforeRemoval = false, pauseEntryPublication = false, parent = tmpdir()) {
+  mkdirSync(parent, { recursive: true });
+  const root = mkdtempSync(join(parent, "brain-workspace-lease-")); dirs.push(root);
   mkdirSync(join(root, "dist"));
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "odysseus-build-fixture", type: "module", exports: "./dist/index.js" }));
   writeFileSync(join(root, "dist/index.js"), 'export const captain = "Odysseus";\n');
@@ -29,7 +32,12 @@ import {setTimeout as delay} from "node:timers/promises";
 const [root,mode,action,id]=process.argv.slice(2);
 const coordinated=await ensureWorkspaceLease(root,mode);
 if(coordinated!==undefined)process.exit(coordinated);
-writeFileSync(join(root,id+"-entered"),String(process.pid));
+if(${pauseEntryPublication} && action==="hold") {
+  writeFileSync(join(root,id+"-entered"),"");
+  writeFileSync(join(root,id+"-publishing"),"waiting");
+  while(!existsSync(join(root,id+"-publish")))await delay(5);
+}
+writeFileSync(join(root,id+"-entered"),String(process.pid)+"\\n");
 if(action==="writer"||action==="hold") {
   if(action==="writer") {
     if(${pauseBeforeRemoval})while(!existsSync(join(root,id+"-continue")))await delay(5);
@@ -59,16 +67,46 @@ function start(root: string, mode: "read" | "write", action: string, id: string)
   return { child, stdout: new Response(child.stdout).text(), stderr: new Response(child.stderr).text() };
 }
 
-async function waitForMarker(root: string, id: string, phase: "entered" | "removed") {
+async function waitForMarker(root: string, id: string, phase: "entered" | "removed" | "publishing") {
   const deadline = Date.now() + 10_000;
-  while (!existsSync(join(root, id + "-" + phase))) {
+  const marker = join(root, id + "-" + phase);
+  for (;;) {
+    if (existsSync(marker)) {
+      if (phase !== "entered") return;
+      const raw = readFileSync(marker, "utf8"), pid = Number(raw);
+      // The final newline distinguishes a complete publication from a positive PID prefix.
+      if (/^[1-9]\d*\n$/.test(raw) && Number.isSafeInteger(pid)) return pid;
+    }
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${id}: ${phase}`);
     await Bun.sleep(5);
   }
 }
-const entered = (root: string, id: string) => waitForMarker(root, id, "entered");
+const entered = async (root: string, id: string) => (await waitForMarker(root, id, "entered"))!;
 const removed = (root: string, id: string) => waitForMarker(root, id, "removed");
 const release = (root: string, id: string) => writeFileSync(join(root, id + "-release"), "release\n");
+
+test("entry readiness waits for the complete positive PID through empty and partial native publication", async () => {
+  const root = fixture(helper, false, true), other = fixture();
+  const owner = start(root, "write", "hold", "owner");
+  await waitForMarker(root, "owner", "publishing");
+  expect(readFileSync(join(root, "owner-entered"), "utf8")).toBe("");
+  let observed: number | undefined;
+  const readiness = entered(root, "owner").then(() => { observed = Number(readFileSync(join(root, "owner-entered"), "utf8")); });
+  const independent = start(other, "read", "reader", "empty-control");
+  expect(await independent.child.exited, await independent.stderr).toBe(0);
+  expect(observed, "LEASE_EMPTY_PID_PUBLICATION_MUST_WAIT").toBeUndefined();
+  writeFileSync(join(root, "owner-entered"), "1");
+  const partial = start(other, "read", "reader", "partial-control");
+  expect(await partial.child.exited, await partial.stderr).toBe(0);
+  expect(observed, "LEASE_PARTIAL_POSITIVE_PID_MUST_WAIT").toBeUndefined();
+  writeFileSync(join(root, "owner-publish"), "publish");
+  await readiness;
+  expect(Number.isSafeInteger(observed)).toBe(true); expect(observed!).toBeGreaterThan(0);
+  expect(process.kill(observed!, 0)).toBe(true);
+  const waiter = start(root, "write", "reader", "waiter"); owner.child.kill("SIGTERM");
+  expect(await owner.child.exited).not.toBe(0); expect(await waiter.child.exited).toBe(0);
+  expect(() => process.kill(observed!, 0)).toThrow();
+});
 
 test("writer removal readiness waits beyond entry notification through a controlled gap", async () => {
   const root = fixture(helper, true), other = fixture();
@@ -115,7 +153,7 @@ test("shared verification overlaps, blocks a writer and rejects a nested build b
   mkdirSync(join(root, "scripts")); mkdirSync(join(root, "bin"));
   mkdirSync(join(root, "packages/geo/dist"), { recursive: true });
   writeFileSync(join(root, "packages/geo/dist/retained"), "retained\n");
-  for (const name of ["build.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  for (const name of ["build.ts", "build-execution.ts", "ci-build-boundary.ts", "ci-build-files.ts", "ci-build-lifetime.ts", "ci-build-context.ts", "ci-build-state.ts", "ci-build-data.ts", "ci-build-trace.ts", "ci-build-consumers.ts", "ci-build-evidence.ts", "ci-build-operation.ts", "ci-build-entry.ts", "ci-build-qualification.json", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
   writeFileSync(join(root, "bin/bunx"), "#!/bin/sh\nexit 77\n", { mode: 0o755 });
   const first = start(root, "read", "hold", "first"), second = start(root, "read", "hold", "second");
   await Promise.all([entered(root, "first"), entered(root, "second")]);
@@ -135,8 +173,7 @@ test("shared verification overlaps, blocks a writer and rejects a nested build b
 for (const signal of ["SIGTERM", "SIGKILL"] as const) test(`${signal} of the outer command stops its owner and admits the waiting command`, async () => {
   const root = fixture();
   const owner = start(root, "write", "hold", "owner");
-  await entered(root, "owner");
-  const ownedPid = Number(readFileSync(join(root, "owner-entered"), "utf8"));
+  const ownedPid = await entered(root, "owner");
   const waiter = start(root, "write", "reader", "waiter");
   owner.child.kill(signal);
   expect(await owner.child.exited).not.toBe(0);
@@ -212,15 +249,13 @@ const spawn = (...args) => {
 });
 
 test("the real pinned container wrapper waits for host ownership of its mounted checkout", async () => {
-  const root = fixture();
+  const root = fixture(helper, false, false, join(project, "tmp", "workspace-lease-container"));
   for (const path of ["scripts", "packages/ui-kit", "node_modules/vitest"]) mkdirSync(join(root, path), { recursive: true });
-  for (const name of ["visual.mjs", "workspace-lease.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
-  writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync("/repo/vitest-entered","native container acquired ownership\\n");\n');
+  for (const name of ["visual.mjs", "workspace-lease.mjs", "prepare-diagram-export-source.mjs", "diagram-export-source.mjs", "diagram-export-installation.mjs", "diagram-export-producer.mjs"]) copyFileSync(join(project, "scripts", name), join(root, "scripts", name));
+  writeFileSync(join(root, "node_modules/vitest/vitest.mjs"), 'import {writeFileSync} from "node:fs";writeFileSync(new URL("../../vitest-entered",import.meta.url),"native container acquired ownership\\n");\n');
   const owner = start(root, "write", "hold", "host");
   await entered(root, "host");
-  const container = Bun.spawn(["docker", "run", "--rm", "--pull=never", "--network=none", "--ipc=host",
-    "--user", `${process.getuid!()}:${process.getgid!()}`, "-v", `${root}:/repo`, "-w", "/repo",
-    "mcr.microsoft.com/playwright:v1.63.0-noble", "node", "scripts/visual.mjs", "--inside", "--project=visual"],
+  const container = Bun.spawn(workspaceLeaseDockerArgs(root, (await resolveBrowserPin(project)).image, `${process.getuid!()}:${process.getgid!()}`),
   { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   children.push(container);
   const stdout = new Response(container.stdout).text();

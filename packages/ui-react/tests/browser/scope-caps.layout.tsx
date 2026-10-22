@@ -45,7 +45,48 @@ async function mount(width = 1280, theme: "dark" | "light" = "dark") {
   await userEvent.fill(field, "Ask Penelope about the shroud.");
   return { socket, field, frame(receipt: ScopeCapReceipt, actor?: "interactive" | "voice") { socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: summary([receipt], actor) }); } };
 }
+async function openTurnFacts() {
+  const facts = page.getByRole("button", { name: "Turn facts", exact: true });
+  await expect.element(facts).toHaveAttribute("aria-expanded", "false");
+  await facts.click();
+  await expect.element(facts).toHaveAttribute("aria-expanded", "true");
+}
 const option = (name: string) => [...host.querySelectorAll<HTMLElement>('[role="radio"]')].find(el => el.querySelector("b")?.textContent === name)!;
+const exhaustedReason = "The finite continuation ceiling of 2,000 distinct paths is already exhausted. Stop only.";
+for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const) test(`exhausted finite recovery explains Stop only: ${width} ${theme}`, async () => {
+  const f = await mount(width, theme); f.field.focus();
+  f.frame(cap({ dimension: "files_changed", count: 5333, cap: 1000, overshoot: 4333, newCap: undefined, reason: exhaustedReason }));
+  expect(host.querySelector('[id="athena-cap-question"]')?.textContent, "SCOPE_BROWSER_EXHAUSTED_REASON_VISIBLE").toContain(exhaustedReason);
+  expect(host.textContent).toContain("5,333 distinct paths"); expect(host.textContent).toContain("1,000 distinct paths"); expect(host.textContent).toContain("4,333 distinct paths");
+  expect(option("Continue")).toBeUndefined(); expect(option("Stop here")).toBeDefined();
+  await expect.poll(() => host.querySelector('[data-scope-event] [role="status"]')?.textContent, { message: "SCOPE_BROWSER_EXHAUSTED_REASON_ANNOUNCED" }).toContain(exhaustedReason);
+  expect(document.activeElement).toBe(f.field); expect(f.field.value).toBe("Ask Penelope about the shroud.");
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
+  expect(option("Stop here").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  await page.viewport(width * 2, 1800); document.documentElement.style.zoom = "2";
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
+  document.documentElement.style.zoom = ""; await page.viewport(width, 900);
+  await page.screenshot({ element: host, path: `../../.vitest-attachments/scope-caps/exhausted-${theme}-${width}.png` });
+});
+test("a stale Continue loses its retry and announces exhausted eligibility without moving composer focus", async () => {
+  const f = await mount(320); f.frame(cap()); option("Continue").focus(); await userEvent.keyboard(" "); const sent = f.socket.decisions()[0];
+  f.socket.receive({ ...sent, type: "scope_decision_receipt", state: "refused", reason: exhaustedReason });
+  f.field.focus();
+  const exhausted = cap({ count: 1001, overshoot: 501, newCap: undefined, reason: "The finite continuation ceiling of 1,000 tool calls is already exhausted. Stop only." });
+  f.frame(exhausted);
+  await expect.poll(() => host.querySelector('[data-scope-event] [role="status"]')?.textContent, { message: "SCOPE_BROWSER_ELIGIBILITY_CHANGE_ANNOUNCED" }).toContain(exhausted.reason!);
+  expect(document.activeElement, "SCOPE_BROWSER_ELIGIBILITY_PRESERVES_COMPOSER_FOCUS").toBe(f.field);
+  expect(host.textContent, "SCOPE_BROWSER_NO_STALE_CONTINUE_RETRY").not.toContain("Try Continue again");
+  const status = [...host.querySelectorAll<HTMLElement>('[role="button"]')].find(el => el.textContent?.includes("Check status")); status?.click();
+  f.socket.receive({ ...sent, action: "readback", type: "scope_decision_receipt", state: "pending" });
+  await expect.poll(() => host.textContent).not.toContain("try it again manually"); expect(host.textContent).not.toContain("Try Continue again");
+  expect(f.socket.decisions().filter(frame => frame.action === "continue")).toHaveLength(1);
+  await expect.poll(() => option("Stop here").getAttribute("aria-disabled"), { message: "SCOPE_BROWSER_STOP_REMAINS_AVAILABLE" }).not.toBe("true");
+  expect(f.field.value).toBe("Ask Penelope about the shroud.");
+  option("Stop here").focus(); await userEvent.keyboard(" ");
+  expect(f.socket.decisions().at(-1)).toMatchObject({ action: "stop" });
+  expect(f.socket.decisions().at(-1).submissionId).not.toBe(sent.submissionId);
+});
 for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const) test(`scope card numbers, finite Continue, input and native receipt focus: ${width} ${theme}`, async () => {
   const f = await mount(width, theme); const announcements: string[] = [];
   const observer = new MutationObserver(() => { const text = host.querySelector('[data-scope-event] [role="status"]')?.textContent; if (text && announcements.at(-1) !== text) announcements.push(text); }); observer.observe(host, { subtree: true, childList: true, characterData: true });
@@ -67,7 +108,7 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"] as const)
   expect(host.textContent).toContain("continued · limit 1,000 tool calls for this turn"); expect(f.field.value, "SCOPE_UNSENT_COMPOSER_INPUT_RETAINED").toBe("Ask Penelope about the shroud.");
   expect(announcements.filter(text => text.startsWith("Turn paused")), "SCOPE_STATUS_ANNOUNCED_ONCE").toHaveLength(1); observer.disconnect();
   const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!;
-  expect(disclosure.getAttribute("aria-expanded")).toBe("false"); disclosure.click(); await expect.poll(() => host.textContent).toContain("Observed versions in brain, scratch and workspaces");
+  expect(disclosure.getAttribute("aria-expanded")).toBe("false"); disclosure.click(); await openTurnFacts(); await expect.poll(() => host.textContent).toContain("Observed versions in brain, scratch and workspaces");
   expect(host.textContent).toContain("Independent hard timeout: 10 min");
 });
 test("scope disconnected, manual readback/failure, answered elsewhere and session changes preserve authority and focus", async () => {
@@ -94,7 +135,7 @@ test("true voice exposes no grant card; ended-before-answer and incomplete cover
   f.frame(cap({ state: "ended_before_answer", newCap: undefined, reason: "Host restarted; the turn was interrupted." })); expect(host.textContent).toContain("turn ended before an answer"); expect(host.textContent).toContain("Host restarted");
   const unknown = summary([]); unknown.scope!.changedPaths = null; unknown.scope!.observedBytes = null; unknown.scope!.coverage = "partial";
   f.socket.receive({ type: "turn_journal", sessionId: "ithaca", turnId: "voyage", journal: unknown });
-  const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!; disclosure.click(); await expect.poll(() => host.textContent).toContain("Incomplete observation; missing counts are unknown");
+  const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!; disclosure.click(); await openTurnFacts(); await expect.poll(() => host.textContent).toContain("Incomplete observation; missing counts are unknown");
   expect(f.socket.decisions()).toEqual([]);
 });
 
@@ -122,7 +163,7 @@ test("budget warning and scope pause share one Disclosure without granting a bud
   const disclosure = host.querySelector<HTMLElement>('[data-turn-journal] > div > [role="button"]')!;
   expect(disclosure.textContent).toContain("Budget warning");
   expect(host.querySelectorAll('[data-turn-journal] [aria-expanded]'), "COMBINED_LIMITS_ONE_DISCLOSURE").toHaveLength(1);
-  disclosure.click(); await expect.poll(() => host.textContent).toContain("Completed-response list-price usage: $100.0000");
+  disclosure.click(); await openTurnFacts(); await expect.poll(() => host.textContent).toContain("Completed-response list-price usage: $100.0000");
   expect(host.textContent).toContain("Scope limits"); expect(host.textContent).toContain("Ceilings: 500 calls");
   expect(host.textContent).toContain("stop $200");
   option("Continue").focus(); await userEvent.keyboard(" "); const sent = f.socket.decisions()[0];

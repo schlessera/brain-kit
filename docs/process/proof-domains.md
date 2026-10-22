@@ -77,8 +77,8 @@ Reconcile each final command as follows:
 | --- | --- | --- | --- |
 | Curated contract/integrity files in `FAST_TESTS` | Fast | Affected subset with strict types | Included once by complete affected unit discovery |
 | Every other product Bun test in `packages/` and `tests/` | Unit confirmation | Deferred | Complete affected discovery plus root tests |
-| Storybook dark/light, visual, pointer and isolated browser projects | Browser confirmation | Deferred | Every discovered project/file instance in the existing two shards |
-| `.layout.tsx` and `.offline.tsx` in `ui-react-layout` | Layout confirmation | Deferred | Every discovered project/file instance in the existing two shards |
+| Storybook dark/light, visual, pointer and isolated browser projects | Browser confirmation | Deferred | Every discovered project/file instance in the three browser shards |
+| `.layout.tsx` and `.offline.tsx` in `ui-react-layout` | Layout confirmation | Deferred | Every discovered project/file instance in the two layout shards |
 | `.endurance.tsx` in `ui-react-endurance` | Endurance confirmation | Deferred | Every discovered file in a separate concurrent job |
 | Native permission/enforcement/delegation/capability/host/cleanup probes | Runtime confirmation | Deferred | Existing complete command inventory and offline namespaces |
 | Packed consumer probes and editorial capture verification | Packaging/capture confirmation | Deferred | Existing affected commands, pins and artifacts |

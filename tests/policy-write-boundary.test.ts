@@ -144,7 +144,8 @@ for (const adapter of ["claude", "pi"] as const) describe(`${adapter} policy-wri
       for (const name of ["Write", "Edit", "NotebookEdit"]) for (const c of calls(r, name)) {
         expect(c.result.isError).toBe(true);
         // The runtime may reject NotebookEdit's unread input before hooks.
-        if (name !== "NotebookEdit") expect(c.result.output).toContain("Native file writes are unavailable");
+        // The enforcement hook refuses strict native writes before path authority.
+        if (name !== "NotebookEdit") expect(c.result.output, "STRICT_NATIVE_AVAILABILITY_REFUSAL").toContain("Native writes require a governed typed turn.");
       }
       const sub = shells.filter(c => c.subagent);
       expect(sub.length, "the subagent issued its own shell write").toBe(1);

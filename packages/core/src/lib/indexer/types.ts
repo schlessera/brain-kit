@@ -69,6 +69,9 @@ export interface IndexRun {
    *  run's documents share an `indexed_at` and staleness comparisons are
    *  stable regardless of how long the run took. */
   now: string;
+  /** Frozen policy and concrete recipient for this embedding run. */
+  embeddingRouting?: { rules: import("@schlessera/brain-common/internal/governance-policy").EffectiveGovernancePolicy["providers"]; recipient?: string; excludedDocuments: number[] };
+
   stats: IndexStats;
   /**
    * `documents_fts` is rebuilt this run for another `search.language`: every

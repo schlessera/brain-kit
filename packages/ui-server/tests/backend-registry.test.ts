@@ -50,6 +50,23 @@ function registryFor(
 }
 
 describe("backend registry", () => {
+  test("Storage inspects only initialized backend owners without loading discovery", async () => {
+    const registry = registryFor({});
+    expect(registry.peekBackends?.(), "STORAGE_BACKEND_LAZY_OWNER").toBeNull();
+    const initialized = await registry.getBackends();
+    expect(registry.peekBackends?.()).toBe(initialized);
+    const roots = initialized[0]!.storageRoots!();
+    expect(roots.map(root => root.kind)).toEqual(["transcripts", "archive"]);
+    expect(roots.every(root => root.path.endsWith(fixtureBrain.root.replace(/[^a-zA-Z0-9]/g, "-")))).toBe(true);
+    const pi = registryFor({ AGENT_BACKEND: "pi" });
+    expect(pi.peekBackends?.()).toBeNull();
+    const backend = (await pi.getBackends())[0]!;
+    expect(backend.storageRoots!()).toHaveLength(1);
+    expect(backend.storageRoots!()[0]?.kind).toBe("transcripts");
+    expect(backend.storageRoots!()[0]?.path.startsWith(fixtureBrain.root)).toBe(false);
+  });
+
+
   test("Claude-only deployment has one backend and one tagged provider", async () => {
     const registry = registryFor({});
     const backends = await registry.getBackends();
@@ -62,6 +79,7 @@ describe("backend registry", () => {
         id: "claude",
         label: "Claude",
         vendor: "anthropic",
+        model: "claude-opus-5-5",
         source: "builtin",
         thinkingLevel: "medium",
         supportedThinkingLevels: ["low", "medium", "high", "xhigh", "max"],
@@ -316,7 +334,7 @@ describe("configured GPT-6 profiles", () => {
       const providers = createProviderRoutes({ registry });
       const models = createModelRoutes({ registry, db });
       const expected = profiles.map(({ id, label, vendor, model, thinkingLevel }) => ({
-        id, label, vendor, thinkingLevel, backendId: "pi",
+        id, label, vendor, model, thinkingLevel, backendId: "pi",
         supportedThinkingLevels: [
           ...(["gpt-5.6-sol", "gpt-6-sol", "gpt-6-luna"].includes(model) ? ["off"] : []),
           ...(vendor === "openai-codex" ? ["minimal"] : []),

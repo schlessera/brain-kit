@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "type": "funnel",
+  "title": "Raft signals to action",
+  "desc": "Odysseus plans the homecoming on 2026-07-12.",
+  "size": "doc-inline",
+  "nodes": [
+    {
+      "id": "signals",
+      "label": "Signals",
+      "role": "focal"
+    },
+    {
+      "id": "notes",
+      "label": "Notes"
+    },
+    {
+      "id": "plans",
+      "label": "Plans"
+    },
+    {
+      "id": "act",
+      "label": "Act"
+    }
+  ],
+  "edges": [],
+  "positional": {
+    "pyramid": {
+      "layers": [
+        {
+          "node": "signals",
+          "value": 100,
+          "annotation": "100 signals"
+        },
+        {
+          "node": "notes",
+          "value": 80,
+          "annotation": "80 signals"
+        },
+        {
+          "node": "plans",
+          "value": 60,
+          "annotation": "60 signals"
+        },
+        {
+          "node": "act",
+          "value": 40,
+          "annotation": "40 signals"
+        }
+      ]
+    }
+  }
+}

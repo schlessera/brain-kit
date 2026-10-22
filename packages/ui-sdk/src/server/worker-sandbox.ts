@@ -19,22 +19,14 @@ import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
 import { brainGitSync } from "./maintenance-worker.js";
+import { WORKER_XDG_HOME } from "./worker-xdg.js";
 
 /**
  * Repo-relative scratch directory (core's `SCRATCH_DIR` names the same path)
  * and workspace directory (always in core's default index exclusions).
  */
 export { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR };
-/**
- * Per-turn XDG directories on the worker's private `/tmp` (#1703). `$HOME`
- * itself stays the host's, read-only.
- */
-export const WORKER_XDG_HOME = "/tmp/brain-worker-home";
-export const WORKER_XDG_DIRS = {
-  XDG_CONFIG_HOME: `${WORKER_XDG_HOME}/config`,
-  XDG_CACHE_HOME: `${WORKER_XDG_HOME}/cache`,
-  XDG_DATA_HOME: `${WORKER_XDG_HOME}/data`,
-} as const;
+export { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 /** Directory entries one walk may visit before the mount counts as unverified. */
 export const WORKER_MOUNT_SCAN_LIMIT = 200_000;
 
@@ -73,6 +65,8 @@ export interface WorkerSandbox {
   readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
   /** Frozen host command rules from this turn's admitted policy, absent for autonomous turns. */
   readonly commandPolicy?: import("./command-policy.js").WorkerCommandPolicy;
+  /** @internal Concrete host-prepared turn transport; never selected by client/project input. */
+  readonly egress?: Awaited<ReturnType<typeof import("./egress-proxy.js").startEgressProxy>>;
   /** @internal Advisory facts resolved by the admitting host, never a model grant. */
   readonly noteFacts?: WorkerNoteFacts;
   /** Canonical brain path the layout was resolved for. */
@@ -84,6 +78,8 @@ export interface WorkerSandbox {
   readonly fallbackReason?: string;
   /** Protected mounts and their ancestors, resolved before the start manifest. */
   readonly protection?: WorkerProtection;
+  /** Frozen topology plan for host publication; does not grant access to provider-restricted data. */
+  readonly retainedFolders?: readonly string[];
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -508,6 +504,9 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
+  }
+  if (profile !== "restricted" && sandbox.retainedFolders?.length) {
+    lines.push("", `Keep these folders and their ancestors in place: ${sandbox.retainedFolders.map(path => `\`${path}\``).join(", ")}. Their contents keep the usual write permissions; do not remove or replace the folders themselves.`);
   }
   if (profile !== "restricted" && (profile === "governed" || resolvedFacts.history)) {
     const history = resolvedFacts.history;

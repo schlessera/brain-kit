@@ -2,7 +2,7 @@
 # Ephemeral hosted runner only: preserve the pre-existing real-runtime CI setup.
 set -euo pipefail
 sudo apt-get update -qq
-sudo apt-get install --yes bubblewrap iproute2
+sudo apt-get install --yes bubblewrap iproute2 poppler-utils
 # Unit partitions retain their existing prerequisites; the runtime job alone
 # prepares the native image before entering its network-disabled proof.
 if [ "${1:-}" = "--native" ]; then

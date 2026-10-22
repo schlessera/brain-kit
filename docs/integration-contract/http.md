@@ -39,6 +39,28 @@ hash directly. Missing/expired raw details never grant a download bypass.
 links use the embedding root's configured API base.
 Those read helpers do not execute mutations.
 
+### Persisted Claude auto-memory history (additive, #1658)
+
+The existing journal routes also return successful external native-memory saves
+with `class: "steering"`, `scope: "claude_memory"` and a logical
+`path: "claude-memory://<direct-note.md>"`. That identity is distinct from a
+brain-relative path; no saved directory, credential, transcript or settings
+location is returned. Exact raw before/after versions, creation/replacement,
+originating turn/session/model/profile and recorded taint use the existing
+fields and bounded retained-version reader. `memory_persistence_unconfirmed`
+in `missing` reports an interrupted/refused staged save, never success or a
+complete recovery promise.
+
+Existing authenticated human per-file/whole-turn revert and Undo resolve only
+the privately retained destination for an eligible change in that source turn.
+Client paths cannot select a host directory. Later note bytes, changed store
+identity or unavailable raw history refuse recovery. Ordinary persistence
+continues to save only validated direct `.md` notes and never deletes memory;
+an explicitly reviewed human revert of a created note may remove that note.
+Journal cap, active pins, retention and voice/agent/autonomous exclusions stay
+unchanged. The initial in-brain steering delivery remains 0.42.0; external
+persisted memory is additive in 0.44.0.
+
 ### User history restoration (additive, #1653)
 
 The four authenticated human `/revert` operations are specified in
@@ -507,6 +529,47 @@ Partial writes or unavailable storage remain partial/unknown, not an atomic
 merge guarantee. Existing owner/ambient, voice, expired-detail, protected-path
 and cross-session restrictions remain binding.
 
+### Human-only Storage inventory (additive, #2010)
+
+The six [Storage inventory operations](../http-api.md#storage-inventory) and
+SDK `StorageStatus`, `StorageSnapshot`, `StoragePage`, `StorageFileEntry`,
+`StorageReferenceEvidence`, `StorageTreePage`, `StorageTreeNode` and related types are additive contracts. They bind
+authorization, configured-root scope, bounded output/lifetime, opaque cursors,
+object/capacity deduplication and explicit partial/unknown semantics. This
+transport foundation does not register a pane or authorize cleanup.
+
+Storage pages distinguish `fileLogicalTotal` (logical bytes per matching regular-file
+entry, including aliases) from `totals` (the deduplicated physical-object union).
+Empty unavailable ownership views carry null bytes, not zero. Capacity `kind`
+identifies `tmpfs` as memory-backed; `filesystem` does not promise exclusive disk
+ownership and `unknown` cannot be drawn as healthy capacity.
+
+Hierarchy pages separate per-subtree object-union `totals` from disjoint sibling
+`area`, preserve alias names and unknown coverage, and bind cursors to the tree
+operation and its search/order/ownership criteria. Projection uses retained scan
+evidence only. Entry search/order is additive; absent options preserve ordering.
+
+### Recoverable attachment removal (additive, #2012)
+
+The six [attachment removal operations](../http-api.md#recoverable-attachment-removal-additive-2012)
+and SDK `StorageRemoval*` review/capability/receipt types are additive contracts.
+They bind current human-owner authority, exact versioned selections and durable
+identities to charged retained originals. Unknown outcomes never authorize
+replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
+with actual journal detail. Existing Markdown application semantics are unchanged.
+
+### Storage history and pressure guidance (additive, #2058)
+
+The two [history/guidance operations](../http-api.md#storage-history-and-pressure-guidance)
+and SDK `StorageHistoryResponse`, `StorageGuidanceResponse`, named observation,
+pressure, rate and scenario types are version 1 additive contracts. They retain
+current human-owner authorization, nullable unknown quantities, actual endpoint
+and window times, independent causes, explicit stale/scope gaps and transport
+uncertainty. Public types do not expose compact persistence tuples or host paths.
+The next compatible server/SDK minor includes these endpoints; clients must
+retain an unavailable state when an older host does not provide them. No core
+CLI, MCP, frontmatter, config or content-index contract changes.
+
 ### Activity host timing envelopes (additive)
 
 `GET /api/activity/runs` adds `lifecycles: ActivityTurnLifecycle[]`, bounded by
@@ -569,3 +632,18 @@ span; existing lifetime/window accounting and turn totals retain their meaning.
 No historical rows are backfilled, and these fields do not assert a live cache
 hit. Existing root attributes also expose the hash-only records to Activity's
 span/query consumers.
+
+## Content renderer bootstrap declarations (additive, #2087)
+
+Authenticated `GET /api/status` includes optional `contentRenderers`, an array of
+`{ module, version, name, fences, extensions }`. `module` is the manifest name,
+`version` is the installed package version or `null` when unknown, `name` is the
+renderer contribution key, and `fences`/`extensions` are arrays of declared
+strings. Only active configured modules contribute. An empty array means the
+server knows there are no declarations; absence means its CLI cannot report
+metadata or the lookup failed. Clients retain code fallback in either case.
+
+The payload contains no client/static entry specifier and authorizes no imports.
+The build registers trusted client packs. Missing packs retain source with a
+“Renderer not bundled.” note. Explicit development mode warns once per root and
+known differing version pair; unknown versions do not imply a mismatch.

@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 import { scanSource, scanTree } from "../scripts/check-frontmatter-parse";
 
@@ -62,7 +63,11 @@ describe("rule 2: inside a designated file, only literal-options calls", () => {
   const imported = 'import matter from "gray-matter";\n';
 
   test("the shipped helper and serializer pass", () => {
-    expect(scanTree(ROOT).filter((f) => f.file === HELPER || f.file === SERIALIZER)).toEqual([]);
+    // Only these two files: the whole-tree scan below already covers the rest,
+    // and a second one doubled this file's parse cost (#1561).
+    for (const file of [HELPER, SERIALIZER]) {
+      expect(scanSource(file, readFileSync(resolve(ROOT, file), "utf8"))).toEqual([]);
+    }
   });
 
   test("calls that pass a literal options object pass, as do type positions", () => {

@@ -93,6 +93,14 @@ Four namespaces and a flat meta set. The full list with descriptions is
 - **Meta** — `epic`, `agent-ready`, `blocked`, `contract`, `breaking`,
   `security`, `upstream: …`, plus GitHub's triage set.
 
+**Blockers inherit priority.** An issue must have at least the priority of
+every issue it blocks. Whenever dependencies or priorities change, raise any
+lower-priority or unsorted blocker to the highest priority among the issues
+it blocks, continuing through the full dependency chain. For example, a
+`priority: p3` blocker of a `priority: p1` issue becomes `priority: p1`;
+an existing `priority: p0` stays `priority: p0`. Never lower the blocked
+issue's priority to satisfy this rule.
+
 **Workflow state has no labels.** Backlog, ready, in progress and done live in
 the project board's Status field. A label and a board column tracking the same
 fact drift inside a week, and then neither can be trusted.
@@ -298,6 +306,21 @@ body, a ruling is recorded where it unblocks the work, `blocked` comes off when
 its last blocker closes (the `project-sync` workflow does it for a readable
 `Blocked by` line), and a duplicate is closed into one survivor. The `github`
 skill's "Keeping an issue true" has the procedure.
+
+## Coordinating confirmation and ordinary merges
+
+Before expensive candidate confirmation and every ordinary main merge, use the
+shared exact-candidate reservation command, `bun scripts/integrate.ts`.
+`confirm <pr> --issues owner/repo#N,...` acquires, renews and verifies the
+ordinary candidate before a matching-head squash. `inspect` shows the current
+owner, PR/head/base, expiry and hard cap. Separate acquisition requires explicit
+minute renewal and an explicit lease ID for `merge`; release on abandonment.
+A busy result is bounded, not a queue. Maintainer revocation requires a reason
+and records actor, time and former candidate. No override waives proof or
+milestones. Read [the decision and command lifecycle](../decisions/ci-utility.md#exact-candidate-integration-reservation)
+for the five-minute lease, sixty-minute cap, supported candidates, actual
+squash/main verification and direct-merge race limits. This cooperative policy
+changes no GitHub protection or merge permissions.
 
 ## Stacked pull requests
 

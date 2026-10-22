@@ -295,7 +295,9 @@ A render error never blanks the whole app.
 
 `useHashRoutes()` owns the generic client routes: `#/files/<path>` opens the
 file panel, `#/graph` and `#/activity` select their full-screen views, activity
-deep links keep their suffix, and store-driven view changes use
+deep links keep their suffix, and `#/settings/storage` opens Storage after a
+current owner-authorized guidance read. Settings leave guards still apply; closing
+Storage clears its deep link. Store-driven view changes use
 `history.replaceState` rather than adding browser-history entries.
 
 `useServiceWorkerUpdates({ isBusy })` registers `/service-worker.js` and
@@ -611,7 +613,7 @@ controls in static output and no lookup needed to draw a graph.
 Markdown fences compose the kit `CodeBlock` with a permanent 44px head Copy
 control. Copy uses source text rather than linkified DOM text. The lazy
 highlighter soft-fails to the same plain source; its chat-only token theme
-works in dark and paper. Mermaid keeps its dedicated renderer. Long lines
+works in dark and paper. Mermaid uses the built-in content-renderer pack for fences and `.mmd` / `.mermaid` files. Browser printing and shared PNG/PDF output use white print tokens; screen diagrams retain the light and dark palettes. Long lines
 wrap for narrow transcripts, and exports retain the original fence content.
 The Storybook `Conversation/Code fence theme` preview uses the actual consumer
 renderer and shipped CSS within an isolated shadow root.
@@ -700,8 +702,8 @@ offers **Refresh and retry**. Sync and reset use immediate layout updates.
 
 ## Settings organization
 
-Settings exposes the same seven panes on phone, tablet and desktop: Appearance
-& input, Models, Accounts, Skills, Modules, Security, and Devices & agents.
+Settings exposes the same eight panes on phone, tablet and desktop: Appearance
+& input, Models, Accounts, Skills, Modules, Storage, Security, and Devices & agents.
 Theme and the single-key shortcut switch apply only on this device and live in
 Appearance & input. Accounts holds provider sign-in and web-search settings;
 Security holds passkeys, always-allowed tool revocation and sign-out.
@@ -714,6 +716,13 @@ existing navigation and dismissal protections.
 Close and Escape return focus to the opener, including after a resize;
 choosing another destination preserves that destination's focus.
 
+Storage presents bounded inventory, per-capacity availability, a proportional map
+and equivalent list, current file inspection, owner maintenance, and recoverable
+attachment removal. See the [Storage guide](../../docs/storage.md) for the
+measurement basis, layered history, pressure causes, optional Critical notices,
+review flow and Undo conditions. `AppShell` includes the persistent Storage status;
+it consumes server evidence and adds no rail/bar destination or shortcut.
+
 ## SVG files and printing
 
 SVG files open in the image previewer. The Raw tab reads their source as
@@ -725,3 +734,35 @@ including when the screen theme is explicitly dark. An SVG embedded as an
 image can use that scheme to choose its light palette; its own `@media print`
 rules do not run inside the image. The share document shell already selects
 light for exports.
+
+### Bundle module content renderers
+
+Import trusted UI entries in the deployment build and register them before the
+first UI root renders. The import is ordinary bundled application code:
+
+```ts
+import { registerContentRendererPack } from "@schlessera/brain-ui-react";
+import { contentRenderers } from "@odysseus/voyage-module/ui";
+import moduleInfo from "@odysseus/voyage-module/package.json";
+
+registerContentRendererPack(contentRenderers, {
+  name: "voyage", // the module manifest name
+  version: moduleInfo.version,
+});
+```
+
+The pack implements the SDK `ContentRendererPack` interface. Its heavy components
+may use `React.lazy` with a literal build-time import. Registering is idempotent
+by pack identity; the first renderer claiming a language or extension wins.
+
+Authenticated `/api/status` supplies configured active module declarations.
+A declared fence or file whose pack is absent keeps its source code and shows
+“Renderer not bundled.” An older server without declarations keeps the ordinary
+code fallback. Roots discard declarations on account changes and reconnect.
+With the root's explicit `config.devTools` enabled, a differing known module
+version warns once per bundled/server version pair per root. Version warnings
+do not change rendering. Production roots do not warn.
+
+Content configuration supplies metadata only. It cannot select a URL or cause a
+client import; rebuild the deployment to add a renderer. Static server entries
+are registered independently through the SDK's trusted static registry.

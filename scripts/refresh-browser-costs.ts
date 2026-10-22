@@ -1,7 +1,8 @@
 /** Explicit reviewed measurement refresh; never called by contribution CI. */
 import { resolve } from "node:path";
 import { browserCostsFromLogs, browserTimingReports, type BrowserCosts } from "./browser-shards";
-import { resolveBrowserPin } from "./captures/provenance";
+import { PROOF_SHARDS, shardNumbers } from "./proof-shards";
+import { browserPinUsesProducer, parseBrowserPin, resolveBrowserPin } from "./captures/provenance";
 import type { API } from "./proof-reuse";
 
 type Domain = "browser" | "layout";
@@ -19,16 +20,16 @@ export async function refreshBrowserCosts(domain: Domain, run: number, attempt: 
       !["push", "pull_request", "workflow_dispatch", "schedule"].includes(info.event) || !SHA.test(info.head_sha)) throw new Error("A successful attributed CI run/attempt is required");
   const page = await api.json(`actions/runs/${run}/attempts/${attempt}/jobs?per_page=100`);
   if (!Array.isArray(page.jobs) || page.total_count !== page.jobs.length ||
-      page.jobs.filter((job: any) => typeof job.name === "string" && job.name.startsWith(`${domain} (`)).length !== 2) throw new Error("Incomplete job inventory");
-  const selected = [1, 2].map(shard => {
+      page.jobs.filter((job: any) => typeof job.name === "string" && job.name.startsWith(`${domain} (`)).length !== PROOF_SHARDS[domain]) throw new Error("Incomplete job inventory");
+  const selected = shardNumbers(domain).map(shard => {
     const matches = page.jobs.filter((job: any) => job.name === `${domain} (${shard})`);
     const job = matches[0];
     if (matches.length !== 1 || !Number.isSafeInteger(job.id) || job.id <= 0 || job.run_id !== run || job.head_sha !== info.head_sha ||
         job.status !== "completed" || job.conclusion !== "success" ||
-        !job.steps?.some((step: any) => step.name === `Complete ${domain} proof` && step.status === "completed" && step.conclusion === "success")) throw new Error("Two fresh successful domain jobs are required");
+        !job.steps?.some((step: any) => step.name === `Complete ${domain} proof` && step.status === "completed" && step.conclusion === "success")) throw new Error("Fresh successful domain jobs are required for every shard");
     return job;
   });
-  if (selected[0].id === selected[1].id) throw new Error("Duplicate job identity");
+  if (new Set(selected.map(job => job.id)).size !== selected.length) throw new Error("Duplicate job identity");
   const logs = await Promise.all(selected.map(job => api.log(job.id)));
   const identities: string[] = [], keys = new Set<string>();
   let inventorySize: number | undefined;
@@ -39,7 +40,7 @@ export async function refreshBrowserCosts(domain: Domain, run: number, attempt: 
     identities.push(checkoutRows[0]![1]!);
     const images = [...log.matchAll(/Status: (?:Downloaded newer image|Image is up to date) for ([^\s]+)/g)].map(match => match[1]);
     if (images.length !== 1 || images[0] !== image) throw new Error("Pinned execution image evidence is missing or mismatched");
-    const partitions = [...log.matchAll(/Measured browser shard ([12])\/2: (\d+)\/(\d+) specs;/g)];
+    const partitions = [...log.matchAll(new RegExp(`Measured browser shard (\\d+)\\/${PROOF_SHARDS[domain]}: (\\d+)\\/(\\d+) specs;`, "g"))];
     const summaries = [...log.matchAll(/Test Files\s+(\d+) passed \((\d+)\)/g)];
     const reports = browserTimingReports(raw);
     const partition = partitions[0], summary = summaries[0];
@@ -61,8 +62,21 @@ export async function refreshBrowserCosts(domain: Domain, run: number, attempt: 
   if (commit.sha !== sha || !SHA.test(commit.tree?.sha) || !Array.isArray(parents) || parents.some((parent: unknown) => typeof parent !== "string" || !SHA.test(parent)) ||
       (info.event === "pull_request" ? parents.length !== 2 || parents[1] !== info.head_sha : sha !== info.head_sha)) throw new Error("Immutable checkout/tree/parent attribution does not match the run");
   const source = await api.json(`contents/scripts/visual.mjs?ref=${sha}`);
-  const sourcePins = source.encoding === "base64" ? [...Buffer.from(source.content, "base64").toString("utf8").matchAll(/^const IMAGE = "([^"]+)";/gm)] : [];
-  if (sourcePins.length !== 1 || sourcePins[0]![1] !== image) throw new Error("Execution source does not declare the measured image pin");
+  if (source.encoding !== "base64" || typeof source.content !== "string") throw new Error("Execution source image pin is unavailable");
+  const runnerSource = Buffer.from(source.content, "base64").toString("utf8");
+  let producerSource: string | undefined;
+  if (browserPinUsesProducer(runnerSource)) {
+    const producer = await api.json(`contents/scripts/diagram-export-producer.mjs?ref=${sha}`);
+    if (producer.encoding !== "base64" || typeof producer.content !== "string") throw new Error("Execution source producer pin is unavailable");
+    producerSource = Buffer.from(producer.content, "base64").toString("utf8");
+  }
+  const pin = parseBrowserPin(runnerSource, producerSource);
+  if (pin.image !== image) throw new Error("Execution source does not declare the measured image pin");
+  const manifest = await api.json(`contents/packages/ui-kit/package.json?ref=${sha}`);
+  if (manifest.encoding !== "base64" || typeof manifest.content !== "string" ||
+      JSON.parse(Buffer.from(manifest.content, "base64").toString("utf8")).devDependencies?.playwright !== pin.playwright) {
+    throw new Error("Execution source Playwright version differs from its image pin");
+  }
   const measurements = { ...previous.measurements };
   // The original table recorded browser jobs only; retain their full provenance.
   if (previous.measurement && !measurements.browser) measurements.browser = previous.measurement;

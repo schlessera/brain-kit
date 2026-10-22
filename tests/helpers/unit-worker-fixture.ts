@@ -2,11 +2,12 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-export function unitWorkerFixture() {
+export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: boolean; failAfterDiagnostics?: boolean; diagnosticLink?: "file" | "directory" | "ancestor" } = {}) {
   const source = resolve(import.meta.dir, "../..");
   const root = mkdtempSync(join(dirname(source), ".odysseus-unit-workers-"));
   mkdirSync(join(root, "tmp"));
   const lease = join(source, "scripts/workspace-lease.mjs");
+  const receipt = join(source, "scripts/build-receipt.ts");
   const guard = join(source, "scripts/test-network-child-preload.ts");
   const budget = join(source, "packages/ui-sdk/src/server/maintenance-temp-budget.ts");
   const write = (file: string, content: string) => {
@@ -14,15 +15,55 @@ export function unitWorkerFixture() {
     writeFileSync(join(root, file), content);
   };
   write("scripts/unit-worker-entry.sh", readFileSync(join(source, "scripts/unit-worker-entry.sh"), "utf8"));
-  write(".gitignore", "node_modules/\ntmp/\ndist/\n");
+  write(".gitignore", "node_modules/\ntmp/\ndist/\n.vitest-attachments/\n");
   write("package.json", JSON.stringify({ name: "odysseus-unit-fixture", type: "module", scripts: { build: "bun scripts/build.ts", test: "bun scripts/test.ts" } }));
   write("packages/raft/README.md", "Odysseus builds the raft.\n");
   // This byte-owned stand-in tests dependency copying, not a compiler version.
   write("node_modules/typescript/package.json", '{"name":"odysseus-dependency-fixture"}\n');
+  // These are real child-written path/byte controls, not raster-image evidence.
+  const diagnosticPaths = [
+    ".vitest-attachments/worker/.receipt.json",
+    "packages/ui-kit/.vitest-attachments/worker/capture.png",
+    "packages/ui-react/.vitest-attachments/worker/capture.png",
+    "tmp/diagram-renderer-proof/capture.png", "tmp/mermaid-renderer-proof/capture.png",
+    "tmp/diagram-export-proof/native/capture.png", "tmp/cold-capture/dark.png",
+    "tmp/share-review/signout-320.png", "tmp/svg-proof/svg-print.html.png", "tmp/svg-proof/svg-print.html.pdf",
+    "packages/ui-kit/tests/visual/__screenshots__/worker.visual.tsx/owned-failure-12.png",
+    "packages/ui-react/tests/browser/__screenshots__/worker.pointer.tsx/owned-failure-1.png",
+  ];
+  const referencePaths = [
+    "packages/ui-kit/tests/visual/__screenshots__/worker.visual.tsx/reference-320-chromium-linux.png",
+    "packages/ui-react/tests/browser/__screenshots__/worker.pointer.tsx/tracked-counter-1.png",
+  ];
+  const diagnostics = Boolean(options.diagnostics || options.failAfterDiagnostics || options.diagnosticLink);
+  if (diagnostics) {
+    for (const file of referencePaths) write(file, "Odysseus keeps this tracked input.\n");
+    write("tmp/outside-diagnostics/kept.png", "Odysseus keeps this outside the worker.\n");
+    write("scripts/diagnostics.ts", `import {mkdirSync,writeFileSync,symlinkSync} from "node:fs";
+import {basename,dirname,join} from "node:path";
+export function writeDiagnostics() {
+  const paths=${JSON.stringify(diagnosticPaths)};
+  const bytes=JSON.stringify({worker:basename(process.cwd()),world:"Odysseus",date:"2026-07-12",kind:"path control, not raster proof"})+"\\n";
+  for(const path of paths) {
+    ${options.diagnosticLink === "ancestor" ? 'if(path.startsWith("tmp/share-review/"))continue;' : ""}
+    mkdirSync(dirname(path),{recursive:true});writeFileSync(path,bytes);
+  }
+  ${options.diagnosticLink ? `symlinkSync(${JSON.stringify(join(root,"tmp/outside-diagnostics",options.diagnosticLink === "file" ? "kept.png" : ""))},${JSON.stringify(options.diagnosticLink === "ancestor" ? "tmp/share-review" : `tmp/svg-proof/linked${options.diagnosticLink === "file" ? ".png" : ""}`)},${JSON.stringify(options.diagnosticLink === "file" ? "file" : "dir")});` : ""}
+}
+`);
+  }
   write("scripts/build.ts", `import {mkdirSync,writeFileSync} from "node:fs";
 import {ensureWorkspaceLease} from ${JSON.stringify(lease)};
+import {buildReceipt} from ${JSON.stringify(receipt)};
 const code=await ensureWorkspaceLease(process.cwd(),"write");if(code!==undefined)process.exit(code);
-mkdirSync("dist",{recursive:true});writeFileSync("dist/ready.txt","Odysseus builds the raft.");\n`);
+// Synthetic queue-fixture build, not a real workspace compiler invocation.
+const receipt=buildReceipt(process.cwd(),{jobs:1,subset:false,packages:["raft"]});receipt.packageStart("raft");
+${diagnostics && options.failBuild ? `const {writeDiagnostics}=await import("./diagnostics.ts");writeDiagnostics();
+const {basename,join}=await import("node:path");const {existsSync}=await import("node:fs");
+const shared=${JSON.stringify(join(root,"tmp"))};writeFileSync(join(shared,"built-"+basename(process.cwd())),"ready");
+const stop=Date.now()+5000;while((!existsSync(join(shared,"built-1"))||!existsSync(join(shared,"built-2")))&&Date.now()<stop)await Bun.sleep(5);` : ""}
+${options.failBuild ? "process.exit(7);" : ""}
+mkdirSync("dist",{recursive:true});writeFileSync("dist/ready.txt","Odysseus builds the raft.");receipt.packageEnd("raft",true);receipt.finish(0);\n`);
   write("scripts/test.ts", `import {ensureWorkspaceLease,inheritWorkspaceLease} from ${JSON.stringify(lease)};
 const code=await ensureWorkspaceLease(process.cwd(),"write");if(code!==undefined)process.exit(code);
 const child=Bun.spawn([process.execPath,"test","--preload",${JSON.stringify(guard)},...process.argv.slice(2)],inheritWorkspaceLease({stdio:["inherit","inherit","inherit"]}));
@@ -32,6 +73,7 @@ process.exit(await child.exited);\n`);
 import {existsSync,mkdirSync,readFileSync,statSync,writeFileSync} from "node:fs";
 import {dirname,join} from "node:path";
 import {reserveMaintenanceTemp} from ${JSON.stringify(budget)};
+${diagnostics ? 'import {writeDiagnostics} from "../scripts/diagnostics.ts";' : ""}
 test("${index === 0 ? "Odysseus" : "Penelope"} owns build, lease and maintenance admission",async()=>{
   expect(process.umask(),"CALLER_UMASK_PRESERVED").toBe(${process.umask()});
   expect(statSync(dirname(process.cwd())).mode&0o777,"PRIVATE_UNIT_CONTAINER_MODE").toBe(0o700);
@@ -62,6 +104,8 @@ test("${index === 0 ? "Odysseus" : "Penelope"} owns build, lease and maintenance
     expect(await check(),"SAME_WORKER_CHILD_SHARES_FULL_BUDGET").toBe("busy");
     reservation.release();expect(await check(),"SAME_WORKER_CHILD_ADMITTED_AFTER_RELEASE").toBe("admitted");
   } finally {reservation.release()}
+  ${diagnostics ? "writeDiagnostics();" : ""}
+  ${options.failAfterDiagnostics ? `writeFileSync(join(shared,"diagnostics-${index}.ready"),"ready");const stop=Date.now()+5000;while(!existsSync(join(shared,"diagnostics-${1-index}.ready"))&&Date.now()<stop)await Bun.sleep(5);expect(existsSync(join(shared,"diagnostics-${1-index}.ready")),"BOTH_DIAGNOSTIC_WRITERS_FINISHED").toBe(true);expect(false,"PLANNED_WORKER_FAILURE_AFTER_DIAGNOSTICS").toBe(true);` : ""}
 });\n`);
   const git = (...args: string[]) => {
     const child = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_AUTHOR_DATE: "2026-07-12T00:00:00Z", GIT_COMMITTER_DATE: "2026-07-12T00:00:00Z" } });
@@ -69,5 +113,5 @@ test("${index === 0 ? "Odysseus" : "Penelope"} owns build, lease and maintenance
   };
   git("init", "--quiet"); git("add", ".");
   git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "--quiet", "-m", "Build the raft fixture");
-  return { root, files };
+  return { root, files, diagnosticPaths, referencePaths };
 }

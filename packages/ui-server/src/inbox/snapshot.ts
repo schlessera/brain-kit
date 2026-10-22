@@ -10,6 +10,7 @@ import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
+import { invalidateRestoredStorage, parseStoredHistory } from "../storage/history-store.js";
 import { clientInboxResolveSchema, hygieneEffectSchema, hygieneReviewStateSchema, inboxItemSchema, inboxOptionSchema, v1ResolutionEffectSchema } from "@schlessera/brain-ui-sdk/schemas";
 import { createUiDb } from "../db/client.js";
 import { createInboxStore } from "./store.js";
@@ -66,6 +67,7 @@ function validateDatabase(db: Database): void {
   if (JSON.stringify(db.query("PRAGMA integrity_check").all()) !== '[{"integrity_check":"ok"}]' ||
       db.query("PRAGMA foreign_key_check").all().length)
     throw new Error("inbox_snapshot_relations");
+  for (const row of db.query("SELECT payload_json FROM storage_history").all() as Array<{ payload_json: string }>) parseStoredHistory(row.payload_json);
   const store = createInboxStore(db), state = store.exportState();
   store.snapshot();
   const items = new Map(state.inbox_items.map(row => [row.id, inboxItemSchema.parse(JSON.parse(row.data_json as string))]));
@@ -374,6 +376,7 @@ export async function restoreInboxSnapshot(input: unknown, dbPath: string, brain
       const claims = db.query("SELECT id FROM inbox_items WHERE queue = 'queue' AND status = 'claimed' AND deleted_at IS NULL ORDER BY id").all() as { id: string }[];
       for (const row of claims) failInboxWork(db, row.id, (store.getItem(row.id) as InboxQueueItem).version, at);
       pauseRestoredSchedules(db, at);
+      invalidateRestoredStorage(db, at);
       db.query("UPDATE inbox_recovery_state SET status = 'ready', restored_at = ? WHERE id = 1").run(at);
       return claims.length;
     }).immediate();
