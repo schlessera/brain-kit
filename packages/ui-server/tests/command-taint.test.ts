@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { commandTaintSource, recordFirstCommandTaint } from "../src/activity/command-taint";
+import { commandTaintSource } from "../src/activity/command-taint";
+import { recordFirstTaint } from "../src/governance/session-taint";
 
 test("pre-proxy fetching and opaque commands produce taint before their output is trusted", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-command-taint-"));
@@ -25,23 +26,23 @@ test("pre-proxy fetching and opaque commands produce taint before their output i
 test("the first durable session source survives a later turn and independent recorder instance", () => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE governance_events (id INTEGER PRIMARY KEY, kind TEXT, turn_id TEXT, session_id TEXT, payload TEXT)");
-  const write = (event: Parameters<typeof recordFirstCommandTaint>[1]) => {
+  const write = (event: Parameters<typeof recordFirstTaint>[1]) => {
     db.query("INSERT INTO governance_events (kind,turn_id,session_id,payload) VALUES (?,?,?,?)")
       .run(event.kind, event.turnId ?? null, event.sessionId ?? null, JSON.stringify(event.payload));
   };
   const initial = { kind: "taint" as const, turnId: "odysseus-first", sessionId: "odysseus-session", actor: "interactive" as const, model: null, profile: null, payload: { source: "fetching_command" as const, tool: "Bash", detail: null } };
   try {
-    recordFirstCommandTaint(db, initial, write);
-    recordFirstCommandTaint(db, { ...initial, turnId: "odysseus-second", payload: { source: "unclassified_command", tool: "bash", detail: null } }, write);
+    recordFirstTaint(db, initial, write);
+    recordFirstTaint(db, { ...initial, turnId: "odysseus-second", payload: { source: "unclassified_command", tool: "bash", detail: null } }, write);
     expect(db.query("SELECT turn_id,payload FROM governance_events").all(), "G6_FIRST_SESSION_SOURCE_IS_STICKY").toEqual([
       { turn_id: "odysseus-first", payload: JSON.stringify(initial.payload) },
     ]);
-    recordFirstCommandTaint(db, { ...initial, turnId: "telemachus-first", sessionId: "telemachus-session" }, write);
+    recordFirstTaint(db, { ...initial, turnId: "telemachus-first", sessionId: "telemachus-session" }, write);
     expect(db.query("SELECT count(*) AS n FROM governance_events").get()).toEqual({ n: 2 });
     // Anonymous turns deduplicate within their turn, never across all null sessions.
-    recordFirstCommandTaint(db, { ...initial, turnId: "anonymous-first", sessionId: null }, write);
-    recordFirstCommandTaint(db, { ...initial, turnId: "anonymous-first", sessionId: null }, write);
-    recordFirstCommandTaint(db, { ...initial, turnId: "anonymous-second", sessionId: null }, write);
+    recordFirstTaint(db, { ...initial, turnId: "anonymous-first", sessionId: null }, write);
+    recordFirstTaint(db, { ...initial, turnId: "anonymous-first", sessionId: null }, write);
+    recordFirstTaint(db, { ...initial, turnId: "anonymous-second", sessionId: null }, write);
     expect(db.query("SELECT count(*) AS n FROM governance_events").get()).toEqual({ n: 4 });
   } finally { db.close(); }
 });
@@ -51,7 +52,7 @@ test("failed recording rolls back rather than consuming the first source", () =>
   db.exec("CREATE TABLE governance_events (id INTEGER PRIMARY KEY, kind TEXT, turn_id TEXT, session_id TEXT, payload TEXT)");
   const event = { kind: "taint" as const, turnId: "odysseus-first", sessionId: "odysseus-session", actor: "interactive" as const, model: null, profile: null, payload: { source: "fetching_command" as const, tool: "Bash", detail: null } };
   try {
-    expect(() => recordFirstCommandTaint(db, event, value => {
+    expect(() => recordFirstTaint(db, event, value => {
       db.query("INSERT INTO governance_events (kind,turn_id,session_id) VALUES (?,?,?)").run(value.kind, value.turnId!, value.sessionId!);
       throw new Error("fixture recording failure");
     })).toThrow("fixture recording failure");

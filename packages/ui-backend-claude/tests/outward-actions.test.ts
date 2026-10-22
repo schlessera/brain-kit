@@ -48,3 +48,13 @@ for (const callback of [false, true]) {
     expect(result.executed, "CLAUDE_OUTWARD_CANCELLED").toBe(false);
   });
 }
+test("Claude: a session that ingested untrusted input asks even when outward.allow matches", async () => {
+  const taint = { eventId: 7, source: "web_fetch" };
+  const declined = await probe({ command: "git push origin main", outwardAllow: allow, taint, decision: { behavior: "deny", message: "Declined." } });
+  expect(declined.executed, "CLAUDE_TAINTED_OUTWARD_ASKS").toBe(false); expect(declined.requests).toHaveLength(1);
+  expect(declined.requests[0]?.description).toContain("This session ingested untrusted input, so outward.allow does not apply.");
+  expect(declined.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { tainted: true, decision: "declined", rule: null } });
+  const approved = await probe({ command: "git push origin main", outwardAllow: allow, taint });
+  expect(approved.bytes).toBe("push origin main\n");
+  expect(approved.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { tainted: true, decision: "approved" } });
+});

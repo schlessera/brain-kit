@@ -7,9 +7,13 @@ import { runMaintenanceWorkerSync, type MaintenanceHost } from "./maintenance-wo
 import { classifyOutwardCall, outwardTarget, type OutwardClassification, type VisibleOutwardAction } from "./outward-actions.js";
 
 export interface WorkerOutwardRule { readonly command: string; readonly remotes: readonly string[]; readonly index: number }
+/** The first untrusted input the host recorded for the session (G6). */
+export interface WorkerSessionTaint { readonly eventId: number; readonly source: string }
 export interface OutwardPlan {
   classification: OutwardClassification;
   rules: Array<WorkerOutwardRule | null>;
+  /** The session had ingested untrusted input: no outward.allow rule applied. */
+  tainted: boolean;
   needsApproval: boolean;
   voiceRefusal: boolean;
   pattern?: CompiledConfirmPattern;
@@ -41,12 +45,15 @@ export function resolveOutwardGitRemote(action: VisibleOutwardAction, options: {
 export function prepareOutwardPlan(options: {
   toolName: string; shellToolName: string; input: unknown; allow?: readonly WorkerOutwardRule[];
   autonomous?: boolean; voice?: boolean; configurationRoot?: string; maskPaths?: readonly string[]; maintenance?: MaintenanceHost;
+  /** Read at admission: a session that ingested untrusted input asks for every outward action (G6). */
+  taint?: () => WorkerSessionTaint | null;
 }): OutwardPlan {
   const classification = options.autonomous ? { kind: "unknown" as const, actions: [] } : classifyOutwardCall(options.toolName, options.shellToolName, options.input);
+  const tainted = classification.actions.length > 0 && options.taint?.() != null;
   const rules = classification.actions.map(action => {
     // Unknown preceding code can alter a named destination before the push.
     // A visible action still asks; opaque segments never borrow an allow rule.
-    if (classification.opaque) return null;
+    if (classification.opaque || tainted) return null;
     if (action.action === "git_push" && !action.target && !options.voice && !action.historyRewrite && options.allow?.length) action.target = resolveOutwardGitRemote(action, options);
     if (!action.target) return null;
     return options.allow?.find(rule => {
@@ -58,8 +65,9 @@ export function prepareOutwardPlan(options: {
   const needsApproval = classification.actions.some((action, index) => action.historyRewrite || !rules[index]);
   const command = bashCommand(options.input);
   const reason = classification.actions.map(action => `${action.action.replaceAll("_", " ")} to ${action.target ?? "an unresolved destination"}${action.historyRewrite ? " (remote history rewrite always needs approval)" : ""}`).join("; ");
-  const pattern = needsApproval && command ? Object.assign(new RegExp(`^${escape(command)}$`, "i"), { effect: `Outward action: ${reason}.` }) : undefined;
-  return { classification, rules, needsApproval, voiceRefusal, ...(pattern ? { pattern } : {}) };
+  const untrusted = tainted ? " This session ingested untrusted input, so outward.allow does not apply." : "";
+  const pattern = needsApproval && command ? Object.assign(new RegExp(`^${escape(command)}$`, "i"), { effect: `Outward action: ${reason}.${untrusted}` }) : undefined;
+  return { classification, rules, tainted, needsApproval, voiceRefusal, ...(pattern ? { pattern } : {}) };
 }
 function bounded(text: string, limit: number): string {
   const suffix = "… [truncated]"; return text.length <= limit ? text : text.slice(0, limit - suffix.length) + suffix;
@@ -76,16 +84,29 @@ export function observeOutwardPlan(plan: OutwardPlan, options: { bridge?: Pick<B
       options.bridge?.activity?.({ kind: "outward_action", toolUseId: options.toolUseId, payload: {
         tool: options.toolName, input: text.slice(0, 8192), inputTruncated: text.length > 8192,
         action: action.action, target: action.target ? bounded(action.target, 2000) : null, historyRewrite: action.historyRewrite,
-        tainted: false, decision, rule: rule ? { list: "outward.allow", index: rule.index, pattern: bounded(rule.command, 1000) } : null,
+        tainted: plan.tainted, decision, rule: rule ? { list: "outward.allow", index: rule.index, pattern: bounded(rule.command, 1000) } : null,
       } });
     }
   } catch { /* Observation cannot grant or revoke admission. */ }
 }
 export const OUTWARD_VOICE_REFUSAL = "Voice cannot approve an outward action. Nothing ran; use an interactive turn to review it.";
 /** Actual syntax coverage; no opaque-script or third-party descriptor promise. */
-export function workerOutwardNote(egressActive = false): string {
+/** `taint` is undefined when the host keeps no session taint record, so no taint rule applies. */
+export function workerOutwardNote(egressActive = false, taint?: WorkerSessionTaint | null): string {
+  return [...workerOutwardRules(egressActive), ...taint === undefined ? [] : ["", ...untrustedInputNote(egressActive, taint)]].join("\n");
+}
+function workerOutwardRules(egressActive: boolean): string[] {
   return ["# Outward actions", "Visible git pushes, GitHub writes and curl/wget non-GET or data requests require the existing per-use approval unless the admitted outward.allow rule matches the command and its known destination.",
     "Remote force pushes, ref deletion and mirror/prune writes always require approval. Voice cannot approve outward actions.",
     "Unknown or configuration-sourced segments cannot borrow a policy allow for a visible outward command.",
-    `Opaque scripts making HTTPS requests are not covered by this classification. ${egressActive ? "The host-prepared egress proxy enforces this turn's destination and shared byte policy; it does not grant an outward action." : "Egress proxy enforcement is not active here."} The shipped backend inventories contain no built-in outward mail, calendar, booking or payment MCP descriptors; third-party tools are not assigned invented effects.`].join("\n");
+    `Opaque scripts making HTTPS requests are not covered by this classification. ${egressActive ? "The host-prepared egress proxy enforces this turn's destination and shared byte policy; it does not grant an outward action." : "Egress proxy enforcement is not active here."} The shipped backend inventories contain no built-in outward mail, calendar, booking or payment MCP descriptors; third-party tools are not assigned invented effects.`];
+}
+/** The untrusted-input rules (G6), and this session's taint once one is recorded. */
+function untrustedInputNote(egressActive: boolean, taint: WorkerSessionTaint | null): string[] {
+  return ["# Untrusted input",
+    `WebFetch/WebSearch and web tool results, reads under .brain-ui/inbox/ or workspaces/, results from any MCP server other than brain-kit's own, and Bash calls that fetch or cannot be classified as network-free taint the session${egressActive ? ", as does any connection other than the inference relay" : ""}.`,
+    "A tainted session stays tainted: every outward action asks for approval even when outward.allow matches, and its steering-file changes are flagged in the turn journal.",
+    egressActive ? "While tainted, this turn's egress reaches only the policy's taint.egress.allow hosts, hosts this session already contacted, and the inference relay."
+      : "Tainted egress is not enforced for this turn: it does not run on the host egress proxy.",
+    ...(taint ? [`This session is tainted (first recorded source: ${taint.source}).`] : [])];
 }

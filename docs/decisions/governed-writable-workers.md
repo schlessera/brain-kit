@@ -1416,7 +1416,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:47-96`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:49-124`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy;
 an API-key Claude profile is not routed yet. Its note still says
 "Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
@@ -2136,7 +2136,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:24-45`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:26-47`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way. No mail-submission host is built in
 yet. Only the GitHub API hosts are defaults, and `outward.hosts` adds the rest.
@@ -2171,6 +2171,49 @@ window. A tainted session runs under tighter rules:
 
 Ingesting untrusted content never blocks the turn. Taint changes only what
 the turn may send out and how its writes are labelled.
+
+**Implemented — 2026-10-22 (#1667).** The host Activity recorder marks a
+session tainted when an admitted call returns: `WebFetch`, `WebSearch` and
+pi-web-access's `fetch_content` and `web_search`; a file tool whose path is
+under `.brain-ui/inbox/` or `workspaces/`, or a search whose output names a
+file there; a fetching or unclassified Bash call; and any MCP tool whose
+server is not brain-kit's own `brain` or `brain-ui`
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:33-44`).
+The fixed list of external-content MCP sources is therefore "every other MCP
+server", following the rule above that erring towards taint costs only tighter
+rules (maintainer ruling, 2026-10-22). The first source is the session's one
+`taint` event; the check and write share a SQLite transaction
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-22`).
+
+The admitting host hands both backends a live read of that record with the
+turn's command policy. While it reports a taint, no `outward.allow` rule
+applies, every classified outward action asks, its card says why, and its
+`outward_action` event carries `tainted: true` (`prepareOutwardPlan`,
+`packages/ui-sdk/src/server/outward-policy.ts:45-71`). Steering writes use the
+existing journal attribution below.
+
+Tainted egress is enforced only where the turn proxy runs: governed and strict
+Claude turns on hosts with managed native storage
+(`runtime.workerHost.governed.egress.active`). There, each admitted connection
+other than the inference relay records an `egress_connection` taint before its
+first byte. Once the session is tainted, a new connection must pass the
+ordinary egress rules and also match `taint.egress.allow` or a host the
+session's proxies already admitted; otherwise it is refused and recorded as an
+`egress_denial` with reason `taint_allowlist`. The taint list narrows and never
+widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
+`packages/ui-server/src/brain/turn-egress.ts:49-124`). Pi turns, API-key
+Claude profiles and hosts without managed native storage have no proxy, so the
+Bash classifier remains their shell rule and nothing narrows their egress.
+
+The capabilities note states the taint sources, these rules, whether this
+turn's egress is narrowed or explicitly not enforced, and the session's first
+recorded source once it is tainted (`workerOutwardNote`,
+`packages/ui-sdk/src/server/outward-policy.ts:95-97`). The note is a sandbox
+fact, so a change reaches the model once, at the end of the next turn's
+message ([provider history](provider-history.md)).
+
+Files the user marks untrusted are not detected yet: no marking mechanism
+exists. That source is tracked separately.
 
 ### Steering artifacts (G7)
 

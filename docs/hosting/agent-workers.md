@@ -75,7 +75,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:57-63`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:65-71`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -1279,26 +1279,32 @@ custom origin refuses the turn before its prompt is sent or the login is read.
 A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
 must add this variable when it moves to managed native storage.
 
-### Pre-proxy command ingestion records
+### Untrusted input (#1667)
 
-For interactive and voice turns, the host recorder recognizes completed `Bash`
-and `bash` calls that visibly fetch content, and conservatively classifies opaque
-commands as untrusted input. Static `ls` and `brain search` calls remain clean;
-shell substitutions, redirections, scripts and unknown wrappers do not borrow
-that exemption (`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:5-30`).
+For interactive and voice turns, the host recorder marks the session tainted
+when an admitted call returns untrusted content: web fetch and search tools,
+reads under `.brain-ui/inbox/` or `workspaces/`, results from an MCP server
+other than brain-kit's own, and Bash calls that visibly fetch content or that
+the classifier cannot rule out as network-free. Static `ls` and `brain search`
+calls remain clean; shell substitutions, redirections, scripts and unknown
+wrappers do not borrow that exemption
+(`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:2-27`).
 The first source is kept as a session `taint` governance event, using the same
 SQLite transaction for the existing-source check and write
-(`recordFirstCommandTaint`, `packages/ui-server/src/activity/command-taint.ts:33-40`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-22`).
 The recorder waits for a tool result and excludes known denied calls; failed
-commands can still return untrusted partial output. It records the source kind
-and tool name, without copying command text into the taint payload.
+calls can still return untrusted partial output. It records the source kind
+and tool name, without copying command text or content into the payload.
 
-This is command detection and durable attribution only. It does not activate
-the ordinary egress proxy, tighten outward permissions, add WebFetch/WebSearch,
-MCP, workspace or user-marked detectors, or supply the complete taint capabilities
-note. Those remaining #1667 outcomes require their own integrated proof. Existing
-journal attribution consumes a preceding taint event; no autonomous authority
-changes.
+A tainted session's outward actions all ask, whatever `outward.allow` says,
+on both backends. On the turn proxy, every admitted connection other than the
+inference relay taints the session too, and a tainted session's new
+connections reach only `taint.egress.allow` and hosts its proxies already
+admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
+Without the proxy (Pi, API-key Claude profiles, hosts without managed native
+storage) nothing narrows egress, and the capabilities note says so. Files the
+user marks untrusted are not a source yet. The rules are in
+[the decision record](../decisions/governed-writable-workers.md#untrusted-input-g6).
 
 ## Paid CLI provider qualification
 

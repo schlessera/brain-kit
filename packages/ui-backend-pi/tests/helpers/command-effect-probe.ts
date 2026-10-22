@@ -15,7 +15,7 @@ import { sendPipe } from "../../src/worker-protocol";
 const force = { pattern: "^git push (-f|--force)", reason: "No force pushes.", index: 1 };
 type Rule = typeof force;
 export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; confirm?: Rule[];
-  command: string; decision?: PermissionDecision; allowedTools?: string[]; repeats?: number; cancelOnApproval?: boolean; outwardAllow?: Array<{ command: string; remotes: string[]; index: number }>; voice?: boolean }) {
+  command: string; decision?: PermissionDecision; allowedTools?: string[]; repeats?: number; cancelOnApproval?: boolean; outwardAllow?: Array<{ command: string; remotes: string[]; index: number }>; voice?: boolean; taint?: { eventId: number; source: string } }) {
   const cleanup: Array<() => void> = [];
   try {
     const root = mkdtempSync(join(tmpdir(), "odysseus-pi-policy-"));
@@ -27,7 +27,8 @@ export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; c
     const controller = new AbortController();
     for (const name of ["gh", "curl", "wget"]) writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${marker}'\n`, { mode: 0o755 });
     const requests: PermissionRequest[] = [], events: BackendActivityEvent[] = [];
-    const commandPolicy = { outwardAllow: options.outwardAllow ?? [], hash: "odysseus-policy", deny: options.deny ?? [], confirm: options.confirm ?? [] };
+    const commandPolicy = { outwardAllow: options.outwardAllow ?? [], hash: "odysseus-policy", deny: options.deny ?? [], confirm: options.confirm ?? [],
+    ...(options.taint ? { taint: () => options.taint! } : {}) };
     const bridge = { emit: () => {}, activity: (event: BackendActivityEvent) => events.push(event),
       requestPermission: async (request: PermissionRequest) => { requests.push(request); if (options.cancelOnApproval) controller.abort(); return options.decision ?? { behavior: "allow" as const }; } };
     async function execute(input: Record<string, unknown>) {

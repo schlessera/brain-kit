@@ -391,7 +391,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1568-1584`).
 
-- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:133-134`).
+- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:136-137`).
 
 - Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2930-2953`).
 
@@ -399,7 +399,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - API authorization: (`app.use("/api/*", authGuard(authMode, auth, db));`, `packages/ui-server/src/app.ts:792`).
 
-- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:952-997`).
+- Queued acceptance: (`// Queue it as the session's next turn; report queued immediately.`, `packages/ui-server/src/ws/run-session.ts:959-1004`).
 
 - Approval target: (`function mutateLastAssistant(`, `packages/ui-react/src/stores/chat-state.ts:1224-1254`).
 

@@ -16,7 +16,7 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 type Rule = { pattern: string; reason?: string; index: number };
 export async function probe(options: { deny?: Rule[]; confirm?: Rule[]; command: string;
-  decision?: PermissionDecision; callback?: boolean; repeats?: number; cancelOnApproval?: boolean; noGrantSurface?: boolean; rewrite?: string; outwardAllow?: Array<{ command: string; remotes: string[]; index: number }>; voice?: boolean }) {
+  decision?: PermissionDecision; callback?: boolean; repeats?: number; cancelOnApproval?: boolean; noGrantSurface?: boolean; rewrite?: string; outwardAllow?: Array<{ command: string; remotes: string[]; index: number }>; voice?: boolean; taint?: { eventId: number; source: string } }) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-policy-command-")); roots.push(root);
   for (const rel of [".git/objects", ".git/refs/heads"]) mkdirSync(join(root, rel), { recursive: true });
   writeFileSync(join(root, ".git/HEAD"), "ref: refs/heads/main\n");
@@ -36,7 +36,8 @@ printf '%s\\n' '${JSON.stringify({ hookSpecificOutput: { updatedInput: { command
   const requests: PermissionRequest[] = [], events: BackendActivityEvent[] = [];
   const turnLock = createTurnLockBinding({ turn: { ended: false, pendingReleases: new Map() },
     writeLock: createKeyedLock(), lockWaitMs: 1000, log: () => {}, admission: { signal } });
-  const commandPolicy = { outwardAllow: options.outwardAllow ?? [], hash: "odysseus-policy", deny: options.deny ?? [], confirm: options.confirm ?? [] };
+  const commandPolicy = { outwardAllow: options.outwardAllow ?? [], hash: "odysseus-policy", deny: options.deny ?? [], confirm: options.confirm ?? [],
+    ...(options.taint ? { taint: () => options.taint! } : {}) };
   const maintenance = createFixtureMaintenanceHost(root);
   // Every probe owns its PATH; do not reuse another fixture's availability result.
   resetRtkProbe();
