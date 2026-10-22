@@ -103,6 +103,17 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_CLAUDE_OAUTH_ORIGINS",
+    description:
+      "Comma-separated exact origins (scheme, host and port) that may receive " +
+      "the host's Claude login through a turn's inference relay, besides " +
+      "https://api.anthropic.com. Required when a subscription profile's " +
+      "baseUrl or ANTHROPIC_BASE_URL selects another origin on a host with " +
+      "managed native storage; otherwise that turn is refused before the " +
+      "login is read.",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_REVERSE_GEOCODE",
     description:
       '"0"/"off"/"false" disables reverse geocoding in the location tool ' +
@@ -152,6 +163,8 @@ export interface ClaudeBackendEnv {
   anthropicApiKey: string | undefined;
   /** CLAUDE_CODE_OAUTH_TOKEN, untrimmed. */
   claudeCodeOauthToken: string | undefined;
+  /** BRAIN_UI_CLAUDE_OAUTH_ORIGINS, split on commas; validated where a turn uses it. */
+  claudeOAuthOrigins: string[];
   /** BRAIN_UI_REVERSE_GEOCODE is not falsy (0/false/off/no, case-insensitive). */
   reverseGeocodeEnabled: boolean;
   /** NOMINATIM_URL with the public-OSM default applied. */
@@ -167,6 +180,7 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): ClaudeBackendE
   return {
     anthropicApiKey: env.ANTHROPIC_API_KEY,
     claudeCodeOauthToken: env.CLAUDE_CODE_OAUTH_TOKEN,
+    claudeOAuthOrigins: (env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS ?? "").split(",").map(origin => origin.trim()).filter(Boolean),
     reverseGeocodeEnabled: envFlag(env.BRAIN_UI_REVERSE_GEOCODE, true),
     nominatimUrl: env.NOMINATIM_URL || "https://nominatim.openstreetmap.org",
     nominatimUserAgent: env.NOMINATIM_USER_AGENT || "brain-kit-ui/1.0",

@@ -1077,10 +1077,12 @@ export "./internal" (./src/internal.ts)
   describeLimitHits
   execWrapperSpawnOptions
   handleTurnTemp
+  hasManagedNativeStorage
   hasWebSearchCredential
   hostMaintenanceTempLimits
   hostOutputStagingLimits
   isEnvName
+  isManagedWorkerStartupView
   launchAgentWorker
   launchLimits
   launchMaintenanceWorker
@@ -6273,6 +6275,10 @@ signatures (every public export and the types it is made of)
         identity?: "shared_uid" | "separate_uid";
         workerUid?: number;
         configurationView?: "live" | "startup";
+        egress?: {
+            active: boolean;
+            detail: string;
+        };
     } & ({
         available: true;
     } | {

@@ -1253,9 +1253,31 @@ This is a measurement of the paths, not a qualified host tuple.
 | Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
 | Socket walk | Passes in both profiles. The relay and proxy sockets are the only sockets below a mask, fixture sockets under `/run` and a home directory are unreachable, and the walk of the rest of the visible filesystem completed without finding a host socket. Before all of `/var` was masked ([#2657](https://github.com/schlessera/brain-kit/pull/2657)), a CUPS socket under `/var/snap` accepted a connection on this host. |
 
-The gate does not pass while Pi inference is unmeasured, so ordinary turns
-keep their current network and the capabilities note keeps saying egress is
-unrecorded.
+Pi inference does not pass yet. Following the gate's rule, default-on goes
+ahead with that gap stated in the capabilities note, on hosts with managed
+native storage only:
+
+- **Claude.** A governed or strict Claude turn runs on its own turn proxy and
+  the host inference relay. Every connection is a governance event, and a
+  connection to an outward host waits for approval unless the call in progress
+  was classified as a read or an approved outward action. The note says so.
+- **Not routed yet.** An API-key Claude profile and every Pi turn keep their
+  current network, and their note still says egress is unrecorded.
+- **No managed native storage.** Governed and strict turns keep their current
+  network without the turn proxy, and their note says egress is unrecorded.
+  `GET /api/status` reports this as `runtime.workerHost.governed.egress`
+  (`{ active, detail }`).
+
+**Custom inference origins.** A turn's relay forwards to the route the server
+selects: the profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the
+server's `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`. Only
+first-party inference may receive the host's Claude login by default. To send
+it to another origin, list that exact origin (scheme, host and port, no path)
+in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
+`BRAIN_UI_CLAUDE_OAUTH_ORIGINS=https://gateway.ithaca.invalid`. An unlisted
+custom origin refuses the turn before its prompt is sent or the login is read.
+A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
+must add this variable when it moves to managed native storage.
 
 ### Pre-proxy command ingestion records
 

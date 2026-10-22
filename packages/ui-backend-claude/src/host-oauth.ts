@@ -88,7 +88,8 @@ function canonicalOrigin(value: string): string {
     return url.origin;
   } catch { throw new ClaudeHostAuthError("destination"); }
 }
-function authorizeDestination(destination: ClaudeHostOAuthDestination): void {
+/** Refuses a destination outside the first-party origin and the host's explicit list. */
+export function authorizeDestination(destination: ClaudeHostOAuthDestination): void {
   const origin = canonicalOrigin(destination.origin);
   // Only the measured first-party inference authority is implicit. No suffix,
   // redirect, OAuth refresh authority or native account label widens this set.
