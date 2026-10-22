@@ -32,8 +32,9 @@ describe("sync reservation", () => {
       appendFileSync(${JSON.stringify(events)}, 'end\\n'); process.exit(1);`);
     symlinkSync(root, link);
     const boundary = createHostBoundary({ brainPath: root, exec: {} });
+    const syncingRoots = new Set<string>();
     const route = (brainPath: string) => createBrainRoutes({
-      brainPath, brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
+      syncingRoots, brainPath, brain: { cliCommand: () => [process.execPath, script] } as BrainClient,
       keyterms: { brainPath } as KeytermSettings, exec: {},
       boundary: { ...boundary, launch: execution => boundary.launch({ ...execution, writeFiles: [events] }) },
     });
@@ -81,4 +82,40 @@ describe("sync reservation", () => {
       expect(calls).toBe(2);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+});
+
+
+test("independent apps do not share sync admission (#1364)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-sync-apps-"));
+  let entered!: () => void;
+  const launched = new Promise<void>(resolve => { entered = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const boundary = createHostBoundary({ brainPath: root, exec: {} });
+  let calls = 0;
+  const route = () => createBrainRoutes({
+    syncingRoots: new Set(), brainPath: root,
+    brain: { cliCommand: () => [process.execPath, "sync.ts"] } as BrainClient,
+    keyterms: { brainPath: root } as KeytermSettings, exec: {},
+    boundary: { ...boundary, async launch() {
+      calls++;
+      if (calls === 1) { entered(); await gate; }
+      throw new Error("fixture host boundary refusal");
+    } },
+  });
+  const first = route(), second = route();
+  let response: Response | undefined;
+  try {
+    response = await first.request("/brain/sync", { method: "POST" });
+    await launched;
+    expect((await first.request("/brain/sync", { method: "POST" })).status).toBe(409);
+    const independent = await second.request("/brain/sync", { method: "POST" });
+    expect(independent.status).toBe(200);
+    expect(await independent.text()).toContain("fixture host boundary refusal");
+    expect(calls).toBe(2);
+  } finally {
+    release();
+    if (response) await response.text();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

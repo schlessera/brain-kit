@@ -5,8 +5,9 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync } from "fs";
 import type { Database } from "bun:sqlite";
-import { authRoutes, authGuard, resetLoginRateLimiter } from "../src/middleware/auth";
+import { authRoutes, authGuard, createLoginRateLimiter, resetVerificationReservations } from "../src/middleware/auth";
 import {
+  createPasskeyChallenges,
   passkeyPublicRoutes,
   passkeyManagementRoutes,
   passwordLoginDisabled,
@@ -51,7 +52,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  resetLoginRateLimiter();
+  resetVerificationReservations();
   clients = new ClientSet();
   getDb().exec("DELETE FROM passkey_credentials");
   getDb().exec("DELETE FROM settings");
@@ -76,6 +77,8 @@ function fullApp(
   });
   const auth = { ...config.auth, host: config.host };
   const ctx: PasskeyContext = {
+    rateLimiter: createLoginRateLimiter(),
+    challenges: createPasskeyChallenges(),
     db,
     revoker: revokerFor(clients),
     webauthn: config.webauthn,
@@ -90,6 +93,7 @@ function fullApp(
     authRoutes("password", auth, {
       db,
       revoker: revokerFor(clients),
+      rateLimiter: ctx.rateLimiter,
       passwordDisabled: (c) => passwordLoginDisabled(c, ctx),
     })
   );
@@ -257,6 +261,8 @@ describe("mode gating", () => {
   test("non-password mode rejects every passkey route", async () => {
     const config = resolveServerConfig({});
     const ctx: PasskeyContext = {
+      rateLimiter: createLoginRateLimiter(),
+      challenges: createPasskeyChallenges(),
       db,
       revoker: revokerFor(clients),
       webauthn: config.webauthn,
@@ -737,7 +743,7 @@ describe("login-verify", () => {
       ).status
     ).toBe(200);
 
-    resetLoginRateLimiter();
+    resetVerificationReservations();
     getDb().exec("DELETE FROM passkey_credentials");
     const notVerified = (async () => ({
       verified: false,
@@ -1025,5 +1031,21 @@ describe("registration + management", () => {
       headers: headers({ cookie: freshCookie }, "10.4.3.6"),
     });
     expect(missing.status).toBe(404);
+  });
+});
+
+describe("per-app challenge isolation (#1364)", () => {
+  test("another app cannot consume a pending challenge", async () => {
+    seedCredential();
+    const appA = fullApp({ verifyAuthenticationResponse: verifiedAuth() });
+    const appB = fullApp({ verifyAuthenticationResponse: verifiedAuth() });
+    const challenge = await freshLoginChallenge(appA, "10.136.4.1");
+    const verify = (app: Hono) => app.request("/api/auth/passkey/login-verify", {
+      method: "POST", headers: headers({}, "10.136.4.1"),
+      body: JSON.stringify(assertionResponse(challenge)),
+    });
+    expect((await verify(appB)).status).toBe(401);
+    expect((await verify(appA)).status).toBe(200);
+    expect((await verify(appA)).status).toBe(401);
   });
 });

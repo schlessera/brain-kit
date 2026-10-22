@@ -131,8 +131,18 @@ async function openGemini(
   socket.addEventListener("message", (event) => {
     if (ended) return;
     try {
-      if (typeof event.data !== "string" || event.data.length > MAX_FRAME) throw new Error();
-      const parsed = messageSchema.safeParse(JSON.parse(event.data));
+      const data: unknown = event.data;
+      let frame: string;
+      if (typeof data === "string") {
+        if (Buffer.byteLength(data, "utf8") > MAX_FRAME) throw new Error();
+        frame = data;
+      } else if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
+        if (data.byteLength > MAX_FRAME) throw new Error();
+        // Bun delivers binary JSON as bytes. Decode synchronously so messages
+        // retain arrival order and cannot resume after their epoch has ended.
+        frame = new TextDecoder("utf-8", { fatal: true }).decode(data);
+      } else throw new Error();
+      const parsed = messageSchema.safeParse(JSON.parse(frame));
       if (!parsed.success || Object.keys(parsed.data).length === 0) throw new Error();
       const m = parsed.data;
       if (m.error !== undefined) { fail("Gemini Live provider error."); return; }

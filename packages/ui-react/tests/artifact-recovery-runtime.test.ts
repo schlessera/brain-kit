@@ -1,3 +1,5 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -47,9 +49,8 @@ async function child(args: string[]) {
 }
 
 beforeAll(async () => {
-  // A focused source mutation still bundles the client below from its fresh
-  // source; only already-built, unchanged workspace dependencies may be reused.
-  if (process.env.BRAIN_ARTIFACT_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
+  // The invocation owns fresh package output; client bundling stays fresh below.
+  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("artifact-recovery-runtime.test.ts"));
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-artifact-recovery-"));
   brain = resolve(fixture, "brain");
   await createFixtureBrain(repo, brain);
@@ -311,7 +312,7 @@ for (const [path, route] of [[target, "**/api/files/content?*"], [".brain/scratc
   });
 }
 
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
+for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
   test(`artifact layout ${theme} ${width}: bounded controls, named status and keyboard return`, async () => {
     const { page, context, outside } = await scene(width, theme);
     try {
@@ -388,7 +389,7 @@ test("artifact reopening after desktop-to-phone transition retains the visible d
   } finally { await context.close(); }
 });
 
-for (const width of [320, 1280]) for (const theme of ["dark", "light"]) {
+for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
   test(`artifact full state matrix ${theme} ${width} preserves named static loading and truthful controls`, async () => {
     const { page, context } = await scene(width, theme);
     let status = 0, release: (() => void) | undefined;

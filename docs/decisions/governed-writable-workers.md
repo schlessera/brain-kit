@@ -1530,6 +1530,17 @@ Each `governed` or `strict` worker gets limits that always apply:
   the worker's write rate. That is an enforced bound, not a hard quota, and
   the record says so.
 
+**2026-10-22 — Running-turn fixture capacity (#2394).** The
+[maintainer selected A1](https://github.com/schlessera/brain-kit/issues/2394#issuecomment-6329550380):
+fixtures that require real running turns explicitly check their brain's actual
+filesystem before the first turn, using the shared test-only helper and the
+unchanged `max(5% of total, SCOPE_FREE_BYTES)` floor. A named refusal reports
+the path, available/required bytes and a sufficiently provisioned `TMPDIR`
+remedy. This attributes low-capacity test failures before a recovery timeout;
+it changes neither the production floor nor its Stop-only semantics. There is
+no blanket fixture-factory check, automatic provisioning or fake `statfs` in
+runtime proof. See [the capacity recipe](../process/testing.md#capacity-for-fixtures-that-require-running-turns).
+
 Defaults are generous. A worker that hits a limit fails that step, and the
 failure is recorded as a roadblock.
 
