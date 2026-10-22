@@ -402,19 +402,21 @@ function lifecycleCoverage(input: LifecycleAcquisition[], pulls: PullObservation
   const scopes = [...new Map(input.map(s => [JSON.stringify(s), s])).values()]
     .sort((a, b) => Date.parse(a.collectedAt) - Date.parse(b.collectedAt));
   const expected = new Set<number>(), latest = new Map<number, { pr: number; problem: string } | null>();
+  const discoveryErrors: { pr: number; problem: string }[] = [];
   for (const scope of scopes) {
     if (scope.version !== 1 || !stampForWindow(scope.collectedAt) || !Array.isArray(scope.expectedPRs) ||
       scope.expectedPRs.some(pr => !Number.isSafeInteger(pr) || pr < 1) || !Array.isArray(scope.errors) ||
       scope.errors.some(e => !Number.isSafeInteger(e.pr) || e.pr < 0 || typeof e.problem !== "string")) throw new Error("Invalid lifecycle acquisition archive");
-    // PR zero records discovery failure; a later successful index resolves it.
-    for (const pr of [0, ...scope.expectedPRs]) {
-      if (pr) expected.add(pr);
+    // Another archive's discovery window cannot establish the missing cohort.
+    discoveryErrors.push(...scope.errors.filter(e => e.pr === 0));
+    for (const pr of scope.expectedPRs) {
+      expected.add(pr);
       latest.set(pr, scope.errors.find(e => e.pr === pr) ?? null);
     }
   }
   const expectedPRs = [...expected].sort((a, b) => a - b);
   return { version: 1, repository: scopes[0]!.repository, collectedAt: scopes.at(-1)!.collectedAt, expectedPRs,
-    errors: [...latest.values()].filter(e => e !== null),
+    errors: [...discoveryErrors, ...[...latest.values()].filter(e => e !== null)],
     missingPRs: expectedPRs.filter(pr => !pulls.some(p => p.number === pr)), scopes };
 }
 

@@ -37,7 +37,9 @@ acquisition cannot erase earlier windows. Report recursively merges archived
 PR/event files, preferring newer PR observations and refusing conflicting event
 IDs. Downloaded acquisition manifests and reservation histories are read
 recursively too. `lifecycleAcquisition` retains the original scopes and lists
-unresolved errors and missing requested PRs. `reservationAcquisition` retains
+unresolved errors and missing requested PRs. Failed PR discovery remains visible:
+a later archive's window cannot establish the original missing cohort.
+`reservationAcquisition` retains
 source ref/head identities and each deduplicated lease's source commits.
 Conflicting immutable lease identities or endings are refused. Raw GitHub
 titles, authors, comments and runner host names are not retained.

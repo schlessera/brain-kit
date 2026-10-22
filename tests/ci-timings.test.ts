@@ -197,7 +197,8 @@ test("native report joins overlapping downloaded reservation and acquisition arc
       writeFileSync(join(archive, "collection.json"), JSON.stringify({ id: String(i), repository,
         since: "2026-07-12T00:00:00Z", until: "2026-07-13T00:00:00Z", expected: [{ run: 12, attempts: 1 }], errors: [] }));
       writeFileSync(join(archive, "enrichment.json"), JSON.stringify({ version: 1, repository, collectedAt,
-        expectedPRs: i ? [42] : [42, 43], errors: i ? [] : [{ pr: 42, problem: "temporarily unavailable" }] }));
+        expectedPRs: i ? [42] : [42, 43], errors: i ? [] : [
+          { pr: 42, problem: "temporarily unavailable" }, { pr: 0, problem: "PR index incomplete" }] }));
       writeFileSync(join(archive, "reservations.json"), JSON.stringify({ version: 1, repository, collectedAt,
         sourceRef: "refs/heads/brain-integration-reservation", sourceHead: i ? tree : sha,
         leases: [{ ...lease, ...(i ? { expires: acquired + 540000, endedAt: acquired + 360000, ending: "release", sources: [tree] } : {}) }] }));
@@ -211,11 +212,11 @@ test("native report joins overlapping downloaded reservation and acquisition arc
     expect(report.throughput.reservation?.activeWallSeconds).toBe(360);
     expect(report.observedRunnerSeconds).toBe(60);
     expect(report.lifecycleAcquisition.expectedPRs).toEqual([42, 43]);
-    expect(report.lifecycleAcquisition.errors).toEqual([]);
+    expect(report.lifecycleAcquisition.errors).toEqual([{ pr: 0, problem: "PR index incomplete" }]);
     expect(report.lifecycleAcquisition.missingPRs).toEqual([43]);
     expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("Missing requested lifecycle PRs: 1");
     expect(report.lifecycleAcquisition.scopes).toHaveLength(2);
-    expect(report.lifecycleAcquisition.scopes[0].errors).toHaveLength(1);
+    expect(report.lifecycleAcquisition.scopes[0].errors).toHaveLength(2);
     expect(report.reservationAcquisition.leases[0].sources).toEqual([sha, tree]);
     expect(report.reservationAcquisition.scopes.map((s: any) => s.sourceHead)).toEqual([sha, tree]);
     writeFileSync(join(dir, "1", "reservations.json"), JSON.stringify({ version: 1, repository,
