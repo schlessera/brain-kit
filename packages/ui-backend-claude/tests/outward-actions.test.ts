@@ -58,3 +58,8 @@ test("Claude: a session that ingested untrusted input asks even when outward.all
   expect(approved.bytes).toBe("push origin main\n");
   expect(approved.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { tainted: true, decision: "approved" } });
 });
+test("Claude: taint recorded between the hook's policy allowance and canUseTool still gets the outward card", async () => {
+  const result = await probe({ command: "git push origin main", outwardAllow: allow, taintBetween: { eventId: 7, source: "web_fetch" }, decision: { behavior: "deny", message: "Declined." } });
+  expect(result.requests.map(request => request.kind), "CLAUDE_TAINT_AFTER_HOOK_ASKS").toContain("command");
+  expect(result.executed).toBe(false);
+});

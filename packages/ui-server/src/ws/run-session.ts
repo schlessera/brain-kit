@@ -437,6 +437,7 @@ async function runRetainedSession(
               log: host.log,
               ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
               ...(host.brainPath ? { brainPath: host.brainPath } : {}),
+              abort: error => abortController.abort(error),
             },
             {
               turnId: turn.turnId,

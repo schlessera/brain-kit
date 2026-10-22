@@ -19,13 +19,31 @@ test("web, external MCP and untrusted-area reads are taint sources on both backe
     ["Grep", { pattern: "Ithaca", path: "workspaces" }, "workspace_read"], ["grep", { pattern: "Ithaca", path: "./workspaces/voyage" }, "workspace_read"],
     ["Edit", { file_path: `${brain}/workspaces/voyage/a.md` }, "workspace_read"],
     ["Bash", { command: "curl https://example.org" }, "fetching_command"],
+    // Equivalent spellings cannot hide an area.
+    ["Read", { file_path: "/srv/odysseus/./brain/workspaces/a.md" }, "workspace_read"],
+    ["Read", { file_path: `${brain}/../brain/workspaces/a.md` }, "workspace_read"],
+    ["Read", { file_path: "../brain/workspaces/a.md" }, "workspace_read"],
+    ["Read", { file_path: "/tmp/./brain-worker-areas/workspaces/a.md" }, "workspace_read"],
+    // A view whose root the host cannot name counts any area segment.
+    ["Read", { file_path: "/home/odysseus/view/workspaces/a.md" }, "workspace_read"],
+    // brain-kit's own readers are not external documents, but still read areas.
+    ["brain_read_base", { path: "workspaces/voyage/README.md" }, "workspace_read"],
+    ["mcp__brain-ui__brain_read_base", { path: "workspaces/voyage/README.md" }, "workspace_read"],
+    ["mcp__brain__brain_read", { path: ".brain-ui/inbox/share-1/notice.md" }, "staged_share"],
   ] as const) expect(inputTaintSource(tool, input, brain), `G6_SOURCE_${tool}`).toBe(source);
   for (const [tool, input] of [
     ["mcp__brain__brain_search", { query: "Ithaca" }], ["mcp__brain-ui__brain_update", {}],
     ["Read", { file_path: `${brain}/notes/ithaca.md` }], ["Read", { file_path: `${brain}/workspaces-notes/a.md` }],
-    ["Read", { file_path: `${brain}/workspaces/../notes/a.md` }], ["Read", { file_path: "/home/odysseus/workspaces/brain/notes/a.md" }],
+    ["Read", { file_path: `${brain}/workspaces/../notes/a.md` }], ["Read", { file_path: `${brain}/notes/workspaces/a.md` }],
     ["Write", { file_path: `${brain}/workspaces/voyage/a.md` }], ["Grep", { pattern: "Ithaca" }], ["Bash", { command: "ls -la" }],
   ] as const) expect(inputTaintSource(tool, input, brain), `G6_CLEAN_${tool}_${JSON.stringify(input)}`).toBeNull();
+});
+
+test("a brain whose own path contains an area name does not taint its ordinary reads", () => {
+  const nested = "/home/odysseus/workspaces/brain";
+  expect(inputTaintSource("Read", { file_path: `${nested}/notes/a.md` }, nested), "G6_BRAIN_PATH_NOT_AN_AREA").toBeNull();
+  expect(inputTaintSource("Read", { file_path: `${nested}/workspaces/a.md` }, nested)).toBe("workspace_read");
+  expect(outputTaintSource("Grep", `${nested}/notes/a.md`, nested)).toBeNull();
 });
 
 test("a search from an ancestor directory taints only when its output names an untrusted-area file", () => {
@@ -56,5 +74,23 @@ test("the real recorder keeps the first web source and excludes a denied fetch",
     call("fetch", "WebFetch", { url: "https://ithaca.invalid" }, "A fictional harbour notice.");
     expect(events().map(event => event.payload), "G6_RECORDER_FIRST_TOOL_SOURCE").toEqual([{ source: "workspace_read", tool: "Grep", detail: null }]);
     recorder.finish("success");
+  } finally { db.close(); }
+});
+
+test("a taint that cannot be persisted stops the turn instead of leaving outward rules loose", () => {
+  const db = createUiDb(":memory:");
+  const sessionId = "odysseus-failure-session";
+  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES (?, 'Voyage', 1, 1)").run(sessionId);
+  const aborted: Error[] = [];
+  const recorder = createTurnRecorder({ store: createActivityStore(db, { writer: "test" }), governanceDb: db, brainPath: brain,
+    governance: () => { throw new Error("fixture governance write failure"); }, abort: error => aborted.push(error) },
+  { turnId: "odysseus-failure", sessionId, profile: "governed" });
+  try {
+    recorder.observeFrame({ type: "tool_use_start", sessionId, toolUseId: "fetch", toolName: "WebFetch" });
+    recorder.observeFrame({ type: "tool_use_complete", sessionId, toolUseId: "fetch", toolName: "WebFetch", input: { url: "https://ithaca.invalid" } });
+    expect(aborted).toHaveLength(0);
+    recorder.observeFrame({ type: "tool_result", sessionId, toolUseId: "fetch", output: "A fictional harbour notice.", isError: false });
+    expect(aborted.map(error => error.message), "G6_TAINT_FAILURE_STOPS_TURN").toEqual(["Untrusted input could not be recorded; the turn was stopped."]);
+    recorder.finish("error");
   } finally { db.close(); }
 });

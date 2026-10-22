@@ -62,6 +62,8 @@ export interface TurnRecorderDeps {
   governanceDb?: Database;
   /** The brain's host path, so an absolute file-tool path resolves to the area it reads (G6). */
   brainPath?: string;
+  /** Stops the turn when its untrusted-input taint cannot be persisted: outward rules must not stay loose. */
+  abort?(error: Error): void;
 }
 
 export interface TurnRecorder {
@@ -315,6 +317,7 @@ export function createTurnRecorder(
                   model: mainModel, profile: turn.profile ?? null }, deps.governance);
               } catch (error) {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
+                deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
               }
             }
             if (traced && traced.output === null && !traced.denied) {

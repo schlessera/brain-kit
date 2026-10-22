@@ -1335,7 +1335,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:295`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:297`).
 
 **What changes:**
 
@@ -2174,21 +2174,26 @@ the turn may send out and how its writes are labelled.
 
 **Implemented — 2026-10-22 (#1667).** The host Activity recorder marks a
 session tainted when an admitted call returns: `WebFetch`, `WebSearch` and
-pi-web-access's `fetch_content` and `web_search`; a file tool whose path is
-under `.brain-ui/inbox/` or `workspaces/`, or a search whose output names a
-file there; a fetching or unclassified Bash call; and any MCP tool whose
-server is not brain-kit's own `brain` or `brain-ui`
-(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:33-44`).
+pi-web-access's `fetch_content` and `web_search`; a file tool or brain-kit
+document reader whose normalized path is under `.brain-ui/inbox/` or
+`workspaces/`, or a search whose output names a file there (an absolute path
+outside the brain and the strict area root counts any such segment); a
+fetching or unclassified Bash call; and any MCP tool whose server is not
+brain-kit's own `brain` or `brain-ui`
+(`inputTaintSource`, `packages/ui-server/src/activity/ingestion-taint.ts:51-61`).
 The fixed list of external-content MCP sources is therefore "every other MCP
 server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
-`taint` event; the check and write share a SQLite transaction
+`taint` event. A write that fails stops the turn rather than leaving its
+outward rules loose. The check and write share a SQLite transaction
 (`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-22`).
 
 The admitting host hands both backends a live read of that record with the
 turn's command policy. While it reports a taint, no `outward.allow` rule
 applies, every classified outward action asks, its card says why, and its
-`outward_action` event carries `tainted: true` (`prepareOutwardPlan`,
+`outward_action` event carries `tainted: true`. Taint is read when a call is
+admitted; a call the model issued before an untrusted result arrived was not
+composed from it (`prepareOutwardPlan`,
 `packages/ui-sdk/src/server/outward-policy.ts:45-71`). Steering writes use the
 existing journal attribution below.
 
@@ -2198,7 +2203,8 @@ Claude turns on hosts with managed native storage
 other than the inference relay records an `egress_connection` taint before its
 first byte. Once the session is tainted, a new connection must pass the
 ordinary egress rules and also match `taint.egress.allow` or a host the
-session's proxies already admitted; otherwise it is refused and recorded as an
+session's proxies already admitted (a record with charged bytes; the proxy
+charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
 `packages/ui-server/src/brain/turn-egress.ts:49-124`). Pi turns, API-key

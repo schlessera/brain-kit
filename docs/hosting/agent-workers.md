@@ -1283,7 +1283,8 @@ must add this variable when it moves to managed native storage.
 
 For interactive and voice turns, the host recorder marks the session tainted
 when an admitted call returns untrusted content: web fetch and search tools,
-reads under `.brain-ui/inbox/` or `workspaces/`, results from an MCP server
+reads (including brain-kit's own document readers) under `.brain-ui/inbox/`
+or `workspaces/`, results from an MCP server
 other than brain-kit's own, and Bash calls that visibly fetch content or that
 the classifier cannot rule out as network-free. Static `ls` and `brain search`
 calls remain clean; shell substitutions, redirections, scripts and unknown
@@ -1294,7 +1295,8 @@ SQLite transaction for the existing-source check and write
 (`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-22`).
 The recorder waits for a tool result and excludes known denied calls; failed
 calls can still return untrusted partial output. It records the source kind
-and tool name, without copying command text or content into the payload.
+and tool name, without copying command text or content into the payload. If
+the record cannot be written, the turn stops.
 
 A tainted session's outward actions all ask, whatever `outward.allow` says,
 on both backends. On the turn proxy, every admitted connection other than the

@@ -137,7 +137,7 @@ export function createPermissionWiring(options: {
   const shownOutward = new Map<string, string>();
   const denyCommand = (toolName: string, input: unknown, toolUseId: string) => {
     const refusal = backgroundBashRefusal(toolName, input) ?? denyWorkerCommand(commandPolicy, { bridge: req.bridge, toolName, shellToolName: "Bash", input, toolUseId });
-    if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
+    if (refusal) observe(prepareOutwardPlan({ toolName, shellToolName: "Bash", input, taint: req.workerSandbox?.commandPolicy?.taint, autonomous: Boolean(req.autonomous) }), toolName, input, toolUseId, "refused");
     return refusal;
   };
   const allowed = new Set(allowedTools);
@@ -472,7 +472,9 @@ export function createPermissionWiring(options: {
 
     const finalInput = edited ?? hookInput.tool_input;
     observe(outward(hookInput.tool_name, finalInput), hookInput.tool_name, finalInput, hookInput.tool_use_id, { behavior: "allow" });
-    if (outwardPlan.classification.actions.length) shownOutward.set(hookInput.tool_use_id, JSON.stringify(finalInput));
+    // Only a card this hook actually showed answers canUseTool's: a policy
+    // allowance is re-evaluated there, against taint recorded meanwhile (G6).
+    if (outwardPlan.classification.actions.length && approval?.kind === "command") shownOutward.set(hookInput.tool_use_id, JSON.stringify(finalInput));
 
     // The input that will execute decides the key, as in canUseTool.
     const acquired = await turnLock.acquireForTool(

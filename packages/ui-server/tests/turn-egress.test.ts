@@ -215,6 +215,9 @@ test("the first admitted connection taints the session before its bytes; later t
     expect(taint, "TURN_EGRESS_CONNECTION_TAINTS").toMatchObject({ turnId: "turn-harbour", payload: { source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${harbour.port}` } });
     // Admission records taint; the connection record follows when it ends.
     expect(taint!.id, "TURN_EGRESS_TAINT_PRECEDES_CONNECTION_RECORD").toBeLessThan(events("egress_connection")[0]!.id);
+    // An attempt that never passed admission is not a contacted host.
+    recordGovernanceEvent(db, { kind: "egress_connection", turnId: "turn-harbour", sessionId: "ithaca", actor: "interactive", model: null, profile: "governed",
+      payload: { method: "CONNECT", host: "127.0.0.2", port: island.port!, bytes: 0, accounting: "opaque_bytes", durationMs: 1, outcome: "cancelled", reason: "turn_cancelled" } });
     const second = await turn("turn-island");
     expect(await get(second.socketPath, harbour.url.href), "TURN_EGRESS_CONTACTED_HOST_STAYS").toBe(200);
     expect(await get(second.socketPath, island.url.href), "TURN_EGRESS_TAINTED_NEW_HOST_REFUSED").toBe(403);
