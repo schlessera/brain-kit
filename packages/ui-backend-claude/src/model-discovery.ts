@@ -257,6 +257,21 @@ export function modelCachePath(brainPath: string): string {
   return join(brainPath, ".brain-ui", "anthropic-models.json");
 }
 
+/**
+ * Only the fields discovery itself writes. The cache lives in the brain, which
+ * a governed worker can write, so it never supplies a route, a credential
+ * variable name or tools (#1665): those come from trusted host configuration.
+ */
+function cachedModel(entry: unknown): InferenceProfileInput[] {
+  if (!entry || typeof entry !== "object") return [];
+  const { id, label, model, supportedThinkingLevels, contextWindow } = entry as Record<string, unknown>;
+  if (typeof id !== "string" || !id) return [];
+  return [{ id, label: typeof label === "string" && label ? label : id, vendor: "anthropic",
+    ...(typeof model === "string" ? { model } : {}), source: "discovered",
+    ...(Array.isArray(supportedThinkingLevels) ? { supportedThinkingLevels: THINKING_LEVELS.filter(level => supportedThinkingLevels.includes(level)) } : {}),
+    ...(typeof contextWindow === "number" ? { contextWindow } : {}) }];
+}
+
 function readCache(path: string): ModelCacheFile | null {
   try {
     if (!existsSync(path)) return null;
@@ -264,7 +279,7 @@ function readCache(path: string): ModelCacheFile | null {
     if (parsed?.version !== CACHE_VERSION || !Array.isArray(parsed.models)) {
       return null;
     }
-    return parsed;
+    return { ...parsed, models: parsed.models.flatMap(cachedModel) };
   } catch {
     // A corrupt cache is not fatal — discovery will rewrite it.
     return null;

@@ -64,6 +64,12 @@ describe("config/env resolveEnv", () => {
     expect(env.nominatimUrl).toBe("https://nominatim.openstreetmap.org");
     expect(env.nominatimUserAgent).toBe("brain-kit-ui/1.0");
     expect(env.nominatimPublicServiceEligible).toBe(false);
+    expect(env.claudeOAuthOrigins).toEqual([]);
+  });
+
+  test("authorized Claude login origins split on commas, trimmed, empty entries dropped", () => {
+    expect(resolveEnv({ BRAIN_UI_CLAUDE_OAUTH_ORIGINS: " https://gateway.ithaca.invalid ,,https://other.ithaca.invalid:8443 " }).claudeOAuthOrigins)
+      .toEqual(["https://gateway.ithaca.invalid", "https://other.ithaca.invalid:8443"]);
   });
 
   test("reverse geocoding disables on the shared falsy token set, case-insensitively", () => {
@@ -95,6 +101,7 @@ describe("config/env descriptor", () => {
       [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",
+        "BRAIN_UI_CLAUDE_OAUTH_ORIGINS",
         "BRAIN_UI_EXEC_KILLER",
         "BRAIN_UI_EXEC_WRAPPER",
         "BRAIN_UI_REVERSE_GEOCODE",

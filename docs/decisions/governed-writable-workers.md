@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:58-136`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:63-142`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:31-138`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:36-144`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1109,7 +1109,7 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:88`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:97`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
@@ -1394,6 +1394,36 @@ through the proxy before the namespace is unshared by default:
 
 Until that measurement passes, the capabilities note says that egress is
 unrecorded.
+
+**Measured 2026-10-22.** Git over HTTPS and SSH, `curl`, the `brain` CLI's
+embedding provider and headless Chromium all pass through the proxy in a real
+governed worker. SSH uses a first-party CONNECT helper that the worker
+bootstrap sets as Git's `ProxyCommand` (`sshProxy`,
+`packages/ui-sdk/src/server/egress-worker-entry.ts:28-32`). Pi inference
+through the relay is not measured yet. The socket walk passes now that all of
+`/var` is masked: before that, a host socket under `/var/snap` accepted a
+connection. The results are in
+[agent-workers.md](../hosting/agent-workers.md#first-party-path-measurement-1665).
+
+**Activation with stated gaps — 2026-10-22.** The gate allows default-on when
+each failing path's gap is stated in the capabilities note. Governed and strict
+Claude turns therefore get their own turn proxy and the host inference relay
+by default, but only on a host with managed native storage
+([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1665#issuecomment-6341676954)).
+The relay needs the startup view that the native manager acquired with its
+stage operations; a turn admitted without one keeps its current network
+(`isManagedWorkerStartupView`,
+`packages/ui-sdk/src/server/worker-startup-view.ts:37-41`). Worker-host status
+reports which applies as `governed.egress`. Making the relay work without
+managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
+failure ends the turn. Without a governance recorder the policy still applies
+and only the records are absent (`prepareTurnEgress`,
+`packages/ui-server/src/brain/turn-egress.ts:47-96`). The note says egress is
+recorded only when the backend actually routed the worker through the proxy;
+an API-key Claude profile is not routed yet. Its note still says
+"Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
+socket walk passes since all of `/var` is masked, so the note states no
+reachable-socket gap.
 
 **Host Unix sockets.** A private network namespace does not stop `connect()` to
 a filesystem socket that is visible through the read-only host root: a Docker
@@ -2177,6 +2207,18 @@ destination lists the allowed write-capable hosts under `outward.hosts` as
 well. An opaque `POST` to an allowed host outside `outward.hosts` is recorded,
 not approved.
 
+**The exception in practice — 2026-10-22.** The proxy cannot tell which
+process opened a connection, so "the tool call in progress" is the set of
+calls between their classification and their result. A connection to an
+outward host skips the card only while every classified call in progress is a
+visible read, or an approved outward action that names that host. A GitHub
+write names the GitHub API hosts, and a push or HTTP write names its target's
+host. Any unknown or opaque call in progress withholds the exception
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:24-45`).
+A background process left by an earlier call can still connect inside such a
+window; the proxy records it either way. No mail-submission host is built in
+yet. Only the GitHub API hosts are defaults, and `outward.hosts` adds the rest.
+
 ### Untrusted input (G6)
 
 A session becomes **tainted** the first time a turn ingests content it did not
@@ -2217,7 +2259,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:444-455`).
+  `packages/ui-server/src/brain/host-boundary.ts:447-458`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -2413,7 +2455,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:486-540`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:489-552`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

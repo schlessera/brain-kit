@@ -1702,6 +1702,12 @@ export type GovernedStatus = {
   identity?: "shared_uid" | "separate_uid";
   workerUid?: number;
   configurationView?: "live" | "startup";
+  /**
+   * Whether governed and strict turns run on their own turn egress proxy
+   * (#1665). Only a host with managed native storage activates it; elsewhere
+   * those turns keep their current network and `detail` says so.
+   */
+  egress?: { active: boolean; detail: string };
 }
   & ({ available: true } | { available: false; reason: GovernedUnavailableReason; detail: string });
 
