@@ -41,18 +41,19 @@ async function settingsFixture(width: number) {
   if (liveFixture) throw new Error(`Module settings fixture ${liveFixture} did not finish its cleanup; refusing a new fixture`);
   const owner = `fixture-${++fixtures}`;
   liveFixture = owner;
+  let releasing = false;
   let drained!: () => void;
   let failed!: (error: unknown) => void;
   const cleanup = new Promise<void>((resolve, reject) => { drained = resolve; failed = reject; });
-  cleanup.catch(() => {}); // Reported by the test-finished hook, not as an unhandled rejection.
-  onTestFinished(() => cleanup);
+  cleanup.catch(() => {}); // Reported once, below or by the callback, never as an unhandled rejection.
+  let draining!: () => void;
+  const drainStarted = new Promise<void>((resolve) => { draining = resolve; });
   const frame = { width: window.innerWidth, height: window.innerHeight };
   let browser: { width: number; height: number } | undefined;
   const iframe = document.createElement("iframe");
-  iframe.dataset.moduleSettings = owner;
-  iframe.style.cssText = `width:${width}px;height:800px;border:0`;
   /** Run the case's own teardown, then return the shared page; only a complete cleanup frees it. */
   async function release(teardown: () => void | Promise<void>) {
+    releasing = true;
     try {
       try { await teardown(); } finally {
         iframe.remove();
@@ -65,15 +66,21 @@ async function settingsFixture(width: number) {
     liveFixture = null;
     drained();
   }
-  try {
-    browser = await commands.formViewport(width, 800);
-    await page.viewport(width, 800);
-  } catch (error) {
-    await release(() => {}).catch(() => {});
-    throw error;
-  }
+  onTestFinished(({ signal }) => {
+    draining();
+    // A timed-out callback may still be running: wait for its own cleanup, whose failure only this hook can report.
+    if (signal.aborted) return cleanup;
+    // A settled callback already reported a failed release; an undrained fixture still refuses later cases.
+    if (releasing) return cleanup.catch(() => {});
+    // A settled callback that failed before reaching its release left only the page behind.
+    return release(() => {});
+  });
+  iframe.dataset.moduleSettings = owner;
+  iframe.style.cssText = `width:${width}px;height:800px;border:0`;
+  browser = await commands.formViewport(width, 800);
+  await page.viewport(width, 800);
   document.body.append(iframe);
-  return { owner, iframe, doc: iframe.contentDocument!, release, capture: (name: string) => commands.moduleSettingsScreenshot(owner, name) };
+  return { owner, iframe, doc: iframe.contentDocument!, release, drainStarted, capture: (name: string) => commands.moduleSettingsScreenshot(owner, name) };
 }
 
 test("generic module fields render every leaf kind, discover new schema fields and retain complete unsupported values", async () => {
@@ -424,11 +431,16 @@ test("module settings capture and import gate refuse a page that still holds ano
   const fixture = await settingsFixture(320);
   const leaked = document.createElement("iframe");
   leaked.dataset.moduleSettings = "fixture-leaked";
-  document.body.append(leaked);
+  // A command that accepts the wrong owner may wait for an element or gate forever; bound it so the refusal assertion fails instead.
+  const refused = (command: Promise<unknown>) => Promise.race([command, new Promise((_, reject) => setTimeout(() => reject(new Error("The command did not refuse within 2000 ms")), 2000))]);
   try {
-    await expect(fixture.capture("ownership-control")).rejects.toThrow(`Module settings capture ownership-control belongs to ${fixture.owner}, but the page holds fixtures [${fixture.owner}, fixture-leaked]`);
+    await expect(refused(commands.moduleSettingsScreenshot("fixture-leaked", "ownership-control"))).rejects.toThrow(`Module settings capture ownership-control belongs to fixture-leaked, but the page holds fixtures [${fixture.owner}]`);
+    document.body.append(leaked);
+    await expect(refused(fixture.capture("ownership-control"))).rejects.toThrow(`Module settings capture ownership-control belongs to ${fixture.owner}, but the page holds fixtures [${fixture.owner}, fixture-leaked]`);
     await commands.moduleSettingsImportGate(fixture.owner, "hold");
-    await expect(commands.moduleSettingsImportGate("fixture-leaked", "stop")).rejects.toThrow(`Module import gate belongs to ${fixture.owner}, not fixture-leaked`);
+    for (const action of ["arrived", "release", "stop"] as const) {
+      await expect(refused(commands.moduleSettingsImportGate("fixture-leaked", action))).rejects.toThrow(`Module import gate belongs to ${fixture.owner}, not fixture-leaked`);
+    }
   } finally {
     await fixture.release(async () => { await commands.moduleSettingsImportGate(fixture.owner, "stop"); leaked.remove(); });
   }
@@ -440,13 +452,17 @@ test("module settings capture and import gate refuse a page that still holds ano
 const overlap: string[] = [];
 const moduleFixtures = () => [...document.querySelectorAll("iframe[data-module-settings]")].map((iframe) => iframe.getAttribute("data-module-settings")).join(", ");
 let timedOutOwner = "";
-test.fails("module settings overlap control: a timed-out case keeps its fixture through its own cleanup", { timeout: 500 }, async ({ signal }) => {
+test.fails("module settings overlap control: a timed-out case keeps its fixture through its own cleanup", { timeout: 1000 }, async ({ signal }) => {
+  const timedOut = new Promise<void>((resolve) => signal.addEventListener("abort", () => { overlap.push(`${timedOutOwner} timed out`); resolve(); }));
+  // Registered before the fixture, so it runs after the fixture's drain and before test.fails clears the errors.
+  onTestFinished(({ task }) => { overlap.push(`${timedOutOwner} finished: ${(task.result?.errors ?? []).map((error) => error.message.split("\n")[0]).join(" | ")}`); });
   const fixture = await settingsFixture(320);
   timedOutOwner = fixture.owner;
   overlap.push(`${fixture.owner} acquired [${moduleFixtures()}]`);
-  signal.addEventListener("abort", () => overlap.push(`${fixture.owner} timed out`));
   try {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await timedOut;
+    // Continue once the runner is draining, or after a bound far beyond any failure screenshot when nothing drains.
+    await Promise.race([fixture.drainStarted, new Promise((resolve) => setTimeout(resolve, 5000))]);
     overlap.push(`${fixture.owner} continued [${moduleFixtures()}]`);
     await fixture.capture("overlap-prior");
     overlap.push(`${fixture.owner} captured`);
@@ -470,6 +486,7 @@ test("module settings overlap control: the next case acquires only after that cl
       `${prior} continued [${prior}]`,
       `${prior} captured`,
       `${prior} cleaning up`,
+      `${prior} finished: Test timed out in 1000ms.`,
       `${next} acquired [${next}]`,
       `${next} captured`,
     ]);
