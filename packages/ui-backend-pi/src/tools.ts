@@ -51,7 +51,7 @@ import { isIsoDate, readDocumentPart, SEARCH_SORTS, type SearchOptions } from "@
 import { createPiBridgeTools } from "./bridge-tools.js";
 import {
   resolveEnabledWebSearchEnvNames,
-  resolveExecConfig,
+  ambientExecConfig,
   subprocessEnv,
 } from "./config/env.js";
 import type { BrainAccess } from "./brain-access.js";
@@ -192,6 +192,8 @@ export function toolLockFromWriteLock(writeLock: WriteLock): ToolLock {
 }
 
 export interface BrainToolDeps {
+  /** Resolved host wrapper. Explicit {} disables wrapping; omission retains ambient compatibility. */
+  exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig;
   /** Worker shell writes stay in fresh scratch; never a privileged cwd. */
   shellCwd?: string;
   directWrites?: boolean;
@@ -382,7 +384,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // Containment: scope the search path to the repo; grep runs with cwd=repo.
       const rel = params.path ?? ".";
       resolveOrThrow(rel);
-      const exec = resolveExecConfig();
+      const exec = deps.exec ?? ambientExecConfig();
       const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper), {
         cwd: brain.root,
         env: subprocessEnv(resolveEnabledWebSearchEnvNames()),
@@ -563,7 +565,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // sibling tool calls in one message.
       return lock.withKey(bashLockKey(params.command), async () => {
         if (signal?.aborted) throw new DOMException("Tool cancelled before subprocess execution", "AbortError");
-        const exec = resolveExecConfig();
+        const exec = deps.exec ?? ambientExecConfig();
         const proc = spawn(wrapCommand(["bash", "-lc", cmd], exec.wrapper), {
           cwd: deps.shellCwd ?? brain.root,
           env: childEnv,

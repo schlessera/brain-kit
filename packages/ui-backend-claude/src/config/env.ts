@@ -190,13 +190,17 @@ export function envSnapshot(extraNames: readonly string[] = []): NodeJS.ProcessE
 }
 
 /**
- * The exec wrapper, or undefined. Read at turn start rather than cached: the
- * process may gain the variable after this module loads, and a stale read of a
- * privilege boundary is the wrong kind of stale.
+ * Resolve explicitly supplied environment at a compatibility edge. Host exec
+ * configuration takes precedence, including an explicitly empty object.
  */
-export function resolveExecConfig(env: NodeJS.ProcessEnv = process.env): ExecWrapperConfig {
+export function resolveExecConfig(env: NodeJS.ProcessEnv): ExecWrapperConfig {
   return {
     wrapper: validateExecWrapper(env[EXEC_WRAPPER_ENV]),
     killer: validateExecWrapper(env[EXEC_KILLER_ENV]),
   };
+}
+
+/** Legacy hosts omitting exec retain the ambient wrapper at their compatibility edge. */
+export function ambientExecConfig(): ExecWrapperConfig {
+  return resolveExecConfig(process.env);
 }

@@ -31,6 +31,7 @@ signatures (every public export and the types it is made of)
     export type BackendLogFn = (level: "debug" | "info" | "warn" | "error", message: string, attrs?: Record<string, string | number | boolean>) => void;
   CreatePiBackendOptions (packages/ui-backend-pi/src/backend-options.ts)
     export interface CreatePiBackendOptions {
+        exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig;
         maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
         versionRequirements?: BackendVersionRequirements;
         brainPath: string;
