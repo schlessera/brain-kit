@@ -945,6 +945,7 @@ export "./internal" (./src/internal.ts)
   type EgressProxyOptions
   type EgressRecord
   GIT_LOCK_KEY
+  HOST_GIT_CREDENTIAL_ENV
   HOST_MASKS
   type HostCredentialDomain
   HostCredentialExclusionError

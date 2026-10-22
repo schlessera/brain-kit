@@ -26,7 +26,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
@@ -388,10 +388,9 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
     env.PATH = path;
-    // Git credentials belong only to the mirror transport, including while
-    // provider-credentialed maintenance remains an interim exposure.
-    delete env.GITHUB_TOKEN;
-    delete env.BRAIN_UI_SYNC_GITHUB_TOKEN;
+    // Git credentials belong only to fixed host transports and installers,
+    // including while provider-credentialed maintenance remains an interim exposure.
+    for (const name of HOST_GIT_CREDENTIAL_ENV) delete env[name];
     if (execution.credentials && options.home) env.HOME = options.home;
     const argv = absoluteArgv(brain, execution.argv, path);
     // The wrapper runs inside the worker; one that is not there fails here, as a host spawn of it would.
