@@ -187,8 +187,8 @@ file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
 with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
 (the default remains browser). Each domain retains its own run/attempt/job,
-checkout/tree/parent and pinned-image provenance. Refresh requires both fresh
-successful jobs from a successful CI run, matching actual checkouts, complete
+checkout/tree/parent and pinned-image provenance. Refresh requires fresh
+successful jobs from every shard of a successful CI run, matching actual checkouts, complete
 reported project/file coverage and source/image attribution; cancelled,
 partial or retained-only proof supplies no measurements. Refreshing one domain
 preserves the other's costs and provenance. Reviewed CI reports are measurement
@@ -468,6 +468,16 @@ independently pinned audited revision for their positive producer controls.
 They test actual current producer bytes separately: legitimate audit drift
 requires fresh proof and does not redefine the positive fixture. The locked
 offline compiler and installed-asset byte/mode controls remain runtime proof.
+
+Browser document, inactive-command and worker-boundary self-tests follow the
+same ownership rule. Their positive config, callers, producers and binary font
+fixtures come from independently pinned raw Git blobs, including frozen directory
+membership (`const owner`, `tests/frozen-browser-source.ts:8-22`). Actual candidate
+bytes are checked separately against that owner
+(`test.each([...reviewedBrowserDocuments])`, `tests/bound-browser-documents.test.ts:142-155`);
+changed enforcement cannot qualify by recomputing its manifest. These fixtures
+exercise the existing audit and never refresh production pins or authorize
+retained proof for the candidate.
 
 Only a reviewed re-audit moves the audited revision
 ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer ruling 2026-10-18):
