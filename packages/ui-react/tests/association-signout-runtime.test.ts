@@ -135,6 +135,9 @@ type Work = {
   recoveryEvents():Array<{root:string;partition:string;state:string;error?:string}>;
   transcriptFailure():{name:string;message:string;stack:string;locks:{held:Array<{name:string}>}}|null;
   captureUnassigned():Promise<void>; captureActive():{id:string;partition:string}|null; stopCapture():Promise<void>;
+  captureEffectAccount():string|null|undefined;
+  holdAccountCommit():Promise<void>; releaseAccountCommit():void; beginUnassignedCapture():void; captureDone():Promise<void>;
+  captureProgress():{held:boolean;requested:boolean;started:boolean};
   failUnassignedClear():void; holdUnassignedWriter():Promise<void>; staleUnassignedWrite():Promise<string>;
   recoveryAction(action:"associate"|"discard"|"transcript",id:string):Promise<string>;
   mountColdReader(delayStorage?:boolean):Promise<void>; coldKey():string|null; coldPlayback():Promise<void>; coldPlayable():Promise<boolean>;
@@ -409,11 +412,29 @@ runtimeTest("an unrelated recording lock cannot delay scoped account sign-out",a
   }finally{await context.close();}
 },30_000);
 
+runtimeTest("unassigned capture waits for a delayed account-clear effect",async()=>{
+  const {page,context}=await boot();
+  try {
+    await signIn(page);await work(page,w=>w.holdAccountCommit());await work(page,w=>w.beginUnassignedCapture());
+    // Advance on either the acknowledgement request or a real start attempt.
+    // A missing barrier must reach the assertion, rather than a polling timeout.
+    await page.waitForFunction(()=>{const p=window.__work.captureProgress();return p.held&&(p.requested||p.started);});
+    expect((await work(page,w=>w.captureProgress())).started,"capture does not start before the held account-clear effect commits").toBe(false);
+    await work(page,w=>w.releaseAccountCommit());await work(page,w=>w.captureDone());
+    expect((await work(page,w=>w.captureActive()))?.partition,"released account effects admit a real unassigned capture").toBe("unassigned");
+    expect(await work(page,w=>w.captureEffectAccount()),"capture observes the committed null account after release").toBeNull();
+  }finally{
+    await work(page,w=>w.releaseAccountCommit());await work(page,w=>w.captureDone()).catch(()=>{});
+    await work(page,w=>w.stopCapture()).catch(()=>{});await context.close();
+  }
+},30_000);
+
 runtimeTest("optional unassigned deletion stops a cold tab's capture and admits a new explicit capture",async()=>{
   const {page,context}=await boot();let other:Page|undefined;
   try {await signIn(page);const key=(await work(page,w=>w.key()))!;
     other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work?.key());await work(other,w=>w.captureUnassigned());
     expect((await work(other,w=>w.captureActive()))?.partition,"the second tab really records to unassigned").toBe("unassigned");
+    expect(await work(other,w=>w.captureEffectAccount()),"the account-clear effect committed before the second tab started capture").toBeNull();
     await click(page,"Sign out everywhere");await signout(page).waitFor();await signout(page).getByRole("checkbox").check();
     const navigation=page.waitForNavigation({timeout:10_000});await click(page,"Sign out and delete");await navigation;await page.locator('input[type=password]').waitFor();
     await other.waitForFunction(()=>window.__work.captureActive()===null, undefined, {timeout:1500}).catch(()=>{});
@@ -421,6 +442,7 @@ runtimeTest("optional unassigned deletion stops a cold tab's capture and admits 
     expect(await work(page,w=>w.read("unassigned")),"a stopped cold writer cannot recreate any deleted unassigned audio").toEqual([]);
     await assertEmpty(page,key);
     await work(page,w=>w.captureUnassigned());await page.waitForTimeout(1100);await work(page,w=>w.stopCapture());
+    expect(await work(page,w=>w.captureEffectAccount()),"the signed-out account effects committed before the new cold capture").toBeNull();
     expect((await work(page,w=>w.read("unassigned"))).filter(r=>r.key.startsWith("recording:index:")).length,"a new explicit cold capture reopens only its unassigned writer generation").toBe(1);
   }finally{await context.close();}
 },30_000);
@@ -520,6 +542,7 @@ runtimeTest("a paused administrative clear cannot delete a newer unassigned capt
   const {page,context}=await boot();
   try {await work(page,w=>w.seed("unassigned","sirens"));await work(page,w=>w.prepareUnassignedClear());
     const other=await context.newPage();await other.goto(origin);await other.waitForFunction(()=>!!window.__work);await work(other,w=>w.captureUnassigned());await page.waitForTimeout(1100);await work(other,w=>w.stopCapture());
+    expect(await work(other,w=>w.captureEffectAccount()),"the account-clear effect committed before the newer unassigned generation started capture").toBeNull();
     const kept=await work(other,w=>w.read("unassigned"));expect(kept.filter(r=>r.key.startsWith("recording:index:")).length,"a newer generation really committed its capture").toBe(2);
     expect(await work(page,w=>w.staleUnassignedClear()),"native administrative authority refuses an older clear").toBe("PartitionRefusedError");
     expect(await work(other,w=>w.read("unassigned")),"a paused older clear preserves every byte of the newer capture").toEqual(kept);

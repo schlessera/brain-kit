@@ -189,7 +189,7 @@ remaining 87 windows.
 
 `packages/core/tests/seam-contracts-nonconforming.test.ts` runs the published
 contract callbacks against intentionally malformed in-memory implementations.
-Only its six fixed-deadline fixtures and two never-settling controls use the
+Its six fixed-deadline fixtures and two never-settling controls use the
 private clock (`withContractClock`,
 `packages/core/tests/helpers/contract-clock.ts:9-65`). Every original case and exact
 expected failed-case list remains. The clock delivers registered callbacks in
@@ -197,6 +197,14 @@ deadline/registration order, drains their real promise continuations between
 deliveries, and advances `performance.now()` to the delivered deadline. Each
 contract case restores complete timer/elapsed-clock descriptors and discards its
 own pending fake callbacks, including when an assertion fails.
+
+The cwd and streaming-agreement counterexamples also use that clock, limited
+to the two `run honours timeoutMs:` callbacks by `clockedRunnerDeadlines`.
+Their cwd and tool-event callbacks run in native time; the controlled callbacks
+only await the in-memory hanging runner's deadline and contract ceiling, with
+synchronous scratch-directory setup and cleanup. No asynchronous IO or child
+process is driven by the private clock. Their exact expected failed-case lists
+remain asserted.
 
 | Malformed fixture | Actual contract boundary and expected failure |
 | --- | --- |
@@ -217,6 +225,32 @@ The private clock controls have independent before/at/tied-deadline, promise
 outcome, cancellation, failure-cleanup and clean-successor assertions. Clock
 infrastructure errors propagate rather than counting as expected contract
 failures. This scope must not spread to real child processes or IO waits.
+
+## Releasing worker holds and account effects
+
+Worker-state fixtures acknowledge their release gate over stdout, then block
+on a parent-provided stdin line. The parent records admission refusals and held
+bytes before releasing the relevant turn. The parallel-fit case releases both
+workers after observing both reservations; the growth case releases its holder
+after collecting the grower's result. Retry turns append and exit immediately.
+The late-swap background writer acknowledges its initial regular transcript,
+then waits for release before replacing it with a link; the shell joins that
+writer before exiting. Copy-out still observes the final tree after the worker
+namespace is gone. The mount-separation filler similarly acknowledges a full
+filesystem and stays held through the other worker's assertions, with release
+and collection in cleanup.
+
+The association/sign-out fixture's `captureUnassigned` awaits a React passive
+effect acknowledging the account-clear commit. Descendant account effects,
+including recording-tray recovery, start before that acknowledgement. The
+existing native recording-lock barrier then waits for those recoveries before
+capture starts. Both callers also assert the committed effect's account key
+was null at capture start. This completion barrier uses actual React and native
+lock progress rather than advancing a JavaScript timer or native media clock.
+The delayed-commit control suspends the account-clear render until the parent
+releases it. It observes either the effect-acknowledgement request or an actual
+capture start, so deleting the barrier reaches the named early-start assertion
+instead of hanging at a wait for an acknowledgement that was never requested.
 
 ## Measuring a replacement
 
