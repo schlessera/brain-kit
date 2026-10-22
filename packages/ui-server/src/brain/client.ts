@@ -52,8 +52,7 @@ export interface BrainClient {
   hygiene?(args: readonly string[]): Promise<unknown>;
   /** argv prefix for invoking the brain CLI inside the repo. */
   cliCommand(): string[];
-  /** Additive settings support; older injected clients may omit it. */
-  /** Cancellation applies before execution admission; admitted output and cleanup drain normally. */
+  /** Additive settings support; older injected clients may omit it. Its signal cancels only before execution admission. */
   modules?(opts?: { signal?: AbortSignal }): Promise<{ enabled: ConfiguredModule[]; available: unknown[] }>;
   moduleSettings?(name: string, operation: "get" | "save" | "validate" | "preview" | "migrate" | "enable" | "disable" | "action", options?: { values?: Record<string, unknown>; revision?: string; action?: string }): Promise<unknown>;
   search(
@@ -211,6 +210,19 @@ export interface BrainClientOptions {
    * turn.
    */
   boundary?: HostBoundary;
+  /**
+   * @internal Cancels every in-flight `gate: "shared"` run (reads and plain
+   * `index`, whose outputs are disposable) when it aborts. `createApp()` aborts
+   * it once `close()`'s grace period ends (#2473). Writers are never cancelled.
+   */
+  shutdown?: AbortSignal;
+  /**
+   * @internal Cancels `modules()` metadata still waiting for execution
+   * admission when it aborts (#2457). `createApp()` aborts it as soon as
+   * `close()` begins, so queued metadata never holds close open. An admitted
+   * metadata run keeps running until `shutdown` cancels it.
+   */
+  closing?: AbortSignal;
 }
 
 export function createBrainClient(opts: BrainClientOptions): BrainClient {
@@ -226,6 +238,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
   }
 
   async function execBrain(args: string[], signal?: AbortSignal, input?: string, lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock, maintenance?: MaintenanceRequest & { minimumVersion?: string; admissionSignal?: AbortSignal }): Promise<ExecResult> {
+    const { credentials, gate } = brainCommandClass(args);
+    if (opts.shutdown && gate === "shared" && !maintenance?.bounded) signal = signal ? AbortSignal.any([signal, opts.shutdown]) : opts.shutdown;
     signal?.throwIfAborted();
     maintenance?.admissionSignal?.throwIfAborted();
     if (maintenance?.bounded && !boundary.isolated()) throw new BrainMaintenanceUnavailable("Storage maintenance requires a qualified worker before probing repository code.");
@@ -243,7 +257,6 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
     // does. While the boundary holds, that happens in a maintenance worker,
     // with the operator's exec wrapper inside it; otherwise in a host process
     // through the wrapper, as before.
-    const { credentials, gate } = brainCommandClass(args);
     let entered = false;
     try { return await boundary.run({
       argv: [...command, ...args],
@@ -258,8 +271,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       ...(maintenance?.assertAuthorized ? { assertAuthorized: maintenance.assertAuthorized } : {}),
       ...(maintenance?.bounded ? { outputBytes: 1024 * 1024, timeoutMs: 5 * 60_000, onExecute: () => { entered = true; } } : {}),
       ...(input !== undefined ? { stdin: input } : {}),
-      // Execution cancellation kills even a CLI that ignores
-      // SIGTERM; abandoning a request must not leave the local process alive.
+      // Search and, at shutdown, every shared run pass a signal. Kill even a CLI
+      // that ignores SIGTERM; abandoning a run must not leave the process alive.
       ...(signal ? { signal, killSignal: "SIGKILL" as const } : {}),
     }); } catch (error) {
       if (maintenance?.bounded && !entered) throw new BrainMaintenanceUnavailable("The owner refused maintenance before its command started.");
@@ -287,7 +300,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
     },
 
     async modules(options) {
-      return parseJsonOutput(await execBrain(["module", "list", "--json"], undefined, undefined, undefined, { admissionSignal: options?.signal }));
+      const admissionSignal = options?.signal && opts.closing ? AbortSignal.any([options.signal, opts.closing]) : options?.signal ?? opts.closing;
+      return parseJsonOutput(await execBrain(["module", "list", "--json"], undefined, undefined, undefined, { admissionSignal }));
     },
 
     async moduleSettings(name, operation, options = {}) {

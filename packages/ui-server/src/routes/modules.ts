@@ -4,12 +4,12 @@ import { readJsonBody } from "../middleware/body-limit.js";
 import { requireJson } from "../middleware/origin.js";
 
 /** Mount behind the same principal/origin guards as the other Settings writers. */
-export function createModuleRoutes(brain: BrainClient, closing?: AbortSignal): Hono {
+export function createModuleRoutes(brain: BrainClient): Hono {
   const app = new Hono();
   const valid = (name: string) => /^[a-z][a-z0-9-]{0,30}$/.test(name);
   app.get("/modules", async (c) => {
     if (!brain.modules) return c.json({ error: "Module settings are unavailable with this brain CLI" }, 501);
-    try { return c.json(await brain.modules({ signal: closing ? AbortSignal.any([c.req.raw.signal, closing]) : c.req.raw.signal })); }
+    try { return c.json(await brain.modules({ signal: c.req.raw.signal })); }
     catch (error) { return c.json({ error: (error as Error).message }, 500); }
   });
   app.get("/modules/:name/settings", async (c) => {

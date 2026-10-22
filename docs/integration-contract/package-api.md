@@ -3573,3 +3573,10 @@ The internal host boundary carries a separate admission signal so existing
 execution cancellation, including search worker termination and output drain,
 keeps its semantics. The optional `BrainClient.modules` input is an additive
 public TypeScript change and ships in a minor.
+
+`createApp()` passes each `/api/status` and `/api/modules` request's signal,
+so a caller that disconnects cancels its queued metadata. `close()` cancels
+every metadata request still waiting for admission as soon as it begins.
+Admitted metadata is a shared run: it drains within `close()`'s 10 s grace
+period and is then cancelled with the other shared runs (#2473). The response
+shapes and status codes are unchanged.

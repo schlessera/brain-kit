@@ -14,7 +14,7 @@ function deferred<T = void>() {
   return { promise, resolve };
 }
 
-test("admitted metadata drains its real worker, publication and cleanup during shutdown", async () => {
+test("admitted metadata drains its real worker, publication and cleanup within the close grace period", async () => {
   const fixture = await httpContractApp();
   const symbol = Symbol.for("@schlessera/brain-ui-server/maintenance-output-lock");
   const lock = (globalThis as unknown as Record<symbol, KeyedLock>)[symbol]!;
