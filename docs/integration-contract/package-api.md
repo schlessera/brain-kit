@@ -3609,3 +3609,24 @@ the same identity is allowed; changing an established identity or patching a
 terminal span returns false without modifying the row. The recorder persists
 this identity in both the queryable session column and the existing attributes.
 This additive API ships in a minor release.
+
+## Module metadata admission cancellation (additive, #2457)
+
+`BrainClient.modules({ signal })` accepts an optional abort signal. It cancels
+metadata waiting for execution admission, including a required CLI version
+probe. Once an execution owns its admission locks, its worker, output
+publication and cleanup drain normally. Cancellation between a version probe
+and the module lookup prevents the latter from starting. Calls without an
+option preserve their existing behavior and result shape.
+
+The internal host boundary carries a separate admission signal so existing
+execution cancellation, including search worker termination and output drain,
+keeps its semantics. The optional `BrainClient.modules` input is an additive
+public TypeScript change and ships in a minor.
+
+`createApp()` passes each `/api/status` and `/api/modules` request's signal,
+so a caller that disconnects cancels its queued metadata. `close()` cancels
+every metadata request still waiting for admission as soon as it begins.
+Admitted metadata is a shared run: it drains within `close()`'s 10 s grace
+period and is then cancelled with the other shared runs (#2473). The response
+shapes and status codes are unchanged.

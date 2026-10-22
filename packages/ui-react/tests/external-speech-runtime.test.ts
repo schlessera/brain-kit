@@ -80,7 +80,14 @@ if (worker) {
     browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   }, 180_000);
 
-  afterAll(async () => { await browser?.close(); server?.stop(true); speechServer?.stop(true); await app?.close(); });
+  afterAll(async () => {
+    const started = performance.now();
+    await browser?.close(); server?.stop(true); speechServer?.stop(true);
+    // The #2457 receipt: app.close() must not wait on queued status metadata.
+    const closing = performance.now();
+    await app?.close();
+    process.stderr.write(`[external-speech] teardown: browser ${(closing - started).toFixed(1)} ms, app.close() ${(performance.now() - closing).toFixed(1)} ms\n`);
+  });
 }
 
 async function open(proveBackend = false): Promise<Page> {
