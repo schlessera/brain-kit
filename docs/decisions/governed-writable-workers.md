@@ -1748,8 +1748,9 @@ their existing paths (`collectMaintenanceGitSources`,
 `packages/ui-server/src/brain/maintenance-git-source.ts:66-187`).
 
 The attributes freeze writes the empty tree and every `.gitattributes` blob
-and tree in one credential-free launch of a fixed first-party program, through
-the same frozen adapter and owned stage as the command it prepares. Each launch
+and tree in one launch of a fixed first-party program, without network and
+under the credential policy, frozen adapter and owned stage of the command it
+prepares. Each launch
 re-prepares that adapter input, so freezing one object per launch multiplied a
 maintenance run's preparation several times over. The single launch's deadline
 is the sum of the per-object launches it replaced (`Work-tree attribute bytes come`,

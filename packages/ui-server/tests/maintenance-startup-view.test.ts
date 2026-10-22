@@ -506,7 +506,11 @@ test("credential-free Git consumer freezes nested attributes in one worker launc
   const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(input => { launches.push([...input.command]); return original(input); });
   let result: Awaited<ReturnType<ReturnType<typeof createHostBoundary>["run"]>>;
   try {
-    const program = `const p=Bun.spawnSync(["git","check-attr","odysseus","crew","--","notes/voyage/raft.md","harbor.md"],{stdout:"pipe",stderr:"pipe"});
+    // The command rewrites its work-tree attributes first: only the frozen
+    // startup tree can still answer with the original values.
+    const program = `const fs=require("node:fs"),root=process.env.BRAIN_ROOT;
+      fs.writeFileSync(root+"/.gitattributes","*.md odysseus=troy\\n");fs.rmSync(root+"/notes/voyage/.gitattributes");
+      const p=Bun.spawnSync(["git","check-attr","odysseus","crew","--","notes/voyage/raft.md","harbor.md"],{stdout:"pipe",stderr:"pipe"});
       if(p.exitCode)throw new Error(p.stderr.toString());process.stdout.write(p.stdout);`;
     result = await createHostBoundary({ brainPath: brain }).run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
       env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", purpose: "Odysseus nested attributes" });
