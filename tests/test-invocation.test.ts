@@ -118,8 +118,67 @@ test("read-mode lease cannot reuse authority or delete existing output", async (
 
 test("ordinary explicit builders compile even with valid invocation authority", async () => {
   const { root, write } = fixture();
-  write("probe.ts", consumerProbe + `expect(invocationBuild(root,["ithaca"])).toBeDefined();source(2);const child=Bun.spawn([process.execPath,"scripts/build.ts","--for","ithaca"],{stdout:"inherit",stderr:"inherit"});expect(await child.exited).toBe(0);expect(consume(),"EXPLICIT_BUILD_STILL_COMPILES").toBe(2);`);
+  write("probe.ts", consumerProbe + `expect(invocationBuild(root,["ithaca"])).toBeDefined();source(2);const child=Bun.spawn([process.execPath,"scripts/build.ts","--for","ithaca"],{stdout:"inherit",stderr:"inherit"});expect(await child.exited).toBe(0);expect(consume(),"EXPLICIT_BUILD_STILL_COMPILES").toBe(2);
+source(1);await hook();expect(consume(),"EXPLICIT_BUILD_OUTPUT_NEVER_ATTESTED").toBe(1);expect(invocationBuild(root,["ithaca"]),"EXPLICIT_BUILD_REVOKES_OUTER_AUTHORITY").toBeUndefined();`);
+  const result = await run(root); expect(result.code, result.output).toBe(0); expect(receipts(root)).toHaveLength(3);
+});
+
+// The outer receipt describes its own successful build, never whatever a later
+// writer beneath the same lease left in dist. Both the original and the
+// restored source say 1; only the nested writer ever produced 2.
+for (const [name, nested] of Object.entries({
+  successful: { edit: 'source(2);', exit: '.toBe(0)' },
+  failed: { edit: 'writeFileSync(join(root,"packages/ithaca/src/index.ts"),"export const cargo: string = 2;\\n");', exit: '.not.toBe(0)' },
+})) test(`a ${name} nested wrapper build revokes the outer invocation's authority`, async () => {
+  const { root, write } = fixture();
+  write("nested.test.ts", 'import {test} from "bun:test";test("nested",()=>{});');
+  write("probe.ts", consumerProbe + `
+const before=invocationBuild(root,["ithaca"]);expect(before).toBeDefined();expect(consume()).toBe(1);
+${nested.edit}
+const child=Bun.spawn([process.execPath,"run","test","--internal-full-preparation","nested.test.ts"],{stdout:"inherit",stderr:"inherit"});
+expect(await child.exited,"NESTED_WRAPPER_EXIT")${nested.exit};
+expect(consume(),"NESTED_WRITER_REPLACED_OUTPUT").toBe(2);source(1);
+await hook();expect(consume(),"NESTED_WRITER_OUTPUT_NEVER_SERVED").toBe(1);
+expect(invocationBuild(root,["ithaca"]),"NESTED_WRITER_REVOKES_OUTER_AUTHORITY").toBeUndefined();`);
+  const result = await run(root); expect(result.code, result.output).toBe(0); expect(receipts(root)).toHaveLength(3);
+  expect(result.output, "OUTER_HOOK_NEVER_ATTESTS_REPLACED_OUTPUT").not.toContain('"disposition":"attested"');
+});
+
+test("a cancelled nested wrapper build revokes the outer invocation's authority", async () => {
+  const { root, write } = fixture();
+  write("nested.test.ts", 'import {test} from "bun:test";test("must not start",()=>console.log("NESTED_TESTS_STARTED"));');
+  write("probe.ts", consumerProbe + `
+expect(invocationBuild(root,["ithaca"])).toBeDefined();expect(consume()).toBe(1);
+const compiler=readFileSync("node_modules/.bin/tsc","utf8");
+writeFileSync("node_modules/.bin/tsc",'#!'+process.execPath+'\\nimport {mkdirSync,writeFileSync} from "node:fs";mkdirSync("packages/ithaca/dist",{recursive:true});writeFileSync("packages/ithaca/dist/index.js","export const cargo = 2;\\\\n");writeFileSync("tmp/nested-partial","written");await Bun.sleep(30000);');
+const child=Bun.spawn([process.execPath,"run","test","--internal-full-preparation","nested.test.ts"],{stdout:"pipe",stderr:"pipe"});
+const output=Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text()]);
+const end=Date.now()+10000;while(!require("fs").existsSync("tmp/nested-partial")&&Date.now()<end)await Bun.sleep(10);
+child.kill("SIGTERM");expect(await child.exited,"NESTED_WRAPPER_CANCELLED").not.toBe(0);expect((await output).join("")).not.toContain("NESTED_TESTS_STARTED");
+writeFileSync("node_modules/.bin/tsc",compiler);
+expect(consume(),"CANCELLED_WRITER_LEFT_PARTIAL_OUTPUT").toBe(2);
+await hook();expect(consume(),"CANCELLED_WRITER_OUTPUT_NEVER_SERVED").toBe(1);
+expect(invocationBuild(root,["ithaca"]),"CANCELLED_WRITER_REVOKES_OUTER_AUTHORITY").toBeUndefined();`);
+  const result = await run(root); expect(result.code, result.output).toBe(0); expect(receipts(root)).toHaveLength(3);
+});
+
+test("cleaning the workspace output revokes the outer invocation's authority", async () => {
+  const { root, write } = fixture();
+  write("probe.ts", consumerProbe + `expect(invocationBuild(root,["ithaca"])).toBeDefined();
+const child=Bun.spawn([process.execPath,"scripts/clean.ts"],{stdout:"inherit",stderr:"inherit"});expect(await child.exited).toBe(0);
+expect(require("fs").existsSync(join(root,"packages/ithaca/dist")),"CLEAN_REMOVED_OUTPUT").toBe(false);
+await hook();expect(consume(),"CLEANED_OUTPUT_REBUILT").toBe(1);expect(invocationBuild(root,["ithaca"]),"CLEAN_REVOKES_OUTER_AUTHORITY").toBeUndefined();`);
   const result = await run(root); expect(result.code, result.output).toBe(0); expect(receipts(root)).toHaveLength(2);
+});
+
+for (const flag of ["--help", "-h"]) test(`${flag} prints usage without preparing even when the build would fail`, async () => {
+  const { root, write } = fixture();
+  write("packages/ithaca/src/index.ts", "export const cargo: string = 1;\n");
+  const failing = await run(root, ["run", "test", "--internal-full-preparation", "missing.test.ts"]);
+  expect(failing.code, "FAILING_BUILDER_CONTROL").not.toBe(0);
+  const help = await run(root, ["run", "test", "--internal-full-preparation", flag]);
+  expect(help.code, help.output).toBe(0); expect(help.output, "HELP_REACHES_BUN").toContain("Usage: bun test");
+  expect(help.output, "HELP_NEVER_PREPARES").not.toContain('"event":"build-start"'); expect(receipts(root), "HELP_NEVER_BUILDS").toHaveLength(1);
 });
 
 test("fresh standalone invocations consume effective config alias and installed compiler changes", async () => {

@@ -15,3 +15,5 @@ export interface WorkspaceLeaseIdentity {
   ownerStart: string;
 }
 export function workspaceLeaseIdentity(root: string): WorkspaceLeaseIdentity | undefined;
+export function advanceOutputGeneration(root: string): string;
+export function outputGeneration(root: string): string | undefined;

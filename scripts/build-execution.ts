@@ -5,8 +5,8 @@ import { buildReceipt } from "./build-receipt";
 import { markBinsExecutable } from "./bin-modes";
 import type { PublishablePackage } from "./publishable-packages";
 
-export async function executeBuild(root: string, packages: PublishablePackage[], jobs: 1 | 2, subset = true): Promise<number> {
-  const receipt = buildReceipt(root, { jobs, subset, packages: packages.map(pkg => pkg.dir) });
+export async function executeBuild(root: string, packages: PublishablePackage[], jobs: 1 | 2, subset = true, generation?: string): Promise<number> {
+  const receipt = buildReceipt(root, { jobs, subset, generation, packages: packages.map(pkg => pkg.dir) });
   const bunx = Bun.which("bunx");
   if (!bunx) {
     console.error(

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { selectBuildPackages } from "./publishable-packages";
-import { liveAncestor, processIdentity, workspaceLeaseIdentity } from "./workspace-lease.mjs";
+import { liveAncestor, outputGeneration, processIdentity, workspaceLeaseIdentity } from "./workspace-lease.mjs";
 import { invocationChild } from "./test-invocation-child";
 
 const AUTHORITY = "BRAIN_TEST_BUILD_AUTHORITY";
@@ -18,7 +18,7 @@ const identity = (root: string) => { const path = realpathSync(root), st = statS
 const event = (event: string, data: Record<string, unknown> = {}) => console.error(JSON.stringify({ kind: "test-invocation", event, pid: process.pid, at: Date.now(), ...data }));
 
 type Authority = { version: 1; nonce: string; ownerPid: number; ownerStart: string; fd: number; dev: number; ino: number; sha256: string };
-type CompletedBuild = { schemaVersion: number; kind: string; pid: number; id: string; state: string; success: boolean; code: number; jobs: number;
+type CompletedBuild = { schemaVersion: number; kind: string; pid: number; id: string; generation: string; state: string; success: boolean; code: number; jobs: number;
   packages: { name: string; state: string; children: { compiler: string; pid: number; code: number; elapsedMs: number }[] }[] };
 type InvocationRecord = { version: 1; nonce: string; ownerPid: number; ownerStart: string; root: ReturnType<typeof identity>; lease: NonNullable<ReturnType<typeof workspaceLeaseIdentity>>; build: CompletedBuild };
 
@@ -35,7 +35,8 @@ function readRegular(path: string): { bytes: Buffer; dev: number; ino: number } 
 
 function completedBuild(root: string, build: CompletedBuild, pid: number, id: string, expected?: readonly string[]): boolean {
   if (!build || build.schemaVersion !== 1 || build.kind !== "workspace-build" || build.pid !== pid || build.id !== id ||
-      !positive(pid) || !uuid.test(id) || build.state !== "complete" || build.success !== true || build.code !== 0 || build.jobs !== 1 ||
+      !positive(pid) || !uuid.test(id) || typeof build.generation !== "string" || !uuid.test(build.generation) ||
+      build.generation !== outputGeneration(root) || build.state !== "complete" || build.success !== true || build.code !== 0 || build.jobs !== 1 ||
       !Array.isArray(build.packages) || !build.packages.length || build.packages.length > 128) return false;
   const names = build.packages.map(pkg => pkg?.name);
   if (names.some(name => typeof name !== "string") || new Set(names).size !== names.length ||
@@ -69,8 +70,10 @@ export function invocationBuild(root: string, directories: readonly string[]): I
     const built = new Set(record.build.packages.map(pkg => pkg.name));
     if (!selectBuildPackages(root, directories).every(pkg => built.has(pkg.dir))) return;
     const after = statSync(path);
+    // Any later writer of the shared output, even a failed nested one, has
+    // advanced the generation and so revoked this receipt.
     if (after.dev !== st.dev || after.ino !== st.ino || after.size !== st.size || after.ctimeMs !== st.ctimeMs ||
-        !liveAncestor(locator.ownerPid, locator.ownerStart)) return;
+        outputGeneration(root) !== record.build.generation || !liveAncestor(locator.ownerPid, locator.ownerStart)) return;
     return record;
   } catch { /* Missing, stale or malformed authority always rebuilds in the hook. */ }
 }

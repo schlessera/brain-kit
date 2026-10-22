@@ -1,5 +1,6 @@
 /** Coordinate development commands which share mutable workspace output. */
-import { fstatSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants as fsConstants, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -81,6 +82,35 @@ export function workspaceLeaseIdentity(root) {
     return { mode: lease.mode, root: path, rootDev: st.dev, rootIno: st.ino,
       dev: lock.dev, ino: lock.ino, ownerPid: lease.ownerPid, ownerFd: lease.ownerFd, ownerStart: lease.ownerStart };
   } catch { /* Unsupported/missing/replaced ownership cannot attest a build. */ }
+}
+
+const generationPath = root => join(root, "tmp", "workspace-operation", "output.generation");
+const generationShape = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+
+/**
+ * Revoke every earlier claim on the shared package output before mutating it.
+ * Each writer replaces the token first, so a failed, cancelled or nested write
+ * still invalidates an outer invocation's attested build. This is revocation
+ * only: a matching token never makes a build fresh by itself.
+ */
+export function advanceOutputGeneration(root) {
+  const path = generationPath(resolve(root)), generation = randomUUID(), staged = `${path}.${process.pid}.${generation}`;
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(staged, generation, { flag: "wx", mode: 0o600 });
+  renameSync(staged, path);
+  return generation;
+}
+
+export function outputGeneration(root) {
+  try {
+    const fd = openSync(generationPath(resolve(root)), fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+    try {
+      const st = fstatSync(fd);
+      if (!st.isFile() || st.size !== 36) return;
+      const value = readFileSync(fd, "utf8");
+      return generationShape.test(value) ? value : undefined;
+    } finally { closeSync(fd); }
+  } catch { /* A missing or replaced token matches no attested build. */ }
 }
 
 function sameFile(fd, path) {

@@ -130,7 +130,7 @@ if (import.meta.main) {
   if (coordinated !== undefined) process.exit(coordinated);
   let args = process.argv.slice(2);
   let argv: string[];
-  let fullPreparation = false, delegatedSpeech = false, unsupported = realpathSync(process.cwd()) !== realpathSync(resolve(import.meta.dir, ".."));
+  let fullPreparation = false, delegatedSpeech = false, help = false, unsupported = realpathSync(process.cwd()) !== realpathSync(resolve(import.meta.dir, ".."));
   try {
     const balanced: string[] = [];
     const forwarded: string[] = [];
@@ -142,6 +142,8 @@ if (import.meta.main) {
       }
       if (arg === "--internal-full-preparation") { fullPreparation = true; continue; }
       if (arg === "--internal-external-speech") { delegatedSpeech = true; continue; }
+      // Bun prints usage and runs nothing, so help never builds or fails on a compiler error.
+      if (arg === "--help" || arg === "-h") help = true;
       if (["--watch", "--hot", "--cwd"].some(flag => arg === flag || arg.startsWith(`${flag}=`))) unsupported = true;
       if (arg === "--balanced-shard") throw new Error("Expected --balanced-shard=M/N");
       if (arg.startsWith("--balanced-shard=")) {
@@ -188,7 +190,7 @@ if (import.meta.main) {
     if (!borrowed) clearInvocation();
     if (fullPreparation && workspaceTestAccess() !== "write") throw new Error("Read-only verification cannot prepare workspace output");
     const directories = runtimeBuildSelection(root, process.cwd(), paths);
-    if (!borrowed && !unsupported && workspaceTestAccess() === "write" && (fullPreparation || directories.length)) {
+    if (!help && !borrowed && !unsupported && workspaceTestAccess() === "write" && (fullPreparation || directories.length)) {
       const preparation = await prepareInvocation(root, fullPreparation ? undefined : directories, started);
       dispose = preparation.dispose;
       if (preparation.code !== 0) { result = preparation.code; throw new Error(`Test invocation preparation failed (${result})`); }

@@ -10,7 +10,7 @@ export function invocationFixture(parent = tmpdir()) {
   write("bun.lock", "{}\n");
   write(".gitignore", "node_modules/\npackages/*/dist/\ntmp/\n");
   write("tsconfig.json", JSON.stringify({ compilerOptions: { target: "ES2019", module: "ESNext", moduleResolution: "Bundler", types: [], skipLibCheck: true } }));
-  for (const file of ["build.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs", "test.ts", "test-invocation.ts", "test-invocation-child.ts", "runtime-test-builds.ts", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "unit-worker-entry.sh"]) {
+  for (const file of ["build.ts", "clean.ts", "build-execution.ts", "build-receipt.ts", "build-repeat-observation.ts", "bin-modes.ts", "publishable-packages.ts", "workspace-lease.mjs", "test.ts", "test-invocation.ts", "test-invocation-child.ts", "runtime-test-builds.ts", "test-network-preload.ts", "test-network-guard.ts", "test-network-child-preload.ts", "unit-worker-entry.sh"]) {
     write(`scripts/${file}`, readFileSync(join(source, "scripts", file), "utf8"));
   }
   for (const file of ["packages/core/tests/cli-harness.ts", "packages/ui-react/tests/fixtures/runtime-package-build.ts", "packages/ui-react/tests/fixtures/runtime-hook-phases.ts"]) write(file, readFileSync(join(source, file), "utf8"));

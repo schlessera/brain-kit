@@ -321,6 +321,16 @@ standalone coordinated runtime invocations freshly prepare. Shared read batches,
 unsupported alternate working directories and watch/hot runs remain unattested.
 Ordinary explicit `scripts/build.ts` calls still compile every selected package,
 including freshness/configuration/compiler/output-damage fixture controls.
+
+A receipt describes its own build, not whatever `dist` holds later. Every
+writer of the shared package output (`scripts/build.ts`, including nested
+wrappers, hook fallbacks and the CI build operation, and `scripts/clean.ts`)
+first replaces the workspace's random output generation token, before any
+mutation. The receipt records its build's token, and admission requires it to
+be current. A later successful, failed or cancelled writer beneath the same
+lease therefore revokes the outer invocation's authority, and its remaining
+hooks rebuild. The token only revokes; matching it never makes output fresh.
+`--help` and `-h` reach Bun without preparation.
 Client/browser bundling stays fresh and consumers keep their default exports.
 
 Source edits during a run take effect at the next invocation, as explicitly
