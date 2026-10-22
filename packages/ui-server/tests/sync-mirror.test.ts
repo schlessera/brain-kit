@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -30,7 +31,7 @@ function git(root: string, ...args: string[]): string {
 }
 
 function fixture() {
-  const root = mkdtempSync("/var/tmp/brain-sync-fixture-"); roots.push(root);
+  const root = mkdtempSync(join(tmpdir(), "brain-sync-fixture-")); roots.push(root);
   const brain = join(root, "brain");
   const remote = join(root, "remote.git");
   const state = join(root, "state"); mkdirSync(state);

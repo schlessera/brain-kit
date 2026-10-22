@@ -191,7 +191,13 @@ SDK groups retain explicit lower bounds without being passing proof. #1485
 raises only the bounded outer unit-job capacity to30minutes, preserving
 four partitions, every discovered test, all per-test/native deadlines and
 browser/product budgets. Queue, cancellation and elapsed evidence remain in
-the observation record. Browser sharding uses the committed per-project/
+the observation record.
+
+> **2026-10-22 — Budget separation.** The 30-minute unit allowance is now an
+> explicit proof-step limit. [Separate setup capacity](#separate-environment-setup-and-proof-budgets)
+> raises the combined job cap to 45 minutes without changing proof deadlines.
+
+Browser sharding uses the committed per-project/
 file table under #1082, rather than grouping every pointer variant of a costly
 file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
@@ -211,6 +217,43 @@ Layout keeps two shards; per-project serial execution and all test deadlines rem
 Browser proof runs in three shards and its jobs have a 20-minute bound. It was raised from 15 minutes after browser
 (2) reached 887 s on main and 917 s on a ready PR ([#2414](https://github.com/schlessera/brain-kit/issues/2414)). A weight refresh still
 qualifies by measured whole-job elapsed time, not by the bound.
+
+### Separate environment setup and proof budgets
+
+The maintainer's [#2658 ruling](https://github.com/schlessera/brain-kit/issues/2658#issuecomment-6342812579)
+separates network prerequisites from proof capacity. In successful main run
+[39784542134](https://github.com/schlessera/brain-kit/actions/runs/39784542134),
+`runtime_host` setup took 68 seconds and proof took 676 seconds (11 min 16 s).
+Run [39785773042](https://github.com/schlessera/brain-kit/actions/runs/39785773042)
+reported setup durations of 8 min 52 s and 6 min 32 s; the latter included
+6 min 3 s fetching 33.6 MB from the Ubuntu mirror during the native image
+build. Both attempts exhausted the shared 15-minute job cap while proof was
+still progressing. The supplied raw and step-labelled slow-log exports both
+describe the 6 min 32 s attempt; they are not independent measurements.
+
+Every workflow call to `ci-runtime-setup.sh` now has a 12-minute step limit.
+This leaves 3 min 8 s above the longest reported setup, bounding mirror stalls
+without spending the proof allowance. The proof steps explicitly retain the
+former job ceilings: 15 minutes for `runtime` and `runtime_host`, and 30 minutes
+for each `unit` partition under #1485. Job limits are the sum of setup and
+proof plus three minutes for checkout, dependency install, planning, tracing,
+summaries and artifact upload: 30 minutes for either runtime job and 45 minutes
+for unit. In the supplied successful and slow logs, checkout/install/planning
+plus trace startup took less than 30 seconds, so this reserve has margin;
+it is finite, not a guarantee against arbitrarily stalled unrelated steps.
+
+The shared-script audit includes unit's network package installation. Browser,
+layout, captures and endurance do not call this setup script; their pinned
+container setup remains inside their existing proof jobs and keeps its bounds.
+The [step timeout](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepstimeout-minutes)
+terminates setup independently; default failure handling skips proof when a
+prerequisite fails. An `always()` summary prints separate setup and proof
+outcomes and limits, identifying setup as an infrastructure prerequisite. Setup
+timeout/failure with skipped proof therefore differs from successful setup
+followed by proof failure/cancellation. Workflow lint guards the setup limit,
+unchanged proof limits and combined job capacity. All native assertions,
+per-command deadlines, selection gates, runtime/action pins, offline images
+and diagnostic uploads retain their existing behavior.
 
 Hosted unit partitions use a queue capped at two serial Bun test processes
 (`scripts/unit-workers.ts`), or one when only one file is selected. Native
@@ -290,6 +333,66 @@ qualifying exhaustive/main passes remain obligations in
 this now-completed same-source count comparison. Dependency copies and private
 builds count in proof time and sampled VM resources; setup/install and queues
 remain separate step measurements. No deadline, shard count or N changed here.
+
+### One fresh build per test invocation
+
+The [2026-10-20 option-B ruling for #2279](https://github.com/schlessera/brain-kit/issues/2279#issuecomment-6293488248)
+permits one fresh package build under the invocation's continuously held write
+lease. `scripts/test.ts` prepares the selected runtime consumers' forward
+package closure before starting Bun tests. Each private unit worker requests a
+full build inside that same build/test lifetime, after namespace entry. There
+are still at most two workers, with serial compilers inside each. A worker can
+now start tests while its sibling is still preparing; account for this scheduling
+placement separately from duplicate compilation avoided.
+
+The seventeen runtime hooks use a checked helper. Admission requires the live
+ancestor coordinator's PID/start identity, invocation nonce, canonical checkout
+and root inode, active exclusive lease owner/descriptor/inode, and the actual
+builder's completed successful package/child receipt for the required closure.
+The coordinator waits for exit and both output EOFs before publishing a bounded
+record through its held descriptor. Closing the descriptor or losing the owner
+revokes it; leftover files and the builder's best-effort observation fingerprints
+have no authority. Failed or signaled preparation stops the invocation before
+tests; missing diagnostics after successful preparation leave hooks rebuilding.
+
+Build and test commands each run beneath a private process-group anchor that
+stays alive until command exit and both output EOFs have been joined. Cancellation
+signals only that anchored group, with one-second forced cleanup for survivors
+and children forked during signal handling. Losing the wrapper's IPC lifetime
+channel also stops the group. A command leader exiting first cannot orphan its
+inherited-output holders, and a nested wrapper does not signal the outer lease
+or unrelated siblings. The anchor closes its own output descriptors after launch
+so it cannot manufacture EOF or hold output open itself. Cancellation after a
+successful builder exit still prevents attestation. This is cooperating
+process-group ownership, not containment of processes deliberately escaping
+their process group; it adds no product extension interface.
+
+Every ordinary nested wrapper creates a fresh invocation. Only the explicitly
+checked isolated external-speech child borrows its live parent's build, outside
+both its setup and outer-test deadlines. Direct/unattested hooks rebuild;
+standalone coordinated runtime invocations freshly prepare. Shared read batches,
+unsupported alternate working directories and watch/hot runs remain unattested.
+Ordinary explicit `scripts/build.ts` calls still compile every selected package,
+including freshness/configuration/compiler/output-damage fixture controls.
+
+A receipt describes its own build, not whatever `dist` holds later. Every
+writer of the shared package output (`scripts/build.ts`, including nested
+wrappers, hook fallbacks and the CI build operation, and `scripts/clean.ts`)
+first replaces the workspace's random output generation token, before any
+mutation. The receipt records its build's token, and admission requires it to
+be current. A later successful, failed or cancelled writer beneath the same
+lease therefore revokes the outer invocation's authority, and its remaining
+hooks rebuild. The token only revokes; matching it never makes output fresh.
+`--help` and `-h` reach Bun without preparation.
+Client/browser bundling stays fresh and consumers keep their default exports.
+
+Source edits during a run take effect at the next invocation, as explicitly
+accepted by the ruling. The lease coordinates cooperating first-party writers;
+it does not make source immutable or protect against hostile same-UID processes.
+No persistent stamp, boolean skip, generic producer interface, assertion or
+deadline change follows. This is distinct from deferred #2319 activation below.
+Measure complete preparation, hook admission, test execution and cleanup costs;
+small hook durations alone are not a whole-invocation speedup.
 
 ### Opt-in compilation within one hosted workspace
 
@@ -929,3 +1032,37 @@ open after the independently reviewable dormant delivery. CI intent does not
 authorize reuse. Complete effective inputs, drained output ownership, actual
 consumer compatibility and comparable hosted cost must be qualified before
 activation. This does not cache selected test results or relax their proof.
+
+## Read-only timing archives
+
+The user-requested cross-PR collection in
+[issue #2476](https://github.com/schlessera/brain-kit/issues/2476) adds one scheduled/manual
+measurement workflow, separate from authoritative contribution CI. It runs
+trusted default-branch tooling with read-only Actions, contents and PR access,
+parses candidate logs only as data, and archives normalized observations for
+90 days. Hourly two-day windows seed normalized snapshots from the preceding
+default-branch artifact and collect only new/incomplete attempts. Scheduled
+resource-log downloads are omitted. One serialized API client enforces a
+200-request invocation ceiling, reads remaining quota and leaves a 500-request
+reserve for authoritative CI. Expected budget stops archive an explicit partial
+coverage gap and exit successfully. Discovery ends 15 minutes in the past;
+discovery and reservation-history failures remain visible without discarding
+other timing observations. Explicit backfill is needed after longer outages
+or reruns of older runs. Workflow lint admits
+this narrowly scoped collector while retaining the existing CI/provider gates.
+
+The [collection guide](../process/ci-timings.md) defines interval/attempt
+accounting, missing evidence, cancellation costs, PR attribution and the
+historical exhaustive-run proxy. Estimates remain distinct from same-source
+paired measurements. Timing metadata never authorizes proof retention or merge.
+
+The expanded [issue #2476](https://github.com/schlessera/brain-kit/issues/2476)
+objective is reliable parallel agent throughput. Collection
+joins lifecycle, first-main outcomes, recovery observations, queue/concurrency,
+reservation history and explicitly supplied work/incident records. The primary
+descriptive proxy is first-pass green integrations/day, accompanied by cost and
+latency per delivered cohort. Empirical green rates do not establish formal
+guarantees; proof evidence coverage, unknowns and scenario assumptions remain
+separate. Actual agent activity and diagnosed regressions require explicit
+records. Optimization still preserves existing assertions, guards and matching
+candidate proof, with causal claims requiring comparable measured inputs.

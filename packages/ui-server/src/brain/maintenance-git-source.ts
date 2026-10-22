@@ -1,5 +1,9 @@
-/** Fixed Git startup-input collection, executed only in the read-only worker view. */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, type Stats } from "node:fs";
+/**
+ * Fixed Git startup-input collection. The collector runs only in the read-only
+ * worker view; a directory the worker identity cannot search is withheld and
+ * read by its exact owner, the server, through `collectOwnedGitAttributes`.
+ */
+import { accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, type Stats } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 export interface MaintenanceGitSources {
   rootIdentity: string;
@@ -7,8 +11,10 @@ export interface MaintenanceGitSources {
   config: [string, string][];
   hookNames: string[];
   attributes: { path: string; data: string }[];
+  /** Directories the worker identity cannot search, with the exact metadata it observed. Never entered by the worker. */
+  withheld: { path: string; stamp: string }[];
 }
-const phases = ["metadata", "config", "hooks", "attrs", "receipt"] as const;
+const phases = ["metadata", "config", "hooks", "attrs", "receipt", "owner"] as const;
 const errorClasses = ["Error", "TypeError", "RangeError", "SyntaxError", "SystemError"] as const;
 const errnos = ["EACCES", "EPERM", "ENOENT", "ENOTDIR", "ELOOP", "ESTALE", "EIO", "EMFILE", "ENFILE", "ENOMEM", "E2BIG"] as const;
 const rootClasses = [".brain", "private", "private-hooks", "notes", "other"] as const;
@@ -22,7 +28,7 @@ class CollectionFailure extends Error {
     super("Concrete Git source collection refused");
     const kind = error instanceof Error ? error.name : "unknown", code = (error as NodeJS.ErrnoException | null)?.code;
     this.diagnostic = { phase: phases.includes(phase as any) ? phase : "unknown",
-      errorClass: errorClasses.includes(kind as any) ? kind : "unknown", errno: errnos.includes(code as any) ? code! : "unknown", ...(phase === "attrs" && attrs ? { attrs } : {}) };
+      errorClass: errorClasses.includes(kind as any) ? kind : "unknown", errno: errnos.includes(code as any) ? code! : "unknown", ...((phase === "attrs" || phase === "owner") && attrs ? { attrs } : {}) };
   }
 }
 /** Decode only the fixed refusal receipt; never forward worker stderr. */
@@ -49,6 +55,7 @@ const FILE = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 const identity = (s: ReturnType<typeof fstatSync>) => `${s.dev}:${s.ino}`;
 const stamp = (s: ReturnType<typeof fstatSync>) => `${identity(s)}:${s.mode}:${s.nlink}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+const STAMP = /^[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+(?:\.[0-9]+)?:[0-9]+(?:\.[0-9]+)?$/;
 function name(value: string): boolean { return value !== "." && value !== ".." && !!value && !/[\\/\u0000-\u001f\u007f]/u.test(value); }
 function utf8(bytes: Buffer): string {
   const text = bytes.toString("utf8");
@@ -60,7 +67,7 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
   if (!Number.isSafeInteger(maximum) || maximum < 4096 || !/^[0-9]+:[0-9]+$/.test(expectedRoot)) throw Error("Invalid concrete Git source envelope");
   const root = process.cwd(), fd = openSync(".", DIRECTORY), rootInfo = fstatSync(fd);
   const at = (directory: number, child = "") => `/proc/self/fd/${directory}/${child || "."}`;
-  const answer: MaintenanceGitSources = { rootIdentity: identity(rootInfo), repository: false, config: [], hookNames: [], attributes: [] };
+  const answer: MaintenanceGitSources = { rootIdentity: identity(rootInfo), repository: false, config: [], hookNames: [], attributes: [], withheld: [] };
   let entries = 0, bytes = 0, phase = "metadata";
   let attrs: AttrContext | undefined;
   const heldMetadata = new Map<number, Stats>([[fd, rootInfo]]);
@@ -75,6 +82,11 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
       if (++entries > 200000) throw Error("Concrete Git inputs exceed their entry bound");
       const text = utf8(raw); if (!name(text)) throw Error("Unsupported concrete Git input name"); return text;
     }).sort();
+  }
+  /** Only permission denial withholds; every other failure still refuses. */
+  function searchable(parent: number, child: string): boolean {
+    try { accessSync(at(parent, child), constants.R_OK | constants.X_OK); return true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "EACCES") return false; throw error; }
   }
   function directory(parent: number, child: string): number {
     const info = lstatSync(at(parent, child));
@@ -158,6 +170,8 @@ export async function collectMaintenanceGitSources(binary: string, maximum: numb
             charge(path); charge(data); answer.attributes.push({ path, data });
           } finally { closeSync(file); }
         } else if (info.isDirectory()) {
+          if (info.dev !== rootInfo.dev) throw Error("Concrete Git directory crosses its root device");
+          if (!searchable(directoryFd, child)) { charge(path); answer.withheld.push({ path, stamp: stamp(info) }); continue; }
           const nested = directory(directoryFd, child);
           try { walk(nested, path, depth + 1); } finally { closeSync(nested); }
         }
@@ -175,7 +189,8 @@ export function parseMaintenanceGitSources(text: string, maximum: number, expect
   if (Buffer.byteLength(text) > maximum) throw Error("Oversized concrete Git source receipt");
   const value = JSON.parse(text) as MaintenanceGitSources;
   if (!value || value.rootIdentity !== expectedRoot || typeof value.repository !== "boolean" || !Array.isArray(value.config)
-    || !Array.isArray(value.hookNames) || !Array.isArray(value.attributes) || value.config.length + value.hookNames.length + value.attributes.length > 200000
+    || !Array.isArray(value.hookNames) || !Array.isArray(value.attributes) || !Array.isArray(value.withheld)
+    || value.config.length + value.hookNames.length + value.attributes.length + value.withheld.length > 200000
     || value.config.some(pair => !Array.isArray(pair) || pair.length !== 2 || pair.some(item => typeof item !== "string"))
     || value.hookNames.some(hook => typeof hook !== "string" || !name(hook)) || new Set(value.hookNames).size !== value.hookNames.length)
     throw Error("Malformed concrete Git source receipt");
@@ -186,8 +201,114 @@ export function parseMaintenanceGitSources(text: string, maximum: number, expect
       || attribute.path.split("/").at(-1) !== ".gitattributes") throw Error("Malformed retained attributes receipt");
     paths.add(attribute.path);
   }
-  if (!value.repository && (value.config.length || value.hookNames.length || value.attributes.length)) throw Error("Inconsistent concrete Git source receipt");
+  const withheld = new Set<string>();
+  for (const item of value.withheld) {
+    if (!item || typeof item !== "object" || Object.keys(item).sort().join(",") !== "path,stamp" || typeof item.path !== "string"
+      || typeof item.stamp !== "string" || !STAMP.test(item.stamp) || item.path.split("/").length > 256
+      || item.path.split("/").some(part => !name(part) || part === ".git" || part === "node_modules") || withheld.has(item.path))
+      throw Error("Malformed withheld Git input receipt");
+    withheld.add(item.path);
+  }
+  // The worker never enters a withheld directory, so nothing it reports can lie below one.
+  const below = (path: string) => [...withheld].some(root => path.startsWith(`${root}/`));
+  if ([...paths, ...withheld].some(below)) throw Error("Inconsistent withheld Git input receipt");
+  if (!value.repository && (value.config.length || value.hookNames.length || value.attributes.length || value.withheld.length)) throw Error("Inconsistent concrete Git source receipt");
   return value;
+}
+/**
+ * The bounded trusted read for withheld directories, run by the server under its
+ * own identity. It reads nested `.gitattributes` bytes, and nothing else, below
+ * each withheld directory of the retained checkpoint, and only while the server
+ * owns every directory and attributes file it opens. The withheld path must still
+ * name the exact node the worker observed, reached without aliases on the
+ * checkpoint's device. Ownership, identity and the shared bounds are checked
+ * here, so the worker receipt cannot select another root, identity or operation.
+ */
+export function collectOwnedGitAttributes(root: string, sources: MaintenanceGitSources, maximum: number, expectedRoot: string): MaintenanceGitSources {
+  const owner = process.geteuid?.();
+  const fd = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY), rootInfo = fstatSync(fd);
+  const at = (directory: number, child = "") => `/proc/self/fd/${directory}/${child || "."}`;
+  const attributes = [...sources.attributes];
+  let entries = 0, bytes = Buffer.byteLength(JSON.stringify(sources));
+  let attrs: AttrContext | undefined;
+  const attrContext = (path: string, depth: number, info: Stats) => {
+    const first = path.split("/")[0]!;
+    attrs = { rootClass: rootClasses.includes(first as any) ? first : "other", depth, uid: info.uid, gid: info.gid,
+      mode: info.mode & 0o7777, type: info.isDirectory() ? "directory" : info.isFile() ? "file" : info.isSymbolicLink() ? "symlink" : "other" };
+  };
+  function charge(value: string) { bytes += Buffer.byteLength(value); if (bytes > maximum) throw Error("Owned Git inputs exceed their bound"); }
+  // The single identity guard: the server opens only nodes it owns.
+  const ownedByServer = (info: Stats) => owner !== undefined && info.uid === owner;
+  function directory(parent: number, child: string, owned: boolean): number {
+    const info = lstatSync(at(parent, child));
+    if (!info.isDirectory() || info.dev !== rootInfo.dev) throw Error("Owned Git directory must not be an alias, special node or another device");
+    if (owned && !ownedByServer(info)) throw Error("Owned Git directory has a foreign owner");
+    const opened = openSync(at(parent, child), DIRECTORY), held = fstatSync(opened);
+    if (stamp(held) !== stamp(info)) { closeSync(opened); throw Error("Changed owned Git directory"); }
+    return opened;
+  }
+  function walk(directoryFd: number, prefix: string, depth: number) {
+    if (depth > 256) throw Error("Owned Git inputs exceed their depth bound");
+    const names = readdirSync(at(directoryFd), { encoding: "buffer" }).map(raw => {
+      if (++entries > 200000) throw Error("Owned Git inputs exceed their entry bound");
+      const text = utf8(raw); if (!name(text)) throw Error("Unsupported owned Git input name"); return text;
+    }).sort();
+    for (const child of names) {
+      if (child === ".git" || child === "node_modules") continue;
+      const path = `${prefix}/${child}`, info = lstatSync(at(directoryFd, child));
+      attrContext(path, depth + 1, info);
+      if (child === ".gitattributes") {
+        if (!info.isFile() || info.nlink !== 1 || !ownedByServer(info) || info.dev !== rootInfo.dev || info.size > maximum - bytes)
+          throw Error("Unsupported owned attributes input");
+        const file = openSync(at(directoryFd, child), FILE);
+        try {
+          if (stamp(fstatSync(file)) !== stamp(info)) throw Error("Changed owned attributes input");
+          const data = utf8(readFileSync(file));
+          if (stamp(fstatSync(file)) !== stamp(info)) throw Error("Changed owned attributes input");
+          charge(path); charge(data); attributes.push({ path, data });
+        } finally { closeSync(file); }
+      } else if (info.isDirectory()) {
+        const nested = directory(directoryFd, child, true);
+        try { walk(nested, path, depth + 1); } finally { closeSync(nested); }
+      }
+    }
+  }
+  try {
+    if (owner === undefined) throw Error("Owned Git inputs need a numeric server identity");
+    if (identity(rootInfo) !== expectedRoot || sources.rootIdentity !== expectedRoot) throw Error("Foreign owned Git startup root");
+    for (const withheld of sources.withheld) {
+      const parts = withheld.path.split("/");
+      if (parts.length > 256 || parts.some(part => !name(part))) throw Error("Unsupported withheld Git input path");
+      let current = openSync(at(fd), DIRECTORY);
+      try {
+        // Ancestors are the directories the worker itself searched; only the
+        // withheld directory and its descendants need the server as owner.
+        for (const part of parts.slice(0, -1)) { const next = directory(current, part, false); closeSync(current); current = next; }
+        const info = lstatSync(at(current, parts.at(-1)!));
+        attrContext(withheld.path, parts.length, info);
+        if (stamp(info) !== withheld.stamp) throw Error("Withheld Git directory changed identity");
+        const opened = directory(current, parts.at(-1)!, true);
+        closeSync(current); current = opened;
+        walk(current, withheld.path, parts.length);
+      } finally { closeSync(current); }
+    }
+    attrs = undefined;
+    if (identity(fstatSync(fd)) !== expectedRoot) throw Error("Changed owned Git startup root");
+    const answer: MaintenanceGitSources = { ...sources, attributes: attributes.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0), withheld: [] };
+    if (Buffer.byteLength(JSON.stringify(answer)) > maximum) throw Error("Oversized owned Git source receipt");
+    return answer;
+  } catch (error) { throw new CollectionFailure("owner", error, attrs); }
+  finally { closeSync(fd); }
+}
+/** Report only the fixed owner-read refusal through the caller's logger. */
+export function reportOwnedGitFailure(log: import("@opentelemetry/api-logs").Logger | undefined, error: unknown): void {
+  const failure: { phase: string; errorClass: string; errno: string; attrs?: AttrContext } = error instanceof CollectionFailure ? error.diagnostic : unknownFailure();
+  log?.emit({ severityText: "WARN", body: "maintenance Git owner input refused", attributes: {
+    "maintenance.git.phase": failure.phase, "maintenance.git.errorClass": failure.errorClass, "maintenance.git.errno": failure.errno,
+    ...(failure.attrs ? { "maintenance.git.rootClass": failure.attrs.rootClass, "maintenance.git.depth": failure.attrs.depth,
+      "maintenance.git.uid": failure.attrs.uid, "maintenance.git.gid": failure.attrs.gid, "maintenance.git.mode": failure.attrs.mode,
+      "maintenance.git.type": failure.attrs.type } : {}),
+  } });
 }
 /** Report only the bounded fixed collector receipt through the caller's logger. */
 export function reportMaintenanceGitFailure(log: import("@opentelemetry/api-logs").Logger | undefined,

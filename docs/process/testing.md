@@ -522,9 +522,29 @@ affected tests run. Drafts run cheap gates only. Forks use ordinary
 `checks: read` for bounded proof lookup), no secrets and nonpersisted checkout
 credentials. A fork run awaiting maintainer approval has not passed.
 
+Environment setup via `scripts/ci-runtime-setup.sh` has its own 12-minute
+step limit in `unit`, `runtime` and `runtime_host`. Proof retains a separate
+30-minute unit allowance or 15-minute runtime allowance. The job caps are
+45 and 30 minutes respectively, including three minutes for the remaining
+steps. The [timeout basis](../decisions/ci-utility.md#separate-environment-setup-and-proof-budgets)
+records the slow-mirror observations and margin. Each job always reports setup
+and proof outcomes separately in its summary: setup failure/cancellation is an
+infrastructure prerequisite failure with proof skipped, while proof failure
+after successful setup belongs to the proof phase. Both leave the job and
+selected aggregate nonpassing. Browser/layout do not call this setup script
+and retain their existing pinned-container proof budgets.
+
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
-install, build output and workspace lease. The wrapper preserves the caller's
+install, build output and workspace lease. Full preparation now runs after
+namespace entry inside the test wrapper, under one continuous build/test lease;
+the two workers keep independent invocation identities and serial compilers.
+A prepared worker may start tests while its sibling is still building. Account
+for that scheduling change separately from duplicate hook builds. Runtime hooks
+verify the live invocation and successful closure receipt before reuse; missing
+authority rebuilds, and a failed preparation stops before tests without retry.
+See [the invocation rule](../decisions/ci-utility.md#one-fresh-build-per-test-invocation).
+The wrapper preserves the caller's
 umask, drops setup capabilities and binds a private maintenance ledger without
 changing within-worker child limits or hiding the host's `/tmp` from Docker.
 Its checkout container lives outside host `/tmp`, which native workers replace
@@ -543,6 +563,40 @@ artifact. Browser artifacts also retain exactly the prepared native diagram
 `release.svg/png/pdf`, `origin.svg/png/pdf` and `producer.json` files under each
 preparation session and engine. This preserves the producer's checkout,
 source, installation and runtime identity even if a later browser case fails.
+
+The other consumer screenshot destinations have these explicit boundaries:
+
+- Fixture-owned temporary `artifact-*.png` captures show the recovery UI before
+  later zoom and keyboard assertions. Retain their exact returned bytes in
+  `packages/ui-react/.vitest-attachments/artifact-recovery/capture-*`, preserving
+  the original scratch captures and fixture teardown. Unique directories keep
+  repeated names from replacing earlier evidence (`artifactRecoveryCapture`,
+  `packages/ui-react/tests/fixtures/artifact-recovery-capture.ts:5-12`). The
+  existing unit-worker attachment handoff and unit artifact upload collect
+  these copies even after a later assertion fails and the fixture is removed.
+- Opt-in external captures stay **local-only**: `BRAIN_ARTIFACT_SCREENSHOTS`
+  directs additional artifact captures to a caller-chosen directory
+  (`if (process.env.BRAIN_ARTIFACT_SCREENSHOTS)`,
+  `packages/ui-react/tests/artifact-recovery-runtime.test.ts:333-333`), while
+  `BRAIN_REVIEW_CAPTURES` does the same for association/signout review
+  (`if (process.env.BRAIN_REVIEW_CAPTURES)`,
+  `packages/ui-react/tests/association-signout-runtime.test.ts:219-219`;
+  `if (process.env.BRAIN_REVIEW_CAPTURES)`,
+  `packages/ui-react/tests/association-signout-runtime.test.ts:253-253`). Hosted
+  proof sets neither variable. These are optional manual review exports;
+  collectors do not search arbitrary external directories.
+- Standalone navigation/software diagnostics stay **local-only**. The manual
+  navigation probe writes `navigation-*.png` to its caller-supplied output or
+  `/tmp/brain-navigation-recovery` (`const output`,
+  `scripts/probes/navigation-recovery/harness.ts:22-22`;
+  `await p.screenshot`, `scripts/probes/navigation-recovery/navigation.ts:124-130`).
+  It is outside default test discovery and is not invoked by hosted proof.
+  The selected software-identity tests still run normally; their
+  `/tmp/brain-kit-software-*.png` exports occur only after every case assertion
+  has passed (`expect(result.values)`, `tests/stats-answer-render.test.tsx:192-197`).
+  Those successful-state review conveniences cannot diagnose an earlier failed
+  assertion and are not automatic failure screenshots. Keep their local paths;
+  do not collect broad `/tmp` contents as hosted failure evidence.
 
 Verify retention from downloaded artifact ZIPs: compare the archive SHA-256 to
 the Actions artifact digest, check ZIP CRCs and safe paths, then record each
@@ -579,3 +633,30 @@ fresh execution; registration alone is not invocation. Registered dormant
 callbacks require the same complete call/escape audit, and a mutation of that
 activation guard must fail the named assertion.
 The exact audited configuration/source guard makes unsupported edits fresh.
+
+## Cross-PR timing collection
+
+The read-only [CI timing collector](ci-timings.md) archives job, step and optional
+command observations independently of proof gates. Its reports distinguish
+elapsed time, observed runner consumption, missing evidence and historical
+full-proof estimates; timing archives never replace candidate proof.
+
+## Focused native scratch-mask proof
+
+The separately named scratch variant uses the existing identity/Btrfs fixture:
+
+```sh
+bun scripts/prove-worker-identity.ts --image="$NATIVE_PROOF_IMAGE" \
+  --shared-git --private-git-inputs --native-phase-only \
+  --application-qualification --scratch-mask --boot-prune-capture
+```
+
+It joins the captured real boot prune before opening its governed turns. The
+fresh turn checks native agent identity and Git ignore, exact browser PNG
+application, genuine nonignored refusal, pin retention and pruning, then
+failed-query and unavailable-worker refusals without overwriting the applied
+mask. The warm turn repeats both refusals against the second server boot.
+The dedicated backend drives the real host bridge; it does not call an image
+provider. The ordinary native SDK fixture remains unchanged.
+All selected phase deadlines, final joins, diagnostics and owned cleanup remain
+required. This partial composition does not replace complete PR proof.

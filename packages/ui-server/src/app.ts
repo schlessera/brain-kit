@@ -250,8 +250,10 @@ export interface BrainUiApp {
   /**
    * Refuse new HTTP requests and drain admitted handlers before disposing of
    * their operational state. Stalled request bodies are cancelled on close.
-   * In-flight brain CLI reads and plain index runs get a 10 s grace period and
-   * are then cancelled; every other run keeps its existing shutdown behaviour.
+   * Module metadata still waiting for execution admission is cancelled at
+   * once. In-flight brain CLI reads, metadata and plain index runs get a 10 s
+   * grace period and are then cancelled; every other run keeps its existing
+   * shutdown behaviour.
    */
   close(): Promise<void>;
 }
@@ -449,9 +451,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const intake = createInboxIntake(db, config.brainPath, observability.logger("inbox"));
   bootCleanup.push(() => intake.close());
   await inbox.ready; await intake.reconcile();
-  // Aborted when close()'s grace period ends: cancels in-flight shared CLI runs.
-  const shutdown = new AbortController();
-  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: brainLog, boundary, shutdown: shutdown.signal });
+  // Aborted when close() begins: cancels module metadata still waiting for
+  // admission. Aborted when close()'s grace period ends: cancels in-flight
+  // shared CLI runs, admitted metadata included.
+  const closeBegun = new AbortController(), shutdown = new AbortController();
+  const brain = createBrainClient({ brainPath: config.brainPath, exec: config.exec, minimumVersion: brainCliMinimum, log: brainLog, boundary, closing: closeBegun.signal, shutdown: shutdown.signal });
   // After a curated application, a credential-free worker indexed the change
   // without provider keys (#1648). The credentialed reindex that fills in its
   // vectors waits for the writer gate; one at a time, and one more if more
@@ -811,7 +815,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     "/api",
     createStatusRoutes({
       sourceCommit: config.sourceCommit,
-      getContentRenderers: async () => brain.modules ? declaredContentRenderers((await brain.modules()).enabled) : undefined,
+      getContentRenderers: async signal => brain.modules ? declaredContentRenderers((await brain.modules({ signal })).enabled) : undefined,
       getCronStatus: () => cron.getCronStatus(),
       isTurnActive: () => host.coordinator.isTurnActive(),
       // Undefined when the injected consumer cannot be read back (a real OTel
@@ -1080,8 +1084,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       // Refuse new requests immediately; every remaining owner drains even
       // when a native deletion reply is unknown and its durable row stays.
       host.closing = true;
-      // In-flight work gets a short grace period; then shared CLI runs (reads
-      // and plain index) are cancelled so they cannot hold close open (#2473).
+      // Queued module metadata is cancelled now (#2457). In-flight work gets a
+      // short grace period; then shared CLI runs (reads and plain index) are
+      // cancelled so they cannot hold close open (#2473).
+      closeBegun.abort(new Error("Server shutting down"));
       const grace = setTimeout(() => shutdown.abort(new Error("Server shutting down")), CLOSE_GRACE_MS);
       const failures: unknown[] = [];
       const attempt = async (close: () => void | Promise<void>) => { try { await close(); } catch (error) { failures.push(error); } };

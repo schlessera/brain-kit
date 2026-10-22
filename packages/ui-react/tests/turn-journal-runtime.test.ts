@@ -1,3 +1,4 @@
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -26,12 +27,12 @@ const observability = createRecordingObservability();
 let root = "", origin = "", browser: Browser, app: Awaited<ReturnType<typeof createApp>>, server: ReturnType<typeof Bun.serve>;
 async function child(args: string[]) {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await hook.child(args[1] === "scripts/build.ts" ? "package-build" : "fixture-child", process);
+  const [out, err, code] = await hook.child("fixture-child", process);
   if (code !== 0) throw new Error(`Journal fixture build failed (${code})\n${out}${err}`);
 }
 const hook = runtimeHookPhases("turn-journal-runtime.test.ts");
 beforeAll(() => hook.phase("setup", async () => {
-  if (process.env.BRAIN_JOURNAL_DEPENDENCIES_BUILT !== "1") await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
+  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
   root = await mkdtemp(resolve(tmpdir(), "odysseus-journal-browser-"));
   const brain = resolve(root, "brain"), assets = resolve(root, "assets");
   await hook.phase("fixture-files", () => createFixtureBrain(repo, brain)); await mkdir(assets);

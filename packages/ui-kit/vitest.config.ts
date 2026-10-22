@@ -2,6 +2,7 @@ import { diagramArtifact, diagramFontStyles, diagramRasterComparison } from "../
 import { diagramCapture, diagramFixture } from "../ui-react/tests/browser/diagram-proof-command.ts";
 import { mermaidMedia, mermaidOutput, mermaidScreenComparison } from "../ui-react/tests/browser/mermaid-proof-command.ts";
 import { consumerParityViewport } from "./tests/visual/consumer-parity-viewport.ts";
+import { artifactParityRoute } from "./tests/visual/artifact-parity-route.ts";
 import { storageServer } from "../ui-react/tests/browser/storage-server-command.ts";
 import { policyServer } from "../ui-react/tests/browser/policy-server-command.ts";
 import { hygieneLoop } from "../ui-react/tests/browser/hygiene-loop-command.ts";
@@ -69,7 +70,7 @@ const storyProject = (name: string, theme: string) => ({
     setupFiles: ["./tests/visual/story-theme-setup.ts"],
     browser: {
       enabled: true,
-      commands: { consumerParityViewport },
+      commands: { consumerParityViewport, artifactParityRoute },
       provider: playwright({}),
       headless: true,
       instances: [{ browser: "chromium" }],

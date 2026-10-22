@@ -20,7 +20,7 @@ export function ownedPruneVariant(cronSource: string, boundarySource: string) {
   const runStart = boundary.indexOf("    async run(execution) {"), runEnd = boundary.indexOf("    async launch(execution) {", runStart);
   if (runStart < 0 || runEnd < 0) throw Error("Owned prune fixture run boundary changed");
   let run = boundary.slice(runStart, runEnd);
-  run = replace("boundary", run, "      return gated(execution, async hold => {", '      return gated(execution, async hold => {\n        fixtureStage("gate:admitted");');
+  run = replace("boundary", run, "      return gated(admission, async hold => {", '      return gated(admission, async hold => {\n        fixtureStage("gate:admitted");');
   run = replace("boundary", run, "          const run = async () => {", '          const run = async () => {\n            fixtureStage("output-lock:admitted");\n            fixtureStage("view:start");');
   const mark = (before: string, start: string, done: string) => { run = replace("boundary", run, before, `            fixtureStage("${start}");\n${before}\n            fixtureStage("${done}");`); };
   run = replace("boundary", run, "            const view = await prepareInput(execution.signal);", '            const view = await prepareInput(execution.signal);\n            fixtureStage("view:done");');

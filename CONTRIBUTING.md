@@ -48,7 +48,12 @@ issue when you are not sure.
 repository preload, and the repository browser
 wrapper wait automatically for other commands using the same checkout's build
 output. Runtime tests hold exclusive access because their fixtures rebuild the
-packages. Every selected package is rebuilt. Persistent build-output reuse is
+packages. Coordinated runtime invocations freshly build their selected package
+closure once before tests; hooks verify that same live invocation, checkout,
+exclusive lease and successful build before omitting duplicate compilation.
+Direct or unattested hooks rebuild. Source edits made during a run take effect
+on the next invocation. Ordinary explicit builds still rebuild every selected
+package. Watch/hot runs remain unattested. Persistent build-output reuse is
 disabled
 until its effective configuration, installed toolchain, runtime and stylesheet
 inputs can be qualified; package versions and symlink target strings are not
@@ -419,7 +424,10 @@ its title or labels change. A PR whose diff touches
 and carry the `contract` label. A PR titled `CONTRACT:` or labelled `contract`
 must touch the index or a component. PRs are squash-merged, so the title
 becomes the commit subject that an audit searches for. "Touches" means the PR's own diff, from
-where its branch left the base to its head commit. If the gate fails, either
+where its branch left the base to its head commit. The base is the one the PR
+declares, read from the PR on every run: an upper stack layer is compared with
+its parent, never with `main`, whatever base the event reports. If the PR or its
+base cannot be read, the gate fails rather than guess. If the gate fails, either
 fix the title and label, or move the doc edit out of a PR that is not a
 contract change.
 

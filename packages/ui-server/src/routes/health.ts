@@ -39,7 +39,7 @@ export function createHealthRoutes(deps: { db: Database }): Hono {
 
 export interface StatusDeps {
   /** Trusted metadata from configured modules; absent with an older CLI. */
-  getContentRenderers?(): Promise<ContentRendererDeclaration[] | undefined>;
+  getContentRenderers?(signal?: AbortSignal): Promise<ContentRendererDeclaration[] | undefined>;
   /** Git SHA baked at build time (SOURCE_COMMIT), "dev" when unset. */
   sourceCommit: string;
   getCronStatus(): unknown;
@@ -60,7 +60,7 @@ export interface StatusDeps {
 export function createStatusRoutes(deps: StatusDeps): Hono {
   return new Hono().get("/status", async (c) => {
     const subscription = deps.getSubscription ? await deps.getSubscription() : undefined;
-    const contentRenderers = await deps.getContentRenderers?.().catch(() => undefined);
+    const contentRenderers = await deps.getContentRenderers?.(c.req.raw.signal).catch(() => undefined);
     return c.json({
       ...(contentRenderers !== undefined ? { contentRenderers } : {}),
       healthy: true,

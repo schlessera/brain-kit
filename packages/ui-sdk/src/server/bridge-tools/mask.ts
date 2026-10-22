@@ -149,7 +149,26 @@ function scratchIgnored(rootReal: string, maintenance?: import("../maintenance-w
     existsSync(join(rootReal, ".git")) ||
     brainGitSync(rootReal, ["rev-parse", "--git-dir"], maintenance) === 0;
   const query = ["check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
-  return brainGitSync(rootReal, query, { ...maintenance, ...(!inRepo ? { emptyRepository: true } : {}) }) === 0;
+  return scratchIgnoreResult({ exitCode: brainGitSync(rootReal, query, { ...maintenance, ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
+}
+
+function scratchIgnoreUnavailable(): Error {
+  return new Error("Cannot verify the .brain/scratch/ directory ignore rule: the maintenance worker is unavailable. Check the server's native storage and worker configuration, then try again.");
+}
+
+function scratchIgnoreResult(result: { exitCode: number; killed: boolean }): boolean {
+  if (result.killed) throw new Error("Cannot verify the .brain/scratch/ directory ignore rule: the maintenance query timed out. Check the server's worker health, then try again.");
+  if (result.exitCode === 0) return true;
+  if (result.exitCode === 1) return false;
+  if (result.exitCode === 127) throw scratchIgnoreUnavailable();
+  throw new Error("Cannot verify the .brain/scratch/ directory ignore rule: the maintenance query failed. Check the server's worker health and Git configuration, then try again.");
+}
+
+function refuseNonignoredScratch(): never {
+  throw new Error(
+    `${SCRATCH_DIR}/ is not gitignored as a directory, so a mask written there could be committed to the brain. ` +
+      "Run `brain doctor --fix` to add it to .gitignore, then try again."
+  );
 }
 
 /** The scratch directory, verified: neither `.brain` nor `.brain/scratch` is a symlink. */
@@ -181,17 +200,30 @@ export function maskInScratch(rootReal: string, maskRel: string, maskAbs: string
  * it, is not its business.
  */
 export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): void {
-  if (!maskInScratch(rootReal, maskRel, maskAbs)) return;
+  if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs)) return;
+  if (!scratchIgnored(rootReal, maintenance)) refuseNonignoredScratch();
+}
+
+function assertScratchMaskDirectory(rootReal: string, maskRel: string, maskAbs: string): boolean {
+  if (!maskInScratch(rootReal, maskRel, maskAbs)) return false;
   const dir = scratchDir(rootReal);
   if (!under(dir, maskAbs)) {
     throw new Error(`${maskRel} resolves outside ${SCRATCH_DIR}/, so no mask is written there.`);
   }
-  if (!scratchIgnored(rootReal, maintenance)) {
-    throw new Error(
-      `${SCRATCH_DIR}/ is not gitignored as a directory, so a mask written there could be committed to the brain. ` +
-        "Run `brain doctor --fix` to add it to .gitignore, then try again."
-    );
-  }
+  return true;
+}
+
+/** Hosted queries await their own complete native input; fallback hosts retain their synchronous reader. */
+export async function assertScratchMaskAsync(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost, signal?: AbortSignal): Promise<void> {
+  if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs)) return;
+  if (!maintenance?.scratchIgnoreQuery) return assertScratchMask(rootReal, maskRel, maskAbs, maintenance);
+  let result: { exitCode: number; killed: boolean };
+  try { result = await maintenance.scratchIgnoreQuery(signal); }
+  catch { throw scratchIgnoreUnavailable(); }
+  signal?.throwIfAborted();
+  // The directory may have changed while the native worker was running.
+  assertScratchMaskDirectory(rootReal, maskRel, maskAbs);
+  if (!scratchIgnoreResult(result)) refuseNonignoredScratch();
 }
 
 /** Scratch fallback never substitutes a path-only write on an unqualified host. */

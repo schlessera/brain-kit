@@ -5,12 +5,12 @@ import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
-type Step = { uses?: string; run?: string; if?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
+type Step = { uses?: string; run?: string; if?: string; "timeout-minutes"?: unknown; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
   permissions?: Record<string, unknown>;
-  jobs?: Record<string, { name?: string; "runs-on"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
+  jobs?: Record<string, { name?: string; "runs-on"?: unknown; "timeout-minutes"?: unknown; if?: string; needs?: unknown; permissions?: unknown; steps?: Step[] }>;
 };
 
 export function workflowProblems(text: string, file: string): string[] {
@@ -57,6 +57,17 @@ export function workflowProblems(text: string, file: string): string[] {
       const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
       if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
+    // Network prerequisites cannot spend proof capacity; measured basis: docs/decisions/ci-utility.md (#2658).
+    for (const [name, proofMinutes] of [["unit", 30], ["runtime", 15], ["runtime_host", 15]] as const) {
+      const job = workflow.jobs?.[name];
+      const setup = job?.steps?.find(step => step.run === `bash scripts/ci-runtime-setup.sh${name === "unit" ? "" : " --native"}`);
+      const command = `bun scripts/ci-proof.ts ${name}`;
+      const proof = job?.steps?.find(step => step.run === command || step.run?.startsWith(`${command} `));
+      if (setup?.["timeout-minutes"] !== 12) fail(`${name}: environment setup must have its separate 12-minute limit`);
+      if (proof?.["timeout-minutes"] !== proofMinutes) fail(`${name}: proof must retain its ${proofMinutes}-minute limit`);
+      const limit = job?.["timeout-minutes"];
+      if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 12 + proofMinutes + 3) fail(`${name}: job limit must cover setup, proof and 3 minutes of other steps`);
+    }
     // Matrices, retention and refresh share one shard table; a drifted matrix would strand a partition.
     for (const domain of Object.keys(PROOF_SHARDS) as ShardedDomain[]) {
       const job = workflow.jobs?.[domain] as any;
@@ -79,6 +90,17 @@ export function workflowProblems(text: string, file: string): string[] {
     if (admission <= planning || discovery <= admission || metadata[admission]?.if !== "steps.plan.outputs.cadence == 'confirmation'" ||
         metadata[admission]?.env?.GH_TOKEN !== "${{ github.token }}") fail("metadata: confirmation admission must validate identity after planning and before product discovery");
   }
+  if (file === "contract.yml") {
+    // The event's base is wrong for native stack layers on some triggers (#2650).
+    const steps = workflow.jobs?.contract?.steps ?? [];
+    const gate = steps.find(step => step.run?.startsWith("bun scripts/check-contract-pr.ts"));
+    const eventBase = /github\.base_ref|pull_request\.base/;
+    if (gate?.run !== 'bun scripts/check-contract-pr.ts --declared-base "$HEAD_SHA"' ||
+        gate.env?.PR_NUMBER !== "${{ github.event.pull_request.number }}" || gate.env?.GH_TOKEN !== "${{ github.token }}" ||
+        steps.some(step => Object.entries(step.env ?? {}).some(([key, value]) => key !== "EVENT_BASE_REF" && eventBase.test(String(value))) || eventBase.test(step.run ?? ""))) {
+      fail("contract: the comparison base must be the PR's declared base, read at run time, never the event's");
+    }
+  }
   return problems;
 }
 
@@ -88,7 +110,8 @@ export function checkCIWorkflows(root: string): string[] {
   const files = existsSync(directory) ? readdirSync(directory).sort() : [];
   const expected = ["ci.yml", "contract.yml", "project-sync.yml"];
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
-  if (JSON.stringify(files) !== JSON.stringify(expected)) problems.push("GitHub must contain only the authoritative CI, contract, project-sync and optional Pages publication workflows");
+  if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
+  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync and optional Pages/timing workflows");
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {
@@ -98,7 +121,34 @@ export function checkCIWorkflows(root: string): string[] {
   }
   const pages = join(directory, "publish-pages.yml");
   if (existsSync(pages)) problems.push(...publicationWorkflowProblems(readFileSync(pages, "utf8")));
+  const timings = join(directory, "ci-timings.yml");
+  if (existsSync(timings)) problems.push(...timingWorkflowProblems(readFileSync(timings, "utf8")));
   return problems;
+}
+
+/** Measurement is scheduled trusted code with no product-proof authority. */
+export function timingWorkflowProblems(text: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`ci-timings.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["ci-timings.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["ci-timings.yml: workflow must be a mapping"];
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["schedule", "workflow_dispatch"]) ||
+      /\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("measurement must use scheduled/manual trusted execution only");
+  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read", actions: "read", "pull-requests": "read" })) fail("measurement token must remain read-only");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {})) !== JSON.stringify(["collect"])) fail("measurement must contain only the collector job");
+  const job = workflow.jobs?.collect;
+  if (job?.permissions !== undefined || job?.needs !== undefined || job?.["runs-on"] !== "ubuntu-24.04") fail("collector must be independent on its declared hosted runner");
+  const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
+  if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" ||
+    checkouts[0]?.with?.["persist-credentials"] !== false || checkouts[0]?.with?.repository !== undefined) fail("collector must check out trusted default-branch code without credentials");
+  if (JSON.stringify(workflow.on?.schedule) !== JSON.stringify([{ cron: "43 * * * *" }])) fail("timing collection must remain hourly and incremental");
+  const collection = steps.find(s => s.run?.includes("bun scripts/ci-timings.ts collect"));
+  if (!collection?.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations') ||
+    /--resources\b/.test(collection.run) || collection.env?.TIMING_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("timing collection requires seeded acquisition, a hard budget/reserve and no scheduled resource logs");
+  for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("collector scripts must not interpolate events or install candidate dependencies");
+  if (!steps.some(s => s.uses === "actions/upload-artifact@v7" && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
+  return errors;
 }
 
 /** Publication has its own narrowly scoped deploy token; contribution CI stays read-only. */

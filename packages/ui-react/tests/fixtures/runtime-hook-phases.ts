@@ -57,5 +57,5 @@ export function runtimeHookPhases(file: string) {
     report(stage, "complete", details);
     return result;
   }
-  return { phase, child };
+  return { phase, child, report };
 }

@@ -3,7 +3,7 @@ import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, 
 import { dirname, join, resolve } from "node:path";
 import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { parseMaintenanceGitSources, reportMaintenanceGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
+import { collectOwnedGitAttributes, parseMaintenanceGitSources, reportMaintenanceGitFailure, reportOwnedGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
 
 const TARGET = "/tmp/brain-maintenance-git";
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -11,7 +11,8 @@ const hooks = ["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commi
   "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update", "proc-receive",
   "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change"];
 
-async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, binary: string | undefined, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceGitSources> {
+/** Worker-identity collection, then the owner read for withheld server-owned directories. */
+export async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, binary: string | undefined, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceGitSources> {
   const view = outputs.view, native = nativeWorkerStartupInput(view), storage = outputs.output.storage;
   const checkpoint = JSON.stringify(native.checkpoint), source = outputs.output.source, target = outputs.output.target;
   const context = () => JSON.stringify({ brain: command.brainPath, command: command.command, env: command.env,
@@ -37,7 +38,15 @@ async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<R
     reportMaintenanceGitFailure(log, result);
     throw Error("Cannot freeze retained concrete Git sources");
   }
-  return parseMaintenanceGitSources(result.stdout.trim(), maximum, expectedRoot);
+  const sources = parseMaintenanceGitSources(result.stdout.trim(), maximum, expectedRoot);
+  if (!sources.withheld.length) return sources;
+  // Server-owned private output (a strict worker's published 0700/0600 nodes)
+  // is read by its owner, never by widening modes or the worker's authority.
+  let owned: MaintenanceGitSources;
+  try { owned = collectOwnedGitAttributes(view.root, sources, maximum, expectedRoot); }
+  catch (error) { reportOwnedGitFailure(log, error); throw Error("Cannot freeze retained concrete Git sources"); }
+  validate();
+  return owned;
 }
 
 export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceCommand["git"]> {
@@ -80,49 +89,28 @@ export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs
   const refreshInput = async () => {
     if (!command.credentials) spec = await prepareMaintenanceGitInput({ ...command, startupView: outputs.view, output: outputs.output, git: spec }, signal);
   };
-  const gitRun = async (args: string[], stdin?: string) => {
-    await refreshInput();
-    const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
-      command: [process.execPath, "--config=/dev/null", "--no-env-file", entry, ...args], ...(stdin !== undefined ? { stdin } : {}), network: false, timeoutMs: 5000, ...(signal ? { signal } : {}) });
-    if (answer.exitCode !== 0 || answer.killed || !/^[a-f0-9]{40,64}\n?$/.test(answer.stdout)) throw new Error(`cannot freeze Git attributes: ${answer.stderr.slice(-400)}`);
-    return answer.stdout.trim();
-  };
-  async function tree(path: string): Promise<string> {
-    const rows: string[] = [];
+  // Work-tree attribute bytes come from the private collection or the
+  // immutable copy; `.git` and `node_modules` are never entered.
+  const attributes = privateInputs ? privateInputs.attributes : [];
+  if (!privateInputs) (function collect(path: string, prefix: string) {
     for (const name of readdirSync(path)) {
       if (name === ".git" || name === "node_modules") continue;
-      const child = join(path, name);
-      const info = lstatSync(child);
-      if (name === ".gitattributes" && info.isFile()) {
-        const oid = await gitRun(["hash-object", "-w", "--stdin", "--no-filters"], readFileSync(child, "utf8"));
-        rows.push(`100644 blob ${oid}\t${name}\0`);
-      } else if (info.isDirectory()) {
-        const oid = await tree(child);
-        if (oid !== EMPTY_TREE) rows.push(`040000 tree ${oid}\t${name}\0`);
-      }
+      const child = join(path, name), info = lstatSync(child);
+      if (name === ".gitattributes" && info.isFile()) attributes.push({ path: prefix + name, data: readFileSync(child, "utf8") });
+      else if (info.isDirectory()) collect(child, `${prefix}${name}/`);
     }
-    return rows.length ? gitRun(["mktree", "-z"], rows.join("")) : EMPTY_TREE;
-  }
-  const EMPTY_TREE = await gitRun(["mktree", "-z"], "");
-  if (privateInputs) {
-    type AttributeTree = { data?: string; children: Map<string, AttributeTree> };
-    const root: AttributeTree = { children: new Map() };
-    for (const attribute of privateInputs.attributes) {
-      let node = root;
-      for (const part of attribute.path.split("/").slice(0, -1)) {
-        if (!node.children.has(part)) node.children.set(part, { children: new Map() });
-        node = node.children.get(part)!;
-      }
-      node.data = attribute.data;
-    }
-    const freeze = async (node: AttributeTree): Promise<string> => {
-      const rows: string[] = [];
-      if (node.data !== undefined) rows.push(`100644 blob ${await gitRun(["hash-object", "-w", "--stdin", "--no-filters"], node.data)}\t.gitattributes\0`);
-      for (const [name, child] of node.children) { const oid = await freeze(child); if (oid !== EMPTY_TREE) rows.push(`040000 tree ${oid}\t${name}\0`); }
-      return rows.length ? gitRun(["mktree", "-z"], rows.join("")) : EMPTY_TREE;
-    };
-    frozen.attributes = await freeze(root);
-  } else frozen.attributes = await tree(outputs.view.root);
+  })(outputs.view.root, "");
+  // One launch writes every object through the frozen adapter. Its deadline
+  // is the sum of the per-object launches it replaces (#2622).
+  const directories = new Set(attributes.flatMap(({ path }) => path.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/"))));
+  const freezer = Bun.resolveSync("./maintenance-git-attributes", import.meta.dir);
+  await refreshInput();
+  const answer = await runMaintenanceWorker({ ...command, startupView: outputs.view, output: outputs.output, git: spec,
+    command: [process.execPath, "--config=/dev/null", "--no-env-file", freezer, entry], stdin: JSON.stringify(attributes),
+    readPaths: [...(command.readPaths ?? []), freezer], network: false,
+    timeoutMs: 5000 * (1 + attributes.length + (attributes.length ? 1 + directories.size : 0)), ...(signal ? { signal } : {}) });
+  if (answer.exitCode !== 0 || answer.killed || !/^[a-f0-9]{40,64}\n?$/.test(answer.stdout)) throw new Error(`cannot freeze Git attributes: ${answer.stderr.slice(-400)}`);
+  frozen.attributes = answer.stdout.trim();
   writeFileSync(join(root, "config.json"), JSON.stringify(frozen), { mode: 0o600 });
   await refreshInput();
   return spec;

@@ -252,7 +252,9 @@ signatures (every public export and the types it is made of)
     export interface BrainClient {
         hygiene?(args: readonly string[]): Promise<unknown>;
         cliCommand(): string[];
-        modules?(): Promise<{
+        modules?(opts?: {
+            signal?: AbortSignal;
+        }): Promise<{
             enabled: ConfiguredModule[];
             available: unknown[];
         }>;
@@ -815,6 +817,87 @@ signatures (every public export and the types it is made of)
         availableBytes: number;
         recoveryReserveBytes: number;
         reserveAllocatedBytes: number;
+    }
+  NativePoolRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolRecord {
+        id: string;
+        purpose: "source" | "worktree" | "staging";
+        from: string | null;
+        allowanceBytes: number;
+        state: NativePoolState;
+        root: NativePoolRootIdentity | null;
+        path: string | null;
+        ownerBytes: number | null;
+        reason: string | null;
+    }
+  NativePoolRootIdentity (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolRootIdentity {
+        rootId: string;
+        uuid: string;
+        otransid: string;
+    }
+  NativePoolSpace (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolSpace {
+        profile: "single" | "dup";
+        diskUsed: number;
+        diskTotal: number;
+        bytesUsed: number;
+        bytesReserved: number;
+        bytesMayUse: number;
+        bytesPinned: number;
+    }
+  NativePoolState (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export type NativePoolState = "reserved" | "writable" | "sealed" | "deleting" | "deleted" | "reclaimed";
+  NativePoolStatus (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
+    export interface NativePoolStatus {
+        qualified: boolean;
+        refusal: {
+            code: "unsupported" | "capacity" | "unknown" | "changing";
+            message: string;
+        } | null;
+        fsid: string;
+        limits: {
+            combinedBytes: number;
+            operationBytes: number;
+            emergencyBytes: number;
+            physicalFloorBytes: number;
+            maxIdentities: number;
+        };
+        accounting: {
+            basis: "btrfs-space-info-disk-used+simple-quota-owner";
+            observation: {
+                generation: string;
+                enableGeneration: string;
+                reads: number;
+            };
+            aggregateBytes: number;
+            emergencyAllocatedBytes: number;
+            chargedBytes: number;
+            ownerBytes: number;
+            globalBytes: number;
+            spaces: {
+                data: NativePoolSpace;
+                metadata: NativePoolSpace;
+                system: NativePoolSpace;
+            };
+            pendingBytes: number;
+            reservationFactor: {
+                numerator: number;
+                denominator: number;
+            };
+            availableBytes: number;
+        } | null;
+        physical: {
+            kind: "dedicated-device" | "sparse-loop";
+            deviceBytes: number;
+            backingAllocatedBytes: number | null;
+            unbackedBytes: number;
+            backingAvailableBytes: number | null;
+            otherConsumersBytes: number | null;
+            headroomBytes: number | null;
+        } | null;
+        counts: Record<NativePoolState, number>;
+        identities: number;
     }
   NativeRecoveryRecord (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativeRecoveryRecord {
@@ -1413,11 +1496,19 @@ signatures (every public export and the types it is made of)
         delta: (from: string, to: string, signal?: AbortSignal) => Promise<NativeDeltaStream>;
         inspectStage: (id: string, signal?: AbortSignal) => Promise<NativeStageInspection>;
         listCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
+        listPoolRecovery: (after?: null | string, signal?: AbortSignal) => Promise<{
+            next: null | string;
+            records: NativePoolRecord[];
+        }>;
         listRecovery: (after?: null | string, signal?: AbortSignal) => Promise<{
             next: null | string;
             records: NativeRecoveryRecord[];
         }>;
         listStage: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
+        poolCreate: (id: string, purpose: NativePoolRecord["purpose"], from: null | string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolRelease: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolSeal: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolStatus: (signal?: AbortSignal) => Promise<NativePoolStatus>;
         prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
         readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;

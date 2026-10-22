@@ -1,6 +1,7 @@
 /**
  * `app.close()` gives in-flight brain CLI runs a short grace period, then
- * cancels the shared ones (reads, plain index) and never a writer (#2473).
+ * cancels the shared ones (reads, metadata, plain index) and never a writer
+ * (#2473). Metadata still waiting for admission is cancelled at once (#2457).
  * Each case waits until the fixture CLI is actually running, so none depends
  * on how long sandbox setup takes.
  */
@@ -131,4 +132,28 @@ test("the client's shutdown signal never cancels a writer", async () => {
   await cli.started();
   shutdown.abort(new Error("Server shutting down"));
   expect(await add).toMatchObject({ path: ADDED.path });
+}, 45_000);
+
+test("the client's closing signal lets admitted metadata finish", async () => {
+  const cli = brainWithCli("module", { enabled: [], available: [] }, 1_000);
+  const closing = new AbortController(), shutdown = new AbortController();
+  const brain = createBrainClient({ brainPath: cli.root, closing: closing.signal, shutdown: shutdown.signal });
+  const modules = brain.modules!().catch(error => error);
+  await cli.started();
+  // closing cancels only metadata still waiting for admission (#2457).
+  closing.abort(new Error("Server shutting down"));
+  expect(await modules, "ADMITTED_METADATA_SURVIVES_CLOSING").toEqual({ enabled: [], available: [] });
+}, 45_000);
+
+test("the client's shutdown signal cancels admitted metadata with its exact reason", async () => {
+  const cli = brainWithCli("module", { enabled: [], available: [] }, null);
+  const closing = new AbortController(), shutdown = new AbortController();
+  const brain = createBrainClient({ brainPath: cli.root, closing: closing.signal, shutdown: shutdown.signal });
+  const modules = brain.modules!().then(() => "resolved", error => error);
+  await cli.started();
+  closing.abort(new Error("Server shutting down"));
+  const reason = new Error("Server shutting down");
+  shutdown.abort(reason);
+  const outcome = await Promise.race([modules, Bun.sleep(10_000).then(() => "still running")]);
+  expect(outcome, "SHUTDOWN_CANCELS_ADMITTED_METADATA").toBe(reason);
 }, 45_000);

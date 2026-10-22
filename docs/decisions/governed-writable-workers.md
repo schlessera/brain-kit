@@ -370,6 +370,43 @@ protected admission. No existing writer is killed or made exclusive. This
 negative accounting does not qualify a native plan as mounted-writer attestation
 or complete the all-writer proof for provider exclusions.
 
+**No host fallback under a folder policy (#2284).** A gate row records a host
+writer only for as long as its owning server process and the child's output
+pipes live. Neither bounds what that child started. A host child whose owner
+was SIGKILLed, or a `setsid` descendant with closed output after a normal
+return, could still replace a restricted folder after a new governed worker
+had pinned it
+([reproduction](https://github.com/schlessera/brain-kit/issues/2284)). No
+parent-death signal, process group or EOF supervisor proves that every
+descendant of an unsandboxed host process has exited. The maintainer chose
+option (c) on 2026-10-22, over a sticky unknown-state refusal and over a
+PID-namespace boundary for legacy fallback: **while a provider folder policy
+is active, the legacy host fallback is refused entirely.** The refusal happens
+before any host process exists, as `HostFallbackRefusedError`, and names the
+folders. The existing peer refusals above are checked first and keep their
+plain errors. It covers complete and streaming commands, gated and ungated
+(optional missing gate, `gate: none`, the synchronous reader). A gated command
+is checked inside its writer-gate transaction, so the check is ordered against
+governed admission, and the policy is reread there. An ungated command reads
+every active writer's plan from the gate in one transaction. Only with no gate
+at all is the policy file the sole evidence. A provider folder policy
+means a literal recursive folder selector (`<root>/**`) in a provider rule,
+in the current policy or in a plan an active writer retains after the policy
+is removed. A policy file that cannot be read or parsed is treated as unknown
+folder state and refuses too, as does an active writer with unknown or
+unverifiable folder provenance. A valid policy without provider folders, or
+no policy file, leaves host fallback running. The one change there is that
+an ungated command beside an attached gate now also refuses beside a writer
+with unknown provenance, as a gated one already did. Managed and governed
+execution do not change. Host fallback still exists for never-governed hosts.
+
+This ruling does not apply to folders that appear after a host writer
+started. A host writer admitted with no folder policy, whose admission has
+since ended while a descendant keeps running, is outside the gate. A later
+folder policy cannot account for it, and restarting the server does not end
+that descendant. Before relying on provider folder exclusions on such a
+brain, make sure no process that host fallback started is still running.
+
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
 requires the operational database and other private server state outside the
@@ -411,6 +448,17 @@ directory. Boot refuses `governed` when it does.
 
 A malicious config, preload, filter or symlinked ref therefore runs only in a
 sandbox with a read-only host.
+
+Hosted scratch-mask verification enters the existing maintenance serialization
+before application-lock admission, acquires its own complete native checkpoint
+asynchronously and runs a credential-free, read-only Git query. It releases
+that input after the worker drains, without creating or publishing a writable
+stage (`createScratchIgnoreQuery`,
+`packages/ui-server/src/brain/scratch-mask-query.ts:7-43`). Exit 1 means the
+directory is not ignored. Launch failure, another exit or timeout means the
+rule could not be verified; the mask remains refused without forwarding worker
+stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
+`packages/ui-sdk/src/server/bridge-tools/mask.ts:217-228`).
 
 **Credentials never reach a process that evaluates repository inputs.** A
 read-only host does not stop sandboxed code from stealing a credential it was
@@ -1281,7 +1329,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:287`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:295`).
 
 **What changes:**
 
@@ -1345,25 +1393,38 @@ socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
 (`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:197`).
-Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
-directories with empty read-only tmpfs mounts:
+directories with empty read-only tmpfs mounts. Maintenance workers share the
+same host mask set:
 
-- `/run`, `/var/run`, `/var/lib`, `/tmp/.X11-unix`;
+- `/run`, all of `/var`, `/tmp/.X11-unix`;
 - every home directory except the brain's own path;
 - `/root`, `/mnt`, `/media` and `/srv`.
 
-After the masks, the launcher re-binds the runtime the worker needs, read-only
-and file by file, with the same resolution the restricted envelope uses
+The maintainer's 2026-10-22 ruling on [#2633](https://github.com/schlessera/brain-kit/issues/2633)
+includes `/var/tmp`, `/var/spool`, `/var/snap` and future layouts below `/var`.
+There is no `/var/tmp` exception. A read-only host mount still permits socket
+connections, so selected subdirectory masks cannot provide this boundary.
+The worker's private `/tmp` and the other host masks remain in place.
+
+After the masks, the launcher re-binds only the explicit runtime inputs the
+worker needs, read-only, with the same resolution the restricted envelope uses
 (`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1625`):
 
 - the Bun executable;
-- the backend entry and its `node_modules` chains;
+- the backend entry's package, its `node_modules` chains and linked workspace
+  packages;
 - the bundled agent CLI.
 
-This keeps a Bun or package install under a home directory or `/srv` working,
-without exposing that whole directory again.
+This keeps a Bun or package install under `/var`, a home directory or `/srv`
+working without exposing the whole masked ancestor. These are explicit file
+and package-directory binds, not a general exception for their parent.
+Compatibility proof executes a Bun binary bound from `/var/lib`, reads an
+explicit regular-file input there, refuses a write to that input, and checks
+that neighboring host sockets remain unreachable. The governed and strict
+filesystem walks permit only the admitted relay and proxy sockets; the
+credential-free maintenance walk permits none.
 
 ### Private-state masks beneath inaccessible parents — 2026-10-17
 
@@ -1408,7 +1469,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:228-292`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:230-294`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1416,7 +1477,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:88-106`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:90-108`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -1725,7 +1786,7 @@ rewrite. The collector imports no brain code, gains no network, and cannot
 select a new input root. The host binds its root receipt to the retained
 checkpoint and revalidates the original view, command and output identity
 before consuming it (`privateGitSources`,
-`packages/ui-server/src/brain/maintenance-git.ts:14-41`).
+`packages/ui-server/src/brain/maintenance-git.ts:15-50`).
 
 Attribute bytes round-trip UTF-8 exactly; aliases, unsupported types, unreadable
 inputs and bound/depth/entry overflow refuse instead of inventing absent
@@ -1734,7 +1795,61 @@ actual configuration query keeps the same host-resolved runtime and cleared
 worker environment; the existing adapter supplies the immutable hooks and
 attributes to later Git consumers. Credentialed and no-helper preparation keep
 their existing paths (`collectMaintenanceGitSources`,
-`packages/ui-server/src/brain/maintenance-git-source.ts:59-173`).
+`packages/ui-server/src/brain/maintenance-git-source.ts:66-187`).
+
+The attributes freeze writes the empty tree and every `.gitattributes` blob
+and tree in one launch of a fixed first-party program, without network and
+under the credential policy, frozen adapter and owned stage of the command it
+prepares. Each launch
+re-prepares that adapter input, so freezing one object per launch multiplied a
+maintenance run's preparation several times over. The single launch's deadline
+is the sum of the per-object launches it replaced (`Work-tree attribute bytes come`,
+`packages/ui-server/src/brain/maintenance-git.ts:92-113`;
+[#2622](https://github.com/schlessera/brain-kit/issues/2622)).
+
+**Server-owned strict output — 2026-10-22.** A strict worker can publish a
+private directory into its scratch area. Native publication installs those
+nodes under the server's identity and keeps their `0700`/`0600` modes, so the
+worker-identity collector above cannot search them. The maintainer selected
+option A in [#2364](https://github.com/schlessera/brain-kit/issues/2364):
+ordinary maintenance must still work over that persistent output, through one
+narrowly bounded trusted read, without widening modes, changing publication
+ownership or giving the maintenance helper server authority.
+
+The boundary follows ownership: each identity reads only what it owns. The
+worker collector does not enter a directory its identity cannot search. It
+records the directory's path and the exact metadata it observed
+(device, inode, mode, link count, size and times), and only permission denial
+withholds; every other failure still refuses. The server then reads only
+those withheld directories, under its own identity, from the same retained
+checkpoint root (`collectOwnedGitAttributes`,
+`packages/ui-server/src/brain/maintenance-git-source.ts:227-302`):
+
+- The root must be the checkpoint whose identity the worker receipt is bound
+  to. Each withheld path is walked by descriptor, without following aliases
+  and without leaving the checkpoint's device, and must still name the exact
+  node the worker observed.
+- The server opens a withheld directory, a directory below it or an
+  attributes file only when the server owns it. A worker-owned, root-owned or
+  other foreign node refuses, even when its group would let the server read
+  it.
+- It reads nested `.gitattributes` bytes and nothing else, with the same
+  rules as the worker: regular single-link files, exact UTF-8, and the shared
+  byte, entry and depth bounds. `.git` and `node_modules` are skipped, and the
+  receipt parser refuses withheld paths that escape, nest, name `.git` or
+  carry malformed identities.
+- Nothing is executed and no repository code is imported. The freeze
+  revalidates the original view, command and output identity after the read.
+
+The worker receipt therefore names only directories; it cannot choose a root,
+an identity, a file or an operation. A forged receipt can at most select
+attributes files the server already owns inside the checkpoint. A worker's own
+private inputs keep their worker-identity path, and an unreadable, aliased,
+foreign or replaced input still refuses the whole preparation with a bounded
+`maintenance Git owner input refused` diagnostic. The default native identity
+proof keeps the strict publication in place and indexes over it, with a
+foreign worker-owned directory and a private alias to a server secret as its
+refusal controls.
 
 
 **Verification from inside a real worker.** The probe checks:
@@ -2018,7 +2133,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:429-440`).
+  `packages/ui-server/src/brain/host-boundary.ts:445-456`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal

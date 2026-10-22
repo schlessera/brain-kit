@@ -1,3 +1,4 @@
+import { controlDirectory } from "./helpers/control-directory.js";
 import * as fs from "node:fs";
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { chmodSync, statSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from "node:fs";
@@ -28,7 +29,7 @@ function fixture() {
 
 test("hostile output permissions release the real writer gate and all staging storage", async () => {
   const brain = fixture();
-  const state = mkdtempSync("/var/tmp/odysseus-cleanup-state-");
+  const state = mkdtempSync(join(tmpdir(), "odysseus-cleanup-state-"));
   cleanup.push(() => rmSync(state, { recursive: true, force: true }));
   const dbPath = join(state, "ui.db");
   const db = createUiDb(dbPath);
@@ -57,7 +58,7 @@ test("hostile output permissions release the real writer gate and all staging st
 
 test("failed launch cleans read-only copies without changing the live brain mode", async () => {
   const brain = fixture();
-  const state = mkdtempSync("/var/tmp/odysseus-failed-start-");
+  const state = mkdtempSync(join(tmpdir(), "odysseus-failed-start-"));
   cleanup.push(() => rmSync(state, { recursive: true, force: true }));
   const dbPath = join(state, "ui.db");
   const db = createUiDb(dbPath);
@@ -161,7 +162,7 @@ test("maintenance publishes explicit output without opening the execution view f
 });
 test("an already-running maintenance reader retains dependency bytes and absence", async () => {
   const brain = fixture();
-  const control = mkdtempSync("/var/tmp/odysseus-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
+  const control = controlDirectory("odysseus-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
   const go = join(control, "go");
   const boundary = createHostBoundary({ brainPath: brain });
   const program = `console.log("ready"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5); console.log((await import("./brain.config.ts")).default); console.log(await Bun.file(".mcp.json").exists());`;
@@ -175,7 +176,7 @@ test("an already-running maintenance reader retains dependency bytes and absence
     let output = "";
     for (;;) { const next = await stream.read(); if (next.done) break; output += Buffer.from(next.value).toString(); }
     expect(await worker.exited, await new Response(worker.stderr).text()).toBe(0);
-    expect(output).toBe("before launch\nfalse\n");
+    expect(output, "MAINTENANCE_STARTUP_BYTES_AND_ABSENCE").toBe("before launch\nfalse\n");
     expect(readFileSync(join(brain, "helper.ts"), "utf8")).toContain("during launch");
   } finally { worker.kill("SIGKILL"); }
 });
@@ -233,7 +234,7 @@ test("maintenance Git freezes filter dependencies and attributes while publishin
   writeFileSync(join(brain, "filters/clean.sh"), "cat filters/value.txt; cat\n");
   writeFileSync(join(brain, "filters/value.txt"), "before launch\n");
   writeFileSync(join(brain, ".gitattributes"), "*.md filter=crew\n");
-  const control = mkdtempSync("/var/tmp/odysseus-git-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
+  const control = controlDirectory("odysseus-git-control-"); cleanup.push(() => rmSync(control, { recursive: true, force: true }));
   const go = join(control, "go");
   const boundary = createHostBoundary({ brainPath: brain });
   const program = `console.log("ready"); while(!await Bun.file(${JSON.stringify(go)}).exists()) await Bun.sleep(5);
@@ -368,7 +369,7 @@ for (const moved of [false, true]) test(`finalizing a child with parent search r
 
 
 test("separate maintenance clients serialize frozen preparation through publication", async () => {
-  const brain = fixture(), control = mkdtempSync("/var/tmp/odysseus-output-serialization-");
+  const brain = fixture(), control = controlDirectory("odysseus-output-serialization-");
   cleanup.push(() => rmSync(control, { recursive: true, force: true }));
   const events = join(control, "events"), release = join(control, "release");
   writeFileSync(events, ""); writeFileSync(join(brain, "counter.txt"), "0");
@@ -421,16 +422,15 @@ else if(process.argv.includes("index")) {await Bun.sleep(700);console.log("{}");
 });
 
 for (const timing of ["during", "after"] as const) test(`cancellation ${timing} Git preparation starts no maintenance command and releases admission`, async () => {
-  const brain = fixture(), state = mkdtempSync("/var/tmp/odysseus-cancel-git-");
+  const brain = fixture(), state = mkdtempSync(join(tmpdir(), "odysseus-cancel-git-"));
   cleanup.push(() => rmSync(state, { recursive: true, force: true }));
   const realGit = Bun.which("git")!;
   const init = Bun.spawnSync([realGit, "-C", brain, "init", "-q"]); expect(init.exitCode, init.stderr.toString()).toBe(0);
   Bun.spawnSync([realGit, "-C", brain, "config", "core.fsmonitor", "false"]);
-  const controller = new AbortController(), previousPath = process.env.PATH;
+  const controller = new AbortController();
   const fakeGit = join(brain, "git");
   if (timing === "during") {
     writeFileSync(fakeGit, `#!/bin/sh\nsleep 0.6\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
-    process.env.PATH = `${brain}:${previousPath}`;
   }
   const which = Bun.which;
   const selectGit = timing === "during" ? spyOn(Bun, "which").mockImplementation((name, options) => name === "git" ? fakeGit : which(name, options)) : undefined;
@@ -438,14 +438,24 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
   let injected = false;
   const spy = timing === "after" ? spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
     const result = await original(input);
-    if (input.command.includes("mktree") && result.exitCode === 0) { injected = true; controller.abort(new DOMException("after Git preparation", "AbortError")); }
+    if (input.command.some(part => part.endsWith("/maintenance-git-attributes.ts")) && result.exitCode === 0) { injected = true; controller.abort(new DOMException("after Git preparation", "AbortError")); }
     return result;
   }) : undefined;
-  const dbPath = join(state, "ui.db"), db = createUiDb(dbPath);
-  const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
-  const heldBefore = processStateLedger().outputStagingHeld;
-  let abortedAt = 0;
+  let db: ReturnType<typeof createUiDb> | undefined;
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    spy?.mockRestore(); selectGit?.mockRestore(); db?.close();
+  };
+  // A Bun timeout runs afterEach without unwinding this callback's finally.
+  // Restore before fixture removal, and make a late finally harmless.
+  cleanup.push(restore);
   try {
+    const dbPath = join(state, "ui.db"); db = createUiDb(dbPath);
+    const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
+    const heldBefore = processStateLedger().outputStagingHeld;
+    let abortedAt = 0;
     const pending = execution.boundary.launch({ argv: [process.execPath, "--no-env-file", "-e", 'require("node:fs").writeFileSync(process.env.BRAIN_ROOT+"/harbor.md","cancelled command ran");'],
       env: {}, credentials: false, gate: "exclusive", purpose: "cancel Git preparation", signal: controller.signal })
       .then(async worker => { const streams = Promise.all([new Response(worker.stdout).text(),new Response(worker.stderr).text()]); const code = await worker.exited; await streams; return { code }; }, error => error as Error);
@@ -460,7 +470,7 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
     expect(readFileSync(join(brain, "harbor.md"), "utf8")).toBe("Odysseus before launch.\n");
     expect(execution.gate()!.holders()).toEqual([]);
     expect(processStateLedger().outputStagingHeld).toBe(heldBefore);
-  } finally { spy?.mockRestore(); selectGit?.mockRestore(); if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath; db.close(); }
+  } finally { restore(); }
 });
 
 
@@ -484,4 +494,32 @@ test("legacy credentialed Git consumer freezes attributes and publishes its real
   expect(indexed.exitCode, indexed.stderr.toString()).toBe(0);
   expect(indexed.stdout.toString(), "LEGACY_CREDENTIALED_GIT_INDEX_PUBLISHED").toBe(result.stdout);
   expect(existsSync(join(brain, "git-adapter")), "PRIVATE_GIT_INPUT_NOT_PUBLISHED").toBe(false);
+});
+
+test("credential-free Git consumer freezes nested attributes in one worker launch", async () => {
+  const brain = fixture();
+  const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: brain, stdout: "pipe", stderr: "pipe" });
+  expect(git("init", "-q").exitCode).toBe(0);
+  mkdirSync(join(brain, "notes/voyage"), { recursive: true }); mkdirSync(join(brain, "empty"));
+  writeFileSync(join(brain, ".gitattributes"), "*.md odysseus=ithaca\n");
+  writeFileSync(join(brain, "notes/voyage/.gitattributes"), "*.md crew=twelve\n");
+  const original = workerSdk.runMaintenanceWorker, launches: string[][] = [];
+  const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(input => { launches.push([...input.command]); return original(input); });
+  let result: Awaited<ReturnType<ReturnType<typeof createHostBoundary>["run"]>>;
+  try {
+    // The command rewrites its work-tree attributes first: only the frozen
+    // startup tree can still answer with the original values.
+    const program = `const fs=require("node:fs"),root=process.env.BRAIN_ROOT;
+      fs.writeFileSync(root+"/.gitattributes","*.md odysseus=troy\\n");fs.rmSync(root+"/notes/voyage/.gitattributes");
+      const p=Bun.spawnSync(["git","check-attr","odysseus","crew","--","notes/voyage/raft.md","harbor.md"],{stdout:"pipe",stderr:"pipe"});
+      if(p.exitCode)throw new Error(p.stderr.toString());process.stdout.write(p.stdout);`;
+    result = await createHostBoundary({ brainPath: brain }).run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
+      env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", purpose: "Odysseus nested attributes" });
+  } finally { spy.mockRestore(); }
+  expect(result.exitCode, result.stderr).toBe(0);
+  expect(result.stdout, "FROZEN_NESTED_ATTRIBUTES_SELECTED").toBe("notes/voyage/raft.md: odysseus: ithaca\nnotes/voyage/raft.md: crew: twelve\n"
+    + "harbor.md: odysseus: ithaca\nharbor.md: crew: unspecified\n");
+  const entry = workerSdk.maintenanceGitEntry();
+  expect(launches.filter(command => command.some(part => part.endsWith("/maintenance-git-attributes.ts"))).length, "ONE_ATTRIBUTES_FREEZE_LAUNCH").toBe(1);
+  expect(launches.filter(command => command[3] === entry), "NO_PER_OBJECT_ATTRIBUTE_LAUNCHES").toEqual([]);
 });

@@ -195,12 +195,10 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       const { dev, ino } = statSync(join(workspace, "node_modules/typescript/package.json"));
       return { worker: index + 1, workspace: relative(root, workspace), files, checkout, dependency: { dev, ino } };
     }), null, 2));
-    await runCommands(workers.map((worker, index) => ({ name: `unit worker ${index + 1} private package build`,
-      argv: [process.execPath, "run", "--cwd", worker.root, "build"] })), root, 2);
     for (const worker of workers) mkdirSync(join(worker.root, "tmp/maintenance-ledger"), { recursive: true, mode: 0o700 });
     await runCommands(workers.map((worker, index) => ({ name: `complete unit worker ${index + 1}/${workers.length}`,
       argv: ["unshare", "--user", "--map-current-user", "--keep-caps", "--mount", "bash", join(root, "scripts/unit-worker-entry.sh"),
-        join(worker.root, "tmp/maintenance-ledger"), process.execPath, "run", "--cwd", worker.root, "test", ...worker.files.map(file => join(worker.root, file)),
+        join(worker.root, "tmp/maintenance-ledger"), process.execPath, "run", "--cwd", worker.root, "test", "--internal-full-preparation", ...worker.files.map(file => join(worker.root, file)),
         "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
       env: { BRAIN_REQUIRE_CHROME: "1", ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}) } })), root, 2);
     const reports = workers.map(worker => {

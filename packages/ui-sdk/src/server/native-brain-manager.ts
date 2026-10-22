@@ -13,6 +13,7 @@ import { startNativeStage } from "./native-brain-stage.js";
 import { randomUUID } from "node:crypto";
 import { nativeCheckpointReaderPath, startNativeCheckpointRead } from "./native-checkpoint-reader.js";
 import { NativeRecoveryIndex } from "./native-recovery-index.js";
+import { createNativeReferencePool, validateNativeReferencePoolConfig, type NativeReferencePool, type NativeReferencePoolConfig } from "./native-reference-pool.js";
 
 const BTRFS = "/usr/bin/btrfs", PYTHON = "/usr/bin/python3", FALLOCATE = "/usr/bin/fallocate";
 const ENV = Object.freeze({ PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" });
@@ -60,6 +61,8 @@ export interface NativeBrainManagerConfig {
   recoveryReserveBytes: number;
   operationTimeoutMs?: number;
   maxDeltaBytes?: number;
+  /** Optional separate Btrfs reference volume (#2428); no consumer is enabled by configuring it. */
+  referencePool?: NativeReferencePoolConfig;
 }
 type RootInfo = { rootId: string; uuid: string; parentUuid: string; receivedUuid: string; transaction: string; readOnly: boolean; fsid: string; devices: number };
 type Intent = NativeRecoveryRecord & { version: 1; sourceUuid: string };
@@ -85,6 +88,7 @@ export function validateNativeBrainManagerConfig(config: NativeBrainManagerConfi
       if (!Number.isSafeInteger(value) || value! <= 0 || value! % 4096 !== 0) throw new NativeBrainManagerError("invalid", "Native staging requires the explicit finite page-aligned output allowance and aggregate budget.");
     if (config.stageAllowanceBytes! > config.stageBudgetBytes!) throw new NativeBrainManagerError("invalid", "Native stage allowance exceeds its configured aggregate budget.");
   }
+  if (config.referencePool !== undefined) validateNativeReferencePoolConfig(config.referencePool, config);
 }
 
 const unescapeMount = (text: string) => text.replace(/\\(040|011|012|134)/g, (_all, digits: string) => String.fromCharCode(parseInt(digits, 8)));
@@ -321,6 +325,18 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     try { return new NativeRecoveryIndex(recoveredIds); }
     catch (error) { closeSync(stateFd); throw error; }
   })();
+  // The pool qualifies independently: its refusal never blocks brain status or recovery.
+  let referencePool: NativeReferencePool | undefined;
+  if (fixed.referencePool) {
+    try {
+      referencePool = await createNativeReferencePool({ pool: validateNativeReferencePoolConfig(fixed.referencePool, fixed), appGid: fixed.appGid, command,
+        brain: { storePath: fixed.storePath, fsid: fixed.fsid, privatePaths: [privateRoot] } });
+    } catch (error) { recoveryIndex.close(); closeSync(stateFd); throw error; }
+  }
+  const pool = () => {
+    if (!referencePool) throw new NativeBrainManagerError("unsupported", "No reference pool volume is configured for this native manager.");
+    return referencePool;
+  };
   const rootPath = (id: string) => join(roots, id);
   async function verifyOwned(intent: Intent, signal?: AbortSignal): Promise<NativeCheckpoint> {
     if (intent.kind === "stage") throw new NativeBrainManagerError("invalid", "A staged namespace is not a native checkpoint identity.");
@@ -346,7 +362,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     const { statfsSync } = await import("node:fs"), space = statfsSync(fixed.storePath);
     if (space.type !== BTRFS_MAGIC) throw new NativeBrainManagerError("unsupported", "Native store filesystem type changed.");
     return { brainPath: brain, brainUuid: identity.uuid, brainRootId: identity.rootId,
-      privatePaths: [...new Set([privateRoot, dirname(fixed.socketPath), fixed.devicePath, ...(backingPath ? [backingPath] : [])])],
+      privatePaths: [...new Set([privateRoot, dirname(fixed.socketPath), fixed.devicePath, ...(backingPath ? [backingPath] : []), ...(referencePool?.privatePaths ?? [])])],
       fsid: fixed.fsid, capacityBytes: fixed.capacityBytes, availableBytes: space.bavail * space.bsize, recoveryReserveBytes: fixed.recoveryReserveBytes,
       reserveAllocatedBytes: lstatSync(reserve).blocks * 512 };
   }
@@ -354,6 +370,11 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     nativeManagerRequest.parse(request); const release = await acquire(signal); let handedToStream = false;
     try {
       if (request.operation === "ready") return Response.json(await ready(signal));
+      if (request.operation === "poolStatus") return Response.json(await pool().status(signal));
+      if (request.operation === "poolCreate") return Response.json(await pool().create(request, signal));
+      if (request.operation === "poolSeal") return Response.json(await pool().seal(request.id, signal));
+      if (request.operation === "poolRelease") return Response.json(await pool().release(request.id, signal));
+      if (request.operation === "listPoolRecovery") return Response.json(pool().list(request.after));
       if (request.operation === "cancelCheckpointRead") {
         const reader = checkpointReaders.get(request.id);
         if (reader) await reader.close();
@@ -603,7 +624,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       try {
         for (const reader of checkpointReaders.values()) await reader.close(); checkpointReaders.clear();
         for (const stage of activeStages.values()) await stage.close(); activeStages.clear();
-      } finally { recoveryIndex.close(); closeSync(stateFd); } },
+      } finally { referencePool?.close(); recoveryIndex.close(); closeSync(stateFd); } },
   };
 }
 

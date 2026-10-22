@@ -349,7 +349,9 @@ non-interactive operation. These project rules apply alongside it:
 - The bottom PR targets `main`; each upper PR targets its immediate parent.
   Run `bun run check:pr --base origin/main` at the bottom and
   `bun run check:pr --base <parent-ref>` above it, after fetching or verifying
-  that parent. CI and contract gates already use the PR's declared base.
+  that parent. CI and contract gates use the PR's declared base. The contract
+  gate reads it from the PR on every run: `edited` events have reported
+  `main` as the base of a native upper layer.
   Recheck the diff and affected proof after rebasing or retargeting.
 - Each PR uses the repository template and carries its own title, labels,
   release milestone and proof. Replace generated titles/bodies after

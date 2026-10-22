@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 
 import { MEASURED_RUNTIME } from "../src/measured-runtime";
 import { backendModule } from "../src/module";
+import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 import {
   ClaudeRuntimeUnavailableError,
   installedAgentSdkVersion,
@@ -178,8 +179,14 @@ describe("isMeasuredRuntime", () => {
     writeFileSync(path, `#!/bin/sh\ntrap "" TERM\necho "2.0.0 (Claude Code)"\nsleep 8\n`);
     chmodSync(path, 0o755);
     const started = Date.now();
-    await expect(probeClaudeRuntime({ claudeCodePath: path, brainPath: dir, env: env(), exec: {} })).rejects.toThrow(/did not answer --version within 5 s/);
-    expect(Date.now() - started).toBeLessThan(7_000);
+    const clock = registeredVersionDeadline();
+    try {
+      const pending = clock.track(probeClaudeRuntime({ claudeCodePath: path, brainPath: dir, env: env(), exec: {} }));
+      await clock.expire("2.0.0 (Claude Code)\n");
+      await expect(pending).rejects.toThrow(/did not answer --version within 5 s/);
+      clock.assertSettled();
+      expect(Date.now() - started).toBeLessThan(7_000);
+    } finally { await clock.dispose(); }
   });
 
   test("is the measured pair only when BOTH halves are", () => {

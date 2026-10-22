@@ -10,9 +10,9 @@ import { createFixtureMaintenanceHost } from "./helpers/worker-startup-view-fixt
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { HOST_MASKS, MAINTENANCE_HOME, probeWorkerHost, workerCommand } from "../src/server/worker-launcher";
-import { brainGitSync as realBrainGitSync, maintenanceLaunch, runMaintenanceWorker as realRunMaintenanceWorker } from "../src/server/maintenance-worker";
+import { brainGitSync as realBrainGitSync, maintenanceLaunch, runMaintenanceWorker as realRunMaintenanceWorker, type MaintenanceResult } from "../src/server/maintenance-worker";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const roots: string[] = [];
@@ -41,16 +41,27 @@ function fixture() {
   mkdirSync(join(brain, "notes"), { recursive: true });
   writeFileSync(join(brain, "notes/harbor.md"), "Odysseus logs the harbor at Ithaca.\n");
   writeFileSync(join(brain, ".env"), "BRAIN_DOTENV_MARK=from-the-brain\n");
-  const host = mkdtempSync("/var/tmp/brain-maintenance-host-");
-  roots.push(host);
+  const host = join(root, "host");
+  mkdirSync(host);
   return { root, brain, host };
 }
 
 async function inWorker(brain: string, program: string, options: { credentials: boolean; maskPaths?: string[]; writeFiles?: string[]; home?: string }) {
-  const result = await runMaintenanceWorker({ brainPath: brain, command: [process.execPath, "-e", program],
+  const input = { brainPath: brain, command: [process.execPath, "-e", program],
     env: { PATH: "/usr/bin:/bin", SECRET_TOKEN: "only-for-credentialed" }, credentials: options.credentials,
     ...(options.maskPaths ? { maskPaths: options.maskPaths } : {}), ...(options.writeFiles ? { writeFiles: options.writeFiles } : {}),
-    ...(options.home ? { home: options.home } : {}), timeoutMs: 30_000 });
+    ...(options.home ? { home: options.home } : {}), timeoutMs: 30_000 };
+  // Project only this test's fixture onto an unmasked location in a private
+  // namespace. The positive control and explicit masks then exercise the
+  // production launcher, independent of host /tmp, /var or home masks.
+  const child = Bun.spawn(["bwrap", "--unshare-net", "--bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/opt", "--bind", dirname(brain), "/opt/odysseus-maintenance",
+    process.execPath, "--preload", join(ROOT, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "fixtures/maintenance-host-controls.ts")],
+  { env: { PATH: "/usr/bin:/bin" }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  child.stdin.write(JSON.stringify(input).split(dirname(brain)).join("/opt/odysseus-maintenance"));
+  child.stdin.end();
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(exit, stderr).toBe(0);
+  const result = JSON.parse(stdout.trim().split("\n").at(-1)!) as MaintenanceResult;
   expect(result.exitCode, result.stderr).toBe(0);
   return JSON.parse(result.stdout.trim().split("\n").at(-1)!);
 }
@@ -96,7 +107,7 @@ describe("maintenance worker (#1648)", () => {
     const f = fixture();
     const marker = join(f.host, "backing.img"), alias = join(f.host, "backing-alias");
     writeFileSync(marker, "Odysseus fictional backing marker.");
-    symlinkSync(marker, alias);
+    symlinkSync("backing.img", alias);
     const program = `let bytes = ""; try { bytes = require("fs").readFileSync(${JSON.stringify(marker)}, "utf8"); } catch (error) { if (error.code !== "EACCES") throw error; } console.log(JSON.stringify({ bytes }));`;
     expect(await inWorker(f.brain, program, { credentials: false }), "UNMASKED_FILE_CONTROL").toEqual({ bytes: "Odysseus fictional backing marker." });
     for (const mask of [marker, alias]) {
@@ -119,8 +130,8 @@ describe("maintenance worker (#1648)", () => {
   test("no host Unix socket below a masked directory is reachable", async () => {
     if (!supported) return;
     const f = fixture();
-    const socketDir = mkdtempSync("/var/tmp/brain-maintenance-socket-");
-    roots.push(socketDir);
+    const socketDir = join(f.root, "sockets");
+    mkdirSync(socketDir);
     const socket = join(socketDir, "host.sock");
     const server = createServer(connection => connection.end("host-secret"));
     servers.push(server);
@@ -139,7 +150,7 @@ describe("maintenance worker (#1648)", () => {
     const f = fixture();
     const argv = workerCommand(maintenanceLaunch({ brainPath: f.brain, command: ["/bin/true"], env: {}, credentials: false }));
     const tmpfs = argv.flatMap((arg, i) => arg === "--tmpfs" ? [argv[i + 1]!] : []);
-    for (const mask of ["/run", "/var/lib", "/home", "/root", "/mnt", "/media", "/srv"]) {
+    for (const mask of ["/run", "/var", "/home", "/root", "/mnt", "/media", "/srv"]) {
       if (existsSync(mask) && realpathSync(mask) === mask) expect(tmpfs, `${mask} is masked`).toContain(mask);
     }
     const brain = realpathSync(f.brain);

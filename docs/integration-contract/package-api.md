@@ -3137,6 +3137,56 @@ retain existing owned checkpoint authority and storage caps; they do not
 authorize arbitrary host paths. See the [host boundary](../hosting/agent-workers.md#separate-worker-identity)
 for descriptor transfer, supervision, cleanup and best-effort limits.
 
+### Reference pool storage (additive, #2428)
+
+The root-owned `brain-native-store` configuration accepts an optional
+`referencePool` object for the separate reference source/worktree volume of
+the [reference-worktree decision](../decisions/reference-worktrees.md). It
+enables no consumer: no acquisition, worktree tool or worker mount uses the
+pool in this release, and `ServerConfig` is unchanged.
+
+| Field | Meaning |
+| --- | --- |
+| `storePath`, `devicePath`, `fsid` | Root-owned top-level mount, block device and UUID of a single-device Btrfs volume that is not the brain store. |
+| `combinedLimitBytes` | Combined allowance for source, worktrees and staging; default 10 GiB (10737418240). |
+| `operationLimitBytes` | Per acquisition/snapshot/worktree allowance; default 2 GiB (2147483648). |
+| `emergencyBytes` | Pool-local allocation released only to record recovery outcomes under ENOSPC; outside the combined allowance. |
+| `physicalFloorBytes` | Free space kept on the physical backing; never spendable budget. |
+| `headroomLedgerPath` | Required for sparse loop backing: a file in a root-owned directory on the backing filesystem, shared by every consumer of that physical capacity. |
+| `maxIdentities` | Bound on retained pool identities, default 4096, at most 65536. |
+
+All byte values are explicit positive multiples of 4096; invalid values refuse
+startup. The operator provisions the volume with simple quotas enabled
+(`btrfs quota enable --simple`, btrfs-progs 6.7 or later, or
+`BTRFS_IOC_QUOTA_CTL` with `BTRFS_QUOTA_CTL_ENABLE_SIMPLE_QUOTA`) before any
+data is written. Data, metadata and system profiles must each be `single` or
+`dup`. The mount must be read-write, without synchronous discard or
+`user_subvol_rm_allowed`, and appear only once outside managed root views.
+Loop backing must be a root-owned private file of the device's exact size and
+must not live on the brain store volume. Unqualified pools report their refusal;
+they never block brain storage startup or recovery.
+
+`brain-native-store pool status|recovery [--after <id>]|release <id> <config>`
+queries the running manager over its socket and prints one JSON object with
+`schema_version: 1`. Success has `ok: true`, `action` and `status`,
+`records`/`next` or `record`. A manager refusal has `ok: false`, `action`,
+`code` and `message` and exits 3; usage errors exit 2. `status` reports
+qualification and refusal, configured limits, the accounting basis
+`btrfs-space-info-disk-used+simple-quota-owner` with its observation
+generation, unique aggregate allocation including profile replication,
+emergency allocation, charged, owner-attributed and global bytes, per-profile
+space, pending reservations, the reservation factor and available allowance,
+plus the physical backing's kind, unbacked bytes, ledger consumers and headroom.
+Records carry `id`, `purpose`, `from`, `allowanceBytes`, `state`
+(`reserved`, `writable`, `sealed`, `deleting`, `deleted` or `reclaimed`),
+`root`, `path`, `ownerBytes` and `reason`. The native manager client gains
+`poolStatus`, `poolCreate`, `poolSeal`, `poolRelease` and `listPoolRecovery`
+with `NativePoolStatus`/`NativePoolRecord` results; they are reachable through the
+existing client signature and add no request path, host path or general
+filesystem API. The lease owner adds the same pool methods, refuses deletion
+without a recorded lease, and reports `retainedPool` from `recoverDeadOwners`,
+which never deletes pool roots.
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.
@@ -3582,3 +3632,24 @@ regular file, directly or through a symlink; anything else refuses the turn
 before any relay, reservation or worker is acquired. Existing argv, environment
 and permission semantics remain unchanged; the optional wrapper never replaces
 worker isolation.
+
+## Module metadata admission cancellation (additive, #2457)
+
+`BrainClient.modules({ signal })` accepts an optional abort signal. It cancels
+metadata waiting for execution admission, including a required CLI version
+probe. Once an execution owns its admission locks, its worker, output
+publication and cleanup drain normally. Cancellation between a version probe
+and the module lookup prevents the latter from starting. Calls without an
+option preserve their existing behavior and result shape.
+
+The internal host boundary carries a separate admission signal so existing
+execution cancellation, including search worker termination and output drain,
+keeps its semantics. The optional `BrainClient.modules` input is an additive
+public TypeScript change and ships in a minor.
+
+`createApp()` passes each `/api/status` and `/api/modules` request's signal,
+so a caller that disconnects cancels its queued metadata. `close()` cancels
+every metadata request still waiting for admission as soon as it begins.
+Admitted metadata is a shared run: it drains within `close()`'s 10 s grace
+period and is then cancelled with the other shared runs (#2473). The response
+shapes and status codes are unchanged.
