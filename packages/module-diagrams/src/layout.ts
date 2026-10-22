@@ -3,10 +3,10 @@ import { AXIS_TYPES } from "./spec.js";
 
 import { checkNodeLink } from "./node-link-check.js";
 import { checkContainment } from "./containment.js";
-import { buildDiagram, DiagramGeometryError, type DiagramTree } from "./geometry.js";
+import { buildDiagram, diagramGroupBounds, DiagramGeometryError, type DiagramTree } from "./geometry.js";
 import { checkDiagramSkin } from "./skin.js";
 import { FREE_LAYOUT_TYPES, type DiagramSpec } from "./spec.js";
-export interface DiagramLayoutFinding { path: string; code: "layout" | "text_floor" | "contrast" | "unroutable"; message: string }
+export interface DiagramLayoutFinding { path: string; code: "layout" | "text_floor" | "contrast" | "unroutable" | "scene_bounds"; message: string }
 /** Apply authored placement only. Semantic fields and edges are never duplicated. */
 export function diagramLayout(spec: DiagramSpec, name: "default" | "narrow" = "default"): DiagramSpec {
  if (name === "default") return spec;
@@ -46,7 +46,7 @@ export function checkDiagramLayouts(spec: DiagramSpec): DiagramLayoutFinding[] {
  findings.push(...checkDiagramSkin(placed).map(item => ({ ...item, path: item.path.replace("$.nodes", "$.layouts.narrow.nodes") })));
  if (!findings.length) try {
   const tree = buildDiagram(placed);
-  for (const element of tree.elements) if ("width" in element && (element.x < 0 || element.y < 0 || element.x + element.width > layout.width || element.y + element.height > layout.height)) error("$.layouts.narrow", "Authored groups or label masks exceed the narrow frame");
+  for (const element of tree.elements) { const box = element.kind === "group" ? diagramGroupBounds(element) : element; if ("width" in box && (box.x < 0 || box.y < 0 || box.x + box.width > layout.width || box.y + box.height > layout.height)) error("$.layouts.narrow", "Authored groups, headings or label masks exceed the narrow frame"); }
   for (const element of tree.elements) if (element.kind === "connector" && element.points.some(point => point.x < 0 || point.y < 0 || point.x > layout.width || point.y > layout.height)) error("$.layouts.narrow", "Authored connector exceeds the narrow frame");
  } catch (failure) {
   if (failure instanceof DiagramGeometryError) findings.push(...failure.findings.map(item => ({ ...item, path: `$.layouts.narrow${item.path.slice(1)}` })));

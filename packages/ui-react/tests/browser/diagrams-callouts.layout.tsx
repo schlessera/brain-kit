@@ -160,13 +160,24 @@ for (const theme of ["light", "dark", "print"] as const) {
  });
 }
 
-for (const theme of ["light", "dark", "print"] as const) test(`authored narrow grouped notes ${theme}`, async () => {
+// Keep full geometry and raster capture independently within the case budget.
+// Both cases mount the complete authored narrow source; teardown owns each body.
+for (const theme of ["light", "dark", "print"] as const) {
+ test(`authored narrow grouped notes geometry ${theme}`, async () => {
   const spec = { ...narrowCallouts(), callouts: Array.from({ length: 1024 }, (_, i) => ({ target: "odysseus", text: `Prepare provisions ${i + 1}` })) }, source = JSON.stringify(spec);
   mount(source, 320, theme); const svg = await svgReady(); assertAnnotations(svg, source, 1024);
   expect(svg.getAttribute("width")).toBe("320"); expect(svg.querySelector("[data-diagram-notes-band]")!.getAttribute("data-columns")).toBe("1"); expect(host.scrollWidth).toBeLessThanOrEqual(320);
   expect(svg.querySelectorAll("[data-diagram-callout-key]")).toHaveLength(1);
+ });
+ test(`authored narrow grouped notes capture ${theme}`, async () => {
+  const spec = { ...narrowCallouts(), callouts: Array.from({ length: 1024 }, (_, i) => ({ target: "odysseus", text: `Prepare provisions ${i + 1}` })) }, source = JSON.stringify(spec);
+  mount(source, 320, theme); const svg = await svgReady();
+  expect(svg.getAttribute("width")).toBe("320"); expect(svg.querySelector("[data-diagram-notes-band]")!.getAttribute("data-columns")).toBe("1"); expect(host.scrollWidth).toBeLessThanOrEqual(320);
+  expect(svg.querySelectorAll("[data-diagram-callout]"), "CAPTURE_ALL_NARROW_SOURCE_NOTES").toHaveLength(1024);
+  expect([...svg.querySelectorAll("[data-callout-index]")].map(index => index.textContent), "CAPTURE_ALL_NARROW_SOURCE_INDICES").toEqual(Array.from({ length: 1024 }, (_, i) => String(i + 1)));
   await commands.diagramCapture('[data-content-renderer="diagram"]', `callouts-1024-narrow-${theme}`);
 });
+}
 for (const width of [636, 640]) test(`responsive columns at nearest authored grid width ${width}`, async () => {
   const source = JSON.stringify({ ...calloutsSpec, nodes: [{ id: "odysseus", label: "Odysseus", at: [width - 184, 64], size: [160, 64] }], groups: [], edges: [], callouts: Array.from({ length: 9 }, (_, i) => ({ target: "odysseus", text: i % 2 ? "Prepare provisions before the voyage to Ithaca and read the ledger." : `Voyage ${i + 1}` })) });
   mount(source, 800); const svg = await svgReady(); assertAnnotations(svg, source, 9); await assertParity(svg, source, "light");

@@ -1,7 +1,7 @@
 /** Host-only native producer: its children never inherit the browser's mounts. */
 import {spawnSync} from "node:child_process";
 import {createHash,randomUUID} from "node:crypto";
-import {accessSync,constants,cpSync,mkdirSync,mkdtempSync,readFileSync,readdirSync,realpathSync,renameSync,rmSync,statSync,writeFileSync} from "node:fs";
+import {accessSync,closeSync,constants,cpSync,mkdirSync,mkdtempSync,openSync,readFileSync,readdirSync,realpathSync,renameSync,rmSync,statSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {delimiter,join,resolve} from "node:path";
 import {materializeDiagramExportSource} from "./diagram-export-source.mjs";
@@ -17,6 +17,27 @@ export function diagramProducerRuntime(){
  const executable=realpathSync(bun),bytes=readFileSync(executable),identity={image,bun:hash(bytes)};
  return{...identity,executable,bytes,sha256:hash(Buffer.from(JSON.stringify(identity)))};
 }
+/** Private named volumes carry only audited inputs; no host path is mounted. */
+export function diagramNativeDockerArgs(repo,source,runtime,volumes,container,program){
+ return ["create","--name",container,"--pull=never","--read-only","--network=none","--shm-size=256m","--user",`${process.getuid()}:${process.getgid()}`,"--tmpfs","/tmp:rw,exec,nosuid,nodev,mode=1777",
+  "--mount",`type=volume,source=${volumes.source},target=${source},readonly`,
+  "--mount",`type=volume,source=${volumes.modules},target=${join(repo,"node_modules")},readonly`,
+  "--mount",`type=volume,source=${volumes.output},target=/proof`,
+  "--mount",`type=volume,source=${volumes.runtime},target=/native-runtime,readonly`,
+  "-w",source,"-e","HOME=/tmp/home",runtime.image,"/native-runtime/bun","-e",program];
+}
+function dockerChecked(args,options={}){
+ const result=spawnSync("docker",args,{encoding:"utf8",maxBuffer:4*1024*1024,...options});
+ if(result.error||result.status!==0||result.signal)throw Error(`Native diagram Docker operation failed (${args[0]}): ${result.error??result.signal??result.status}\n${result.stderr}\n${result.stdout}`);
+ return result;
+}
+function fillPrivateVolume(directory,volume,image,archive){
+ const out=openSync(archive,"wx");
+ try{const packed=spawnSync("tar",["-C",directory,"-cf","-","."],{stdio:["ignore",out,"pipe"],encoding:"utf8"});if(packed.error||packed.status!==0)throw Error(`Native diagram input archive failed: ${packed.error??packed.stderr}`);}finally{closeSync(out);}
+ const input=openSync(archive,"r");
+ try{dockerChecked(["run","--rm","--interactive","--pull=never","--network=none","--read-only","--mount",`type=volume,source=${volume},target=/inputs`,image,"tar","-xf","-","-C","/inputs"],{stdio:[input,"pipe","pipe"]});}finally{closeSync(input);}
+}
+
 /** The complete mounted data is private source + filtered installed packages.
  * Readonly image files and Bun are identified separately. /tmp and /dev/shm
  * are fresh container-owned filesystems, not mounts of host state. */
@@ -27,9 +48,12 @@ export function prepareDiagramNativeArtifacts(repo,projects,expected){
  const record=JSON.parse(readFileSync(join(repo,"tmp/diagram-export-source.json"),"utf8")),runtime=diagramProducerRuntime();
  if(expected?.runtime&&expected.runtime!==runtime.sha256)throw Error("NATIVE_EXPORT_RUNTIME_CHANGED");
  const session=randomUUID(),base=join(repo,"tmp/diagram-export-native-prepared",session);mkdirSync(base,{recursive:true});
- const state=mkdtempSync(join(tmpdir(),"odysseus-native-producer-"));
+ const state=mkdtempSync(join(tmpdir(),"odysseus-native-producer-")),ownedVolumes=[],ownedContainers=[];
+ let failure,failed=false;const cleanup=[];
+ const volume=label=>{const name=`brain-kit-native-${session}-${label}`;dockerChecked(["volume","create",name]);ownedVolumes.push(name);return name;};
  try{
-  const executable=join(state,"bun");
+  const runtimeInput=join(state,"runtime");mkdirSync(runtimeInput);
+  const executable=join(runtimeInput,"bun");
   // Mount exactly the captured bytes identified by runtime.bun, rather than
   // rereading a host pathname after validation. The private file has no writer.
   writeFileSync(executable,runtime.bytes,{mode:0o755,flag:"wx"});
@@ -43,18 +67,37 @@ export function prepareDiagramNativeArtifacts(repo,projects,expected){
    for(const name of names){const destination=join(modules,name);mkdirSync(resolve(destination,".."),{recursive:true});cpSync(realpathSync(join(repo,"node_modules",name)),destination,{recursive:true,dereference:false,verbatimSymlinks:true});}
   }
   if(JSON.stringify(diagramInstallationIdentity(installed))!==JSON.stringify(record.installation))throw Error("NATIVE_EXPORT_PRIVATE_INSTALL_CHANGED");
+  const sourceVolume=volume("source"),modulesVolume=volume("modules"),runtimeVolume=volume("runtime");
+  fillPrivateVolume(runtimeInput,runtimeVolume,runtime.image,join(state,"runtime.tar"));
+  fillPrivateVolume(source,sourceVolume,runtime.image,join(state,"source.tar"));
+  fillPrivateVolume(modules,modulesVolume,runtime.image,join(state,"modules.tar"));
   for(const engine of engines){
    const destination=join(base,engine);
    const output=join(state,`output-${engine}`);mkdirSync(output);
-   const program=`import assert from "node:assert/strict";import {chromium} from "playwright";import {mkdirSync,existsSync} from "node:fs";assert(!existsSync(${JSON.stringify(join(repo,"README.md"))}),"NATIVE_PRODUCER_ORIGINAL_REPO_UNMOUNTED");assert(!existsSync(${JSON.stringify(canary)}),"NATIVE_PRODUCER_HOST_STATE_UNMOUNTED");mkdirSync("/tmp/home",{recursive:true});mkdirSync("/tmp/work");const child=Bun.spawn(["/usr/local/bin/bun","--preload",${JSON.stringify(join(source,"scripts/test-network-child-preload.ts"))},${JSON.stringify(join(source,"packages/module-diagrams/tests/fixtures/export-artifact-probe.ts"))},"/proof"],{cwd:${JSON.stringify(source)},env:{PATH:"/usr/local/bin:/usr/bin:/bin",LANG:"C.UTF-8",TZ:"UTC",HOME:"/tmp/home",TMPDIR:"/tmp/work",PUPPETEER_EXECUTABLE_PATH:chromium.executablePath()},stdout:"inherit",stderr:"inherit"});process.exitCode=await child.exited;`;
-   const result=spawnSync("docker",["run","--rm","--pull=never","--read-only","--network=none","--shm-size=256m","--user",`${process.getuid()}:${process.getgid()}`,"--tmpfs","/tmp:rw,exec,nosuid,nodev,mode=1777","-v",`${source}:${source}:ro`,"-v",`${modules}:${join(repo,"node_modules")}:ro`,"-v",`${executable}:/usr/local/bin/bun:ro`,"-v",`${output}:/proof`,"-w",source,"-e","HOME=/tmp/home",runtime.image,"/usr/local/bin/bun","-e",program],{encoding:"utf8",maxBuffer:4*1024*1024});
-   if(result.error||result.status!==0||result.signal)throw Error(`Native diagram producer failed: ${result.error??result.signal??result.status}\n${result.stderr}\n${result.stdout}`);
-   const artifacts=JSON.parse(result.stdout),files=Object.fromEntries(["svg","png","pdf"].map(format=>{const name=`release.${format}`;return[name,hash(readFileSync(join(output,name)))];}));
-   // Publish only after the actual three-format process and all descendants
+   const program=`import assert from "node:assert/strict";import {chromium} from "playwright";import {mkdirSync,existsSync} from "node:fs";assert(!existsSync(${JSON.stringify(join(repo,"README.md"))}),"NATIVE_PRODUCER_ORIGINAL_REPO_UNMOUNTED");assert(!existsSync(${JSON.stringify(canary)}),"NATIVE_PRODUCER_HOST_STATE_UNMOUNTED");mkdirSync("/tmp/home",{recursive:true});mkdirSync("/tmp/work");const child=Bun.spawn(["/native-runtime/bun","--preload",${JSON.stringify(join(source,"scripts/test-network-child-preload.ts"))},${JSON.stringify(join(source,"packages/module-diagrams/tests/fixtures/export-artifact-probe.ts"))},"/proof"],{cwd:${JSON.stringify(source)},env:{PATH:"/native-runtime:/usr/local/bin:/usr/bin:/bin",LANG:"C.UTF-8",TZ:"UTC",HOME:"/tmp/home",TMPDIR:"/tmp/work",PUPPETEER_EXECUTABLE_PATH:chromium.executablePath()},stdout:"inherit",stderr:"inherit"});process.exitCode=await child.exited;`;
+   const outputVolume=volume(`output-${engine}`);
+   fillPrivateVolume(output,outputVolume,runtime.image,join(state,`output-${engine}.tar`));
+   const container=`brain-kit-native-${session}-${engine}`;
+   dockerChecked(diagramNativeDockerArgs(repo,source,runtime,{source:sourceVolume,modules:modulesVolume,output:outputVolume,runtime:runtimeVolume},container,program));
+   ownedContainers.push(container);
+   const result=dockerChecked(["start","--attach",container]);
+   const code=Number(dockerChecked(["inspect","--format","{{.State.ExitCode}}",container]).stdout.trim());
+   if(code!==0)throw Error(`Native diagram producer failed (${code})\n${result.stderr}\n${result.stdout}`);
+   dockerChecked(["cp",`${container}:/proof/.`,output]);
+   const results=JSON.parse(result.stdout);
+   if(!Array.isArray(results.release)||results.release.map(item=>item.format).join(",")!=="png,pdf"||!Array.isArray(results.origin)||results.origin.map(item=>item.format).join(",")!=="svg,png,pdf")throw Error("NATIVE_EXPORT_FIXED_RESULTS");
+   const artifacts=results.release,origin=results.origin,files=Object.fromEntries(["release","origin"].flatMap(stem=>["svg","png","pdf"].map(format=>{const name=`${stem}.${format}`;return[name,hash(readFileSync(join(output,name)))];})));
+   // Publish only after both actual three-format sequences and all descendants
    // have drained successfully. The browser never manufactures this receipt.
-   writeFileSync(join(output,"producer.json"),JSON.stringify({version:1,session,engine,checkout:record.checkout,source:record.sourceIdentity,installation:record.installation.sha256,runtime:{image:runtime.image,bun:runtime.bun,sha256:runtime.sha256},artifacts,files}));
+   writeFileSync(join(output,"producer.json"),JSON.stringify({version:1,session,engine,checkout:record.checkout,source:record.sourceIdentity,installation:record.installation.sha256,runtime:{image:runtime.image,bun:runtime.bun,sha256:runtime.sha256},artifacts,origin,files}));
    const staged=mkdtempSync(join(base,"prepared-"));cpSync(output,staged,{recursive:true});renameSync(staged,destination);
   }
- }finally{rmSync(state,{recursive:true,force:true});}
+ }catch(error){failure=error;failed=true;}finally{
+  for(const container of ownedContainers){const result=spawnSync("docker",["rm","--force",container],{encoding:"utf8"});if(result.status!==0&&!/No such container/.test(result.stderr??""))cleanup.push(Error(`Native diagram container cleanup failed: ${container}`));}
+  for(const name of ownedVolumes){const result=spawnSync("docker",["volume","rm",name],{encoding:"utf8"});if(result.status!==0)cleanup.push(Error(`Native diagram volume cleanup failed: ${name}`));}
+  try{rmSync(state,{recursive:true,force:true});}catch(error){cleanup.push(error);}
+ }
+ if(cleanup.length)throw new AggregateError([...(failed?[failure]:[]),...cleanup],"Native diagram owned-resource cleanup failed");
+ if(failed)throw failure;
  return session;
 }

@@ -11,11 +11,11 @@ export function flattenPaint(value:string,theme:DiagramTheme):string {
 }
 /** Self-contained chosen-theme SVG: no live theme tokens or external resources. */
 export function toFlatSvg(source:string,theme:DiagramTheme):string {
- if(!themes.has(theme))throw Error("Unknown diagram theme");const spec=parseDiagram(source),model=diagramSvgModel(spec),{width,height}=model.tree.viewBox;
+ if(!themes.has(theme))throw Error("Unknown diagram theme");const spec=parseDiagram(source),model=diagramSvgModel(spec),{x,y,width,height}=model.tree.viewBox;
  const flat=(item:SvgPrimitive):SvgPrimitive=>({...item,attrs:Object.fromEntries(Object.entries(item.attrs).map(([key,value])=>[key,typeof value==="string"&&["fill","stroke","color"].includes(key)?flattenPaint(value,theme):value])),children:item.children?.map(flat)});
  const css=flattenPaint(DIAGRAM_DRAWING_CSS,theme);
  // Encode authored text deliberately; unresolved trusted paint already threw above.
  const text=(value:string|number)=>escapeSvg(value).replace(/var\(/g,"var&#40;");
  const serialize=(item:SvgPrimitive):string=>`<${item.tag}${Object.entries(item.attrs).map(([key,value])=>` ${key}="${text(value)}"`).join("")}>${item.text===undefined?"":text(item.text)}${item.children?.map(serialize).join("")??""}</${item.tag}>`;
- return `<svg xmlns="http://www.w3.org/2000/svg" class="bk-diagram" data-theme="${theme}" role="img" aria-label="${text(spec.title)}" aria-description="${text(spec.desc)}" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"><title>${text(spec.title)}</title><desc>${text(spec.desc)}</desc><style>${css}</style>${model.elements.map(flat).map(serialize).join("")}</svg>`;
+ return `<svg xmlns="http://www.w3.org/2000/svg" class="bk-diagram" data-theme="${theme}" role="img" aria-label="${text(spec.title)}" aria-description="${text(spec.desc)}" viewBox="${x} ${y} ${width} ${height}" width="${width}" height="${height}"><title>${text(spec.title)}</title><desc>${text(spec.desc)}</desc><style>${css}</style>${model.elements.map(flat).map(serialize).join("")}</svg>`;
 }

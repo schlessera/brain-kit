@@ -155,7 +155,7 @@ signatures (every public export and the types it is made of)
   DiagramGeometryFinding (packages/module-diagrams/src/geometry.ts)
     export interface DiagramGeometryFinding {
         path: string;
-        code: "unroutable";
+        code: "unroutable" | "scene_bounds";
         message: string;
     }
   DiagramGeometryOptions (packages/module-diagrams/src/geometry.ts)
@@ -183,7 +183,7 @@ signatures (every public export and the types it is made of)
   DiagramLayoutFinding (packages/module-diagrams/src/layout.ts)
     export interface DiagramLayoutFinding {
         path: string;
-        code: "layout" | "text_floor" | "contrast" | "unroutable";
+        code: "layout" | "text_floor" | "contrast" | "unroutable" | "scene_bounds";
         message: string;
     }
   DiagramNode (packages/module-diagrams/src/geometry.ts)

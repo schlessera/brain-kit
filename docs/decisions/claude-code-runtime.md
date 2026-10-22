@@ -41,10 +41,10 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:504-504`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1070`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:506-506`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1075`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
-  `packages/ui-server/src/agent/backend.ts:502`), read back as a string
+  `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
   `packages/ui-backend-claude/src/sdk-options.ts:351`). Because of the `||`
@@ -63,8 +63,8 @@ next to it.
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:111-177`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:387`).
+  `packages/ui-server/src/brain/client.ts:121-187`, called at
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:411`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:495-499`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:332-337`).
+  `packages/ui-server/src/app.ts:356-361`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -243,7 +243,7 @@ than refuses on a mismatch.**
   pair is one nobody measured.
 - **At boot, from the binary a turn would spawn.** The same shape as the
   `brain` CLI probe (`Probe the selected content CLI`,
-  `packages/ui-server/src/brain/client.ts:111`). The SDK's
+  `packages/ui-server/src/brain/client.ts:121`). The SDK's
   resolver is not exported, so the probe must not re-implement it. The SDK
   resolves the binary when a query is built, and fails there if none is found
   (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs:228`); it then hands
@@ -1371,7 +1371,7 @@ outward approvals.
 The native qualification now constructs the full SDK turn, including its MCP
 server, system prompt, per-turn context and permission hooks, rather than
 constructing query options independently (`const sdkTurn = createClaudeSdkTurn`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:205-226`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:209-231`).
 Strict and governed controls retain history, model changes, host login
 rotation/refresh and refresh cancellation. An actual auto-allowed native Bash
 call still reaches the existing per-use refusal: removing the assembled
@@ -1379,7 +1379,7 @@ PreToolUse hook creates the refused file. Native managed Unix-socket overrides
 and project API credentials withhold the prompt through the existing
 subscription settings check, before provider contact or host credential
 resolution (`settingsRefusal(settings`,
-`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:238-243`).
+`packages/ui-backend-claude/tests/fixtures/sdk-host-relay-probe.ts:246-251`).
 The actual process state ledger is observed admitted while the worker is live
 and empty after teardown.
 

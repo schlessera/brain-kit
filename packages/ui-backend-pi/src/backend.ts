@@ -147,6 +147,7 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
         ...(images.length > 0 ? { images } : {}),
       });
     },
+    storageRoots() { return [{ kind: "transcripts", path: sessionDir }]; },
     listSessions(): Promise<ChatSession[]> {
       return listPiSessions(brainPath, sessionDir);
     },

@@ -1,14 +1,14 @@
 import { collectStorageInventory, STORAGE_LIMITS, type StorageInventory } from "./storage-inventory.js";
 
 /** Isolate blocking filesystem calls from the CLI coordinator. No writable state or config loading. */
-export async function collectStorageProcess(root: string, gitRoots: readonly string[], signal: AbortSignal): Promise<StorageInventory> {
-  if (signal.aborted || process.platform !== "linux") return collectStorageInventory(root, { signal });
+export async function collectStorageProcess(root: string, gitRoots: readonly string[], signal: AbortSignal, metadataGit = false): Promise<StorageInventory> {
+  if (signal.aborted || process.platform !== "linux") return collectStorageInventory(root, { signal, metadataGit });
   const startedAt = new Date().toISOString();
   const source = `import {collectStorageInventory} from ${JSON.stringify(import.meta.resolve("./storage-inventory.js"))};
 const controller=new AbortController();
 process.once("SIGTERM",()=>controller.abort());
 process.once("SIGINT",()=>controller.abort());
-console.log(JSON.stringify(await collectStorageInventory(${JSON.stringify(root)},{gitRoots:${JSON.stringify(gitRoots)},signal:controller.signal})));`;
+console.log(JSON.stringify(await collectStorageInventory(${JSON.stringify(root)},{gitRoots:${JSON.stringify(gitRoots)},signal:controller.signal,metadataGit:${metadataGit}})));`;
   const child = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", "-e", source], { stdin: "ignore", stdout: "pipe", stderr: "pipe", detached: true });
   let reason: string | undefined, killTimer: ReturnType<typeof setTimeout> | undefined;
   const kill = () => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already reaped */ } };

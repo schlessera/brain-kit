@@ -12,6 +12,12 @@ adapter; they are not an extension point, arbitrary filesystem reader/writer,
 wire input or supported package API. Synchronous callers cannot substitute a
 stale plan for asynchronous metadata acquisition on a protected stage.
 
+The internal `runMaintenanceWorker` accepts a synchronous host callback after
+preparation and immediately before launching the requested command. Storage
+uses it to revalidate current authority and record entry into the operation.
+Preparation failure or revoked authority cannot be reported as command entry;
+the callback is not passed to the first-party preparation commands.
+
 This is internal compatibility wiring under the internal-entry classification
 below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset
@@ -800,7 +806,11 @@ records the approved request boundary and override policy.
 The concrete synchronous `@schlessera/brain/queries` entry supports
 `readGraphMeta`, `readGraphClusters`, `readGraphNeighborhood`,
 `readGraphDiscovery`, `readGraphMaintenance`, `readLinkWalk`,
-`readVoiceVocabulary`, `listIndexDocuments` and `findIndexDocuments`.
+`readVoiceVocabulary`, `listIndexDocuments`, `findIndexDocuments` and
+`readStorageReferences`. The additive Storage operation takes `{brainPath, path}`
+and returns the common query envelope with `{sources: [{path, indexedAt}], truncated}`.
+It limits resolved incoming sources to 200, reads index metadata only, and refuses
+a symlinked index. Zero observed sources never establishes that a file is unused.
 Its [complete API specification](../content-index-queries.md) is part of this
 contract: signatures/reachable exports, validation/defaults/caps/order,
 detached result and safe error envelopes, feature compatibility, read-only
@@ -3282,6 +3292,116 @@ explanation. `showActions={false}` and closed exchanges still omit actions.
 The client preserves selected predefined answers beside custom text in a
 multi-select and the existing grouped-question submission path. No wire,
 CLI/MCP or answer-delivery contract changes.
+
+### Backend Storage roots (additive, #2010)
+
+`AgentBackend.storageRoots?()` is a synchronous host-only observation of already
+owned transcript/archive roots: `readonly {kind: "transcripts" | "archive";
+path: string}[]`. It performs no setup or provider discovery. The server consults
+only already initialized owners, never passes these paths to a worker bridge,
+and converts them into opaque root IDs before transport. Older backends remain
+valid and report unavailable transcript accounting. Claude supplies its exact
+brain-specific live/archive leaves; Pi supplies its already resolved session root.
+
+### Host Storage reader (additive, #2010)
+
+`@schlessera/brain/storage` supports host-shell authors who need bounded live
+physical metadata without evaluating a content repository. The operation
+`readStorageInventory({brainPath, gitRoots?, signal?})` returns a promise of the
+version-1 Storage inventory envelope, with the existing 100,000-entry/30-second
+limits and isolated/reaped filesystem worker. `brainPath` is absolute;
+`gitRoots` contains at most sixteen explicitly approved absolute external stores.
+Invalid roots reject before traversal. The host must enforce user authorization;
+this is not an agent-facing filesystem browser.
+
+This inventory operation executes neither Git nor the brain CLI, and loads no repository
+configuration/providers. It reads only fixed Git location markers (`.git`,
+`commondir`, `objects/info/alternates`) through bounded non-followed descriptors,
+approving external stores before reading their markers. It supports ordinary
+worktrees and linked-worktree/alternate layouts; unsupported markers, redirects,
+mount transitions and encodings remain partial evidence. It does not implement
+Git configuration semantics or discover a repository from parent directories.
+Host-selected root aliases retain the inventory's canonical-root semantics.
+
+The ordinary standalone `brain storage inventory` CLI retains its existing Git
+resolver contract and must run through the maintenance boundary when invoked by
+a governed server. The HTTP inventory uses the public metadata reader so it
+measures the canonical live objects, not a maintenance worker's native copy.
+The same structural inventory schema is consumed; available allocation is still
+a qualified charge and never a reclaimability guarantee. Bun/types/default
+exports resolve source/declarations/build from the same release. Older core
+installations without this entry produce unavailable inventory, with no CLI or
+internal-import fallback.
+
+### Storage maintenance protocol (additive, 0.44.0, #2011)
+
+`@schlessera/brain-ui-sdk/protocol` exports `StorageMaintenanceKind`,
+`StorageMaintenanceRequest`, `StorageMaintenanceItem`,
+`StorageMaintenanceObservation`, `StorageMaintenanceReceipt` and
+`StorageMaintenanceRow`. These describe the three fixed host-owner operations,
+caller-owned durable identity, qualified state/outcome, headroom disclosure and
+independent store/capacity measurements in the
+[maintenance HTTP contract](../http-api.md#storage-maintenance-additive-2011).
+They do not add an agent tool or generic executor. Existing automatic retention
+and owner APIs retain their previous defaults.
+
+### Selected attachment application (additive, 0.44.0, #2012)
+
+`@schlessera/brain/storage` additionally exports `STORAGE_ATTACHMENT_LIMITS`,
+`StorageAttachmentRefusal`, `storageAttachmentPath`, `inspectStorageAttachment`,
+`removeStorageAttachment`, `restoreStorageAttachment`, `storageAttachmentVacant`,
+`inspectStorageAttachmentFacts`, and the `StorageAttachmentVersion` and
+`StorageAttachmentFacts` types. The inventory reader keeps its existing contract.
+
+Raw-file operations bind an absolute canonical Linux root, relative path and
+exact descriptor-derived version (hash, size, mode, inode/stamp and parent chain).
+They refuse symlinks, aliases, nested mounts and executable/protected targets.
+The caller must own exclusive writer coordination, current human authorization,
+verified durable recovery and intent before calling removal. Its optional final
+`assertCurrent` callback revalidates authority immediately before unlink or restore;
+restoration uses a caller-leased verified original and never overwrites a present
+entry. These primitives neither provide a journal nor change its retention policy.
+Raw hashing supports cancellation and bounded file size/time.
+
+`inspectStorageAttachmentFacts(root, paths, signal?)` evaluates Git and bounded
+current Markdown. Hosted consumers must run it inside their qualified maintenance
+worker and discard outputs. It is not a privileged host-side Git reader, and its
+unchecked scopes prevent interpreting an empty reference list as proof of no
+consumers. Core semantics have no dependency on the UI database. Server contracts
+and bounds are defined by the [removal HTTP contract](../http-api.md#recoverable-attachment-removal-additive-2012).
+
+`@schlessera/brain-ui-sdk/protocol` exports `StorageRemovalInspection`, `StorageRemovalReviewRequest`,
+`StorageRemovalStartRequest`, `StorageRemovalUndoRequest`, `StorageRemovalFile`,
+`StorageRemovalReview`, `StorageRemovalItem`, `StorageRemovalReceipt` and
+`StorageRemovalCapability`. They contain relative paths and opaque identities,
+never private recovery roots, executable choices or credentials.
+
+### Storage presentation (additive, #2013)
+
+`@schlessera/brain-ui-kit` exports `StorageMap`, `StorageMapItem` and
+`StorageMapProps`. Items supply opaque identities, names, ownership
+(`brain`, `app`, `operator`), known disjoint bytes, a size/share label and optional
+`smaller`/`interactive` flags. Props supply those items, CSS-pixel width/height,
+an accessible group label and description ID, and `onOpen(id)`/`onUp()` callbacks.
+The component performs no I/O; callers own the bounded, deduplicated inventory
+and equivalent complete list. Unknown and nonpositive sizes have no tile area;
+small tiles have no activation target. It preserves one roving tab stop.
+
+The ui-react Settings selection accepts `storage`. `openSettings("storage")`
+and the existing palette open the same lazy pane after Modules; Models remains
+the default. This adds no main destination or keyboard shortcut. Requests and
+local selections remain scoped to the current root and authentication lifetime.
+
+
+### Storage history presentation (additive, #2059)
+
+`AppShell` includes a persistent owner-scoped Storage status. It and the lazy
+Settings pane consume named server guidance; there is no client warning or
+forecast engine. `useHashRoutes()` accepts `#/settings/storage` after a current
+authorized guidance read, preserves Settings leave guards and clears the link
+when Storage closes. These additions create no navigation destination, keyboard
+shortcut or new exported component. Evidence is isolated by root, account and
+authentication epoch; forbidden responses clear it.
 
 ### Claude cumulative usage evidence (additive, #2025)
 
