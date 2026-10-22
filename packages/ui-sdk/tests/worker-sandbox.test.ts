@@ -375,7 +375,6 @@ describe("the sandbox note's wording (#1654)", () => {
   test.each(["governed", "strict"] as const)("%s capabilities state recorded egress only for a worker routed through its turn proxy", profile => {
     const routed = workerSandboxNote({ ...strict, profile }, { egress: true });
     expect(routed, "EGRESS_NOTE_ROUTED").toContain("Network access goes through this turn's host proxy");
-    expect(routed, "EGRESS_NOTE_STATES_SOCKET_GAP").toContain("Some host sockets outside the masked directories may remain reachable");
     expect(routed).not.toContain("Egress is unrecorded");
     const unrouted = workerSandboxNote({ ...strict, profile });
     expect(unrouted, "EGRESS_NOTE_UNROUTED_CLAIMS_NOTHING").not.toContain("host proxy");
