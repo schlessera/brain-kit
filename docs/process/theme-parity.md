@@ -109,9 +109,9 @@ and `LayoutDesktop` match `artifact layout <theme> <width>`;
 (`StatesPhone`, `packages/ui-kit/stories/conversation/ArtifactTheme.stories.tsx:168-213`)
 and `StatesDesktop` match `artifact full state matrix <theme> <width>`. Both
 Storybook projects run all four stories at 320/1280px, which gives the same
-eight width/theme cells as the runtime. Every transient state also gets the
-scoped WCAG A/AA check, including contrast. The unchanged addon gate checks the
-final state.
+eight width/theme cells as the original runtime matrices. Every transient
+state also gets the scoped WCAG A/AA check, including contrast. The unchanged
+addon gate checks the final state.
 
 | Runtime oracle (`artifact-recovery-runtime.test.ts`) | Central presentation oracle | Native boundary retained |
 | --- | --- | --- |
@@ -130,6 +130,20 @@ final state.
 | Same case: offline, 403, 413, PDF, 404 opened through `__artifactFixture.open`, each with an awaited heading, one status, no alert, retry only for offline, document bounds | The same `openFile` call for each outcome, in the same order, with the same awaited heading and the same four checks. | Real `internetdisconnected` network abort, real server statuses and private error bodies, and auth on every request. |
 | Same case: PDF success awaits a native canvas | Seam PDF metadata, then pdf.js paints the routed bytes: `PDF page painted`, `bounds` on the canvas. | The real raw route, its headers, and pdf.js against the server. |
 | Same case: no false download outside PDF success | `<title>: no false download` for every non-PDF state. | None beyond the native page. |
+
+The runtime now keeps 320px dark and 1280px light in both families, reducing
+their executions from eight to four. The scenario bodies are unchanged, so
+every native boundary in the map above still runs at both widths, including
+keyboard activation, focus, hit tests, zoom, Escape, real routes and PDF
+painting. The removed copies retain their presentation assertions in these
+central cases, following the row-by-row map above:
+
+| Removed runtime copy | Central story | Project |
+| --- | --- | --- |
+| `artifact layout light 320` | `Conversation/Artifact theme/LayoutPhone` | `storybook-light` |
+| `artifact layout dark 1280` | `Conversation/Artifact theme/LayoutDesktop` | `storybook` |
+| `artifact full state matrix light 320` | `Conversation/Artifact theme/StatesPhone` | `storybook-light` |
+| `artifact full state matrix dark 1280` | `Conversation/Artifact theme/StatesDesktop` | `storybook` |
 
 The other artifact runtime cases do not multiply by theme and are unchanged.
 They cover the status cases, the single offline retry flight, auth expiry and
