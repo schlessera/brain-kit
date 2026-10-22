@@ -375,6 +375,9 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       if (request.operation === "poolSeal") return Response.json(await pool().seal(request.id, signal));
       if (request.operation === "poolRelease") return Response.json(await pool().release(request.id, signal));
       if (request.operation === "listPoolRecovery") return Response.json(pool().list(request.after));
+      if (request.operation === "poolPublish") return Response.json(await pool().publish(request, signal));
+      if (request.operation === "poolUnpublish") return Response.json(pool().unpublish(request));
+      if (request.operation === "poolWithdraw") return Response.json(await pool().withdraw(request.id, signal));
       if (request.operation === "cancelCheckpointRead") {
         const reader = checkpointReaders.get(request.id);
         if (reader) await reader.close();

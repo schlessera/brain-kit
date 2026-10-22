@@ -561,3 +561,10 @@ Owner-managed grant records are the only authority for private reference
 acquisition. Three password-owner routes under `/api/auth/principals/:id/`
 create, list and revoke them, described in
 [the HTTP contract](integration-contract/http.md#reference-source-grants-additive-2429).
+
+## Reference publication (additive, #2429)
+
+The native manager client and lease owner gain `poolPublish`/`poolUnpublish`/`poolWithdraw`,
+which publish sealed reference roots into per-domain view directories, and
+`NativePoolRecord` gains `view`; described in
+[the package API](integration-contract/package-api.md#reference-publication-additive-2429).
