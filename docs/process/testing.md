@@ -115,6 +115,34 @@ unshare --user --map-current-user --keep-caps --mount sh -eu -c '
 ' offline-storage "$proof_tmp" bun run test ./packages/ui-react/tests/share-draft-runtime.test.ts
 ```
 
+### Capacity for fixtures that require running turns
+
+The connection-continuity, parallel-sessions and Claude cancellation fixtures
+explicitly call the test-only `requireTurnFreeSpace` helper before their first
+turn. It reads `statfs` on the actual brain path and requires available bytes
+(`bavail * bsize`) to meet `max(5% of total bytes, SCOPE_FREE_BYTES)`.
+`SCOPE_FREE_BYTES` is the production 2 GiB minimum. Equality passes. On a large
+filesystem the 5% term can require much more than 2 GiB free.
+
+Below that floor, `TurnFixtureFreeSpaceError` names the brain path, available
+bytes, required bytes and the remedy: point `TMPDIR` at a sufficiently
+provisioned filesystem. Provision storage explicitly before starting proof;
+neither the helper, `createFixtureApp` nor the offline launcher mounts it for
+you. Suites that do not need running turns have no blanket capacity check.
+This is a test prerequisite selected in
+[#2394](https://github.com/schlessera/brain-kit/issues/2394), not a replacement
+for the real runtime monitor. The production floor and its Stop-only behavior
+remain enforced, including if free space falls during a turn.
+
+For the negative control, use the private tmpfs recipe above with `size=3g`
+and run `fallocate -l 1600M "$1/fill"` immediately after mounting. The affected
+fixtures must refuse with the named error before sending their first turn,
+without reaching a recovery/approval timeout. Remove the explicit helper call
+temporarily to reproduce the original timeout, then restore it. The unfilled
+arm must pass every original behavioral assertion. Keep both arms offline via
+`scripts/test-offline.sh`, with setup capabilities dropped, and record total,
+available and required bytes alongside the runtime and mutation receipts.
+
 ## Runtimes, browsers and doubles
 
 - Predicate-only unit tests are not proof for anything with a runtime: the
