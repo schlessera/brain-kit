@@ -1,4 +1,4 @@
-/** Test-only transport safeguard; never imported by a published package. */
+/** Test-only subprocess and transport safeguards; never imported by a published package. */
 import { basename, join } from "node:path";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
@@ -6,8 +6,26 @@ const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 let installed: { assertNoEscapes(): void } | undefined;
 
+/** Test-owned repositories must not acquire detached writers behind a fixture. */
+function testGitEnvironment(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  if (!Number.isSafeInteger(count) || count < 0 || count > 2_147_483_645) {
+    throw new Error("Test Git environment requires a valid GIT_CONFIG_COUNT");
+  }
+  // Repeated preload/child propagation must not grow the inherited config.
+  if (count >= 2 && env[`GIT_CONFIG_KEY_${count - 2}`] === "maintenance.auto" &&
+    env[`GIT_CONFIG_VALUE_${count - 2}`] === "false" &&
+    env[`GIT_CONFIG_KEY_${count - 1}`] === "gc.auto" && env[`GIT_CONFIG_VALUE_${count - 1}`] === "0") return { ...env };
+  return { ...env,
+    GIT_CONFIG_COUNT: String(count + 2),
+    [`GIT_CONFIG_KEY_${count}`]: "maintenance.auto", [`GIT_CONFIG_VALUE_${count}`]: "false",
+    [`GIT_CONFIG_KEY_${count + 1}`]: "gc.auto", [`GIT_CONFIG_VALUE_${count + 1}`]: "0",
+  };
+}
+
 export function installNetworkGuard(): { assertNoEscapes(): void } {
   if (installed) return installed;
+  Object.assign(process.env, testGitEnvironment(process.env));
   const escapes: string[] = [];
   let reported = 0;
   const message = () => `Offline test guard: attempted real network access\n${escapes.join("\n")}`;
@@ -83,8 +101,12 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       // actual output owner in its ancestor, never pass its writable lock fd
       // into a pipe-only boundary. This is test coordination, not a worker flag.
       const pipeOnly = /\/ui-sdk\/(src|dist)\/server\/worker-entry\.(ts|js)$/.test(cmd[1] ?? "");
-      if (Array.isArray(first)) args[1] = inheritWorkspaceLease(args[1] ?? {}, defaultStderr, pipeOnly);
-      else args[0] = inheritWorkspaceLease(args[0], defaultStderr, pipeOnly);
+      const options = (Array.isArray(first) ? args[1] ?? {} : args[0]) as { env?: Record<string, string | undefined> };
+      // Fixture helpers often replace env completely, including provider-history
+      // probes. Carry test Git policy through those children as well as shells.
+      const inherited = inheritWorkspaceLease({ ...options, env: testGitEnvironment(options.env ?? process.env) }, defaultStderr, pipeOnly);
+      if (Array.isArray(first)) args[1] = inherited;
+      else args[0] = inherited;
       const result = Reflect.apply(native, Bun, args);
       return result;
     }) as typeof Bun.spawn & typeof Bun.spawnSync;

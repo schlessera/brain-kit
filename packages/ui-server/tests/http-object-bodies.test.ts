@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { serializeSigned } from "hono/utils/cookie";
 import { createStaticBackendRegistry } from "../src/agent/backend";
 import { createPrincipal } from "../src/db/principals";
-import { resetLoginRateLimiter } from "../src/middleware/auth";
+import { resetVerificationReservations } from "../src/middleware/auth";
 import { createRecordingObservability } from "../src/observability";
 import { makeFakeBackend } from "./helpers/fake-backend";
 import { createTestApp, type TestApp } from "./helpers/test-app";
@@ -39,7 +39,7 @@ function request(path: string, body: string, cookie = ownerCookie, method = "POS
 }
 
 beforeAll(async () => {
-  resetLoginRateLimiter();
+  resetVerificationReservations();
   fixture = await createTestApp({
     env: {
       AUTH_MODE: "password",
@@ -97,7 +97,7 @@ beforeAll(async () => {
 afterAll(async () => { if (fixture) await fixture.teardown(); });
 
 beforeEach(() => {
-  resetLoginRateLimiter();
+  resetVerificationReservations();
   writeFileSync(contentPath, "Raft supplies");
   fixture.app.db.prepare("UPDATE passkey_credentials SET label = ? WHERE id = ?")
     .run(LABEL, "fixture-key");

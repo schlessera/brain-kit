@@ -72,12 +72,17 @@ function inventoryPublication(output: string) {
   } catch { return { present: false }; }
 }
 
-/** --filesOnly reaches Vitest's glob API without importing/collecting test suites. */
-export async function browserInventory(root: string): Promise<Spec[]> {
+/** --filesOnly reaches Vitest's glob API without importing/collecting test suites.
+ * The fixed 30 s wall-clock cap covers local/hosted child exit and pipe drains.
+ * #2326 measured cold discovery at 14,811 ms in the pinned offline two-CPU image:
+ * approximately 2x that observation, not a guarantee under arbitrary starvation.
+ * #2380's option A keeps this hard maximum; tests inject short native deadlines.
+ */
+export async function browserInventory(root: string, deadlineMs = 30000): Promise<Spec[]> {
   const output = join(root, "tmp", `proof-browser-inventory-${process.pid}.json`);
   mkdirSync(dirname(output), { recursive: true });
   rmSync(output, { force: true });
-  const started = performance.now(), deadlineMs = 15000;
+  const started = performance.now();
   let timedOut = false;
   const p = Bun.spawn(["node", "../../node_modules/vitest/vitest.mjs", "list", "--filesOnly", `--json=${output}`], {
     cwd: join(root, "packages/ui-kit"), stdout: "pipe", stderr: "pipe", detached: process.platform !== "win32",

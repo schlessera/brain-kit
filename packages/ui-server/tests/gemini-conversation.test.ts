@@ -20,11 +20,15 @@ async function until(check: () => boolean): Promise<void> {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw new Error("transport condition timed out"); await Bun.sleep(1); }
 }
-async function fixture(ack = true, consume = true) {
+type Wire = "text" | "binary" | "arraybuffer";
+async function fixture(ack = true, consume = true, parameterless = false, wire: Wire = "text") {
   const sent: any[] = [];
   const received: LiveConversationEvent[] = [];
+  const frameTypes: string[] = [];
+  let dispatch: ((data: unknown) => boolean) | undefined;
   let remote: Bun.ServerWebSocket<undefined> | undefined;
   let connectedUrl = "";
+  const encode = (m: unknown) => wire === "text" ? JSON.stringify(m) : Buffer.from(JSON.stringify(m));
   const server = Bun.serve<undefined>({
     hostname: "127.0.0.1", port: 0,
     fetch(req, server) { if (server.upgrade(req)) return; return new Response(null, { status: 400 }); },
@@ -32,12 +36,27 @@ async function fixture(ack = true, consume = true) {
       open(ws) { remote = ws; },
       message(ws, frame) {
         const m = JSON.parse(String(frame)); sent.push(m);
-        if (m.setup && ack) ws.send(JSON.stringify({ setupComplete: {} }));
+        // The fixed host_task takes no vendor arguments. Model its accepted
+        // parameterless declaration at the real transport boundary (#2356),
+        // rather than acknowledging any setup shape unconditionally.
+        if (m.setup && parameterless && m.setup.tools.some((tool: any) => tool.functionDeclarations.some((declaration: any) =>
+          declaration.parameters !== undefined || declaration.parametersJsonSchema !== undefined))) {
+          ws.close(1007, "Parameterless host_task must omit its parameter schema");
+          return;
+        }
+        if (m.setup && ack) ws.send(encode({ setupComplete: {} }));
       },
     },
   });
   Object.defineProperty(globalThis, "WebSocket", { configurable: true, value: class extends NativeWebSocket {
-    constructor(url: string | URL) { connectedUrl = String(url); super(`ws://127.0.0.1:${server.port}`); }
+    constructor(url: string | URL) {
+      connectedUrl = String(url); super(`ws://127.0.0.1:${server.port}`);
+      dispatch = (data) => this.dispatchEvent(new MessageEvent("message", { data }));
+      if (wire === "arraybuffer") this.binaryType = "arraybuffer";
+      this.addEventListener("message", (event) => frameTypes.push(
+        typeof event.data === "string" ? "text" : event.data instanceof Uint8Array ? "binary" : event.data instanceof ArrayBuffer ? "arraybuffer" : "unsupported"
+      ));
+    }
   } });
   const abort = new AbortController();
   let session: LiveConversationSession | undefined;
@@ -53,9 +72,11 @@ async function fixture(ack = true, consume = true) {
       await until(() => received.some((e) => e.kind === "ready"));
     }
   }
-  return { provider, opening, session: session!, abort, sent, received,
+  return { provider, opening, session: session!, abort, sent, received, frameTypes,
     url: () => connectedUrl,
-    emit: (m: unknown) => remote!.send(JSON.stringify(m)),
+    emit: (m: unknown) => remote!.send(encode(m)),
+    emitRaw: (frame: string | Uint8Array | ArrayBuffer) => remote!.send(frame),
+    dispatch: dispatch!,
     closeRemote: () => remote!.close(),
     remoteClosed: () => remote!.readyState !== 1,
     async audio(utteranceId = "u1", sequence = 0) {
@@ -66,6 +87,150 @@ async function fixture(ack = true, consume = true) {
 }
 const ref = (nativeHandle = "native-1") => ({ conversationId: "ithaca", epoch: 1, utteranceId: "u1", turnId: "t1", requestId: "r1", nativeHandle });
 const result = { outcome: "completed" as const, facts: "The Ithaca note was captured.", delivery: "when-idle" as const };
+
+test("Gemini parameterless host_task completes a schema-checking peer handshake", async () => {
+  await expect(fixture(true, true, true)).resolves.toMatchObject({ provider: { id: "gemini-live" } });
+});
+
+for (const wire of ["binary", "arraybuffer"] as const) {
+  test(`Gemini ${wire} UTF-8 JSON completes the real Bun handshake`, async () => {
+    await expect(fixture(true, true, false, wire)).resolves.toMatchObject({
+      frameTypes: [wire], received: [{ kind: "ready", conversationId: "ithaca", epoch: 1 }],
+    });
+  });
+
+  test(`Gemini ${wire} frames preserve input, audio, interruption and advisory tool order`, async () => {
+    const f = await fixture(true, true, false, wire);
+    await f.audio(); f.session.markEndpoint("u1");
+    f.emit({ serverContent: {
+      inputTranscription: { text: "Capture the Ithaca note \u2014 safely.", finished: true },
+      outputTranscription: { text: "Checking the harbour." },
+      modelTurn: { parts: [{ inlineData: { data: "AAA=", mimeType: "audio/pcm;rate=24000" } }] },
+      interrupted: true,
+    } });
+    f.emit({ toolCall: { functionCalls: [{ id: "native-1", name: "host_task", args: { utteranceId: "untrusted", task: "Untrusted replacement" } }] } });
+    f.emit({ toolCallCancellation: { ids: ["native-1"] } });
+    // Interleave text with binary on the same socket, without waiting between messages.
+    f.emitRaw(JSON.stringify({ serverContent: { outputTranscription: { text: "The Ithaca reply." } } }));
+    await until(() => f.received.length >= 8);
+    expect(f.received.map((event) => event.kind)).toEqual([
+      "ready", "input_fragment", "output_transcript", "audio", "interrupted", "work_requested", "work_withdrawn", "output_transcript",
+    ]);
+    expect(f.received[1]).toMatchObject({ utteranceId: "u1", sequence: 0, text: "Capture the Ithaca note \u2014 safely.", finalization: "final", certainty: "unknown", origin: "unknown" });
+    const output = f.received[2] as Extract<LiveConversationEvent, { kind: "output_transcript" }>;
+    expect(output.sequence).toBe(0);
+    expect(f.received[3]).toMatchObject({ outputId: output.outputId, sequence: 1, format: { encoding: "pcm16", sampleRate: 24000, channels: 1 }, pcm: new Uint8Array([0, 0]) });
+    expect(f.received[4]).toMatchObject({ outputId: output.outputId });
+    expect(f.received[5]).toEqual({ conversationId: "ithaca", epoch: 1, kind: "work_requested", handle: "native-1" });
+    expect(f.received[6]).toEqual({ conversationId: "ithaca", epoch: 1, kind: "work_withdrawn", handle: "native-1" });
+    expect(f.received[7]).toMatchObject({ kind: "output_transcript", sequence: 0, text: "The Ithaca reply." });
+    expect(f.received[7]).not.toMatchObject({ outputId: output.outputId });
+    await expect(f.session.returnWork(ref(), result)).rejects.toThrow("correlation");
+    expect(f.sent.some((m) => m.toolResponse)).toBe(false);
+  });
+
+  for (const mode of ["abort", "close", "replacement"] as const) {
+    test(`Gemini late ${wire} callbacks cannot revive an epoch after ${mode}`, async () => {
+      const f = await fixture(true, false, false, wire);
+      if (mode === "close") await f.session.close();
+      else f.abort.abort();
+      const replacement = mode === "replacement" ? await f.provider.open(
+        { conversationId: "ithaca", epoch: 2 }, { signal: new AbortController().signal, resync: { work: [] } }
+      ) : undefined;
+      try {
+        const lateFrame = (frame: unknown) => {
+          const bytes = new TextEncoder().encode(JSON.stringify(frame));
+          f.dispatch(wire === "arraybuffer" ? bytes.buffer : bytes);
+        };
+        lateFrame({ setupComplete: {} });
+        lateFrame({ toolCall: { functionCalls: [{ id: "late", name: "host_task" }] } });
+        const events = [];
+        for await (const event of f.session.events) events.push(event);
+        expect(events.map((event) => event.kind)).toEqual(mode === "close" ? [] : ["error"]);
+        await expect(f.session.returnWork(ref("late"), result)).rejects.toThrow("correlation");
+        if (replacement) {
+          const current = replacement.events[Symbol.asyncIterator]();
+          expect((await current.next()).value).toMatchObject({ kind: "ready", epoch: 2 });
+          f.emit({ serverContent: { outputTranscription: { text: "A fresh Ithaca reply." } } });
+          expect((await current.next()).value).toMatchObject({ kind: "output_transcript", epoch: 2, text: "A fresh Ithaca reply." });
+        }
+      } finally { await replacement?.close(); }
+    });
+  }
+}
+
+for (const wire of ["text", "binary", "arraybuffer"] as const) {
+  test(`Gemini ${wire} JSON accepts exactly the 256 KiB frame limit`, async () => {
+    const f = await fixture(true, true, false, wire);
+    const overhead = JSON.stringify({ usageMetadata: { padding: "" } }).length;
+    const frame = JSON.stringify({ usageMetadata: { padding: " ".repeat(262144 - overhead) } });
+    expect(Buffer.byteLength(frame)).toBe(262144);
+    f.emitRaw(wire === "text" ? frame : Buffer.from(frame));
+    f.emit({ serverContent: { outputTranscription: { text: "The bounded Ithaca reply." } } });
+    await until(() => f.received.length > 1);
+    expect(f.received.at(-1)).toMatchObject({ kind: "output_transcript", text: "The bounded Ithaca reply." });
+  });
+
+  for (const encoding of ["ascii", "multibyte"] as const) {
+    test(`Gemini oversized ${encoding} ${wire} JSON fails closed at the byte bound`, async () => {
+      const f = await fixture(true, true, false, wire);
+      const overhead = JSON.stringify({ usageMetadata: { padding: "" } }).length;
+      const padding = encoding === "ascii" ? " ".repeat(262145 - overhead) : "\u03c0".repeat(131072);
+      const frame = JSON.stringify({ usageMetadata: { padding } });
+      expect(Buffer.byteLength(frame)).toBeGreaterThan(262144);
+      if (encoding === "multibyte") expect(frame.length).toBeLessThan(262144);
+      f.emitRaw(wire === "text" ? frame : Buffer.from(frame));
+      f.emit({ serverContent: { outputTranscription: { text: "The rejected Ithaca reply." } } });
+      await until(() => f.received.length > 1);
+      expect(f.received.at(-1)).toEqual({ conversationId: "ithaca", epoch: 1, kind: "error", message: "Gemini Live returned an invalid or uncorrelatable frame." });
+      expect(() => f.session.appendAudio({ utteranceId: "u1", sequence: 0, rate: 16000, pcm: new Uint8Array([0, 0]) })).toThrow("ended");
+    });
+  }
+}
+
+for (const [label, frame] of [
+  ["malformed JSON", Buffer.from('{"error":"keyless-odyssey-placeholder"')],
+  ["invalid UTF-8", Buffer.concat([Buffer.from('{"serverContent":{"outputTranscription":{"text":"'), Buffer.from([0xff]), Buffer.from('"}}}')])],
+  ["invalid tool schema", Buffer.from(JSON.stringify({ toolCall: { functionCalls: [{ id: "x", name: "Bash" }] } }))],
+] as const) {
+  test(`Gemini binary ${label} fails without exposing remote payloads`, async () => {
+    const f = await fixture();
+    f.emitRaw(frame);
+    await until(() => f.received.length > 1);
+    expect(f.received.at(-1)).toEqual({ conversationId: "ithaca", epoch: 1, kind: "error", message: "Gemini Live returned an invalid or uncorrelatable frame." });
+    expect(JSON.stringify(f.received)).not.toContain("keyless-odyssey-placeholder");
+  });
+}
+
+test("Gemini binary provider errors redact authentication details", async () => {
+  const f = await fixture(false);
+  f.emitRaw(Buffer.from(JSON.stringify({ error: { message: f.url() } })));
+  await expect(f.opening).rejects.toThrow("Gemini Live provider error.");
+});
+
+test("Gemini byte views decode only their visible range", async () => {
+  const f = await fixture();
+  const frame = Buffer.from(JSON.stringify({ serverContent: { outputTranscription: { text: "The Ithaca view." } } }));
+  const backing = new Uint8Array(262145 + frame.length);
+  backing.fill(0xff); backing.set(frame, 1);
+  f.dispatch(backing.subarray(1, 1 + frame.length));
+  await until(() => f.received.length > 1);
+  expect(f.received.at(-1)).toMatchObject({ kind: "output_transcript", text: "The Ithaca view." });
+});
+
+for (const [label, data] of [
+  ["Blob", new Blob([JSON.stringify({ usageMetadata: {} })])],
+  ["DataView", new DataView(new ArrayBuffer(4))],
+  ["object", { setupComplete: {} }],
+  ["null", null],
+] as const) {
+  test(`Gemini unsupported ${label} message data fails closed`, async () => {
+    const f = await fixture();
+    f.dispatch(data);
+    await until(() => f.received.length > 1);
+    expect(f.received.at(-1)).toEqual({ conversationId: "ithaca", epoch: 1, kind: "error", message: "Gemini Live returned an invalid or uncorrelatable frame." });
+  });
+}
 
 test("Gemini setup uses canonical endpoint, server-only auth, manual activity and explicit NON_BLOCKING", async () => {
   const f = await fixture();
@@ -171,8 +336,8 @@ test("disconnect produces a closed event with unknown remote cancellation", asyn
 });
 
 
-test("real adapter and host keep chat progress and a question interactive while async work awaits", async () => {
-  const f = await fixture();
+test.each(["text", "binary"] as const)("real %s adapter and host keep chat progress and a question interactive while async work awaits", async (wire) => {
+  const f = await fixture(true, true, false, wire);
   await f.session.close();
   const db = createUiDb(":memory:");
   const turns: StartTurnRequest[] = [];
@@ -226,8 +391,8 @@ test("real adapter and host keep chat progress and a question interactive while 
 });
 
 
-test("unconsumed event overflow closes capture and replaces stale audio with a visible error", async () => {
-  const f = await fixture(true, false);
+test.each(["text", "binary"] as const)("unconsumed %s event overflow closes capture and replaces stale audio with a visible error", async (wire) => {
+  const f = await fixture(true, false, false, wire);
   for (let i = 0; i < 260; i++) f.emit({ serverContent: { outputTranscription: { text: "The Ithaca reply." } } });
   await until(f.remoteClosed);
   const events = f.session.events[Symbol.asyncIterator]();

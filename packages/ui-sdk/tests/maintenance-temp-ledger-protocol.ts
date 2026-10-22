@@ -2,7 +2,14 @@
 const RECEIPT_TIMEOUT_MS = 5000;
 const RECEIPT_BYTES = 64 * 1024;
 const DIAGNOSTIC_BYTES = 8192;
-type LedgerChild = Pick<Bun.Subprocess<"ignore", "pipe", "pipe">, "pid" | "stdout" | "stderr" | "exited" | "exitCode" | "signalCode">;
+type LedgerChild = {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  readonly signalCode: string | null;
+  readonly pid?: number;
+  readonly exitCode?: number | null;
+};
 
 async function readLine(stream: ReadableStream<Uint8Array>, deadline: Promise<never>, capture: (bytes: Uint8Array) => void): Promise<string> {
   const reader = stream.getReader();
@@ -28,16 +35,16 @@ export async function ledgerLine(stream: ReadableStream<Uint8Array>): Promise<st
   finally { clearTimeout(timeout); }
 }
 
-const retain = (previous: Buffer, bytes: Uint8Array) => {
-  const tail = bytes.subarray(Math.max(0, bytes.byteLength - DIAGNOSTIC_BYTES));
-  return Buffer.concat([previous.subarray(Math.max(0, previous.length - (DIAGNOSTIC_BYTES - tail.byteLength))), tail]);
+const retain = (previous: Buffer, bytes: Uint8Array, limit = DIAGNOSTIC_BYTES) => {
+  const tail = bytes.subarray(Math.max(0, bytes.byteLength - limit));
+  return Buffer.concat([previous.subarray(Math.max(0, previous.length - (limit - tail.byteLength))), tail]);
 };
-function observeChild(child: LedgerChild) {
+function observeChild(child: LedgerChild, diagnosticBytes: number) {
   let stderr = Buffer.alloc(0), stderrError: string | undefined, exitStatus: number | null = null;
   const exited = child.exited.then(code => { exitStatus = code; });
   const reader = child.stderr.getReader();
   const drained = (async () => {
-    try { for (;;) { const item = await reader.read(); if (item.done) break; stderr = retain(stderr, item.value); } }
+    try { for (;;) { const item = await reader.read(); if (item.done) break; stderr = retain(stderr, item.value, diagnosticBytes); } }
     catch (error) { stderrError = String(error); }
     finally { reader.releaseLock(); }
   })();
@@ -47,14 +54,14 @@ function observeChild(child: LedgerChild) {
 }
 const observations = new WeakMap<LedgerChild, ReturnType<typeof observeChild>>();
 
-/** Observe before reading: drain stderr without letting an owned child fill its pipe. */
-export async function ledgerChildLine(child: LedgerChild, phase: string): Promise<string> {
+/** Observe before reading. A smaller nested tail leaves room in its parent diagnostic. */
+export async function ledgerChildLine(child: LedgerChild, phase: string, diagnosticBytes = DIAGNOSTIC_BYTES): Promise<string> {
   let stdout = Buffer.alloc(0);
   let observation = observations.get(child);
-  if (!observation) { observation = observeChild(child); observations.set(child, observation); }
+  if (!observation) { observation = observeChild(child, diagnosticBytes); observations.set(child, observation); }
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("owned ledger child did not report its phase")), RECEIPT_TIMEOUT_MS); });
-  try { return await readLine(child.stdout, deadline, bytes => { stdout = retain(stdout, bytes); }); }
+  try { return await readLine(child.stdout, deadline, bytes => { stdout = retain(stdout, bytes, diagnosticBytes); }); }
   catch (cause) {
     // EOF can precede the exit callback, or a descendant can keep stderr open.
     // Neither diagnostic wait extends the original receipt deadline.

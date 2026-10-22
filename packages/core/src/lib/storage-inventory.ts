@@ -34,6 +34,8 @@ export interface StorageInventory {
   limits: typeof STORAGE_LIMITS;
 }
 interface Options {
+  /** Internal host-reader mode: Git administrative metadata only, no executable. */
+  metadataGit?: boolean;
   signal?: AbortSignal;
   /** Trusted host configuration only; never a request parameter. */
   gitRoots?: readonly string[];
@@ -60,6 +62,50 @@ function openRoot(path: string): number {
   } catch (error) { closeSync(fd); throw error; }
 }
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)); };
+
+/** Read only Git's fixed location markers through held, non-followed descriptors.
+ * Config/includes, hooks, filters, helpers and object contents are never evaluated. */
+function metadataGitPaths(root: string, allowed: readonly string[]): { path: string; objects: boolean }[] {
+  const approved = (path: string) => inside(root, path) || allowed.some(value => inside(value, path));
+  const text = (fd: number, parent: number): string => {
+    const stat = fstatSync(fd, { bigint: true });
+    if (!stat.isFile() || mountId(fd) !== mountId(parent) || stat.size > BigInt(STORAGE_LIMITS.gitBytes)) throw Error("git-metadata-unsupported");
+    const file = openSync(at(fd), constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const buffer = Buffer.alloc(STORAGE_LIMITS.gitBytes + 1), size = readSync(file, buffer, 0, buffer.length, 0);
+      if (size > STORAGE_LIMITS.gitBytes || version(fstatSync(file, { bigint: true })) !== version(stat)) throw Error("git-metadata-changed-or-over-budget");
+      const value = buffer.subarray(0, size).toString("utf8").replace(/\n$/, "");
+      if (!value || /[\r\n\0\ufffd]/.test(value)) throw Error("git-path-encoding-unsupported");
+      return value;
+    } finally { closeSync(file); }
+  };
+  let brain: number | undefined, marker: number | undefined, git: number | undefined, commonMarker: number | undefined;
+  try {
+    brain = openRoot(root);
+    try { marker = openSync(at(brain, ".git"), PATH | constants.O_NOFOLLOW); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    const stat = fstatSync(marker, { bigint: true });
+    let gitDir = resolve(root, ".git");
+    if (mountId(marker) !== mountId(brain)) throw Error("mount-boundary");
+    if (!stat.isDirectory()) {
+      const value = text(marker, brain);
+      if (!value.startsWith("gitdir: ")) throw Error("git-location-marker-unsupported");
+      gitDir = resolve(root, value.slice(8));
+    }
+    if (!approved(gitDir)) throw Error("external-git-root-not-approved");
+    git = openRoot(gitDir);
+    let common = gitDir;
+    try {
+      commonMarker = openSync(at(git, "commondir"), PATH | constants.O_NOFOLLOW);
+      common = resolve(gitDir, text(commonMarker, git));
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (!approved(common)) throw Error("external-git-root-not-approved");
+    const objects = resolve(common, "objects");
+    return [...new Set([gitDir, common, objects])].sort(compare).map(path => ({ path, objects: path === objects }));
+  } finally {
+    for (const fd of [commonMarker, git, marker, brain]) if (fd !== undefined) closeSync(fd);
+  }
+}
 
 /** Bounded output and lifetime; every cancellation kills and awaits the child. No shell, hooks, filters or maintenance. */
 async function gitPaths(root: string, signal: AbortSignal, deadline: number): Promise<{ path: string; objects: boolean }[]> {
@@ -205,7 +251,7 @@ export async function collectStorageInventory(rootPath: string, options: Options
     const roots: { path: string; kind: "brain" | "git" }[] = [{ path: root, kind: "brain" }];
     if (!stop()) {
       try {
-        const paths = await gitPaths(root, signal, deadline);
+        const paths = options.metadataGit ? metadataGitPaths(root, allowedGitRoots) : await gitPaths(root, signal, deadline);
         const inspected = new Set<string>();
         // Only read alternate metadata after approving and opening its object
         // directory. `git count-objects` would traverse unapproved alternates.
@@ -213,7 +259,7 @@ export async function collectStorageInventory(rootPath: string, options: Options
           if (stop()) break;
           if (index >= 64) { fail("git", "git-root-budget"); break; }
           const candidate = paths[index];
-          const path = canonical(candidate.path);
+          const path = options.metadataGit ? resolve(candidate.path) : canonical(candidate.path);
           const resolutionId = `${candidate.objects ? "objects" : "store"}:${path}`;
           if (inspected.has(resolutionId)) continue;
           inspected.add(resolutionId);

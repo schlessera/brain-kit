@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:753`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:787`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -256,7 +256,7 @@ Stated before the requirements because five of them derive from it.
   (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:103-177`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1169-1181`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1166-1178`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
@@ -387,7 +387,7 @@ Stated before the requirements because five of them derive from it.
   to `failure|completion|stuck`, requires an activity `run_id`, coalesces only by dropping a
   later same-tag intent without updating a count
   (`function createIntent(input: {`, `packages/ui-server/src/activity/notify.ts:91-127`), and the sender emits one push per
-  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:194-241`). Reuse subscriptions, retry budget, and delivery
+  pending row (`async deliverPending(notifier) {`, `packages/ui-server/src/activity/push-sender.ts:197-244`). Reuse subscriptions, retry budget, and delivery
   status; add an Actions-aware aggregate carrying group key, count, priority, quiet-hours
   eligibility, and an Actions deep link. The
   [2026-10-02 Action notification decision](../decisions/action-notifications.md)

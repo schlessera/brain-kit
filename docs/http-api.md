@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 135 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 154 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -26,6 +26,25 @@ client code has a gap. Source owners are listed after the table.
 
 | Method | Path | Class | Purpose | Consumers, existing promise and reason |
 | --- | --- | --- | --- | --- |
+| GET | `/api/storage/removals` | S | Read removal capability and latest receipt | Current human-owner authority; exact canonical attachments only. |
+| POST | `/api/storage/removals/inspection` | S | Inspect current attachment facts | Read bounded eligibility and consequences without allocating a durable operation. |
+| POST | `/api/storage/removals/reviews` | S | Review exact attachment paths | Bound versions, consequences and recovery coverage before confirmation. |
+| POST | `/api/storage/removals/undo-reviews` | S | Review retained originals for Undo | New identity and current absent-target checks. |
+| POST | `/api/storage/removals` | S | Confirm one reviewed selection | Durable intent and verified originals precede unlink. |
+| GET | `/api/storage/removals/:id` | S | Read a removal or Undo receipt | Principal-bound readback never replays effects. |
+| DELETE | `/api/storage/removals/:id` | S | Cancel remaining selected items | Current acknowledgement finishes; completed effects remain. |
+| GET | `/api/storage/maintenance` | S | Read approved maintenance rows and latest receipts | Current human-owner authority; three fixed owners only. |
+| POST | `/api/storage/maintenance` | S | Admit one identified maintenance operation | Durable owner-bound identity and credential-free worker execution. |
+| GET | `/api/storage/maintenance/:id` | S | Read the original operation receipt | Readback never replays an effect. |
+| DELETE | `/api/storage/maintenance/:id` | S | Request cancellation of remaining work | Existing committed effects remain in the receipt. |
+| GET | `/api/storage/history` | S | Read bounded aggregate history | Current human-owner access; no scan on read. |
+| GET | `/api/storage/guidance` | S | Read pressure, scenarios and delivery evidence | Current human-owner access; no scan on read. |
+| GET | `/api/storage` | S | Read current bounded inventory state | Human-owner Storage inspection; no delegated or worker access. |
+| POST | `/api/storage/scans` | S | Refresh configured stores | Human-owner Storage inspection; no delegated or worker access. |
+| DELETE | `/api/storage/scans/:id` | S | Cancel an active scan | Human-owner Storage inspection; no delegated or worker access. |
+| GET | `/api/storage/scans/:id/entries` | S | Read a filtered bounded page | Human-owner Storage inspection; no delegated or worker access. |
+| GET | `/api/storage/scans/:id/tree` | S | Read a bounded subtree projection | Human-owner Storage inspection; no delegated or worker access. |
+| GET | `/api/storage/scans/:id/entries/:entryId/references` | S | Inspect bounded indexed reference evidence | Human-owner Storage inspection; no delegated or worker access. |
 | GET | `/api/activity/digest` | I | Read digest and record app visit | React Activity presentation state; retained public client functions do not promise independent raw transport. |
 | POST | `/api/activity/digest/dismiss` | I | Record digest dismissal | React Activity presentation state; retained public client functions do not promise independent raw transport. |
 | POST | `/api/activity/digest/generate` | I | Generate digest manually | React Activity presentation state; retained public client functions do not promise independent raw transport. |
@@ -168,7 +187,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 135 declared endpoints are mounted regardless of backend, renderer or
+All 154 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1211,3 +1230,292 @@ These actions reuse the existing queue, identity-bound readback, partial
 receipts, journal and user Undo. No additional endpoint, automatic merge or
 agent permission is introduced. The reader calls versions observed, never
 exclusive "mine" or "theirs" ownership.
+
+## Storage inventory
+
+The server uses the installed `@schlessera/brain/storage` metadata reader. It
+never executes Git, the brain CLI, repository configuration, hooks or filters
+for inspection. Only fixed Git administrative location markers and approved
+host roots participate in discovery.
+
+These six operations require a current `owner` or `ambient` principal. Agent,
+delegated and restricted access is refused (403); unauthenticated/revoked access
+is refused (401 by normal authentication). Authorization is checked again at
+coordinator access and after asynchronous inspection. Responses are private,
+no-store. Mutations retain the existing origin and JSON body protections.
+
+`GET /api/storage` returns SDK `StorageStatus` version 1 without starting work:
+state, active scan ID, nullable latest/previous observations, last failure and
+limits. `POST /api/storage/scans` accepts only `{}` and returns 202 with status.
+It coalesces one scan per app instance; a new scan is limited to once every five
+seconds. Roots, credentials and scan budgets are never request parameters.
+`DELETE /api/storage/scans/:id` returns 202 while cancellation is being reaped;
+an inactive identity returns 409. Initiator revocation cancels its scan.
+
+`GET /api/storage/scans/:id/entries` accepts optional `rootId`, `parentId`
+(empty means root rows), `owner=all|brain|app|operator`, `type=pdf`, nonnegative
+integer `largerThan`, `search`, `sort=name|size`, `metric=allocated|logical`,
+`direction=asc|desc` and opaque `cursor`. Search matches case-insensitive entry
+names and admits at most 128 UTF-8 bytes with no control characters. Ordering
+applies to all matches before paging; unknown byte values sort last. Explicit
+size ordering defaults descending, name ordering ascending; absent presentation
+parameters retain the original root/path order. PDF matching is filename based and
+case insensitive; byte thresholds are strictly greater than. A page has at most
+200 entries, a next cursor, stale flag, match count and object-union subtotals.
+Cursors bind the scan and filters and expire after 60 seconds; changed/expired
+cursors return 409, malformed cursors/filters 400. Unknown/evicted scans return
+404. Cache retains at most two observations and 96 MiB serialized data, each
+at most 48 MiB, for at most ten minutes. One scan admits at most 100,000 entries,
+32 roots and 35 seconds of collection; child cancellation is awaited. Kernel
+uninterruptible I/O cannot have a hard wall-clock completion guarantee.
+
+`GET /api/storage/scans/:id/tree` accepts `parentId` (a root or directory ID;
+absent/empty selects all roots), `owner`, `search`, `sort`, `metric`, `direction`
+and `cursor`. It projects the retained scan without filesystem reads, returning
+SDK `StorageTreePage`: parent, breadcrumb names/IDs, at most 200 immediate child
+nodes, full match count and subtotals. Search matches immediate child names;
+default ordering is descending allocated size. A node's `totals` contains its
+subtree object union; `area` assigns each object to one matching sibling in stable
+root/path order. Alias names remain visible without inflating the displayed area.
+The page's `totals` union covers all matching nodes, including later pages.
+An explicit, non-actionable `metadata` node accounts for the current directory's
+own allocation; file roots retain file identity. Partial/unknown owners remain
+partial/unknown even with no matching rows. Tree cursors also bind the operation
+and cannot be reused for flat entries. Projection has a three-second checked
+CPU deadline over the bounded cached scan; incomplete topology, an unavailable
+parent or an out-of-view parent returns 503 rather than omitting descendant bytes.
+
+The server resolves the installed host core package’s public metadata entry
+outside the brain, with explicit roots and no inherited secrets. It never
+launches the brain repository’s selected executable on the host.
+Missing/incompatible inventory support produces partial/unavailable evidence
+rather than falling back to CLI execution or internal imports. Metadata workers
+inspect only exact configured stores, reject redirects below roots and mount crossings, and
+never read attachment/database/backup contents for sizing. Backend setup is not
+triggered by inventory. Explicit host backup/Git roots are described in server
+configuration; no remote or host-wide filesystem discovery is performed.
+
+Root IDs, object IDs and versions are opaque per app lifetime. Absolute paths,
+configuration contents and credentials are excluded. All/Brain/App/Operator
+are overlapping ownership views over an object union, never additive totals.
+Filesystem identity reconciles shared capacities; unsupported equivalence stays
+unknown. Capacity rows are never summed. `measured` and `other` remain null
+because shared extents do not establish exclusive attribution. Statfs caller
+availability is not quota headroom. Native retained stores and private temporary
+usage remain explicit unknown rows where their owners cannot provide a safe
+measurement. Limits, permissions, unsupported metadata and live changes preserve
+partialness; unknown values never become zero or a logical-size fallback.
+
+`GET /api/storage/scans/:id/entries/:entryId/references` inspects a retained
+canonical file observation through the supported core query API. One inspection
+per app runs at a time, with a five-second cancellation deadline and 1 MiB output
+cap. The result is SDK `StorageReferenceEvidence`: up to 200 indexed source paths
+and index timestamps, truncation, observation time, and explicit unchecked scope.
+Index timestamps do not prove current source freshness. Unavailable index support
+returns unavailable evidence; an empty observed list never proves no references.
+No file body is read for inventory, type filtering or this index inspection.
+
+Inventory endpoints do not authorize deletion, expiry, maintenance or recovery. The complete
+Storage pane is delivered separately with its approved removal journey.
+
+## Storage maintenance (additive, #2011)
+
+These four operations require the same current human-owner authority as Storage
+inventory. GETs and cancellation additionally bind receipts to their initiating
+principal. Authorization is checked at admission, after waiting for owner locks,
+before worker launch and before output publication. Responses are private,
+no-store; origin and JSON protections remain in force.
+
+`GET /api/storage/maintenance` returns `{operations, limits}`. Each row has a fixed
+`id`, label, owner, scope, effect, availability/reason, headroom disclosure and
+nullable latest receipt. The only operation IDs are `pack-git`, `prune-scratch`
+and `cleanup-staging`. These delegate respectively to core's existing
+non-destructive packing, pin-refreshed scratch pruning, and the inbox's settled
+staging cleanup. They do not run the general inbox drain or retention tick.
+
+`POST /api/storage/maintenance` accepts only `{id, operation}` in at most 4096
+bytes. IDs contain 16–96 ASCII letters, digits, `_` or `-`. It returns 202 with
+the durable receipt. Repeating the same identity/principal/operation reads that
+receipt; mismatched reuse is 409. Only one admitted Storage operation per brain
+runs across database connections. Another identity while one is active returns
+409. Requests cannot choose roots, executables, commands or retention policy.
+
+`GET /api/storage/maintenance/:id` returns the original receipt; missing or
+other-principal receipts return 404. `DELETE` on the same path returns 202 with
+that receipt and requests cancellation. Cancellation stops further admission and
+interrupts the bounded worker; it does not promise rollback of committed effects.
+Current inbox item acknowledgement can finish before later items stop.
+
+SDK `StorageMaintenanceReceipt` contains identity, operation/owner/scope,
+request/start/completion timestamps, state, reason, headroom, nullable before/after
+observations and owner outcome. States are `waiting`, `running`, `complete`,
+`partial`, `refused`, `cancelled` and `unknown`. Interrupted started work remains
+unknown unless the owner supplies a durable item outcome; readback never blindly
+re-dispatches it. Failed refresh suspends scratch deletion; retained pins and
+pinned overage survive. Live, unacknowledged or recovery-gated staging remains
+with its existing owner. There is no new cleanup/expiry schedule.
+
+Before/after observations separately retain affected stores and capacities,
+coverage and basis. They explicitly permit concurrent writers. File counts and
+packed-object counts are never converted into reclaimed bytes. Unknown headroom
+is null; old/new Git packs may coexist and required temporary bytes are workload
+dependent. Existing worker admission controls its temporary space. A known zero
+capacity refuses packing, and receipt admission failure starts no owner action.
+No other recovery store is purged to make room.
+
+The worker has a five-minute deadline and a combined 1 MiB output ceiling;
+termination awaits its existing cleanup. Kernel uninterruptible I/O cannot carry
+a hard completion guarantee. Each staging pass considers at most 200 eligible
+rows. Receipts reserve at most 64 KiB each, with bounded item detail and explicit
+truncation; the per-brain admission ceiling is 1024 receipts. Reaching it refuses
+new IDs with 503 and retains all existing receipts. This is a resource admission
+bound, not a new retention expiry. Lost completion persistence retains intent and
+readback describes uncertainty. Invalid input is 400, oversized bodies 413,
+non-JSON input 415, and unavailable owners/admission 503 or a refused receipt.
+
+Packing alone requires content core 0.44.0 or newer. Older installations produce
+an explicit refusal; the ordinary server CLI minimum remains 0.42.0. Hosted CLI
+operations use only the qualified credential-free maintenance worker; unsupported
+hosts do not fall back to executing repository code on the host.
+
+## Recoverable attachment removal (additive, #2012)
+
+The seven `/api/storage/removals` operations require current owner/ambient human
+access and return private, no-store responses. Missing authentication is 401;
+delegated callers are 403. Receipts belong to their initiating principal and an
+unknown or another principal's identity returns 404. Origin protections apply
+to writes; JSON is mandatory for POST. No agent tool gains deletion authority.
+
+GET returns SDK `StorageRemovalCapability`: `available`, `reason`, fixed limits
+and `latest` receipt or null. Unsupported native recovery/worker hosts report
+unavailable. POST `/reviews` accepts exactly `{id, paths}` and POST
+`/undo-reviews` exactly `{id, sourceId, paths}`. IDs use 16–96 ASCII letters,
+digits, `_` or `-`; at most 32 distinct canonical relative paths, 4096 bytes per
+path, 32 components, 64 MiB per file and 128 MiB of eligible file bytes are
+admitted. Review bodies are bounded to 140,000 bytes. Paths do not choose roots,
+executables, commands, sidecars or a wider scope. One review per coordinator
+runs at a time, with a 60-second deadline and a ten-minute confirmation window.
+
+POST `/inspection` accepts exactly `{paths}` under the same owner, path, worker,
+writer-gate, deadline and response bounds. It returns `StorageRemovalInspection`:
+current `observedAt`, `files`, `complete`, `unchecked` and `selectedFileBytes`.
+It neither allocates a durable receipt nor exposes an identity or fingerprint
+that can be confirmed. Inspecting files therefore cannot consume the operation
+receipt budget. Selection still requires a fresh durable review before removal.
+
+Review returns a durable `StorageRemovalReceipt` in `review` state. Its review
+contains the identity, action, optional source identity, opaque fingerprint,
+observation/expiry times, selected logical file bytes, unchecked scopes and
+per-file eligibility/reason, raw hash/size, Git state, current reference evidence
+and recovery state. File bytes are not promised freed space. Originals are
+`requires-retention` until execution actually retains them; Undo reviews say
+`retained` only for an available original. Excluded targets remain visible.
+
+Eligibility is limited to ordinary single-link non-executable attachments with
+supported media, PDF, office/archive or ebook suffixes. Hidden paths, policies,
+scripts, workspaces, configured other-owner stores, symlinks, hard links and
+nested mounts remain ineligible. Unknown protection or current recovery coverage
+refuses effects. Ordinary journal exclusions are preserved, including ignored
+files. Filename eligibility does not establish document validity or safe preview.
+
+The consequence worker scans at most 10,000 directory entries, 2000 Markdown
+files, 8 MiB of Markdown overall and 512 KiB per file; it records up to 200
+reference sources per selected file. Git subprocesses have two-second/1 MiB
+bounds; the enclosing credential-free worker has a 30-second/256 KiB output
+bound. It does not initialize brain config and discards every output, including
+incidental Git writes. Current parsed Markdown references are independent of
+index freshness. Retained conversations, external consumers, hidden/symlinked
+content, other workspaces and unsupported link syntax remain unchecked. Incomplete
+local evidence is ineligible; absence of observed links never proves no consumers.
+
+POST at `/api/storage/removals` accepts `{id, fingerprint}` in at most 4096 bytes
+and returns 202. It confirms exactly that review; mismatched or expired reviews
+are 409. Repeating an admitted identity reads its receipt without repeating any
+file effect. Removal and Undo serialize across processes through the existing
+exclusive writer gate and brain/Git locks. Active turns finish before validation;
+nested shared maintenance can still finish while removal waits. Current
+principal authority, selected versions, topology, protection, ordinary retention
+coverage and consequences are rechecked after admission and before effects.
+Unknown external writers outside the managed admission system are not coordinated
+by these locks; this is not an arbitrary filesystem cleanup service.
+
+Verified before-bytes use the existing charged native journal/CAS. The original
+and durable item intent precede unlink; admission, quota or ENOSPC refusal leaves
+the source intact. No new ignore override, retention policy, Git-history removal,
+reference rewriting, sidecar cascade, commit or push is introduced. Undo gets a
+new review/identity and uses retained bytes only while their owner still provides
+them. It checks the reviewed parent chain and creates only an absent destination;
+a replacement is never overwritten. A failed copy removes only its own incomplete
+inode, preserving the retained original.
+
+GET `/:id` returns the original receipt. DELETE `/:id` requests cancellation and
+returns 202; later items stop while the current critical acknowledgement finishes.
+Receipts distinguish `not-started`, `applying`, `removed`, `restored`, `changed`,
+`protected`, `failed` and `unknown` items. Operation states are `review`, `waiting`,
+`running`, `complete`, `partial`, `refused`, `cancelled` and `unknown`. A killed
+owner or lost acknowledgement remains explicit uncertainty, never inferred
+success or a replay. Confirmed successes survive mixed batches. `undoAvailable`
+and `undoReason` are recomputed from the original's current retention ownership;
+expired or unavailable detail visibly removes the Undo offer.
+
+Before/after observations separately record current content, journal, Git,
+operational database and volume availability, with timestamp, basis, coverage and
+concurrent-writer qualification. `index` is separately `not-requested`, `complete`
+or `unavailable`; refresh publication is restricted to the fixed disposable
+`brain.db` files, so configuration code cannot publish changes to unselected
+content through this refresh. Commit/sync remain `not-requested`, Git history unchanged by
+this operation and backups unmeasured. Deletion can initially increase allocation.
+
+The operation's queue and effects have a five-minute cancellation deadline;
+index refresh and after-measurement each have an independent 36-second bound.
+Individual raw hashes have a 15-second deadline. Kernel uninterruptible I/O cannot
+guarantee a hard return time. Public receipt and private version metadata each
+reserve 256 KiB through the existing journal allocation owner. The per-brain
+admission ceiling is 128 identities; reaching it refuses new reviews with 503 and
+retains existing receipts. This is an admission bound, not a new retention expiry.
+Invalid requests are 400, oversized bodies 413, wrong content type 415, contention
+409 and unavailable evaluation/recovery/admission 503 or an explicit refused/failed
+receipt. The Storage pane is delivered by its complete UI issue.
+
+## Storage history and pressure guidance
+
+`GET /api/storage/history` and `GET /api/storage/guidance` require the same
+current human-owner authority as inventory. They accept no body or options,
+use `Cache-Control: private, no-store`, and never collect filesystem inventory.
+Unauthenticated callers receive 401; delegated principals receive 403; an
+unavailable operational read returns 503. Unknown evidence is a nullable or
+explicit unavailable field in a successful response, never a zero.
+
+History returns SDK `StorageHistoryResponse`, version 1: state, pause reason,
+pending status, last actual observation time, serialized payload bytes, limits
+and at most 186 named observations. Each observation identifies its UTC tier,
+actual start/end, source, collector version, opaque scope, basis, coverage and
+gap/reason. Its at most four capacities carry nullable total/used/free/available,
+three owner attribution views and a separately deduplicated union. History has
+no paths, filenames, content, credentials or persistent display names. The
+private compact encoding is not a wire contract. The 256 KiB ceiling applies
+to that canonical persisted payload; named HTTP expansion and SQLite pages/WAL
+are separate charges. Limits are 64 six-hour, 90 daily and 32 Monday-weekly slots.
+
+Guidance returns SDK `StorageGuidanceResponse`, version 1: current/unknown/
+unavailable state, highest retained severity, pause/pending status, last actual
+observation time, scope-limit flag, up to four capacity pressure records and
+untracked current inventory IDs. Each pressure record retains independent
+capacity, forecast and owner-refusal causes, recovery time and opaque episode.
+Current authorized inventory supplies optional store display labels. Its
+nullable evidence identifies observed rate windows and short/long conditional
+capacity scenarios; unavailable scenarios carry a reason, never a guessed
+number. `non-depleting` does not mean unlimited capacity. Unknown state can
+retain Low/Critical severity until the cause-specific recovery rules are met.
+Older retained complete observations keep their own timestamps even when newer
+partial evidence changes pressure.
+
+Notification status uses existing browser-managed permission. It includes
+strict local 22–08 quiet hours, up to 100 subscription zone/quiet summaries and
+200 episode receipts, with separate truncation flags. It exposes neither
+endpoints nor credentials. Receipts distinguish pending, sending, accepted,
+known failure, unknown and suppressed. Accepted means transport submission;
+unknown is terminal for automatic retry. Three attempts per episode/subscription
+are the maximum, with one/five-minute delays only after known non-delivery.
+Restored episodes never regain notification authority. See
+[Storage history](storage-history.md) for sampling, recovery and physical costs.

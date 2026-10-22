@@ -191,6 +191,19 @@ input/dependency/harness changes require fresh proof; unknown changes expand
 conservatively. There is no generic cache of passing tests. Respect branch rules
 and verify the actual squash parent/tree and automatic main-push result.
 
+For ordinary PRs, acquire the exact-candidate integration reservation before
+expensive confirmation and keep it through merge. Use
+`bun scripts/integrate.ts confirm <pr> --issues owner/repo#N,...` for automatic
+renewal and proof-checked squash, or the explicit acquire/renew/merge commands
+in [the reservation decision](docs/decisions/ci-utility.md#exact-candidate-integration-reservation).
+Busy owners may continue coding and fast feedback; hold competing confirmation
+and main merges. The five-minute lease renews every minute with a sixty-minute
+absolute cap, including queues. Direct `gh pr merge` bypasses this cooperative
+procedure. A successful squash returns exit 2 until actual automatic main jobs
+are reconciled separately; do not treat a run summary as complete proof.
+Native stacks require separately qualified integration support; this ordinary
+command rejects them rather than inventing an ordinary merge receipt.
+
 Independent fast test batches and typechecking share a queue with at most two
 active processes on one runner. Each selected test runs exactly once; another batch
 starts when a slot becomes free. Ordinary Bun processes retain their module
@@ -272,7 +285,7 @@ feature test should use these helpers instead of building its own.
 
 The complete dictation browser fixture has its own `dictation` project so its
 Chromium touch emulation and consumer styles stay outside the shared `visual`
-page. The default browser wrapper includes it in both shards; use
+page. The default browser wrapper includes it in every shard; use
 `node scripts/visual.mjs --project=dictation` for a focused container run.
 
 Tests and typecheck run from live TS source — no build needed. The

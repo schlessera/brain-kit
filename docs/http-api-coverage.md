@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:145-164`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:164-183`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -35,6 +35,25 @@ row's real mounting check. They do not establish mounting by themselves.
 
 | Supported operation | Mounted receipt | Detailed checks |
 | --- | --- | --- |
+| `GET /api/storage/removals` | `mounted supported handler: GET /api/storage/removals` | SM |
+| `POST /api/storage/removals/inspection` | `mounted supported handler: POST /api/storage/removals/inspection` | SM |
+| `POST /api/storage/removals/reviews` | `mounted supported handler: POST /api/storage/removals/reviews` | SM |
+| `POST /api/storage/removals/undo-reviews` | `mounted supported handler: POST /api/storage/removals/undo-reviews` | SM |
+| `POST /api/storage/removals` | `mounted supported handler: POST /api/storage/removals` | SM |
+| `GET /api/storage/removals/:id` | `mounted supported handler: GET /api/storage/removals/:id` | SM |
+| `DELETE /api/storage/removals/:id` | `mounted supported handler: DELETE /api/storage/removals/:id` | SM |
+| `GET /api/storage/maintenance` | `mounted supported handler: GET /api/storage/maintenance` | SM |
+| `POST /api/storage/maintenance` | `mounted supported handler: POST /api/storage/maintenance` | SM |
+| `GET /api/storage/maintenance/:id` | `mounted supported handler: GET /api/storage/maintenance/:id` | SM |
+| `DELETE /api/storage/maintenance/:id` | `mounted supported handler: DELETE /api/storage/maintenance/:id` | SM |
+| `GET /api/storage/history` | `mounted supported handler: GET /api/storage/history` | SG |
+| `GET /api/storage/guidance` | `mounted supported handler: GET /api/storage/guidance` | SG |
+| `GET /api/storage` | `mounted supported handler: GET /api/storage` | ST |
+| `POST /api/storage/scans` | `mounted supported handler: POST /api/storage/scans` | ST |
+| `DELETE /api/storage/scans/:id` | `mounted supported handler: DELETE /api/storage/scans/:id` | ST |
+| `GET /api/storage/scans/:id/entries` | `mounted supported handler: GET /api/storage/scans/:id/entries` | ST |
+| `GET /api/storage/scans/:id/tree` | `mounted supported handler: GET /api/storage/scans/:id/tree` | ST |
+| `GET /api/storage/scans/:id/entries/:entryId/references` | `mounted supported handler: GET /api/storage/scans/:id/entries/:entryId/references` | ST |
 | `GET /api/activity/rollups` | `mounted supported handler: GET /api/activity/rollups` | R |
 | `GET /api/activity/runs` | `mounted supported handler: GET /api/activity/runs` | R |
 | `GET /api/activity/runs/:runId` | `mounted supported handler: GET /api/activity/runs/:runId` | R |
@@ -161,17 +180,17 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **P — Passkey ceremonies and metadata.**
 
-- `reports passkey availability per RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`reports passkey availability per RP`, `packages/ui-server/tests/passkeys.test.ts:292-301`)
-- `valid assertion sets the session cookie and updates the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`valid assertion sets the session cookie and updates the credential`, `packages/ui-server/tests/passkeys.test.ts:439-480`)
-- `register-verify stores the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`register-verify stores the credential`, `packages/ui-server/tests/passkeys.test.ts:960-985`)
-- `list, rename, delete round-trip` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`list, rename, delete round-trip`, `packages/ui-server/tests/passkeys.test.ts:987-1028`)
-- `challenges are single-use, typed, and expire` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`challenges are single-use, typed, and expire`, `packages/ui-server/tests/passkeys.test.ts:560-582`)
-- `password login is refused once a passkey exists for the RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`password login is refused once a passkey exists for the RP`, `packages/ui-server/tests/passkeys.test.ts:784-794`)
+- `reports passkey availability per RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`reports passkey availability per RP`, `packages/ui-server/tests/passkeys.test.ts:298-307`)
+- `valid assertion sets the session cookie and updates the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`valid assertion sets the session cookie and updates the credential`, `packages/ui-server/tests/passkeys.test.ts:445-486`)
+- `register-verify stores the credential` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`register-verify stores the credential`, `packages/ui-server/tests/passkeys.test.ts:966-991`)
+- `list, rename, delete round-trip` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`list, rename, delete round-trip`, `packages/ui-server/tests/passkeys.test.ts:993-1034`)
+- `challenges are single-use, typed, and expire` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`challenges are single-use, typed, and expire`, `packages/ui-server/tests/passkeys.test.ts:566-588`)
+- `password login is refused once a passkey exists for the RP` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`password login is refused once a passkey exists for the RP`, `packages/ui-server/tests/passkeys.test.ts:790-800`)
 
 **O — Owner boundary with populated stores.**
 
 - `real owner management rejects a live agent against populated principal and credential stores` ([source](../packages/ui-server/tests/http-principal-boundaries.test.ts)), (`real owner management rejects a live agent against populated principal and credential stores`, `packages/ui-server/tests/http-principal-boundaries.test.ts:19-53`)
-- `non-password mode rejects every passkey route` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`non-password mode rejects every passkey route`, `packages/ui-server/tests/passkeys.test.ts:257-288`)
+- `non-password mode rejects every passkey route` ([source](../packages/ui-server/tests/passkeys.test.ts)), (`non-password mode rejects every passkey route`, `packages/ui-server/tests/passkeys.test.ts:261-294`)
 
 **D — Delegated principal lifecycle.**
 
@@ -196,8 +215,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **Y — Sync reservation.**
 
-- `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:19-69`)
-- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:71-83`)
+- `reserves canonical roots across routes and disconnects, and releases after exit` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`reserves canonical roots across routes and disconnects, and releases after exit`, `packages/ui-server/tests/sync-reservation.test.ts:19-70`)
+- `startup failure releases the reservation for a retry` ([source](../packages/ui-server/tests/sync-reservation.test.ts)), (`startup failure releases the reservation for a retry`, `packages/ui-server/tests/sync-reservation.test.ts:72-84`)
 
 **V — Mounted validation.**
 
@@ -463,3 +482,26 @@ files. `revert-gate.test.ts` proves old-turn maintenance/new-turn queue order;
 `revert-files.test.ts` proves binary/mode comparison and descriptor parent identity.
 The real Chrome `turn-journal-runtime.test.ts` exercises whole-turn review,
 reading focus/Escape, waiting and partial receipts, Undo and lost-response readback.
+
+ST: [Cached hierarchy, union areas and query paging](../packages/ui-server/tests/storage-tree.test.ts),
+[Storage route authorization and mounted scans](../packages/ui-server/tests/storage-routes.test.ts),
+[real public-reader/store union and paging](../packages/ui-server/tests/storage-collection.test.ts),
+[exact metadata roots](../packages/ui-server/tests/storage-metadata.test.ts), and
+[bounded index evidence](../packages/core/tests/storage-references.test.ts).
+
+SM: [mounted maintenance authority and body limits](../packages/ui-server/tests/storage-maintenance-routes.test.ts),
+[durable identity, real process death, cancellation and owner reports](../packages/ui-server/tests/storage-maintenance.test.ts),
+[real credential-free workers, retained pins and output termination](../packages/ui-server/tests/storage-maintenance-owners.test.ts),
+and [real Git history preservation and a full private tmpfs](../packages/core/tests/storage-pack.test.ts).
+Existing [inbox unwind](../packages/ui-server/tests/inbox-unwind.test.ts) and
+[resolution](../packages/ui-server/tests/inbox-resolve.test.ts) tests retain live
+settlement and unacknowledged staging protections.
+
+SG: [Storage guidance](../packages/ui-server/tests/storage-guidance.test.ts)
+checks real mounted owner/agent/revocation boundaries, named output, no scan on
+read, actual background collection and operational export/restore suppression.
+[Native scan tests](../packages/ui-server/tests/storage-shared-scan.test.ts)
+exercise two processes, cancellation, cache failure and parent SIGKILL.
+[Delivery tests](../packages/ui-server/tests/storage-notify.test.ts) use the
+existing injected transport, including concurrent native senders and SIGKILL
+after dispatch entry; they never contact a push provider.

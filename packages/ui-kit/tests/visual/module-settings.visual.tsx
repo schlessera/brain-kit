@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { commands, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -29,21 +29,63 @@ function enter(doc: Document, id: string, value: string) {
   flushSync(() => { setter.call(input, value); input.dispatchEvent(new doc.defaultView!.Event("input", { bubbles: true })); });
 }
 
-async function settingsViewport(width: number) {
+// Every case on this page shares the viewport, the capture target and the
+// import gate. Vitest rejects a timed-out case without cancelling its callback,
+// then awaits the case's test-finished hooks, under the hook timeout, before
+// the next case starts. A case therefore keeps its fixture until its own
+// callback has cleaned up, and a fixture whose cleanup never drained refuses
+// every later acquisition instead of letting two cases share the page (#2440).
+let liveFixture: string | null = null;
+let fixtures = 0;
+async function settingsFixture(width: number) {
+  if (liveFixture) throw new Error(`Module settings fixture ${liveFixture} did not finish its cleanup; refusing a new fixture`);
+  const owner = `fixture-${++fixtures}`;
+  liveFixture = owner;
+  let releasing = false;
+  let drained!: () => void;
+  let failed!: (error: unknown) => void;
+  const cleanup = new Promise<void>((resolve, reject) => { drained = resolve; failed = reject; });
+  cleanup.catch(() => {}); // Reported once, below or by the callback, never as an unhandled rejection.
+  let draining!: () => void;
+  const drainStarted = new Promise<void>((resolve) => { draining = resolve; });
   const frame = { width: window.innerWidth, height: window.innerHeight };
-  const browser = await commands.formViewport(width, 800);
+  let browser: { width: number; height: number } | undefined;
+  const iframe = document.createElement("iframe");
+  /** Run the case's own teardown, then return the shared page; only a complete cleanup frees it. */
+  async function release(teardown: () => void | Promise<void>) {
+    releasing = true;
+    try {
+      try { await teardown(); } finally {
+        iframe.remove();
+        if (browser) {
+          await page.viewport(frame.width, frame.height);
+          await commands.formViewport(browser.width - 100, browser.height - 120);
+        }
+      }
+    } catch (error) { failed(error); throw error; }
+    liveFixture = null;
+    drained();
+  }
+  onTestFinished(({ signal }) => {
+    draining();
+    // A timed-out callback may still be running: wait for its own cleanup, whose failure only this hook can report.
+    if (signal.aborted) return cleanup;
+    // A settled callback already reported a failed release; an undrained fixture still refuses later cases.
+    if (releasing) return cleanup.catch(() => {});
+    // A settled callback that failed before reaching its release left only the page behind.
+    return release(() => {});
+  });
+  iframe.dataset.moduleSettings = owner;
+  iframe.style.cssText = `width:${width}px;height:800px;border:0`;
+  browser = await commands.formViewport(width, 800);
   await page.viewport(width, 800);
-  return async () => {
-    await page.viewport(frame.width, frame.height);
-    await commands.formViewport(browser.width - 100, browser.height - 120);
-  };
+  document.body.append(iframe);
+  return { owner, iframe, doc: iframe.contentDocument!, release, drainStarted, capture: (name: string) => commands.moduleSettingsScreenshot(owner, name) };
 }
 
 test("generic module fields render every leaf kind, discover new schema fields and retain complete unsupported values", async () => {
-  const restoreViewport = await settingsViewport(320);
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
-  const doc = iframe.contentDocument!; doc.body.style.margin = "0";
+  const fixture = await settingsFixture(320);
+  const doc = fixture.doc; doc.body.style.margin = "0";
   const host = doc.createElement("div"); host.style.width = "320px"; doc.body.append(host);
   // Application preflight and theme variables belong only to this consumer.
   const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
@@ -70,17 +112,14 @@ test("generic module fields render every leaf kind, discover new schema fields a
     expect(draft).toMatchObject({ title: "Return to Ithaca", count: 7, toggle: true, choices: ["navigator"], addedLater: "Edited without metadata", unsupported: snapshot.overrides.unsupported });
     expect(draft.items).toEqual([{ name: "Fleet", count: 2 }, { name: "Crew", count: 3 }, { name: "", count: 1 }]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
+  } finally { await fixture.release(() => flushSync(() => react.unmount())); }
 });
 
-for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
-  test(`module settings: source-preserving edits and guarded navigation in ${theme} at ${width}px`, async () => {
-    const restoreViewport = await settingsViewport(width);
-    const iframe = document.createElement("iframe");
-    iframe.dataset.moduleSettings = "";
-    iframe.style.cssText = `width:${width}px;height:800px;border:0`;
-    document.body.append(iframe);
-    const doc = iframe.contentDocument!;
+for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (const purpose of ["presentation", "transaction"] as const) {
+  const behavior = purpose === "presentation" ? "pristine presentation" : "source-preserving edits and guarded navigation";
+  test(`module settings: ${behavior} in ${theme} at ${width}px`, async () => {
+    const fixture = await settingsFixture(width);
+    const { iframe, doc } = fixture;
     doc.documentElement.dataset.theme = theme;
     doc.body.style.cssText = "margin:0";
     const style = doc.createElement("style");
@@ -91,7 +130,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
     const saves: Array<{ values: Record<string, unknown>; revision: string | null }> = [];
     let reject: "validation" | "conflict" | "network" | null = null;
     let moduleListRequests = 0;
-    const coldImport = theme === "dark" && width === 320;
+    const coldImport = purpose === "presentation" && theme === "dark" && width === 320;
     const ui = createBrainUiRoot({ storage: null, request: async (url, init) => {
       const path = new URL(url, "http://fixture.example").pathname;
       if (path.endsWith("/modules")) { moduleListRequests++; return Response.json({ enabled: [{ name: "jobs", key: snapshot.key, state: "active", settings: true, description: "Find the next voyage" }, { name: "broken", key: "./broken", state: "unavailable", settings: false, error: "Repair the module config" }], available: [] }); }
@@ -108,29 +147,32 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
     } });
     const react = createRoot(host);
     try {
-      if (coldImport) await commands.moduleSettingsImportGate("hold");
+      if (coldImport) await commands.moduleSettingsImportGate(fixture.owner, "hold");
       ui.stores.ui.getState().openSettings("modules");
       flushSync(() => react.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
       expect(ui.stores.ui.getState().settingsTab).toBe("modules");
       expect(button(doc, "Modules").getAttribute("aria-selected")).toBe("true");
       if (coldImport) {
-        expect(await commands.moduleSettingsImportGate("arrived")).toBe(1);
+        expect(await commands.moduleSettingsImportGate(fixture.owner, "arrived")).toBe(1);
         expect(doc.querySelector("[data-module-settings-editor]")).toBeNull();
         expect(moduleListRequests).toBe(0);
-        await commands.moduleSettingsImportGate("release");
+        await commands.moduleSettingsImportGate(fixture.owner, "release");
       }
       // The real lazy import has already started. Await its code separately:
       // Vite cold transforms are not part of the list-response DOM budget.
       await import("../../../ui-react/src/components/settings/modules-tab.js");
       await expect.poll(() => doc.body.textContent).toContain("Configure Jobs");
       expect(moduleListRequests).toBe(1);
-      expect(button(doc, "View Broken").getAttribute("aria-disabled")).not.toBe("true");
-      flushSync(() => button(doc, "View Broken").click());
-      await expect.poll(() => doc.body.textContent).toContain("This detail is read-only");
-      expect(doc.body.textContent).toContain("Repair the module config");
-      expect(doc.querySelector('[data-setting-path]')).toBeNull();
-      flushSync(() => button(doc, "Back to modules").click());
-      await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
+      // Pristine surfaces own their captures; the transaction starts from its own fresh editor.
+      if (purpose === "presentation") {
+        expect(button(doc, "View Broken").getAttribute("aria-disabled")).not.toBe("true");
+        flushSync(() => button(doc, "View Broken").click());
+        await expect.poll(() => doc.body.textContent).toContain("This detail is read-only");
+        expect(doc.body.textContent).toContain("Repair the module config");
+        expect(doc.querySelector('[data-setting-path]')).toBeNull();
+        flushSync(() => button(doc, "Back to modules").click());
+        await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
+      }
       flushSync(() => button(doc, "Configure Jobs").click());
       await expect.poll(() => doc.getElementById("module-setting-scoring.groups.0.name")).not.toBeNull();
       expect((doc.getElementById("module-setting-scoring.compensationBenchmark") as HTMLInputElement).value).toBe("120000.00");
@@ -142,109 +184,111 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) {
       expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
       const name = doc.getElementById("module-setting-scoring.groups.0.name")!;
       expect(name.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-      await new Promise((resolve) => setTimeout(resolve, 350));
-      await commands.moduleSettingsScreenshot(width === 320 ? `mobile-${theme}` : `desktop-${theme}`);
       const editor = doc.querySelector<HTMLElement>("[data-module-settings-editor]")!;
-      for (const [section, path] of [["tiers", "scoring.groups.0.tiers"], ["sources", "boards"], ["storage", "opportunitiesDir"]]) {
-        const field = doc.querySelector<HTMLElement>(`[data-setting-path="${path}"]`)!;
-        editor.scrollTop += field.getBoundingClientRect().top - editor.getBoundingClientRect().top;
+      if (purpose === "presentation") {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        await fixture.capture(width === 320 ? `mobile-${theme}` : `desktop-${theme}`);
+        for (const [section, path] of [["tiers", "scoring.groups.0.tiers"], ["sources", "boards"], ["storage", "opportunitiesDir"]]) {
+          const field = doc.querySelector<HTMLElement>(`[data-setting-path="${path}"]`)!;
+          editor.scrollTop += field.getBoundingClientRect().top - editor.getBoundingClientRect().top;
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          expect(editor.scrollTop).toBeGreaterThan(0);
+          await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-${section}`);
+        }
+        editor.scrollTop = 0;
+      } else {
+        editor.scrollTop = 0;
+        // Switching style twice must retain both source forms and their casing.
+        flushSync(() => button(doc, "One keyword list").click());
+        expect(doc.body.textContent).toContain("tiers will be removed");
+        flushSync(() => button(doc, "Graded tiers").click());
+        expect(doc.body.textContent).not.toContain("Unsaved changes");
+        enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation");
+        expect(doc.body.textContent).toContain("Unsaved changes");
+        await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-dirty`);
+        expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
+        flushSync(() => ui.stores.ui.getState().closeAllPanels());
+        expect(ui.stores.ui.getState().settingsPanelOpen).toBe(true);
+        expect(doc.body.textContent).toContain("Keep your unsaved changes?");
+        flushSync(() => button(doc, "Keep editing").click());
+        editor.scrollTop = editor.scrollHeight;
+        reject = "network";
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => doc.body.textContent).toContain("Connection interrupted");
+        expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Connection interrupted");
+        expect((name as HTMLInputElement).value).toBe("Fleet navigation");
+        reject = "validation";
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => doc.body.textContent).toContain("Name is required");
+        expect(name.getAttribute("aria-invalid")).toBe("true");
+        await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups.0.name");
+        const lifecycleTop = doc.querySelector("[data-module-settings-lifecycle]")!.getBoundingClientRect().top;
+        expect(name.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
+        expect(doc.getElementById("module-setting-scoring.groups.0.name-error")!.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
+        await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-validation`);
+        enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation revised");
+        reject = null;
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => saves.length).toBe(1);
+        const scoring = saves[0]!.values.scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark: unknown; location?: unknown; queueThreshold?: unknown };
+        expect(scoring.groups[0]).toMatchObject({ name: "Fleet navigation revised", keywords: ["LegacyCase"], tiers: [{ points: 25, keywords: ["Navigation", "Harbor"] }, { points: 15, keywords: ["Sailing"] }] });
+        expect(scoring.compensationBenchmark).toBe("12000000");
+        expect(scoring.location).toBeUndefined();
+        expect(scoring.queueThreshold).toBeUndefined();
+        expect(saves[0]!.revision).toBe('"fixture-original"');
+        await expect.poll(() => ui.stores.ui.getState().settingsNavigationProtected).toBe(false);
+        expect(doc.body.textContent).toContain("commit abcdef0");
+        expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("commit abcdef0");
+        expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+
+        enter(doc, "module-setting-queries", "Unsaved query in progress");
+        expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
+        flushSync(() => ui.stores.ui.getState().setSettingsTab("accounts"));
+        expect(ui.stores.ui.getState().settingsTab).toBe("modules");
+        expect(doc.body.textContent).toContain("Keep your unsaved changes?");
+        flushSync(() => button(doc, "Keep editing").click());
+        flushSync(() => button(doc, "Discard").click());
+        expect((doc.getElementById("module-setting-queries") as HTMLInputElement).value).toBe("");
+
+        // A resize remounts the pane/drawer body; the draft and its guard survive.
+        enter(doc, "module-setting-scoring.groups.0.name", "Across the breakpoint");
+        const resized = width === 320 ? 1440 : 320;
+        iframe.style.width = `${resized}px`;
+        await page.viewport(resized, 800); await commands.formViewport(resized, 800);
+        await expect.poll(() => (doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement | null)?.value).toBe("Across the breakpoint");
+        expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
+        reject = "conflict";
+        flushSync(() => button(doc, "Save").click());
+        await expect.poll(() => doc.querySelector('[aria-label="Review conflicting settings"]')).not.toBeNull();
+        expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Settings changed elsewhere");
+        flushSync(() => button(doc, "Review").click());
+        expect(doc.activeElement?.getAttribute("aria-label")).toBe("Review conflicting settings");
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        expect(editor.scrollTop).toBeGreaterThan(0);
-        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-${section}`);
+        await fixture.capture(`${resized === 320 ? "mobile" : "desktop"}-${theme}-conflict`);
+        const reviewed = button(doc, "Save reviewed settings");
+        expect(reviewed.getAttribute("aria-disabled")).toBe("true");
+        const radios = [...doc.querySelectorAll<HTMLInputElement>('input[type="radio"][name^="conflict-"]')].filter((input) => input.parentElement?.textContent?.includes("Use yours"));
+        expect(radios.length).toBeGreaterThan(0);
+        for (const radio of radios) flushSync(() => radio.click());
+        reject = null;
+        flushSync(() => reviewed.click());
+        await expect.poll(() => saves.length).toBe(2);
+        expect(saves[1]!.revision).toBe('"fixture-remote"');
+        expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
       }
-      editor.scrollTop = 0;
-
-      // Switching style twice must retain both source forms and their casing.
-      flushSync(() => button(doc, "One keyword list").click());
-      expect(doc.body.textContent).toContain("tiers will be removed");
-      flushSync(() => button(doc, "Graded tiers").click());
-      expect(doc.body.textContent).not.toContain("Unsaved changes");
-      enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation");
-      expect(doc.body.textContent).toContain("Unsaved changes");
-      await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-dirty`);
-      expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      flushSync(() => ui.stores.ui.getState().closeAllPanels());
-      expect(ui.stores.ui.getState().settingsPanelOpen).toBe(true);
-      expect(doc.body.textContent).toContain("Keep your unsaved changes?");
-      flushSync(() => button(doc, "Keep editing").click());
-      editor.scrollTop = editor.scrollHeight;
-      reject = "network";
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => doc.body.textContent).toContain("Connection interrupted");
-      expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Connection interrupted");
-      expect((name as HTMLInputElement).value).toBe("Fleet navigation");
-      reject = "validation";
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => doc.body.textContent).toContain("Name is required");
-      expect(name.getAttribute("aria-invalid")).toBe("true");
-      await expect.poll(() => doc.activeElement?.id).toBe("module-setting-scoring.groups.0.name");
-      const lifecycleTop = doc.querySelector("[data-module-settings-lifecycle]")!.getBoundingClientRect().top;
-      expect(name.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
-      expect(doc.getElementById("module-setting-scoring.groups.0.name-error")!.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
-      await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-validation`);
-      enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation revised");
-      reject = null;
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => saves.length).toBe(1);
-      const scoring = saves[0]!.values.scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark: unknown; location?: unknown; queueThreshold?: unknown };
-      expect(scoring.groups[0]).toMatchObject({ name: "Fleet navigation revised", keywords: ["LegacyCase"], tiers: [{ points: 25, keywords: ["Navigation", "Harbor"] }, { points: 15, keywords: ["Sailing"] }] });
-      expect(scoring.compensationBenchmark).toBe("12000000");
-      expect(scoring.location).toBeUndefined();
-      expect(scoring.queueThreshold).toBeUndefined();
-      expect(saves[0]!.revision).toBe('"fixture-original"');
-      await expect.poll(() => ui.stores.ui.getState().settingsNavigationProtected).toBe(false);
-      expect(doc.body.textContent).toContain("commit abcdef0");
-      expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("commit abcdef0");
-      expect(doc.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-
-      enter(doc, "module-setting-queries", "Unsaved query in progress");
-      expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      flushSync(() => ui.stores.ui.getState().setSettingsTab("accounts"));
-      expect(ui.stores.ui.getState().settingsTab).toBe("modules");
-      expect(doc.body.textContent).toContain("Keep your unsaved changes?");
-      flushSync(() => button(doc, "Keep editing").click());
-      flushSync(() => button(doc, "Discard").click());
-      expect((doc.getElementById("module-setting-queries") as HTMLInputElement).value).toBe("");
-
-      // A resize remounts the pane/drawer body; the draft and its guard survive.
-      enter(doc, "module-setting-scoring.groups.0.name", "Across the breakpoint");
-      const resized = width === 320 ? 1440 : 320;
-      iframe.style.width = `${resized}px`;
-      await page.viewport(resized, 800); await commands.formViewport(resized, 800);
-      await expect.poll(() => (doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement | null)?.value).toBe("Across the breakpoint");
-      expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
-      reject = "conflict";
-      flushSync(() => button(doc, "Save").click());
-      await expect.poll(() => doc.querySelector('[aria-label="Review conflicting settings"]')).not.toBeNull();
-      expect(doc.querySelector("[data-module-settings-lifecycle]")?.textContent).toContain("Settings changed elsewhere");
-      flushSync(() => button(doc, "Review").click());
-      expect(doc.activeElement?.getAttribute("aria-label")).toBe("Review conflicting settings");
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      await commands.moduleSettingsScreenshot(`${resized === 320 ? "mobile" : "desktop"}-${theme}-conflict`);
-      const reviewed = button(doc, "Save reviewed settings");
-      expect(reviewed.getAttribute("aria-disabled")).toBe("true");
-      const radios = [...doc.querySelectorAll<HTMLInputElement>('input[type="radio"][name^="conflict-"]')].filter((input) => input.parentElement?.textContent?.includes("Use yours"));
-      expect(radios.length).toBeGreaterThan(0);
-      for (const radio of radios) flushSync(() => radio.click());
-      reject = null;
-      flushSync(() => reviewed.click());
-      await expect.poll(() => saves.length).toBe(2);
-      expect(saves[1]!.revision).toBe('"fixture-remote"');
-      expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
     } finally {
-      if (coldImport) await commands.moduleSettingsImportGate("stop");
-      flushSync(() => react.unmount()); ui.dispose(); iframe.remove();
-      await restoreViewport();
+      await fixture.release(async () => {
+        if (coldImport) await commands.moduleSettingsImportGate(fixture.owner, "stop");
+        flushSync(() => react.unmount()); ui.dispose();
+      });
     }
   });
 }
 
 
 test("jobs nested drafts preserve tiers through reorder, reject extra currency decimals and keep optional values absent", async () => {
-  const restoreViewport = await settingsViewport(320);
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
-  const doc = iframe.contentDocument!; doc.body.style.margin = "0";
+  const fixture = await settingsFixture(320);
+  const doc = fixture.doc; doc.body.style.margin = "0";
   const host = doc.createElement("div"); host.style.width = "320px"; doc.body.append(host);
   // Application preflight and theme variables belong only to this consumer.
   const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
@@ -288,14 +332,12 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(1);
     expect(Object.keys(store.getState().pendingInputs)).not.toContain("scoring.groups.1.keywords");
     expect(Object.keys(store.getState().variants)).not.toContain("scoring.groups.1");
-  } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
+  } finally { await fixture.release(() => flushSync(() => react.unmount())); }
 });
 
 test("modules show loading, retry and empty states, and separate migration, dormancy and declared actions", async () => {
-  const restoreViewport = await settingsViewport(320);
-  const iframe = document.createElement("iframe"); iframe.dataset.moduleSettings = "";
-  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
-  const doc = iframe.contentDocument!; doc.documentElement.dataset.theme = "dark"; doc.body.style.margin = "0";
+  const fixture = await settingsFixture(320);
+  const doc = fixture.doc; doc.documentElement.dataset.theme = "dark"; doc.body.style.margin = "0";
   const host = doc.createElement("div"); doc.body.append(host);
   const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
   const scoring = structuredClone(snapshotFixture.overrides.scoring);
@@ -331,12 +373,12 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     expect(button(doc, "Modules").getAttribute("aria-selected")).toBe("true");
     await import("../../../ui-react/src/components/settings/modules-tab.js");
     await expect.poll(() => host.querySelector('[aria-label="Loading modules"]')).not.toBeNull();
-    await commands.moduleSettingsScreenshot("mobile-dark-loading");
+    await fixture.capture("mobile-dark-loading");
     releaseList();
     await expect.poll(() => host.textContent).toContain("Try the connection again");
     list = "empty"; flushSync(() => button(doc, "Retry").click());
     await expect.poll(() => host.textContent).toContain("No modules are configured");
-    await commands.moduleSettingsScreenshot("mobile-dark-empty");
+    await fixture.capture("mobile-dark-empty");
     list = "ready";
     flushSync(() => ui.stores.ui.getState().setSettingsPanelOpen(false));
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -350,7 +392,7 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     expect(host.textContent).toContain("1 group and 2 tiers carried over");
     const readonlyName = doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement;
     expect(readonlyName.disabled).toBe(true);
-    await commands.moduleSettingsScreenshot("mobile-dark-migration");
+    await fixture.capture("mobile-dark-migration");
     flushSync(() => button(doc, "Move scoring rules").click());
     await expect.poll(() => host.textContent).toContain("commit abcdef0");
     expect(operations).toEqual([{ path: "/api/modules/jobs/migration", revision: '"migration-preview"' }]);
@@ -362,7 +404,7 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     expect(host.textContent).toContain("Make Jobs dormant?");
     const editor = doc.querySelector<HTMLElement>("[data-module-settings-editor]")!;
     editor.scrollTop = editor.scrollHeight;
-    await commands.moduleSettingsScreenshot("mobile-dark-state-confirmation");
+    await fixture.capture("mobile-dark-state-confirmation");
     flushSync(() => button(doc, "Confirm").click());
     await expect.poll(() => host.textContent).toContain("Jobs is dormant");
     expect(button(doc, "Rescore now").getAttribute("aria-disabled")).toBe("true");
@@ -381,5 +423,72 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     await expect.poll(() => host.textContent).toContain('Action finished: {"updated":3}');
     expect(operations.map((op) => op.path)).toEqual(["/api/modules/jobs/migration", "/api/modules/jobs/state", "/api/modules/jobs/state", "/api/modules/jobs/actions/rescore"]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { releaseAction(); releaseList(); flushSync(() => react.unmount()); ui.dispose(); iframe.remove(); await restoreViewport(); }
+  } finally { await fixture.release(() => { releaseAction(); releaseList(); flushSync(() => react.unmount()); ui.dispose(); }); }
+});
+
+
+test("module settings capture and import gate refuse a page that still holds another case's fixture", async () => {
+  const fixture = await settingsFixture(320);
+  const leaked = document.createElement("iframe");
+  leaked.dataset.moduleSettings = "fixture-leaked";
+  // A command that accepts the wrong owner may wait for an element or gate forever; bound it so the refusal assertion fails instead.
+  const refused = (command: Promise<unknown>) => Promise.race([command, new Promise((_, reject) => setTimeout(() => reject(new Error("The command did not refuse within 2000 ms")), 2000))]);
+  try {
+    await expect(refused(commands.moduleSettingsScreenshot("fixture-leaked", "ownership-control"))).rejects.toThrow(`Module settings capture ownership-control belongs to fixture-leaked, but the page holds fixtures [${fixture.owner}]`);
+    document.body.append(leaked);
+    await expect(refused(fixture.capture("ownership-control"))).rejects.toThrow(`Module settings capture ownership-control belongs to ${fixture.owner}, but the page holds fixtures [${fixture.owner}, fixture-leaked]`);
+    await commands.moduleSettingsImportGate(fixture.owner, "hold");
+    for (const action of ["arrived", "release", "stop"] as const) {
+      await expect(refused(commands.moduleSettingsImportGate("fixture-leaked", action))).rejects.toThrow(`Module import gate belongs to ${fixture.owner}, not fixture-leaked`);
+    }
+  } finally {
+    await fixture.release(async () => { await commands.moduleSettingsImportGate(fixture.owner, "stop"); leaked.remove(); });
+  }
+});
+
+// A real Vitest timeout: the rejected case's callback keeps running, captures
+// and cleans up while the runner drains its test-finished hook. The next case
+// must neither start beside it nor see its iframe.
+const overlap: string[] = [];
+const moduleFixtures = () => [...document.querySelectorAll("iframe[data-module-settings]")].map((iframe) => iframe.getAttribute("data-module-settings")).join(", ");
+let timedOutOwner = "";
+test.fails("module settings overlap control: a timed-out case keeps its fixture through its own cleanup", { timeout: 1000 }, async ({ signal }) => {
+  const timedOut = new Promise<void>((resolve) => signal.addEventListener("abort", () => { overlap.push(`${timedOutOwner} timed out`); resolve(); }));
+  // Registered before the fixture, so it runs after the fixture's drain and before test.fails clears the errors.
+  onTestFinished(({ task }) => { overlap.push(`${timedOutOwner} finished: ${(task.result?.errors ?? []).map((error) => error.message.split("\n")[0]).join(" | ")}`); });
+  const fixture = await settingsFixture(320);
+  timedOutOwner = fixture.owner;
+  overlap.push(`${fixture.owner} acquired [${moduleFixtures()}]`);
+  try {
+    await timedOut;
+    // Continue once the runner is draining, or after a bound far beyond any failure screenshot when nothing drains.
+    await Promise.race([fixture.drainStarted, new Promise((resolve) => setTimeout(resolve, 5000))]);
+    overlap.push(`${fixture.owner} continued [${moduleFixtures()}]`);
+    await fixture.capture("overlap-prior");
+    overlap.push(`${fixture.owner} captured`);
+  } finally {
+    await fixture.release(() => { overlap.push(`${fixture.owner} cleaning up`); });
+  }
+});
+test("module settings overlap control: the next case acquires only after that cleanup", async () => {
+  const fixture = await settingsFixture(1440).catch((error: Error) => { overlap.push(`next case refused: ${error.message}`); return null; });
+  try {
+    if (fixture) {
+      overlap.push(`${fixture.owner} acquired [${moduleFixtures()}]`);
+      await fixture.capture("overlap-next");
+      overlap.push(`${fixture.owner} captured`);
+    }
+    const prior = timedOutOwner;
+    const next = `fixture-${Number(prior.slice("fixture-".length)) + 1}`;
+    expect(overlap, "fixture ownership order").toEqual([
+      `${prior} acquired [${prior}]`,
+      `${prior} timed out`,
+      `${prior} continued [${prior}]`,
+      `${prior} captured`,
+      `${prior} cleaning up`,
+      `${prior} finished: Test timed out in 1000ms.`,
+      `${next} acquired [${next}]`,
+      `${next} captured`,
+    ]);
+  } finally { await fixture?.release(() => {}); }
 });

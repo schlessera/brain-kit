@@ -44,6 +44,104 @@ inspecting CI on a PR live in the `work-issue` skill's
   normal transports. Guard regression probes use controlled native sentinels
   so failing-first and mutation runs cannot send external requests or start
   curl.
+- The shared preload disables fixture Git auto-maintenance with command-scope
+  `maintenance.auto=false` and `gc.auto=0`. Guarded spawns carry those settings
+  even when callers replace the environment, preserving their other Git
+  configuration. This includes Bun's `node:child_process` path, inherited shell
+  commands and explicitly preloaded child probes. Production invocations keep
+  their own policy. The startup-view copier still refuses concurrent changes.
+
+### Deliberate offline commands on Linux
+
+Use the repository launcher when a manual test command needs OS-level network
+isolation, including browser children that the Bun preload cannot instrument:
+
+```sh
+BRAIN_REQUIRE_CHROME=1 PUPPETEER_EXECUTABLE_PATH=/path/to/chrome \
+  scripts/test-offline.sh -- bun run test \
+  ./packages/ui-react/tests/share-draft-runtime.test.ts \
+  ./packages/ui-server/tests/inbox-runtime.test.ts
+```
+
+It requires Bash, util-linux `unshare`/`setpriv`, iproute2 `ip`, `readlink` and
+permitted Linux user/network namespaces. Escalate only the test command when
+an agent sandbox blocks those prerequisites; a refusal is not a skipped test.
+The dummy driver must already be initialized and visible at `/sys/module/dummy`.
+The launcher refuses driver autoload: Linux's [dummy initialization](https://github.com/torvalds/linux/blob/v6.18/drivers/net/dummy.c)
+can create a default `dummy0` in the initial host network namespace even when
+requested from a private namespace. Driver loading is a host prerequisite,
+outside this launcher's authority.
+The launcher preserves stdin, arguments, cwd, environment, UID/GID and umask,
+then returns the command's exit status. Namespace and link/address/route
+inventories and the five capability sets go to stderr.
+
+Each invocation verifies fresh user/network namespaces before changing links.
+It brings up loopback and a `proof-dummy` interface at `198.18.0.1/32` with
+`noprefixroute`, setting `addrgenmode none` on that dummy before link-up.
+Both IPv4 and IPv6 main route tables must be empty. This keeps external
+networking unavailable while letting real Chrome report `navigator.onLine`
+as true for local fixtures. Loopback alone reports false and correctly pauses
+share upload before the ownership assertions (#2401). Keep browser egress
+guards and the test preload enabled.
+
+Setup needs `unshare --keep-caps`, but retaining those capabilities for tests
+makes bubblewrap refuse with `Unexpected capabilities but not setuid`.
+The launcher drops inherited, ambient and bounding capabilities through
+`setpriv`, then requires all five sets, including effective and permitted, to
+be zero before executing the command. Do not remove that drop or bypass its
+verification to get past a fixture failure.
+
+`scripts/test-offline.sh --mount -- <command>` also creates and verifies a
+private mount namespace with private propagation. It does not provision
+storage. For a caller-owned tmpfs, mount it in a separate private user/mount
+namespace before invoking the launcher; it inherits that filesystem while
+still creating fresh user/network namespaces and dropping capabilities before
+tests. This supports the storage-capacity controls in #2394 without changing
+the caller's mounts, interfaces, IPv6 configuration or DNS. Generic test runs,
+hosted unit workers and `check:pr`'s existing probe namespaces keep their
+current launch paths.
+
+For example, explicitly provision a 4 GiB fixture filesystem for one command:
+
+```sh
+proof_tmp=$(mktemp -d)
+trap 'rmdir "$proof_tmp"' EXIT
+unshare --user --map-current-user --keep-caps --mount sh -eu -c '
+  mount --make-rprivate /
+  mount -t tmpfs -o size=4g tmpfs "$1"
+  export TMPDIR="$1"
+  shift
+  exec scripts/test-offline.sh --mount -- "$@"
+' offline-storage "$proof_tmp" bun run test ./packages/ui-react/tests/share-draft-runtime.test.ts
+```
+
+### Capacity for fixtures that require running turns
+
+The connection-continuity, parallel-sessions and Claude cancellation fixtures
+explicitly call the test-only `requireTurnFreeSpace` helper before their first
+turn. It reads `statfs` on the actual brain path and requires available bytes
+(`bavail * bsize`) to meet `max(5% of total bytes, SCOPE_FREE_BYTES)`.
+`SCOPE_FREE_BYTES` is the production 2 GiB minimum. Equality passes. On a large
+filesystem the 5% term can require much more than 2 GiB free.
+
+Below that floor, `TurnFixtureFreeSpaceError` names the brain path, available
+bytes, required bytes and the remedy: point `TMPDIR` at a sufficiently
+provisioned filesystem. Provision storage explicitly before starting proof;
+neither the helper, `createFixtureApp` nor the offline launcher mounts it for
+you. Suites that do not need running turns have no blanket capacity check.
+This is a test prerequisite selected in
+[#2394](https://github.com/schlessera/brain-kit/issues/2394), not a replacement
+for the real runtime monitor. The production floor and its Stop-only behavior
+remain enforced, including if free space falls during a turn.
+
+For the negative control, use the private tmpfs recipe above with `size=3g`
+and run `fallocate -l 1600M "$1/fill"` immediately after mounting. The affected
+fixtures must refuse with the named error before sending their first turn,
+without reaching a recovery/approval timeout. Remove the explicit helper call
+temporarily to reproduce the original timeout, then restore it. The unfilled
+arm must pass every original behavioral assertion. Keep both arms offline via
+`scripts/test-offline.sh`, with setup capabilities dropped, and record total,
+available and required bytes alongside the runtime and mutation receipts.
 
 ## Runtimes, browsers and doubles
 
@@ -238,6 +336,58 @@ boundary, the reasons and the file- and assertion-level inventory are in
   experiment inventory and Bun version. A failing experiment test is a failing
   release check, not a skip.
 
+## Optional bubblewrap upgrade for local Linux proof
+
+On hosts with large mount tables, bubblewrap 0.13 or newer avoids the older
+per-mount read-only remount walk by using `mount_setattr()` on Linux 5.12+.
+This is a local tooling recommendation, not a new product minimum or an
+automatic installer. User/network namespaces must still be permitted.
+The [0.13.1 release](https://github.com/containers/bubblewrap/releases/tag/v0.13.1)
+publishes the archive checksum used below; the
+[upstream build instructions](https://github.com/containers/bubblewrap/blob/v0.13.1/README.md#installation)
+use Meson.
+
+For Ubuntu 24.04, install the build prerequisites before entering offline proof:
+
+```sh
+sudo apt-get update
+sudo apt-get install --no-install-recommends build-essential meson ninja-build pkg-config libcap-dev
+```
+
+Build a private, ordinary executable from the verified archive:
+
+```sh
+set -eu
+bwrap_build=$(mktemp -d)
+curl --fail --location --output "$bwrap_build/bubblewrap-0.13.1.tar.xz" \
+  https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
+(cd "$bwrap_build" && printf '%s\n' \
+  '0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d  bubblewrap-0.13.1.tar.xz' \
+  | sha256sum --check -)
+tar -xJf "$bwrap_build/bubblewrap-0.13.1.tar.xz" -C "$bwrap_build"
+meson setup "$bwrap_build/build" "$bwrap_build/bubblewrap-0.13.1" \
+  --prefix="$HOME/.local/opt/bubblewrap-0.13.1" \
+  -Dman=disabled -Dbash_completion=disabled -Dzsh_completion=disabled
+meson compile -C "$bwrap_build/build"
+meson install -C "$bwrap_build/build"
+PATH="$HOME/.local/opt/bubblewrap-0.13.1/bin:$PATH" bwrap --version
+PATH="$HOME/.local/opt/bubblewrap-0.13.1/bin:$PATH" bun run check:pr --base origin/main
+```
+
+The archive checksum identifies upstream source; compiler and dependency choices
+can change the resulting binary hash. Keep the selected binary/version and source
+checkout beside native proof receipts. Do not make `bwrap` setuid: upstream
+removed that installation mode in 0.12. The separate test-only identity broker
+uses its own setuid helper; it does not require a setuid `bwrap`.
+
+Upstream 0.12 also changed absolute-symlink resolution during setup. Qualify the
+existing launcher, filesystem-filter, protected-path/symlink containment, egress,
+identity and staged-output assertions with the chosen binary rather than assuming
+an upgrade preserves them. Keep normal sandbox flags: `--not-a-security-boundary`
+permits setup failures and does not belong in proof. A PATH change on the host
+does not upgrade a fixed `/usr/bin/bwrap` inside a container; qualify that runtime
+separately before changing its supplied binary. Hosted CI images stay unchanged.
+
 ## Required proof for a PR
 
 The policy is [the CI decision](../decisions/ci-utility.md); the commands are
@@ -251,6 +401,19 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   For an upper stack layer, substitute its verified immediate parent ref;
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
+  On Linux, every executing local preflight mode times three real sandbox
+  setup probes and requires the fastest to take less than 1000 ms. Slow setup
+  can consume the workers' fixed runtime deadlines. Refusal reports the fastest
+  time, bubblewrap version, mount count and dominant mount-point parent prefix.
+  A probe that reaches its 5 s budget refuses with an elapsed lower bound and
+  the same host diagnostics; failed setup remains a separate prerequisite error.
+  Use bubblewrap 0.13 or newer to avoid the older per-mount remount cost, or
+  restart Docker Desktop (on WSL2, `wsl --shutdown`) to clear leaked bind mounts.
+  Mount count alone does not decide whether setup is affordable. The guard
+  never unmounts host paths or requires root. This local CLI prerequisite is
+  separate from hosted category checks; container-backed proof uses its pinned
+  runtime and does not acquire a host bubblewrap prerequisite. Linux focused checks now require
+  `bwrap` and permitted user/network namespaces; `--plan` stays inspection only.
   This is local preflight and affected fast feedback, including working-tree
   inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
   through the offline wrapper as import-graph affected feedback. Bun includes
@@ -289,7 +452,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   shards. Different PRs never share cancellation groups. Metadata edits do not
   launch heavy proof, and every main SHA retains independent evidence.
 - Record actual tested head/base, selected jobs/attempts/checkout logs and
-  focused local receipts. The candidate gate validates the actual merge checkout's immutable head/base/tree
+  focused local receipts. Confirmation metadata applies the existing identity
+  guard before product-proof dispatch; draft and synchronize feedback retain
+  their cadence. The final gate repeats validation, since admission does not
+  freeze live refs. The guard validates the actual merge checkout's immutable head/base/tree
   and live PR readiness/head plus the independent live base ref. Any base advance
   requires a new confirmation request (a rebase is not inherently required). Relevant
   input/dependency/harness changes require fresh checks; never call an old
@@ -313,6 +479,29 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   `bun run test:inventory` emits discovered execution ownership and source
   navigation; see [the assertion/domain mapping](proof-domains.md). Dynamic test
   counts and passing assertions come from actual suite reports, not AST counts.
+
+## Stable Docker proof inputs
+
+Docker Desktop on WSL2 retains a host mount for each distinct bind source, even
+when a container exits. Local proofs bind stable checkout directories and select
+fresh run directories inside the container. The first use of a checkout can add
+mounts; repeating a proof must not add sources solely because its run ID changed.
+Restarting Docker Desktop or `wsl --shutdown` clears older leaked mounts.
+
+| Caller | Stable host source | Run selection |
+| --- | --- | --- |
+| Native hosted admission | `tmp/native-host-proof/` | Container-only bind of the selected run to `/proof` |
+| Worker identity | `tmp/worker-identity-proof/` | Same `/proof` projection, with read-only helper and variant projections inside the container |
+| Editorial capture | `tmp/capture-share/` | A staging directory name selects outputs; verified files are copied to destination-local staging before atomic publication |
+| Native diagram export | Private tar-filled named volumes and copied captured Bun bytes | Only source and filtered installation volumes are mounted read-only; output is copied out and owned containers/volumes are removed |
+| Pinned workspace lease test | `tmp/workspace-lease-container/` | Container working directory selects the fresh fixture |
+
+The stable source checkout, installed Bun binary, font cache and lease directory
+retain their existing mounts. Browser, raster and audio callers already use stable source paths. Images, isolation flags and proof assertions remain the
+same. Container-only projections create no new Docker host bind source. The private
+diagram copy transport additionally requires host `tar` for its input archives. A new
+checkout still introduces its own stable sources; this does not clear old mounts
+or promise zero growth across distinct checkouts.
 
 ## GitHub Actions CI
 
@@ -346,6 +535,22 @@ and `check:pr` defaults keep their existing behavior. Use the internal unit
 proof `--workers=1` diagnostic for a serial measurement, preserving the actual
 source identity; performance qualification and remaining evidence live in
 [#2121](https://github.com/schlessera/brain-kit/issues/2121).
+
+Screenshot evidence includes kit, consumer and repository-root attachment
+directories. Hygiene commands keep their local scratch captures and retain the
+same bytes in separate `tmp/hygiene-proof/capture-*` directories for the layout
+artifact. Browser artifacts also retain exactly the prepared native diagram
+`release.svg/png/pdf`, `origin.svg/png/pdf` and `producer.json` files under each
+preparation session and engine. This preserves the producer's checkout,
+source, installation and runtime identity even if a later browser case fails.
+
+Verify retention from downloaded artifact ZIPs: compare the archive SHA-256 to
+the Actions artifact digest, check ZIP CRCs and safe paths, then record each
+PNG's nonzero dimensions, byte size and SHA-256. Match checkout receipts to
+the actual job checkout; compare native exports with `producer.json` hashes.
+Report generated captures separately from unchanged tracked references, and
+name any still-missing automatic failure screenshots. Passing cases, local
+files and upload patterns alone do not establish hosted retention.
 
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the

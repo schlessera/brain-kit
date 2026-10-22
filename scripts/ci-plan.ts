@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, readdirSync, readlinkSync, ls
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { closureSelects, discoverBrowserClosures, type BrowserClosures } from "./browser-input-closure";
+import { addUnitImportConsumers } from "./unit-test-consumers";
 
 export interface Workspace {
   dir: string;
@@ -235,6 +236,23 @@ export function independentTests(root: string, changed: readonly string[]): stri
 }
 
 export function planChecks(changed: readonly string[], packages: readonly Workspace[], root = resolve(import.meta.dir, ".."), enableConsumerSelection = true): CheckPlan {
+  // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
+  const explicitRoot = arguments.length >= 3;
+  const plan = planBeforeBrowserClosures(changed, packages, root, enableConsumerSelection, explicitRoot);
+  return explicitRoot && !plan.global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+}
+
+/**
+ * Everything unit proof reads from a real-root plan: `planChecks` before its
+ * browser-closure selection, which changes only the browser, layout,
+ * endurance and captures categories. Skips the synchronous Vitest listing
+ * that closure discovery runs (#2465).
+ */
+export function planUnitChecks(changed: readonly string[], packages: readonly Workspace[], root: string): CheckPlan {
+  return planBeforeBrowserClosures(changed, packages, root, true, true);
+}
+
+function planBeforeBrowserClosures(changed: readonly string[], packages: readonly Workspace[], root: string, enableConsumerSelection: boolean, explicitRoot: boolean): CheckPlan {
   const leaves = root && enableConsumerSelection ? independentTests(root, changed) : undefined;
   if (leaves) {
     const affected = [...new Set(leaves.filter(file => file.startsWith("packages/")).map(file => file.split("/")[1]!))].sort();
@@ -280,7 +298,7 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
   });
   const ui = affected.some(dir => ["ui-sdk", "ui-kit", "ui-react", "ui-server", "render-template", "geo"].includes(dir));
   const captureInputs = changed.some(path => path === "docs/process/feature-captures.md" || path.startsWith("scripts/capture") || path.startsWith("scripts/captures/"));
-  const plan: CheckPlan = { changed: [...changed].sort(), affected, global,
+  let plan: CheckPlan = { changed: [...changed].sort(), affected, global,
     ...(rootPaths.length && !global && !packageCode ? { unitTests: [...new Set([...tests, ...consumers.tests])].sort() } : {}),
     typecheck: global || rootPaths.some(path => /\.[cm]?[jt]sx?$/.test(path)) || typedInputs || changed.some(path => path.startsWith("template/") && /\.[cm]?[jt]sx?$/.test(path)),
     tests, pack: global || ships,
@@ -288,8 +306,8 @@ export function planChecks(changed: readonly string[], packages: readonly Worksp
       layout: consumers.categories.has("layout") || ((global || packageCode) && ui), captures: consumers.categories.has("captures") || captureInputs || ((global || packageCode) && ui),
       endurance: consumers.categories.has("endurance") || ((global || packageCode) && ui),
       runtime: consumers.categories.has("runtime") || global || (packageCode && affected.some(dir => ["ui-backend-claude", "ui-backend-pi", "ui-server", "ui-render-puppeteer", "scrape", "core", "ui-react"].includes(dir))) } };
-  // Explicit roots identify a real harness; two-argument synthetic workspace diagnostics stay conservative.
-  return arguments.length >= 3 && !global ? selectBrowserClosures(plan, discoverBrowserClosures(root)) : plan;
+  if (explicitRoot && packageCode && !global) plan = addUnitImportConsumers(plan, root);
+  return plan;
 }
 
 /** Global dependency/tooling changes remain exhaustive; selected categories remain complete. */

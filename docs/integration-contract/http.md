@@ -535,6 +535,47 @@ Partial writes or unavailable storage remain partial/unknown, not an atomic
 merge guarantee. Existing owner/ambient, voice, expired-detail, protected-path
 and cross-session restrictions remain binding.
 
+### Human-only Storage inventory (additive, #2010)
+
+The six [Storage inventory operations](../http-api.md#storage-inventory) and
+SDK `StorageStatus`, `StorageSnapshot`, `StoragePage`, `StorageFileEntry`,
+`StorageReferenceEvidence`, `StorageTreePage`, `StorageTreeNode` and related types are additive contracts. They bind
+authorization, configured-root scope, bounded output/lifetime, opaque cursors,
+object/capacity deduplication and explicit partial/unknown semantics. This
+transport foundation does not register a pane or authorize cleanup.
+
+Storage pages distinguish `fileLogicalTotal` (logical bytes per matching regular-file
+entry, including aliases) from `totals` (the deduplicated physical-object union).
+Empty unavailable ownership views carry null bytes, not zero. Capacity `kind`
+identifies `tmpfs` as memory-backed; `filesystem` does not promise exclusive disk
+ownership and `unknown` cannot be drawn as healthy capacity.
+
+Hierarchy pages separate per-subtree object-union `totals` from disjoint sibling
+`area`, preserve alias names and unknown coverage, and bind cursors to the tree
+operation and its search/order/ownership criteria. Projection uses retained scan
+evidence only. Entry search/order is additive; absent options preserve ordering.
+
+### Recoverable attachment removal (additive, #2012)
+
+The six [attachment removal operations](../http-api.md#recoverable-attachment-removal-additive-2012)
+and SDK `StorageRemoval*` review/capability/receipt types are additive contracts.
+They bind current human-owner authority, exact versioned selections and durable
+identities to charged retained originals. Unknown outcomes never authorize
+replay. Undo is separately reviewed, cannot overwrite a replacement, and expires
+with actual journal detail. Existing Markdown application semantics are unchanged.
+
+### Storage history and pressure guidance (additive, #2058)
+
+The two [history/guidance operations](../http-api.md#storage-history-and-pressure-guidance)
+and SDK `StorageHistoryResponse`, `StorageGuidanceResponse`, named observation,
+pressure, rate and scenario types are version 1 additive contracts. They retain
+current human-owner authorization, nullable unknown quantities, actual endpoint
+and window times, independent causes, explicit stale/scope gaps and transport
+uncertainty. Public types do not expose compact persistence tuples or host paths.
+The next compatible server/SDK minor includes these endpoints; clients must
+retain an unavailable state when an older host does not provide them. No core
+CLI, MCP, frontmatter, config or content-index contract changes.
+
 ### Activity host timing envelopes (additive)
 
 `GET /api/activity/runs` adds `lifecycles: ActivityTurnLifecycle[]`, bounded by
