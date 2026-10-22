@@ -17,7 +17,7 @@ function git(root: string, ...args: string[]): string {
 const diagnosticRoots = [
   ".vitest-attachments", "packages/ui-kit/.vitest-attachments", "packages/ui-react/.vitest-attachments",
   "tmp/diagram-renderer-proof", "tmp/mermaid-renderer-proof", "tmp/diagram-export-proof",
-  "tmp/cold-capture", "tmp/share-review", "tmp/svg-proof",
+  "tmp/cold-capture", "tmp/share-review", "tmp/svg-proof", "tmp/unit-consumer-planning",
 ];
 const screenshotTrees = ["packages/ui-kit/src", "packages/ui-kit/tests", "packages/ui-react/src", "packages/ui-react/tests"];
 const automaticScreenshot = (path: string) => path.includes("/__screenshots__/") && /-\d+\.png$/.test(path);

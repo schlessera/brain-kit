@@ -150,7 +150,7 @@ export function planCallouts(spec: DiagramSpec, tree: DiagramTree, footerHeight:
   const initialBottom = Math.max(0, ...tree.elements.map(item => item.kind === "connector" ? Math.max(...item.points.map(point => point.y)) : item.y + item.height));
   let contentBottom = initialBottom;
   const placed: CalloutPlacement[] = [];
-  const within = (box: DiagramBox) => box.x >= 8 && box.x + box.width <= frame.width - 8 && box.y >= 8 && (grow || box.y + box.height <= frame.height - footerHeight - 8);
+  const within = (box: DiagramBox) => box.x >= frame.x + 8 && box.x + box.width <= frame.x + frame.width - 8 && box.y >= frame.y + 8 && (grow || box.y + box.height <= frame.y + frame.height - footerHeight - 8);
   function boundary(target: string, side: CalloutSide): DiagramPoint | undefined {
     const box = targetFor(target);
     if (!box) return;
@@ -218,7 +218,7 @@ export function planCallouts(spec: DiagramSpec, tree: DiagramTree, footerHeight:
     for (const group of bandGroups) {
       group.headers = [];
       for (const index of group.indices) {
-        const column = columns === 1 || ordinal < firstColumn ? 0 : 1, x = 16 + column * (columnWidth + 24);
+        const column = columns === 1 || ordinal < firstColumn ? 0 : 1, x = frame.x + 16 + column * (columnWidth + 24);
         if (!group.headers.some(header => header.x === x)) {
           const offset = group.key ? calloutKeyWidth(group.key) + 10 : 0;
           const header = wrapWords(`${group.name} · ${group.indices.length} ${group.indices.length === 1 ? "NOTE" : "NOTES"}`, columnWidth - offset, "label");
@@ -232,7 +232,7 @@ export function planCallouts(spec: DiagramSpec, tree: DiagramTree, footerHeight:
         ordinal++;
       }
       for (const header of group.headers) {
-        const column = Math.round((header.x - 16) / (columnWidth + 24));
+        const column = Math.round((header.x - frame.x - 16) / (columnWidth + 24));
         cursors[column]! += 10;
       }
     }
@@ -280,7 +280,7 @@ export function planCallouts(spec: DiagramSpec, tree: DiagramTree, footerHeight:
     const header = group.headers.find(header => note.indexX! >= header.x && note.indexX! < header.x + header.width)!;
     return note.box.x + note.box.width <= header.x + header.width;
   };
-  const bandFits = () => !band.height || band.top + band.height + footerHeight + 16 <= frame.height && !bandGroups.some(invalidGroupHeader) && band.rows.every(rowFitsColumn);
+  const bandFits = () => !band.height || band.top + band.height + footerHeight + 16 <= frame.y + frame.height && !bandGroups.some(invalidGroupHeader) && band.rows.every(rowFitsColumn);
   if (!grow && !bandFits()) {
     // Trial state is isolated: a partially fitting group must not consume
     // space or split its notes between the band and inline positions.
@@ -306,7 +306,7 @@ export function planCallouts(spec: DiagramSpec, tree: DiagramTree, footerHeight:
     const invalidHeader = invalidGroupHeader(group);
     for (const note of band.rows.filter(note => note.target === group.target)) if (invalidHeader || !rowFitsColumn(note) || !grow && !bandFits()) fail(note.index);
   }
-  if (grow && placed.length + band.rows.length) frame.height = Math.ceil((Math.max(frame.height - footerHeight, contentBottom + 8, band.top + band.height) + footerHeight + 8) / 4) * 4;
+  if (grow && placed.length + band.rows.length) frame.height = Math.ceil((Math.max(frame.y + frame.height - footerHeight, contentBottom + 8, band.top + band.height) + footerHeight + 8 - frame.y) / 4) * 4;
   tree.viewBox = frame;
   return { placements: [...placed, ...band.rows].sort((a, b) => a.index - b.index), groups: bandGroups, bandTop: band.top, bandHeight: band.height, columns: band.columns, contentBottom, errors };
 }

@@ -6,7 +6,7 @@ import {dirname,join,resolve} from "node:path";
 import {browserImporters} from "../scripts/bound-browser-runtime-inputs";
 import {generatedThemeInputs} from "../scripts/generated-theme-inputs";
 const repo=resolve(import.meta.dir,".."),roots:string[]=[],owner="packages/ui-kit/tests/visual/dictation-motion.ts",caller="packages/ui-kit/vitest.config.ts",entry="packages/ui-kit/tests/visual/dictation-theme.css";
-const producers=["scripts/build.ts","scripts/build-receipt.ts","scripts/build-repeat-observation.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","bun.lock","packages/ui-react/src/theme.css","packages/ui-react/package.json"];
+const producers=["scripts/build.ts","scripts/build-execution.ts","scripts/build-receipt.ts","scripts/build-repeat-observation.ts","scripts/bin-modes.ts","scripts/publishable-packages.ts","scripts/workspace-lease.mjs","scripts/ci-proof.ts","scripts/check-pr.ts","scripts/ci-runner.ts",".github/workflows/ci.yml","package.json","bun.lock","packages/ui-react/src/theme.css","packages/ui-react/package.json"];
 // The reviewed Storage caller has its own committed positive fixture. Shared
 // producer inputs retain their independent main owner; current config edits
 // cannot redefine this positive, and feature-branch Git history is not required.

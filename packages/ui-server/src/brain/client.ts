@@ -208,6 +208,12 @@ export interface BrainClientOptions {
    * turn.
    */
   boundary?: HostBoundary;
+  /**
+   * @internal Cancels every in-flight `gate: "shared"` run (reads and plain
+   * `index`, whose outputs are disposable) when it aborts. `createApp()` aborts
+   * it once `close()`'s grace period ends (#2473). Writers are never cancelled.
+   */
+  shutdown?: AbortSignal;
 }
 
 export function createBrainClient(opts: BrainClientOptions): BrainClient {
@@ -223,6 +229,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
   }
 
   async function execBrain(args: string[], signal?: AbortSignal, input?: string, lock?: import("@schlessera/brain-ui-sdk/server").KeyedLock, maintenance?: MaintenanceRequest & { minimumVersion?: string }): Promise<ExecResult> {
+    const { credentials, gate } = brainCommandClass(args);
+    if (opts.shutdown && gate === "shared" && !maintenance?.bounded) signal = signal ? AbortSignal.any([signal, opts.shutdown]) : opts.shutdown;
     signal?.throwIfAborted();
     if (maintenance?.bounded && !boundary.isolated()) throw new BrainMaintenanceUnavailable("Storage maintenance requires a qualified worker before probing repository code.");
     const command = brainCliCommand(brainPath);
@@ -239,7 +247,6 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
     // does. While the boundary holds, that happens in a maintenance worker,
     // with the operator's exec wrapper inside it; otherwise in a host process
     // through the wrapper, as before.
-    const { credentials, gate } = brainCommandClass(args);
     let entered = false;
     try { return await boundary.run({
       argv: [...command, ...args],
@@ -253,8 +260,8 @@ export function createBrainClient(opts: BrainClientOptions): BrainClient {
       ...(maintenance?.assertAuthorized ? { assertAuthorized: maintenance.assertAuthorized } : {}),
       ...(maintenance?.bounded ? { outputBytes: 1024 * 1024, timeoutMs: 5 * 60_000, onExecute: () => { entered = true; } } : {}),
       ...(input !== undefined ? { stdin: input } : {}),
-      // Only read-only search passes a signal. Kill even a CLI that ignores
-      // SIGTERM; abandoning a request must not leave the local process alive.
+      // Search and, at shutdown, every shared run pass a signal. Kill even a CLI
+      // that ignores SIGTERM; abandoning a run must not leave the process alive.
       ...(signal ? { signal, killSignal: "SIGKILL" as const } : {}),
     }); } catch (error) {
       if (maintenance?.bounded && !entered) throw new BrainMaintenanceUnavailable("The owner refused maintenance before its command started.");

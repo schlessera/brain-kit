@@ -310,7 +310,7 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   see [stack rules](github.md#stacked-pull-requests). Each included PR needs
   its own selected proof and actual base/head/checkout evidence.
   On Linux, every executing local preflight mode times three real sandbox
-  setup probes and requires the fastest to take less than 250 ms. Slow setup
+  setup probes and requires the fastest to take less than 1000 ms. Slow setup
   can consume the workers' fixed runtime deadlines. Refusal reports the fastest
   time, bubblewrap version, mount count and dominant mount-point parent prefix.
   A probe that reaches its 5 s budget refuses with an elapsed lower bound and

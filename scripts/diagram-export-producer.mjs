@@ -84,10 +84,12 @@ export function prepareDiagramNativeArtifacts(repo,projects,expected){
    const code=Number(dockerChecked(["inspect","--format","{{.State.ExitCode}}",container]).stdout.trim());
    if(code!==0)throw Error(`Native diagram producer failed (${code})\n${result.stderr}\n${result.stdout}`);
    dockerChecked(["cp",`${container}:/proof/.`,output]);
-   const artifacts=JSON.parse(result.stdout),files=Object.fromEntries(["svg","png","pdf"].map(format=>{const name=`release.${format}`;return[name,hash(readFileSync(join(output,name)))];}));
-   // Publish only after the actual three-format process and all descendants
+   const results=JSON.parse(result.stdout);
+   if(!Array.isArray(results.release)||results.release.map(item=>item.format).join(",")!=="png,pdf"||!Array.isArray(results.origin)||results.origin.map(item=>item.format).join(",")!=="svg,png,pdf")throw Error("NATIVE_EXPORT_FIXED_RESULTS");
+   const artifacts=results.release,origin=results.origin,files=Object.fromEntries(["release","origin"].flatMap(stem=>["svg","png","pdf"].map(format=>{const name=`${stem}.${format}`;return[name,hash(readFileSync(join(output,name)))];})));
+   // Publish only after both actual three-format sequences and all descendants
    // have drained successfully. The browser never manufactures this receipt.
-   writeFileSync(join(output,"producer.json"),JSON.stringify({version:1,session,engine,checkout:record.checkout,source:record.sourceIdentity,installation:record.installation.sha256,runtime:{image:runtime.image,bun:runtime.bun,sha256:runtime.sha256},artifacts,files}));
+   writeFileSync(join(output,"producer.json"),JSON.stringify({version:1,session,engine,checkout:record.checkout,source:record.sourceIdentity,installation:record.installation.sha256,runtime:{image:runtime.image,bun:runtime.bun,sha256:runtime.sha256},artifacts,origin,files}));
    const staged=mkdtempSync(join(base,"prepared-"));cpSync(output,staged,{recursive:true});renameSync(staged,destination);
   }
  }catch(error){failure=error;failed=true;}finally{

@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift" = "warm", nativeExit = 0) {
+async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift" = "warm", nativeExit = 0, nativeOutput: "complete"|"missing-origin-pdf" = "complete") {
   const root = await mkdtemp(resolve(tmpdir(), "brain-visual-runner-"));
   roots.push(root);
   for (const path of ["scripts/captures", "packages/ui-kit", "node_modules/vitest", "commands"]) {
@@ -117,7 +117,12 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
         if(nativeArgs[0]==="start"){
           assert.deepEqual(nativeArgs.slice(0,2),["start","--attach"]);
           for(const format of ["svg","png","pdf"])nativeFs.writeFileSync(nativeJoin(output,"release."+format),"owned volume output "+format);
-          state.exit=Number(process.env.NATIVE_EXIT);nativeFs.writeFileSync(location,JSON.stringify(state));console.log("[]");
+          for(const format of ["svg","png","pdf"]){
+            if(format!=="pdf"||${JSON.stringify(nativeOutput)}!=="missing-origin-pdf")nativeFs.writeFileSync(nativeJoin(output,"origin."+format),"owned origin volume output "+format);
+          }
+          const release=["png","pdf"].map(format=>({format,bytes:Buffer.byteLength("owned volume output "+format)}));
+          const origin=["svg","png","pdf"].map(format=>({format,bytes:Buffer.byteLength("owned origin volume output "+format)}));
+          state.exit=Number(process.env.NATIVE_EXIT);nativeFs.writeFileSync(location,JSON.stringify(state));console.log(JSON.stringify({release,origin}));
         }else if(nativeArgs[0]==="inspect"){
           assert.equal(nativeArgs[2],"{{.State.ExitCode}}");assert.notEqual(state.exit,null);console.log(state.exit);
         }else if(nativeArgs[0]==="cp"){
@@ -162,7 +167,7 @@ async function invoke(args: string[], exit = 0, imageState: "warm"|"cold"|"drift
 
 test("inside default serializes browser files in every configured project", async () => {
   const result = await invoke(["--inside"]);
-  expect(result.code).toBe(0);
+  expect(result.code, result.stderr).toBe(0);
   expect(result.calls).toHaveLength(1);
   expect(result.calls[0]!.command).toBe("vitest");
   expect(result.calls[0]!.args).toEqual([
@@ -173,7 +178,7 @@ test("inside default serializes browser files in every configured project", asyn
 
 test("hosted proof adds project-aware case receipts while retaining human output and the runner failure", async () => {
   const result = await invoke(["--inside", "--project=ui-react-endurance", "--proof-report"], 7);
-  expect(result.code).toBe(7);
+  expect(result.code, result.stderr).toBe(7);
   expect(result.calls[0]!.args).toEqual([
     "run", "--project=ui-react-endurance", "--browser.fileParallelism=false",
     "--reporter=default", `--reporter=${resolve(result.root, "scripts/proof-case-report.mjs")}`,
@@ -182,7 +187,7 @@ test("hosted proof adds project-aware case receipts while retaining human output
 
 test("local container path reaches the same default and preserves project, shard and update", async () => {
   const result = await invoke(["--project=visual", "--shard=1/2", "--update"]);
-  expect(result.code).toBe(0);
+  expect(result.code, result.stderr).toBe(0);
   expect(result.calls.map((call) => call.command)).toEqual(["bun", "docker", "vitest"]);
   expect(result.calls[0]!.args).toEqual(["scripts/capture.ts", "--prepare-fonts"]);
   expect(result.calls[1]!.args).toContain("--inside");
@@ -196,7 +201,7 @@ for (const inside of [true, false]) {
     const result = await invoke([
       ...(inside ? ["--inside"] : []), "--browser.fileParallelism=true", "--shard=2/2",
     ], 7);
-    expect(result.code).toBe(7);
+    expect(result.code, result.stderr).toBe(7);
     const call = result.calls.at(-1)!;
     expect(call.command).toBe("vitest");
     expect(call.args).toEqual([
@@ -207,7 +212,7 @@ for (const inside of [true, false]) {
 
 test("an explicit sequential-file control is forwarded once", async () => {
   const result = await invoke(["--inside", "--browser.fileParallelism=false"]);
-  expect(result.code).toBe(0);
+  expect(result.code, result.stderr).toBe(0);
   expect(result.calls[0]!.args.filter((arg) => arg.startsWith("--browser.fileParallelism")))
     .toEqual(["--browser.fileParallelism=false"]);
 });
@@ -219,7 +224,7 @@ for (const args of [
 ]) {
   test(`rejects ambiguous scheduling before starting any command: ${args.join(" ")}`, async () => {
     const result = await invoke(args);
-    expect(result.code).toBe(1);
+    expect(result.code, result.stderr).toBe(1);
     expect(result.stderr).toContain("use --browser.fileParallelism=true or --browser.fileParallelism=false once");
     expect(result.calls).toEqual([]);
   });
@@ -231,7 +236,7 @@ for (const inside of [true, false]) {
       ...(inside ? ["--inside"] : []), "--project=storybook", "--project=storybook-light",
       "--filter=Composer.stories", "--filter=ComposerRow.stories",
     ], 7);
-    expect(result.code).toBe(7);
+    expect(result.code, result.stderr).toBe(7);
     expect(result.calls.at(-1)!.args).toEqual([
       "run", "--project=storybook", "--project=storybook-light", "--browser.fileParallelism=false",
       "Composer.stories", "ComposerRow.stories",
@@ -241,7 +246,7 @@ for (const inside of [true, false]) {
 for (const filter of ["--filter", "--filter=", "--filter=--passWithNoTests"]) {
   test(`rejects empty or option-like file filter: ${filter}`, async () => {
     const result = await invoke([filter]);
-    expect(result.code).toBe(1);
+    expect(result.code, result.stderr).toBe(1);
     expect(result.stderr).toContain("use --filter=<nonempty file path fragment>");
     expect(result.calls).toEqual([]);
   });
@@ -269,10 +274,15 @@ test("native volume handoff publishes all formats and drains only owned resource
   for (const engine of ["chromium", "webkit"]) {
     const output = resolve(prepared, session!, engine);
     const receipt = JSON.parse(await readFile(resolve(output, "producer.json"), "utf8"));
+    expect(receipt.artifacts.map((artifact: {format:string}) => artifact.format)).toEqual(["png", "pdf"]);
+    expect(receipt.origin.map((artifact: {format:string}) => artifact.format)).toEqual(["svg", "png", "pdf"]);
     for (const format of ["svg", "png", "pdf"]) {
       const bytes = await readFile(resolve(output, `release.${format}`));
       expect(bytes.toString(), "COPIED_VOLUME_OUTPUT_REACHES_BROWSER_RECEIPT").toBe(`owned volume output ${format}`);
       expect(receipt.files[`release.${format}`]).toBe(new Bun.CryptoHasher("sha256").update(bytes).digest("hex"));
+      const origin = await readFile(resolve(output, `origin.${format}`));
+      expect(origin.toString(), "ORIGIN_VOLUME_OUTPUT_REACHES_BROWSER_RECEIPT").toBe(`owned origin volume output ${format}`);
+      expect(receipt.files[`origin.${format}`], "ORIGIN_RECEIPT_HASH_BINDS_ACTUAL_COPIED_BYTES").toBe(new Bun.CryptoHasher("sha256").update(origin).digest("hex"));
     }
   }
   expect(result.calls.at(-1)!.command).toBe("vitest");
@@ -287,6 +297,20 @@ test("native volume producer failure blocks browser execution and still drains r
   expect(result.calls.some(call => call.command === "vitest")).toBe(false);
   const calls = (await readFile(resolve(result.root, "native-calls.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
   expect(calls.some(args => args[0] === "cp")).toBe(false);
+  expect(await readdir(resolve(result.root, "docker-state/volumes"))).toEqual([]);
+  expect(await readdir(resolve(result.root, "docker-state/containers"))).toEqual([]);
+});
+
+test("missing native origin PDF blocks receipt publication and browser execution while draining owned resources", async () => {
+  const result = await invoke(["--project=diagrams-chromium"], 0, "warm", 0, "missing-origin-pdf");
+  expect(result.code, result.stderr).not.toBe(0);
+  expect(result.stderr, "MISSING_ORIGIN_PDF_MUST_REFUSE_PUBLICATION").toContain("ENOENT");
+  expect(result.stderr).toContain("origin.pdf");
+  expect(result.calls.some(call => call.command === "vitest"), "INCOMPLETE_ORIGIN_MUST_BLOCK_BROWSER").toBe(false);
+  const prepared = resolve(result.root, "tmp/diagram-export-native-prepared");
+  const [session] = await readdir(prepared);
+  expect(session, "FAILED_ORIGIN_OWNS_PREPARATION_SESSION").toBeDefined();
+  expect(await readdir(resolve(prepared, session!)), "INCOMPLETE_ORIGIN_MUST_NOT_PUBLISH_RECEIPT").toEqual([]);
   expect(await readdir(resolve(result.root, "docker-state/volumes"))).toEqual([]);
   expect(await readdir(resolve(result.root, "docker-state/containers"))).toEqual([]);
 });

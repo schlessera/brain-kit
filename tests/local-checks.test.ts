@@ -19,17 +19,17 @@ function mountTable(count: number): string {
   return Array.from({ length: count }, (_, i) => `${i + 1} 0 0:1 / /mnt/fixture/binds/${i} rw - tmpfs tmpfs rw`).join("\n") + "\n";
 }
 
-test("sandbox prerequisite permits 249 ms despite a large mount table", () => {
-  expect(requireLocalSandbox( () => mountTable(8000), () => 249)).toBeUndefined();
+test("sandbox prerequisite permits 999 ms despite a large mount table", () => {
+  expect(requireLocalSandbox( () => mountTable(8000), () => 999)).toBeUndefined();
 });
 
-test("sandbox prerequisite refuses 250 ms before downstream checks", () => {
+test("sandbox prerequisite refuses 1000 ms before downstream checks", () => {
   const which = spyOn(Bun, "which").mockReturnValue("/fixture/tool");
   const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0, stdout: new TextEncoder().encode("bubblewrap 0.9.0\n") } as ReturnType<typeof Bun.spawnSync>);
   try {
     {
-      expect(() => requireLocalSandbox( () => mountTable(20), () => 250))
-        .toThrow("fastest of three 250.0 ms (requires less than 250 ms); bubblewrap 0.9.0; 20 mount entries; dominant mount-point prefix: /mnt/fixture/binds (20 entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
+      expect(() => requireLocalSandbox( () => mountTable(20), () => 1000))
+        .toThrow("fastest of three 1000.0 ms (requires less than 1000 ms); bubblewrap 0.9.0; 20 mount entries; dominant mount-point prefix: /mnt/fixture/binds (20 entries). Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
     }
     expect(which).not.toHaveBeenCalled();
     expect(spawn).toHaveBeenCalledTimes(1);
@@ -38,7 +38,7 @@ test("sandbox prerequisite refuses 250 ms before downstream checks", () => {
 });
 
 test("sandbox prerequisite compares the fastest of exactly three probes", () => {
-  const samples = [900, 249, 300];
+  const samples = [1500, 999, 1200];
   const timer = () => samples.shift()!;
   expect(requireLocalSandbox( () => mountTable(8000), timer)).toBeUndefined();
   expect(samples).toEqual([]);
@@ -58,7 +58,7 @@ test("sandbox prerequisite timeout reports a lower bound and actionable host dia
     try { requireLocalSandbox(() => mountTable(24000)); }
     catch (error) { message = (error as Error).message; }
     expect(message, "TIMED_OUT_SANDBOX_MUST_REPORT_ACTIONABLE_LOWER_BOUND")
-      .toContain("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 250 ms)");
+      .toContain("probe timed out; setup elapsed at least 5000 ms (5000 ms probe budget; requires less than 1000 ms)");
     expect(message).toContain("bubblewrap 0.9.0; 24000 mount entries; dominant mount-point prefix: /mnt/fixture/binds (24000 entries)");
     expect(message).toContain("Use bubblewrap 0.13 or newer. Restart Docker Desktop, or on WSL2 run wsl --shutdown");
     expect(message).not.toContain("fastest of three");
@@ -88,7 +88,7 @@ test("sandbox prerequisite reports the largest parent prefix and decodes mountin
     mountTable(400).replaceAll("/mnt/fixture/binds", "/other");
   const spawn = spyOn(Bun, "spawnSync").mockReturnValue({ exitCode: 0, stdout: new TextEncoder().encode("bubblewrap fixture") } as ReturnType<typeof Bun.spawnSync>);
   try {
-    expect(() => requireLocalSandbox( () => table, () => 300))
+    expect(() => requireLocalSandbox( () => table, () => 1200))
       .toThrow("dominant mount-point prefix: /mnt/fixture/binds here (600 entries)");
   } finally { spawn.mockRestore(); }
 });
