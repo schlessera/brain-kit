@@ -1,3 +1,5 @@
+import { createLoginRateLimiter } from "../src/middleware/auth";
+import { createPasskeyChallenges } from "../src/middleware/passkeys";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { rmSync } from "fs";
@@ -68,6 +70,8 @@ function sessionApp(clients = new ClientSet()): Hono {
     TRUST_PROXY: "1",
   });
   const passkeyContext: PasskeyContext = {
+    rateLimiter: createLoginRateLimiter(),
+    challenges: createPasskeyChallenges(),
     db,
     revoker: revokerFor(clients),
     webauthn: config.webauthn,
@@ -80,6 +84,7 @@ function sessionApp(clients = new ClientSet()): Hono {
     authRoutes("password", auth, {
       db,
       revoker: revokerFor(clients),
+      rateLimiter: passkeyContext.rateLimiter,
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyContext),
       verifyPassword: async (password) => password === PASSWORD,
     })

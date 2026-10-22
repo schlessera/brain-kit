@@ -8,6 +8,7 @@ import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.js";
 import { createFixtureApp } from "./helpers/native-app-fixture.js";
+import { requireTurnFreeSpace } from "./helpers/turn-free-space.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createRecordingObservability } from "../src/observability/index.js";
 import { resolveServerConfig } from "../src/config/env.js";
@@ -72,6 +73,7 @@ for (const mode of ["success-before-cancel", "error-before-cancel", "no-result",
     const backend = createClaudeBackend({ brainPath: brain, queryFn, log() {}, workerState: { allowanceBytes: 4 * 1024 ** 2, budgetBytes: 4 * 1024 ** 2 } });
     let app: Awaited<ReturnType<typeof createFixtureApp>> | undefined;
     try {
+      requireTurnFreeSpace(brain);
       app = await createFixtureApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: join(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test",
         BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
       const host = app.wsHost;
