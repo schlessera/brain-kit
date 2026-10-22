@@ -1311,9 +1311,13 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:380-390`).
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:389-399`).
 Each dispatch checks the same list again before the credential is read. Native
-settings may repeat the server's route but never replace it. An operator whose
+settings may repeat the server's route, compared as a canonical origin and base
+path, but never replace it. A discovered profile never carries a route or a
+credential variable name: its cache lives in the brain, so only the fields
+discovery writes are read back (`function cachedModel`,
+`packages/ui-backend-claude/src/model-discovery.ts:265-273`). An operator whose
 existing custom `ANTHROPIC_BASE_URL` receives the subscription login must list
 that origin when the host gains managed native storage.
 

@@ -26,10 +26,16 @@ function save(index: number, expired = false) {
 }
 save(0);
 const mode = process.argv.find(arg => ["three", "project-aba", "project-custom", "managed-aba", "managed-custom", "recorder-failure", "cleanup-failure",
-  "server-custom-unlisted", "server-custom-listed", "server-custom-other-port"].includes(arg)) ?? "three";
+  "server-custom-unlisted", "server-custom-listed", "server-custom-other-port", "server-custom-project-same", "server-custom-project-other"].includes(arg)) ?? "three";
 // The server's own route: a custom gateway with a base path, selected by trusted host configuration.
 const gateway = mode.startsWith("server-custom-") ? "https://gateway.ithaca.invalid/anthropic" : undefined;
-if (mode === "server-custom-listed") process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://other.ithaca.invalid, https://gateway.ithaca.invalid";
+if (["server-custom-listed", "server-custom-project-same", "server-custom-project-other"].includes(mode)) process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://other.ithaca.invalid, https://gateway.ithaca.invalid";
+// Project settings may repeat the server's route in another spelling, never move it.
+if (mode === "server-custom-project-same" || mode === "server-custom-project-other") {
+  mkdirSync(join(brainPath, ".claude"));
+  writeFileSync(join(brainPath, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL:
+    mode === "server-custom-project-same" ? "https://GATEWAY.ithaca.invalid:443/anthropic/" : "https://gateway.ithaca.invalid/other-tenant" } }));
+}
 if (mode === "server-custom-other-port") process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://gateway.ithaca.invalid:8443";
 if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");

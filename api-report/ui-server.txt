@@ -594,6 +594,7 @@ signatures (every public export and the types it is made of)
         readonly sandbox: WorkerSandbox;
         readonly policy: TurnGovernancePolicy;
         readonly startupView?: WorkerStartupView;
+        readonly managedStorage: boolean;
         end(): Promise<Reconciliation | null>;
     }
   GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)

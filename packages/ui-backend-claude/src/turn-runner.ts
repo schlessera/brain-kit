@@ -23,6 +23,15 @@ import { getProfile, type InferenceProfile } from "./profiles.js";
 import { existsSync, linkSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { authorizeDestination, resolveClaudeHostOAuth } from "./host-oauth.js";
+
+/** The same endpoint: canonical origin and base path, nothing else. */
+function sameRoute(value: unknown, selected: string): boolean {
+  try {
+    const url = new URL(String(value)), expected = new URL(selected);
+    return typeof value === "string" && url.origin === expected.origin && !url.username && !url.password && !url.search && !url.hash
+      && url.pathname.replace(/\/+$/, "") === expected.pathname.replace(/\/+$/, "");
+  } catch { return false; }
+}
 import { join, resolve } from "node:path";
 import { createClaudeSdkTurn, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
@@ -510,7 +519,7 @@ export function createClaudeTurnRunner(options: {
               for (const source of settings?.sources ?? []) {
                 const value = source.settings?.env?.ANTHROPIC_BASE_URL;
                 // Native settings may repeat the server's route, never replace it.
-                if (value !== undefined && value !== "" && !(source.source === "flagSettings" && value === relayBaseUrl) && (typeof value !== "string" || value.replace(/\/+$/, "") !== selectedUpstream)) {
+                if (value !== undefined && value !== "" && !(source.source === "flagSettings" && value === relayBaseUrl) && !sameRoute(value, selectedUpstream)) {
                   return refuse("the native inference source selects a destination not qualified for this prepared transport");
                 }
               }

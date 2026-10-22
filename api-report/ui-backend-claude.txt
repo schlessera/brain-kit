@@ -38,6 +38,7 @@ signatures (every public export and the types it is made of)
     export interface ClaudeBackendEnv {
         anthropicApiKey: string | undefined;
         claudeCodeOauthToken: string | undefined;
+        claudeOAuthOrigins: string[];
         reverseGeocodeEnabled: boolean;
         nominatimUrl: string;
         nominatimUserAgent: string;

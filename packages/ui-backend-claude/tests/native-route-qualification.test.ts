@@ -57,6 +57,16 @@ for (const mode of ["server-custom-unlisted", "server-custom-other-port"]) test(
     message: expect.stringContaining("BRAIN_UI_CLAUDE_OAUTH_ORIGINS") });
 });
 
+test("project settings may repeat the server's custom route in an equivalent spelling", () => {
+  const proof = probe("server-host-relay-probe.ts", "server-custom-project-same");
+  expect(proof.requests, "CUSTOM_ORIGIN_PROJECT_SAME_ROUTE_ALLOWED").toEqual([{ credential: 0, model: "claude-haiku-4-5", history: 1 }]);
+});
+test("project settings that move the server's custom route to another path are refused before the host login", () => {
+  const proof = probe("server-host-relay-probe.ts", "server-custom-project-other");
+  expect(proof.requests, "CUSTOM_ORIGIN_PROJECT_OTHER_ROUTE_NO_FORWARDING").toEqual([]);
+  expect(proof.results[0]?.failure?.errorClass, "CUSTOM_ORIGIN_PROJECT_OTHER_ROUTE_REFUSED").toBe("subscription_required");
+});
+
 test("actual native inference stops when the durable egress recorder fails", () => {
   const proof = probe("server-host-relay-probe.ts", "recorder-failure");
   expect(proof.recordingFailure, "EGRESS_RECORDER_FAILURE_RETAINED").toBe(true);
