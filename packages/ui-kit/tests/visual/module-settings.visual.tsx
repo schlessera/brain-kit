@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { commands, page } from "vitest/browser";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -29,21 +29,56 @@ function enter(doc: Document, id: string, value: string) {
   flushSync(() => { setter.call(input, value); input.dispatchEvent(new doc.defaultView!.Event("input", { bubbles: true })); });
 }
 
-async function settingsViewport(width: number) {
+// Every case on this page shares the viewport, the capture target and the
+// import gate. Vitest rejects a timed-out case without cancelling its callback,
+// then awaits the case's test-finished hooks, under the hook timeout, before
+// the next case starts. A case therefore keeps its fixture until its own
+// callback has cleaned up, and a fixture whose cleanup never drained refuses
+// every later acquisition instead of letting two cases share the page (#2440).
+let liveFixture: string | null = null;
+let fixtures = 0;
+async function settingsFixture(width: number) {
+  if (liveFixture) throw new Error(`Module settings fixture ${liveFixture} did not finish its cleanup; refusing a new fixture`);
+  const owner = `fixture-${++fixtures}`;
+  liveFixture = owner;
+  let drained!: () => void;
+  let failed!: (error: unknown) => void;
+  const cleanup = new Promise<void>((resolve, reject) => { drained = resolve; failed = reject; });
+  cleanup.catch(() => {}); // Reported by the test-finished hook, not as an unhandled rejection.
+  onTestFinished(() => cleanup);
   const frame = { width: window.innerWidth, height: window.innerHeight };
-  const browser = await commands.formViewport(width, 800);
-  await page.viewport(width, 800);
-  return async () => {
-    await page.viewport(frame.width, frame.height);
-    await commands.formViewport(browser.width - 100, browser.height - 120);
-  };
+  let browser: { width: number; height: number } | undefined;
+  const iframe = document.createElement("iframe");
+  iframe.dataset.moduleSettings = owner;
+  iframe.style.cssText = `width:${width}px;height:800px;border:0`;
+  /** Run the case's own teardown, then return the shared page; only a complete cleanup frees it. */
+  async function release(teardown: () => void | Promise<void>) {
+    try {
+      try { await teardown(); } finally {
+        iframe.remove();
+        if (browser) {
+          await page.viewport(frame.width, frame.height);
+          await commands.formViewport(browser.width - 100, browser.height - 120);
+        }
+      }
+    } catch (error) { failed(error); throw error; }
+    liveFixture = null;
+    drained();
+  }
+  try {
+    browser = await commands.formViewport(width, 800);
+    await page.viewport(width, 800);
+  } catch (error) {
+    await release(() => {}).catch(() => {});
+    throw error;
+  }
+  document.body.append(iframe);
+  return { owner, iframe, doc: iframe.contentDocument!, release, capture: (name: string) => commands.moduleSettingsScreenshot(owner, name) };
 }
 
 test("generic module fields render every leaf kind, discover new schema fields and retain complete unsupported values", async () => {
-  const restoreViewport = await settingsViewport(320);
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
-  const doc = iframe.contentDocument!; doc.body.style.margin = "0";
+  const fixture = await settingsFixture(320);
+  const doc = fixture.doc; doc.body.style.margin = "0";
   const host = doc.createElement("div"); host.style.width = "320px"; doc.body.append(host);
   // Application preflight and theme variables belong only to this consumer.
   const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
@@ -70,18 +105,14 @@ test("generic module fields render every leaf kind, discover new schema fields a
     expect(draft).toMatchObject({ title: "Return to Ithaca", count: 7, toggle: true, choices: ["navigator"], addedLater: "Edited without metadata", unsupported: snapshot.overrides.unsupported });
     expect(draft.items).toEqual([{ name: "Fleet", count: 2 }, { name: "Crew", count: 3 }, { name: "", count: 1 }]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
+  } finally { await fixture.release(() => flushSync(() => react.unmount())); }
 });
 
 for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (const purpose of ["presentation", "transaction"] as const) {
   const behavior = purpose === "presentation" ? "pristine presentation" : "source-preserving edits and guarded navigation";
   test(`module settings: ${behavior} in ${theme} at ${width}px`, async () => {
-    const restoreViewport = await settingsViewport(width);
-    const iframe = document.createElement("iframe");
-    iframe.dataset.moduleSettings = "";
-    iframe.style.cssText = `width:${width}px;height:800px;border:0`;
-    document.body.append(iframe);
-    const doc = iframe.contentDocument!;
+    const fixture = await settingsFixture(width);
+    const { iframe, doc } = fixture;
     doc.documentElement.dataset.theme = theme;
     doc.body.style.cssText = "margin:0";
     const style = doc.createElement("style");
@@ -109,16 +140,16 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
     } });
     const react = createRoot(host);
     try {
-      if (coldImport) await commands.moduleSettingsImportGate("hold");
+      if (coldImport) await commands.moduleSettingsImportGate(fixture.owner, "hold");
       ui.stores.ui.getState().openSettings("modules");
       flushSync(() => react.render(<BrainUiProvider root={ui}><Shell /></BrainUiProvider>));
       expect(ui.stores.ui.getState().settingsTab).toBe("modules");
       expect(button(doc, "Modules").getAttribute("aria-selected")).toBe("true");
       if (coldImport) {
-        expect(await commands.moduleSettingsImportGate("arrived")).toBe(1);
+        expect(await commands.moduleSettingsImportGate(fixture.owner, "arrived")).toBe(1);
         expect(doc.querySelector("[data-module-settings-editor]")).toBeNull();
         expect(moduleListRequests).toBe(0);
-        await commands.moduleSettingsImportGate("release");
+        await commands.moduleSettingsImportGate(fixture.owner, "release");
       }
       // The real lazy import has already started. Await its code separately:
       // Vite cold transforms are not part of the list-response DOM budget.
@@ -133,7 +164,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         expect(doc.body.textContent).toContain("Repair the module config");
         expect(doc.querySelector('[data-setting-path]')).toBeNull();
         flushSync(() => button(doc, "Back to modules").click());
-        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
+        await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-list`);
       }
       flushSync(() => button(doc, "Configure Jobs").click());
       await expect.poll(() => doc.getElementById("module-setting-scoring.groups.0.name")).not.toBeNull();
@@ -149,13 +180,13 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
       const editor = doc.querySelector<HTMLElement>("[data-module-settings-editor]")!;
       if (purpose === "presentation") {
         await new Promise((resolve) => setTimeout(resolve, 350));
-        await commands.moduleSettingsScreenshot(width === 320 ? `mobile-${theme}` : `desktop-${theme}`);
+        await fixture.capture(width === 320 ? `mobile-${theme}` : `desktop-${theme}`);
         for (const [section, path] of [["tiers", "scoring.groups.0.tiers"], ["sources", "boards"], ["storage", "opportunitiesDir"]]) {
           const field = doc.querySelector<HTMLElement>(`[data-setting-path="${path}"]`)!;
           editor.scrollTop += field.getBoundingClientRect().top - editor.getBoundingClientRect().top;
           await new Promise((resolve) => requestAnimationFrame(resolve));
           expect(editor.scrollTop).toBeGreaterThan(0);
-          await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-${section}`);
+          await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-${section}`);
         }
         editor.scrollTop = 0;
       } else {
@@ -167,7 +198,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         expect(doc.body.textContent).not.toContain("Unsaved changes");
         enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation");
         expect(doc.body.textContent).toContain("Unsaved changes");
-        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-dirty`);
+        await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-dirty`);
         expect(ui.stores.ui.getState().settingsNavigationProtected).toBe(true);
         flushSync(() => ui.stores.ui.getState().closeAllPanels());
         expect(ui.stores.ui.getState().settingsPanelOpen).toBe(true);
@@ -187,7 +218,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         const lifecycleTop = doc.querySelector("[data-module-settings-lifecycle]")!.getBoundingClientRect().top;
         expect(name.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
         expect(doc.getElementById("module-setting-scoring.groups.0.name-error")!.getBoundingClientRect().bottom).toBeLessThan(lifecycleTop);
-        await commands.moduleSettingsScreenshot(`${width === 320 ? "mobile" : "desktop"}-${theme}-validation`);
+        await fixture.capture(`${width === 320 ? "mobile" : "desktop"}-${theme}-validation`);
         enter(doc, "module-setting-scoring.groups.0.name", "Fleet navigation revised");
         reject = null;
         flushSync(() => button(doc, "Save").click());
@@ -226,7 +257,7 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         flushSync(() => button(doc, "Review").click());
         expect(doc.activeElement?.getAttribute("aria-label")).toBe("Review conflicting settings");
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        await commands.moduleSettingsScreenshot(`${resized === 320 ? "mobile" : "desktop"}-${theme}-conflict`);
+        await fixture.capture(`${resized === 320 ? "mobile" : "desktop"}-${theme}-conflict`);
         const reviewed = button(doc, "Save reviewed settings");
         expect(reviewed.getAttribute("aria-disabled")).toBe("true");
         const radios = [...doc.querySelectorAll<HTMLInputElement>('input[type="radio"][name^="conflict-"]')].filter((input) => input.parentElement?.textContent?.includes("Use yours"));
@@ -239,19 +270,18 @@ for (const theme of ["dark", "light"]) for (const width of [320, 1440]) for (con
         expect((saves[1]!.values.scoring as { groups: Array<{ name: string }> }).groups[0]!.name).toBe("Across the breakpoint");
       }
     } finally {
-      if (coldImport) await commands.moduleSettingsImportGate("stop");
-      flushSync(() => react.unmount()); ui.dispose(); iframe.remove();
-      await restoreViewport();
+      await fixture.release(async () => {
+        if (coldImport) await commands.moduleSettingsImportGate(fixture.owner, "stop");
+        flushSync(() => react.unmount()); ui.dispose();
+      });
     }
   });
 }
 
 
 test("jobs nested drafts preserve tiers through reorder, reject extra currency decimals and keep optional values absent", async () => {
-  const restoreViewport = await settingsViewport(320);
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
-  const doc = iframe.contentDocument!; doc.body.style.margin = "0";
+  const fixture = await settingsFixture(320);
+  const doc = fixture.doc; doc.body.style.margin = "0";
   const host = doc.createElement("div"); host.style.width = "320px"; doc.body.append(host);
   // Application preflight and theme variables belong only to this consumer.
   const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
@@ -295,14 +325,12 @@ test("jobs nested drafts preserve tiers through reorder, reject extra currency d
     expect((savedDraft(store.getState()).scoring as { groups: Array<Record<string, unknown>>; compensationBenchmark?: unknown; location?: unknown }).groups).toHaveLength(1);
     expect(Object.keys(store.getState().pendingInputs)).not.toContain("scoring.groups.1.keywords");
     expect(Object.keys(store.getState().variants)).not.toContain("scoring.groups.1");
-  } finally { flushSync(() => react.unmount()); iframe.remove(); await restoreViewport(); }
+  } finally { await fixture.release(() => flushSync(() => react.unmount())); }
 });
 
 test("modules show loading, retry and empty states, and separate migration, dormancy and declared actions", async () => {
-  const restoreViewport = await settingsViewport(320);
-  const iframe = document.createElement("iframe"); iframe.dataset.moduleSettings = "";
-  iframe.style.cssText = "width:320px;height:800px;border:0"; document.body.append(iframe);
-  const doc = iframe.contentDocument!; doc.documentElement.dataset.theme = "dark"; doc.body.style.margin = "0";
+  const fixture = await settingsFixture(320);
+  const doc = fixture.doc; doc.documentElement.dataset.theme = "dark"; doc.body.style.margin = "0";
   const host = doc.createElement("div"); doc.body.append(host);
   const style = doc.createElement("style"); style.textContent = await commands.formConsumerStyles(); doc.head.append(style);
   const scoring = structuredClone(snapshotFixture.overrides.scoring);
@@ -338,12 +366,12 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     expect(button(doc, "Modules").getAttribute("aria-selected")).toBe("true");
     await import("../../../ui-react/src/components/settings/modules-tab.js");
     await expect.poll(() => host.querySelector('[aria-label="Loading modules"]')).not.toBeNull();
-    await commands.moduleSettingsScreenshot("mobile-dark-loading");
+    await fixture.capture("mobile-dark-loading");
     releaseList();
     await expect.poll(() => host.textContent).toContain("Try the connection again");
     list = "empty"; flushSync(() => button(doc, "Retry").click());
     await expect.poll(() => host.textContent).toContain("No modules are configured");
-    await commands.moduleSettingsScreenshot("mobile-dark-empty");
+    await fixture.capture("mobile-dark-empty");
     list = "ready";
     flushSync(() => ui.stores.ui.getState().setSettingsPanelOpen(false));
     await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -357,7 +385,7 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     expect(host.textContent).toContain("1 group and 2 tiers carried over");
     const readonlyName = doc.getElementById("module-setting-scoring.groups.0.name") as HTMLInputElement;
     expect(readonlyName.disabled).toBe(true);
-    await commands.moduleSettingsScreenshot("mobile-dark-migration");
+    await fixture.capture("mobile-dark-migration");
     flushSync(() => button(doc, "Move scoring rules").click());
     await expect.poll(() => host.textContent).toContain("commit abcdef0");
     expect(operations).toEqual([{ path: "/api/modules/jobs/migration", revision: '"migration-preview"' }]);
@@ -369,7 +397,7 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     expect(host.textContent).toContain("Make Jobs dormant?");
     const editor = doc.querySelector<HTMLElement>("[data-module-settings-editor]")!;
     editor.scrollTop = editor.scrollHeight;
-    await commands.moduleSettingsScreenshot("mobile-dark-state-confirmation");
+    await fixture.capture("mobile-dark-state-confirmation");
     flushSync(() => button(doc, "Confirm").click());
     await expect.poll(() => host.textContent).toContain("Jobs is dormant");
     expect(button(doc, "Rescore now").getAttribute("aria-disabled")).toBe("true");
@@ -388,5 +416,62 @@ test("modules show loading, retry and empty states, and separate migration, dorm
     await expect.poll(() => host.textContent).toContain('Action finished: {"updated":3}');
     expect(operations.map((op) => op.path)).toEqual(["/api/modules/jobs/migration", "/api/modules/jobs/state", "/api/modules/jobs/state", "/api/modules/jobs/actions/rescore"]);
     expect(host.scrollWidth, [...host.querySelectorAll<HTMLElement>("*")].filter((el) => el.getBoundingClientRect().right > host.getBoundingClientRect().right + 1).map((el) => `${el.tagName} ${el.getAttribute("aria-label") ?? el.className}`).join("\n")).toBeLessThanOrEqual(320);
-  } finally { releaseAction(); releaseList(); flushSync(() => react.unmount()); ui.dispose(); iframe.remove(); await restoreViewport(); }
+  } finally { await fixture.release(() => { releaseAction(); releaseList(); flushSync(() => react.unmount()); ui.dispose(); }); }
+});
+
+
+test("module settings capture and import gate refuse a page that still holds another case's fixture", async () => {
+  const fixture = await settingsFixture(320);
+  const leaked = document.createElement("iframe");
+  leaked.dataset.moduleSettings = "fixture-leaked";
+  document.body.append(leaked);
+  try {
+    await expect(fixture.capture("ownership-control")).rejects.toThrow(`Module settings capture ownership-control belongs to ${fixture.owner}, but the page holds fixtures [${fixture.owner}, fixture-leaked]`);
+    await commands.moduleSettingsImportGate(fixture.owner, "hold");
+    await expect(commands.moduleSettingsImportGate("fixture-leaked", "stop")).rejects.toThrow(`Module import gate belongs to ${fixture.owner}, not fixture-leaked`);
+  } finally {
+    await fixture.release(async () => { await commands.moduleSettingsImportGate(fixture.owner, "stop"); leaked.remove(); });
+  }
+});
+
+// A real Vitest timeout: the rejected case's callback keeps running, captures
+// and cleans up while the runner drains its test-finished hook. The next case
+// must neither start beside it nor see its iframe.
+const overlap: string[] = [];
+const moduleFixtures = () => [...document.querySelectorAll("iframe[data-module-settings]")].map((iframe) => iframe.getAttribute("data-module-settings")).join(", ");
+let timedOutOwner = "";
+test.fails("module settings overlap control: a timed-out case keeps its fixture through its own cleanup", { timeout: 500 }, async ({ signal }) => {
+  const fixture = await settingsFixture(320);
+  timedOutOwner = fixture.owner;
+  overlap.push(`${fixture.owner} acquired [${moduleFixtures()}]`);
+  signal.addEventListener("abort", () => overlap.push(`${fixture.owner} timed out`));
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    overlap.push(`${fixture.owner} continued [${moduleFixtures()}]`);
+    await fixture.capture("overlap-prior");
+    overlap.push(`${fixture.owner} captured`);
+  } finally {
+    await fixture.release(() => { overlap.push(`${fixture.owner} cleaning up`); });
+  }
+});
+test("module settings overlap control: the next case acquires only after that cleanup", async () => {
+  const fixture = await settingsFixture(1440).catch((error: Error) => { overlap.push(`next case refused: ${error.message}`); return null; });
+  try {
+    if (fixture) {
+      overlap.push(`${fixture.owner} acquired [${moduleFixtures()}]`);
+      await fixture.capture("overlap-next");
+      overlap.push(`${fixture.owner} captured`);
+    }
+    const prior = timedOutOwner;
+    const next = `fixture-${Number(prior.slice("fixture-".length)) + 1}`;
+    expect(overlap, "fixture ownership order").toEqual([
+      `${prior} acquired [${prior}]`,
+      `${prior} timed out`,
+      `${prior} continued [${prior}]`,
+      `${prior} captured`,
+      `${prior} cleaning up`,
+      `${next} acquired [${next}]`,
+      `${next} captured`,
+    ]);
+  } finally { await fixture?.release(() => {}); }
 });
