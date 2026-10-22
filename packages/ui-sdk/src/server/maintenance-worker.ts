@@ -22,6 +22,7 @@ import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
 import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenance-temp-budget.js";
 import { resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
+import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -146,6 +147,7 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
   const env: Record<string, string> = {};
   // A credential-free command gets plain settings only, whatever its caller passed.
   for (const [key, value] of Object.entries(input.env)) {
+    if (!input.transport && HOST_GIT_CREDENTIAL_ENV.includes(key)) continue;
     if (value !== undefined && (input.credentials || (CREDENTIAL_FREE_ENV as readonly string[]).includes(key))) env[key] = value;
   }
   env.PATH = [dirname(bun), env.PATH].filter(Boolean).join(":");
