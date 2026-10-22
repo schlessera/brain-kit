@@ -54,15 +54,24 @@ function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?
     // Launcher failures report an error; copy-out refusals retain the exit and name a failure.
     child.on("error", () => done({ code: null, signal: "worker error" }));
   });
+  let held!: () => void;
+  const holding = new Promise<void>(resolve => { held = resolve; });
   const drained = new Promise<void>(done => {
     if (!child) return done();
-    child.stdout.on("data", (data: Buffer) => { out += data.toString(); });
+    child.stdout.on("data", (data: Buffer) => {
+      out += data.toString();
+      if (out.includes("waiting-for-release\n")) held();
+    });
     child.stdout.on("end", done); child.stdout.on("close", done);
   });
   return { worker, refused,
-    async settle() { const exit = await exited; await drained; await worker.finish().catch(() => {}); await view.cleanup(); return { exit, out: out.trim(), failure: failureOf(worker) }; } };
+    ready: () => Promise.race([holding, exited.then(() => { throw new Error(`Worker exited before its release gate: ${out}`); })]),
+    release: () => child?.stdin.end("release\n"),
+    async settle() { const exit = await exited; await drained; await worker.finish().catch(() => {}); await view.cleanup(); return { exit, out: out.replaceAll("waiting-for-release\n", "").trim(), failure: failureOf(worker) }; } };
 }
-const append = (id: string, line: string) => `printf '%s\\n' '${line}' >> "$CLAUDE_CONFIG_DIR/projects/${projectName}/${id}.jsonl" && sleep 1`;
+const append = (id: string, line: string) => `printf '%s\\n' '${line}' >> "$CLAUDE_CONFIG_DIR/projects/${projectName}/${id}.jsonl"`;
+// Shell builtins keep the turn alive until the parent records its observation.
+const hold = 'echo waiting-for-release; IFS= read -r release && [ "$release" = release ]';
 const tail = (id: string) => readFileSync(join(project, `${id}.jsonl`), "utf8").trimEnd().split("\n").at(-1);
 const mount = 'stat -f -c "%T %b" "$CLAUDE_CONFIG_DIR"';
 
@@ -71,11 +80,12 @@ if (scenario === "contend") {
   // An explicit budget of one allowance: fewer workers than the session cap.
   const one: WorkerStateLimits = { allowanceBytes: 64 * MiB, budgetBytes: 64 * MiB };
   session(TROY, 30); session(ITHACA, 30);
-  const first = turn(append(TROY, "{\"text\":\"The horse is inside the walls\"}"), TROY, one);
-  await Bun.sleep(100);
+  const first = turn(`${append(TROY, "{\"text\":\"The horse is inside the walls\"}")}; ${hold}`, TROY, one);
+  await first.ready();
   const second = turn(append(ITHACA, "{\"text\":\"Home at last\"}"), ITHACA, one);
   receipt.secondRefused = second.refused; receipt.secondClass = failureOf(second.worker)?.errorClass;
   receipt.heldDuringFirst = processStateLedger().held;
+  first.release();
   receipt.first = await first.settle();
   const again = turn(append(ITHACA, "{\"text\":\"Home at last\"}"), ITHACA, one);
   receipt.againRefused = again.refused ?? null;
@@ -84,20 +94,23 @@ if (scenario === "contend") {
 } else if (scenario === "fit") {
   // Two 30 MiB conversations at once: impossible on a shared 64 MiB /dev/shm.
   session(AEAEA, 30); session(OGYGIA, 30);
-  const a = turn(`${mount}; ${append(AEAEA, "{\"text\":\"Circe\"}")}`, AEAEA);
-  const b = turn(`${mount}; ${append(OGYGIA, "{\"text\":\"Calypso\"}")}`, OGYGIA);
+  const a = turn(`${mount}; ${append(AEAEA, "{\"text\":\"Circe\"}")}; ${hold}`, AEAEA);
+  const b = turn(`${mount}; ${append(OGYGIA, "{\"text\":\"Calypso\"}")}; ${hold}`, OGYGIA);
+  await Promise.all([a.ready(), b.ready()]);
   receipt.refused = [a.refused ?? null, b.refused ?? null];
   receipt.held = processStateLedger().held;
+  a.release(); b.release();
   receipt.results = await Promise.all([a.settle(), b.settle()]);
   receipt.tails = [tail(AEAEA), tail(OGYGIA)];
 } else if (scenario === "grow") {
   session(TROY, 30);
   // Holds a 30 MiB conversation while the other turn grows.
-  const holder = turn(`sleep 2; ${append(TROY, "{\"text\":\"Still at Troy\"}")}`, TROY);
-  await Bun.sleep(100);
+  const holder = turn(`${hold}; ${append(TROY, "{\"text\":\"Still at Troy\"}")}`, TROY);
+  await holder.ready();
   // A new conversation that grows 4 MiB at a time, far past its allowance.
   const grower = turn(`d="$CLAUDE_CONFIG_DIR/projects/${projectName}"; mkdir -p "$d"; i=0; while [ $i -lt 30 ]; do head -c ${4 * MiB} /dev/zero >> "$d/${VOYAGE}.jsonl" 2>/dev/null || { echo full-at-$i; break; }; i=$((i+1)); done`);
   receipt.grower = await grower.settle();
+  holder.release();
   receipt.holder = await holder.settle();
   receipt.holderTail = tail(TROY);
   receipt.grownSaved = readFileSync(join(project, `${VOYAGE}.jsonl`)).length;
@@ -120,11 +133,12 @@ if (scenario === "contend") {
     hardlink: `printf x > "$d/a.jsonl"; ln "$d/a.jsonl" "$d/${VOYAGE}.jsonl"`,
     "symlinked directory": `ln -s "${project}" "$d/${VOYAGE}"`,
     // A regular transcript first, swapped for a link by a background process before the worker exits.
-    "late swap": `printf '{}\\n' > "$d/${VOYAGE}.jsonl"; (sleep 0.2; rm "$d/${VOYAGE}.jsonl"; ln -s "${victim}" "$d/${VOYAGE}.jsonl") & sleep 0.5`,
+    "late swap": `exec 3<&0; printf '{}\\n' > "$d/${VOYAGE}.jsonl"; (${hold}; rm "$d/${VOYAGE}.jsonl"; ln -s "${victim}" "$d/${VOYAGE}.jsonl") <&3 & wait`,
   };
   const outcomes: Record<string, unknown> = {};
   for (const [name, plant] of Object.entries(plants)) {
     const t = turn(`d="$CLAUDE_CONFIG_DIR/projects/${projectName}"; mkdir -p "$d"; ${plant}; echo planted`);
+    if (name === "late swap") { await t.ready(); t.release(); }
     let error: string | null = null;
     const settled = await t.settle();
     await t.worker.finish().catch(e => { error = e instanceof Error ? e.message : String(e); });
@@ -143,15 +157,16 @@ if (scenario === "contend") {
   const one: WorkerStateLimits = { allowanceBytes: 8 * MiB, budgetBytes: 8 * MiB };
   session(TROY, 1); session(ITHACA, 1);
   const flood = 'stat -f -c "%T %b %S" /tmp; dd if=/dev/zero of=/tmp/flood bs=1M count=32; echo "dd=$?"; '
-    + 'stat -f -c "free=%a" /tmp; sleep 1; ' + append(TROY, "{\"text\":\"Scylla\"}");
+    + `stat -f -c "free=%a" /tmp; ${append(TROY, "{\"text\":\"Scylla\"}")}; ${hold}`;
   const first = turn(flood, TROY, DEFAULT, one);
-  await Bun.sleep(200);
+  await first.ready();
   receipt.turnTempHeldDuringFirst = processStateLedger().turnTempHeld;
   receipt.stateHeldDuringFirst = processStateLedger().held;
   const second = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
   receipt.secondRefused = second.refused ?? null; receipt.secondClass = failureOf(second.worker)?.errorClass ?? null;
   // A refusal holds nothing, runtime state included.
   receipt.heldAfterRefusal = { state: processStateLedger().held, turnTemp: processStateLedger().turnTempHeld };
+  first.release();
   receipt.first = await first.settle();
   const again = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
   receipt.againRefused = again.refused ?? null;
