@@ -88,7 +88,8 @@ export function checkCIWorkflows(root: string): string[] {
   const files = existsSync(directory) ? readdirSync(directory).sort() : [];
   const expected = ["ci.yml", "contract.yml", "project-sync.yml"];
   if (files.includes("publish-pages.yml")) expected.push("publish-pages.yml");
-  if (JSON.stringify(files) !== JSON.stringify(expected)) problems.push("GitHub must contain only the authoritative CI, contract, project-sync and optional Pages publication workflows");
+  if (files.includes("ci-timings.yml")) expected.push("ci-timings.yml");
+  if (JSON.stringify(files) !== JSON.stringify(expected.sort())) problems.push("GitHub must contain only authoritative CI, contract, project-sync and optional Pages/timing workflows");
   const depot = join(root, ".depot/workflows");
   if (existsSync(depot) && readdirSync(depot).some(file => /\.ya?ml$/.test(file))) problems.push("Active Depot CI workflow definitions must be removed");
   for (const file of CI_WORKFLOWS) {
@@ -98,7 +99,34 @@ export function checkCIWorkflows(root: string): string[] {
   }
   const pages = join(directory, "publish-pages.yml");
   if (existsSync(pages)) problems.push(...publicationWorkflowProblems(readFileSync(pages, "utf8")));
+  const timings = join(directory, "ci-timings.yml");
+  if (existsSync(timings)) problems.push(...timingWorkflowProblems(readFileSync(timings, "utf8")));
   return problems;
+}
+
+/** Measurement is scheduled trusted code with no product-proof authority. */
+export function timingWorkflowProblems(text: string): string[] {
+  const errors: string[] = [], fail = (message: string) => errors.push(`ci-timings.yml: ${message}`);
+  let workflow: Workflow;
+  try { workflow = Bun.YAML.parse(text) as Workflow; }
+  catch { return ["ci-timings.yml: invalid YAML"]; }
+  if (!workflow || typeof workflow !== "object") return ["ci-timings.yml: workflow must be a mapping"];
+  if (JSON.stringify(Object.keys(workflow.on ?? {}).sort()) !== JSON.stringify(["schedule", "workflow_dispatch"]) ||
+      /\bsecrets\.|\bpull_request(?:_target)?\b|\bworkflow_run\b/.test(text)) fail("measurement must use scheduled/manual trusted execution only");
+  if (JSON.stringify(workflow.permissions) !== JSON.stringify({ contents: "read", actions: "read", "pull-requests": "read" })) fail("measurement token must remain read-only");
+  if (JSON.stringify(Object.keys(workflow.jobs ?? {})) !== JSON.stringify(["collect"])) fail("measurement must contain only the collector job");
+  const job = workflow.jobs?.collect;
+  if (job?.permissions !== undefined || job?.needs !== undefined || job?.["runs-on"] !== "ubuntu-24.04") fail("collector must be independent on its declared hosted runner");
+  const steps = job?.steps ?? [], checkouts = steps.filter(s => s.uses?.startsWith("actions/checkout@"));
+  if (checkouts.length !== 1 || checkouts[0]?.with?.ref !== "${{ github.event.repository.default_branch }}" ||
+    checkouts[0]?.with?.["persist-credentials"] !== false || checkouts[0]?.with?.repository !== undefined) fail("collector must check out trusted default-branch code without credentials");
+  if (JSON.stringify(workflow.on?.schedule) !== JSON.stringify([{ cron: "43 * * * *" }])) fail("timing collection must remain hourly and incremental");
+  const collection = steps.find(s => s.run?.includes("bun scripts/ci-timings.ts collect"));
+  if (!collection?.run?.includes('bun scripts/ci-timings.ts collect --repo "$TIMING_REPO" --since "$since" --seed "$TIMING_DEFAULT_BRANCH" --request-budget 200 --reserve 500 --reservations') ||
+    /--resources\b/.test(collection.run) || collection.env?.TIMING_DEFAULT_BRANCH !== "${{ github.event.repository.default_branch }}") fail("timing collection requires seeded acquisition, a hard budget/reserve and no scheduled resource logs");
+  for (const step of steps) if ((step.run ?? "").includes("${{") || /bun install/.test(step.run ?? "")) fail("collector scripts must not interpolate events or install candidate dependencies");
+  if (!steps.some(s => s.uses === "actions/upload-artifact@v7" && s.if === "always()" && s.with?.["retention-days"] === 90 && s.with?.path === "tmp/ci-timings/")) fail("bounded always-upload timing archive missing");
+  return errors;
 }
 
 /** Publication has its own narrowly scoped deploy token; contribution CI stays read-only. */

@@ -929,3 +929,37 @@ open after the independently reviewable dormant delivery. CI intent does not
 authorize reuse. Complete effective inputs, drained output ownership, actual
 consumer compatibility and comparable hosted cost must be qualified before
 activation. This does not cache selected test results or relax their proof.
+
+## Read-only timing archives
+
+The user-requested cross-PR collection in
+[issue #2476](https://github.com/schlessera/brain-kit/issues/2476) adds one scheduled/manual
+measurement workflow, separate from authoritative contribution CI. It runs
+trusted default-branch tooling with read-only Actions, contents and PR access,
+parses candidate logs only as data, and archives normalized observations for
+90 days. Hourly two-day windows seed normalized snapshots from the preceding
+default-branch artifact and collect only new/incomplete attempts. Scheduled
+resource-log downloads are omitted. One serialized API client enforces a
+200-request invocation ceiling, reads remaining quota and leaves a 500-request
+reserve for authoritative CI. Expected budget stops archive an explicit partial
+coverage gap and exit successfully. Discovery ends 15 minutes in the past;
+discovery and reservation-history failures remain visible without discarding
+other timing observations. Explicit backfill is needed after longer outages
+or reruns of older runs. Workflow lint admits
+this narrowly scoped collector while retaining the existing CI/provider gates.
+
+The [collection guide](../process/ci-timings.md) defines interval/attempt
+accounting, missing evidence, cancellation costs, PR attribution and the
+historical exhaustive-run proxy. Estimates remain distinct from same-source
+paired measurements. Timing metadata never authorizes proof retention or merge.
+
+The expanded [issue #2476](https://github.com/schlessera/brain-kit/issues/2476)
+objective is reliable parallel agent throughput. Collection
+joins lifecycle, first-main outcomes, recovery observations, queue/concurrency,
+reservation history and explicitly supplied work/incident records. The primary
+descriptive proxy is first-pass green integrations/day, accompanied by cost and
+latency per delivered cohort. Empirical green rates do not establish formal
+guarantees; proof evidence coverage, unknowns and scenario assumptions remain
+separate. Actual agent activity and diagnosed regressions require explicit
+records. Optimization still preserves existing assertions, guards and matching
+candidate proof, with causal claims requiring comparable measured inputs.
