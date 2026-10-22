@@ -1339,6 +1339,16 @@ through the proxy before the namespace is unshared by default:
 Until that measurement passes, the capabilities note says that egress is
 unrecorded.
 
+**Measured 2026-10-22.** Git over HTTPS and SSH, `curl`, the `brain` CLI's
+embedding provider and headless Chromium all pass through the proxy in a real
+governed worker. SSH uses a first-party CONNECT helper that the worker
+bootstrap sets as Git's `ProxyCommand` (`sshProxy`,
+`packages/ui-sdk/src/server/egress-worker-entry.ts:28-32`). Pi inference
+through the relay is not measured yet. The socket walk does not pass: host
+sockets outside the masks below stay visible, and one accepted a connection.
+The results are in
+[agent-workers.md](../hosting/agent-workers.md#first-party-path-measurement-1665).
+
 **Host Unix sockets.** A private network namespace does not stop `connect()` to
 a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an

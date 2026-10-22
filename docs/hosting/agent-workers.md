@@ -1206,6 +1206,35 @@ unchanged. In particular, this transport does not replace native account login
 with a setup token or grant a network connection from a tool-classification
 observation alone.
 
+### First-party path measurement (#1665)
+
+`tests/egress-first-party-paths.test.ts` runs each first-party path in a real
+governed worker on its private network namespace, with the turn proxy as its
+only way out. The whole fixture runs in its own network namespace with a
+fixture `/etc/hosts` and `/run`, so the fictional origin host and every
+upstream are loopback fixtures; nothing public is reachable. A path passes
+when its worker succeeds and the proxy records a completed opaque CONNECT to
+the fixture origin. The run writes `tmp/egress-first-party-paths.json`.
+
+Measured 2026-10-22 on Linux x86_64 (WSL2 kernel 6.18), Bun 1.4.2,
+bubblewrap 0.9.0, Git 2.51.0, OpenSSH 9.6p1, curl 8.5.0 and Google Chrome 140.
+This is a measurement of the paths, not a qualified host tuple.
+
+| Path | Result |
+| --- | --- |
+| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`); the existing offline relay controls qualify it. Ordinary server turns do not compose the relay yet. |
+| Pi inference through the relay | Not measured. Pi has no ordinary relay consumer yet; this is a stated gap. |
+| `git` over HTTPS | Passes: clone through CONNECT, opaque bytes recorded. |
+| `git` over SSH | Passes: clone through the first-party CONNECT helper, which the worker bootstrap sets as Git's `ProxyCommand` unless the caller already chose `GIT_SSH_COMMAND`. OpenSSH reads `~/.ssh` from the passwd home, which the worker masks, so keys and host keys must be supplied explicitly. |
+| `curl` | Passes: HTTPS through CONNECT. |
+| The `brain` CLI's providers | Passes: `brain index --embeddings` with the Gemini provider's native endpoint override, through CONNECT. Bun honours the proxy variables and `NODE_EXTRA_CA_CERTS`. |
+| Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
+| Socket walk | Not passed. The relay and proxy sockets are present, no socket below a mask is visible, and fixture sockets under `/run` and a home directory are unreachable. Host sockets outside today's masks stay visible: on the measured host a CUPS socket under `/var/snap` accepted a connection, and sockets under `/var/spool` and `/var/tmp` were visible but refused. |
+
+The gate does not pass while the socket walk finds a reachable host socket
+and Pi inference is unmeasured, so ordinary turns keep their current network
+and the capabilities note keeps saying egress is unrecorded.
+
 ## Paid CLI provider qualification
 
 The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
