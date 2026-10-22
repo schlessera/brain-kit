@@ -20,10 +20,18 @@ import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHost
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
-import { existsSync, linkSync, rmSync } from "node:fs";
+import { existsSync, linkSync, realpathSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { authorizeDestination, resolveClaudeHostOAuth } from "./host-oauth.js";
+import { apiKeyRelayCredential } from "./api-key-relay.js";
 
+/** The host's stored Claude login, unless it is absent or inside the brain (which the worker reads anyway). */
+function hostLoginFile(configDirectory: string, brainPath: string): string[] {
+  const file = join(configDirectory, ".credentials.json");
+  if (!existsSync(file)) return [];
+  const real = realpathSync(file), brain = realpathSync(brainPath);
+  return real === brain || real.startsWith(`${brain}/`) ? [] : [real];
+}
 /** The same endpoint: canonical origin and base path, nothing else. */
 function sameRoute(value: unknown, selected: string): boolean {
   try {
@@ -381,7 +389,9 @@ export function createClaudeTurnRunner(options: {
         req.autonomous?.allowedTools ??
         (req.posture === "voice" ? VOICE_ALLOWED_TOOLS : undefined) ??
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
-      const preparedEgress = !req.autonomous && profile.billing !== "api" ? req.workerSandbox?.egress : undefined;
+      const preparedEgress = !req.autonomous ? req.workerSandbox?.egress : undefined;
+      // An API-billed profile's own key: declared by the host together with its route.
+      const apiCredential = preparedEgress && profile.billing === "api" ? apiKeyRelayCredential(profile.id, turnEnvironment ?? {}) : undefined;
       const configDirectory = resolve(turnEnvironment?.CLAUDE_CONFIG_DIR || join(turnEnvironment?.HOME || homedir(), ".claude"));
       // The server selects the route: the profile's baseUrl, else the host's
       // ANTHROPIC_BASE_URL. Only the host's explicit list authorizes a custom
@@ -393,6 +403,7 @@ export function createClaudeTurnRunner(options: {
           credentials: async (signal, target) => {
             if (!hostRelayAuthorized) throw new Error("Native inference has not passed its prompt gate");
             routeInputs?.assertUnchanged();
+            if (apiCredential) return apiCredential.headers;
             return { authorization: (await resolveClaudeHostOAuth(configDirectory, turnEnvironment ?? {}, { origin: target.origin, authorizedOrigins }, signal)).authorization };
           },
         });
@@ -401,12 +412,15 @@ export function createClaudeTurnRunner(options: {
         linkSync(hostRelay.socketPath, hostRelayLink);
       }
       const sdkTurn = createClaudeSdkTurn({
-        ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir, baseUrl: relayBaseUrl } } : {}),
+        ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir, baseUrl: relayBaseUrl,
+          ...(apiCredential ? { placeholders: apiCredential.placeholders } : {}) } } : {}),
         backend: options.backend,
         ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
         turnEnvironment,
         fileVersions,
-        req: { ...req, signal: abortController.signal },
+        req: { ...req, signal: abortController.signal, ...(preparedEgress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
+          // The relay holds the login: hide the host's file wherever the host masks do not.
+          maskPaths: [...req.workerSandbox.maskPaths ?? [], ...hostLoginFile(configDirectory, options.backend.brainPath)] } } : {}) },
         profile,
         abortController,
         allowedTools,
@@ -447,14 +461,14 @@ export function createClaudeTurnRunner(options: {
       const queryHandle = new Promise<Query>((resolve) => {
         resolveQuery = resolve;
       });
-      const prompt = sdkTurn.subscriptionOnly || runtimeRequirements.length > 0
+      const prompt = sdkTurn.subscriptionOnly || preparedEgress || runtimeRequirements.length > 0
         ? gatedPrompt(input.messages, async () => {
             const withhold = (): false => {
               withheld = true;
               abortController.abort();
               return false;
             };
-            const refuse = (reason: string): false => {
+            const refuseSubscription = (reason: string): false => {
               const message = subscriptionRefusalMessage(reason);
               refused = {
                 code: "CLAUDE_AUTH",
@@ -472,13 +486,20 @@ export function createClaudeTurnRunner(options: {
               });
               return withhold();
             };
+            const refuseTransport = (reason: string): false => {
+              const message = `Claude inference transport refused: ${reason}.`;
+              refused = { code: "CLAUDE_ERROR", message, failure: { errorClass: FIRST_PARTY_FAILURE_CLASSES.auth_failure, message } };
+              reportActivity({ kind: "auth_failure", errorClass: FIRST_PARTY_FAILURE_CLASSES.auth_failure, message: reason });
+              options.log("warn", "inference transport check refused the turn", { "profile.id": profile.id, reason });
+              return withhold();
+            };
             const cli = await queryHandle;
             let account: AccountInfo | undefined;
             let settings: CliSettingsReport | undefined;
             try {
               const check = async () => {
                 account = (await initialize(cli)).account;
-                if (!sdkTurn.subscriptionOnly) return;
+                if (!sdkTurn.subscriptionOnly && !preparedEgress) return;
                 // Not on the public Query type; the SDK sends the CLI's own
                 // `get_settings` control request. Absent means unreadable,
                 // which refuses below.
@@ -497,16 +518,19 @@ export function createClaudeTurnRunner(options: {
               return withhold();
             }
             if (abortController.signal.aborted) return withhold();
-            if (!sdkTurn.subscriptionOnly) return true;
-            const verdict = subscriptionVerdict(account);
-            const conflict = verdict.ok ? settingsRefusal(settings, sdkTurn.pinnedSettingsEnv) : null;
-            if (!verdict.ok || conflict) {
-              // The CLI never reaches init, so this is the only report the
-              // refused turn gets: what the handshake said it would bill.
-              reportRuntime(undefined, account?.apiKeySource, account);
-              return refuse(verdict.ok ? conflict! : verdict.reason);
+            if (sdkTurn.subscriptionOnly) {
+              const verdict = subscriptionVerdict(account);
+              const conflict = verdict.ok ? settingsRefusal(settings, sdkTurn.pinnedSettingsEnv) : null;
+              if (!verdict.ok || conflict) {
+                // The CLI never reaches init, so this is the only report the
+                // refused turn gets: what the handshake said it would bill.
+                reportRuntime(undefined, account?.apiKeySource, account);
+                return refuseSubscription(verdict.ok ? conflict! : verdict.reason);
+              }
             }
             if (preparedEgress) {
+              // An API-billed turn is not a subscription refusal: name the transport instead.
+              const refuse = sdkTurn.subscriptionOnly ? refuseSubscription : refuseTransport;
               // The server's route must be authorized for the host login, and
               // native settings may repeat that route but never replace it.
               try { routeInputs?.assertUnchanged(); }
@@ -514,7 +538,7 @@ export function createClaudeTurnRunner(options: {
               if (!Array.isArray(settings?.sources) || settings.sources.some(source => !["projectSettings", "flagSettings", "policySettings"].includes(source.source ?? ""))) {
                 return refuse("the native inference settings sources are not qualified for this prepared transport");
               }
-              try { authorizeDestination({ origin: new URL(selectedUpstream).origin, authorizedOrigins }); }
+              try { if (!apiCredential) authorizeDestination({ origin: new URL(selectedUpstream).origin, authorizedOrigins }); }
               catch { return refuse("the selected inference origin is not authorized to receive the host Claude login; list its exact origin in BRAIN_UI_CLAUDE_OAUTH_ORIGINS"); }
               for (const source of settings?.sources ?? []) {
                 const value = source.settings?.env?.ANTHROPIC_BASE_URL;

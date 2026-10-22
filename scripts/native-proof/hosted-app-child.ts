@@ -45,7 +45,8 @@ const backend = inference ? createPiBackend({brainPath:brain!,model:inference.mo
   brainPath: brain,
   profiles: [{
     id: "odysseus-offline", label: "Odysseus offline", billing: "api", requiredEnvKeys: [],
-    buildEnv: () => ({ PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") })
+    // A fictional key: on managed storage the host relay holds it, never the worker.
+    buildEnv: () => ({ PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent"), ANTHROPIC_API_KEY: "odysseus-offline-api-key" })
   }],
   listSessionsFn: async () => [], getSessionMessagesFn: async () => [],
   log(level: string, message: string) { event("backend_log", { level, message }); },
@@ -81,6 +82,8 @@ child = params.options.spawnClaudeCodeProcess({
     })();
     return Object.assign(stream, {
       initializationResult: async () => ({ account: { apiProvider: "firstParty", apiKeySource: "ANTHROPIC_API_KEY" } }),
+      // What the CLI reports for the host's pinned flag settings, so the relay's route gate sees its own route.
+      getSettings: async () => ({ effective: { env: { ...params.options.settings?.env } }, sources: [{ source: "flagSettings", settings: params.options.settings }] }),
       close() { child.kill("SIGKILL"); }, interrupt: async () => { child.kill("SIGKILL"); }
     });
   },

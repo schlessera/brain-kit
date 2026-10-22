@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dir, "../../..");
 function probe(fixture: string, mode?: string): Record<string, any> {
   const child = Bun.spawnSync(["bwrap", "--clearenv", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/tmp",
-    "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--proc", "/proc", "--dev", "/dev",
+    "--unshare-net", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", "/etc", "--tmpfs", "/opt", "--proc", "/proc", "--dev", "/dev",
     process.execPath, "--preload", resolve(root, "scripts/test-network-child-preload.ts"), resolve(import.meta.dir, "fixtures", fixture), ...(mode ? [mode] : [])],
   { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 25000 });
   expect(child.exitCode, child.stderr.toString()).toBe(0);
@@ -72,4 +72,32 @@ test("actual native inference stops when the durable egress recorder fails", () 
   expect(proof.recordingFailure, "EGRESS_RECORDER_FAILURE_RETAINED").toBe(true);
   expect(proof.observations).toEqual([]);
   expect(proof.results.some((result: any) => result.outcome === "success"), "EGRESS_RECORDER_FAILURE_NO_SUCCESS").toBe(false);
+});
+
+for (const [mode, header] of [["api-key", "apiKey"], ["api-token", "authorization"]] as const) test(`an API-billed profile's ${mode === "api-key" ? "key" : "bearer token"} stays on the host: the relay sends it and the native worker holds a placeholder`, () => {
+  const proof = probe("server-host-relay-probe.ts", mode);
+  expect(proof.results[0]?.outcome).toBe("success");
+  expect(proof.apiRequests, "API_PROFILE_RELAY_INJECTS_HOST_CREDENTIAL").toEqual([header === "apiKey"
+    ? { apiKey: "odysseus-api-secret-for-ithaca", authorization: null }
+    : { apiKey: null, authorization: "Bearer odysseus-api-secret-for-ithaca" }]);
+  expect(proof.nativeEnvironmentCount, "API_PROFILE_NATIVE_ENVIRONMENT_OBSERVED").toBe(1);
+  expect(proof.secretInWorker, "API_PROFILE_WORKER_HOLDS_NO_CREDENTIAL").toBe(false);
+  expect(proof.workerPlaceholders, "API_PROFILE_WORKER_PLACEHOLDERS").toEqual([header === "apiKey"
+    ? ["brain-inference-relay-placeholder", "", "", null] : ["", "brain-inference-relay-placeholder", "", null]]);
+  expect(proof.observations.map((event: any) => [event.payload.host, event.payload.path, event.payload.inference, event.payload.outcome]),
+    "API_PROFILE_RELAY_RECORDED").toEqual([["api.anthropic.com", "/v1/messages", true, "completed"]]);
+});
+
+test("an API-billed profile whose project settings move its route is refused before its key is sent", () => {
+  const proof = probe("server-host-relay-probe.ts", "api-key-project-custom");
+  expect(proof.apiRequests, "API_PROFILE_CHANGED_ROUTE_NO_CREDENTIAL_FORWARDING").toEqual([]);
+  expect(proof.results).toHaveLength(1);
+  expect(proof.results[0].failure, "API_PROFILE_CHANGED_ROUTE_REFUSED").toMatchObject({ errorClass: "auth_failure",
+    message: expect.stringContaining("Claude inference transport refused") });
+});
+
+test("the host's stored login outside every host mask is masked in the worker", () => {
+  const proof = probe("server-host-relay-probe.ts", "outside-masks");
+  expect(proof.requests, "OUTSIDE_MASKS_HOST_LOGIN_STILL_RELAYED").toEqual([{ credential: 0, model: "claude-haiku-4-5", history: 1 }]);
+  expect(proof.hostLoginVisible, "OUTSIDE_MASKS_HOST_LOGIN_MASKED").toBe(false);
 });
