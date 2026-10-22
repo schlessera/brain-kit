@@ -444,6 +444,22 @@ proof `--workers=1` diagnostic for a serial measurement, preserving the actual
 source identity; performance qualification and remaining evidence live in
 [#2121](https://github.com/schlessera/brain-kit/issues/2121).
 
+Screenshot evidence includes kit, consumer and repository-root attachment
+directories. Hygiene commands keep their local scratch captures and retain the
+same bytes in separate `tmp/hygiene-proof/capture-*` directories for the layout
+artifact. Browser artifacts also retain exactly the prepared native diagram
+`release.svg/png/pdf`, `origin.svg/png/pdf` and `producer.json` files under each
+preparation session and engine. This preserves the producer's checkout,
+source, installation and runtime identity even if a later browser case fails.
+
+Verify retention from downloaded artifact ZIPs: compare the archive SHA-256 to
+the Actions artifact digest, check ZIP CRCs and safe paths, then record each
+PNG's nonzero dimensions, byte size and SHA-256. Match checkout receipts to
+the actual job checkout; compare native exports with `producer.json` hashes.
+Report generated captures separately from unchanged tracked references, and
+name any still-missing automatic failure screenshots. Passing cases, local
+files and upload patterns alone do not establish hosted retention.
+
 Reading CI for a PR — the actual current head, the live base, checkout SHAs,
 run/job/attempt IDs, retained #1333 receipts, refused-start jobs, and the
 merge and post-merge checks — is the `work-issue` skill's
