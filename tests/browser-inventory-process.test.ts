@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { browserInventory } from "../scripts/proof-inputs";
 
-async function nativeControl(script: string) {
+const controlDeadlineMs = 1000;
+
+async function nativeControl(script: string, deadlineMs?: number) {
   const root = mkdtempSync(join(tmpdir(), "inventory-process-"));
   mkdirSync(join(root, "packages/ui-kit"), { recursive: true });
   mkdirSync(join(root, "scripts"));
@@ -19,7 +21,7 @@ async function nativeControl(script: string) {
   }) as typeof Bun.spawn);
   try {
     let result: unknown;
-    try { result = await browserInventory(root); } catch (error) { result = error; }
+    try { result = await browserInventory(root, deadlineMs); } catch (error) { result = error; }
     expect(child).toBeDefined();
     await child!.exited;
     expect(() => process.kill(child!.pid, 0)).toThrow();
@@ -39,27 +41,35 @@ function diagnostics(result: unknown) {
   expect(payload, "failure must expose structured process identity").toStartWith("{");
   return { message, receipt: JSON.parse(payload) };
 }
+test("native discovery uses the fixed 30-second default without waiting for expiration", async () => {
+  const { receipt } = diagnostics(await nativeControl("process.exitCode=7;"));
+  expect(receipt).toMatchObject({ deadlineMs: 30000, timedOut: false, exitCode: 7, signal: null });
+});
 test("native discovery failure preserves bounded output, exit and unpublished identity", async () => {
-  const { message, receipt } = diagnostics(await nativeControl('process.stdout.write("O".repeat(200000)+"stdout-end");process.stderr.write("E".repeat(200000)+"stderr-end");process.exitCode=7;'));
-  expect(receipt).toMatchObject({ deadlineMs: 15000, timedOut: false, exitCode: 7, signal: null, inventory: { present: false }, stdout: { bytes: 200010 }, stderr: { bytes: 200010 } });
+  const { message, receipt } = diagnostics(await nativeControl('process.stdout.write("O".repeat(200000)+"stdout-end");process.stderr.write("E".repeat(200000)+"stderr-end");process.exitCode=7;', controlDeadlineMs));
+  expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: false, exitCode: 7, signal: null, inventory: { present: false }, stdout: { bytes: 200010 }, stderr: { bytes: 200010 } });
   expect(receipt.elapsedMs).toBeGreaterThan(0);
   expect(receipt.stdout.tail).toEndWith("stdout-end");
   expect(receipt.stderr.tail).toEndWith("stderr-end");
   expect(message.length).toBeLessThan(4000);
 });
-test("native watchdog reports already published inventory and reaps the delayed child", async () => {
-  const { receipt } = diagnostics(await nativeControl('require("node:fs").writeFileSync(process.argv[1],"[]");setInterval(()=>{},1000);'));
-  expect(receipt).toMatchObject({ deadlineMs: 15000, timedOut: true, signal: "SIGKILL", inventory: { present: true, bytes: 2, sha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" } });
-  expect(receipt.elapsedMs).toBeGreaterThanOrEqual(14900);
-  expect(receipt.elapsedMs).toBeLessThan(25000);
+test.each([false, true])("native watchdog reports publication %s and reaps the delayed child", async (published) => {
+  const publication = published ? 'require("node:fs").writeFileSync(process.argv[1],"[]");' : "";
+  const { receipt } = diagnostics(await nativeControl(`${publication}setInterval(()=>{},1000);`, controlDeadlineMs));
+  expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: true, signal: "SIGKILL" });
+  expect(receipt.inventory).toEqual(published
+    ? { present: true, bytes: 2, sha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" }
+    : { present: false });
+  expect(receipt.elapsedMs).toBeGreaterThanOrEqual(900);
+  expect(receipt.elapsedMs).toBeLessThan(5000);
 });
 test("native signal remains distinct from watchdog expiration", async () => {
-  const { receipt } = diagnostics(await nativeControl('process.kill(process.pid,"SIGTERM");'));
-  expect(receipt).toMatchObject({ deadlineMs: 15000, timedOut: false, signal: "SIGTERM", inventory: { present: false } });
+  const { receipt } = diagnostics(await nativeControl('process.kill(process.pid,"SIGTERM");', controlDeadlineMs));
+  expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: false, signal: "SIGTERM", inventory: { present: false } });
 });
 test("successful native exits still reject missing, malformed and incomplete JSON inventories", async () => {
   for (const script of ['process.exitCode=0;', 'require("node:fs").writeFileSync(process.argv[1],"{broken");', 'require("node:fs").writeFileSync(process.argv[1],"[]");']) {
-    const { receipt } = diagnostics(await nativeControl(script));
+    const { receipt } = diagnostics(await nativeControl(script, controlDeadlineMs));
     expect(receipt).toMatchObject({ exitCode: 0, timedOut: false, signal: null });
   }
 });
@@ -73,7 +83,7 @@ test("native discovery receives the supported telemetry opt-out and preserves co
       const rows=["visual","ui-react-layout","ui-react-endurance"].map(projectName=>({projectName,file:path.join(root,"packages/fixture.tsx")}));
       require("node:fs").writeFileSync(process.argv[1],JSON.stringify(rows));
       console.error("console warnings stay outside the JSON channel");
-    `);
+    `, controlDeadlineMs);
     expect(result).toEqual(["ui-react-endurance", "ui-react-layout", "visual"].map(project => ({project,file:"packages/fixture.tsx"})));
     expect(kill.mock.calls.filter(([pid]) => pid < 0)).toHaveLength(0);
   } finally { kill.mockRestore(); }
@@ -86,10 +96,10 @@ test("native watchdog bounds inherited pipes even after the discovery leader has
     process.stdout.write(String(child.pid));
     child.unref();
     process.exit(0);
-  `));
-  expect(receipt).toMatchObject({ deadlineMs: 15000, timedOut: true, exitCode: 0, signal: null, inventory: { present: true, bytes: 2 } });
-  expect(receipt.elapsedMs).toBeGreaterThanOrEqual(14900);
-  expect(receipt.elapsedMs).toBeLessThan(17000);
+  `, controlDeadlineMs));
+  expect(receipt).toMatchObject({ deadlineMs: 1000, timedOut: true, exitCode: 0, signal: null, inventory: { present: true, bytes: 2 } });
+  expect(receipt.elapsedMs).toBeGreaterThanOrEqual(900);
+  expect(receipt.elapsedMs).toBeLessThan(5000);
   const descendant = Number(receipt.stdout.tail);
   expect(descendant).toBeGreaterThan(0);
   let state = "";

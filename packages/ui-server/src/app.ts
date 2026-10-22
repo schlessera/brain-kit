@@ -73,12 +73,14 @@ import {
   resolveAuthMode,
   assertAuthConfig,
   authGuard,
+  createLoginRateLimiter,
   authRoutes,
   isWsAuthorized,
   type AuthMode,
   type AuthRuntime,
 } from "./middleware/auth.js";
 import {
+  createPasskeyChallenges,
   passkeyPublicRoutes,
   passkeyManagementRoutes,
   passwordLoginDisabled,
@@ -657,7 +659,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const authFailures = observability.meter("auth").createCounter("auth.failures", {
     description: "Failed authentication ceremonies, by reason",
   });
+  const rateLimiter = createLoginRateLimiter();
   const passkeyCtx: PasskeyContext = {
+    rateLimiter,
+    challenges: createPasskeyChallenges(),
     db,
     revoker: host,
     webauthn: config.webauthn,
@@ -766,6 +771,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   app.route(
     "/api",
     authRoutes(authMode, auth, {
+      rateLimiter,
       db,
       revoker: host,
       passwordDisabled: (c) => passwordLoginDisabled(c, passkeyCtx),
@@ -833,7 +839,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   );
   app.route(
     "/api",
-    createBrainRoutes({ brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
+    createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })
   );
   app.route("/api", createSessionProfileRoutes(sessionProfiles));
   app.route("/api", createSessionRoutes({ registry, db, labels: host.labels !== null, prepareHistory: (id, messages) => host.prepareHistory(id, messages) }));

@@ -59,6 +59,16 @@ prerequisite. This leaves product and test deadlines unchanged. Agents still sup
 focused failing-first and restored mutation receipts, debug failures and review
 visual results. A test failure is not excused by moving its execution.
 
+Under the [2026-10-22 Option A ruling for #2401](https://github.com/schlessera/brain-kit/issues/2401#issuecomment-6329614279),
+deliberate manual offline commands use `scripts/test-offline.sh`: verified fresh
+user/network namespaces, loopback plus a route-free dummy, empty IPv4/IPv6 main
+tables and verified zero capabilities before the command. This preserves the
+real browser online signal and upload policy while denying external networking.
+Optional mount isolation composes with caller-provisioned fixture storage;
+the [testing guidance](../process/testing.md#deliberate-offline-commands-on-linux)
+documents prerequisites and the `--keep-caps`/bubblewrap trap. Generic test,
+hosted-worker and existing preflight-probe launch paths are unchanged.
+
 CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
 unit/integration discovery normally includes affected workspaces and every reverse
 manifest dependant, plus root tooling tests. Under the maintainer's
@@ -187,8 +197,8 @@ file in one hash/count bucket. Unknown specs retain positive defaults, every
 spec is assigned once, and unsharded discovery is unchanged. Refresh explicitly
 with `bun scripts/refresh-browser-costs.ts <run-id> <attempt> [browser|layout]`
 (the default remains browser). Each domain retains its own run/attempt/job,
-checkout/tree/parent and pinned-image provenance. Refresh requires both fresh
-successful jobs from a successful CI run, matching actual checkouts, complete
+checkout/tree/parent and pinned-image provenance. Refresh requires fresh
+successful jobs from every shard of a successful CI run, matching actual checkouts, complete
 reported project/file coverage and source/image attribution; cancelled,
 partial or retained-only proof supplies no measurements. Refreshing one domain
 preserves the other's costs and provenance. Reviewed CI reports are measurement
@@ -469,6 +479,16 @@ They test actual current producer bytes separately: legitimate audit drift
 requires fresh proof and does not redefine the positive fixture. The locked
 offline compiler and installed-asset byte/mode controls remain runtime proof.
 
+Browser document, inactive-command and worker-boundary self-tests follow the
+same ownership rule. Their positive config, callers, producers and binary font
+fixtures come from independently pinned raw Git blobs, including frozen directory
+membership (`const owner`, `tests/frozen-browser-source.ts:8-22`). Actual candidate
+bytes are checked separately against that owner
+(`test.each([...reviewedBrowserDocuments])`, `tests/bound-browser-documents.test.ts:142-155`);
+changed enforcement cannot qualify by recomputing its manifest. These fixtures
+exercise the existing audit and never refresh production pins or authorize
+retained proof for the candidate.
+
 Only a reviewed re-audit moves the audited revision
 ([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer ruling 2026-10-18):
 
@@ -698,8 +718,22 @@ execute fresh.
 Record actual retained runner time and lookup/aggregate costs on a controlled
 base advancement. This preserves runner consumption without claiming that
 unchanged browser proof removes a remaining long native critical path.
-Discovery has a 15-second timeout; a missing immutable Git object has an
-eight-second bounded fetch. Runner image context comes from the image's
+Discovery has a fixed 30-second wall-clock maximum for the native child to exit
+and both output pipes to drain (`browserInventory`, `scripts/proof-inputs.ts:81-139`),
+in local preflight and hosted metadata,
+fingerprinting, reuse lookup and aggregate validation. The maintainer selected
+option A under [#2380](https://github.com/schlessera/brain-kit/issues/2380) on
+2026-10-22: #2326's cold discovery sample took 14,811 ms in the pinned offline
+image with two CPUs, so 30 seconds allows approximately twice that observed
+duration. Hosted metadata steps had completed in 6–11 seconds. This bounded
+margin does not guarantee completion under arbitrary CPU starvation; a stuck
+child can take up to 15 seconds longer to fail than under the previous maximum.
+Process controls inject a short deadline and assert the default separately;
+the integration test allows additional time for ownership scanning and cleanup.
+Discovery failure still rejects unsuccessful inventories and retains the
+caller's existing fresh-execution or fail-closed behavior.
+A missing immutable Git object has an eight-second bounded fetch.
+Runner image context comes from the image's
 [recorded environment](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-environment.sh).
 
 ### Execution domains and assertion ownership
