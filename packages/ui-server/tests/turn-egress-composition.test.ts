@@ -1,7 +1,8 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
+import * as startup from "../../ui-sdk/src/server/worker-startup-view.js";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +22,9 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import { createPrincipal, isUsablePrincipal, resolvePrincipal } from "../src/db/principals";
 
-test.each(["claude", "pi"] as const)("a governed %s turn's network composition and durable egress record", async kind => {
+test.each([["claude", true], ["claude", false], ["pi", true]] as const)("a governed %s turn's network composition and durable egress record (managed storage: %p)", async (kind, managed) => {
+  // The copied fixture brain has no manager-acquired view; stand in for one where the case needs it.
+  const storage = spyOn(startup, "isManagedWorkerStartupView").mockReturnValue(managed);
   const root = mkdtempSync(join(tmpdir(), "odysseus-turn-egress-")), brain = join(root, "brain");
   mkdirSync(join(brain, "context/policies"), { recursive: true });
   // The fixture origin is an outward host: only the classified read may reach it without a card.
@@ -61,6 +64,11 @@ test.each(["claude", "pi"] as const)("a governed %s turn's network composition a
       expect(records).toEqual([]);
       return;
     }
+    if (!managed) {
+      expect(proxyDir, "TURN_EGRESS_UNMANAGED_STORAGE_KEEPS_NETWORK").toBeUndefined();
+      expect(records).toEqual([]);
+      return;
+    }
     expect(proxyDir, "TURN_EGRESS_GOVERNED_CLAUDE_COMPOSED").toBeDefined();
     expect(workerExit, `TURN_EGRESS_BACKEND_BRIDGE_TRACKS_CLASSIFICATION ${workerErrors}`).toBe(0);
     expect(output).toBe("Ithaca");
@@ -69,5 +77,5 @@ test.each(["claude", "pi"] as const)("a governed %s turn's network composition a
       payload: { method: "GET", host: "127.0.0.1", port: origin.port, path: "/voyage", outcome: "completed" } });
     expect(JSON.stringify(records)).not.toContain("odysseus-query");
     expect(existsSync(proxyDir!), "TURN_EGRESS_PROXY_REMOVED_AT_TURN_END").toBe(false);
-  } finally { host.close(); origin.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally { storage.mockRestore(); host.close(); origin.stop(true); db.close(); rmSync(root, { recursive: true, force: true }); }
 });

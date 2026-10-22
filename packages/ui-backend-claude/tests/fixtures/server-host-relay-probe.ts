@@ -25,7 +25,12 @@ function save(index: number, expired = false) {
   } }), { mode: 0o600 });
 }
 save(0);
-const mode = process.argv.find(arg => ["three", "project-aba", "project-custom", "managed-aba", "managed-custom", "recorder-failure", "cleanup-failure"].includes(arg)) ?? "three";
+const mode = process.argv.find(arg => ["three", "project-aba", "project-custom", "managed-aba", "managed-custom", "recorder-failure", "cleanup-failure",
+  "server-custom-unlisted", "server-custom-listed", "server-custom-other-port"].includes(arg)) ?? "three";
+// The server's own route: a custom gateway with a base path, selected by trusted host configuration.
+const gateway = mode.startsWith("server-custom-") ? "https://gateway.ithaca.invalid/anthropic" : undefined;
+if (mode === "server-custom-listed") process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://other.ithaca.invalid, https://gateway.ithaca.invalid";
+if (mode === "server-custom-other-port") process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://gateway.ithaca.invalid:8443";
 if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");
   writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
@@ -50,6 +55,7 @@ const nativeFetch = globalThis.fetch;
 globalThis.fetch = (async (input, init) => {
   const target = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
   if (!((target.origin === "https://api.anthropic.com" && target.pathname === "/v1/messages")
+    || (gateway && target.href.startsWith(`${gateway}/v1/messages`))
     || (target.origin === "https://platform.claude.com" && target.pathname === "/v1/oauth/token"))) throw Error("UNEXPECTED_HOST_INFERENCE_AUTHORITY");
   const local = new URL(provider.url); local.pathname = target.pathname; return nativeFetch(local, init);
 }) as typeof fetch;
@@ -58,7 +64,7 @@ const db = new Database(join(root, "observations.db"));
 db.exec("CREATE TABLE observations (session_id TEXT, model TEXT, record TEXT)");
 const frames: ServerMessage[] = [];
 const environment = { HOME: home, CLAUDE_CONFIG_DIR: config, PATH: "/usr/bin:/bin", LANG: "C.UTF-8",
-  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1" };
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", DISABLE_AUTOUPDATER: "1", ...(gateway ? { ANTHROPIC_BASE_URL: gateway } : {}) };
 let model = "claude-haiku-4-5";
 let activeView: Awaited<ReturnType<typeof prepareNativeWorkerStartupView>> | undefined;
 let releaseFailures = 0;

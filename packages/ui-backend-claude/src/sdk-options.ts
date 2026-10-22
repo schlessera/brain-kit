@@ -82,7 +82,7 @@ interface ClaudeSdkTurnOptions {
   /** One resolved environment selects both host observation storage and native runtime state. */
   turnEnvironment?: Record<string, string | undefined>;
   /** Concrete host-prepared transport only; ordinary selection/route/lifetime are owned by its caller. */
-  hostInference?: { proxyDir: string };
+  hostInference?: { proxyDir: string; baseUrl?: string };
   fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
@@ -219,7 +219,7 @@ function assembleClaudeSdkTurn(
     ...CLEARED_API_CREDENTIALS,
     CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER,
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
-    ANTHROPIC_BASE_URL: "http://localhost",
+    ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
   } : undefined;
   const childEnv = inferenceEnv ? { ...inheritedEnv, ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and

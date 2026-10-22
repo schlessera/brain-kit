@@ -1232,7 +1232,8 @@ This is a measurement of the paths, not a qualified host tuple.
 | Socket walk | Not passed. The relay and proxy sockets are present, no socket below a mask is visible, and fixture sockets under `/run` and a home directory are unreachable. Host sockets outside today's masks stay visible: on the measured host a CUPS socket under `/var/snap` accepted a connection, and sockets under `/var/spool` and `/var/tmp` were visible but refused. |
 
 The socket walk and Pi inference do not pass yet. Following the gate's rule,
-default-on goes ahead with both gaps stated in the capabilities note:
+default-on goes ahead with both gaps stated in the capabilities note, on hosts
+with managed native storage only:
 
 - **Claude.** A governed or strict Claude turn runs on its own turn proxy and
   the host inference relay. Every connection is a governance event, and a
@@ -1242,6 +1243,21 @@ default-on goes ahead with both gaps stated in the capabilities note:
   ([#2633](https://github.com/schlessera/brain-kit/issues/2633)).
 - **Not routed yet.** An API-key Claude profile and every Pi turn keep their
   current network, and their note still says egress is unrecorded.
+- **No managed native storage.** Governed and strict turns keep their current
+  network without the turn proxy, and their note says egress is unrecorded.
+  `GET /api/status` reports this as `runtime.workerHost.governed.egress`
+  (`{ active, detail }`).
+
+**Custom inference origins.** A turn's relay forwards to the route the server
+selects: the profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the
+server's `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`. Only
+first-party inference may receive the host's Claude login by default. To send
+it to another origin, list that exact origin (scheme, host and port, no path)
+in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
+`BRAIN_UI_CLAUDE_OAUTH_ORIGINS=https://gateway.ithaca.invalid`. An unlisted
+custom origin refuses the turn before its prompt is sent or the login is read.
+A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
+must add this variable when it moves to managed native storage.
 
 ### Pre-proxy command ingestion records
 

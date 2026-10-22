@@ -434,6 +434,12 @@ is `read_only`, `mask_file`, `mask_directory` or `absent`. These describe the
 current ordinary-turn default; each turn resolves its protections again.
 The existing availability and host-execution fields keep their meaning.
 
+`runtime.workerHost.governed.egress` (additive, 0.44.0, #1665) is
+`{ active, detail }`: whether governed and strict turns run on their own turn
+egress proxy. It is `active: true` only on a host with managed native storage;
+`detail` says which turns are routed and, when inactive, that their egress is
+unrecorded.
+
 ### Operational-state layout refusal (additive, #1649)
 
 The host boundary status reason adds `private_state_in_brain` alongside

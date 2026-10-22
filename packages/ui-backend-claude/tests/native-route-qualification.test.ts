@@ -41,6 +41,22 @@ for (const mode of ["project-aba", "project-custom", "managed-aba", "managed-cus
   expect(proof.results[0].failure?.errorClass, "ACTUAL_NATIVE_CHANGED_ROUTE_REFUSAL").toBe("subscription_required");
 });
 
+test("a server-selected custom origin listed for the host login receives it through the relay", () => {
+  const proof = probe("server-host-relay-probe.ts", "server-custom-listed");
+  expect(proof.requests, "CUSTOM_ORIGIN_LISTED_RECEIVES_HOST_LOGIN").toEqual([{ credential: 0, model: "claude-haiku-4-5", history: 1 }]);
+  expect(proof.results[0]?.outcome).toBe("success");
+  expect(proof.observations.map((event: any) => [event.payload.host, event.payload.path, event.payload.inference]),
+    "CUSTOM_ORIGIN_LISTED_RECORDED").toEqual([["gateway.ithaca.invalid", "/anthropic/v1/messages", true]]);
+});
+for (const mode of ["server-custom-unlisted", "server-custom-other-port"]) test(`a server-selected custom origin is refused before the host login when ${mode === "server-custom-unlisted" ? "nothing lists it" : "only another port is listed"}`, () => {
+  const proof = probe("server-host-relay-probe.ts", mode);
+  expect(proof.requests, "CUSTOM_ORIGIN_UNLISTED_NO_CREDENTIAL_FORWARDING").toEqual([]);
+  expect(proof.refreshes).toBe(0);
+  expect(proof.results).toHaveLength(1);
+  expect(proof.results[0].failure, "CUSTOM_ORIGIN_UNLISTED_REFUSED_AT_THE_GATE").toMatchObject({ errorClass: "subscription_required",
+    message: expect.stringContaining("BRAIN_UI_CLAUDE_OAUTH_ORIGINS") });
+});
+
 test("actual native inference stops when the durable egress recorder fails", () => {
   const proof = probe("server-host-relay-probe.ts", "recorder-failure");
   expect(proof.recordingFailure, "EGRESS_RECORDER_FAILURE_RETAINED").toBe(true);

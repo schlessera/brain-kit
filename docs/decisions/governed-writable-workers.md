@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:53-115`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:58-120`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:28-115`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:33-120`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1363,7 +1363,14 @@ The results are in
 **Activation with stated gaps — 2026-10-22.** The gate allows default-on when
 each failing path's gap is stated in the capabilities note. Governed and strict
 Claude turns therefore get their own turn proxy and the host inference relay
-by default. Each connection is recorded as a governance event, and a recording
+by default, but only on a host with managed native storage
+([maintainer ruling](https://github.com/schlessera/brain-kit/issues/1665#issuecomment-6341676954)).
+The relay needs the startup view that the native manager acquired with its
+stage operations; a turn admitted without one keeps its current network
+(`isManagedWorkerStartupView`,
+`packages/ui-sdk/src/server/worker-startup-view.ts:37-41`). Worker-host status
+reports which applies as `governed.egress`. Making the relay work without
+managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
 `packages/ui-server/src/brain/turn-egress.ts:47-96`). The note says egress is
@@ -2108,7 +2115,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:430-441`).
+  `packages/ui-server/src/brain/host-boundary.ts:433-444`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal

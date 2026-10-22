@@ -357,6 +357,9 @@ The server is not refused for it
 under: `enforced` entries `{ limit, source, value }` and `absent` entries
 `{ limit, source, reason }`
 ([contract](integration-contract/http.md#worker-resource-limits-additive-1660)).
+`workerHost.governed.egress` (#1665) is `{ active, detail }`: whether governed
+and strict turns run on their own turn egress proxy, which needs managed native
+storage ([contract](integration-contract/http.md#governed-profile-status-additive-0420-1649)).
 `workerHost.governed` (#1648) says whether the `governed` profile can run and
 where the server evaluates the brain's own code: `{ available, hostExecution }`,
 with `reason` (`server_cwd_in_brain`, `database_in_brain`, `private_state_in_brain` or

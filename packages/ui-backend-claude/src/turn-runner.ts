@@ -22,7 +22,7 @@ import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
 import { getProfile, type InferenceProfile } from "./profiles.js";
 import { existsSync, linkSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolveClaudeHostOAuth } from "./host-oauth.js";
+import { authorizeDestination, resolveClaudeHostOAuth } from "./host-oauth.js";
 import { join, resolve } from "node:path";
 import { createClaudeSdkTurn, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
@@ -39,7 +39,7 @@ import type { ActiveTurn } from "./turn-lock.js";
 import { createTurnLockBinding } from "./turn-lock.js";
 import { createTurnInput, type TurnInput } from "./turn-input.js";
 import { DEFAULT_ALLOWED_TOOLS, VOICE_ALLOWED_TOOLS } from "./tool-policy.js";
-import { resolveExecConfig } from "./config/env.js";
+import { resolveEnv, resolveExecConfig } from "./config/env.js";
 import { assertClaudeRuntime, claudeRuntimeRequirements } from "./version-requirements.js";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 
@@ -235,6 +235,7 @@ export function createClaudeTurnRunner(options: {
     let hostRelay: InferenceRelay | undefined;
     let hostRelayLink: string | undefined;
     let hostRelayAuthorized = false;
+    let relayBaseUrl = "http://localhost";
     let routeInputs: Awaited<ReturnType<typeof retainNativeRouteInputs>> | undefined;
     let workerFailure: (() => TurnFailure | undefined) | undefined;
     /**
@@ -373,19 +374,25 @@ export function createClaudeTurnRunner(options: {
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const preparedEgress = !req.autonomous && profile.billing !== "api" ? req.workerSandbox?.egress : undefined;
       const configDirectory = resolve(turnEnvironment?.CLAUDE_CONFIG_DIR || join(turnEnvironment?.HOME || homedir(), ".claude"));
+      // The server selects the route: the profile's baseUrl, else the host's
+      // ANTHROPIC_BASE_URL. Only the host's explicit list authorizes a custom
+      // origin to receive the login (docs/decisions/claude-code-runtime.md).
+      const selectedUpstream = (turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+      const authorizedOrigins = resolveEnv().claudeOAuthOrigins;
       if (preparedEgress) {
-        hostRelay = startInferenceRelay({ upstream: "https://api.anthropic.com", routes: ANTHROPIC_INFERENCE_ROUTES, egress: preparedEgress,
+        hostRelay = startInferenceRelay({ upstream: selectedUpstream, routes: ANTHROPIC_INFERENCE_ROUTES, egress: preparedEgress,
           credentials: async (signal, target) => {
             if (!hostRelayAuthorized) throw new Error("Native inference has not passed its prompt gate");
             routeInputs?.assertUnchanged();
-            return { authorization: (await resolveClaudeHostOAuth(configDirectory, turnEnvironment ?? {}, { origin: target.origin }, signal)).authorization };
+            return { authorization: (await resolveClaudeHostOAuth(configDirectory, turnEnvironment ?? {}, { origin: target.origin, authorizedOrigins }, signal)).authorization };
           },
         });
+        relayBaseUrl = `http://localhost${new URL(selectedUpstream).pathname.replace(/\/+$/, "")}`;
         hostRelayLink = join(preparedEgress.dir, "inference.sock");
         linkSync(hostRelay.socketPath, hostRelayLink);
       }
       const sdkTurn = createClaudeSdkTurn({
-        ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir } } : {}),
+        ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir, baseUrl: relayBaseUrl } } : {}),
         backend: options.backend,
         ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
         turnEnvironment,
@@ -491,22 +498,23 @@ export function createClaudeTurnRunner(options: {
               return refuse(verdict.ok ? conflict! : verdict.reason);
             }
             if (preparedEgress) {
-              // First-party draft composition. Configured-origin and stable
-              // startup-source qualification must complete before activation.
+              // The server's route must be authorized for the host login, and
+              // native settings may repeat that route but never replace it.
               try { routeInputs?.assertUnchanged(); }
               catch { return refuse("native inference settings changed during startup"); }
               if (!Array.isArray(settings?.sources) || settings.sources.some(source => !["projectSettings", "flagSettings", "policySettings"].includes(source.source ?? ""))) {
                 return refuse("the native inference settings sources are not qualified for this prepared transport");
               }
-              const selected = turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
-              if (selected.replace(/\/$/, "") !== "https://api.anthropic.com") return refuse("the native inference destination is not qualified for this prepared transport");
+              try { authorizeDestination({ origin: new URL(selectedUpstream).origin, authorizedOrigins }); }
+              catch { return refuse("the selected inference origin is not authorized to receive the host Claude login; list its exact origin in BRAIN_UI_CLAUDE_OAUTH_ORIGINS"); }
               for (const source of settings?.sources ?? []) {
                 const value = source.settings?.env?.ANTHROPIC_BASE_URL;
-                if (value !== undefined && value !== "" && !(source.source === "flagSettings" && value === "http://localhost") && value !== "https://api.anthropic.com") {
+                // Native settings may repeat the server's route, never replace it.
+                if (value !== undefined && value !== "" && !(source.source === "flagSettings" && value === relayBaseUrl) && (typeof value !== "string" || value.replace(/\/+$/, "") !== selectedUpstream)) {
                   return refuse("the native inference source selects a destination not qualified for this prepared transport");
                 }
               }
-              if (settings?.effective?.env?.ANTHROPIC_BASE_URL !== "http://localhost") {
+              if (settings?.effective?.env?.ANTHROPIC_BASE_URL !== relayBaseUrl) {
                 return refuse("native settings refused the prepared inference transport");
               }
               hostRelayAuthorized = true;

@@ -11,6 +11,7 @@ import { WorkerStateError, workerHostBoundary, type WorkerHostProbe } from "@sch
 import type { SystemStatus, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 
 import * as nativeLeases from "../src/brain/native-brain-leases.js";
+import * as startup from "../../ui-sdk/src/server/worker-startup-view.js";
 import { hostExecution } from "../src/brain/host-boundary";
 import { createRuntimeStatus } from "../src/activity/runtime-status";
 import { INBOX_DISPATCH_FIXTURE } from "../src/inbox/dispatch-fixture";
@@ -27,6 +28,8 @@ function probeAnswers(...answers: WorkerHostProbe[]) {
   probe = spyOn(workerHostBoundary, "probe").mockImplementation(() => answers[Math.min(i++, answers.length - 1)]!);
   return probe;
 }
+// Copied fixture brains are never managed native storage, so turn egress stays off (#1665).
+const UNMANAGED_EGRESS = { active: false, detail: expect.stringContaining("no managed native storage") };
 const workerHostOf = async (response: Response) => ((await response.json()) as SystemStatus).runtime?.workerHost;
 let helper: ReturnType<typeof mockQualifiedIdentityHelper> | undefined;
 afterEach(() => { helper?.restore(); helper = undefined; });
@@ -64,7 +67,7 @@ describe("boot probe", () => {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost).toEqual({ ordinary: { available: false, requirement: FRESH_PROC, trigger: "boot", checkedAt: expect.any(String) },
         // #1648: governed cannot run either, and with no turn able to change the brain its code stays on the host.
-        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "worker", profile: "strict", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "startup" }, limits: expect.any(Object) });
+        governed: { available: false, reason: "worker_host_unavailable", detail: FRESH_PROC, hostExecution: "worker", profile: "strict", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "startup", egress: UNMANAGED_EGRESS }, limits: expect.any(Object) });
       const warnings = observability.logs.find({ severity: "WARN" }).filter(log => String(log.body).includes(FRESH_PROC));
       expect(warnings).toHaveLength(1);
       expect(String(warnings[0]!.body)).toContain("The server keeps running");
@@ -79,7 +82,20 @@ describe("boot probe", () => {
     try {
       const workerHost = await workerHostOf(await t.fetch("/api/status"));
       expect(workerHost).toEqual({ ordinary: { available: true, trigger: "boot", checkedAt: expect.any(String) },
-        governed: { available: true, hostExecution: "worker", profile: "governed", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "live" }, limits: expect.any(Object) });
+        governed: { available: true, hostExecution: "worker", profile: "governed", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "live", egress: UNMANAGED_EGRESS }, limits: expect.any(Object) });
+    } finally { await t.teardown(); }
+  });
+
+  test("worker-host status says whether governed and strict turns run on the turn egress proxy (#1665)", async () => {
+    probeAnswers({ ok: true });
+    const t = await createTestApp();
+    try {
+      expect((await workerHostOf(await t.fetch("/api/status")))?.governed?.egress, "TURN_EGRESS_STATUS_UNMANAGED_INACTIVE").toEqual(UNMANAGED_EGRESS);
+      const managed = spyOn(startup, "hasManagedNativeStorage").mockReturnValue(true);
+      try {
+        const checked = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;
+        expect(checked.governed?.egress, "TURN_EGRESS_STATUS_MANAGED_ACTIVE").toEqual({ active: true, detail: expect.stringContaining("Pi turns keep their current network") });
+      } finally { managed.mockRestore(); }
     } finally { await t.teardown(); }
   });
 
@@ -141,7 +157,7 @@ describe("Check again", () => {
       const fixed = await t.fetch("/api/status/worker-host", { method: "POST" });
       expect(fixed.status).toBe(200);
       expect(await fixed.json() as WorkerHostStatus).toEqual({ ordinary: { available: true, trigger: "check", checkedAt: expect.any(String) },
-        governed: { available: true, hostExecution: "worker", profile: "governed", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "live" }, limits: expect.any(Object) });
+        governed: { available: true, hostExecution: "worker", profile: "governed", protectedPaths: expect.any(Array), identity: "shared_uid", configurationView: "live", egress: UNMANAGED_EGRESS }, limits: expect.any(Object) });
       expect(spy).toHaveBeenCalledTimes(2);
       // A pass is not cached: the next check probes again.
       const broken = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;
