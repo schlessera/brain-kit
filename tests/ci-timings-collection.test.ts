@@ -98,7 +98,7 @@ function seededSnapshot(id: number): TimingSnapshot {
 }
 
 test("scheduled seeded collection fetches only new, incomplete and rerun attempts and reuses merged lifecycle data", () => {
-  const f = fixture({ count: 3, rerun: true, pullCount: 1 });
+  const f = fixture({ count: 3, rerun: true, pullCount: 1, headerlessDownloads: true });
   const incomplete = seededSnapshot(13); incomplete.jobs = []; incomplete.problems = ["jobs unavailable"];
   const old = seededSnapshot(15); old.run.createdAt = "2026-07-04T10:00:00Z";
   try {
@@ -130,7 +130,7 @@ test("scheduled seeded collection fetches only new, incomplete and rerun attempt
 });
 
 test("scheduled artifact seed requests count toward the hard limit", () => {
-  const f = fixture({ count: 2 });
+  const f = fixture({ count: 2, headerlessDownloads: true });
   try {
     f.seed({ "run-12-attempt-1.json": seededSnapshot(12) });
     const child = f.invoke(["--seed", "main", "--request-budget", "6", "--reserve", "500", "--reservations"]);
@@ -139,7 +139,8 @@ test("scheduled artifact seed requests count toward the hard limit", () => {
     expect(f.calls()[3]).toContain("actions/artifacts/77/zip");
     expect(child.exitCode).toBe(0);
     expect(f.json("collection.json").requestBudget.requests).toBe(6);
-    expect(f.json("summary.json").collectionCoverage.missingAttempts).toEqual(["odysseus/chronicle/13/1"]);
+    expect(f.json("summary.json").coverage.incompleteAttempts).toBe(1);
+    expect(f.json("run-13-attempt-1.json").problems[0]).toContain("TimingBudgetStop:");
   } finally { f.cleanup(); }
 });
 

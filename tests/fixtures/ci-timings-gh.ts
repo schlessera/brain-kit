@@ -43,8 +43,11 @@ else if (/\/pulls\/\d+$/.test(path)) body = { number: Number(path.split("/").at(
 else if (path.includes("/timeline?")) body = [];
 else throw new Error(`Unexpected fixture request: ${path}`);
 if (config.rateLimitAt === calls.length) { code = 1; body = { message: "secondary rate limit" }; }
-if (process.argv.includes("--include")) process.stdout.write(
-  `HTTP/2.0 ${code ? "429 Too Many Requests" : "200 OK"}\r\nX-RateLimit-Remaining: ${remaining}\r\n\r\n`);
+if (process.argv.includes("--include")) {
+  const headers = config.headerlessDownloads && /\/(?:logs|zip)$/.test(path) ?
+    "Content-Type: application/octet-stream\r\n" : `X-RateLimit-Remaining: ${remaining}\r\n`;
+  process.stdout.write(`HTTP/2.0 ${code ? "429 Too Many Requests" : "200 OK"}\n${headers}\r\n`);
+}
 process.stdout.write(body instanceof Uint8Array ? body : typeof body === "string" ? body : JSON.stringify(body));
 if (code) process.stderr.write("secondary rate limit; retry later");
 process.exitCode = code;
