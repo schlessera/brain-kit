@@ -127,10 +127,16 @@ const shapes = await create("staging", 32 * MIB);
   const before = await charged();
   mkdirSync(join(shapes.path!, "compressed"));
   command(["btrfs", "property", "set", join(shapes.path!, "compressed"), "compression", "zstd"]);
-  writeFileSync(join(shapes.path!, "compressed", "song.txt"), "Sing to me of the man, Muse, the man of twists and turns.\n".repeat(150_000));
+  // Stream ordinary writes: one large writeFileSync stayed a single raw extent on the qualifying kernel.
+  const song = openSync(join(shapes.path!, "compressed", "song.txt"), "w"), verse = Buffer.from("Sing to me of the man, Muse, the man of twists and turns.\n".repeat(1500));
+  try { for (let index = 0; index < 100; index++) writeSync(song, verse); } finally { closeSync(song); }
   sync();
   const compressed = await charged();
   bounded("COMPRESSED", before, compressed);
+  const extents = command(["/usr/bin/python3", "-I", "-S", "-c", "import os,sys,fcntl,struct\nfd=os.open(sys.argv[1],os.O_RDONLY)\nb=bytearray(32+56*64)\nstruct.pack_into('<QQIIII',b,0,0,2**64-1,1,0,64,0)\nfcntl.ioctl(fd,0xC020660B,b,True)\nn=struct.unpack_from('<I',b,20)[0]\nprint([struct.unpack_from('<QQQ',b,32+56*i)+(struct.unpack_from('<I',b,32+56*i+40)[0],) for i in range(n)])",
+    join(shapes.path!, "compressed", "song.txt")]).trim();
+  note("compressed-extents", { extents, property: command(["btrfs", "property", "get", join(shapes.path!, "compressed", "song.txt")], true).trim(),
+    mount: readFileSync("/proc/self/mountinfo", "utf8").split("\n").filter(line => line.includes(" /reference-pool ")) });
   note("compressed", { logical: statSync(join(shapes.path!, "compressed", "song.txt")).size, physical: compressed.chargedBytes - before.chargedBytes });
   expect(compressed.chargedBytes - before.chargedBytes, "REFERENCE_POOL_COMPRESSED_CHARGED_AT_DISK_SIZE").toBeLessThan(statSync(join(shapes.path!, "compressed", "song.txt")).size / 4);
   const sparse = openSync(join(shapes.path!, "holes.bin"), "w");
@@ -218,10 +224,15 @@ const shapes = await create("staging", 32 * MIB);
   expect((await charged()).chargedBytes, "REFERENCE_POOL_NO_EARLY_CREDIT").toBeGreaterThanOrEqual(before.chargedBytes - MIB);
   expect((await refusal({ operation: "poolCreate", id: randomUUID(), purpose: "worktree", from: source.id, allowanceBytes: 4 * MIB })).code,
     "REFERENCE_POOL_DELETED_SOURCE_NOT_SNAPSHOTTED").toBe("unknown");
-  expect((await release(worktree.id)).state).toBe("reclaimed");
+  // The staging root still reflinks the worktree's chart: its extents keep both owners charged.
+  const retained = await release(worktree.id);
+  expect(retained.state, "REFERENCE_POOL_REFLINK_RETAINS_DELETED_WORKTREE").toBe("deleted");
+  expect(retained.ownerBytes!, "REFERENCE_POOL_REFLINKED_COW_EXTENT_CHARGED").toBeGreaterThanOrEqual(4 * MIB);
+  expect((await release(shapes.id)).state).toBe("reclaimed");
   const after = await charged();
   const records = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records;
   expect(records.find(record => record.id === source.id)?.state, "REFERENCE_POOL_SOURCE_RECLAIMED_AFTER_DESCENDANT").toBe("reclaimed");
+  expect(records.find(record => record.id === worktree.id)?.state, "REFERENCE_POOL_WORKTREE_RECLAIMED_AFTER_REFLINK").toBe("reclaimed");
   expect(after.chargedBytes, "REFERENCE_POOL_RECLAIMED_CREDIT").toBeLessThan(before.chargedBytes - 16 * MIB);
 }
 
@@ -333,13 +344,19 @@ const shapes = await create("staging", 32 * MIB);
     const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
     expect((await client.listPoolRecovery()).records, "REFERENCE_POOL_RESTART_RECONSTRUCTS").toEqual(before.records);
     writeFileSync("/native-runtime/config.json", JSON.stringify(config)); chmodSync("/native-runtime/config.json", 0o600);
-    const cli = Bun.spawnSync(["/usr/local/bin/bun", "/repo/packages/ui-sdk/src/bin/brain-native-store.ts", "pool", "status", "/native-runtime/config.json"], { stdout: "pipe", stderr: "pipe" });
-    const projected = JSON.parse(cli.stdout.toString());
-    note("cli", { code: cli.exitCode, projected, stderr: cli.stderr.toString() });
-    expect(cli.exitCode, "REFERENCE_POOL_CLI_STATUS").toBe(0);
-    expect(projected, "REFERENCE_POOL_CLI_SHAPE").toMatchObject({ schema_version: 1, ok: true, action: "status", status: { qualified: true, fsid: config.referencePool!.fsid } });
-    const released = Bun.spawnSync(["/usr/local/bin/bun", "/repo/packages/ui-sdk/src/bin/brain-native-store.ts", "pool", "release", kept.id, "/native-runtime/config.json"], { stdout: "pipe" });
-    expect(JSON.parse(released.stdout.toString()), "REFERENCE_POOL_CLI_RELEASE").toMatchObject({ schema_version: 1, ok: true, action: "release", record: { id: kept.id, state: "reclaimed" } });
+    // The manager serves from this process: a synchronous child would block its event loop.
+    const cli = async (...args: string[]) => {
+      const child = Bun.spawn(["/usr/local/bin/bun", "/repo/packages/ui-sdk/src/bin/brain-native-store.ts", "pool", ...args, "/native-runtime/config.json"], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      return { code, value: JSON.parse(stdout), stderr };
+    };
+    const projected = await cli("status");
+    note("cli", projected);
+    expect(projected.code, "REFERENCE_POOL_CLI_STATUS").toBe(0);
+    expect(projected.value, "REFERENCE_POOL_CLI_SHAPE").toMatchObject({ schema_version: 1, ok: true, action: "status", status: { qualified: true, fsid: config.referencePool!.fsid } });
+    const released = await cli("release", kept.id);
+    expect(released.code).toBe(0);
+    expect(released.value, "REFERENCE_POOL_CLI_RELEASE").toMatchObject({ schema_version: 1, ok: true, action: "release", record: { id: kept.id, state: "reclaimed" } });
   } finally { await served.close(); }
   manager = await createNativeBrainManager(config);
 }

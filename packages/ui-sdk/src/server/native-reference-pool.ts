@@ -408,6 +408,9 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
         if (info.rootId !== found.rootId || info.fsid !== pool.fsid || BigInt(info.otransid) < BigInt(intent.reservedGeneration) || info.readOnly || info.parentUuid !== (intent.from ? intents.get(intent.from)?.root?.uuid : "0".repeat(32)))
           throw new NativeBrainManagerError("unknown", `Reference pool root ${intent.id} does not match its reservation; no adoption is authorized.`);
         await commit({ ...intent, state: "writable", root: { rootId: info.rootId, uuid: info.uuid, otransid: info.otransid }, path: rootPath(intent.id) }, true);
+      } else if (intent.state === "deleted" && !intent.root) {
+        // Never created: nothing was allocated, so nothing remains to reclaim.
+        await commit({ ...intent, state: "reclaimed", ownerBytes: 0 }, true);
       } else if ((intent.state === "deleting" || intent.state === "deleted") && intent.root) {
         const present = observation.subvolumes.some(root => root.rootId === intent.root!.rootId), dropping = observation.dropping.includes(intent.root.rootId);
         const qgroup = observation.qgroups[level0(intent.root.rootId)];

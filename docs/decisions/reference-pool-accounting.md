@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:250-600`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:251-604`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -196,7 +196,52 @@ configured limits stand in for the defaults: 256 MiB combined and 32 MiB per
 operation. The fixture cannot demonstrate a 10 GiB exhaustion run. Observations
 from the qualifying run follow (kernel 6.18 WSL2, btrfs-progs 6.6.3).
 
-OBSERVATIONS
+| Case | Physical Δ (charged) | Owner Δ | Ratio |
+| --- | ---: | ---: | ---: |
+| 20 MiB random data plus a 64-file Git commit and branch | 21,663,744 | 21,303,296 | 1.017 |
+| 4 MiB COW overwrite in a snapshot, plus a truncation | 4,259,840 | 4,210,688 | 1.012 |
+| 8,700,000-byte compressible text, zstd | 274,432 | 274,432 | 1.000 |
+| 1,000 inline files | 1,048,576 | 524,288 | 2.000 |
+| Mixed root (compressed, sparse, inline, preallocated, hardlinked, reflinked, partially cloned) | 26,558,464 | 25,985,024 | 1.022 |
+| 4,000 empty files in 40 directories | 3,538,944 | 1,736,704 | 2.038 |
+
+Every ratio stayed below the reservation factor of 2.125 for single data with
+DUP metadata. Metadata-only growth comes closest. The run also observed the
+following:
+
+- Writes past a 32 MiB allowance failed with `EDQUOT`; the existing 20 MiB file
+  stayed intact.
+- A snapshot of a sealed 21 MiB source added under 32 MiB to the charge.
+- A 4 GiB sparse file with 4 KiB written added under 1 MiB.
+- An 8 MiB preallocation was charged in full.
+- Fifty hardlinks and two reflinks added under 1 MiB.
+- A 4 KiB clone of a 12 MiB extent kept 12.6 MiB allocated after the original
+  file was deleted.
+- Compression charged the on-disk size: 274,432 bytes for 8.7 MB of text.
+  Btrfs `st_blocks` reports uncompressed bytes, which is another reason the
+  file-length inventory is not this metric. One large `writeFileSync` of the
+  same text stayed a single uncompressed extent; the case streams ordinary
+  writes instead.
+- With 172.8 MB available and 71.3 MB reserved per 32 MiB request, three
+  concurrent requests admitted exactly two and refused one with `capacity`.
+- A second ledger consumer claiming 1 TiB drove headroom to −179.8 GB and
+  refused admission. Removing it restored the exact headroom identity.
+- Deleting the source while its snapshot (and a reflink of it) remained left
+  the source `deleted`, still charged 21,270,528 bytes. Reclamation was
+  recorded only after both descendants were released.
+- A descriptor held open past a 4-second deadline left the root `deleting` and
+  charged. After the descriptor closed, the same identity reached `reclaimed`.
+- Each crash case reconstructed on restart: reserved with no root, created but
+  recorded as reserved, deleting before the delete, and deleting after it.
+- An impostor subvolume at a recorded path was neither used nor deleted; a
+  foreign qgroup and a nested subvolume each refused admission.
+- A pool filled to `ENOSPC` refused admission and still released a root.
+- The `brain-native-store pool` projection reported status and released a root
+  through the running socket.
+- At the end the charge was back to within 64 KiB of the 327,680-byte baseline.
+
+The baseline was 4,521,984 aggregate bytes: the 4 MiB emergency file plus
+311,296 bytes of global metadata on an empty volume.
 
 ## Alternatives
 
