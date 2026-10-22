@@ -370,6 +370,43 @@ protected admission. No existing writer is killed or made exclusive. This
 negative accounting does not qualify a native plan as mounted-writer attestation
 or complete the all-writer proof for provider exclusions.
 
+**No host fallback under a folder policy (#2284).** A gate row records a host
+writer only for as long as its owning server process and the child's output
+pipes live. Neither bounds what that child started. A host child whose owner
+was SIGKILLed, or a `setsid` descendant with closed output after a normal
+return, could still replace a restricted folder after a new governed worker
+had pinned it
+([reproduction](https://github.com/schlessera/brain-kit/issues/2284)). No
+parent-death signal, process group or EOF supervisor proves that every
+descendant of an unsandboxed host process has exited. The maintainer chose
+option (c) on 2026-10-22, over a sticky unknown-state refusal and over a
+PID-namespace boundary for legacy fallback: **while a provider folder policy
+is active, the legacy host fallback is refused entirely.** The refusal happens
+before any host process exists, as `HostFallbackRefusedError`, and names the
+folders. The existing peer refusals above are checked first and keep their
+plain errors. It covers complete and streaming commands, gated and ungated
+(optional missing gate, `gate: none`, the synchronous reader). A gated command
+is checked inside its writer-gate transaction, so the check is ordered against
+governed admission, and the policy is reread there. An ungated command reads
+every active writer's plan from the gate in one transaction. Only with no gate
+at all is the policy file the sole evidence. A provider folder policy
+means a literal recursive folder selector (`<root>/**`) in a provider rule,
+in the current policy or in a plan an active writer retains after the policy
+is removed. A policy file that cannot be read or parsed is treated as unknown
+folder state and refuses too, as does an active writer with unknown or
+unverifiable folder provenance. A valid policy without provider folders, or
+no policy file, leaves host fallback running. The one change there is that
+an ungated command beside an attached gate now also refuses beside a writer
+with unknown provenance, as a gated one already did. Managed and governed
+execution do not change. Host fallback still exists for never-governed hosts.
+
+This ruling does not apply to folders that appear after a host writer
+started. A host writer admitted with no folder policy, whose admission has
+since ended while a descendant keeps running, is outside the gate. A later
+folder policy cannot account for it, and restarting the server does not end
+that descendant. Before relying on provider folder exclusions on such a
+brain, make sure no process that host fallback started is still running.
+
 **Operational state lives outside the brain.** The fourth
 [maintainer ruling on #1649](https://github.com/schlessera/brain-kit/issues/1649#issuecomment-6125423103)
 requires the operational database and other private server state outside the
@@ -2073,7 +2110,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:433-444`).
+  `packages/ui-server/src/brain/host-boundary.ts:445-456`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal

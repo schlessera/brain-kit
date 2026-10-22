@@ -610,6 +610,22 @@ run under `strict`, and the brain's code stays on the host only when:
 `GET /api/status` reports this as `runtime.workerHost.governed`, with
 `hostExecution` `"worker"` or `"host"`, and the boot log says it once.
 
+**No host execution under a provider folder policy.** If
+`context/policies/governance.md` names a provider folder (`<root>/**`), or
+cannot be read or parsed, a `"host"` server refuses every command that would
+run the brain's code on the host. Removing the folders from the policy does
+not release a folder that a running turn still retains, and that turn keeps
+refusing host commands until it ends. The command fails before any process
+starts, with `HostFallbackRefusedError` or, beside a running turn, the
+existing peer refusal. Nothing can prove that
+every descendant of a host process has exited, and one that survives could
+replace a folder a later governed worker relies on. Run the server where the
+worker boundary is available, or remove the provider folders from the policy.
+If the server ran host commands before a folder policy was added, make sure
+none of the processes they started is still running before you rely on that
+policy. Restarting the server does not stop a detached one
+([decision](../decisions/governed-writable-workers.md#the-host-execution-boundary)).
+
 **Operational state must live outside the brain, in every hosted profile.**
 Before opening SQLite, provisioning the private poke token, reconciling turns or
 executing brain code, the server resolves `DB_PATH` and
