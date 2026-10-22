@@ -188,3 +188,10 @@ export function filterSubprocessEnv(
     })
   );
 }
+
+/** Host Git credentials belong to fixed transports/installers, never repository-evaluating workers. */
+export const HOST_GIT_CREDENTIAL_ENV: readonly string[] = Object.freeze([
+  "GITHUB_TOKEN",
+  "BRAIN_UI_SYNC_GITHUB_TOKEN",
+  "BRAIN_UI_SKILLS_GITHUB_TOKEN",
+]);
