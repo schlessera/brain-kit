@@ -3,7 +3,7 @@ import { existsSync, lstatSync, statSync, mkdirSync, readdirSync, readFileSync, 
 import { dirname, join, resolve } from "node:path";
 import { maintenanceGitEntry, nativeWorkerStartupInput, workerIdentityHelper, prepareMaintenanceGitInput, runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
 import type { prepareMaintenanceOutput } from "./maintenance-output.js";
-import { parseMaintenanceGitSources, reportMaintenanceGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
+import { collectOwnedGitAttributes, parseMaintenanceGitSources, reportMaintenanceGitFailure, reportOwnedGitFailure, type MaintenanceGitSources } from "./maintenance-git-source.js";
 
 const TARGET = "/tmp/brain-maintenance-git";
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
@@ -11,7 +11,8 @@ const hooks = ["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commi
   "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-receive", "update", "proc-receive",
   "post-receive", "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite", "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit", "post-index-change"];
 
-async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, binary: string | undefined, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceGitSources> {
+/** Worker-identity collection, then the owner read for withheld server-owned directories. */
+export async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, binary: string | undefined, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceGitSources> {
   const view = outputs.view, native = nativeWorkerStartupInput(view), storage = outputs.output.storage;
   const checkpoint = JSON.stringify(native.checkpoint), source = outputs.output.source, target = outputs.output.target;
   const context = () => JSON.stringify({ brain: command.brainPath, command: command.command, env: command.env,
@@ -37,7 +38,15 @@ async function privateGitSources(command: MaintenanceCommand, outputs: Awaited<R
     reportMaintenanceGitFailure(log, result);
     throw Error("Cannot freeze retained concrete Git sources");
   }
-  return parseMaintenanceGitSources(result.stdout.trim(), maximum, expectedRoot);
+  const sources = parseMaintenanceGitSources(result.stdout.trim(), maximum, expectedRoot);
+  if (!sources.withheld.length) return sources;
+  // Server-owned private output (a strict worker's published 0700/0600 nodes)
+  // is read by its owner, never by widening modes or the worker's authority.
+  let owned: MaintenanceGitSources;
+  try { owned = collectOwnedGitAttributes(view.root, sources, maximum, expectedRoot); }
+  catch (error) { reportOwnedGitFailure(log, error); throw Error("Cannot freeze retained concrete Git sources"); }
+  validate();
+  return owned;
 }
 
 export async function prepareMaintenanceGit(command: MaintenanceCommand, outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>>, signal?: AbortSignal, log?: import("@opentelemetry/api-logs").Logger): Promise<MaintenanceCommand["git"]> {

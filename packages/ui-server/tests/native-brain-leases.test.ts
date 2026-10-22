@@ -77,7 +77,7 @@ test("lost creation and deletion replies retain ownership; durable deleting can 
 test("lease state never opens the UI database and mismatched store identity cannot authorize recovery", async () => {
   const f = await fixture();
   try {
-    expect(f.state.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()).toEqual([{ name: "native_lease_store" }, { name: "native_root_leases" }]);
+    expect(f.state.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()).toEqual([{ name: "native_lease_store" }, { name: "native_pool_leases" }, { name: "native_root_leases" }]);
     await expect(createNativeBrainLeaseManager(f.native.client, { ...f.options, fsid: "another-store" })).rejects.toThrow("another managed brain");
     await expect(f.owner.client.release(ID)).rejects.toThrow("no recorded checkpoint lease");
   } finally { await f.close(); }
@@ -171,5 +171,37 @@ test("unknown stage creation pins its lower root until confirmed stage deletion 
     expect(await second.recoverDeadOwners()).toMatchObject({ released: [OTHER, ID], unknown: [] });
     expect(releases, "NATIVE_RECOVERY_DELETES_UNKNOWN_STAGE_BEFORE_LOWER").toEqual([`stage:${OTHER}`, `stage:${OTHER}`, `checkpoint:${ID}`]);
     expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
+  } finally { await second.close(); await f.close(); }
+});
+
+test("reference pool roots are durable app leases that dead-owner recovery and close never delete", async () => {
+  const f = await fixture(), calls: string[] = [];
+  const record = (id: string, purpose: "source" | "worktree" | "staging", from: string | null, allowanceBytes: number, state: string) =>
+    ({ id, purpose, from, allowanceBytes, state, root: null, path: null, ownerBytes: null, reason: null }) as never;
+  f.native.client.poolCreate = async (id, purpose, from, allowanceBytes) => {
+    calls.push(`create:${id}`);
+    expect((f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(id) as { state: string }).state, "REFERENCE_POOL_LEASE_DURABLE_BEFORE_RPC").toBe("creating");
+    return record(id, purpose, from, allowanceBytes, "writable");
+  };
+  f.native.client.poolSeal = async id => { calls.push(`seal:${id}`); return record(id, "source", null, 4096, "sealed"); };
+  f.native.client.poolRelease = async id => {
+    calls.push(`release:${id}`);
+    expect((f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(id) as { state: string }).state, "REFERENCE_POOL_RELEASE_INTENT_BEFORE_RPC").toBe("releasing");
+    return record(id, "source", null, 4096, "reclaimed");
+  };
+  const second = await createNativeBrainLeaseManager(f.native.client, f.options);
+  try {
+    await f.owner.client.poolCreate(ID, "source", null, 4096);
+    await expect(f.owner.client.poolCreate(OTHER, "worktree", "33333333-3333-4333-8333-333333332428", 4096), "REFERENCE_POOL_SNAPSHOT_NEEDS_HELD_SOURCE").rejects.toThrow("held source");
+    await expect(f.owner.client.poolCreate(ID, "source", null, 8192), "REFERENCE_POOL_LEASE_IMMUTABLE").rejects.toThrow("another purpose");
+    expect(await second.recoverDeadOwners(), "REFERENCE_POOL_NOT_AUTOMATICALLY_DELETED").toMatchObject({ released: [], retainedPool: 1 });
+    await f.owner.close();
+    expect(calls.filter(call => call.startsWith("release")), "REFERENCE_POOL_CLOSE_RETAINS_ROOTS").toEqual([]);
+    // Pool ownership is app state, not one process generation: a later owner can seal and release it.
+    await second.client.poolSeal(ID);
+    await expect(second.client.poolRelease(OTHER), "REFERENCE_POOL_UNRECORDED_NOT_DELETED").rejects.toThrow("no recorded app lease");
+    expect((await second.client.poolRelease(ID)).state).toBe("reclaimed");
+    expect(f.state.query("SELECT COUNT(*) AS count FROM native_pool_leases").get(), "REFERENCE_POOL_LEASE_REMOVED_AFTER_RECEIPT").toEqual({ count: 0 });
+    expect(calls).toEqual([`create:${ID}`, `seal:${ID}`, `release:${ID}`]);
   } finally { await second.close(); await f.close(); }
 });

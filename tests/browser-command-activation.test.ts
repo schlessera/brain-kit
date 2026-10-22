@@ -1,3 +1,4 @@
+import {frozenBrowserSource} from "./frozen-browser-source";
 import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,12 +96,16 @@ test("actual bounded audit identity rejects config, runner, callback and importe
   const files=["packages/ui-kit/vitest.config.ts","packages/ui-kit/vite.config.ts","scripts/visual.mjs","packages/ui-react/tests/browser/hygiene-completion-frame.ts","packages/ui-react/tests/browser/mermaid-proof-command.ts","packages/ui-react/tests/browser/offline/scene-commands.ts",...[
     "hygiene-loop","hygiene-server","policy-server","dispatch-actions"
   ].map(name=>`packages/ui-react/tests/browser/${name}-command.ts`)];
-  for(const file of files) write(file,readFileSync(join(import.meta.dir,"..",file),"utf8"));
+  for(const file of files) write(file,frozenBrowserSource(file).toString("utf8"));
   const selected=[{project:"browser",file:"spec.ts"}];
   expect(auditedInactiveCommands(root,selected)).toBeDefined();
   for(const file of files) {
     const original=readFileSync(join(root,file),"utf8"); write(file,original+"\n// source drift\n");
     expect(auditedInactiveCommands(root,selected)).toBeUndefined(); write(file,original);
+    const current=readFileSync(join(import.meta.dir,"..",file),"utf8");write(file,current);
+    if(current===original) expect(auditedInactiveCommands(root,selected),"UNCHANGED_COMMAND_SOURCE_QUALIFIES").toBeDefined();
+    else expect(auditedInactiveCommands(root,selected),"CURRENT_COMMAND_SOURCE_DRIFT_REQUIRES_FRESH_PROOF").toBeUndefined();
+    write(file,original);
   }
 });
 

@@ -160,3 +160,64 @@ test("trusted pi mask identity refuses the Claude filename and accepts only the 
   expect(result.ok, result.message).toBe(true);
   expect(readFileSync(join(root, "assets/raft.mask.png"))).toEqual(png);
 });
+
+test.each(["ignored", "nonignored", "unavailable", "failed", "timeout", "launch"] as const)("hosted scratch query distinguishes %s before a real mask effect", async kind => {
+  mkdirSync(join(root, ".brain/scratch"), { recursive: true });
+  writeFileSync(join(root, ".gitignore"), ".brain/scratch/\n");
+  const imagePath = ".brain/scratch/raft.png", maskPath = ".brain/scratch/raft-mask.png";
+  writeFileSync(join(root, imagePath), png);
+  let queries = 0;
+  const apply = createMaskApplication({ root, principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
+    lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available, record: result => records.push(result),
+    maintenance: { async scratchIgnoreQuery(signal) {
+      queries++; expect(signal).toBe(controller.signal);
+      if (kind === "launch") throw new Error("Odysseus private launch details");
+      return { exitCode: kind === "ignored" ? 0 : kind === "nonignored" ? 1 : kind === "unavailable" ? 127 : 128,
+        killed: kind === "timeout", stderr: "Odysseus private worker stderr" };
+    } } });
+  const result = await apply({ principalId: "odysseus", turnId: "raft-turn", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
+  expect(queries, "HOSTED_MASK_QUERY_ACTUALLY_AWAITED").toBe(1);
+  expect(records).toEqual([result]);
+  if (kind === "ignored") {
+    expect(result.ok, result.message).toBe(true); expect(readFileSync(join(root, maskPath))).toEqual(png);
+  } else {
+    expect(result.ok).toBe(false); expect(result.changes).toEqual([]);
+    expect(existsSync(join(root, maskPath)), "IGNORE_QUERY_REFUSAL_HAS_NO_MASK_EFFECT").toBe(false);
+    expect(readFileSync(join(root, imagePath))).toEqual(png);
+    if (kind === "nonignored") expect(result.message).toMatch(/not gitignored as a directory.*brain doctor --fix/s);
+    else {
+      expect(result.message, "FAILED_QUERY_IS_NOT_A_MISSING_IGNORE_RULE").toContain("Cannot verify");
+      expect(result.message).not.toMatch(/not gitignored|brain doctor|private/);
+      expect(result.message).toContain(kind === "timeout" ? "timed out" : kind === "failed" ? "query failed" : "unavailable");
+    }
+  }
+});
+
+test.each(["directory", "image", "mask", "authority", "cancel"] as const)("scratch application rechecks %s after awaiting the ignore query", async kind => {
+  const outsideEntries = readdirSync(join(root, "assets"));
+  const scratch = join(root, ".brain/scratch"); mkdirSync(scratch, { recursive: true });
+  const imagePath = ".brain/scratch/raft.png", maskPath = ".brain/scratch/raft-mask.png";
+  writeFileSync(join(root, imagePath), png);
+  const changed = Buffer.from("Odysseus newer bytes");
+  const apply = createMaskApplication({ root, principalId: "odysseus", turnId: "raft-turn", signal: controller.signal,
+    lock: createKeyedLock(), isAuthorized: () => authorized, isAvailable: () => available, record: result => records.push(result),
+    maintenance: { async scratchIgnoreQuery() {
+      await Promise.resolve();
+      if (kind === "directory") { renameSync(scratch, join(root, "old-scratch")); symlinkSync(join(root, "assets"), scratch); }
+      if (kind === "image") writeFileSync(join(root, imagePath), changed);
+      if (kind === "mask") writeFileSync(join(root, maskPath), changed);
+      if (kind === "authority") authorized = false;
+      if (kind === "cancel") controller.abort();
+      return { exitCode: 0, killed: false };
+    } } });
+  const result = await apply({ principalId: "odysseus", turnId: "raft-turn", base: readMaskBase(root, imagePath), input: { imagePath, maskPath, png } });
+  expect(result.ok).toBe(false); expect(result.changes).toEqual([]);
+  expect(readdirSync(join(root, "assets")), "NO_MASK_EFFECT_OUTSIDE_HELD_SCRATCH").toEqual(outsideEntries);
+  expect(readFileSync(join(root, "assets/raft.png"))).toEqual(png);
+  if (kind === "directory") expect(readdirSync(join(root, "old-scratch"))).toEqual(["raft.png"]);
+  else if (kind === "mask") expect(readFileSync(join(root, maskPath))).toEqual(changed);
+  else expect(existsSync(join(root, maskPath))).toBe(false);
+  if (["image", "mask"].includes(kind)) expect(result.code).toBe("stale_base");
+  if (kind === "authority") expect(result.code).toBe("authority_revoked");
+  if (kind === "cancel") expect(result.code).toBe("cancelled");
+});

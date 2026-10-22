@@ -47,7 +47,7 @@ let maintenanceProbe: ReturnType<typeof spyOn<typeof hostExecution, "maintenance
 // maintenance qualification and busy recovery are proved in runtime tests.
 beforeEach(() => {
   nativeOwnership = spyOn(nativeLeases, "createNativeBrainLeaseManager").mockImplementation(async client => ({ client,
-    async recoverDeadOwners() { return { released: [], retainedLive: 0, retainedUnverifiable: 0, unknown: [] }; }, async close() {} }));
+    async recoverDeadOwners() { return { released: [], retainedLive: 0, retainedUnverifiable: 0, unknown: [], retainedPool: 0 }; }, async close() {} }));
   runAs(1000); maintenanceProbe = spyOn(hostExecution, "maintenanceProbe").mockReturnValue({ ok: true }); });
 afterEach(() => { maintenanceProbe.mockRestore(); nativeOwnership.mockRestore(); });
 afterEach(() => { for (const spy of uids) spy.mockRestore(); uids = []; });

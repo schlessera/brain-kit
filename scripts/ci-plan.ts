@@ -120,6 +120,7 @@ export const ROOT_CONSUMERS = [
   { prefix: "scripts/native-proof/", categories: ["runtime"] },
   { prefix: "scripts/prove-native-host.ts", categories: ["runtime"] },
   { prefix: "scripts/prove-worker-identity.ts", categories: ["runtime"] },
+  { prefix: "scripts/prove-reference-pool.ts", categories: ["runtime"] },
   { prefix: "scripts/visual.mjs", categories: ["browser", "layout", "endurance"] },
   { prefix: "scripts/browser-shards.ts", categories: ["browser", "layout", "endurance"] },
   { prefix: "scripts/browser-shard-costs.json", categories: ["browser", "layout", "endurance"] },
@@ -399,5 +400,7 @@ if (import.meta.main) {
       head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA,
       base: event.pull_request?.base?.sha ?? event.before,
     } }, null, 2));
+    if (event) console.log(`BRAIN_TIMING_CONTEXT ${JSON.stringify({ cadence: plan.cadence, global: plan.global,
+      head: event.pull_request?.head?.sha ?? process.env.GITHUB_SHA })}`);
   } catch (error) { console.error(error); process.exit(1); }
 }

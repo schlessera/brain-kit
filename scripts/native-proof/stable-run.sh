@@ -33,6 +33,7 @@ if [ "$kind" = identity ]; then
         if [ "$boot" = false ]; then readonly_file scratch-prune.fixture.ts /repo/packages/ui-server/src/cron/scratch-prune.ts; fi
         readonly_file host-boundary.fixture.ts /repo/packages/ui-server/src/brain/host-boundary.ts ;;
       inventory) readonly_file maintenance-git.fixture.ts /repo/packages/ui-server/src/brain/maintenance-git.ts ;;
+      scratch) readonly_file scratch-mask-identity-ws.fixture.ts /repo/packages/ui-sdk/tests/fixtures/ordinary-identity-ws.ts ;;
       *) echo 'Invalid identity proof variant' >&2; exit 2 ;;
     esac
     shift

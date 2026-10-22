@@ -1,3 +1,5 @@
+import { runtimeHookPhases } from "./fixtures/runtime-hook-phases";
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -7,6 +9,7 @@ import { deflateSync } from "node:zlib";
 import { chromium, type Browser, type BrowserContext, type Page, type Route } from "playwright";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
+import { requireTurnFreeSpace } from "../../ui-server/tests/helpers/turn-free-space.js";
 import type { DraftListResponse, SessionHistoryMessage } from "@schlessera/brain-ui-sdk/protocol";
 import type { AgentBackend } from "@schlessera/brain-ui-sdk/server";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
@@ -203,12 +206,12 @@ function listen() {
 
 beforeAll(async () => {
   if (!executablePath) return;
-  const build = Bun.spawn([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+  const [out, err, code] = await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], runtimeHookPhases("connection-continuity-runtime.test.ts"));
   if (code !== 0) throw new Error(`Connection-continuity fixture package build failed (${code}): ${out}\n${err}`);
   scratch = await mkdtemp(resolve(tmpdir(), "odysseus-continuity-"));
   const brain = resolve(scratch, "brain");
   await createFixtureBrain(repo, brain);
+  requireTurnFreeSpace(brain);
   const assets = resolve(scratch, "client");
   await mkdir(assets);
   const bundle = Bun.spawn([process.execPath, "-e", 'const result = await Bun.build({entrypoints:[process.argv[1]],target:"browser",outdir:process.argv[2],naming:{entry:"client.js",chunk:"[name]-[hash].js"},splitting:true}); if(!result.success){console.error(result.logs);process.exit(1);}', resolve(import.meta.dir, "fixtures/connection-continuity-client.tsx"), assets], { cwd: repo, stdout: "pipe", stderr: "pipe" });
@@ -256,6 +259,8 @@ afterAll(async () => {
 type Probe = {
   connected(): boolean;
   received(type: string, sessionId: string): number;
+  queueOnlyUpdate(message: string): boolean;
+  queueReceipts(messages: string[]): number[];
   replayComplete(sessionId: string): boolean;
   wsStatus(): string;
   vpnStatus(): string;
@@ -325,7 +330,7 @@ type Net = {
   /** Every frame the page sent, by type. */
   sent: string[];
   holdQueues: boolean;
-  queues: Array<() => void>;
+  queues: Array<{ message: string; release(): void }>;
   trace: Array<{ at: number; stage: string; frame: ReturnType<typeof describeFrame> }>;
 };
 type Scene = { context: BrowserContext; page: Page; net: Net; A: string; B: string; draft: string };
@@ -356,7 +361,15 @@ async function send(page: Page, text: string) {
  * revision, rendered text or native IME event). Finish finite entrances and
  * layout before measuring; this is not a negative-observation window.
  */
-const waitMetrics = { renderCalls: 0, renderMs: 0, observationCalls: 0, observationMs: 0, retainedFrameCalls: 0, retainedFrameMs: 0, pollCalls: 0, pollMs: 0 };
+// Native horizons are deliberately independent of production constants: a
+// production-policy change requires reviewing this table and its source basis.
+const nativeHorizonMs = {
+  sceneScroll: 500, sceneDrop: 500, sceneRecovery: 500,
+  recoveredTurn: 500, releasedSnapshot: 500, imeStart: 1_000, imeCommit: 1_000,
+} as const;
+type NativeBoundary = keyof typeof nativeHorizonMs;
+const waitMetrics = { renderCalls: 0, renderMs: 0, observationCalls: 0, observationMs: 0, retainedFrameCalls: 0, retainedFrameMs: 0, pollCalls: 0, pollMs: 0,
+  sites: {} as Partial<Record<NativeBoundary, { calls: number; requestedMs: number; observationMs: number; frameMs: number }>> };
 async function finishRender(page: Page) {
   const started = performance.now();
   waitMetrics.renderCalls++;
@@ -385,22 +398,28 @@ async function finishRender(page: Page) {
 }
 
 /**
- * A bounded native observation window for delayed focus/save/ghost reactions
- * and unsolicited sends after recovery/IME changes. These are negative temporal
- * assertions: stable geometry alone can precede the forbidden late effect.
- * Keep the original 500ms budget until those tasks have causal completion
- * signals. Native history/queue/upload acknowledgements remain separate.
+ * Native absence proof, after each site's positive acknowledgement. The site
+ * comments and test-waits.md record the failure mode, timer basis, margin and
+ * required runtime tier; quiet DOM frames do not drain native storage/input.
+ * This is an opportunity horizon, not a promise that arbitrary IO has drained.
  */
-async function settle(page: Page) {
+async function settle(page: Page, boundary: NativeBoundary) {
+  const site = waitMetrics.sites[boundary] ??= { calls: 0, requestedMs: 0, observationMs: 0, frameMs: 0 };
   const started = performance.now();
+  site.calls++;
+  site.requestedMs += nativeHorizonMs[boundary];
   waitMetrics.observationCalls++;
-  await page.waitForTimeout(500);
-  waitMetrics.observationMs += performance.now() - started;
-  // Preserve the original post-window frame observation at these sites.
+  await page.waitForTimeout(nativeHorizonMs[boundary]);
+  const observed = performance.now() - started;
+  site.observationMs += observed;
+  waitMetrics.observationMs += observed;
+  // Preserve the original post-window frame observation at every site.
   const framesStarted = performance.now();
   waitMetrics.retainedFrameCalls++;
   await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
-  waitMetrics.retainedFrameMs += performance.now() - framesStarted;
+  const frames = performance.now() - framesStarted;
+  site.frameMs += frames;
+  waitMetrics.retainedFrameMs += frames;
 }
 
 async function scene(cell: Cell, prepare = prepareScene): Promise<Scene> {
@@ -435,7 +454,7 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
       };
       record("host-received");
       const send = () => { record("client-forwarded"); socket.send(message); };
-      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push(send);
+      if (net.holdQueues && typeof message === "string" && JSON.parse(message).type === "session_queue") net.queues.push({ message, release: send });
       else send();
     });
   });
@@ -489,7 +508,13 @@ async function prepareScene(context: BrowserContext, cell: Cell): Promise<Scene>
   const scrollBefore = await page.locator("[data-reading-column]").evaluate(el => el.parentElement!.scrollTop);
   await page.mouse.wheel(0, -600);
   await page.waitForFunction(before => document.querySelector("[data-reading-column]")!.parentElement!.scrollTop < before, scrollBefore);
-  await settle(page);
+  // Native wheel/scroll events schedule device context persistence at 250ms
+  // (changed, packages/ui-react/src/lib/local-work.ts:518-531). Keep 500ms:
+  // 250ms scheduling + 250ms native storage/render margin, then two frames.
+  // Host Saved does not complete this separate write; a late adoption/ghost
+  // must still fail the scroll assertions. Required affected native runtime
+  // proof (#1854), not an endurance-only or controlled-clock replacement.
+  await settle(page, "sceneScroll");
   const scroll = await page.locator("[data-reading-column]").evaluate((el) => {
     const s = el.parentElement!;
     return { top: s.scrollTop, max: s.scrollHeight - s.clientHeight };
@@ -613,7 +638,12 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "sc
   ].slice(-32));
   // Scenes measure the offline state itself. Snapshots have no held uploads
   // or offline geometry oracle; their draft save is acknowledged on recovery.
-  if (preparation === "scene") await settle(s.page);
+  // Native abort/offline notifications also schedule device track writes
+  // (changed, packages/ui-react/src/lib/local-work.ts:518-531). A banner is
+  // not their completion. Retain 500ms = 250ms debounce + 250ms native margin
+  // for late blur/send/upload failure, plus the original two frames. Required
+  // affected native runtime proof (#1854); synthetic connectivity misses it.
+  if (preparation === "scene") await settle(s.page, "sceneDrop");
   else await finishRender(s.page);
 }
 
@@ -637,7 +667,12 @@ async function recover(s: Pick<Scene, "context" | "page"> & Partial<Pick<Scene, 
     `p.received("status", ${JSON.stringify(s.A)}) > ${statusBefore} && p.replayComplete(${JSON.stringify(s.A)})`);
   // The snapshot caller acknowledges its intentionally held reads and current
   // saved draft before selection; scenes retain their negative recovery window.
-  if (preparation === "scene") await settle(s.page);
+  // Replay status does not finish native draft/track persistence (changed,
+  // packages/ui-react/src/lib/local-work.ts:518-531): late adoption can move
+  // focus, send or replace drawn state. Retain 500ms = 250ms debounce + 250ms
+  // native storage/render margin and two frames, in required affected native
+  // runtime proof (#1854). Held history is intentionally not drained here.
+  if (preparation === "scene") await settle(s.page, "sceneRecovery");
 }
 
 /**
@@ -697,9 +732,13 @@ async function finishRecoveredTurn(s: Scene, cell: Cell) {
           !p.buffers[sessionId]?.streaming && !p.buffers[sessionId]?.replay;
       }, s.A);
     }
-    // Keep the original negative observation after the causal history/status
-    // barrier, so an old React commit cannot masquerade as retained state.
-    await settle(s.page);
+    // History/status and terminal text do not finish device draft adoption:
+    // (changed, packages/ui-react/src/lib/local-work.ts:518-531). Retain 500ms
+    // = 250ms debounce + 250ms native storage/React margin, then two frames,
+    // so late answer replacement or a consumed pill returning still fails.
+    // Required affected native runtime proof (#1854); fake time cannot drain
+    // native IndexedDB/lock completion into a mounted React commit.
+    await settle(s.page, "recoveredTurn");
     if (lateHistory) {
       const retained = await s.page.evaluate(sessionId => {
         const p = (window as unknown as { __continuity: { diagnostic(): {
@@ -916,7 +955,12 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       const statusDeadline = Date.now() + 5_000;
       while (!frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === currentTurn && f.detail === "Session in progress") && Date.now() < statusDeadline) await hostPoll(10);
       expect(frames.slice(beforeStatus).some((f) => f.type === "status" && f.turnId === currentTurn && f.detail === "Session in progress"), "the snapshot reports the current turn after its asynchronous read").toBe(true);
-      await settle(page);
+      // A native scoped status precedes device reconciliation (changed,
+      // packages/ui-react/src/lib/local-work.ts:518-531). Keep 500ms: 250ms
+      // debounce + 250ms native storage/render margin, then two frames, for
+      // late stream termination/focus loss. Required affected native runtime
+      // proof (#1854); a synchronous status receipt is not a storage drain.
+      await settle(page, "releasedSnapshot");
       expect(await probe(page, (p) => p.streaming(p.activeSessionId()!)), newer ? "the delayed snapshot cannot end the newer answer" : "a quiet failed history read cannot end the actual running answer").toBe(true);
       expect(advance.has(activePrompt)).toBe(true); advance.get(activePrompt)!();
       await page.waitForFunction(() => (window as unknown as { __snapshotMarks: { answer: Element } }).__snapshotMarks.answer.textContent?.includes("Rowing again."));
@@ -1014,9 +1058,22 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
           net.holdQueues = false;
           const queueBefore = await probe(page, p => p.received("session_queue", "*"));
           const queued = net.queues.splice(0);
-          for (const release of queued) release();
+          const reports = [...new Set(queued.map(queue => queue.message))];
+          expect(await page.evaluate(messages => messages.every(message => (window as unknown as { __continuity: Probe }).__continuity.queueOnlyUpdate(message)), reports),
+            "released reports only refresh already-accepted queues on held running turns").toBe(true);
+          const receipts = () => page.evaluate(messages => (window as unknown as { __continuity: Probe }).__continuity.queueReceipts(messages), reports);
+          const before = await receipts();
+          const expected = before.map((count, index) => count + queued.filter(queue => queue.message === reports[index]).length);
+          for (const queue of queued) queue.release();
           await until(page, `p.received("session_queue", "*") >= ${queueBefore + queued.length}`);
-          await settle(page);
+          await until(page, `p.queueReceipts(${JSON.stringify(reports)}).every((count, index) => count >= ${JSON.stringify(expected)}[index])`);
+          expect((await receipts()).map((count, index) => count >= expected[index]!),
+            "expected queue payload multiplicities reached their synchronous handlers").toEqual(expected.map(() => true));
+          // This branch only updates the retained keyed pills. Expected payloads
+          // reached synchronous handlers; finish their finite rendering before the
+          // original identity/layout assertions. Recovery's preceding 500ms
+          // window and every drop/final/IME window remain independent.
+          await finishRender(page);
           if (cycle === 10) await page.waitForFunction(() => /km/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           else await page.waitForFunction(() => /uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
           expect(net.uploads, `cycle ${cycle}: the upload resumed after reconnect`).toBe(uploadsBefore + 1);
@@ -1047,7 +1104,13 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         await mark(page);
         // Chromium's own IME path: compositionstart and compositionupdate on the focused field.
         await cdp.send("Input.imeSetComposition", { text: "ἰθάκ", selectionStart: 4, selectionEnd: 4 });
-        await settle(page);
+        // Native composition input edits the draft, arming the 800ms host
+        // debounce (schedule, packages/ui-react/src/lib/draft-client.ts:66-70)
+        // and 250ms device write. Keep 1000ms = 800ms + 200ms native IO/render
+        // margin, then two frames: CDP return does not complete these writes
+        // or prevent a late forced end/blur. Required native runtime (#1854),
+        // with real Chromium IME; no synthetic composition/clock substitute.
+        await settle(page, "imeStart");
         const composing = await measure(page);
         expect(composing.value, "the composition is in the field").toBe(`${draft.slice(0, at)}ἰθάκ${draft.slice(at)}`);
         const events = () => page.evaluate(() => (window as unknown as { __events: Array<{ type: string; data?: string | null; asked?: boolean }> }).__events);
@@ -1064,7 +1127,13 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         // The user commits: one compositionend, the one asked for, and the word lands where it was composed.
         await page.evaluate(() => { (window as unknown as { __commitAsked: boolean }).__commitAsked = true; });
         await cdp.send("Input.insertText", { text: "Ἰθάκη" });
-        await settle(page);
+        // The committed edit arms the same 800ms save (schedule,
+        // packages/ui-react/src/lib/draft-client.ts:66-70). Keep 1000ms = 800ms
+        // + 200ms native IO/render margin and two frames before the original
+        // event/caret/focus checks. A late adoption must not blur or force an
+        // extra composition end. Required affected native runtime (#1854);
+        // the later host-content acknowledgement remains independent.
+        await settle(page, "imeCommit");
         expect(await events(), "the commit ended the composition once").toEqual([
           { type: "compositionstart", data: "", asked: false },
           { type: "compositionend", data: "Ἰθάκη", asked: true },
