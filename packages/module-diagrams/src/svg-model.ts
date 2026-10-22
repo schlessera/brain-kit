@@ -33,8 +33,8 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
  const tree=buildDiagramLayout(spec,layout);
  const {kinds,columns,footerHeight}=diagramLegend(spec,tree);
  const contentBottom=Math.max(0,...tree.elements.map(element=>element.kind==="connector"?Math.max(...element.points.map(point=>point.y)):element.y+element.height));
- if(footerHeight && contentBottom+footerHeight+8>tree.viewBox.height){
-  if(layout==="default" && spec.size==="fit" || layout==="narrow" && spec.callouts?.length) tree.viewBox={...tree.viewBox,height:Math.ceil((contentBottom+footerHeight+8)/4)*4};
+ if(footerHeight && contentBottom+footerHeight+8>tree.viewBox.y+tree.viewBox.height){
+  if(layout==="default" && spec.size==="fit" || layout==="narrow" && spec.callouts?.length) tree.viewBox={...tree.viewBox,height:Math.ceil((contentBottom+footerHeight+8-tree.viewBox.y)/4)*4};
   else throw Error("The selected canvas has no room for its readable legend footer; reserve footer space or use size: fit");
  }
  const callouts=planCallouts(spec,tree,footerHeight,layout==="narrow"||spec.size==="fit");
@@ -44,7 +44,7 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
   if(group?.kind==="group")return ink(group.scopeKind==="admin"?"diagram-bg":"diagram-cluster");
   return ink(tree.elements.some(item=>item.kind==="shape"&&item.paint==="zone"&&box.x<item.x+item.width&&box.x+box.width>item.x&&box.y<item.y+item.height&&box.y+box.height>item.y)?"diagram-cluster":"diagram-bg");
  };
- const elements:SvgPrimitive[]=[primitive("rect",{class:"bk-diagram-screen-frame",x:0.5,y:0.5,width:tree.viewBox.width-1,height:tree.viewBox.height-1,rx:8,fill:"none",stroke:ink("color-line"),"stroke-width":1})];
+ const elements:SvgPrimitive[]=[primitive("rect",{class:"bk-diagram-screen-frame",x:tree.viewBox.x+0.5,y:tree.viewBox.y+0.5,width:tree.viewBox.width-1,height:tree.viewBox.height-1,rx:8,fill:"none",stroke:ink("color-line"),"stroke-width":1})];
  const nodePartsById=new Map<string,Extract<(typeof tree.elements)[number],{kind:"shape"}>[]>(),drawnNodes=new Set<string>();
  for(const item of tree.elements)if(item.kind==="shape"&&item.nodeId){const parts=nodePartsById.get(item.nodeId)??[];parts.push(item);nodePartsById.set(item.nodeId,parts);}
  for (const element of tree.elements) {
@@ -94,7 +94,7 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
   elements.push(primitive("g",{"data-diagram-callout-key":group.key,"data-target":group.target,"aria-label":`${group.name}: ${group.indices.length} ${group.indices.length===1?"note":"notes"}, listed below the diagram as group ${group.key}`},undefined,pill(group.key,group.cue)));
  }
  if(callouts.bandHeight){
-  const rows:SvgPrimitive[]=[primitive("line",{x1:16,y1:callouts.bandTop,x2:tree.viewBox.width-16,y2:callouts.bandTop,stroke:ink("color-line"),"stroke-width":1})];
+  const rows:SvgPrimitive[]=[primitive("line",{x1:tree.viewBox.x+16,y1:callouts.bandTop,x2:tree.viewBox.x+tree.viewBox.width-16,y2:callouts.bandTop,stroke:ink("color-line"),"stroke-width":1})];
   for(const group of callouts.groups){
    const children:SvgPrimitive[]=[];
    for(const header of group.headers){
@@ -117,9 +117,9 @@ export function diagramSvgModel(spec: DiagramSpec, layout: "default" | "narrow" 
   if(notes.length)element.attrs["aria-label"]=`${element.attrs["aria-label"]??notes[0]!.name}, ${notes.length} ${notes.length===1?"note":"notes"}`;
  }
  if(kinds.length){
-  const footerTop=tree.viewBox.height-footerHeight, cell=(tree.viewBox.width-16)/columns;
-  const legend:SvgPrimitive[]=[primitive("line",{x1:8,y1:footerTop+2,x2:tree.viewBox.width-8,y2:footerTop+2,stroke:ink("color-line"),"stroke-width":1})];
-  kinds.forEach((kind,index)=>{const base=diagramEdgePaint(kind),paint=kind==="cycle"?{...base,stroke:ink("amber-ink"),dash:"6 4"}:base,x=8+(index%columns)*cell,y=footerTop+16+Math.floor(index/columns)*20;
+  const footerTop=tree.viewBox.y+tree.viewBox.height-footerHeight, cell=(tree.viewBox.width-16)/columns;
+  const legend:SvgPrimitive[]=[primitive("line",{x1:tree.viewBox.x+8,y1:footerTop+2,x2:tree.viewBox.x+tree.viewBox.width-8,y2:footerTop+2,stroke:ink("color-line"),"stroke-width":1})];
+  kinds.forEach((kind,index)=>{const base=diagramEdgePaint(kind),paint=kind==="cycle"?{...base,stroke:ink("amber-ink"),dash:"6 4"}:base,x=tree.viewBox.x+8+(index%columns)*cell,y=footerTop+16+Math.floor(index/columns)*20;
    if(kind==="focal"||kind==="store"){const nodePaint=diagramNodePaint(kind==="focal"?"focal":"store");legend.push(primitive("rect",{x:x+3,y:y-5,width:14,height:10,rx:3,fill:nodePaint.fill,stroke:nodePaint.stroke,"stroke-width":nodePaint.strokeWidth}));if(kind==="store")legend.push(primitive("line",{x1:x+3,y1:y-2,x2:x+17,y2:y-2,stroke:nodePaint.stroke,"stroke-width":1}));}
    else legend.push(primitive("path",{d:`M ${x} ${y} L ${x+20} ${y}`,fill:"none",stroke:paint.stroke,"stroke-width":paint.width,"stroke-dasharray":paint.dash,"stroke-linecap":paint.linecap}),...(spec.type==="er"||spec.type==="tree"?[]:[arrow([{x,y},{x:x+20,y}],paint.head,paint.stroke,paint.width)]));
    const legendLabel=(spec.type==="loop"||spec.type==="flywheel")?(kind==="default"?"FLOW":kind==="return"?"WRITE-BACK":kind):kind;legend.push(text(legendLabel,"label",x+28,y+3,cell-28,ink("color-ink-mute"),{"data-legend-key":kind}));});

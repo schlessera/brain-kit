@@ -141,7 +141,7 @@ not prose or filesystem error text.
 Error codes are `usage`, `input`, `parse`, `schema`, `unknown_field`,
 `upgrade_required`, `duplicate_id`, `duplicate_reference`, `unknown_reference`,
 `focal_count`, `tree_cycle`, `grid`, `overlap`, `unroutable`, `layout`,
-`text_floor`, `contrast`, `axis`, and `positional`. Common editorial warnings use
+`text_floor`, `contrast`, `axis`, `scene_bounds`, and `positional`. Common editorial warnings use
 `budget`; family advisories (including positional guidance) are listed with their
 grammars below.
 A numeric input `schema_version` newer than 1 returns `upgrade_required` at
@@ -196,7 +196,7 @@ ends at the actual destination. Earlier connectors alone cannot justify
 hidden transit. Routing is deterministic and bounded (20,000 candidates or
 visibility vertices, 100,000 search steps); it may refuse crowded layouts
 rather than claim a complete global routing solver. A refusal throws
-`DiagramGeometryError` with `findings` (`path`, `code: unroutable`, `message`);
+`DiagramGeometryError` with `findings` (`path`, `code: unroutable | scene_bounds`, `message`);
 edge findings name the edge. The checker includes those findings at the end
 of its errors and returns exit 1. Invalid metric options throw an error.
 
@@ -204,10 +204,21 @@ Canvas dimensions are fixed for named presets: doc-inline 960×600, doc-wide
 and slide-16x9 1280×720, slide-4x3 1024×768, social-og 1200×632,
 social-square 1080×1080, print-a4-landscape 1120×792,
 print-a3-landscape 1584×1120 and print-letter-landscape 1056×816.
-`fit` uses node extents plus 24px, with a 96px minimum per axis. Optional
-architecture containment also includes authored scope bounds; dependency cycles
-reserve their outside lane plus a margin. Routing never
-moves nodes or invents family-specific layout.
+`fit` encloses node extents plus 24px (minimum right/bottom extent 96px),
+computed groups, their painted border and heading masks. The origin may be
+negative, rounded outward to the 4px grid, so nodes keep their authored
+coordinates even when a padded group reaches above or left of zero. Width and
+height are dimensions from that origin, not maximum coordinates. Client,
+static and flattened exports consume all four viewBox values; annotation bands,
+legend and screen frame use the same origin. Dependency cycles reserve their
+outside lane plus a margin. Routing never moves nodes or invents family layout.
+
+Named frames retain origin `(0,0)` and their fixed dimensions. A group whose
+border or heading cannot fit produces `scene_bounds` at `$.groups[index]`
+(or `$.containment.scopes[index]` for a scope); no group is silently discarded.
+Authored narrow frames likewise retain `(0,0)` and report `layout` when group
+borders or headings exceed their exact 320px frame. This corrects accepted
+clipping under #2228; the schema and authored node coordinates are unchanged.
 
 ## Authored narrow placement and paint
 

@@ -1,10 +1,11 @@
 /** GitHub is the sole CI provider; contributions share read-only workflows. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { PROOF_SHARDS, shardNumbers, type ShardedDomain } from "./proof-shards";
 
 export const CI_WORKFLOWS = ["ci.yml", "contract.yml"] as const;
 const RUN_EXPRESSIONS = new Set(["matrix.shard", "github.event_name", "github.base_ref", "github.event.before"]);
-type Step = { uses?: string; run?: string; with?: Record<string, unknown> };
+type Step = { uses?: string; run?: string; if?: string; env?: Record<string, unknown>; with?: Record<string, unknown> };
 type Workflow = {
   name?: string;
   on?: Record<string, unknown>;
@@ -56,8 +57,14 @@ export function workflowProblems(text: string, file: string): string[] {
       const selection = `needs.changeset.outputs.${name} == 'true'` + (["browser", "layout"].includes(name) ? ` && needs.changeset.outputs.run_${name} == 'true'` : "");
       if (job?.if !== selection) fail(`${name}: proof must use its explicit planner selection and validated retention`);
     }
+    // Matrices, retention and refresh share one shard table; a drifted matrix would strand a partition.
+    for (const domain of Object.keys(PROOF_SHARDS) as ShardedDomain[]) {
+      const job = workflow.jobs?.[domain] as any;
+      if (JSON.stringify(job?.strategy?.matrix?.shard) !== JSON.stringify(shardNumbers(domain)) ||
+          !job?.steps?.some((step: any) => step.run === `bun scripts/ci-proof.ts ${domain} --shard=\${{ matrix.shard }}/${PROOF_SHARDS[domain]}`)) fail(`${domain}: matrix and shard divisor must match PROOF_SHARDS`);
+    }
     const proof = workflow.jobs?.proof;
-    if (proof?.name !== "${{ github.event_name == 'pull_request' && 'proof' || 'integrated or exhaustive proof' }}") fail("proof: manual or main runs must not impersonate candidate confirmation");
+    if (proof?.name !== "${{ github.event_name != 'pull_request' && 'integrated or exhaustive proof' || github.event.pull_request.draft && 'draft gates' || 'proof' }}") fail("proof: draft, manual or main runs must not impersonate candidate confirmation");
     if (JSON.stringify(proof?.needs) !== JSON.stringify(["changeset", ...names])) fail("proof: aggregate must observe every selected category");
     if (proof?.if !== "${{ always() && !cancelled() }}") fail("proof: aggregate must observe failures/skips and reject cancellation");
     for (const category of ["unit", "runtime", "runtime_host", "browser", "layout", "captures", "endurance"]) {
@@ -65,6 +72,12 @@ export function workflowProblems(text: string, file: string): string[] {
     }
     if (!proof?.steps?.some(step => step.run === "bun scripts/ci-proof.ts aggregate")) fail("proof: executable aggregate is missing");
     if (!workflow.jobs?.changeset?.steps?.some(step => step.run === "bun scripts/proof-reuse.ts")) fail("metadata: immutable retention validation is missing");
+    const metadata = workflow.jobs?.changeset?.steps ?? [];
+    const admission = metadata.findIndex(step => step.run === "bun scripts/candidate-proof.ts");
+    const planning = metadata.findIndex(step => step.run === "bun scripts/ci-plan.ts");
+    const discovery = metadata.findIndex(step => step.run === "bun scripts/proof-inventory.ts");
+    if (admission <= planning || discovery <= admission || metadata[admission]?.if !== "steps.plan.outputs.cadence == 'confirmation'" ||
+        metadata[admission]?.env?.GH_TOKEN !== "${{ github.token }}") fail("metadata: confirmation admission must validate identity after planning and before product discovery");
   }
   return problems;
 }

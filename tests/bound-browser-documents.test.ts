@@ -35,11 +35,12 @@ test("replay caller, guard, CSS and font-origin drift or an additional caller st
 });
 
 const diagram="packages/ui-react/tests/browser/diagram-proof-command.ts",diagramCaller="packages/ui-react/tests/browser/diagrams-renderer.layout.tsx";
-const diagramFiles=[diagram,diagramCaller,"packages/ui-react/tests/browser/diagrams-callouts.layout.tsx","packages/module-diagrams/tests/fixtures/callouts.ts","packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx",...new Bun.Glob("packages/module-diagrams/skills/diagram/references/examples/**/*.yaml").scanSync({cwd:repo}),"packages/module-diagrams/tests/fixtures/axis-examples.ts",guard,"packages/ui-kit/tests/visual/form-browser.ts","packages/ui-kit/tests/visual/design-font-setup.ts","packages/ui-kit/tests/visual/design-font-checks.ts","packages/ui-kit/tests/visual/rank-footer-browser.ts","scripts/captures/fonts.ts","scripts/captures/font-lock.json","scripts/captures/fonts.css","packages/ui-kit/.storybook/preview-head.html","packages/module-diagrams/tests/fixtures/renderer-fixture.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",...new Bun.Glob("packages/module-diagrams/src/*.{ts,tsx}").scanSync({cwd:repo})];
-test("diagram replay binds all five exact callers and every SVG, fixture, CSS and inline-font producer",()=>{
+const sceneCaller="packages/ui-react/tests/browser/diagrams-scene-bounds.layout.tsx",sceneFixture="packages/module-diagrams/tests/fixtures/origin-group.ts";
+const diagramFiles=[diagram,diagramCaller,sceneCaller,sceneFixture,"packages/ui-react/tests/browser/diagrams-callouts.layout.tsx","packages/module-diagrams/tests/fixtures/callouts.ts","packages/ui-react/tests/browser/diagrams-axis.layout.tsx","packages/ui-react/tests/browser/diagrams-positional.layout.tsx","packages/ui-react/tests/browser/diagrams-node-link.layout.tsx",...new Bun.Glob("packages/module-diagrams/skills/diagram/references/examples/**/*.yaml").scanSync({cwd:repo}),"packages/module-diagrams/tests/fixtures/axis-examples.ts",guard,"packages/ui-kit/tests/visual/form-browser.ts","packages/ui-kit/tests/visual/design-font-setup.ts","packages/ui-kit/tests/visual/design-font-checks.ts","packages/ui-kit/tests/visual/rank-footer-browser.ts","scripts/captures/fonts.ts","scripts/captures/font-lock.json","scripts/captures/fonts.css","packages/ui-kit/.storybook/preview-head.html","packages/module-diagrams/tests/fixtures/renderer-fixture.ts","packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml",...new Bun.Glob("packages/module-diagrams/src/*.{ts,tsx}").scanSync({cwd:repo})];
+test("diagram replay binds all six exact callers and every SVG, fixture, CSS and inline-font producer",()=>{
  const {root}=fixture(diagramFiles),selected=[...files,...diagramFiles],bound=boundBrowserDocuments(root,selected,browserImporters(root,selected));
  expect(bound.has(diagram),"REVIEWED_DIAGRAM_DOCUMENT_BINDS").toBe(true);
- const input=[...bound.get(diagram)!.values()][0]!;expect(input.runtime).toContain(diagramCaller);for(const file of ["packages/ui-react/tests/browser/diagrams-callouts.layout.tsx","packages/module-diagrams/tests/fixtures/callouts.ts","packages/module-diagrams/src/callout-path.ts","packages/module-diagrams/src/callouts.ts","packages/module-diagrams/src/legend.ts"])expect(input.runtime,"REVIEWED_CALLOUT_PRODUCER_INCLUDED").toContain(file);expect(input.runtime).toContain("packages/ui-react/tests/browser/diagrams-positional.layout.tsx");expect(input.runtime).toContain("packages/ui-react/tests/browser/diagrams-node-link.layout.tsx");expect(input.runtime).toContain("packages/module-diagrams/src/svg-model.ts");expect(input.runtime).toContain(guard);expect(input.bytes).toContain("packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml");
+ const input=[...bound.get(diagram)!.values()][0]!;expect(input.runtime).toContain(diagramCaller);expect(input.runtime,"SCENE_CALLER_INCLUDED").toContain(sceneCaller);expect(input.runtime,"SCENE_FIXTURE_INCLUDED").toContain(sceneFixture);expect(input.runtime,"SCENE_FLATTEN_INCLUDED").toContain("packages/module-diagrams/src/flatten.ts");for(const file of ["packages/ui-react/tests/browser/diagrams-callouts.layout.tsx","packages/module-diagrams/tests/fixtures/callouts.ts","packages/module-diagrams/src/callout-path.ts","packages/module-diagrams/src/callouts.ts","packages/module-diagrams/src/legend.ts"])expect(input.runtime,"REVIEWED_CALLOUT_PRODUCER_INCLUDED").toContain(file);expect(input.runtime).toContain("packages/ui-react/tests/browser/diagrams-positional.layout.tsx");expect(input.runtime).toContain("packages/ui-react/tests/browser/diagrams-node-link.layout.tsx");expect(input.runtime).toContain("packages/module-diagrams/src/svg-model.ts");expect(input.runtime).toContain(guard);expect(input.bytes).toContain("packages/module-diagrams/tests/fixtures/adopted-homecoming-relay.diagram.yaml");
 });
 test("changing the reviewed HTML sink to an unchecked argument refuses diagram binding",()=>{
  const {root,write}=fixture(diagramFiles),selected=[...files,...diagramFiles];
@@ -60,6 +61,7 @@ const exportFiles=[...diagramFiles,exportOwner,exportCaller,...[2,4,6,7].map(fac
 function exportFixture(){const {root,write}=fixture();for(const file of exportFiles){mkdirSync(dirname(join(root,file)),{recursive:true});writeFileSync(join(root,file),readFileSync(join(repo,file)));}return{root,write};}
 test("export raster replay binds actual flattening, SVG inputs and four bundled font blobs",()=>{
  const {root}=exportFixture(),selected=[...files,...exportFiles],bound=boundBrowserDocuments(root,selected,browserImporters(root,selected));
+ expect(bound.has(exportOwner),"REVIEWED_RASTER_DOCUMENT_BINDS").toBe(true);
  const input=[...bound.get(exportOwner)!.values()][0]!;expect(input.runtime).toContain(exportCaller);expect(input.runtime).toContain("packages/module-diagrams/src/flatten.ts");for(const face of [2,4,6,7])expect(input.bytes).toContain(`packages/module-diagrams/assets/fonts/${face}.ttf`);
 });
 test("raster argument producer, font bytes and additional or escaped command callers fail fresh",()=>{
@@ -105,7 +107,30 @@ test("every module-diagrams source a reviewed binding imports is pinned among it
   expect(reviewed.length,"DIAGRAM_BINDINGS_PRESENT").toBeGreaterThan(0);
   for(const entry of reviewed){
     const pinned=new Set(Object.keys(entry.producers));
-    const unpinned=[...sourceClosure([...pinned].filter(file=>/\.[cm]?[jt]sx?$/.test(file)))].filter(file=>file.startsWith("packages/module-diagrams/src/")&&!pinned.has(file)).sort();
+    const unpinned=[...sourceClosure([entry.caller,...Object.keys(entry.additionalCallers??{}),...pinned].filter(file=>/\.[cm]?[jt]sx?$/.test(file)))].filter(file=>file.startsWith("packages/module-diagrams/src/")&&!pinned.has(file)).sort();
     expect(unpinned,`UNPINNED_PRODUCER_IMPORTS ${entry.command}`).toEqual([]);
   }
+});
+
+// Each guard has a passing control before mutation; a stale earlier producer
+// must not make a later refusal look effective.
+test("origin-scene caller and each changed producer retain exact drift refusal",()=>{
+ for(const file of [sceneCaller,sceneFixture,...["callouts.ts","geometry.ts","layout.ts","svg-model.ts","ui.tsx","render.ts","flatten.ts"].map(name=>`packages/module-diagrams/src/${name}`)]){
+  const {root,write}=fixture(diagramFiles),selected=[...files,...diagramFiles];
+  expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram),"CONTROL_SCENE_DOCUMENT_BINDS").toBe(true);
+  write(file,readFileSync(join(root,file),"utf8")+"\n// scene source drift\n");
+  expect(browserDocumentRefusals(root,selected,browserImporters(root,selected)).get(diagram),"SCENE_DRIFT_NAMED").toBe(`stale reviewed pin: ${file}`);
+ }
+});
+test("a missing origin caller, direct owner import or unknown aliased caller refuses scene binding",()=>{
+ {const {root}=fixture(diagramFiles),selected=[...files,...diagramFiles].filter(file=>file!==sceneCaller);
+  expect(browserDocumentRefusals(root,selected,browserImporters(root,selected)).get(diagram),"MISSING_SCENE_CALLER_NAMED").toBe(`not selected: ${sceneCaller}`);}
+ for(const source of [`import {diagramCapture} from "./${diagram}";`,
+  'import {commands as api} from "vitest/browser"; await api.diagramCapture("figure","origin");',
+  'const {commands:api}=await import("vitest/browser"); await api.diagramCapture("figure","origin");']){
+  const {root,write}=fixture(diagramFiles),extra="extra.ts",selected=[...files,...diagramFiles,extra];
+  expect(boundBrowserDocuments(root,[...files,...diagramFiles],browserImporters(root,[...files,...diagramFiles])).has(diagram),"CONTROL_SCENE_IMPORTERS_BINDS").toBe(true);
+  write(extra,source);
+  expect(boundBrowserDocuments(root,selected,browserImporters(root,selected)).has(diagram),"UNKNOWN_SCENE_IMPORTER_REFUSED").toBe(false);
+ }
 });

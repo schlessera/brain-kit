@@ -49,6 +49,9 @@ export async function verifyDesignFonts() {
     host.append(probe);
   }
   document.body.append(host);
+  // CSS.getPlatformFontsForNode reads existing layout and does not force it, so
+  // fresh probes queried before Chromium lays them out report no glyphs (#1599).
+  host.getBoundingClientRect();
   try {
     const observations: Record<string, Awaited<ReturnType<typeof requirePaintedFont>>> = {};
     for (const family of ["DM Serif Text", "JetBrains Mono", "Plus Jakarta Sans"]) {

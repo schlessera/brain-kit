@@ -295,7 +295,9 @@ A render error never blanks the whole app.
 
 `useHashRoutes()` owns the generic client routes: `#/files/<path>` opens the
 file panel, `#/graph` and `#/activity` select their full-screen views, activity
-deep links keep their suffix, and store-driven view changes use
+deep links keep their suffix, and `#/settings/storage` opens Storage after a
+current owner-authorized guidance read. Settings leave guards still apply; closing
+Storage clears its deep link. Store-driven view changes use
 `history.replaceState` rather than adding browser-history entries.
 
 `useServiceWorkerUpdates({ isBusy })` registers `/service-worker.js` and
@@ -700,8 +702,8 @@ offers **Refresh and retry**. Sync and reset use immediate layout updates.
 
 ## Settings organization
 
-Settings exposes the same seven panes on phone, tablet and desktop: Appearance
-& input, Models, Accounts, Skills, Modules, Security, and Devices & agents.
+Settings exposes the same eight panes on phone, tablet and desktop: Appearance
+& input, Models, Accounts, Skills, Modules, Storage, Security, and Devices & agents.
 Theme and the single-key shortcut switch apply only on this device and live in
 Appearance & input. Accounts holds provider sign-in and web-search settings;
 Security holds passkeys, always-allowed tool revocation and sign-out.
@@ -713,6 +715,13 @@ selection survives resize. Module drafts and pending credentials keep their
 existing navigation and dismissal protections.
 Close and Escape return focus to the opener, including after a resize;
 choosing another destination preserves that destination's focus.
+
+Storage presents bounded inventory, per-capacity availability, a proportional map
+and equivalent list, current file inspection, owner maintenance, and recoverable
+attachment removal. See the [Storage guide](../../docs/storage.md) for the
+measurement basis, layered history, pressure causes, optional Critical notices,
+review flow and Undo conditions. `AppShell` includes the persistent Storage status;
+it consumes server evidence and adds no rail/bar destination or shortcut.
 
 ## SVG files and printing
 
