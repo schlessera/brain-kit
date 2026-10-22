@@ -199,10 +199,10 @@ test("native runtime split requires both selected jobs and preserves all six pha
     expect(proofProblems(needs), "NATIVE_HOST_MISSING_OR_SKIPPED_REFUSED").toContain(`runtime_host: selected proof did not pass (${state ?? "missing"})`);
   }
   const allLocal = localChecks(plan, true);
-  expect(allLocal.filter(c => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "native separate-UID worker identity", "shared-process Chrome then child cleanup"].includes(c.name))).toHaveLength(6);
+  expect(allLocal.filter(c => ["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "native managed hosted admission", "native separate-UID worker identity", "native reference pool allocation", "shared-process Chrome then child cleanup"].includes(c.name))).toHaveLength(7);
   const ordinary = categoryCommands("runtime", plan, ROOT);
   const native = categoryCommands("runtime_host", plan, ROOT);
-  expect(native.map(c => c.name)).toEqual(["native managed hosted admission", "native separate-UID worker identity"]);
+  expect(native.map(c => c.name)).toEqual(["native managed hosted admission", "native separate-UID worker identity", "native reference pool allocation"]);
   expect(ordinary.map(c => c.name)).toEqual(["measure-claude-runtime", "measure-claude-enforcement", "native delegation, capabilities and measurement isolation", "shared-process Chrome then child cleanup"]);
   const shared = ordinary.at(-1)!;
   expect(shared.argv).toContain("--shard=1/1");

@@ -8,7 +8,7 @@ type Compiler = "tsc" | "css";
 type Child = { compiler: Compiler; pid: number; startedAt: number; elapsedMs?: number; code?: number };
 type Package = { name: string; state: "pending" | "running" | "complete" | "failed"; startedAt?: number; elapsedMs?: number; children: Child[] };
 
-export function buildReceipt(root: string, options: { jobs: number; subset: boolean; packages: readonly string[] }) {
+export function buildReceipt(root: string, options: { jobs: number; subset: boolean; generation?: string; packages: readonly string[] }) {
   let available = true;
   function unavailable() {
     if (!available) return;
@@ -17,10 +17,12 @@ export function buildReceipt(root: string, options: { jobs: number; subset: bool
     try { console.error(JSON.stringify({ kind: "workspace-build-receipt-unavailable", pid: process.pid })); } catch {}
   }
   const directory = join(root, "tmp");
-  const path = join(directory, `build-${process.pid}-${randomUUID()}-probe.json`);
+  const requested = process.env.BRAIN_TEST_BUILD_ID;
+  const id = requested && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(requested) ? requested : randomUUID();
+  const path = join(directory, `build-${process.pid}-${id}-probe.json`);
   const started = performance.now();
   const packages: Package[] = options.packages.map(name => ({ name, state: "pending", children: [] }));
-  const receipt = { schemaVersion: 1, kind: "workspace-build", pid: process.pid, startedAt: Date.now(),
+  const receipt = { schemaVersion: 1, kind: "workspace-build", id, pid: process.pid, generation: options.generation, startedAt: Date.now(),
     mode: options.subset ? "subset" : "full", jobs: options.jobs,
     state: "running" as "running" | "complete", elapsedMs: 0, success: false, code: null as number | null, packages };
   const elapsed = () => performance.now() - started;

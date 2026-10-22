@@ -161,6 +161,14 @@ extents may be charged more than once (`StorageInventory`,
 the unique aggregate allocation metric selected for this pool; reusing storage
 management owners does not qualify their existing inventory as that metric.
 
+> **2026-10-22 — Mechanism (#2428).** The
+> [reference pool accounting record](reference-pool-accounting.md) selects the
+> concrete mechanism: a separate single-device Btrfs volume with simple
+> quotas. Write-time kernel limits apply per root and to a combined group.
+> The aggregate comes from the filesystem's own `disk_used` with replication.
+> Physical reservations are made before work, and credit waits for observed
+> reclamation. It enables no consumer.
+
 This allowance is separate from the unchanged brain-content retained-history
 policy in [native brain storage](native-brain-storage.md), which charges
 retained objects by logical file length. Independent physical free-space and

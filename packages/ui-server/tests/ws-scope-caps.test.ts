@@ -2,7 +2,7 @@
 import { expect, test, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import * as workers from "@schlessera/brain-ui-sdk/internal";
 import * as journalCaptures from "../src/brain/native-journal-capture.js";
 import { createClaudeBackend } from "../../ui-backend-claude/src/backend.js";
@@ -24,16 +24,27 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
   writeFileSync(join(config, "settings.json"), "{}"); mkdirSync(join(brain, "context/policies"), { recursive: true });
   writeFileSync(join(brain, "context/policies/governance.md"), "---\nschema_version: 1\nscope: { max_tool_calls: 2 }\n---\nAthena bounds the voyage.\n");
   let spawn: ReturnType<typeof spyOn> | undefined;
+  let heartbeatPath: string | undefined;
+  const heartbeatSize = () => heartbeatPath ? Bun.file(heartbeatPath).size : 0;
   const originalLaunch = workers.launchAgentWorker;
   const priorPi = process.env.PI_CODING_AGENT_DIR; process.env.PI_CODING_AGENT_DIR = config;
-  if (adapter === "pi") spawn = spyOn(workers, "launchAgentWorker").mockImplementation(input => originalLaunch({ ...input,
-    command: [process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-pi-worker.ts")], env: { PATH: "/usr/bin:/bin" } }));
+  spawn = spyOn(workers, "launchAgentWorker").mockImplementation(input => {
+    const worker = originalLaunch(adapter === "pi" ? { ...input,
+      command: [process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-pi-worker.ts")], env: { PATH: "/usr/bin:/bin" } } : input);
+    // Read the actual worker's private writable tmpfs through its retained host handle.
+    expect(worker.turnTemp, "SCOPE_ADAPTER_NATIVE_TURN_TEMP_PRESENT").toBeDefined();
+    heartbeatPath = join(worker.turnTemp!.root, relative("/tmp", workers.WORKER_SCRATCH), "adapter-heartbeat");
+    return worker;
+  });
   const backend = adapter === "pi" ? createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), loadExtensions: false })
     : createClaudeBackend({ brainPath: brain, queryFn: ((params: any) => {
-      const child = params.options.spawnClaudeCodeProcess({ command: "/bin/sh", args: ["-c", 'while :; do printf x >> adapter-heartbeat; sleep 0.02; done'],
+      const child = params.options.spawnClaudeCodeProcess({ command: "/bin/sh", args: ["-c", 'while :; do printf x >> "$BRAIN_WORKER_SCRATCH/adapter-heartbeat"; sleep 0.02; done'],
         env: { PATH: "/usr/bin:/bin", HOME: home, CLAUDE_CONFIG_DIR: config }, signal: params.options.abortController.signal });
       child.stdin.end();
       const stream = (async function* () {
+        await wait(() => heartbeatSize() >= 2, () => ({ heartbeatPath, bytes: heartbeatSize() }));
+        runningHeartbeat = heartbeatSize();
+        expect(heartbeatSize(), "SCOPE_ADAPTER_HEARTBEAT_GROWS_WHILE_RUNNING").toBeGreaterThan(1);
         yield { type: "system", subtype: "init", session_id: "11111111-1111-4111-8111-111111111111" };
         for (let call = 1; call <= 4; call++) {
           while (call > 2 && params.options.abortController.signal.aborted === false && paused()) await Bun.sleep(10);
@@ -47,6 +58,7 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
       return Object.assign(stream, { initializationResult: async () => ({ account: { tokenSource: "CLAUDE_CODE_OAUTH_TOKEN", apiProvider: "firstParty" } }), close() { child.kill("SIGKILL"); }, interrupt: async () => { child.kill("SIGKILL"); } });
     }) as never });
   let app: Awaited<ReturnType<typeof createApp>> | undefined;
+  let runningHeartbeat = 0;
   const frames: ServerMessage[] = [];
   const latest = () => frames.filter((frame): frame is Extract<ServerMessage,{ type:"turn_journal" }> => frame.type === "turn_journal").at(-1);
   const paused = () => latest()?.journal.scope?.receipts.at(-1)?.state === "paused";
@@ -72,7 +84,11 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: join(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }),
       registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
     const principal = createPrincipal(app.db, { authMethod: "password", label: "Athena scope", ttlSeconds: 60 });
-    const ws = { send: (raw: string) => frames.push(JSON.parse(raw)), close() {} }, handlers = createWsHandlers(app.wsHost, principal);
+    const ws = { send: (raw: string) => {
+      const frame = JSON.parse(raw);
+      if (frame.type === "tool_use_start" && !runningHeartbeat) runningHeartbeat = heartbeatSize();
+      frames.push(frame);
+    }, close() {} }, handlers = createWsHandlers(app.wsHost, principal);
     await handlers.onOpen(undefined as never, ws);
     const send = (message: object) => handlers.onMessage({ data: JSON.stringify(message) } as MessageEvent, ws);
     if (voice) {
@@ -97,8 +113,11 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
     expect(first.journal.budget, "COMBINED_SCOPE_PAUSE_RETAINS_BUDGET_FACTS").toBeDefined();
     expect(receipt, "SCOPE_ADAPTER_PAUSES_WITH_EXACT_FINITE_CEILING").toMatchObject({ dimension: "tool_calls", cap: 2, count: 2, newCap: 4, frozen: true, state: "paused" });
     if (adapter === "pi") await wait(() => observationHeld, () => frames);
-    const heartbeat = Bun.file(join(brain, "adapter-heartbeat")).size; await Bun.sleep(150);
-    expect(Bun.file(join(brain, "adapter-heartbeat")).size, "SCOPE_ADAPTER_RUNNING_WORKER_PAUSED").toBe(heartbeat);
+    expect(runningHeartbeat, "SCOPE_ADAPTER_HEARTBEAT_GROWS_WHILE_RUNNING").toBeGreaterThan(1);
+    const heartbeat = heartbeatSize();
+    expect(heartbeat, "SCOPE_ADAPTER_HEARTBEAT_GREW_BEFORE_PAUSE").toBeGreaterThan(0);
+    await Bun.sleep(150);
+    expect(heartbeatSize(), "SCOPE_ADAPTER_RUNNING_WORKER_PAUSED").toBe(heartbeat);
     const decision = (r: ScopeCapReceipt, action: string, submissionId: string) => ({ type: "scope_decision", turnId: first.turnId, sessionId: first.sessionId, eventId: r.eventId, submissionId, action });
     send({ ...decision(receipt, "continue", "wrong-session"), sessionId: "ogygia" });
     await wait(() => frames.some(frame => frame.type === "scope_decision_receipt" && frame.submissionId === "wrong-session"), () => frames);
@@ -110,7 +129,7 @@ for (const adapter of ["claude", "pi"] as const) for (const voice of [false, tru
       await wait(() => decisions("athena-held").length === 1, () => frames);
       expect(decisions("athena-held")[0], "SCOPE_ADAPTER_HELD_OBSERVATION_REFUSES_FINITE_OFFER").toMatchObject({ state: "refused", reason: "This limit permits Stop only while continuation headroom is unconfirmed." });
       expect(latest()!.journal.scope, "SCOPE_ADAPTER_REFUSAL_CONSUMES_NO_GRANT").toMatchObject({ calls: 2, limits: { tool_calls: 2 }, receipts: [{ state: "paused", cap: 2, count: 2, newCap: 4, frozen: true }] });
-      expect(Bun.file(join(brain, "adapter-heartbeat")).size, "SCOPE_ADAPTER_REFUSED_WORKER_STAYS_PAUSED").toBe(heartbeat);
+      expect(heartbeatSize(), "SCOPE_ADAPTER_REFUSED_WORKER_STAYS_PAUSED").toBe(heartbeat);
     }
     // Synchronize the grant with completed observation, not merely its published facts.
     releaseObservation();

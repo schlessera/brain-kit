@@ -41,6 +41,7 @@ import type { GovernanceEventInput, GovernanceProfile } from "../governance/even
 import { recordTurnRoadblocks, type TracedCall, type UsageSample } from "../governance/roadblocks.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
+import { commandTaintSource, recordFirstCommandTaint } from "./command-taint.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
@@ -158,6 +159,9 @@ export function createTurnRecorder(
   // host saw it, live usage, and how the backend ended the turn.
   const startedAt = Date.now();
   const calls = new Map<string, TracedCall>();
+  // Classify the complete original input, independently of the bounded
+  // roadblock trace. Record only after a result, when content was ingested.
+  const commandTaints = new Map<string, { source: "fetching_command" | "unclassified_command"; tool: string }>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
   let cancelledAt: number | null = null;
@@ -277,6 +281,10 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
+            if (turn.origin !== "autonomous") {
+              const source = commandTaintSource(msg.toolName, msg.input);
+              if (source) commandTaints.set(msg.toolUseId, { source, tool: msg.toolName });
+            }
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
@@ -297,6 +305,17 @@ export function createTurnRecorder(
             // before any response header/message_start is visible to us.
             atToolBoundary = false;
             const traced = calls.get(msg.toolUseId);
+            const commandTaint = commandTaints.get(msg.toolUseId);
+            commandTaints.delete(msg.toolUseId);
+            if (commandTaint && !traced?.denied && deps.governanceDb && deps.governance) {
+              try {
+                recordFirstCommandTaint(deps.governanceDb, { kind: "taint", payload: { ...commandTaint, detail: null },
+                  sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
+                  model: mainModel, profile: turn.profile ?? null }, deps.governance);
+              } catch (error) {
+                log?.emit({ severityText: "WARN", body: `command taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
+              }
+            }
             if (traced && traced.output === null && !traced.denied) {
               traced.output = headAndTail(msg.output);
               traced.isError = msg.isError;

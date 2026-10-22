@@ -907,7 +907,7 @@ root-owned files and connect to root-owned and abstract Unix sockets.
 
 Native storage accepts the server's fixed UID/GID, including UID 0 under this
 same warning (`validateNativeBrainManagerConfig`,
-`packages/ui-sdk/src/server/native-brain-manager.ts:67-92`). This does not give
+`packages/ui-sdk/src/server/native-brain-manager.ts:70-92`). This does not give
 the worker capabilities or remove its masks, filesystem filter or read-only
 root `/proc`. The host still has to qualify for user namespaces. Since Linux
 5.12, mapping a child namespace to parent UID 0 requires `CAP_SETFCAP` at the
@@ -1234,6 +1234,27 @@ This is a measurement of the paths, not a qualified host tuple.
 The gate does not pass while the socket walk finds a reachable host socket
 and Pi inference is unmeasured, so ordinary turns keep their current network
 and the capabilities note keeps saying egress is unrecorded.
+
+### Pre-proxy command ingestion records
+
+For interactive and voice turns, the host recorder recognizes completed `Bash`
+and `bash` calls that visibly fetch content, and conservatively classifies opaque
+commands as untrusted input. Static `ls` and `brain search` calls remain clean;
+shell substitutions, redirections, scripts and unknown wrappers do not borrow
+that exemption (`commandTaintSource`, `packages/ui-server/src/activity/command-taint.ts:5-30`).
+The first source is kept as a session `taint` governance event, using the same
+SQLite transaction for the existing-source check and write
+(`recordFirstCommandTaint`, `packages/ui-server/src/activity/command-taint.ts:33-40`).
+The recorder waits for a tool result and excludes known denied calls; failed
+commands can still return untrusted partial output. It records the source kind
+and tool name, without copying command text into the taint payload.
+
+This is command detection and durable attribution only. It does not activate
+the ordinary egress proxy, tighten outward permissions, add WebFetch/WebSearch,
+MCP, workspace or user-marked detectors, or supply the complete taint capabilities
+note. Those remaining #1667 outcomes require their own integrated proof. Existing
+journal attribution consumes a preceding taint event; no autonomous authority
+changes.
 
 ## Paid CLI provider qualification
 

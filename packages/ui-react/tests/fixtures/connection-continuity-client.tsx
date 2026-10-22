@@ -12,6 +12,8 @@ import { restorationOf } from "../../src/stores/chat-state.ts";
 // handlers are synchronous; this does not drain arbitrary asynchronous handlers.
 const frames: unknown[] = [];
 const received = new Map<string, number>();
+const queueReceipts = new Map<string, number>();
+let queueReceiptOverflow = false;
 const NativeSocket = WebSocket;
 const observePreparation = (window as unknown as { __observeContinuityPreparation?: boolean }).__observeContinuityPreparation === true;
 type PreparationFrame = { socket: number; direction: "sent" | "received"; type: string; sessionId?: string; turnId?: string; detail?: string; append?: boolean };
@@ -39,6 +41,10 @@ class ObservedSocket extends NativeSocket {
         const key = `${frame.type}:${frame.sessionId ?? ""}`;
         received.set(key, (received.get(key) ?? 0) + 1);
         received.set(`${frame.type}:*`, (received.get(`${frame.type}:*`) ?? 0) + 1);
+        if (frame.type === "session_queue") {
+          if (!queueReceipts.has(event.data) && queueReceipts.size >= 128) queueReceiptOverflow = true;
+          else queueReceipts.set(event.data, (queueReceipts.get(event.data) ?? 0) + 1);
+        }
       });
     });
   }
@@ -147,6 +153,24 @@ try {
       } : undefined,
       replayComplete: (sessionId: string) => !root.stores.chat.getState().buffers[sessionId]?.replay,
       received: (type: string, sessionId: string) => received.get(`${type}:${sessionId}`) ?? 0,
+      queueReceipts: (messages: string[]) => {
+        if (queueReceiptOverflow) throw new Error("Continuity queue receipt capacity exceeded");
+        return messages.map(message => queueReceipts.get(message) ?? 0);
+      },
+      queueOnlyUpdate: (message: string) => {
+        const report = JSON.parse(message);
+        const buffer = root.stores.chat.getState().buffers[report.sessionId];
+        const requests = report.followUps.map((entry: { requestId?: string }) => entry.requestId);
+        const sends = root.stores.drafts.getState().sends;
+        const pending = root.stores.followUp.getState().pending[report.sessionId] ?? [];
+        // This slice observes an already-accepted queue while its turn stays
+        // held: no draft acceptance, transcript adoption or history request.
+        return report.type === "session_queue" && !report.started && !report.dropped?.length
+          && buffer?.isStreaming === true
+          && requests.every((id: string | undefined) => id && (!sends[id] || sends[id].state === "accepted"))
+          && !buffer.messages.some(message => message.role === "user" && requests.includes(message.requestId))
+          && JSON.stringify(pending.map(entry => entry.requestId)) === JSON.stringify(requests);
+      },
       connected: () => root.stores.connection.getState().wsStatus === "connected",
       wsStatus: () => root.stores.connection.getState().wsStatus,
       vpnStatus: () => root.stores.connection.getState().vpnStatus,

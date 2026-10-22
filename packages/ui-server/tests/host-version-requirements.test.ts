@@ -14,6 +14,7 @@ import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/interna
 import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { hostProcessAlive, waitForHostProcesses } from "./helpers/host-processes";
 import { makeFakeBackend } from "./helpers/fake-backend";
+import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 
 const roots: string[] = [];
 const closeNative: (() => Promise<void>)[] = [];
@@ -188,15 +189,22 @@ describe("explicit probes retain bounded wrapper cleanup", () => {
       const marker = `odysseus-version-child-${f.root.split("/").at(-2)}`;
       writeFileSync(wrapper, `#!/bin/sh\n/bin/sh -c 'sleep 300; :' '${marker}' ${timesOut ? "" : ">/dev/null 2>&1 "}&\nsleep 0.3\n${timesOut ? "sleep 300" : "exit 4"}\n`);
       chmodSync(wrapper, 0o755);
-      const pending = probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, boundary: f.boundary({ wrapper }), minimumVersion: "0.40.0" })
-        .then(() => null, error => error as Error);
-      const pids = await waitForHostProcesses(marker);
-      expect(pids.length).toBeGreaterThan(0);
-      expect((await pending)?.message).toContain(timesOut ? "within 5 s" : "exited 4");
-      const until = Date.now() + 2_000;
-      while (pids.some(hostProcessAlive) && Date.now() < until) await Bun.sleep(10);
-      expect(pids.filter(hostProcessAlive)).toEqual([]);
-      expect(f.invocations()).toEqual([]);
+      const clock = timesOut ? registeredVersionDeadline("maintenance") : undefined;
+      try {
+        const pending = probeBrainCliVersion(f.root, f.observability.logger("brain"), { exec: { wrapper }, boundary: f.boundary({ wrapper }), minimumVersion: "0.40.0" })
+          .then(() => null, error => error as Error);
+        clock?.track(pending);
+        const pids = await waitForHostProcesses(marker);
+        expect(pids.length).toBeGreaterThan(0);
+        expect(pids.some(hostProcessAlive), "VERSION_PROBE_NATIVE_WRAPPER_PENDING_AT_DEADLINE").toBe(true);
+        if (clock) await clock.expire();
+        expect((await pending)?.message).toContain(timesOut ? "within 5 s" : "exited 4");
+        clock?.assertSettled();
+        const until = Date.now() + 2_000;
+        while (pids.some(hostProcessAlive) && Date.now() < until) await Bun.sleep(10);
+        expect(pids.filter(hostProcessAlive), "VERSION_PROBE_EXPLICIT_WRAPPER_CHILD_REAPED").toEqual([]);
+        expect(f.invocations()).toEqual([]);
+      } finally { await clock?.dispose(); }
     });
   }
 });
