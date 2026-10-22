@@ -1,3 +1,4 @@
+import { prepareTurnEgress } from "../brain/turn-egress.js";
 import { createTurnLifecycle } from "../activity/turn-lifecycle.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetLimits, inferenceBudgetContext } from "../brain/turn-budgets.js";
 import { withTrackFiles } from "../tracks/read.js";
@@ -488,6 +489,7 @@ async function runRetainedSession(
       let workOutcome: HostWorkOutcome = "error";
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
+      let turnEgress: Awaited<ReturnType<typeof prepareTurnEgress>> | undefined;
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
       let scopeStopReason: string | undefined;
@@ -646,6 +648,17 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel, profile: "strict",
           });
         }
+        // A governed or strict Claude turn gets its own proxy and the host
+        // inference relay (#1665). Pi keeps its current network until its
+        // relay consumer lands.
+        if (governedHold && backend.id === "claude") {
+          const governance = host.activity?.governance;
+          turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
+            turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,
+            profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", origin,
+            ...(governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
+          });
+        }
         enteredBackend = true;
         turn.backendStarted = true;
         lifecycle?.mark("backendInvokedAt");
@@ -654,7 +667,7 @@ async function runRetainedSession(
           ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
-          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, noteFacts: {
+          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(turnEgress ? { egress: turnEgress } : {}), noteFacts: {
             ...governedHold.sandbox.noteFacts,
             ...(workerIdentity ? { identity: workerIdentity } : {}),
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
@@ -673,7 +686,7 @@ async function runRetainedSession(
           // real number in front of the model instead of it finding the cap
           // mid-flight.
           turnBudgetMs: host.turnTimeoutMs,
-          bridge,
+          bridge: turnEgress?.bridge ?? bridge,
           turnId: turn.turnId,
           ...(client ? { client } : {}),
           ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
@@ -685,6 +698,9 @@ async function runRetainedSession(
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
         turn.backendStarted = false;
+        turnEgress?.stop();
+        const egressFailure = turnEgress?.recordingFailure();
+        if (egressFailure) throw egressFailure;
         // Final observation is part of this host outcome, after worker writes
         // stop and before its Activity terminal, quarantine or gate release.
         await host.journal?.finish(turn.turnId);
@@ -721,7 +737,8 @@ async function runRetainedSession(
         );
       } catch (err) {
         lifecycle?.mark("failureObservedAt");
-        const terminal = budgetFailure ?? journalFailure ?? err;
+        const egressFailure = turnEgress?.recordingFailure();
+        const terminal = budgetFailure ?? journalFailure ?? egressFailure ?? err;
         if (terminal instanceof BudgetExceeded && terminal.stage === "admission") {
           recorder?.recordBudgetStop(terminal.message);
           const item=terminal.observation;
@@ -733,20 +750,21 @@ async function runRetainedSession(
               source:governedHold?.policy.hash ? "policy":"default",stage:"admission"}});
         }
         if (terminal instanceof BudgetUnavailable) recorder?.recordBudgetStop(terminal.message,"budget_unavailable");
-        cancelledAdmission = !enteredBackend && (turn.cancelled || revokedAdmission) && !budgetFailure && !journalFailure && !scopeStopReason;
+        cancelledAdmission = !enteredBackend && (turn.cancelled || revokedAdmission) && !budgetFailure && !journalFailure && !egressFailure && !scopeStopReason;
         turn.backendStarted = false;
-        if (!cancelledAdmission && (!scopeStopReason || budgetFailure || journalFailure)) emitTurnError(host, turn, terminal);
-        lifecycleOutcome = terminal instanceof BudgetExceeded && terminal.stage === "admission" ? "denied" : budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error";
+        if (!cancelledAdmission && (!scopeStopReason || budgetFailure || journalFailure || egressFailure)) emitTurnError(host, turn, terminal);
+        lifecycleOutcome = terminal instanceof BudgetExceeded && terminal.stage === "admission" ? "denied" : budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure || egressFailure ? "error" : abortController.signal.aborted ? "timeout" : "error";
         recorder?.finish(
-          budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
+          budgetFailure ? "error" : turn.cancelled || revokedAdmission ? "cancelled" : journalFailure || egressFailure ? "error" : abortController.signal.aborted ? "timeout" : "error"
         );
         // A host timeout is host-terminal like a cancel: its late result is
         // never narrated (the work keeps the reason).
-        workOutcome = budgetFailure ? "error" : turn.cancelled || revokedAdmission || !journalFailure && abortController.signal.aborted ? "cancelled" : "error";
-        workReason = !turn.cancelled && !budgetFailure && !journalFailure && abortController.signal.aborted
+        workOutcome = budgetFailure ? "error" : turn.cancelled || revokedAdmission || !journalFailure && !egressFailure && abortController.signal.aborted ? "cancelled" : "error";
+        workReason = !turn.cancelled && !budgetFailure && !journalFailure && !egressFailure && abortController.signal.aborted
           ? "Turn timed out"
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
+        turnEgress?.stop();
         try {
           // Observe after backend writers stop, before quarantine and gate release.
           await host.journal?.finish(turn.turnId);

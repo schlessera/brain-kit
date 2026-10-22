@@ -1349,6 +1349,19 @@ sockets outside the masks below stay visible, and one accepted a connection.
 The results are in
 [agent-workers.md](../hosting/agent-workers.md#first-party-path-measurement-1665).
 
+**Activation with stated gaps — 2026-10-22.** The gate allows default-on when
+each failing path's gap is stated in the capabilities note. Governed and strict
+Claude turns therefore get their own turn proxy and the host inference relay
+by default. Each connection is recorded as a governance event, and a recording
+failure ends the turn. Without a governance recorder the policy still applies
+and only the records are absent (`prepareTurnEgress`,
+`packages/ui-server/src/brain/turn-egress.ts:47-96`). The note says egress is
+recorded only when the backend actually routed the worker through the proxy;
+an API-key Claude profile is not routed yet. Its note still says
+"Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
+reachable-socket gap is stated in the same note and tracked by
+[#2633](https://github.com/schlessera/brain-kit/issues/2633).
+
 **Host Unix sockets.** A private network namespace does not stop `connect()` to
 a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
@@ -1988,6 +2001,18 @@ destination lists the allowed write-capable hosts under `outward.hosts` as
 well. An opaque `POST` to an allowed host outside `outward.hosts` is recorded,
 not approved.
 
+**The exception in practice — 2026-10-22.** The proxy cannot tell which
+process opened a connection, so "the tool call in progress" is the set of
+calls between their classification and their result. A connection to an
+outward host skips the card only while every classified call in progress is a
+visible read, or an approved outward action that names that host. A GitHub
+write names the GitHub API hosts, and a push or HTTP write names its target's
+host. Any unknown or opaque call in progress withholds the exception
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:24-45`).
+A background process left by an earlier call can still connect inside such a
+window; the proxy records it either way. No mail-submission host is built in
+yet. Only the GitHub API hosts are defaults, and `outward.hosts` adds the rest.
+
 ### Untrusted input (G6)
 
 A session becomes **tainted** the first time a turn ingests content it did not
@@ -2223,7 +2248,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:471-521`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:474-524`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

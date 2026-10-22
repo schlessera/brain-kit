@@ -1231,9 +1231,17 @@ This is a measurement of the paths, not a qualified host tuple.
 | Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
 | Socket walk | Not passed. The relay and proxy sockets are present, no socket below a mask is visible, and fixture sockets under `/run` and a home directory are unreachable. Host sockets outside today's masks stay visible: on the measured host a CUPS socket under `/var/snap` accepted a connection, and sockets under `/var/spool` and `/var/tmp` were visible but refused. |
 
-The gate does not pass while the socket walk finds a reachable host socket
-and Pi inference is unmeasured, so ordinary turns keep their current network
-and the capabilities note keeps saying egress is unrecorded.
+The socket walk and Pi inference do not pass yet. Following the gate's rule,
+default-on goes ahead with both gaps stated in the capabilities note:
+
+- **Claude.** A governed or strict Claude turn runs on its own turn proxy and
+  the host inference relay. Every connection is a governance event, and a
+  connection to an outward host waits for approval unless the call in progress
+  was classified as a read or an approved outward action. The note says so and
+  names the reachable-socket gap
+  ([#2633](https://github.com/schlessera/brain-kit/issues/2633)).
+- **Not routed yet.** An API-key Claude profile and every Pi turn keep their
+  current network, and their note still says egress is unrecorded.
 
 ## Paid CLI provider qualification
 
