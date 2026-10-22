@@ -66,6 +66,8 @@ export interface WriterGate {
   acquire(mode: GateMode, purpose: string, options?: { signal?: AbortSignal; turn?: boolean; queueTurns?: boolean }): Promise<GateHold>;
   /** Current holders, stale ones removed. */
   holders(): { mode: GateMode; purpose: string; pid: number }[];
+  /** Refuse an ungated host process beside retained or unknown folder plans, or under a folder policy. */
+  assertUngatedHostFallback(): void;
 }
 
 /** How often a waiting acquisition looks again. */
@@ -232,6 +234,18 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
       } } finally {
         if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
       }
+    },
+    assertUngatedHostFallback() {
+      db.transaction(() => {
+        prune();
+        const rows = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ?").all(brain) as { folder_topology: string | null }[];
+        if (rows.some(row => row.folder_topology === null))
+          throw new HostFallbackRefusedError("Host fallback is refused beside an active writer with unknown folder provenance; finish that writer and retry.");
+        let roots: readonly string[];
+        try { roots = mergeFolderPlans(rows, []); }
+        catch { throw new HostFallbackRefusedError("Host fallback is refused beside an active writer with an unverified folder plan; finish that writer and retry."); }
+        refuseHostFallback(policyReader.load(), roots);
+      }).immediate();
     },
     holders() {
       return db.transaction(() => {

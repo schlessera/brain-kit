@@ -237,6 +237,33 @@ describe("unpinned host writer provenance", () => {
     } finally { w.close(); }
   });
 
+  test("a legacy host peer's recorded roots refuse a new host after the policy is removed", async () => {
+    const w = world();
+    try {
+      // The peer's roots appear after this host's plan was taken, so only the
+      // classification transaction can see them.
+      const host = await w.cron.acquire("shared", "host:athena");
+      const legacy = await w.server.acquire("shared", "host:odysseus-before-2284");
+      w.db.query("UPDATE writer_gate SET folder_topology = ? WHERE id = ?").run(JSON.stringify({ kind: "unpinned_host", roots: ["group/private"] }), legacy.id);
+      expect(host.folderPaths).toEqual([]);
+      expect(() => markUnpinnedHostWriter(host), "LEGACY_HOST_PEER_ROOTS_REFUSE_HOST_CLASSIFICATION").toThrow(HostFallbackRefusedError);
+      expect(() => w.cron.assertUngatedHostFallback(), "LEGACY_HOST_PEER_ROOTS_REFUSE_UNGATED_HOST").toThrow(HostFallbackRefusedError);
+      host.release(); legacy.release();
+      expect(() => w.cron.assertUngatedHostFallback()).not.toThrow();
+    } finally { w.close(); }
+  });
+
+  test("an ungated host refuses beside unknown provenance and runs beside known plain plans", async () => {
+    const w = world();
+    try {
+      const plain = await w.server.acquire("shared", "turn:odysseus");
+      expect(() => w.cron.assertUngatedHostFallback(), "PLAIN_PEER_KEEPS_UNGATED_HOST").not.toThrow();
+      w.db.query("UPDATE writer_gate SET folder_topology = NULL WHERE id = ?").run(plain.id);
+      expect(() => w.cron.assertUngatedHostFallback(), "UNKNOWN_PEER_REFUSES_UNGATED_HOST").toThrow(HostFallbackRefusedError);
+      plain.release();
+    } finally { w.close(); }
+  });
+
   test("negative provenance cannot be forged, upgraded, or retained after release", async () => {
     const w = world();
     try {

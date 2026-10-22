@@ -108,6 +108,26 @@ for (const method of ["run", "launch"] as const) {
     } finally { await f.close(); }
   });
 
+  test(`${method}: an ungated host fallback refuses beside a peer that retains provider folders after policy removal`, async () => {
+    const f = fixture();
+    try {
+      const policy = join(f.brain, "context/policies/governance.md");
+      mkdirSync(join(f.brain, "context/policies"), { recursive: true });
+      writeFileSync(policy, "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+      const native = await f.gate.acquire("shared", "native protected peer"); f.holds.push(native);
+      native.assertPeerFolderPlans!(["group/private"]);
+      rmSync(policy);
+      const entered = `require("node:fs").writeFileSync(${JSON.stringify(f.ready)},"unexpected");`;
+      const refusal = await f.start(method, "none", f.boundary(true, true), entered).then(() => undefined, error => error);
+      expect(refusal, "RETAINED_PEER_ROOTS_REFUSE_UNGATED_HOST_FALLBACK").toBeInstanceOf(HostFallbackRefusedError);
+      expect(String(refusal)).toContain("group/private");
+      expect(existsSync(f.ready)).toBe(false);
+      native.release();
+      expect(await f.start(method, "none", f.boundary(true, true), 'console.log("Odysseus reads");'), "RELEASED_PEER_RESTORES_UNGATED_HOST_FALLBACK")
+        .toEqual({ stdout: "Odysseus reads\n", stderr: "", exitCode: 0 });
+    } finally { await f.close(); }
+  });
+
   test(`${method}: a policy without provider folders keeps the legacy host path`, async () => {
     const f = fixture();
     try {
@@ -260,6 +280,11 @@ test("a synchronous host reader refuses under a provider folder policy and runs 
     mkdirSync(join(f.brain, "context/policies"), { recursive: true });
     writeFileSync(join(f.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
     expect(() => f.boundary().runSync(query), "FOLDER_POLICY_REFUSES_SYNC_HOST_READER").toThrow(HostFallbackRefusedError);
+    expect(existsSync(f.ready)).toBe(false);
+    const native = await f.gate.acquire("shared", "native protected peer"); f.holds.push(native);
+    native.assertPeerFolderPlans!(["group/private"]);
+    rmSync(join(f.brain, "context/policies/governance.md"));
+    expect(() => f.boundary().runSync(query), "RETAINED_PEER_ROOTS_REFUSE_SYNC_HOST_READER").toThrow(HostFallbackRefusedError);
     expect(existsSync(f.ready)).toBe(false);
   } finally { await f.close(); }
 });

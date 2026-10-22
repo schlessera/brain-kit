@@ -427,10 +427,15 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     try { return await fn(); } finally { hold?.release(); }
   };
 
-  // A gated host writer is refused inside its gate transaction; an ungated
-  // one (optional missing gate, `gate: none`, runSync) reads the policy here.
+  // A gated host writer is refused inside its gate transaction. An ungated
+  // one (`gate: none`, runSync) still checks every active writer's retained
+  // plan when a gate exists; with no gate at all, only the policy is known.
   const policyReader = createGovernancePolicyReader(brain);
-  const admitHost = (hold: GateHold | null) => { if (hold) markUnpinnedHostWriter(hold); else refuseHostFallback(policyReader.load()); };
+  const admitHost = (hold: GateHold | null) => {
+    if (hold) return markUnpinnedHostWriter(hold);
+    const gate = options.gate?.();
+    if (gate) gate.assertUngatedHostFallback(); else refuseHostFallback(policyReader.load());
+  };
 
   /** The pre-boundary path: a host process with the brain as its working directory. */
   function hostSpawn(execution: BrainExecution) {

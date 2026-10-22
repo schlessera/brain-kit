@@ -612,14 +612,16 @@ run under `strict`, and the brain's code stays on the host only when:
 
 **No host execution under a provider folder policy.** If
 `context/policies/governance.md` names a provider folder (`<root>/**`), or
-cannot be parsed, a `"host"` server refuses every command that would run the
-brain's code on the host. The command fails with `HostFallbackRefusedError`
-before any process starts. Nothing can prove that every descendant of a host
-process has exited, and one that survives could replace a folder a later
-governed worker relies on. Run the server where the worker boundary is
-available, or remove the provider folders from the policy. A server that ran
-host commands before a folder policy was added should be restarted before you
-rely on that policy
+cannot be read or parsed, a `"host"` server refuses every command that would
+run the brain's code on the host. The same applies while a running turn still
+retains a provider folder after the policy changed. The command fails with
+`HostFallbackRefusedError` before any process starts. Nothing can prove that
+every descendant of a host process has exited, and one that survives could
+replace a folder a later governed worker relies on. Run the server where the
+worker boundary is available, or remove the provider folders from the policy.
+If the server ran host commands before a folder policy was added, make sure
+none of the processes they started is still running before you rely on that
+policy. Restarting the server does not stop a detached one
 ([decision](../decisions/governed-writable-workers.md#the-host-execution-boundary)).
 
 **Operational state must live outside the brain, in every hosted profile.**

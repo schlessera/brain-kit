@@ -5,7 +5,7 @@
  * normally while a detached descendant keeps running). A refusal is written to
  * `owner-refused.json` in the brain; no host child exists in that case.
  */
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createUiDb } from "../../src/db/client.js";
 import { createWriterGate } from "../../src/brain/writer-gate.js";
@@ -24,7 +24,9 @@ try {
   const result = await boundary[method as "launch" | "run"]({ argv, env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "shared", purpose: "owned old host writer" });
   if ("exited" in result) await Promise.all([result.exited, new Response(result.stdout).text(), new Response(result.stderr).text()]);
 } catch (error) {
-  writeFileSync(join(brain, "owner-refused.json"), JSON.stringify({ name: (error as Error).name, message: (error as Error).message }));
+  // Publish atomically: the probe may SIGKILL this owner as soon as it sees the file.
+  writeFileSync(join(brain, "owner-refused.json.tmp"), JSON.stringify({ name: (error as Error).name, message: (error as Error).message }));
+  renameSync(join(brain, "owner-refused.json.tmp"), join(brain, "owner-refused.json"));
 }
 if (scenario === "detached") writeFileSync(join(brain, "owner-completed"), "done");
 // Stay the live owner until the probe kills it (crash) or cleans up (detached).

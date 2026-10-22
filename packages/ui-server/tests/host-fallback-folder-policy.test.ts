@@ -72,9 +72,11 @@ test.each(cases)("%s (descendant %s, replaces %s, owner %s): a folder policy ref
     expect(old, "NO_HOST_PROCESS_EXISTS_UNDER_FOLDER_POLICY").toBeUndefined();
   } finally {
     owner.kill("SIGKILL"); await owner.exited;
+    // A host child that started after a failed readiness wait is still owned by this fixture.
+    if (old === undefined && existsSync(at("old.pid"))) { old = Number(readFileSync(at("old.pid"), "utf8")); oldStart = processStart(old); }
     if (old !== undefined && oldStart !== null && processStart(old) === oldStart) try { process.kill(old, "SIGKILL"); } catch {}
     peer?.kill(); if (peer) await peer.exited; await peerOutput;
-    // A surviving host descendant can inherit the owner's pipes; settle after killing that exact owned child.
-    await ownerOutput; hold?.release(); db.close(); rmSync(root, { recursive: true, force: true });
+    // A surviving host descendant can inherit the owner's pipes; settle after killing that exact owned child, boundedly.
+    await Promise.race([ownerOutput, Bun.sleep(5000)]); hold?.release(); db.close(); rmSync(root, { recursive: true, force: true });
   }
 }, 30_000);
