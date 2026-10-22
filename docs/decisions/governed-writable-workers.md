@@ -1747,6 +1747,15 @@ attributes to later Git consumers. Credentialed and no-helper preparation keep
 their existing paths (`collectMaintenanceGitSources`,
 `packages/ui-server/src/brain/maintenance-git-source.ts:66-187`).
 
+The attributes freeze writes the empty tree and every `.gitattributes` blob
+and tree in one credential-free launch of a fixed first-party program, through
+the same frozen adapter and owned stage as the command it prepares. Each launch
+re-prepares that adapter input, so freezing one object per launch multiplied a
+maintenance run's preparation several times over. The single launch's deadline
+is the sum of the per-object launches it replaced (`Work-tree attribute bytes come`,
+`packages/ui-server/src/brain/maintenance-git.ts:92-113`;
+[#2622](https://github.com/schlessera/brain-kit/issues/2622)).
+
 **Server-owned strict output — 2026-10-22.** A strict worker can publish a
 private directory into its scratch area. Native publication installs those
 nodes under the server's identity and keeps their `0700`/`0600` modes, so the
