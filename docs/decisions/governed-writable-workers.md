@@ -1356,25 +1356,38 @@ socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
 (`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:197`).
-Interactive workers have the same exposure today.
 
 `governed` and `strict` workers therefore mask the host's runtime and state
-directories with empty read-only tmpfs mounts:
+directories with empty read-only tmpfs mounts. Maintenance workers share the
+same host mask set:
 
-- `/run`, `/var/run`, `/var/lib`, `/tmp/.X11-unix`;
+- `/run`, all of `/var`, `/tmp/.X11-unix`;
 - every home directory except the brain's own path;
 - `/root`, `/mnt`, `/media` and `/srv`.
 
-After the masks, the launcher re-binds the runtime the worker needs, read-only
-and file by file, with the same resolution the restricted envelope uses
+The maintainer's 2026-10-22 ruling on [#2633](https://github.com/schlessera/brain-kit/issues/2633)
+includes `/var/tmp`, `/var/spool`, `/var/snap` and future layouts below `/var`.
+There is no `/var/tmp` exception. A read-only host mount still permits socket
+connections, so selected subdirectory masks cannot provide this boundary.
+The worker's private `/tmp` and the other host masks remain in place.
+
+After the masks, the launcher re-binds only the explicit runtime inputs the
+worker needs, read-only, with the same resolution the restricted envelope uses
 (`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1625`):
 
 - the Bun executable;
-- the backend entry and its `node_modules` chains;
+- the backend entry's package, its `node_modules` chains and linked workspace
+  packages;
 - the bundled agent CLI.
 
-This keeps a Bun or package install under a home directory or `/srv` working,
-without exposing that whole directory again.
+This keeps a Bun or package install under `/var`, a home directory or `/srv`
+working without exposing the whole masked ancestor. These are explicit file
+and package-directory binds, not a general exception for their parent.
+Compatibility proof executes a Bun binary bound from `/var/lib`, reads an
+explicit regular-file input there, refuses a write to that input, and checks
+that neighboring host sockets remain unreachable. The governed and strict
+filesystem walks permit only the admitted relay and proxy sockets; the
+credential-free maintenance walk permits none.
 
 ### Private-state masks beneath inaccessible parents — 2026-10-17
 

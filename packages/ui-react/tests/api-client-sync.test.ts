@@ -1,3 +1,4 @@
+import { controlDirectory } from "../../ui-server/tests/helpers/control-directory.js";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,7 +74,7 @@ describe("published sync helper through actual routes", () => {
 
   test("transport loss stays incomplete while the real server drains and reserves the root", async () => {
     const root = mkdtempSync(join(tmpdir(), "api-sync-reservation-"));
-    const control = mkdtempSync("/var/tmp/odysseus-api-sync-control-");
+    const control = controlDirectory("odysseus-api-sync-control-");
     const started = join(control, "started");
     const release = join(control, "release");
     writeFileSync(started, "");
