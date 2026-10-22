@@ -1,12 +1,13 @@
 import { mockWorkerHostForSdkStream } from "./helpers/worker-host.js";
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as worker from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../src/backend.js";
 import { backendModule } from "../src/module.js";
 import * as factory from "../src/backend.js";
+import { createWorkerSpawn } from "../src/worker-spawn.js";
 
 mockWorkerHostForSdkStream();
 
@@ -79,6 +80,25 @@ test("Claude factory/module turns carry host exec to runtime probe and SDK worke
     constructor.mockRestore(); launch.mockRestore();
     if (oldWrapper === undefined) delete process.env.BRAIN_UI_EXEC_WRAPPER; else process.env.BRAIN_UI_EXEC_WRAPPER = oldWrapper;
     if (oldConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = oldConfig;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an ordinary Claude worker refuses a nonregular host wrapper before any worker (#1429)", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-host-exec-dir-"));
+  const helpers = join(root, "helpers"), linked = join(root, "linked");
+  mkdirSync(helpers); symlinkSync(helpers, linked);
+  const launch = spyOn(worker, "launchAgentWorker");
+  try {
+    for (const wrapper of [helpers, linked]) {
+      expect(() => createWorkerSpawn(root, { wrapper }, new AbortController().signal), "CLAUDE_WORKER_WRAPPER_REGULAR")
+        .toThrow(/exec wrapper .* regular file/);
+    }
+    // The restricted envelope launches no operator wrapper, so it does not consult one.
+    expect(() => createWorkerSpawn(root, { wrapper: helpers }, new AbortController().signal, { inferenceDir: join(root, "relay") })).not.toThrow();
+    expect(launch).not.toHaveBeenCalled();
+  } finally {
+    launch.mockRestore();
     rmSync(root, { recursive: true, force: true });
   }
 });

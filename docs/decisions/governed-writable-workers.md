@@ -1638,11 +1638,11 @@ helper the host provides:
 
 - **brain-kit owns the launcher seam** (#1677). An optional host-supplied
   identity helper sits in front of `bwrap`. It follows the exec wrapper's
-  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:39`):
+  rules (`export const EXEC_WRAPPER_ENV`, `packages/ui-sdk/src/server/exec-wrapper.ts:42`):
   an absolute path in argv position 0, and the worker as its own process
   group. `kill(2)` across uids returns `EPERM`, so every signal goes through
   the kill helper. The helper's protocol
-  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:53`)
+  (`<killer> <pgid> <TERM|KILL|INT>`, `packages/ui-sdk/src/server/exec-wrapper.ts:56`)
   gains `STOP` and `CONT`. A scope cap without a delegated cgroup stops and
   resumes the worker through them (see "Scope caps"). Signalling the process
   group is not enough. `bwrap --new-session` puts the payload in a session and

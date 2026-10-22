@@ -3572,6 +3572,13 @@ inside Pi workers. An explicit empty object disables the optional wrapper;
 an absent field preserves ambient-wrapper compatibility. Standalone backend
 factories preserve omission, resolving the ambient wrapper and killer at the
 existing turn/tool-spawn boundaries; Pi serializes that host fallback into each
-worker turn. Explicit host configurations are copied at construction. Existing
-validation, argv, environment and permission semantics
-remain unchanged; the optional wrapper never replaces worker isolation.
+worker turn. Explicit host configurations are copied at construction.
+
+A Pi worker's view gains each configured helper file read-only at its
+configured path, and nothing else of the directory holding it, in ordinary and
+restricted workers alike. Each helper a worker runs, the Pi wrapper and killer
+and the ordinary Claude worker's wrapper, must be an absolute path naming a
+regular file, directly or through a symlink; anything else refuses the turn
+before any relay, reservation or worker is acquired. Existing argv, environment
+and permission semantics remain unchanged; the optional wrapper never replaces
+worker isolation.
