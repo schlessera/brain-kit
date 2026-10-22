@@ -1,21 +1,43 @@
-/** Private three-export fixture boundary; ordinary CLI processes never load it. */
+/** Private six-export fixture boundary; ordinary CLI processes never load it. */
 import assert from "node:assert/strict";
 import {existsSync,lstatSync,readFileSync,realpathSync,writeFileSync} from "node:fs";
 import {join,relative,resolve} from "node:path";
 import {chromium} from "playwright";
+import {originGroup} from "./origin-group.ts";
 const entry=resolve(import.meta.dir,"../../../core/src/cli/brain.ts"),fixture=resolve(import.meta.dir,"export-artifact-probe.ts");
 const formats=["svg","png","pdf"] as const;
-const argv=(format:string)=>["diagram","export","release.diagram.yaml","--theme","print","--format",format,"--json"];
+const filenames=["release.diagram.yaml","origin.diagram.yaml"] as const;
+type NativeExportFilename=typeof filenames[number];
+const argv=(format:string,filename:NativeExportFilename="release.diagram.yaml")=>["diagram","export",filename,"--theme","print","--format",format,"--json"];
+/** The preload and ordinary guard controls share this closed invocation check. */
+export function assertNativeExportArguments(args:readonly string[]){
+ const filename=args[2],format=args[6];
+ assert(filenames.includes(filename as NativeExportFilename),"NATIVE_EXPORT_FIXED_FILENAME");
+ assert(formats.includes(format as typeof formats[number]),"NATIVE_EXPORT_FIXED_FORMAT");
+ assert.deepEqual(args,argv(format!,filename as NativeExportFilename),"NATIVE_EXPORT_FIXED_ARGUMENTS");
+ return{filename:filename as NativeExportFilename,format:format!};
+}
+/** Origin bytes are the existing source-owned fixture, not arbitrary caller data. */
+export function assertNativeExportInput(root:string,filename:string):void{
+ assert(filenames.includes(filename as NativeExportFilename),"NATIVE_EXPORT_FIXED_FILENAME");
+ if(filename==="origin.diagram.yaml"){
+  const source=join(root,filename);assert(lstatSync(source).isFile()&&realpathSync(source)===source,"NATIVE_EXPORT_OWNED_ORIGIN_FILE");
+  assert.equal(readFileSync(source,"utf8"),JSON.stringify(originGroup),"NATIVE_EXPORT_LITERAL_ORIGIN");
+ }
+}
+/** No alias executable or alternate entry can bypass the child preload. */
+export function assertNativeExportChild(cmd:unknown):void{
+ assert(Array.isArray(cmd)&&cmd[0]==="bun"&&cmd[1]===entry,"NATIVE_EXPORT_FIXED_CHILD_ENTRY");
+ assertNativeExportArguments(cmd.slice(2));
+}
 const config='import {defineConfig} from "@schlessera/brain";export default defineConfig({modules:{"@schlessera/brain-module-diagrams":{}}});';
 const receipt=(root:string,format:string)=>join(root,`.native-export-${format}-boundary.json`);
-export function assertNativeExportBoundary(root:string,format:string):void{
+export function assertNativeExportBoundary(root:string,format:string,filename:NativeExportFilename="release.diagram.yaml"):void{
  const value=JSON.parse(readFileSync(receipt(root,format),"utf8"));
- assert.deepEqual(value,{version:1,argv:argv(format),coreAttempts:[]},"NATIVE_EXPORT_BOUNDARY_RECEIPT");
+ assert.deepEqual(value,{version:1,argv:argv(format,filename),coreAttempts:[]},"NATIVE_EXPORT_BOUNDARY_RECEIPT");
 }
 if(process.argv[1]===entry){
- const format=process.argv[8]!;
- assert(formats.includes(format as typeof formats[number]),"NATIVE_EXPORT_FIXED_FORMAT");
- assert.deepEqual(process.argv.slice(2),argv(format),"NATIVE_EXPORT_FIXED_ARGUMENTS");
+ const {filename,format}=assertNativeExportArguments(process.argv.slice(2));
  const root=process.env.BRAIN_ROOT!,temp=process.env.TMPDIR!,sourceRoot=resolve(import.meta.dir,"../../../..");
  assert(root&&temp&&root.startsWith(join(temp,"brain-test-")),"NATIVE_EXPORT_OWNED_ROOT");
  assert.equal(realpathSync(root),root,"NATIVE_EXPORT_CANONICAL_ROOT");assert(lstatSync(root).isDirectory());
@@ -28,6 +50,7 @@ if(process.argv[1]===entry){
  assert.equal(process.env.BRAIN_CHROME_NO_SANDBOX,format==="svg"?undefined:"1");
  assert.equal(readFileSync(join(root,"brain.config.ts"),"utf8"),config,"NATIVE_EXPORT_LITERAL_CONFIG");
  assert(!existsSync(join(root,"settings")),"NATIVE_EXPORT_NO_SETTINGS_OVERRIDE");
+ assertNativeExportInput(root,filename);
  assert.equal(realpathSync(join(root,"node_modules")),realpathSync(join(sourceRoot,"node_modules")),"NATIVE_EXPORT_OWNED_RESOLUTION_ROOT");
  for(const [name,packageName]of Object.entries({common:"@schlessera/brain-common",core:"@schlessera/brain",geo:"@schlessera/brain-geo","module-diagrams":"@schlessera/brain-module-diagrams","render-template":"@schlessera/brain-render-template","ui-render-puppeteer":"@schlessera/brain-render-puppeteer"})){
   const packageRoot=join(sourceRoot,"packages",name),manifest=JSON.parse(readFileSync(join(packageRoot,"package.json"),"utf8"));
@@ -47,14 +70,14 @@ if(process.argv[1]===entry){
  });
  process.on("exit",()=>{
   if(attempts.length){console.error(`NATIVE_EXPORT_CORE_COMMAND_ACTIVATED: ${attempts.join(",")}`);process.exitCode=1;}
-  else writeFileSync(receipt(root,format),JSON.stringify({version:1,argv:argv(format),coreAttempts:attempts}),{flag:"wx"});
+  else writeFileSync(receipt(root,format),JSON.stringify({version:1,argv:argv(format,filename),coreAttempts:attempts}),{flag:"wx"});
  });
 }else if(process.argv[1]===fixture){
  const native=Bun.spawn,guard=import.meta.path;
  Bun.spawn=((...args:unknown[])=>{
   const cmd=args[0];
-  assert(Array.isArray(cmd)&&cmd[0]==="bun"&&cmd[1]===entry,"NATIVE_EXPORT_FIXED_CHILD_ENTRY");
-  args[0]=[cmd[0],"--preload",guard,...cmd.slice(1)];
+  assertNativeExportChild(cmd);
+  args[0]=["bun","--preload",guard,...(cmd as string[]).slice(1)];
   return Reflect.apply(native,Bun,args);
  })as typeof Bun.spawn;
 }

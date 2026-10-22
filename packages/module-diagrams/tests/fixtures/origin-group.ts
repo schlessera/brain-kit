@@ -1,0 +1,1 @@
+export const originGroup = {schema_version:1,type:"architecture",title:"The homecoming relay",desc:"Odysseus prepares the raft.",size:"fit",nodes:[{id:"raft",label:"The raft",at:[0,0],size:[148,64]}],edges:[],groups:[{id:"crew",label:"CREW",members:["raft"]}]};

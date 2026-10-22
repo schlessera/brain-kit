@@ -47,7 +47,9 @@ contribution changeset and affected fast invariants, including uncommitted work.
 It does not require Docker or Chrome and does not duplicate complete packaging,
 strict types or full browser/runtime proof. Under the revised #2370 scope, Linux
 preflight requires permitted user/network namespaces and times three real
-sandbox setups before checks run; the fastest must take less than 250 ms.
+sandbox setups before checks run; the fastest must take less than 1000 ms
+(raised from 250 ms by maintainer ruling on 2026-10-21, so local preflight
+runs on hosts with a moderate bind-mount backlog; slower setup still refuses).
 A probe timeout retains its 5 s budget and refuses with an elapsed lower bound
 and actionable host diagnostics, separately from an ordinary failed setup.
 The timing probe belongs to the local CLI entry point. Hosted categories use
@@ -475,6 +477,32 @@ changed enforcement cannot qualify by recomputing its manifest. These fixtures
 exercise the existing audit and never refresh production pins or authorize
 retained proof for the candidate.
 
+Only a reviewed re-audit moves the audited revision
+([#2408](https://github.com/schlessera/brain-kit/issues/2408), maintainer ruling 2026-10-18):
+
+- **Trigger.** A legitimate change to any file in the audited producer table
+  (`const auditedProducer`, `scripts/generated-build-inputs.ts`) lands on main.
+  That merge leaves the binding unavailable, so proof runs fresh. A separate
+  follow-up PR restores it. Drift is not batched indefinitely.
+- **Owner.** The audited revision (`const owner`, `tests/frozen-generated-source.ts`)
+  must be a delivered main commit. CI reads its blobs offline from full history,
+  and a squash merge discards the changing PR's own commits, so that PR cannot
+  name itself as the owner.
+- **Audit.** The re-audit reviews each changed producer and the combined set's
+  guarantees: cleaned package output, the frozen Tailwind dependency, the build
+  finishing before browser execution, checked exits and the fresh receipt. It
+  records the owner, the changed paths and digests, and the rationale.
+  Recomputing a digest is not an audit.
+- **Update.** One PR moves the owner, refreshes every matching production digest
+  and updates the positive-fixture provenance together. It records two mutation
+  receipts, then completes local and hosted proof:
+  - a producer-digest bypass fails its negative control;
+  - corrupt positive ownership fails its positive control.
+- **Drift during review.** A producer that changes again before the re-audit
+  merges needs renewed review, or stays unqualified and keeps fresh proof.
+  Automatic pin refreshes and per-file ownership are not part of this
+  procedure.
+
 The native diagram SVG/PNG/PDF fixture has a separate finite operation binding.
 The host launches each engine's native producer in a separate network-disabled,
 read-only-root Docker container, using the existing pinned Playwright image's
@@ -580,13 +608,19 @@ and before/after tracing. Loopback resources receive no exemption. A resource
 attempt fails the actual proof; source, caller, guard or producer drift requires
 a new audit. The scene, visual assertions and trace remain unchanged.
 
-Diagram capture binds all four exact renderer, axis, positional and node-link callers and their complete call-site inventories,
+Diagram capture binds all six exact renderer, axis, positional, node-link,
+callout and scene-bounds callers and their complete call-site inventories,
 closed SVG primitive producers,
 literal adopted fixture, generated consumer CSS and locked inline-font inputs.
 Its additional replay page contains that source-owned document, aborts and records
 HTTP/websocket requests, and checks the zero-request invariant after document and
 font loading and after capture. Unknown DOM or resource origins remain unresolved;
-source or producer drift requires fresh execution and a new audit.
+source or producer drift requires fresh execution and a new audit. The
+scene-bounds caller owns one literal origin-group fixture and two literal
+annotation variants. Its client/static/flattened renderers share the closed
+primitive producer; the fixture, flattening dependency and changed geometry,
+annotation and painter sources are pinned explicitly. This audit does not
+qualify native retention or replace complete fresh runtime proof.
 
 The selected browser capability additionally requires a complete audited
 input-domain identity and an enforced zero-Worker boundary. The native,
