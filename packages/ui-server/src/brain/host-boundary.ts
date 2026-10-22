@@ -18,7 +18,8 @@
  * run on this brain, a fact kept in the UI database. It is not in force where
  * no governed turn can run: a server whose working directory is
  * inside the brain, or a host without the worker boundary. There the brain is
- * only ever written through the server's own routes, as before 0.42.
+ * only ever written through the server's own routes, as before 0.42. That
+ * legacy host path is refused while a provider folder policy is active (#2284).
  */
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
 import { existsSync, realpathSync } from "node:fs";
@@ -31,7 +32,8 @@ import {
   acquireHostCredentialExclusion, type HostCredentialDomain,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
-import { markUnpinnedHostWriter, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
+import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
+import { createGovernancePolicyReader } from "./governance-policy.js";
 import type { GovernedStatus, GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
 import { runMirrorSync, syncMirrorPath } from "./sync-mirror.js";
 import { resolveWorkerProtection } from "@schlessera/brain-ui-sdk/internal";
@@ -425,6 +427,11 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     try { return await fn(); } finally { hold?.release(); }
   };
 
+  // A gated host writer is refused inside its gate transaction; an ungated
+  // one (optional missing gate, `gate: none`, runSync) reads the policy here.
+  const policyReader = createGovernancePolicyReader(brain);
+  const admitHost = (hold: GateHold | null) => { if (hold) markUnpinnedHostWriter(hold); else refuseHostFallback(policyReader.load()); };
+
   /** The pre-boundary path: a host process with the brain as its working directory. */
   function hostSpawn(execution: BrainExecution) {
     const signal = execution.signal;
@@ -506,7 +513,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             if (isolated()) return undefined;
             if (execution.outputBytes !== undefined || execution.publish === false) throw Error("Bounded Storage maintenance requires the qualified worker boundary");
             execution.assertAuthorized?.();
-            if (hold) markUnpinnedHostWriter(hold);
+            admitHost(hold);
             execution.onExecute?.();
             const proc = hostSpawn(execution);
             const completion = [new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited] as const;
@@ -568,7 +575,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           if (isolated()) { credential?.release(); credential = undefined; }
           else {
             if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
-            if (hold) markUnpinnedHostWriter(hold);
+            admitHost(hold);
             const proc = hostSpawn(execution);
             return retainExecutionAdmission({ stdout: proc.stdout, stderr: proc.stderr, exited: proc.exited,
               get signalCode() { return proc.signalCode; }, kill: (signal?: NodeJS.Signals) => killWrapped(proc, exec, signal ?? "SIGTERM") },
@@ -646,6 +653,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       if (execution.credentials) throw new Error("Credentialed maintenance requires asynchronous execution.");
       if (!isolated()) {
         if (execution.publish === false) throw Error("A discarded read requires the qualified worker boundary");
+        admitHost(null);
         const result = Bun.spawnSync([...execution.argv], { cwd: brain, env: { ...execution.env }, stdout: "pipe", stderr: "pipe", timeout: execution.timeoutMs });
         return { stdout: result.stdout.toString(), stderr: result.stderr.toString(), exitCode: result.exitCode ?? 1 };
       }

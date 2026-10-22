@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
 import { createUiDb } from "../src/db/client";
-import { createWriterGate, markUnpinnedHostWriter, processAlive, processStart } from "../src/brain/writer-gate";
+import { createWriterGate, HostFallbackRefusedError, markUnpinnedHostWriter, processAlive, processStart } from "../src/brain/writer-gate";
 
 const dirs: string[] = [];
 afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }); });
@@ -150,20 +150,75 @@ describe("unpinned host writer provenance", () => {
     return w;
   }
 
-  test("known host writers remain concurrent while governed folder admission refuses their advisory roots", async () => {
-    const w = protectedWorld();
+  const writePolicy = (w: ReturnType<typeof world>, body: string) => {
+    mkdirSync(join(w.brain, "context/policies"), { recursive: true });
+    writeFileSync(join(w.brain, "context/policies/governance.md"), `---\nschema_version: 1\n${body}---\nAthena edits the policy.\n`);
+  };
+
+  test("known host writers remain concurrent while governed folder admission refuses them", async () => {
+    const w = world();
     try {
       const first = await w.server.acquire("shared", "host:odysseus");
       markUnpinnedHostWriter(first);
       const second = await w.cron.acquire("shared", "host:athena");
       markUnpinnedHostWriter(second);
       expect(w.server.holders()).toHaveLength(2);
+      // A folder policy written while the hosts run applies to later admissions.
+      writePolicy(w, "providers: [{ paths: [group/private/**], allow: [anthropic] }]\n");
       const candidate = await w.server.acquire("shared", "turn:circe");
       expect(candidate.folderPaths).toEqual(["group/private"]);
-      expect(() => candidate.assertPeerFolderPlans!(["group/private"]), "UNPINNED_HOST_ROOTS_NEVER_AUTHORIZE_GOVERNED_ADMISSION").toThrow("unpinned host writer");
+      expect(() => candidate.assertPeerFolderPlans!(["group/private"]), "UNPINNED_HOST_PEERS_NEVER_AUTHORIZE_GOVERNED_ADMISSION").toThrow("unpinned host writer");
       first.release(); second.release();
       expect(() => candidate.assertPeerFolderPlans!(["group/private"])).not.toThrow();
       candidate.release();
+    } finally { w.close(); }
+  });
+
+  test("an active provider folder policy refuses host classification before any negative record", async () => {
+    const w = protectedWorld();
+    try {
+      const host = await w.server.acquire("shared", "host:odysseus");
+      let refusal: unknown;
+      try { markUnpinnedHostWriter(host); } catch (error) { refusal = error; }
+      expect(refusal, "FOLDER_POLICY_REFUSES_HOST_CLASSIFICATION").toBeInstanceOf(HostFallbackRefusedError);
+      expect(String(refusal)).toContain("group/private");
+      expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id), "REFUSED_HOST_KEEPS_ITS_PLAN")
+        .toEqual({ folder_topology: JSON.stringify(["group/private"]) });
+      host.release();
+      const turn = await w.cron.acquire("shared", "turn:circe");
+      expect(() => turn.assertPeerFolderPlans!(["group/private"])).not.toThrow();
+      turn.release();
+    } finally { w.close(); }
+  });
+
+  test("an invalid governance policy refuses host classification as unknown folder state", async () => {
+    const w = world();
+    try {
+      writePolicy(w, "providers: [{ paths: [group/private/**] }]\n");
+      const host = await w.server.acquire("shared", "host:odysseus");
+      expect(() => markUnpinnedHostWriter(host), "INVALID_POLICY_REFUSES_HOST_CLASSIFICATION").toThrow(HostFallbackRefusedError);
+      host.release();
+      writePolicy(w, "");
+      const valid = await w.server.acquire("shared", "host:athena");
+      expect(() => markUnpinnedHostWriter(valid), "POLICY_WITHOUT_FOLDERS_KEEPS_HOST_CLASSIFICATION").not.toThrow();
+      valid.release();
+    } finally { w.close(); }
+  });
+
+  test("a peer's retained folders still refuse a late host after the policy is removed", async () => {
+    const w = protectedWorld();
+    try {
+      const native = await w.server.acquire("shared", "turn:odysseus");
+      native.assertPeerFolderPlans!(["group/private"]);
+      rmSync(join(w.brain, "context/policies/governance.md"));
+      const host = await w.cron.acquire("shared", "host:athena");
+      expect(host.folderPaths, "REMOVED_POLICY_INHERITS_PEER_ROOTS").toEqual(["group/private"]);
+      expect(() => markUnpinnedHostWriter(host), "INHERITED_ROOTS_REFUSE_LATE_HOST").toThrow("active peer");
+      host.release(); native.release();
+      const after = await w.cron.acquire("shared", "host:circe");
+      expect(after.folderPaths).toEqual([]);
+      expect(() => markUnpinnedHostWriter(after), "RELEASED_PEER_RESTORES_HOST_CLASSIFICATION").not.toThrow();
+      after.release();
     } finally { w.close(); }
   });
 
@@ -183,14 +238,14 @@ describe("unpinned host writer provenance", () => {
   });
 
   test("negative provenance cannot be forged, upgraded, or retained after release", async () => {
-    const w = protectedWorld();
+    const w = world();
     try {
       const host = await w.server.acquire("shared", "host:odysseus");
       expect(() => markUnpinnedHostWriter({ ...host })).toThrow("cannot be recorded");
       markUnpinnedHostWriter(host);
       expect(() => host.retainFolders!(["group/private"])).toThrow("cannot upgrade");
       expect(() => host.assertPeerFolderPlans!(["group/private"])).toThrow("cannot qualify");
-      expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id)).toEqual({ folder_topology: JSON.stringify({ kind: "unpinned_host", roots: ["group/private"] }) });
+      expect(w.db.query("SELECT folder_topology FROM writer_gate WHERE id = ?").get(host.id)).toEqual({ folder_topology: JSON.stringify({ kind: "unpinned_host", roots: [] }) });
       host.release(); host.release();
       expect(() => markUnpinnedHostWriter(host)).toThrow("cannot be recorded");
       expect(w.server.holders()).toEqual([]);

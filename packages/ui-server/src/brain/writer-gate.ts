@@ -22,7 +22,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { createGovernancePolicyReader, providerFolderRoots } from "./governance-policy.js";
+import { createGovernancePolicyReader, providerFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
 
 export type GateMode = "shared" | "exclusive";
 
@@ -70,6 +70,27 @@ export interface WriterGate {
 
 /** How often a waiting acquisition looks again. */
 export const GATE_POLL_MS = 200;
+
+/**
+ * The legacy host fallback refused because a provider folder policy is active
+ * or its state is unknown (#2284, ruling (c)). Nothing bounds a host child's
+ * descendants, so no host process may start beside folders a governed worker
+ * can pin.
+ */
+export class HostFallbackRefusedError extends Error {
+  constructor(message: string) { super(message); this.name = "HostFallbackRefusedError"; }
+}
+
+/**
+ * Refuse host fallback under an active provider folder policy, a retained
+ * folder plan, or an invalid policy. A policy without provider folders keeps
+ * the legacy host path.
+ */
+export function refuseHostFallback(policy: TurnGovernancePolicy, roots: readonly string[] = []): void {
+  if (policy.errors.length) throw new HostFallbackRefusedError("Host fallback is refused: context/policies/governance.md is invalid, so whether a provider folder policy is active is unknown. Check it with `brain policy check`, or run brain code where the worker boundary is available.");
+  const folders = [...new Set([...roots, ...providerFolderRoots(policy.policy)])].sort();
+  if (folders.length) throw new HostFallbackRefusedError(`Host fallback is refused while a provider folder policy is active (${folders.join(", ")}): this host cannot run brain code in a worker, and nothing bounds a host process's descendants. Run brain code where the worker boundary is available, or remove the provider folders from the policy.`);
+}
 
 // Only a concrete, still-owned hold can record negative host provenance.
 // This never attests mounts or upgrades a plan into qualified authority.
@@ -192,8 +213,11 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
                 if (!plan.unpinnedHost && (folderPaths.length || plan.roots.length))
                   throw new Error("Host fallback cannot enter beside an active peer that may depend on retained provider folders");
               }
+              // Ruling (c) on #2284: no host process starts while folders may
+              // be pinned. The current policy is reread inside this transaction.
+              refuseHostFallback(policyReader.load(), mergeFolderPlans(peers, folderPaths));
               // Serialize this downgrade against governed admission, before
-              // the host process exists. Non-null roots remain advisory.
+              // the host process exists. The recorded roots are always empty.
               db.query("UPDATE writer_gate SET folder_topology = ? WHERE id = ?").run(JSON.stringify({ kind: "unpinned_host", roots: folderPaths }), id);
             }).immediate();
             unpinnedHost = true;
