@@ -92,7 +92,7 @@ test("a governed peer cannot replace the retained index directory under a privat
   const restricted = reader(f.brain, join(f.root, "private-index"), ".brain-index", ".brain-index/brain.db");
   await restricted.ready();
   const hold = await f.turns.begin("index-peer", new AbortController().signal);
-  let peer: ReturnType<typeof Bun.spawnSync>;
+  let peer: { exitCode: number | null; stdout: Buffer; stderr: Buffer };
   try {
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
     // Every route that used to detach a mask over the index: renaming or
