@@ -5,8 +5,11 @@
 // observations already cover, and the 76 remaining rows split across #2630,
 // #2631 and #2632 by a fixed file-path rule. Each count was once a sentence in
 // an issue comment that nobody could reproduce. This test recomputes every one
-// of them from the operational basis and the cited observation artifacts, so a
-// hand-edited row, a moved boundary or a drifted artifact is a red build.
+// of them from the operational basis and the cited observation artifacts, binds
+// each artifact to the squash that delivered it, and checks every review's pin
+// against the file as it was at the reviewed checkout. A hand-edited row, a
+// moved boundary, a drifted artifact or a stale pin is a red build. It reads
+// Git objects, which CI's full-history checkout provides.
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "crypto";
@@ -18,6 +21,14 @@ const read = (file: string) => readFileSync(join(EVIDENCE, file));
 const json = (file: string) => JSON.parse(read(file).toString());
 const sha256 = (file: string) => createHash("sha256").update(read(file)).digest("hex");
 const sorted = (rows: Iterable<number>) => [...new Set(rows)].sort((a, b) => a - b);
+const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+/** A file's bytes at a commit. CI checks out full history, so a missing object is a failure, not a skip. */
+function blobAt(commit: string, file: string): Buffer {
+  const shown = Bun.spawnSync(["git", "show", `${commit}:${file}`], { cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
+  if (shown.exitCode !== 0) throw new Error(`git show ${commit}:${file}: ${shown.stderr.toString().trim()}`);
+  return shown.stdout;
+}
 
 const partition = json("test-wait-review-partition.json");
 const basis = json(partition.source.basisArtifact.split("/").pop());
@@ -69,6 +80,8 @@ describe("test-wait review partition", () => {
     const delivered = new Set<number>();
     for (const component of partition.deliveredUnion.components) {
       expect(sha256(component.artifact), component.artifact).toBe(component.sha256);
+      // The artifact is the one its delivering squash merged, not a later edit with a matching hash.
+      expect(hash(blobAt(component.squash, `docs/process/evidence/${component.artifact}`)), component.artifact).toBe(component.sha256);
       const document = json(component.artifact);
       for (const { path, rows } of component.paths) {
         expect(resolveRows(document, path), `${component.artifact}#${path}`).toEqual(rows);
@@ -113,7 +126,8 @@ describe("test-wait review partition", () => {
       const { pinned, ownership, classification, observation } = entry;
       expect(pinned.checkout, where).toBe(partition.reviewMethod.checkout);
       expect(pinned.file, where).toBe(review.find((row: { index: number }) => row.index === entry.index).file);
-      expect(pinned.fileSha256, where).toMatch(/^[0-9a-f]{64}$/);
+      const blob = blobAt(pinned.checkout, pinned.file);
+      expect(hash(blob), where).toBe(pinned.fileSha256);
       expect(pinned.enclosing, where).toBeTruthy();
       expect(pinned.callers.length, where).toBeGreaterThan(0);
       expect(classification.basis, where).toBeTruthy();
@@ -123,8 +137,7 @@ describe("test-wait review partition", () => {
         expect(pinned.line, where).toBeNull();
         expect(ownership.retired?.commit, where).toMatch(/^[0-9a-f]{40}$/);
       } else {
-        expect(Number.isInteger(pinned.line), where).toBe(true);
-        expect(pinned.source, where).toBeTruthy();
+        expect(blob.toString().split("\n")[pinned.line - 1]?.trim(), where).toBe(pinned.source.trim());
       }
       // An observed run is never inferred, and its instrumentation was undone.
       expect(observation !== null, where).toBe(classification.basisType === "observation");
@@ -132,6 +145,11 @@ describe("test-wait review partition", () => {
         expect(observation.command, where).toBeTruthy();
         expect(observation.checkout, where).toBe(partition.reviewMethod.checkout);
         expect(observation.restoredSha256, where).toEqual(observation.sourceSha256);
+        expect(typeof observation.calls, where).toBe("number");
+        expect(Array.isArray(observation.elapsedMs), where).toBe(true);
+        expect(observation.calls === 0 || observation.elapsedMs.length > 0, where).toBe(true);
+        expect(observation.guards, where).toBeTruthy();
+        expect(observation.result, where).toBeTruthy();
       }
       if (classification.kind !== "observed" && classification.kind !== "retired") {
         expect(classification.noElapsedMinimumImplied, where).toBe(true);

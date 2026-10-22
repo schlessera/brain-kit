@@ -1842,7 +1842,7 @@ hash. It names any existing owner and closes with one of two outcomes:
 | Inventory | Rows | Classification | Owners and retirements | Follow-ups |
 | --- | --- | --- | --- | --- |
 | #2630 in-process | 23 | 11 fixture holds ended by cancellation, 4 killed keepalives, 3 logical scheduler declarations, 3 observed, 1 polling cadence, 1 natural-exit hold; 8 rows with selected runs | Rows 14 and 17 sit on #1943's private contract clock. Row 16 keeps native time under [private conformance counterexamples](#private-conformance-counterexamples). Row 718 is in the experiment entry of the [attributed inventory](#attributed-source-inventory). None retired. | #2634, #2635, #2637 |
-| #2631 native-process | 44 | 19 observed, 8 fixture holds ended by cancellation, 7 killed keepalives, 4 never-executed strings, 4 polling cadences, 1 failure ceiling, 1 retired; 22 rows with selected runs | No owner. #1939's controlled deadlines cover `boot-probe-deadline.test.ts` only. Row 679 was retired by `7d1a31d09` (#2069). | #2634, #2636, #2637, #2638 |
+| #2631 native-process | 44 | 18 observed, 9 fixture holds ended by cancellation, 7 killed keepalives, 4 never-executed strings, 4 polling cadences, 1 failure ceiling, 1 retired; 21 rows with selected runs | No owner. #1939's controlled deadlines cover `boot-probe-deadline.test.ts` only. Row 679 was retired by `7d1a31d09` (#2069). | #2634, #2636, #2637, #2638 |
 | #2632 browser | 9 | 2 observed, 2 cancelled background frame workloads, 1 frame readiness report, 1 failure ceiling, 1 polling cadence, 1 SIGKILL-ended hold, 1 retired | Row 76 was retired by `615b97f50` (#1930), owned by #1929. | #2639 |
 
 Each review records its own inventory-specific evidence:
@@ -1864,7 +1864,9 @@ The follow-ups are bounded children of #1849:
 - **#2636:** the tmpfs floor case waits about 28 s for the real observation
   tick.
 - **#2637:** the ws-scope-caps freeze assertions read a heartbeat file that
-  never exists on the host, so both of them compare zero with zero.
+  never exists on the host, so both of them compare zero with zero. A
+  host-side diagnostic run recorded the missing file; it is not counted as an
+  observation of the writer loop.
 - **#2638:** the worker-state fixtures hold turns with fixed shell sleeps.
 - **#2639:** a 100 ms account-clear yield.
 

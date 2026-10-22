@@ -1579,14 +1579,14 @@
       "rows": 44,
       "byKind": {
         "failure ceiling": 1,
-        "fixture hold ended by cancellation": 8,
+        "fixture hold ended by cancellation": 9,
         "killed keepalive": 7,
         "never-executed string": 4,
-        "observed": 19,
+        "observed": 18,
         "polling cadence": 4,
         "retired": 1
       },
-      "observed": 22,
+      "observed": 21,
       "owned": [],
       "retired": [
         679
@@ -3539,22 +3539,23 @@
         "note": "No issue, delivered PR or evidence section owns this site. Checked docs/process/test-waits.md, scope-observer-proof.md, docs/process/evidence/*.json (only test-wait-child-basis.json source review and whole-file passes, which are not child telemetry) and the tracker."
       },
       "classification": {
-        "kind": "observed",
-        "basisType": "observation",
-        "basis": "Writer cadence (20 ms appends) meant to witness that the frozen worker makes no progress. The selected run shows the host never sees it: join(brain, \"adapter-heartbeat\") does not exist at the pause, 150 ms later, or at Stop, in both the pi and claude dictation cases. The two freeze assertions therefore compare 0 with 0 and cannot fail. How the shell ends is not observed (inference: Stop -> abort -> process.exit(0) -> sandbox teardown).",
-        "holdEnd": "not observed; inferred sandbox teardown after Stop"
+        "kind": "fixture hold ended by cancellation",
+        "basisType": "control-flow inference",
+        "basis": "An unbounded writer loop (printf x >> adapter-heartbeat; sleep 0.02) is the independent progress witness for the scope freeze; 20 ms is its cadence, not an awaited duration. Inference: the loop lives until the fixture worker exits on abort (process.exit(0) after Stop) and its sandbox is torn down. Its iteration count and lifetime were not observed. No completed elapsed minimum is implied.",
+        "noElapsedMinimumImplied": true,
+        "holdEnd": "inferred: worker exit on abort after Stop, then sandbox teardown; not observed"
       },
-      "observation": {
+      "observation": null,
+      "diagnostic": {
         "command": "bun run test packages/ui-server/tests/ws-scope-caps.test.ts -t 'dictation'",
         "checkout": "444174de82ee1e2e41e26aa5c032841e7981ec15",
         "sourceSha256": "7c84a561daa3e184d91affd6bb153072ac439253e7cc228d49b86492859087e3",
         "instrumentedSha256": "ab4e1537572e7ace13dc30da4c9beb10a7269e2d533f8512e80db216ff8cb75a",
         "restoredSha256": "7c84a561daa3e184d91affd6bb153072ac439253e7cc228d49b86492859087e3",
         "guards": "Repository test script (bun scripts/test.ts) with the scripts/test-network-preload.ts preload refusing non-loopback network; Bun 1.4.2; no guard, deadline or namespace option changed; ordinary user, no native Btrfs/loop lock (not an exclusive-fixture suite).",
-        "calls": 0,
-        "elapsedMs": [],
         "result": "2 pass / 0 fail (claude and pi dictation)",
-        "notes": "Test-side existsSync/size of join(brain, \"adapter-heartbeat\") at the pause, after the 150 ms window and after Stop: absent (size 0) every time, both adapters. Host-observed writer bytes: 0. Fixture unchanged. An earlier attempt that appended to a file from inside the worker made the case fail (no pause within 8 s); it was discarded and the fixture restored."
+        "notes": "Test-side existsSync/size of join(brain, \"adapter-heartbeat\") at the pause, after the 150 ms window and after Stop: absent (size 0) every time, both adapters. Host-observed writer bytes: 0. Fixture unchanged. An earlier attempt that appended to a file from inside the worker made the case fail (no pause within 8 s); it was discarded and the fixture restored.",
+        "scope": "Host-side witness check only. The run read join(brain, \"adapter-heartbeat\") at the pause, after the 150 ms window and at Stop; the file was absent in both adapters. File absence does not count the writer loop iterations or its sleep calls: printf can fail while sleep 0.02 still repeats. Basis of #2637, not a row-level count."
       },
       "followUp": "https://github.com/schlessera/brain-kit/issues/2637"
     },
