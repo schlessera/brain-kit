@@ -169,10 +169,10 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `the status envelope carries the typed SystemStatus software object` ([source](../packages/ui-server/tests/software-status.test.ts)), (`the status envelope carries the typed SystemStatus software object`, `packages/ui-server/tests/software-status.test.ts:21-35`)
 - `has every field, and never the token` ([source](../packages/ui-server/tests/subscription-status.test.ts)), (`has every field, and never the token`, `packages/ui-server/tests/subscription-status.test.ts:293-313`)
 - `a turn's runtime report and auth failure are kept for /api/status, on that turn's run` ([source](../packages/ui-server/tests/ws-runtime-status.test.ts)), (`a turn's runtime report and auth failure are kept for /api/status, on that turn's run`, `packages/ui-server/tests/ws-runtime-status.test.ts:32-87`)
-- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:56-73`)
-- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:137-153`)
-- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:155-164`)
-- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:191-208`)
+- `a failing host boots anyway, logs the named requirement once, and /api/status reports it` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`a failing host boots anyway, logs the named requirement once, and /api/status reports it`, `packages/ui-server/tests/worker-host-status.test.ts:59-76`)
+- `re-runs the real probe and records what it found, in both directions` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`re-runs the real probe and records what it found, in both directions`, `packages/ui-server/tests/worker-host-status.test.ts:153-169`)
+- `is behind the auth guard` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`is behind the auth guard`, `packages/ui-server/tests/worker-host-status.test.ts:171-180`)
+- `boots, warns once in the log, and keeps the warning on /api/status and through Check again` ([source](../packages/ui-server/tests/worker-host-status.test.ts)), (`boots, warns once in the log, and keeps the warning on /api/status and through Check again`, `packages/ui-server/tests/worker-host-status.test.ts:207-224`)
 
 **A — Password access and revocation.**
 
@@ -379,8 +379,8 @@ the additive `query_activity` scope carries the supported agent contract.
 - `governance events filter by session, turn and kind, and page in id order` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events filter by session, turn and kind, and page in id order`, `packages/ui-server/tests/governance-events-http.test.ts:48-71`)
 - `governance events refuse malformed parameters` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`governance events refuse malformed parameters`, `packages/ui-server/tests/governance-events-http.test.ts:73-82`)
 - `a governance event storage failure is a 500` ([source](../packages/ui-server/tests/governance-events-http.test.ts)), (`a governance event storage failure is a 500`, `packages/ui-server/tests/governance-events-http.test.ts:84-91`)
-- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:177-191`)
-- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:193-202`)
+- `events survive the Activity span-detail prune` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`events survive the Activity span-detail prune`, `packages/ui-server/tests/governance-events.test.ts:178-192`)
+- `deleting a session deletes its events and only its events` ([source](../packages/ui-server/tests/governance-events.test.ts)), (`deleting a session deletes its events and only its events`, `packages/ui-server/tests/governance-events.test.ts:194-203`)
 
 **N — Speech grants.**
 

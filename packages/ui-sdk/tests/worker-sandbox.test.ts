@@ -372,6 +372,15 @@ describe("the sandbox note's wording (#1654)", () => {
     expect(note, "READ_ONLY_IS_NOT_IDENTITY_ISOLATION").toContain("A read-only brain does not prevent access to other host paths available to that uid");
   });
 
+  test.each(["governed", "strict"] as const)("%s capabilities state recorded egress only for a worker routed through its turn proxy", profile => {
+    const routed = workerSandboxNote({ ...strict, profile }, { egress: true });
+    expect(routed, "EGRESS_NOTE_ROUTED").toContain("Network access goes through this turn's host proxy");
+    expect(routed).not.toContain("Egress is unrecorded");
+    const unrouted = workerSandboxNote({ ...strict, profile });
+    expect(unrouted, "EGRESS_NOTE_UNROUTED_CLAIMS_NOTHING").not.toContain("host proxy");
+    if (profile === "governed") expect(unrouted).toContain("Egress is unrecorded");
+  });
+
   test("the strict note states the profile, the three areas and the link rule", () => {
     expect(workerSandboxNote(strict)).toMatchInlineSnapshot(`
       "# Where files go in this turn

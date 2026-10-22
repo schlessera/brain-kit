@@ -432,14 +432,17 @@ export interface WorkerNoteFacts {
   /** Only actual host services and this admitted observation window supply these facts. */
   readonly history?: { readonly journal: boolean; readonly userRevert: boolean };
   readonly hardTimeoutMs?: number;
+  /** Set only by a backend that actually routed this worker through its turn proxy. */
+  readonly egress?: boolean;
 }
 
 const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
 
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
-const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox, identityNote: string) => string> = {
-  governed: (sandbox, identityNote) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} Egress is unrecorded. Maintenance workers may receive provider credentials until inference relays land.`,
-  strict: (sandbox, identityNote) => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${identityNote}`,
+const EGRESS_NOTE = "Network access goes through this turn's host proxy: connections are recorded and limited by policy, and a connection to an outward host waits for approval unless the call in progress was classified as a read or an approved outward action.";
+const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox, identityNote: string, egress: boolean) => string> = {
+  governed: (sandbox, identityNote, egress) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} ${egress ? EGRESS_NOTE : "Egress is unrecorded."} Maintenance workers may receive provider credentials until inference relays land.`,
+  strict: (sandbox, identityNote, egress) => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${identityNote}${egress ? ` ${EGRESS_NOTE}` : ""}`,
 };
 
 /** The line for each state an area's mount can be in, naming the area by its resolved path. */
@@ -486,7 +489,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   } else {
     const scratch = sandbox.areas.find(area => area.name === "scratch" && area.mount.writable);
     lines.push(
-      PROFILE_LINES[profile](sandbox, identityNote),
+      PROFILE_LINES[profile](sandbox, identityNote, resolvedFacts.egress === true),
       "",
       `1. **Turn temp:** ${turnTempPlaces()}. ${TURN_TEMP_RULE}`,
       sandbox.areas.some(area => area.mount.writable)
