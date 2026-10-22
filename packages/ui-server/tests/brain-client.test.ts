@@ -23,6 +23,7 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { createBrainRoutes } from "../src/routes/brain";
 
 import { BRAIN_BIN, runCli } from "../../core/tests/cli-harness";
+import { registeredVersionDeadline } from "../../ui-sdk/tests/helpers/registered-version-deadline";
 
 const temporaryRoots: string[] = [];
 
@@ -601,18 +602,23 @@ describe("the exec wrapper covers the shared CLI client", () => {
       { mode: 0o755 }
     );
     chmodSync(wrapper, 0o755);
-    // Times out after 5s, logs a warning, and continues — the probe is
-    // advisory. What must not survive it is the child.
-    const pending = probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper } });
-    const pids = await waitForHostProcesses(marker);
-    expect(pids.length).toBeGreaterThan(0);
-    await pending;
-    const deadline = Date.now() + 10_000;
-    const alive = () => pids.some(hostProcessAlive);
-    while (alive() && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    expect(alive()).toBe(false);
+    // Deliver the registered 5s policy only after the native wrapper child exists.
+    const clock = registeredVersionDeadline("maintenance");
+    try {
+      const pending = clock.track(probeBrainCliVersion(root, createRecordingObservability().logger("test"), { exec: { wrapper } }));
+      const pids = await waitForHostProcesses(marker);
+      expect(pids.length).toBeGreaterThan(0);
+      expect(pids.some(hostProcessAlive), "VERSION_PROBE_NATIVE_WRAPPER_PENDING_AT_DEADLINE").toBe(true);
+      await clock.expire();
+      await pending;
+      clock.assertSettled();
+      const deadline = Date.now() + 10_000;
+      const alive = () => pids.some(hostProcessAlive);
+      while (alive() && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(alive(), "VERSION_PROBE_WRAPPER_CHILD_REAPED").toBe(false);
+    } finally { await clock.dispose(); }
   }, 60_000);
 
   test("the version probe goes through it too, so a broken wrapper fails at boot", async () => {
