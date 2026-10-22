@@ -1,7 +1,7 @@
 import { resolve } from "path";
 import { executeBuild } from "./build-execution";
 import { selectBuildPackages } from "./publishable-packages.ts";
-import { ensureWorkspaceLease } from "./workspace-lease.mjs";
+import { advanceOutputGeneration, ensureWorkspaceLease } from "./workspace-lease.mjs";
 
 // Build order is not load-bearing: each package's tsconfig.build.json extends
 // the root tsconfig, whose customConditions ["bun"] resolve cross-package
@@ -54,6 +54,9 @@ if (dryRun) {
 
 const coordinated = await ensureWorkspaceLease(root, "write");
 if (coordinated !== undefined) process.exit(coordinated);
+// Revoke any live invocation's build before the first output mutation, so a
+// failed or cancelled build here cannot leave an outer receipt describing dist.
+const generation = advanceOutputGeneration(root);
 // Intent requests this one operation; its independent qualification and actual
 // captured input/output checks supply authority. Unqualified contexts rebuild.
 if (process.env.BRAIN_CI_BUILD_OPERATION === "isolated-v1") {
@@ -61,4 +64,4 @@ if (process.env.BRAIN_CI_BUILD_OPERATION === "isolated-v1") {
   const code = await attemptCiBuild(root, { directories, jobs: jobs as 1 | 2, force });
   if (code !== undefined) process.exit(code);
 }
-process.exitCode = await executeBuild(root, packages, jobs as 1 | 2, directories !== undefined);
+process.exitCode = await executeBuild(root, packages, jobs as 1 | 2, directories !== undefined, generation);

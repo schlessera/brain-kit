@@ -524,7 +524,15 @@ credentials. A fork run awaiting maintainer approval has not passed.
 
 Hosted unit partitions run up to two serial Bun test processes through
 `scripts/unit-workers.ts`. Each owns its source checkout, copied frozen
-install, build output and workspace lease. The wrapper preserves the caller's
+install, build output and workspace lease. Full preparation now runs after
+namespace entry inside the test wrapper, under one continuous build/test lease;
+the two workers keep independent invocation identities and serial compilers.
+A prepared worker may start tests while its sibling is still building. Account
+for that scheduling change separately from duplicate hook builds. Runtime hooks
+verify the live invocation and successful closure receipt before reuse; missing
+authority rebuilds, and a failed preparation stops before tests without retry.
+See [the invocation rule](../decisions/ci-utility.md#one-fresh-build-per-test-invocation).
+The wrapper preserves the caller's
 umask, drops setup capabilities and binds a private maintenance ledger without
 changing within-worker child limits or hiding the host's `/tmp` from Docker.
 Its checkout container lives outside host `/tmp`, which native workers replace

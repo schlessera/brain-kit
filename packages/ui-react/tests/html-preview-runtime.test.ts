@@ -1,3 +1,4 @@
+import { runtimePackageBuild } from "./fixtures/runtime-package-build";
 import { runtimeHookPhases } from "./fixtures/runtime-hook-phases.ts";
 // #1084: an HTML file's script runs in the file viewer and in a new tab, but in
 // an opaque origin that cannot reach the app. Proven in real Chrome, against
@@ -42,7 +43,7 @@ let sessionCookie = "";
 
 async function child(args: string[]): Promise<void> {
   const process = Bun.spawn(args, { cwd: repo, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  const [out, err, code] = await hook.child(args[1] === "scripts/build.ts" ? "package-build" : "fixture-child", process);
+  const [out, err, code] = await hook.child("fixture-child", process);
   if (code !== 0) throw new Error(`HTML preview fixture preparation failed (${code}): ${out}\n${err}`);
 }
 
@@ -146,7 +147,7 @@ const hook = runtimeHookPhases("html-preview-runtime.test.ts");
 beforeAll(() => hook.phase("setup", async () => {
   if (!executablePath) return;
   // The client bundle uses fresh source plus ordinary package resolution.
-  await child([process.execPath, "scripts/build.ts", "--for", "ui-react,ui-server,core"]);
+  await runtimePackageBuild(repo, ["ui-react", "ui-server", "core"], hook);
   fixture = await mkdtemp(resolve(tmpdir(), "odysseus-html-preview-"));
   attacker = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
     const url = new URL(request.url);
