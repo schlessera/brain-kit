@@ -19,7 +19,15 @@
  * default — diffed against the base, that hides a doc edit which also landed
  * on the base through another PR, and would reject a correctly titled one.
  *
+ * The base is the one the PR declares. The workflow reads it from the PR
+ * itself at run time, never from the event context: for an upper layer of a
+ * native stack, GitHub reports the stack's base (`main`) as `github.base_ref`
+ * on `edited` events, and a diff against `main` charges the layer with its
+ * parent's contract edit (#2650). A base that cannot be read or fetched fails
+ * the gate; it never falls back to `main`.
+ *
  *   PR_TITLE=… PR_LABELS='["contract"]' bun scripts/check-contract-pr.ts <base-ref> <head-sha>
+ *   PR_NUMBER=… GH_TOKEN=… PR_TITLE=… bun scripts/check-contract-pr.ts --declared-base <head-sha>
  */
 
 import { resolve } from "path";
@@ -78,6 +86,62 @@ export function changedFiles(cwd: string, base: string, head: string): string[] 
     .filter(Boolean);
 }
 
+const LOOKUP_ATTEMPTS = 3;
+
+/** The remote-tracking ref of the base the PR declares right now, read from
+ * the PR object rather than the event. Throws, with the reason, when the PR
+ * cannot be identified, the lookup fails, or the base is not fetched. */
+export async function declaredBase(cwd: string, env: NodeJS.ProcessEnv,
+  fetchImpl: typeof fetch = fetch, retryDelayMs = 2000): Promise<string> {
+  const number = env.PR_NUMBER ?? "";
+  if (!/^[1-9][0-9]*$/.test(number)) throw new Error(`PR_NUMBER is not a pull request number: ${JSON.stringify(number)}`);
+  const repository = env.GITHUB_REPOSITORY ?? "";
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error(`GITHUB_REPOSITORY is not owner/name: ${JSON.stringify(repository)}`);
+  if (!env.GH_TOKEN) throw new Error("GH_TOKEN is required to read the PR's declared base");
+  const api = new URL(env.GITHUB_API_URL || "https://api.github.com");
+  if (api.protocol !== "https:" && !(api.protocol === "http:" && api.hostname === "127.0.0.1")) {
+    throw new Error(`GITHUB_API_URL must be https: ${api.href}`);
+  }
+  const url = `${api.href.replace(/\/$/, "")}/repos/${repository}/pulls/${number}`;
+
+  let pr: any;
+  for (let attempt = 1; ; attempt++) {
+    let response: Response | undefined;
+    let failure: string;
+    try {
+      response = await fetchImpl(url, {
+        signal: AbortSignal.timeout(15000),
+        headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${env.GH_TOKEN}`, "X-GitHub-Api-Version": "2022-11-28" },
+      });
+      failure = `HTTP ${response.status}`;
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    if (response?.ok) { pr = await response.json().catch(() => undefined); break; }
+    // A refusal is an answer; only a server or network failure is worth repeating.
+    if (response && response.status < 500) throw new Error(`Reading PR #${number} failed: ${failure}`);
+    if (attempt >= LOOKUP_ATTEMPTS) throw new Error(`Reading PR #${number} failed after ${attempt} attempts: ${failure}`);
+    await Bun.sleep(retryDelayMs * attempt);
+  }
+
+  if (pr?.number !== Number(number)) throw new Error(`The lookup for PR #${number} did not return that pull request`);
+  if (pr.base?.repo?.full_name !== repository) {
+    throw new Error(`PR #${number} declares a base outside ${repository}: ${JSON.stringify(pr.base?.repo?.full_name ?? null)}`);
+  }
+  const ref = pr.base?.ref;
+  const valid = typeof ref === "string" && !ref.startsWith("-") &&
+    Bun.spawnSync(["git", "check-ref-format", "--branch", ref], { cwd, stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+  if (!valid) throw new Error(`PR #${number} declares no valid base branch: ${JSON.stringify(ref ?? null)}`);
+  const tracking = `refs/remotes/origin/${ref}`;
+  if (Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `${tracking}^{commit}`], { cwd, stdout: "ignore", stderr: "ignore" }).exitCode !== 0) {
+    throw new Error(`PR #${number} declares base ${ref}, but the checkout has not fetched origin/${ref}`);
+  }
+  const reported = env.EVENT_BASE_REF;
+  console.log(`Contract base: origin/${ref}, declared by PR #${number}` +
+    (reported === undefined ? "." : reported === ref ? "; the event agrees." : `; the event reported ${JSON.stringify(reported)}.`));
+  return tracking;
+}
+
 /** `PR_LABELS` as the workflow passes it: a JSON array of label names. */
 export function parseLabels(raw: string | undefined): string[] {
   if (!raw) return [];
@@ -89,16 +153,28 @@ export function parseLabels(raw: string | undefined): string[] {
 }
 
 if (import.meta.main) {
-  const [base, head] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const resolveBase = args[0] === "--declared-base";
+  let [base, head] = resolveBase ? [undefined, args[1]] : args;
   const title = process.env.PR_TITLE;
-  if (!base || !head || title === undefined) {
+  if ((!resolveBase && !base) || !head || title === undefined) {
     console.error(
-      "usage: PR_TITLE=… PR_LABELS='[…]' bun scripts/check-contract-pr.ts <base-ref> <head-sha>"
+      "usage: PR_TITLE=… PR_LABELS='[…]' bun scripts/check-contract-pr.ts <base-ref> <head-sha>\n" +
+      "       PR_NUMBER=… GH_TOKEN=… PR_TITLE=… bun scripts/check-contract-pr.ts --declared-base <head-sha>"
     );
     process.exit(2);
   }
+  if (resolveBase) {
+    try {
+      base = await declaredBase(ROOT, process.env);
+    } catch (error) {
+      // A gate that cannot name the PR's base must not pick one.
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(2);
+    }
+  }
 
-  const changed = changedFiles(ROOT, base, head);
+  const changed = changedFiles(ROOT, base!, head);
   // A gate that cannot see the diff must not report success.
   if (changed === null) process.exit(2);
 

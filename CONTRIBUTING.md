@@ -424,7 +424,10 @@ its title or labels change. A PR whose diff touches
 and carry the `contract` label. A PR titled `CONTRACT:` or labelled `contract`
 must touch the index or a component. PRs are squash-merged, so the title
 becomes the commit subject that an audit searches for. "Touches" means the PR's own diff, from
-where its branch left the base to its head commit. If the gate fails, either
+where its branch left the base to its head commit. The base is the one the PR
+declares, read from the PR on every run: an upper stack layer is compared with
+its parent, never with `main`, whatever base the event reports. If the PR or its
+base cannot be read, the gate fails rather than guess. If the gate fails, either
 fix the title and label, or move the doc edit out of a PR that is not a
 contract change.
 
