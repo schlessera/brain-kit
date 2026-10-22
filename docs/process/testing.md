@@ -544,6 +544,40 @@ artifact. Browser artifacts also retain exactly the prepared native diagram
 preparation session and engine. This preserves the producer's checkout,
 source, installation and runtime identity even if a later browser case fails.
 
+The other consumer screenshot destinations have these explicit boundaries:
+
+- Fixture-owned temporary `artifact-*.png` captures show the recovery UI before
+  later zoom and keyboard assertions. Retain their exact returned bytes in
+  `packages/ui-react/.vitest-attachments/artifact-recovery/capture-*`, preserving
+  the original scratch captures and fixture teardown. Unique directories keep
+  repeated names from replacing earlier evidence (`artifactRecoveryCapture`,
+  `packages/ui-react/tests/fixtures/artifact-recovery-capture.ts:5-12`). The
+  existing unit-worker attachment handoff and unit artifact upload collect
+  these copies even after a later assertion fails and the fixture is removed.
+- Opt-in external captures stay **local-only**: `BRAIN_ARTIFACT_SCREENSHOTS`
+  directs additional artifact captures to a caller-chosen directory
+  (`if (process.env.BRAIN_ARTIFACT_SCREENSHOTS)`,
+  `packages/ui-react/tests/artifact-recovery-runtime.test.ts:332-332`), while
+  `BRAIN_REVIEW_CAPTURES` does the same for association/signout review
+  (`if (process.env.BRAIN_REVIEW_CAPTURES)`,
+  `packages/ui-react/tests/association-signout-runtime.test.ts:218-218`;
+  `if (process.env.BRAIN_REVIEW_CAPTURES)`,
+  `packages/ui-react/tests/association-signout-runtime.test.ts:252-252`). Hosted
+  proof sets neither variable. These are optional manual review exports;
+  collectors do not search arbitrary external directories.
+- Standalone navigation/software diagnostics stay **local-only**. The manual
+  navigation probe writes `navigation-*.png` to its caller-supplied output or
+  `/tmp/brain-navigation-recovery` (`const output`,
+  `scripts/probes/navigation-recovery/harness.ts:22-22`;
+  `await p.screenshot`, `scripts/probes/navigation-recovery/navigation.ts:124-130`).
+  It is outside default test discovery and is not invoked by hosted proof.
+  The selected software-identity tests still run normally; their
+  `/tmp/brain-kit-software-*.png` exports occur only after every case assertion
+  has passed (`expect(result.values)`, `tests/stats-answer-render.test.tsx:192-197`).
+  Those successful-state review conveniences cannot diagnose an earlier failed
+  assertion and are not automatic failure screenshots. Keep their local paths;
+  do not collect broad `/tmp` contents as hosted failure evidence.
+
 Verify retention from downloaded artifact ZIPs: compare the archive SHA-256 to
 the Actions artifact digest, check ZIP CRCs and safe paths, then record each
 PNG's nonzero dimensions, byte size and SHA-256. Match checkout receipts to

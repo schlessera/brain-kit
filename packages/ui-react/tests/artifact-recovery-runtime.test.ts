@@ -9,6 +9,7 @@ import { createRecordingObservability, createStaticBackendRegistry, resolveServe
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 import { makeFakeBackend } from "../../ui-server/tests/helpers/fake-backend.ts";
+import { artifactRecoveryCapture } from "./fixtures/artifact-recovery-capture.ts";
 
 const executablePath = [process.env.PUPPETEER_EXECUTABLE_PATH, "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]
   .find(path => path && statSync(path, { throwIfNoEntry: false })?.isFile());
@@ -327,7 +328,7 @@ for (const [width, theme] of [[320, "dark"], [1280, "light"]] as const) {
         return [[r.left + 1, r.top + r.height / 2], [r.right - 1, r.top + r.height / 2], [r.left + r.width / 2, r.top + 1], [r.left + r.width / 2, r.bottom - 1]]
           .every(([x, y]) => element.contains(document.elementFromPoint(x!, y!)));
       }), "RETRY_EDGE_HIT_TESTS").toBe(true);
-      await page.screenshot({ path: resolve(fixture, `artifact-${theme}-${width}.png`) });
+      await artifactRecoveryCapture(resolve(fixture, `artifact-${theme}-${width}.png`), path => page.screenshot({ path }));
       if (process.env.BRAIN_ARTIFACT_SCREENSHOTS) await page.screenshot({ path: resolve(process.env.BRAIN_ARTIFACT_SCREENSHOTS, `artifact-${theme}-${width}.png`) });
       await page.evaluate(() => { document.documentElement.style.zoom = "2"; });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "200PCT_ZOOM_NO_HORIZONTAL_OVERFLOW").toBe(true);

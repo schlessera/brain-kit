@@ -25,6 +25,7 @@ export function unitWorkerFixture(options: { failBuild?: boolean; diagnostics?: 
     ".vitest-attachments/worker/.receipt.json",
     "packages/ui-kit/.vitest-attachments/worker/capture.png",
     "packages/ui-react/.vitest-attachments/worker/capture.png",
+    "packages/ui-react/.vitest-attachments/artifact-recovery/capture-fixture/artifact-dark-320.png",
     "tmp/diagram-renderer-proof/capture.png", "tmp/mermaid-renderer-proof/capture.png",
     "tmp/diagram-export-proof/native/capture.png", "tmp/cold-capture/dark.png",
     "tmp/share-review/signout-320.png", "tmp/svg-proof/svg-print.html.png", "tmp/svg-proof/svg-print.html.pdf",
