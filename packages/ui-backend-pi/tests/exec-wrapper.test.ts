@@ -48,10 +48,11 @@ function writeWrapper(name: string): { path: string; argvLog: string } {
   return { path, argvLog };
 }
 
-function toolsFor(root: string) {
+function toolsFor(root: string, exec?: { wrapper?: string; killer?: string }) {
   const turn = createTurnContext();
   const tools = createBrainTools({
     brain: createBrainAccess(root),
+    exec,
     turn,
     lock: toolLockFromKeyed(createKeyedLock()),
   });
@@ -161,4 +162,30 @@ describe("the grep tool", () => {
       brain.cleanup();
     }
   }, 30_000);
+});
+
+test("host A/C and explicit empty override ambient B for both Pi spawn tools (#1429)", async () => {
+  const brain = await makeEmptyBrain();
+  const a = writeWrapper("host-a"), b = writeWrapper("ambient-b"), c = writeWrapper("host-c");
+  process.env.BRAIN_UI_EXEC_WRAPPER = b.path;
+  writeFileSync(join(brain.root, "hit.md"), "needle");
+  try {
+    for (const tool of ["bash", "grep"] as const) {
+      for (const wrapper of [a, c]) {
+        const result = await toolsFor(brain.root, { wrapper: wrapper.path })[tool]!.execute(
+          "host", tool === "bash" ? { command: "echo needle" } : { pattern: "needle" },
+          undefined, undefined, CTX);
+        expect(resultText(result)).toContain("needle");
+        expect(existsSync(wrapper.argvLog), "HOST_WRAPPER_SELECTED").toBe(true);
+      }
+      await toolsFor(brain.root, {})[tool]!.execute(
+        "empty", tool === "bash" ? { command: "echo needle" } : { pattern: "needle" },
+        undefined, undefined, CTX);
+      expect(existsSync(b.argvLog), "EXPLICIT_EMPTY_NOT_AMBIENT").toBe(false);
+    }
+    expect(readFileSync(a.argvLog, "utf8").split("\n").filter(Boolean)).toEqual([
+      Bun.which("bash")!, "-lc", "echo needle", Bun.which("grep")!, "-rInE", "--", "needle", ".",
+    ]);
+    expect(readFileSync(c.argvLog, "utf8")).toBe(readFileSync(a.argvLog, "utf8"));
+  } finally { brain.cleanup(); }
 });
