@@ -9,6 +9,7 @@ import type { Page } from "playwright";
 import type { BrowserCommand } from "vitest/node";
 import type { HygieneReviewRead, InboxActionItem } from "@schlessera/brain-ui-sdk/protocol";
 import { holdCompletionFrames, releaseCompletionFrames, waitForCompletionFrame } from "./hygiene-completion-frame.js";
+import { hygieneCapture } from "./hygiene-capture.ts";
 
 type Finding = { id: string; category: string; path: string; sources: Array<{source: string}>; fingerprint: string; severity: string; firstSeen: string };
 const repo = resolve("../..");
@@ -294,7 +295,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     try { await a.getByText("Review complete", { exact: true }).waitFor(); }
     catch {
       const completed = (await state()).read;
-      await a.screenshot({ path: join(tmpdir(), `c6-stalled-${width}.png`) });
+      await hygieneCapture(`c6-stalled-${width}.png`, path => a.screenshot({ path }));
       await a.reload(); await a.getByRole("tab", { name: /^needs you / }).click();
       await a.getByText("Review complete", { exact: true }).waitFor();
       assert.fail(`server complete but browser remains active until reload: ${JSON.stringify(completed.review)}`);
@@ -317,7 +318,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     await b.close();
     assert.equal((await state()).read.review.status, "complete");
     assert.equal((await state()).read.review.fixed, 3); assert.equal((await state()).read.review.dismissed, 2); assert.equal((await state()).read.review.snoozed, 1);
-    await a.screenshot({ path: join(tmpdir(), `c6-complete-${width}.png`) });
+    await hygieneCapture(`c6-complete-${width}.png`, path => a.screenshot({ path }));
     // Restart reconciliation after a relevant token change and an unrelated
     // heading edit. The first dismissal returns with receipt; the other holds.
     write(changed, bytes(changed).replace("|the hall", "|her hall"));
@@ -333,7 +334,7 @@ export const hygieneLoop: BrowserCommand<[{ width: number }], unknown> = async (
     const entries = (await cli(["hygiene", "list", "--json"])).entries;
     assert.equal(entries.find((v: Finding) => v.id === dismissedError.hygiene!.findingId).state, "dismissed", "unrelated heading edit preserves a different dismissal");
     assert.equal(entries.find((v: Finding) => v.path === "journeys/calypso.md").state, "snoozed", "unchanged not-due snooze survives reconciliation and restart");
-    await a.screenshot({ path: join(tmpdir(), `c6-invalidation-${width}.png`) });
+    await hygieneCapture(`c6-invalidation-${width}.png`, path => a.screenshot({ path }));
     assert.deepEqual(diagnostics, [], "native browser has no runtime errors");
     return { width, fixed: 3, dismissed: 2, snoozed: 1, pair: visited, recoveryWrites: 1, invalidation: ["tokens"] };
   } catch (error) {
