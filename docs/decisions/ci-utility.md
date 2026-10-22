@@ -59,6 +59,16 @@ prerequisite. This leaves product and test deadlines unchanged. Agents still sup
 focused failing-first and restored mutation receipts, debug failures and review
 visual results. A test failure is not excused by moving its execution.
 
+Under the [2026-10-22 Option A ruling for #2401](https://github.com/schlessera/brain-kit/issues/2401#issuecomment-6329614279),
+deliberate manual offline commands use `scripts/test-offline.sh`: verified fresh
+user/network namespaces, loopback plus a route-free dummy, empty IPv4/IPv6 main
+tables and verified zero capabilities before the command. This preserves the
+real browser online signal and upload policy while denying external networking.
+Optional mount isolation composes with caller-provisioned fixture storage;
+the [testing guidance](../process/testing.md#deliberate-offline-commands-on-linux)
+documents prerequisites and the `--keep-caps`/bubblewrap trap. Generic test,
+hosted-worker and existing preflight-probe launch paths are unchanged.
+
 CI supplies authoritative complete repeatable proof on explicit ready-candidate requests. Complete
 unit/integration discovery normally includes affected workspaces and every reverse
 manifest dependant, plus root tooling tests. Under the maintainer's
