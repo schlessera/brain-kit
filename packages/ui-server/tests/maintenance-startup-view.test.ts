@@ -438,7 +438,7 @@ for (const timing of ["during", "after"] as const) test(`cancellation ${timing} 
   let injected = false;
   const spy = timing === "after" ? spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(async input => {
     const result = await original(input);
-    if (input.command.includes("mktree") && result.exitCode === 0) { injected = true; controller.abort(new DOMException("after Git preparation", "AbortError")); }
+    if (input.command.some(part => part.endsWith("/maintenance-git-attributes.ts")) && result.exitCode === 0) { injected = true; controller.abort(new DOMException("after Git preparation", "AbortError")); }
     return result;
   }) : undefined;
   let db: ReturnType<typeof createUiDb> | undefined;
@@ -494,4 +494,32 @@ test("legacy credentialed Git consumer freezes attributes and publishes its real
   expect(indexed.exitCode, indexed.stderr.toString()).toBe(0);
   expect(indexed.stdout.toString(), "LEGACY_CREDENTIALED_GIT_INDEX_PUBLISHED").toBe(result.stdout);
   expect(existsSync(join(brain, "git-adapter")), "PRIVATE_GIT_INPUT_NOT_PUBLISHED").toBe(false);
+});
+
+test("credential-free Git consumer freezes nested attributes in one worker launch", async () => {
+  const brain = fixture();
+  const git = (...args: string[]) => Bun.spawnSync(["git", ...args], { cwd: brain, stdout: "pipe", stderr: "pipe" });
+  expect(git("init", "-q").exitCode).toBe(0);
+  mkdirSync(join(brain, "notes/voyage"), { recursive: true }); mkdirSync(join(brain, "empty"));
+  writeFileSync(join(brain, ".gitattributes"), "*.md odysseus=ithaca\n");
+  writeFileSync(join(brain, "notes/voyage/.gitattributes"), "*.md crew=twelve\n");
+  const original = workerSdk.runMaintenanceWorker, launches: string[][] = [];
+  const spy = spyOn(workerSdk, "runMaintenanceWorker").mockImplementation(input => { launches.push([...input.command]); return original(input); });
+  let result: Awaited<ReturnType<ReturnType<typeof createHostBoundary>["run"]>>;
+  try {
+    // The command rewrites its work-tree attributes first: only the frozen
+    // startup tree can still answer with the original values.
+    const program = `const fs=require("node:fs"),root=process.env.BRAIN_ROOT;
+      fs.writeFileSync(root+"/.gitattributes","*.md odysseus=troy\\n");fs.rmSync(root+"/notes/voyage/.gitattributes");
+      const p=Bun.spawnSync(["git","check-attr","odysseus","crew","--","notes/voyage/raft.md","harbor.md"],{stdout:"pipe",stderr:"pipe"});
+      if(p.exitCode)throw new Error(p.stderr.toString());process.stdout.write(p.stdout);`;
+    result = await createHostBoundary({ brainPath: brain }).run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", "-e", program],
+      env: { PATH: "/usr/bin:/bin" }, credentials: false, gate: "exclusive", purpose: "Odysseus nested attributes" });
+  } finally { spy.mockRestore(); }
+  expect(result.exitCode, result.stderr).toBe(0);
+  expect(result.stdout, "FROZEN_NESTED_ATTRIBUTES_SELECTED").toBe("notes/voyage/raft.md: odysseus: ithaca\nnotes/voyage/raft.md: crew: twelve\n"
+    + "harbor.md: odysseus: ithaca\nharbor.md: crew: unspecified\n");
+  const entry = workerSdk.maintenanceGitEntry();
+  expect(launches.filter(command => command.some(part => part.endsWith("/maintenance-git-attributes.ts"))).length, "ONE_ATTRIBUTES_FREEZE_LAUNCH").toBe(1);
+  expect(launches.filter(command => command[3] === entry), "NO_PER_OBJECT_ATTRIBUTE_LAUNCHES").toEqual([]);
 });
