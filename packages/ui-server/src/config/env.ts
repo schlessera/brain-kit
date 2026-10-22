@@ -81,6 +81,8 @@ export interface EnvVarDescriptor {
  * documentation in both directions — add here and to the docs together.
  */
 export const ENV_VARS: readonly EnvVarDescriptor[] = [
+  { name: "BRAIN_UI_STORAGE_BACKUP_ROOTS", description: "JSON array of at most four absolute operator-approved local backup directories. Metadata only; no remote stores or automatic cleanup.", default: "[]", required: false },
+  { name: "BRAIN_UI_STORAGE_GIT_ROOTS", description: "JSON array of at most sixteen absolute approved external Git directories for human-only Storage inventory.", default: "[]", required: false },
   { name: "BRAIN_WORKER_DATA_ROOT", description: "Internal application-maintenance output root supplied by the trusted launch. Not an operator configuration input.", default: "unset outside maintenance", required: false },
   { name: "BRAIN_UI_AUTONOMOUS_SPEND_USD_PER_DAY", required: false, default: "5", description: "Admission cap for non-subscription autonomous spend, including active reservations. Invalid values fail startup." },
   { name: "BRAIN_UI_AUTONOMOUS_TURNS_PER_DAY", required: false, default: "0", description: "Daily model-bearing autonomous operation cap. Zero pauses admission until explicitly configured. Invalid values fail startup." },
@@ -750,6 +752,8 @@ export interface VoiceConfig {
 
 /** Fully-resolved server configuration. Plain data — safe to construct in tests. */
 export interface ServerConfig {
+  /** Trusted host roots only; never accepted from Storage HTTP requests. */
+  storage?: { backupRoots: readonly string[]; gitRoots: readonly string[] };
   /** Host-only Unix service for managed native brain storage. */
   nativeBrain?: { socketPath: string; timeoutMs: number; maxDeltaBytes: number; leasePath?: string };
   /** Resolved by the host edge; optional for existing programmatic callers, which use SDK defaults. */
@@ -1022,6 +1026,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
     nativeBrain: resolveNativeBrainConfig(env),
     maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath,
+    storage: { backupRoots: storageRoots(env.BRAIN_UI_STORAGE_BACKUP_ROOTS, 4), gitRoots: storageRoots(env.BRAIN_UI_STORAGE_GIT_ROOTS, 16) },
     askUserFormLimits: resolveAskUserFormLimits(Object.fromEntries([
       ["maxDepth", env.BRAIN_UI_ASK_USER_FORM_MAX_DEPTH],
       ["maxNodes", env.BRAIN_UI_ASK_USER_FORM_MAX_NODES],
@@ -1283,4 +1288,13 @@ export const DYNAMIC_ENV_READS: readonly DynamicEnvReadSpec[] = [
 /** @internal Trusted application-maintenance output location. */
 export function maintenanceDataRoot(): string | undefined {
   return process.env.BRAIN_WORKER_DATA_ROOT;
+}
+
+/** A finite explicit root list; validation does not touch or create these paths. */
+function storageRoots(raw: string | undefined, limit: number): string[] {
+  if (!raw) return [];
+  let values: unknown;
+  try { values = JSON.parse(raw); } catch { throw Error("Storage root lists must be JSON arrays."); }
+  if (!Array.isArray(values) || values.length > limit || values.some(value => typeof value !== "string" || !value.startsWith("/") || value.length > 4096 || value.includes("\0"))) throw Error("Storage roots must be a bounded list of absolute paths.");
+  return values;
 }

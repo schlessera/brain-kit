@@ -6,16 +6,17 @@ import { isAbsolute, relative, resolve } from "node:path";
 // Tailwind CLI, build-before-browser order, checked exits and post-success receipt.
 // This deliberately supports one audited producer, not arbitrary build tools.
 const auditedProducer: Record<string,string> = {
-  "scripts/build.ts": "95c40d174c0dfa8d2f8f317a3c2236fecbba600faaaf3ebecb7a96dbd94c392d",
+  "scripts/build.ts": "30c1ecc7272921efe4e437b23e3d088e03d38869a9f5b2365fc08592e248d8d8",
+  "scripts/build-execution.ts": "17ee42de1b37aa8034c6b0719b32ec432ac8fde321fb9c2c3a426799ea996a5e",
   "scripts/build-receipt.ts": "12c673be0e62aca17a4c11e45e2a915f17788199fd10632ae0833bcf6753b45d",
-  "scripts/build-repeat-observation.ts": "06b2dd99186519e3dd084f9a5bb9d9d503af72da46678f556381dcaeca0c6e5f",
+  "scripts/build-repeat-observation.ts": "8c497d87eddbc5682441574674b178960b54352a319228527a62fedff3279047",
   "scripts/bin-modes.ts": "5e412f4743b388558a00d1068881ff6d6a0916e852e9ed2e973bc0a97a83c8ce",
   "scripts/publishable-packages.ts": "c43a3fbea72217fc42c3514313dcb16d1b337242fc251b61d7f1a3c83ca25740",
   "scripts/workspace-lease.mjs": "dc6dc975e6abdb3fb193b368b79544bc98c60c624f0fd9c9985358284bb07df0",
-  "scripts/ci-proof.ts": "c58de06eba788b6b892416ddda3abb28fa1e8e908f25c0800482fbe05e0de678",
-  "scripts/check-pr.ts": "ed29d8dbb2e8b9982b502ad663045992339088dd8db766335b0b7ed2ba2436f6",
+  "scripts/ci-proof.ts": "094977e01d5549bc518a6aa74ef6ba6ee9267d79fcb841f4fd439c84de202931",
+  "scripts/check-pr.ts": "fef89cc3974e9d3b81aac4c131b8a2bc574ac8ffce812d5248292163088ccdae",
   "scripts/ci-runner.ts": "e6b9da9fdf92cb7ade402c620a8f58727bf5a09725bed03000a862866a6f9262",
-  ".github/workflows/ci.yml": "0664eae990558d400c8b34b8d1fe9d687ff2b9e82e906ad2480e10bf42d9fc32",
+  ".github/workflows/ci.yml": "9104bb0945e9f724cfbc690169880121c8f276cdfd86d4e9227d4c657eb8ad4f",
   "package.json": "0d2ba2667eed49f4b686e57e54578d5f51e6c1b93605de0e1f5c8d08f8d0b188"
 };
 export function generatedCssInputs(root: string, artifact: string): { entry: string; producer: string[] } | undefined {

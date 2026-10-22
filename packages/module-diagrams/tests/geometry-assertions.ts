@@ -107,7 +107,7 @@ export function assertMasks(spec: DiagramSpec, tree: DiagramTree) {
     for (const box of boxes(spec)) expect(overlap(mask, box), "RULE_6_MASK_CLEAR_OF_NODES").toBe(false);
     const index = tree.elements.indexOf(mask);
     expect(tree.elements.slice(0, index).some(element => element.kind === "node"), "RULE_6_MASKS_BEFORE_NODES").toBe(false);
-    expect(mask.x >= tree.viewBox.x && mask.y >= tree.viewBox.y && mask.x + mask.width <= tree.viewBox.width + tolerance && mask.y + mask.height <= tree.viewBox.height + tolerance, "RULE_6_MASK_INSIDE_CANVAS").toBe(true);
+    expect(mask.x >= tree.viewBox.x && mask.y >= tree.viewBox.y && mask.x + mask.width <= tree.viewBox.x + tree.viewBox.width + tolerance && mask.y + mask.height <= tree.viewBox.y + tree.viewBox.height + tolerance, "RULE_6_MASK_INSIDE_CANVAS").toBe(true);
   }
 }
 export function assertSixRules(spec: DiagramSpec, tree: DiagramTree) { assertOrthogonal(spec, tree); assertLabelGap(spec, tree); assertIndependent(spec, tree); assertFan(spec, tree); assertTransit(spec, tree); assertMasks(spec, tree); assertPathCorrespondence(spec, tree); }

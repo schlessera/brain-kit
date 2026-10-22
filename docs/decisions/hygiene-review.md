@@ -25,6 +25,16 @@ within a review; they do not redefine general autonomous Queue scheduling.
 
 ## Why a review needs these rules
 
+> **2026-10-18 — Managed reference worktrees (#2390).** The
+> [reference-worktree decision](reference-worktrees.md#explicit-activity-safe-cleanup-and-hygiene)
+> applies this record's stable identities, fingerprints, dispositions and
+> revalidation to stale worktrees, retained unfinished work and cleanup
+> failures. Dismissal/snooze is not deletion approval. Cleanup rechecks exact
+> identity, live ownership and current work/preservation state; uncertainty
+> retains work and its capacity charge. Findings remain scoped to authorized
+> readers. This amendment records the policy without claiming detection or
+> cleanup qualification.
+
 Validation and audit can describe the same defect through different sources.
 Showing both as separate review items makes the owner answer twice. A queue
 ordered primarily by category can offer an informational marker before a more

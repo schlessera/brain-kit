@@ -22,10 +22,15 @@ export interface DiagramCardinality extends DiagramBox { kind: "cardinality"; ed
 export type DiagramElement = DiagramShape | DiagramCardinality | DiagramConnector | DiagramLabelMask | DiagramEdgeLabel | DiagramNode | DiagramGroup;
 export interface DiagramTree { schema_version: 1; type: DiagramSpec["type"]; grammar?: "architecture-containment"; title: string; desc: string; viewBox: DiagramBox; elements: DiagramElement[] }
 export interface DiagramGeometryOptions { labelFontSize?: number; labelLineHeight?: number }
-export interface DiagramGeometryFinding { path: string; code: "unroutable"; message: string }
+export interface DiagramGeometryFinding { path: string; code: "unroutable" | "scene_bounds"; message: string }
 export class DiagramGeometryError extends Error {
   readonly findings: DiagramGeometryFinding[];
   constructor(findings: DiagramGeometryFinding[]) { super(findings.map(item => item.message).join("; ")); this.name = "DiagramGeometryError"; this.findings = findings; }
+}
+/** Include the painted border and the non-admin heading mask above the group. */
+export function diagramGroupBounds(group: DiagramGroup): DiagramBox {
+  const top = group.scopeKind === "admin" ? 1 : 8;
+  return { x: group.x - 1, y: group.y - top, width: group.width + 2, height: group.height + top + 1 };
 }
 const EPS = 1e-7, RADIUS = 8, CLEARANCE = 24, PARALLEL = 12, LABEL_GAP = 8;
 const frameSizes: Record<string, [number, number]> = { "doc-inline": [960, 600], "doc-wide": [1280, 720], "slide-16x9": [1280, 720], "slide-4x3": [1024, 768], "social-og": [1200, 632], "social-square": [1080, 1080], "print-a4-landscape": [1120, 792], "print-a3-landscape": [1584, 1120], "print-letter-landscape": [1056, 816] };
@@ -215,9 +220,19 @@ export function buildDiagram(input: DiagramSpec, options: DiagramGeometryOptions
     groups.push(...spec.containment.scopes.map(scope=>({kind:"group" as const,id:scope.id,label:scope.label,scopeKind:scope.kind,parent:scope.parent,focal:focal.has(scope.id),x:scope.at[0],y:scope.at[1],width:scope.size[0],height:scope.size[1]})));
   }
   for (const group of groups) boxes.set(group.id, group);
-  const [baseWidth, height] = frameSizes[spec.size] ?? [Math.max(96, ...[...nodes,...groups.filter(group=>group.scopeKind)].map(node => node.x + node.width + CLEARANCE)), Math.max(96, ...[...nodes,...groups.filter(group=>group.scopeKind)].map(node => node.y + node.height + CLEARANCE))];
-  const width=baseWidth+(spec.size==="fit"&&spec.type==="dependency"&&spec.edges.some(edge=>edge.cycle)?24:0);
-  const viewBox = { x: 0, y: 0, width, height };
+  const groupBounds = groups.map(diagramGroupBounds);
+  const x = spec.size === "fit" ? Math.min(0, ...groupBounds.map(box => Math.floor(box.x / 4) * 4)) : 0;
+  const y = spec.size === "fit" ? Math.min(0, ...groupBounds.map(box => Math.floor(box.y / 4) * 4)) : 0;
+  const [right, bottom] = frameSizes[spec.size] ?? [Math.max(96, ...[...nodes, ...groups.filter(group => group.scopeKind)].map(node => node.x + node.width + CLEARANCE), ...groupBounds.map(box => box.x + box.width)), Math.max(96, ...[...nodes, ...groups.filter(group => group.scopeKind)].map(node => node.y + node.height + CLEARANCE), ...groupBounds.map(box => box.y + box.height))];
+  const width = right - x + (spec.size === "fit" && spec.type === "dependency" && spec.edges.some(edge => edge.cycle) ? 24 : 0);
+  const viewBox = { x, y, width, height: bottom - y };
+  if (spec.size !== "fit") {
+    const findings: DiagramGeometryFinding[] = [];
+    groups.forEach((group, index) => {
+      if (!contains(viewBox, groupBounds[index]!)) findings.push({ path: group.scopeKind ? `$.containment.scopes[${index - (spec.groups?.length ?? 0)}]` : `$.groups[${index}]`, code: "scene_bounds", message: `Group '${group.id}' and its heading exceed the selected frame; move the group inward or use size: fit` });
+    });
+    if (findings.length) throw new DiagramGeometryError(findings);
+  }
   const fail = (edge: number, message: string): never => { const item = spec.edges[edge]!; throw new DiagramGeometryError([{ path: `$.edges[${edge}]`, code: "unroutable", message: `Edge '${item.id ?? `${item.from} → ${item.to}`}': ${message}` }]); };
   const pairs: Pair[] = [], attachments = new Map<string, { edge: number; end: "from" | "to"; node: string; side: DiagramSide }[]>();
   const shapePorts=new Map<string,Set<DiagramSide>>();
