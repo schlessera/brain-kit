@@ -3241,6 +3241,8 @@ caller-generated UUID naming one worker generation. `NativePoolRecord.purpose`
 gains `checkpoint`, and records gain `access`, the generation holding a
 writable worktree, else `null`; earlier records read as `access: null`.
 `poolCreate` refuses the `checkpoint` purpose and a checkpoint as its source.
+`poolRelease` refuses a writable worktree whose record names an access
+generation with `invalid`, deleting nothing; park it first (#2729).
 The lease owner checkpoints only a held worktree, reads and diffs only held
 checkpoints, and moves only held worktrees; its lease table migrates in place.
 No call accepts a host path, UID or mount. Worker masks now include the pool's
