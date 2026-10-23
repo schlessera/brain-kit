@@ -140,11 +140,12 @@ print(json.dumps(result))`;
       let ackRecovery: any = null;
       let recovery: any = null;
       let phaseError: string | null = null;
+      let turnId: string | undefined;
       try {
         await until(() => sender.frames.some(f => f.type === "session_info" && f.requestId === requestId), 45000);
         const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
         expect(ack.workerProfile?.actualProfile, "NATIVE_ADMITTED_GOVERNED_PROFILE").toBe("governed");
-        sid = ack.sessionId;
+        sid = ack.sessionId; turnId = ack.turnId;
         ackRecovery = await fetch(origin + `/api/sessions/${sid}/recovery`, { headers: { cookie }, signal: AbortSignal.timeout(1000) }).then(r => r.json());
         durableAckMs = performance.now() - begin;
         await until(() => sender.frames.some(f => f.type === "result" && f.receiptAt >= begin && f.sessionId === (sid ?? f.sessionId)) || sender.frames.some(f => f.type === "error" && f.receiptAt >= begin && f.requestId === requestId), 45000);
@@ -162,11 +163,13 @@ print(json.dumps(result))`;
       const pongs = observer.frames.filter(f => f.type === "pong" && f.probeId?.startsWith(phase + "-"));
       const terminal = sender.frames.filter(f => (f.type === "result" || f.type === "error") && f.receiptAt >= begin);
       results.push({
-        phase, completed, health, timeoutCount: health.filter(p => p.timeout).length, submitToAckMs: named ? named.receiptAt - begin : null,
+        phase, turnId, completed, health, timeoutCount: health.filter(p => p.timeout).length, submitToAckMs: named ? named.receiptAt - begin : null,
         elapsedMs: performance.now() - begin, durableAckMs, ackRecovery, phaseError, pings: pings.length, pongs: pongs.length,
         pingLatencyMs: pongs.map(f => f.receiptAt - pings.find(p => p.id === f.probeId)!.at), recovery, terminal
       });
       if (!completed) break;
+      // The fixture model refuses anything but the host-held key the relay injects.
+      expect(eventLog.read("relay-credential").filter(row => row.kind === "pi_inference_unauthenticated"), "NATIVE_PI_RELAY_INJECTS_HOST_KEY").toEqual([]);
       if (phase === "first") {
         sender.ws.close();
         await until(() => sender.ws.readyState === WebSocket.CLOSED);
@@ -196,6 +199,23 @@ print(json.dumps(result))`;
       expect(authority.namespaceUid, "NATIVE_AGENT_NAMESPACE_UID").toBe(APP_UID);
       expect(authority.ioctlsDenied).toHaveLength(7);
     }
+    // Each governed turn's connections are durable per-connection governance records (#1665).
+    const egressDb = new Database(join(dir, "ui.db"), { readonly: true });
+    try {
+      const egress = results.map(result => (egressDb.query("SELECT session_id, actor, profile, payload FROM governance_events WHERE kind = 'egress_connection' AND turn_id = ? ORDER BY id")
+        .all(result.turnId) as { session_id: string | null; actor: string; profile: string; payload: string }[]).map(row => ({ ...row, payload: JSON.parse(row.payload) })));
+      writeFileSync(join(ARTIFACTS, "egress-records.json"), JSON.stringify(egress, null, 2));
+      for (const [index, rows] of egress.entries()) {
+        const attempt = index + 1;
+        expect(readFileSync(join(brain, `.brain/egress-${attempt}.txt`), "utf8"), "NATIVE_EGRESS_WORKER_REACHED_ORIGIN").toBe(`Ithaca road /voyage-${attempt}`);
+        expect(rows.filter(row => !row.payload.inference).map(row => row.payload), "NATIVE_EGRESS_PER_CONNECTION_RECORD").toEqual([expect.objectContaining({
+          method: "GET", host: "localhost", port: ready.egressPort, path: `/voyage-${attempt}`, accounting: "http_wire_bound", outcome: "completed" })]);
+        expect(rows.every(row => row.payload.bytes > 0 && row.actor === "interactive" && row.profile === "governed" && row.session_id === sid), "NATIVE_EGRESS_RECORD_ATTRIBUTED").toBe(true);
+        // pi's model requests reach the fixture model through the host relay: one record each, no credential in the worker.
+        expect(rows.filter(row => row.payload.inference).map(row => [row.payload.host, row.payload.path, row.payload.outcome]), "NATIVE_EGRESS_INFERENCE_RECORDS")
+          .toEqual(BACKEND === "pi" ? [["127.0.0.1", "/v1/messages", "completed"], ["127.0.0.1", "/v1/messages", "completed"]] : []);
+      }
+    } finally { egressDb.close(); }
     expect(eventLog.read("alias-scan").filter(row => row.kind === "whole_brain_alias_scan"), "NO_WHOLE_BRAIN_ADMISSION_WALK").toHaveLength(0);
     const cancelStart = performance.now();
     sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests a cancellable voyage record on 2026-07-12.", requestId: "odysseus-stop", sessionId: sid }));

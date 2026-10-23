@@ -40,7 +40,13 @@ let count = 0;
 const observability = createRecordingObservability();
 const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
 const authorityCommand = `/usr/bin/python3 -I -S -c '${authorityProgram.replaceAll("'", "'\\''")}' ${process.getuid!()}`;
-const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand) : undefined;
+// A fixture origin each worker reaches through its turn proxy: one recorded connection per turn.
+const egressOrigin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+  const path = new URL(request.url).pathname; event("egress_origin_request", { path }); return new Response(`Ithaca road ${path}`);
+} });
+// "localhost", not 127.0.0.1: only the proxy resolves it, whatever the worker exempts.
+const egressCommand = (attempt: number) => `/usr/bin/python3 -I -S -c 'import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' http://localhost:${egressOrigin.port}/voyage-${attempt} > .brain/egress-${attempt}.txt`;
+const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand,egressCommand) : undefined;
 if (inference) process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = inference.origin;
 const backend = inference ? createPiBackend({brainPath:brain!,model:inference.model,loadExtensions:false,log(level: string,message: string){event("backend_log",{level,message});}}) : createClaudeBackend({
   brainPath: brain,
@@ -56,7 +62,7 @@ const backend = inference ? createPiBackend({brainPath:brain!,model:inference.mo
     let child: any; try {
 child = params.options.spawnClaudeCodeProcess({
         command: "/bin/sh", args: ["-c",
-          `${authorityCommand} > .brain/worker-authority-${attempt}.json && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
+          `${authorityCommand} > .brain/worker-authority-${attempt}.json && ${egressCommand(attempt)} && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
         env: { PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") },
         signal: params.options.abortController.signal
       });
@@ -139,14 +145,14 @@ try {
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch, websocket: app.websocket });
   writeFileSync(join(dir!, "ready.json"), JSON.stringify({
     rootWarnings: observability.logs.find({severity:"WARN"}).filter((log:any)=>String(log.body).includes("runs as root")).map((log:any)=>String(log.body)),
-    port: server.port, principalId: principal.id, pid: process.pid, secret: SECRET,
+    port: server.port, egressPort: egressOrigin.port, principalId: principal.id, pid: process.pid, secret: SECRET,
     dbBytes: statSync(dbPath).size, status: app.activity?.runtime?.snapshot?.()
   }));
   event("ready", { port: server.port });
   let closing = false;
   process.on("SIGTERM", async () => {
     if (closing) return; closing = true;
-    try { server.stop(true); await app.close(); inference?.close(); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
+    try { server.stop(true); await app.close(); inference?.close(); egressOrigin.stop(true); event("fixture_warnings",{messages:observability.logs.records().map((log:any)=>({severity:log.severityText,body:log.body}))}); event("closed"); process.exit(0); }
     catch (error) { event("close_error", { error: String(error) }); process.exit(1); }
   });
 } catch (error) {
