@@ -238,6 +238,34 @@ describe("revalidated removal", () => {
     await other.closeGeneration(generation.id); await other.close();
   });
 
+  test("a removal and a grant of one worktree never interleave, whichever service instance runs them", async () => {
+    const f = await fixture();
+    const tree = await f.worktrees.allocate({ principalId: f.penelope.id, repository: PUBLIC, revision: "main" });
+    writeFileSync(join(f.path(tree.id), "odyssey.md"), "Changed before expiry.\n");
+    days(4); await f.worktrees.reconcile();
+    const { apply } = await f.previewed((await f.next()).finding!);
+    const other = createReferenceWorktrees({ db, pool: f.pool, sources: f.sources, now: () => clock, coverage: async () => {} });
+    const generation = await other.openGeneration({ principalId: f.penelope.id, turnId: "turn-serial", profile: "governed" });
+    const access = f.pool.poolAccess, checkpoint = f.pool.poolCheckpoint;
+    let granted: () => void = () => {};
+    const grantedAt = new Promise<void>(resolve => { granted = resolve; });
+    f.pool.poolAccess = async (...args) => { granted(); return access(...args); };
+    let grant: Promise<unknown> | undefined;
+    f.pool.poolCheckpoint = async (id, from, signal) => {
+      const record = await checkpoint(id, from, signal);
+      if (from === tree.id && !grant && db.query("SELECT 1 FROM reference_worktrees WHERE baseline = ?").get(id) === null) {
+        // The other instance asks for the worktree while this removal assesses it, and gets a turn only after it.
+        grant = other.access({ worktreeId: tree.id, principalId: f.penelope.id, generation: generation.id }).catch(error => error);
+        await Promise.race([grantedAt, Bun.sleep(200)]);
+      }
+      return record;
+    };
+    expect(await apply(), "REFERENCE_WORKTREE_INSTANCES_SERIALIZE").toMatchObject({ status: "fixed" });
+    expect({ grant: await grant, pool: f.pool.records.get(tree.id)?.state })
+      .toMatchObject({ grant: { code: "released" }, pool: "reclaimed" });
+    await other.closeGeneration(generation.id); await other.close();
+  });
+
   test("a grant whose removal was admitted while it awaited is withdrawn, not recorded", async () => {
     const f = await fixture();
     const tree = await f.worktrees.allocate({ principalId: f.penelope.id, repository: PUBLIC, revision: "main" });
@@ -429,17 +457,30 @@ describe("receipts and recovery", () => {
     expect(f.receipt(worktreeOf(finding))).toEqual({ state: "reclaimed", trigger: "review" });
   });
 
-  test("a checkpoint the pool already forgot is dropped from the ledger, not released into a tombstone", async () => {
+  test("a removal whose outcome cannot be read back is never reported gone", async () => {
+    const f = await fixture();
+    const tree = await f.retained();
+    const finding = (await f.next()).finding!;
+    const { apply } = await f.previewed(finding);
+    // The release reply is lost and the pool cannot be read either.
+    const release = f.pool.poolRelease, list = f.pool.listPoolRecovery;
+    f.pool.poolRelease = async (id, signal) => { if (id === tree.id) { f.pool.listPoolRecovery = async () => { throw new Error("unreachable"); }; throw new Error("lost"); } return release(id, signal); };
+    expect(await apply()).toMatchObject({ status: "check_failed" });
+    expect(f.receipt(tree.id)?.state).toBe("started");
+    expect(await f.hygiene.run(["check", "--", finding.id]), "REFERENCE_WORKTREE_UNRESOLVED_REMOVAL_STILL_DETECTED").toMatchObject({ status: "still_detected" });
+    // Once the pool answers, the outcome is read back: it never deleted, so the removal was interrupted.
+    f.pool.poolRelease = release; f.pool.listPoolRecovery = list;
+    expect(await f.hygiene.run(["check", "--", finding.id])).toMatchObject({ status: "still_detected" });
+    expect({ receipt: f.receipt(tree.id)?.state, pool: f.pool.records.get(tree.id)?.state, kind: f.findings()[0]?.kind }).toEqual({ receipt: "interrupted", pool: "writable", kind: "cleanup-failed" });
+  });
+
+  test("a deleted file is work that review can remove, not unestablished work", async () => {
     const f = await fixture();
     const tree = await f.worktrees.allocate({ principalId: f.penelope.id, repository: PUBLIC, revision: "main" });
-    await f.worktrees.release({ worktreeId: tree.id, principalId: f.penelope.id });
-    expect(f.receipt(tree.id)?.state).toBe("reclaimed");
-    // A checkpoint whose release committed but whose bookkeeping was lost, long since forgotten by the pool.
-    const forgotten = "00000000-0000-4000-8000-000000002431";
-    db.query(`INSERT INTO reference_worktree_checkpoints (id, worktree_id, owner_pid, owner_start, owner_boot, owner_pid_namespace, created_at) VALUES (?, ?, 1, 'x', 'x', 'x', ?)`).run(forgotten, tree.id, clock);
-    await f.worktrees.reconcile();
-    expect({ pool: f.pool.records.has(forgotten), ledger: db.query("SELECT 1 FROM reference_worktree_checkpoints WHERE id = ?").get(forgotten) }, "REFERENCE_WORKTREE_FORGOTTEN_CHECKPOINT_NO_TOMBSTONE")
-      .toEqual({ pool: false, ledger: null });
+    rmSync(join(f.path(tree.id), "secret-route.md"));
+    const released = await f.worktrees.release({ worktreeId: tree.id, principalId: f.penelope.id });
+    expect(released.cleanup, "REFERENCE_WORKTREE_DELETION_IS_ESTABLISHED_WORK").toMatchObject({ work: "unpreserved", changedPaths: 1, unverifiedPaths: 0 });
+    expect(await (await f.previewed((await f.next()).finding!)).apply()).toMatchObject({ status: "fixed" });
   });
 
   test("a restart after a committed removal recovers its outcome without deleting again; an interrupted one reappears for review", async () => {
@@ -479,6 +520,17 @@ describe("human-started review", () => {
     expect(createInboxStore(db).getItem(read.action!.id)?.status, "REFERENCE_WORKTREE_OWNER_REVIEWS_DELEGATED").toBe("resolved");
     expect(f.pool.records.get(tree.id)?.state).toBe("reclaimed");
     expect(f.calls.some(args => ["resolve", "check", "dismiss", "snooze"].includes(args[0]!)), "REFERENCE_WORKTREE_NEVER_SENT_TO_THE_CLI").toBe(false);
+  });
+
+  test("selection reassesses its winner, so a card never offers a repair its preview would find stale", async () => {
+    const f = await fixture();
+    const tree = await f.retained();
+    await f.next();
+    // The work becomes unestablished after it was last assessed.
+    db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ?").run(tree.id);
+    const card = (await f.review().command(f.penelope.id, "start")).action!;
+    expect({ title: card.payload.title, options: card.options.map(option => option.id) }, "REFERENCE_WORKTREE_SELECTION_USES_FRESH_EVIDENCE")
+      .toEqual({ title: "A managed worktree's work or owner cannot be established", options: ["check", "later", "dismiss"] });
   });
 
   test("a dismissal through review never removes the worktree", async () => {

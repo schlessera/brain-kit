@@ -240,6 +240,47 @@ test("worktree checkpoints, deltas, reads and access moves need this app's held 
   } finally { await f.close(); }
 });
 
+test("a release the pool never committed holds its lease again; a forgotten checkpoint leaves no tombstone (#2431)", async () => {
+  const f = await fixture(), calls: string[] = [];
+  const SOURCE = "33333333-3333-4333-8333-333333332431", WORKTREE = "44444444-4444-4444-8444-444444442431", CHECKPOINT = "55555555-5555-4555-8555-555555552431";
+  const NEXT = "77777777-7777-4777-8777-777777772431";
+  const records = new Map<string, Record<string, unknown>>();
+  const record = (id: string, purpose: string, from: string | null, state: string, extra: object = {}) => {
+    const value = { id, purpose, from, allowanceBytes: 4096, state, root: null, path: null, ownerBytes: null, reason: null, view: null, access: null, ...extra };
+    records.set(id, value); return value as never;
+  };
+  const lease = (id: string) => f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(id);
+  f.native.client.poolCreate = async (id, purpose, from) => { calls.push(`create:${id}`); return record(id, purpose, from, "writable"); };
+  f.native.client.poolCheckpoint = async (id, from) => { calls.push(`checkpoint:${id}`); return record(id, "checkpoint", from, "sealed", { transaction: "12", readOnly: true }); };
+  f.native.client.listPoolRecovery = async () => ({ records: [...records.values()] as never, next: null });
+  let failRelease = true;
+  f.native.client.poolRelease = async id => {
+    calls.push(`release:${id}`);
+    if (failRelease) throw new Error("the manager connection dropped");
+    records.delete(id);
+    return { id, purpose: "checkpoint", from: WORKTREE, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;
+  };
+  try {
+    await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
+    await f.owner.client.poolCreate(WORKTREE, "worktree", SOURCE, 4096);
+    await f.owner.client.poolCheckpoint(CHECKPOINT, WORKTREE);
+    // The worktree's release fails before the pool committed anything: it is held, and assessable, again.
+    await expect(f.owner.client.poolRelease(WORKTREE)).rejects.toThrow("dropped");
+    expect(lease(WORKTREE), "REFERENCE_POOL_UNCOMMITTED_RELEASE_HELD_AGAIN").toEqual({ state: "held" });
+    // A release intent a restart left behind settles the same way at the next checkpoint.
+    f.state.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(WORKTREE);
+    await expect(f.owner.client.poolCheckpoint(NEXT, WORKTREE), "REFERENCE_POOL_INTERRUPTED_RELEASE_ASSESSABLE").resolves.toMatchObject({ id: NEXT });
+    expect(lease(WORKTREE)).toEqual({ state: "held" });
+    // A checkpoint whose release committed after its reply was lost, then forgotten by the pool.
+    f.state.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(CHECKPOINT);
+    records.delete(CHECKPOINT);
+    failRelease = false;
+    calls.length = 0;
+    expect((await f.owner.client.poolRelease(CHECKPOINT)).state).toBe("reclaimed");
+    expect({ calls, lease: lease(CHECKPOINT) }, "REFERENCE_POOL_FORGOTTEN_CHECKPOINT_NO_TOMBSTONE").toEqual({ calls: [], lease: null });
+  } finally { await f.close(); }
+});
+
 test("pool leases recorded before checkpoints migrate without losing a row", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-native-lease-migrate-")), brain = join(root, "brain"), statePath = join(root, "native-leases.sqlite"); mkdirSync(brain);
   const native = createNativeJournalFixture(brain, root), ready = await native.client.ready();

@@ -49,7 +49,8 @@ const TITLES: Record<Kind, string> = {
 
 /** Which finding a worktree's host state is, if any. A live holder, a clean worktree or a removal under way is none. */
 function kindOf({ row, cleanup, holderLive }: Inventory): Kind | null {
-  if (cleanup) return cleanup.state === "failed" || cleanup.state === "interrupted" ? "cleanup-failed" : null;
+  // A removal whose outcome is not yet read back is unknown, never gone.
+  if (cleanup) return cleanup.state === "failed" || cleanup.state === "interrupted" ? "cleanup-failed" : cleanup.state === "started" ? "unknown" : null;
   if ((row.state !== "released" && row.state !== "expired") || holderLive === true) return null;
   const facts = factsOf(row);
   if (!facts || holderLive === null || facts.owner !== "none" || facts.work === "unknown" || facts.unverifiedPaths !== 0) return "unknown";
@@ -181,12 +182,25 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
     return { path: `reference-worktree/${row.id}`, before: lines.join("\n") + "\n", after: "", changes: lines.map((line, index) => ({ before: line, after: "", line: index + 1 })) };
   }
 
+  /**
+   * Select over fresh evidence: the winner is assessed again before it is
+   * shown, so a card never offers a repair its own preview would find stale.
+   * A winner whose evidence changed is selected again, a bounded few times.
+   */
   async function next(findingId?: string) {
-    const core = await options.core(), detected = await reconcile();
-    const findings = new Map([...detected].map(([id, value]) => [id, value.finding]));
-    const result = core.selectHygieneNext(options.brainPath, findings, entries(), new Date(now()), findingId);
-    if (!result.finding) return result;
-    return { ...result, finding: { ...result.finding, ...display(detected.get(result.finding.id)!) } };
+    const core = await options.core();
+    for (let attempt = 0; ; attempt++) {
+      const detected = await reconcile();
+      const findings = new Map([...detected].map(([id, value]) => [id, value.finding]));
+      const result = core.selectHygieneNext(options.brainPath, findings, entries(), new Date(now()), findingId);
+      if (!result.finding) return result;
+      const chosen = detected.get(result.finding.id)!;
+      if (attempt < 3) {
+        await worktrees.reassess(chosen.item.row.id, { remove: false });
+        if ((await reconcile()).get(result.finding.id)?.finding.fingerprint !== result.finding.fingerprint) continue;
+      }
+      return { ...result, finding: { ...result.finding, ...display(chosen) } };
+    }
   }
   /**
    * One queue from two backlogs: the winner by core's ordinal selection

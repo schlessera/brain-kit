@@ -21,7 +21,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { parseNativeBrainDelta, type createNativeBrainManagerClient, type NativePoolCheckpoint, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -36,6 +36,12 @@ import { ReferenceSourceError, type ReferenceSources } from "./reference-source.
 const running = new Set<string>(), accepting = new Set<string>();
 /** Accesses in flight per generation; retiring a generation waits for them. */
 const inflight = new Map<string, Set<Promise<unknown>>>();
+/**
+ * One operation at a time per worktree or generation, across every service
+ * instance in this process: a grant and a removal of one worktree never
+ * interleave (#2431).
+ */
+const chains = new Map<string, Promise<unknown>>();
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export type ReferenceWorktreePool = Pick<Client, "poolStatus" | "poolCreate" | "poolRelease" | "poolCheckpoint" | "poolDelta"
@@ -159,7 +165,8 @@ export function createReferenceWorktrees(options: {
   const owner = options.owner ?? referenceWorktreeOwner();
   /** Generations this instance opened; closing the instance ends their registration. */
   const opened = new Set<string>();
-  const chains = new Map<string, Promise<unknown>>();
+  /** This instance's own operations; closing waits for them. */
+  const mine = new Set<Promise<unknown>>();
   let closed = false;
 
   /** One operation at a time per worktree or generation. */
@@ -167,8 +174,8 @@ export function createReferenceWorktrees(options: {
     const previous = chains.get(key) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(work);
     const settled = next.catch(() => {});
-    chains.set(key, settled);
-    void settled.then(() => { if (chains.get(key) === settled) chains.delete(key); });
+    chains.set(key, settled); mine.add(settled);
+    void settled.then(() => { mine.delete(settled); if (chains.get(key) === settled) chains.delete(key); });
     return next;
   }
   const worktree = (id: string) => db.query("SELECT * FROM reference_worktrees WHERE id = ?").get(id) as WorktreeRow | null;
@@ -251,7 +258,7 @@ export function createReferenceWorktrees(options: {
         if (candidate.rename) for (const path of [candidate.rename.from, candidate.rename.to]) if (path) candidates.add(path);
       }
       await delta.completed;
-      const changed: string[] = [], stamps: string[] = [];
+      const changed: string[] = [], stamps: string[] = [], budget = { bytes: HASH_BUDGET };
       let unverified = 0;
       // Any differing entry is work, directories included: a rename or swap
       // changes the directories it moves even when every name still exists.
@@ -259,7 +266,7 @@ export function createReferenceWorktrees(options: {
         const before = stamp(join(baseline.path!, path)), after = stamp(join(current.path!, path));
         if (before === undefined || after === undefined) unverified++;
         else if (before !== after) {
-          const held = content(join(current.path!, path));
+          const held = after === null ? "absent" : await content(join(current.path!, path), budget);
           changed.push(path); stamps.push(`${path}\t${held}`);
           if (held === "unreadable") unverified++;
         }
@@ -386,8 +393,7 @@ export function createReferenceWorktrees(options: {
     const row = worktree(id);
     if (row) for (const checkpoint of checkpointsOf(row)) {
       try {
-        // An identity the pool no longer records was reclaimed and forgotten; releasing it again would leave a tombstone.
-        if (await poolRecord(checkpoint, signal) !== null) await pool.poolRelease(checkpoint, signal);
+        await pool.poolRelease(checkpoint, signal);
         forgetReferenceWorktreeCheckpoint(db, checkpoint);
         // Released once: a removed worktree never names its baseline again.
         db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ? AND baseline = ?").run(id, checkpoint);
@@ -649,6 +655,8 @@ export function createReferenceWorktrees(options: {
     reassess(worktreeId: string, options: { remove: boolean; signal?: AbortSignal }): Promise<void> {
       return serial(worktreeId, async () => {
         const row = worktree(worktreeId);
+        // An unresolved removal is read from the pool first; it is never reported gone on a guess.
+        if (cleanupOf(worktreeId)?.state === "started") await settle(worktreeId, options.signal);
         // After a failed or interrupted removal the evidence may still be refreshed, never acted on.
         if (row && (row.state === "released" || row.state === "expired") && !removed(row.id)) await assess(row, row.state, options.signal, options.remove && !cleanupOf(row.id));
       });
@@ -668,25 +676,31 @@ export function createReferenceWorktrees(options: {
       closed = true;
       // A closed service runs no turn: its generations are provably over for any later instance.
       for (const id of opened) { accepting.delete(id); running.delete(id); }
-      await Promise.allSettled([...chains.values()]);
+      await Promise.allSettled([...mine]);
     },
   };
 }
 export type ReferenceWorktrees = ReturnType<typeof createReferenceWorktrees>;
 
+/** Bytes of changed files one assessment hashes; larger or sparse files fall back to snapshot-stable metadata. */
+const HASH_BUDGET = 64 * 1024 * 1024;
 /**
  * What one changed path holds: type, mode, size, link target and, for a
- * regular file, a hash of its bytes. Times are excluded, since a worker can set
- * them; the result is the same in any two snapshots of unchanged work.
+ * regular file within the assessment's hashing budget, a hash of its bytes,
+ * read without blocking. A file beyond the budget is named by its inode,
+ * modification and change time instead: a snapshot keeps them, and a worker
+ * cannot set the change time. Times are otherwise excluded, since a worker
+ * can set them.
  */
-function content(path: string): string {
+async function content(path: string, budget: { bytes: number }): Promise<string> {
   try {
     const info = lstatSync(path, { bigint: true });
     const meta = `${info.mode}:${info.size}:${info.isSymbolicLink() ? readlinkSync(path) : ""}`;
     if (!info.isFile()) return meta;
-    const hash = createHash("sha1"), chunk = Buffer.allocUnsafe(1 << 20), fd = openSync(path, "r");
-    try { for (let read; (read = readSync(fd, chunk, 0, chunk.length, null)) > 0;) hash.update(chunk.subarray(0, read)); }
-    finally { closeSync(fd); }
+    if (info.size > BigInt(budget.bytes)) return `${meta}:${info.ino}:${info.mtimeNs}:${info.ctimeNs}`;
+    budget.bytes -= Number(info.size);
+    const hash = createHash("sha1");
+    for await (const chunk of Bun.file(path).stream()) hash.update(chunk);
     return `${meta}:${hash.digest("hex")}`;
   } catch { return "unreadable"; }
 }
