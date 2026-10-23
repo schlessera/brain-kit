@@ -465,21 +465,37 @@ test("separate-UID notes use qualified identity facts in both ordinary profiles"
 });
 
 describe("managed worktree generations (#2430)", () => {
-  test("a generation is bound whole, only into an interactive worker, and only from a root-owned directory outside the brain", () => {
+  test("a generation is bound whole, only into an interactive worker, and only from a root-owned directory outside the brain", async () => {
     const f = fixture();
     try {
       const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
-      // A root-owned 0755 directory stands in for the pool's access generation.
-      const argv = workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, worktrees: { source: "/usr" } } });
-      const at = argv.findIndex((arg, i) => arg === "--bind" && argv[i + 1] === "/usr");
-      expect(argv.slice(at, at + 3), "REFERENCE_WORKTREE_GENERATION_BOUND_WHOLE").toEqual(["--bind", "/usr", "/tmp/brain-worktrees"]);
+      const owned = join(f.root, "generation"); mkdirSync(owned); chmodSync(owned, 0o755);
+      // The pool's access generation is root-owned. A host directory such as
+      // /usr is not a stand-in: an unprivileged user namespace (the CI unit
+      // workers) shows its owner as the overflow uid. A child namespace that
+      // maps this uid to root shows this 0755 directory as root-owned instead.
+      const generation = { ...sandbox, worktrees: { source: owned } };
+      const inBrain = join(f.brain, "notes"); chmodSync(inBrain, 0o755);
+      const writable = join(f.root, "writable"); mkdirSync(writable); chmodSync(writable, 0o775);
+      const script = `const { workerCommand } = await import(${JSON.stringify(resolve(import.meta.dir, "../src/server/worker-launcher.ts"))});
+        const launch = (source) => workerCommand({ brainPath: ${JSON.stringify(f.brain)}, command: [process.execPath], env: { HOME: ${JSON.stringify(f.home)} },
+          sandbox: { ...${JSON.stringify(sandbox)}, worktrees: { source } } });
+        const refusal = (source) => { try { launch(source); return "accepted"; } catch (error) { return error.message; } };
+        console.log(JSON.stringify({ argv: launch(${JSON.stringify(owned)}), inBrain: refusal(${JSON.stringify(inBrain)}), writable: refusal(${JSON.stringify(writable)}) }));`;
+      const child = Bun.spawn(["unshare", "--user", "--map-root-user", process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(stderr).toBe("");
+      expect(code).toBe(0);
+      const { argv, inBrain: inBrainRefusal, writable: writableRefusal } = JSON.parse(stdout) as { argv: string[]; inBrain: string; writable: string };
+      expect(inBrainRefusal, "REFERENCE_WORKTREE_GENERATION_OUTSIDE_THE_BRAIN").toContain("root-owned directory outside the brain");
+      expect(writableRefusal, "REFERENCE_WORKTREE_GENERATION_MODE_0755").toContain("root-owned directory outside the brain");
+      const at = argv.findIndex((arg, i) => arg === "--bind" && argv[i + 1] === owned);
+      expect(argv.slice(at, at + 3), "REFERENCE_WORKTREE_GENERATION_BOUND_WHOLE").toEqual(["--bind", owned, "/tmp/brain-worktrees"]);
       const turnTemp = argv.findIndex((arg, i) => arg === "--tmpfs" && argv[i + 1] === "/tmp");
       expect(turnTemp >= 0 && turnTemp < at, "REFERENCE_WORKTREE_GENERATION_MOUNTED_OVER_TURN_TEMP").toBe(true);
-      const owned = join(f.root, "generation"); mkdirSync(owned, { mode: 0o755 });
-      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, worktrees: { source: owned } } }),
+      // The same directory, owned by this unprivileged uid, is refused.
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: generation }),
         "REFERENCE_WORKTREE_GENERATION_MUST_BE_ROOT_OWNED").toThrow("root-owned directory outside the brain");
-      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, worktrees: { source: join(f.brain, "notes") } } }))
-        .toThrow("root-owned directory outside the brain");
       const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
       expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: { readPaths: [process.execPath], inferenceDir: f.root },
         sandbox: { ...restricted, worktrees: { source: "/usr" } } }), "REFERENCE_WORKTREE_NEVER_IN_A_RESTRICTED_WORKER").toThrow("only an interactive governed or strict worker");
