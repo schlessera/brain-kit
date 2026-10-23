@@ -132,6 +132,8 @@ export function createReferenceWorktrees(options: {
   const now = options.now ?? Date.now, inactivity = options.inactivityMs ?? REFERENCE_WORKTREE_INACTIVITY_MS;
   if (!Number.isSafeInteger(inactivity) || inactivity < 1) throw new ReferenceWorktreeError("invalid", "worktree inactivity must be a positive integer");
   const owner = options.owner ?? referenceWorktreeOwner();
+  /** Generations this instance opened; closing the instance ends their registration. */
+  const opened = new Set<string>();
   const chains = new Map<string, Promise<unknown>>();
   let closed = false;
 
@@ -188,8 +190,7 @@ export function createReferenceWorktrees(options: {
    * repository's revision is then validated under the source's own clocks.
    */
   async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision" | "domain">, signal?: AbortSignal) {
-    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repository: row.repository }))
-      throw new ReferenceWorktreeError("unauthorized", "No live reference grant covers this private worktree's repository.");
+    covered(row);
     try { (await options.sources.request({ principalId: row.principal_id, repository: row.repository, revision: row.revision, signal })).release(); }
     catch (error) {
       if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable"
@@ -197,16 +198,21 @@ export function createReferenceWorktrees(options: {
       throw error;
     }
   }
+  /** A private worktree's grant, read live; checked again after every await before a grant. */
+  function covered(row: Pick<WorktreeRow, "principal_id" | "repository" | "domain">) {
+    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repository: row.repository }))
+      throw new ReferenceWorktreeError("unauthorized", "No live reference grant covers this private worktree's repository.");
+  }
 
   /** Changes since the baseline, from one fresh checkpoint and a metadata delta; nothing of the worktree is executed. */
   async function assessWork(row: WorktreeRow, signal?: AbortSignal): Promise<Pick<ReferenceWorktreeCleanup, "work" | "changedPaths" | "unverifiedPaths" | "sample" | "error">> {
     const unknown = (error: string) => ({ work: "unknown" as const, changedPaths: null, unverifiedPaths: null, sample: [], error });
     if (!row.baseline) return unknown("The worktree has no baseline checkpoint.");
     const id = randomUUID();
-    let current: NativePoolCheckpoint | undefined;
+    let current: NativePoolCheckpoint | undefined, recorded = false;
     try {
       const baseline = await pool.poolCheckpoint(row.baseline, row.id, signal);
-      recordReferenceWorktreeCheckpoint(db, owner, id, row.id, now());
+      recordReferenceWorktreeCheckpoint(db, owner, id, row.id, now()); recorded = true;
       current = await pool.poolCheckpoint(id, row.id, signal);
       const delta = await pool.poolDelta(baseline.id, current.id, signal);
       void delta.completed.catch(() => {});
@@ -233,7 +239,8 @@ export function createReferenceWorktrees(options: {
         sample: changed.slice(0, SAMPLE), error: null };
     } catch (error) { return unknown(error instanceof Error ? error.message : String(error)); }
     finally {
-      if (current) await pool.poolRelease(id).then(() => forgetReferenceWorktreeCheckpoint(db, id),
+      // Released even when its creation reply was lost: the identity is recorded, so it is never left behind.
+      if (recorded) await pool.poolRelease(id).then(() => forgetReferenceWorktreeCheckpoint(db, id),
         cleanup => warn("worktree assessment checkpoint release failed; startup recovery retries it", cleanup));
     }
   }
@@ -301,7 +308,7 @@ export function createReferenceWorktrees(options: {
     const access = await pool.poolAccessOpen(id, input.signal);
     db.query(`INSERT INTO reference_worktree_generations (id, principal_id, turn_id, profile, path, owner_pid, owner_start, owner_boot, owner_pid_namespace, opened_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.principalId, input.turnId, input.profile, access.path, owner.pid, owner.start, owner.boot, owner.pidNamespace, now());
-    running.add(id); accepting.add(id);
+    running.add(id); accepting.add(id); opened.add(id);
     return { id, path: access.path, principalId: input.principalId, turnId: input.turnId, profile: input.profile };
   }
   /**
@@ -368,6 +375,8 @@ export function createReferenceWorktrees(options: {
       if (row.holder !== target.id) {
         // Coverage first: no worker reaches a worktree its journal does not observe.
         await options.coverage({ turnId: target.turn_id, worktreeId: row.id }, input.signal);
+        // Authority may have ended while revalidation or coverage awaited.
+        covered(row);
         await pool.poolAccess(row.id, target.id, input.signal);
       }
       // Explicit access or resumption: the only events, with renewal, that move the clock.
@@ -443,7 +452,12 @@ export function createReferenceWorktrees(options: {
       return (db.query("SELECT * FROM reference_worktrees WHERE principal_id = ? AND state != 'creating' ORDER BY created_at, id").all(principalId) as WorktreeRow[]).map(view);
     },
     dependents(rootId: string): boolean { return referenceWorktreeDependents(db, rootId); },
-    async close() { closed = true; await Promise.allSettled([...chains.values()]); },
+    async close() {
+      closed = true;
+      // A closed service runs no turn: its generations are provably over for any later instance.
+      for (const id of opened) { accepting.delete(id); running.delete(id); }
+      await Promise.allSettled([...chains.values()]);
+    },
   };
 }
 export type ReferenceWorktrees = ReturnType<typeof createReferenceWorktrees>;

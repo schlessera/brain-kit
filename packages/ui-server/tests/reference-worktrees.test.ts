@@ -338,3 +338,53 @@ describe("review hardening", () => {
     expect(db.query("SELECT count(*) AS n FROM reference_worktree_checkpoints").get(), "REFERENCE_WORKTREE_ASSESSMENT_CHECKPOINT_UNRECORDED").toEqual({ n: 0 });
   });
 });
+
+describe("re-review hardening", () => {
+  test("a grant revoked while revalidation awaits refuses the access", async () => {
+    const base = service();
+    const penelope = owner(), issued = grant(penelope.id);
+    const tree = await base.worktrees.allocate({ principalId: penelope.id, repository: PRIVATE, revision: "main" });
+    base.state.privateIsPublic = true; clock += 10 * 60_000;
+    // The revision now resolves publicly; the grant is revoked while that check is in flight.
+    const racing = { covers: base.sources.covers, request: async (input: Parameters<typeof base.sources.request>[0]) => {
+      revokeReferenceGrant(db, { brain: BRAIN, id: issued.id, principalId: penelope.id, now: Date.now() });
+      return base.sources.request(input);
+    } };
+    const worktrees = createReferenceWorktrees({ db, pool: base.pool, sources: racing, now: () => clock, coverage: async () => {} });
+    const generation = await worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
+    await expect(worktrees.access({ worktreeId: tree.id, principalId: penelope.id, generation: generation.id }), "REFERENCE_WORKTREE_REVOCATION_DURING_REVALIDATION")
+      .rejects.toMatchObject({ code: "unauthorized" });
+    expect(base.pool.records.get(tree.id)?.access).toBeNull();
+  });
+
+  test("an assessment checkpoint whose creation reply was lost is still released", async () => {
+    const { worktrees, pool, path } = service();
+    const penelope = owner();
+    const tree = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    writeFileSync(join(path(tree.id), "odyssey.md"), "Changed.\n");
+    const checkpoint = pool.poolCheckpoint;
+    let lost: string | undefined;
+    pool.poolCheckpoint = async (id, from, signal) => {
+      const record = await checkpoint(id, from, signal);
+      if (!lost && pool.records.get(id) && db.query("SELECT 1 FROM reference_worktree_checkpoints WHERE id = ?").get(id)) { lost = id; throw Error("reply lost"); }
+      return record;
+    };
+    const released = await worktrees.release({ worktreeId: tree.id, principalId: penelope.id });
+    expect(released.cleanup?.work).toBe("unknown");
+    expect({ ledger: db.query("SELECT count(*) AS n FROM reference_worktree_checkpoints").get(), state: pool.records.get(lost!)?.state },
+      "REFERENCE_WORKTREE_LOST_ASSESSMENT_REPLY_RELEASED").toEqual({ ledger: { n: 0 }, state: "reclaimed" });
+  });
+
+  test("a closed service's generations are over for the next instance", async () => {
+    const first = service();
+    const penelope = owner();
+    const tree = await first.worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    const generation = await first.worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
+    await first.worktrees.access({ worktreeId: tree.id, principalId: penelope.id, generation: generation.id });
+    await first.worktrees.close();
+    const next = createReferenceWorktrees({ db, pool: first.pool, sources: first.sources, now: () => clock, coverage: async () => {} });
+    const recovered = await next.recover();
+    expect(recovered.closed, "REFERENCE_WORKTREE_CLOSED_SERVICE_GENERATIONS_ENDED").toContain(generation.id);
+    expect(first.pool.records.get(tree.id)?.access).toBeNull();
+  });
+});
