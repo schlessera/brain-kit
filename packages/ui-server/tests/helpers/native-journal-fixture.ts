@@ -102,7 +102,7 @@ export function createNativeJournalFixture(brain: string, root: string) {
     async poolCreate() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolSeal() { throw Error("Copied native fixture has no reference pool volume."); },
     async poolRelease() { throw Error("Copied native fixture has no reference pool volume."); },
-    async listPoolRecovery() { throw Error("Copied native fixture has no reference pool volume."); },
+    async listPoolRecovery() { throw Error("Copied native fixture has no reference pool volume."); }, async poolPublish() { throw Error("Copied native fixture has no reference pool volume."); }, async poolUnpublish() { throw Error("Copied native fixture has no reference pool volume."); }, async poolWithdraw() { throw Error("Copied native fixture has no reference pool volume."); },
     async ready() { return { brainPath: brain, brainUuid: "11".repeat(16), brainRootId: "256", privatePaths: [snapshots],
       fsid: "11111111-1111-4111-8111-111111111790", capacityBytes: 1024 ** 3, availableBytes: 1024 ** 3, recoveryReserveBytes: 4096, reserveAllocatedBytes: 4096 }; },
     async checkpoint(id, signal) { return { ...await manager.checkpoint(id, signal), sourceUuid: "11".repeat(16), fsid: "11111111-1111-4111-8111-111111111790", rootId: "257" }; },

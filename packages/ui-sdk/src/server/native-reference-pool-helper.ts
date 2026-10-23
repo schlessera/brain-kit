@@ -114,6 +114,16 @@ elif command=="seal":
   if not value&RDONLY: fcntl.ioctl(fd,SETFLAGS,struct.pack("<Q",value|RDONLY))
  finally: os.close(fd)
  print(json.dumps(info(sys.argv[2])))
+elif command=="unseal":
+ # Publication (#2429) moves a sealed root between directories, which Btrfs
+ # refuses while the root is read-only; the manager reseals it at once.
+ fd=opendir(sys.argv[2])
+ try:
+  flags=bytearray(8); fcntl.ioctl(fd,GETFLAGS,flags,True)
+  value=struct.unpack("<Q",flags)[0]
+  if value&RDONLY: fcntl.ioctl(fd,SETFLAGS,struct.pack("<Q",value&~RDONLY))
+ finally: os.close(fd)
+ print(json.dumps(info(sys.argv[2])))
 elif command=="qgroup":
  pool,qgroup,limit=sys.argv[2],int(sys.argv[3]),int(sys.argv[4])
  fd=opendir(pool)

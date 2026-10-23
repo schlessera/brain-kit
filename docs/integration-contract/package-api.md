@@ -3190,6 +3190,22 @@ filesystem API. The lease owner adds the same pool methods, refuses deletion
 without a recorded lease, and reports `retainedPool` from `recoverDeadOwners`,
 which never deletes pool roots.
 
+### Reference publication (additive, #2429)
+
+The native manager client and the lease owner gain `poolPublish(id, view, name)`,
+`poolUnpublish(view, name)` and `poolWithdraw(id)`. `view` is a caller-generated UUID naming one
+sharing domain; `name` is 1–128 characters of lowercase letters, digits and
+`._@+-`, starting with a letter or digit, and never a UUID. Publish requires a
+sealed `source` root and returns its `NativePoolRecord`; unpublish returns
+`{ view, name, removed }`; withdraw removes a published root's names, moves it
+out of its view and returns its record with `view: null`. `NativePoolRecord` gains `view`: the view whose
+directory holds a published root, else `null`. The lease owner publishes only
+roots it holds. Records from earlier pools read as `view: null`. Neither call
+accepts a host path. Worker masks now include the pool's `roots` and `views`
+directories, and a sealed root's top directory becomes `0755 root:root`. The
+mechanism is recorded in the
+[pool decision](../decisions/reference-pool-accounting.md#publication-views-2429).
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.
