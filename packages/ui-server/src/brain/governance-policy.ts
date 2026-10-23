@@ -162,12 +162,24 @@ export function rememberedProviderTypeFolders(brainPath: string, hash: string | 
   return entry && entry.hash === hash ? entry.folders : [];
 }
 
-/** Turn admission refused because the provider policy selects what hosted turns cannot mask. */
+/**
+ * Turn admission refused because the provider policy selects what hosted turns
+ * cannot mask. `selectors` names what refused: selectors, or the hardlinks
+ * that would expose a masked file under another name (#2700).
+ */
 export class ProviderPolicyRefusedError extends Error {
-  constructor(readonly selectors: readonly string[]) {
-    super(`This turn cannot start: the governance policy's provider rules select ${selectors.join(", ")}, which hosted turns cannot hide. `
+  constructor(readonly selectors: readonly string[], message?: string) {
+    super(message ?? `This turn cannot start: the governance policy's provider rules select ${selectors.join(", ")}, which hosted turns cannot hide. `
       + "Only whole-folder selectors such as `me/**`, and document types that map exactly onto folders, are enforced. "
       + "Change those rules to whole folders, or remove them, then retry; `brain policy check` shows the policy.");
     this.name = "ProviderPolicyRefusedError";
+  }
+  /** A hidden folder's file is also named outside the masks; the turn could read it there. */
+  static hardlinks(links: readonly { path: string; masked: string }[]): ProviderPolicyRefusedError {
+    const named = links.map(link => `${link.path} is a hardlink to ${link.masked}`);
+    const listed = `${named.slice(0, 3).join("; ")}${named.length > 3 ? `; and ${named.length - 3} more` : ""}`;
+    return new ProviderPolicyRefusedError(named, `This turn cannot start: ${listed}, which the governance policy's provider rules hide from hosted turns. `
+      + "A folder mask hides names, not the file itself, so the turn could read it through the other name. "
+      + "Remove those hardlinks (a copy outside the folder is not hidden either), then retry.");
   }
 }

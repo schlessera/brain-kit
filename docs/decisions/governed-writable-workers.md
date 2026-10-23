@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:64-185`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:65-192`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:37-187`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:38-194`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1894,8 +1894,46 @@ A document created or retyped to a selected type outside its folders during a
 turn, by that turn or a peer, stays readable to the running turn. The next
 admission refuses until it is moved or retyped. Hardlinks are not followed
 either: a hardlink to a masked document under a name other than `.md` is not
-found by the check, as for literal folder masks
-([#2700](https://github.com/schlessera/brain-kit/issues/2700)).
+found by the frontmatter check; the hardlink check below covers it for every
+masked folder.
+
+**Hardlinks out of masked folders (2026-10-23, #2700).** A folder mask hides
+names, not inodes: a regular file outside the masks that shares a masked
+file's device and inode gives the turn the masked bytes. Admission now looks
+for such names on every tree the turn reads. That is the final checkpoint,
+which the private index is built from and a strict worker runs on, plus the
+live brain for a governed worker. It refuses through
+`ProviderPolicyRefusedError`, naming up to three outside names with the masked
+file each aliases and counting the rest (`providerHardlinks`,
+`packages/ui-server/src/brain/provider-hardlinks.ts:33-82`). It uses the same
+`providerMaskedFolders` set as the masks. In practice the leak is on the
+checkpoint: a governed turn already falls back to strict when a retained
+folder holds any multiply linked file (`checkTree`), and a Btrfs checkpoint
+keeps the link.
+
+The check reads metadata only. It keeps names as raw bytes, so a name that is
+not valid UTF-8 is still inspected, and it `lstat`s every entry instead of
+trusting the directory-entry type. It walks each directory inside the masked
+folders once by identity, so a mask reached twice through a symlinked parent
+counts no name twice. It keeps the multiply linked files whose link count
+exceeds the names found inside. If there are none, which is the usual case, it stops
+there. Otherwise it walks the rest of the brain once and stops when every
+extra name is found. Its cost is bounded by the brain's file count, like the
+frontmatter check. Symbolic links are neither followed nor counted, since
+the worker resolves them in its own namespace, where the target is masked.
+Only the root `.git` (hidden) and `.brain-index` (the private index) are
+skipped. Hidden folders, `node_modules`, and nested `.git` folders still
+count.
+
+**Limitation.** Like the frontmatter check, this covers the trees as the
+check sees them. The strict checkpoint is immutable, so the gap is the live
+brain of a governed turn. A peer that hardlinks a masked file outside the
+masks after the check, whether still during admission or while the turn runs,
+exposes it to that turn until the turn ends; the next admission refuses.
+Launch qualification rechecks folder identities, not link counts. The running
+turn cannot create such a link itself, because it cannot name the masked file.
+Nested masks (`me` and `me/x`) fail at launch independently of this check
+([#2718](https://github.com/schlessera/brain-kit/issues/2718)).
 
 Still open under #1668: server search, read and context tools do not yet
 refuse masked paths; autonomous (restricted) turns do not apply the masks;

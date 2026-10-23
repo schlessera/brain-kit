@@ -7,7 +7,7 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, test, type Mock } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
 import * as startup from "../../ui-sdk/src/server/worker-startup-view";
@@ -166,6 +166,80 @@ test.each([
   try { await (await f.turns.begin("unsupported", new AbortController().signal)).end(); } catch (error) { refusal = error; }
   expect((refusal as Error)?.name, "UNSUPPORTED_SELECTOR_REFUSED").toBe("ProviderPolicyRefusedError");
   expect(String((refusal as Error).message)).toContain(named);
+});
+
+/** Begin a turn; if admitted, read `path` through real bubblewrap Bash. */
+async function readThroughTurn(f: ReturnType<typeof fixture>, path: string): Promise<{ refusal?: Error; read: string; profile?: string }> {
+  let hold;
+  try { hold = await f.turns.begin("hardlink", new AbortController().signal); } catch (error) { return { refusal: error as Error, read: "" }; }
+  try {
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, startupView: hold.startupView, env: { PATH },
+      command: ["/bin/bash", "-c", `cat ${path} 2>/dev/null || true`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.exitCode, shell.stderr.toString()).toBe(0);
+    return { read: shell.stdout.toString(), profile: hold.sandbox.profile };
+  } finally { await hold.end(); }
+}
+
+test.each([
+  ["paths: [me/**]", "governed", "everywhere"],
+  ["types: [identity]", "governed", "everywhere"],
+  ["paths: [me/**]", "strict", "everywhere"],
+  // Removed from the live brain after the checkpoint: only the view the
+  // strict turn runs on holds it.
+  ["paths: [me/**]", "strict", "checkpoint only"],
+] as const)("a hardlink out of a masked folder under a non-Markdown name refuses admission by name (%s, %s, %s)", async (selector, profile, where) => {
+  const f = fixture(`[{ ${selector}, allow: [anthropic] }]`, profile);
+  // The same inode as a masked document, under a name the frontmatter check
+  // never reads. A hardlinked file in a retained folder already moves a
+  // governed turn to the strict checkpoint, and a Btrfs checkpoint keeps the
+  // hardlink; the fixture's byte copy would not, so the view recreates it.
+  if (where === "everywhere") linkSync(join(f.brain, "me/oath.md"), join(f.brain, "notes/x.txt"));
+  (startup.prepareNativeWorkerStartupView as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>).mockImplementation(async (brain, _manager, signal) => {
+    signal?.throwIfAborted();
+    const view = createFixtureWorkerStartupView(brain);
+    rmSync(join(view.root, "notes/x.txt"), { force: true });
+    linkSync(join(view.root, "me/oath.md"), join(view.root, "notes/x.txt"));
+    return view;
+  });
+  const { refusal, read, profile: ran } = await readThroughTurn(f, "notes/x.txt");
+  expect(read.includes(SENTINEL), `MASKED_BYTES_UNREADABLE_THROUGH_THE_HARDLINK (${ran} turn)`).toBe(false);
+  expect(refusal?.name, `HARDLINK_OUT_OF_MASKED_FOLDER_REFUSED: the turn read ${JSON.stringify(read.slice(0, 80))}`).toBe("ProviderPolicyRefusedError");
+  expect(refusal?.message).toContain("notes/x.txt is a hardlink to me/oath.md");
+});
+
+test("a governed turn refuses a hardlink that only its private index's checkpoint holds", async () => {
+  const f = fixture();
+  // Gone from the live brain by the time the governed worker is qualified,
+  // but the private index is built from the checkpoint, where it remains.
+  (startup.prepareNativeWorkerStartupView as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>).mockImplementation(async (brain, _manager, signal) => {
+    signal?.throwIfAborted();
+    const view = createFixtureWorkerStartupView(brain);
+    linkSync(join(view.root, "me/oath.md"), join(view.root, "notes/x.md"));
+    return view;
+  });
+  let refusal: Error | undefined, indexed: string[] = [];
+  try {
+    const hold = await f.turns.begin("hardlink-checkpoint", new AbortController().signal);
+    try { indexed = search(f.brain, hold.sandbox, SENTINEL); } finally { await hold.end(); }
+  } catch (error) { refusal = error as Error; }
+  expect(refusal?.name, `GOVERNED_CHECKPOINT_HARDLINK_REFUSED: the private index held ${JSON.stringify(indexed)}`).toBe("ProviderPolicyRefusedError");
+  expect(refusal?.message).toContain("notes/x.md is a hardlink to me/oath.md");
+});
+
+test("symbolic links out of a masked folder and hardlinks within it admit, and the target stays masked", async () => {
+  const f = fixture();
+  symlinkSync("../me/oath.md", join(f.brain, "notes/oath-link.txt"));
+  linkSync(join(f.brain, "me/oath.md"), join(f.brain, "me/alias.txt"));
+  (startup.prepareNativeWorkerStartupView as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>).mockImplementation(async (brain, _manager, signal) => {
+    signal?.throwIfAborted();
+    const view = createFixtureWorkerStartupView(brain);
+    rmSync(join(view.root, "me/alias.txt"));
+    linkSync(join(view.root, "me/oath.md"), join(view.root, "me/alias.txt"));
+    return view;
+  });
+  const { refusal, read } = await readThroughTurn(f, "notes/oath-link.txt");
+  expect(refusal, "SYMLINK_AND_INTERNAL_HARDLINK_ADMIT").toBeUndefined();
+  expect(read, "SYMLINK_TARGET_STILL_MASKED").toBe("");
 });
 
 test("a type refuses admission while a document of it lies outside its folder", async () => {
