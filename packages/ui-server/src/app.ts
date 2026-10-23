@@ -808,7 +808,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     principalManagementRoutes(authMode, auth, {
       db,
       revoker: host,
-      log: authLog,
+      log: authLog, brain: nativeReady.brainUuid,
     })
   );
   app.route(

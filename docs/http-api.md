@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report and retained-journal/user-revert routes mounted by `createApp`: 154 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 157 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -68,6 +68,9 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/auth/principals` | S | List live principals | Independent client access; preserve principal README and SDK PasskeySummary promises. |
 | POST | `/api/auth/principals` | S | Mint a delegated agent credential | Independent client access; preserve principal README and SDK PasskeySummary promises. |
 | DELETE | `/api/auth/principals/:id` | S | Revoke a principal and its descendants | Independent client access; preserve principal README and SDK PasskeySummary promises. |
+| GET | `/api/auth/principals/:id/reference-grants` | S | List a principal's live reference-source grants | Owner authority for private reference acquisition (#2429); additive. |
+| POST | `/api/auth/principals/:id/reference-grants` | S | Grant a principal a repository prefix and named host credential | Owner authority for private reference acquisition (#2429); additive. |
+| DELETE | `/api/auth/principals/:id/reference-grants/:grantId` | S | Revoke one reference-source grant | Owner authority for private reference acquisition (#2429); additive. |
 | POST | `/api/brain/add` | S | Capture content and report indexing outcome | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | GET | `/api/brain/briefing` | S | Read CLI briefing text | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
 | POST | `/api/brain/index` | S | Retry incremental indexing without recapture | Independent corpus clients; preserve CLI pass-through, capture recovery and sync lifetime promises. |
@@ -187,7 +190,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 154 declared endpoints are mounted regardless of backend, renderer or
+All 157 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -452,6 +455,42 @@ has no owner-management privilege.
 the principal and its delegation descendants, invalidates associated live
 runtime state, and returns `{ ok: true }`. Unknown/already revoked target is
 404. An owner can revoke their own credential; later requests then fail auth.
+
+<a id="reference-source-grants"></a>
+
+**Reference-source grants (additive, #2429) — password owner.** A grant is
+the only authority for private reference acquisition
+([decision](decisions/reference-source-grants.md)). It binds the served brain,
+one live owner or agent principal, a repository prefix and a named existing
+host credential or none. A configured credential never grants access by
+itself.
+
+- **GET `/api/auth/principals/:id/reference-grants`** returns `{ grants:
+  [{ id, principal_id, repository_prefix, credential, created_by, created_at }] }`
+  for that principal's live grants, oldest first; `created_at` is epoch
+  milliseconds. An unknown, revoked, expired or non-cookie principal is 404.
+- **POST `/api/auth/principals/:id/reference-grants`**, JSON body
+  `{ repositoryPrefix: string, credential?: string | null }`. The prefix is an
+  HTTPS URL without user info, query or fragment, a loopback `http://` URL, or an
+  absolute `file:///` path; it may be a bare HTTPS origin. Empty, `.` and `..`
+  segments, whitespace, control characters, backslashes and percent-encoding
+  are 400. Hosted prefixes are stored lowercase-origin without a trailing slash
+  or `.git`; a prefix covers itself and paths below it at a segment boundary.
+  `credential` defaults to null. Otherwise it is exactly
+  `BRAIN_UI_SYNC_GITHUB_TOKEN`, `BRAIN_UI_SKILLS_GITHUB_TOKEN` or
+  `GITHUB_TOKEN`, and the prefix origin must be `https://github.com` or a
+  loopback origin; a file prefix takes no credential. Violations are 400. Success
+  is 201 with the grant object. Malformed or non-object JSON is 400; an unknown
+  or unusable target principal is 404; an identical live grant is 409; 256 live
+  grants is 503.
+- **DELETE `/api/auth/principals/:id/reference-grants/:grantId`**, body
+  ignored, revokes that principal's live grant and returns `{ ok: true }`.
+  Revocation applies to the next authority check, including in-flight private
+  refreshes. An unknown, already revoked or other principal's grant is 404.
+
+Revoking or expiring the principal ends every grant it holds. Grant routes share
+the principal family's password-mode and owner checks; other modes return the
+same not-enabled response.
 
 ## Corpus queries, capture and sync
 

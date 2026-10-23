@@ -555,3 +555,10 @@ The host-only `brain-native-store` configuration gains an optional separate
 reference pool volume, and the launcher gains a deterministic `pool`
 status/recovery/release projection, described in
 [the package API](integration-contract/package-api.md#reference-pool-storage-additive-2428).
+
+## Reference-source grants (additive, #2429)
+
+Owner-managed grant records are the only authority for private reference
+acquisition. Three password-owner routes under `/api/auth/principals/:id/`
+create, list and revoke them, described in
+[the HTTP contract](integration-contract/http.md#reference-source-grants-additive-2429).

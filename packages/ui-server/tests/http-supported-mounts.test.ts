@@ -58,6 +58,9 @@ const checks: Record<string, Check> = {
   "GET /api/auth/principals": { verify: async (r) => { const b = await r.json(); expect(b.principals).toHaveLength(1); expect(b.principals[0]).toMatchObject({ kind: "owner", is_own: true }); expect(b.principals[0].cookie).toBeUndefined(); } },
   "POST /api/auth/principals": { init: json("POST", { label: "Fixture delegate", ttlDays: 1 }), verify: async (r, t) => { const b = await r.json(); expect(b.label).toBe("Fixture delegate"); expect(b.cookie.length).toBeGreaterThan(0); expect(t.app.db.query("SELECT kind FROM principals WHERE id = ?").get(b.id)).toEqual({ kind: "agent" }); } },
   "DELETE /api/auth/principals/:id": { path: "/api/auth/principals/owner-to-revoke", init: { method: "DELETE" }, body: { ok: true } },
+  "GET /api/auth/principals/:id/reference-grants": { path: "/api/auth/principals/odysseus-grantee/reference-grants", body: { grants: [] } },
+  "POST /api/auth/principals/:id/reference-grants": { path: "/api/auth/principals/odysseus-grantee/reference-grants", init: json("POST", { repositoryPrefix: "https://github.com/odysseus", credential: "BRAIN_UI_SYNC_GITHUB_TOKEN" }), status: 201, verify: async (r, t) => { const b = await r.json(); expect(b).toMatchObject({ principal_id: "odysseus-grantee", repository_prefix: "https://github.com/odysseus" }); expect(t.app.db.query("SELECT credential FROM reference_grants WHERE id = ?").get(b.id)).toEqual({ credential: "BRAIN_UI_SYNC_GITHUB_TOKEN" }); } },
+  "DELETE /api/auth/principals/:id/reference-grants/:grantId": { path: "/api/auth/principals/odysseus-grantee/reference-grants/missing", init: { method: "DELETE" }, status: 404, body: { error: "Unknown reference grant" } },
   "GET /api/brain/search": { path: "/api/brain/search?q=harbor&type=note&tag=voyage&mode=fts&limit=2", body: { results: [{ path: "notes/arrival.md" }], warnings: ["Fixture uses keyless retrieval"] } },
   "GET /api/brain/list": { body: { results: [{ path: "notes/arrival.md", tags: null }] } },
   "GET /api/brain/briefing": { body: { content: "Arrival: Odysseus reaches the harbor.\n" } },
@@ -143,6 +146,7 @@ async function prepare(operation: string, afterSeed?: (t: HttpContractApp) => vo
     if (operation === "DELETE /api/auth/principals/:id") {
       t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_at, expires_at) VALUES ('owner-to-revoke', 'owner', 'password', 'Other fixture device', 1, ?)").run(Date.now() + 3600_000);
     }
+    if (operation.includes("/reference-grants")) t.app.db.query("INSERT INTO principals (id, kind, auth_method, label, created_by, created_at, expires_at) VALUES ('odysseus-grantee', 'agent', 'delegated', 'Telemachus', NULL, 1, ?)").run(Date.now() + 3600_000);
     if (operation.endsWith("/api/sessions/:id/profile")) {
       createSessionCatalog(() => t.app.db).persistSessionStub("fixture-session", "Odysseus reaches the harbor.", "fixture", "fixture");
     }

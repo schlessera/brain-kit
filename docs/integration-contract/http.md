@@ -645,6 +645,21 @@ No historical rows are backfilled, and these fields do not assert a live cache
 hit. Existing root attributes also expose the hash-only records to Activity's
 span/query consumers.
 
+<a id="reference-source-grants-additive-2429"></a>
+
+### Reference-source grants (additive, #2429)
+
+`GET`, `POST /api/auth/principals/:id/reference-grants` and
+`DELETE /api/auth/principals/:id/reference-grants/:grantId` are specified in
+[the HTTP inventory](../http-api.md#reference-source-grants). A grant binds the served brain, one live
+owner or agent principal, a canonical repository prefix and one named existing
+host credential from a fixed list, or none. Private reference source is fetched
+only while a live grant covers the requesting principal and repository; a
+configured host credential never grants access by itself. Revoking the grant or
+its principal applies to the next authority check, including in-flight private
+refreshes. The routes add no credential storage and return no credential value.
+The [grant decision](../decisions/reference-source-grants.md) records the ruling.
+
 ## Content renderer bootstrap declarations (additive, #2087)
 
 Authenticated `GET /api/status` includes optional `contentRenderers`, an array of
