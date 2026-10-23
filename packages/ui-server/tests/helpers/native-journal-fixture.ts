@@ -6,7 +6,7 @@ import type { NativeJournalCheckpoint, NativeJournalManager } from "../../src/br
 import type { createNativeBrainManagerClient } from "../../../ui-sdk/src/server/native-brain-manager-client.js";
 import { nativeManagerFrame, nativeManagerRequest, NATIVE_DATA_CHUNK_BYTES } from "../../../ui-sdk/src/server/native-brain-manager-protocol.js";
 
-type Entry = { kind: "directory" | "file" | "symlink" | "other"; mode: number; bytes: number; identity: string; ino: bigint; target?: string };
+export type Entry = { kind: "directory" | "file" | "symlink" | "other"; mode: number; bytes: number; identity: string; ino: bigint; target?: string };
 const bytes = (text: string) => Buffer.from(text, "utf8");
 const u64 = (value: bigint) => { const result = Buffer.alloc(8); result.writeBigUInt64LE(value); return result; };
 // Independent lookup-table encoder; product parser verifies with bitwise CRC.
@@ -24,7 +24,7 @@ function command(kind: number, attributes: [number, Uint8Array][] = []): Buffer 
   for (const byte of result) crc = crcTable[(crc ^ byte) & 255]! ^ (crc >>> 8);
   result.writeUInt32LE(crc >>> 0, 6); return result;
 }
-function inventory(root: string): Map<string, Entry> {
+export function inventory(root: string): Map<string, Entry> {
   const result = new Map<string, Entry>();
   function walk(parent: string) {
     for (const name of readdirSync(join(root, parent)).sort()) {
@@ -39,6 +39,25 @@ function inventory(root: string): Map<string, Entry> {
     }
   }
   walk(""); return result;
+}
+
+/** A send stream between two copied inventories, in the native framing the product parser verifies. */
+export function fixtureDelta(before: { uuid: string; transaction: string; entries: Map<string, Entry> }, after: { uuid: string; transaction: string; entries: Map<string, Entry> }, to: string) {
+  const records: Buffer[] = [command(2, [[15, bytes(to)], [1, Buffer.from(after.uuid, "hex")], [2, u64(BigInt(after.transaction))],
+    [20, Buffer.from(before.uuid, "hex")], [21, u64(BigInt(before.transaction))]])];
+  for (const path of [...new Set([...before.entries.keys(), ...after.entries.keys()])].sort()) {
+    const old = before.entries.get(path), current = after.entries.get(path);
+    if (old?.identity === current?.identity) continue;
+    if (!current) records.push(command(old?.kind === "directory" ? 12 : 11, [[15, bytes(path)]]));
+    else if (!old) {
+      records.push(command(current.kind === "directory" ? 4 : current.kind === "symlink" ? 8 : 3,
+        [[15, bytes(path)], [3, u64(current.ino)], ...(current.kind === "symlink" ? [[17, bytes(current.target!)] as [number, Uint8Array]] : [])]));
+    } else if (old.mode !== current.mode) records.push(command(18, [[15, bytes(path)], [5, u64(BigInt(current.mode))]]));
+    else records.push(command(22, [[15, bytes(path)], [18, u64(0n)], [4, u64(BigInt(current.bytes))]]));
+  }
+  const raw = Buffer.concat([bytes("btrfs-stream\0"), Buffer.from([1, 0, 0, 0]), ...records, command(21)]);
+  const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(raw); controller.close(); } });
+  return { stream, completed: Promise.resolve({ exitCode: 0 as const, bytes: raw.byteLength }) };
 }
 
 export function createNativeJournalFixture(brain: string, root: string) {
@@ -68,21 +87,7 @@ export function createNativeJournalFixture(brain: string, root: string) {
     async delta(from, to, signal) {
       signal?.throwIfAborted(); const before = retained.get(from), after = retained.get(to);
       if (!before || !after) throw Error("Fixture delta requires retained roots");
-      const records: Buffer[] = [command(2, [[15, bytes(to)], [1, Buffer.from(after.checkpoint.uuid, "hex")], [2, u64(BigInt(after.checkpoint.transaction))],
-        [20, Buffer.from(before.checkpoint.uuid, "hex")], [21, u64(BigInt(before.checkpoint.transaction))]])];
-      for (const path of [...new Set([...before.entries.keys(), ...after.entries.keys()])].sort()) {
-        const old = before.entries.get(path), current = after.entries.get(path);
-        if (old?.identity === current?.identity) continue;
-        if (!current) records.push(command(old?.kind === "directory" ? 12 : 11, [[15, bytes(path)]]));
-        else if (!old) {
-          records.push(command(current.kind === "directory" ? 4 : current.kind === "symlink" ? 8 : 3,
-            [[15, bytes(path)], [3, u64(current.ino)], ...(current.kind === "symlink" ? [[17, bytes(current.target!)] as [number, Uint8Array]] : [])]));
-        } else if (old.mode !== current.mode) records.push(command(18, [[15, bytes(path)], [5, u64(BigInt(current.mode))]]));
-        else records.push(command(22, [[15, bytes(path)], [18, u64(0n)], [4, u64(BigInt(current.bytes))]]));
-      }
-      const raw = Buffer.concat([bytes("btrfs-stream\0"), Buffer.from([1, 0, 0, 0]), ...records, command(21)]);
-      const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(raw); controller.close(); } });
-      return { stream, completed: Promise.resolve({ exitCode: 0 as const, bytes: raw.byteLength }) };
+      return fixtureDelta({ ...before.checkpoint, entries: before.entries }, { ...after.checkpoint, entries: after.entries }, to);
     },
     async release(id) { const item = retained.get(id); if (item) rmSync(item.checkpoint.path, { recursive: true, force: true }); retained.delete(id); deleted.add(id); },
   };

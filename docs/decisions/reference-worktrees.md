@@ -94,6 +94,11 @@ worker owners control allocation, authorization, identity, base commit,
 active use, access/resumption, renewal, release and cleanup. A request cannot
 widen the caller's authority.
 
+> **2026-10-23 — Lifecycle (#2430).** The
+> [managed-worktree record](managed-worktrees.md) implements allocation from
+> authorized source, generation-bound access, explicit-only renewal,
+> liveness-gated expiry and the cleanup facts hygiene review consumes.
+
 Results provide a usable path and stable identity, starting commit,
 lifecycle/limits and release/renewal instructions. Both backends need stable,
 actionable tool descriptions and worker guidance: when moving shared source

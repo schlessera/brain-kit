@@ -146,6 +146,7 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
+import { createReferenceWorktrees, referenceWorktreeDependents } from "./brain/reference-worktrees.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
@@ -438,11 +439,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
   const referenceSources = referencePoolConfigured ? createReferenceSources({ db, pool: nativeManager, brain: nativeReady.brainUuid, credentials: referenceCredentialValues(),
     transport: createReferenceTransport({ brainPath: config.brainPath, ...(config.maintenanceTemp ? { tempLimits: config.maintenanceTemp } : {}),
-      ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) }), ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog }) : undefined;
+      ...(config.dbPath && config.dbPath !== ":memory:" ? { tempDomain: { statePath: resolve(config.dbPath) } } : {}) }), ...(config.referenceSource ? { limits: config.referenceSource } : {}), log: brainLog,
+    // Managed worktrees (#2430) keep the source roots they were snapshotted from.
+    dependents: rootId => referenceWorktreeDependents(db, rootId) }) : undefined;
+  // Worktree lifecycle (#2430). Access stays refused until journal coverage is wired.
+  const referenceWorktrees = referenceSources ? createReferenceWorktrees({ db, pool: nativeManager, sources: referenceSources, log: brainLog }) : undefined;
   if (referenceSources) {
     bootCleanup.push(() => referenceSources.close());
     const recovered = await referenceSources.recover().catch((error: Error) => ({ released: [], retained: [error.message] }));
     if (recovered.retained.length) brainLog.emit({ severityText: "WARN", body: `Reference source recovery retained ${recovered.retained.length} unresolved pool root(s).` });
+  }
+  if (referenceWorktrees) {
+    bootCleanup.push(() => referenceWorktrees.close());
+    const recovered = await referenceWorktrees.recover().catch((error: Error) => ({ discarded: [], closed: [], retained: [error.message] }));
+    if (recovered.retained.length) brainLog.emit({ severityText: "WARN", body: `Managed worktree recovery retained ${recovered.retained.length} unresolved worktree or generation record(s).` });
   }
   assertInboxRecoveryReady(db);
   // One package-local pricing instance, shared by admission and Activity.
@@ -1140,6 +1150,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       await attempt(() => keyedReindex.idle());
       await attempt(async () => { await host.governedTurns?.close(); });
       await attempt(() => journal.close());
+      await attempt(async () => { await referenceWorktrees?.close(); });
       await attempt(async () => { await referenceSources?.close(); });
       await attempt(() => nativeLeases.close());
       if (ephemeralJournal) await attempt(() => { rmSync(journalRoot, { recursive: true, force: true }); rmSync(storageCacheRoot, { recursive: true, force: true }); });
