@@ -128,6 +128,7 @@ import { boundaryPlanner } from "./brain/application.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
 import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
+import { createProviderExposures } from "./brain/provider-exposure.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
@@ -579,7 +580,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
-      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
+      exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}) });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });

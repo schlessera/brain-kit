@@ -109,6 +109,21 @@ folders and private index before its payload starts. Other launches do not
 send the field. A helper without the operation refuses provider-folder turns
 before payload start, as before; nothing else changes.
 
+## Allowed provider recipients (additive, 0.44.0, #2695)
+
+A hosted turn whose recipient a `providers` rule allows now sees that rule's
+folders, as specified under
+[supported inputs](supported-inputs.md#governance-policy). The recipient is
+named only from the exact origin the turn's host inference relay forwards to:
+a built-in vendor origin, or one the new server variable
+`BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` (`name=origin[,origin];name=origin`)
+names. Every other turn keeps the masks. A conversation that showed folders to
+one recipient refuses a later turn, or a handoff, whose recipient may not see
+them, with `ProviderRecipientRefusedError`. The optional
+[`AgentBackend.inferenceOrigin`](integration-contract/package-api.md#inference-recipient-origin-additive-2695)
+supplies the origin. No schema, CLI `--json` shape, MCP tool or HTTP route
+changes.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).

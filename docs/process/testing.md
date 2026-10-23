@@ -424,6 +424,12 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   changed selection before weighted sharding. The queue seeds Bun's timing
   format from `scripts/test-shard-costs.json`, converting seconds to
   milliseconds, rather than reconstructing the import graph.
+  Refresh the reviewed table and its source receipt only with
+  `bun scripts/refresh-unit-costs.ts <run-id> <attempt>` and qualified exhaustive
+  hosted artifacts; [the refresh guide](ci-timings.md#refresh-reviewed-unit-weights)
+  explains the attribution checks. Local completed-file times remain comparison
+  evidence. The recorded full source must have one positive weight per file;
+  files added afterward retain ordinary unseeded behavior until a later refresh.
   `--import-graph-workers=N` overrides the CPU/memory-derived local worker
   count. `--plan` lists the selected commands and arguments and
   explains when feedback is skipped and how to enable it. Bun includes
@@ -458,6 +464,10 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   Reports separate the common checkout/copy/build from each worker's setup
   and test time. The [measurement decision](../decisions/ci-utility.md#isolated-local-import-graph-feedback)
   records the sweep and the 900-second gate for default feedback.
+  The [timing refresh](../decisions/ci-utility.md#reviewed-timing-refresh) covers
+  1,180 hosted files. Its single wide replay stopped on a fixture failure after
+  599.166 seconds, with incomplete reports; that is not a successful sub-900s
+  qualification, so feedback remains opt-in.
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.

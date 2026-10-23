@@ -131,6 +131,8 @@ type RunSessionInput = {
  * attempt is over, whichever way it ended.
  */
 export interface HandoffHooks {
+  /** The conversation handed off: its provider history continues in the destination (#2695). */
+  readonly sourceSessionId?: string;
   onNamed(sessionId: string): void;
   onSettled(): void;
 }
@@ -510,7 +512,16 @@ async function runRetainedSession(
           ? host.sessionProfiles?.preference(turn.principalId, resumeId, resumeId ? undefined : initial.profileDraftId) : undefined;
         if (host.governedTurns) lifecycle?.mark("governedStartedAt");
         else lifecycle?.skip("governed");
-        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference);
+        // Only a backend whose turn runs on the host inference relay can name
+        // the origin that relay forwards to; admission proves the recipient
+        // from it, and the relay below refuses any other (#2695).
+        const relayed = backend.id === "claude" || backend.id === "pi";
+        const inferenceOrigin = host.governedTurns && relayed && backend.inferenceOrigin
+          ? await backend.inferenceOrigin({ ...(profileId ? { profileId } : {}), ...(resumeId ? { sessionId: resumeId } : {}) }).catch(() => undefined) : undefined;
+        abortController.signal.throwIfAborted();
+        const handoffSource = !resumeId && turn.turnId === firstTurnId ? initial.handoffHooks?.sourceSessionId : undefined;
+        governedHold = await host.governedTurns?.begin(turn.turnId, abortController.signal, origin, preference, {
+          ...(inferenceOrigin ? { inferenceOrigin } : {}), ...(resumeId ? { sessionId: resumeId } : {}), ...(handoffSource ? { inherit: [handoffSource] } : {}) });
         if (governedHold) lifecycle?.mark("governedAcquiredAt");
         if (!governedHold || !host.budgets) lifecycle?.skip("budget");
         if (!governedHold || !host.journal) lifecycle?.skip("journal");
@@ -601,6 +612,7 @@ async function runRetainedSession(
                 if (revision !== undefined && turn.startedAt !== undefined) {
                   host.catalog.dispatchWork?.(sid, revision, turn.turnId, backend.id, turn.startedAt);
                 }
+                host.governedTurns?.bindSession(turn.turnId, sid);
                 recordSource(sid);
                 recordDraftExchanges(host, sid, drafted);
                 initial.handoffHooks?.onNamed(sid);
@@ -657,7 +669,8 @@ async function runRetainedSession(
             mainModel = model; recorder?.setMainModel(model);
           } },
           governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
-            ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}) } : undefined
+            ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
+            ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
@@ -670,7 +683,9 @@ async function runRetainedSession(
         // A governed or strict Claude or pi turn on managed native storage gets
         // its own proxy and the host inference relay (#1665). Without that
         // storage the turn keeps its current network; worker-host status says which.
-        if (governedHold?.managedStorage && (backend.id === "claude" || backend.id === "pi")) {
+        if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
+          throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
+        if (governedHold?.managedStorage && relayed) {
           const governance = host.activity?.governance;
           turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,

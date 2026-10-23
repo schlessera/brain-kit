@@ -399,7 +399,7 @@ export function optionsFor(arm: ArmName, abortController: AbortController, alway
   return {
     cwd: BRAIN_PATH,
     // Production aborts a turn at this budget rather than letting it run on
-    // (`packages/ui-server/src/ws/run-session.ts:184`). Without it the harness
+    // (`packages/ui-server/src/ws/run-session.ts:186`). Without it the harness
     // would score an answer no reader could ever have received: five turns of
     // an earlier run took 190-306 s. `maxTurns` bounds the conversation, not
     // the clock.

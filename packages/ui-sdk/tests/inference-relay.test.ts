@@ -39,6 +39,15 @@ function send(socketPath: string, method: string, path: string, headers: Record<
 }
 
 describe("inference relay", () => {
+  test("refuses to start toward any origin but the recipient its turn was admitted for (#2695)", async () => {
+    const at = `http://127.0.0.1:${upstream.port}`;
+    expect(() => startInferenceRelay({ upstream: `${at}/v1`, routes: ANTHROPIC_INFERENCE_ROUTES, credentials: { "x-api-key": KEY },
+      recipientOrigin: "https://api.anthropic.com" }), "RELAY_REFUSES_A_NON_ADMITTED_RECIPIENT").toThrow("is not the recipient this turn was admitted for");
+    const admitted = startInferenceRelay({ upstream: `${at}/`, routes: ANTHROPIC_INFERENCE_ROUTES, credentials: { "x-api-key": KEY }, recipientOrigin: at });
+    relays.push(admitted);
+    expect((await send(admitted.socketPath, "POST", "/v1/messages", {}, "{}")).status, "RELAY_CARRIES_THE_ADMITTED_RECIPIENT").toBe(200);
+  });
+
   test("resolves current host credentials for every dispatch without forwarding worker identity or stale credentials", async () => {
     let token = "odysseus-first-login";
     let calls = 0;

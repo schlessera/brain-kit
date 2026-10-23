@@ -26,6 +26,9 @@ and enabling flag. An empty import-graph selection prints Bun’s no-affected-te
 succeeds. This misses spawned commands and file-read/string-named inputs;
 it does not replace complete affected hosted discovery. Full/all modes retain
 their existing suites without adding this feedback step.
+The queue seeds Bun from reviewed hosted weights. Timing refreshes use the
+[explicit attributed command](../../../../docs/process/ci-timings.md#refresh-reviewed-unit-weights);
+local wall times remain comparison evidence.
 Record actual behavioral failing-first/restored mutation
 receipts and visual judgment. Complete repeatable proof runs in selected hosted
 jobs under #1326, including full affected discovery, pinned browser/layout/

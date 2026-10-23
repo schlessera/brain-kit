@@ -15,6 +15,20 @@ const capturePath = `native-private-index-${profile}.md`;
 process.umask(0o002);
 expect(process.getuid?.(), "NATIVE_PROVIDER_INDEX_SEPARATE_WORKER_UID").toBe(21002);
 expect(process.getgid?.(), "NATIVE_PROVIDER_INDEX_SHARED_GROUP").toBe(21001);
+if (process.argv[4] === "allowed") {
+  // A proven allowed recipient (#2695): the folder, history and real index.
+  expect(readFileSync(join(brain, "me/oath.md"), "utf8"), "NATIVE_ALLOWED_ROUTE_READS_FOLDER").toContain(sentinel);
+  expect(readdirSync(join(brain, ".git")).length, "NATIVE_ALLOWED_ROUTE_SEES_HISTORY").toBeGreaterThan(0);
+  const real = statSync(join(brain, ".brain-index"));
+  if (process.argv[3] !== "checkpoint") expect(`${real.dev}:${real.ino}`, "NATIVE_ALLOWED_ROUTE_REAL_INDEX").toBe(process.argv[3]);
+  const run = Bun.spawnSync([process.execPath, "/repo/packages/core/src/cli/brain.ts", "search", sentinel, "--limit", "50", "--json"],
+    { cwd: brain, env: { PATH: "/usr/local/bin:/usr/bin:/bin", BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" }, stdout: "pipe", stderr: "pipe" });
+  expect(run.exitCode, `NATIVE_ALLOWED_ROUTE_SEARCH: ${run.stderr.toString()}`).toBe(0);
+  const found = JSON.parse(run.stdout.toString());
+  expect((Array.isArray(found) ? found : found.results).map((entry: { path: string }) => entry.path), "NATIVE_ALLOWED_ROUTE_SEARCHES_FOLDER").toContain("me/oath.md");
+  console.log(JSON.stringify({ nativeProviderAllowedWorker: "pass", profile, uid: process.getuid?.() }));
+  process.exit(0);
+}
 expect(readdirSync(join(brain, "me")), "NATIVE_PROVIDER_FOLDER_EMPTY").toEqual([]);
 expect(readdirSync(join(brain, ".git")), "NATIVE_PROVIDER_HISTORY_EMPTY").toEqual([]);
 const index = statSync(join(brain, ".brain-index"));
