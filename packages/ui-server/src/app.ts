@@ -126,7 +126,7 @@ import {
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
-import { retireLegacyIndex } from "./brain/index-directory.js";
+import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
@@ -420,6 +420,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // an earlier release left (it holds document bodies a provider-restricted
   // turn must not read); the index is rebuilt below, never moved (#1668).
   const legacyIndex = retireLegacyIndex(config.brainPath);
+  // The server, not a worker identity under its own umask in a staged view,
+  // creates the index directory, with the brain root's mode, so every later
+  // maintenance or turn worker can create SQLite sidecars in it.
+  try { ensureIndexDirectory(config.brainPath); }
+  catch (error) { brainLog.emit({ severityText: "WARN", body: `the index directory could not be prepared: ${error instanceof Error ? error.message : String(error)}` }); }
   if (legacyIndex.removed.length || legacyIndex.kept.length) brainLog.emit({ severityText: "WARN",
     body: `the search index moved to .brain-index/: removed the old root-level ${legacyIndex.removed.join(", ") || "files"}`
       + (legacyIndex.kept.length ? `; ${legacyIndex.kept.join(", ")} ${legacyIndex.kept.length === 1 ? "is a directory" : "are directories"} and must be removed by hand` : "") });

@@ -1,7 +1,7 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -124,6 +124,13 @@ test("admission creates the index directory with the brain root's mode before re
     expect(info.mode & 0o7777).toBe(statSync(f.brain).mode & 0o7777);
     expect(hold.sandbox.retainedFolders).toEqual([".brain-index", "group/private"]);
   } finally { await hold.end(); }
+});
+
+test("an existing server-owned index directory is repaired to the brain root's mode", () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-index-mode-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  chmodSync(root, 0o2775); mkdirSync(join(root, ".brain-index")); chmodSync(join(root, ".brain-index"), 0o755);
+  ensureIndexDirectory(root);
+  expect(statSync(join(root, ".brain-index")).mode & 0o7777, "INDEX_DIRECTORY_MODE_REPAIRED").toBe(0o2775);
 });
 
 test("an aliased index directory is refused, never replaced", () => {
