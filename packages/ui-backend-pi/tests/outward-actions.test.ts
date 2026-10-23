@@ -13,6 +13,11 @@ test(`${binding}: a matching command AND actual origin destination executes with
   expect(result.bytes).toBe("push origin main\n"); expect(result.requests).toEqual([]);
   expect(result.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { target: "github.com/odysseus/voyage.git", decision: "policy_allowed" } });
 });
+test(`${binding}: a session that ingested untrusted input asks even when outward.allow matches`, async () => {
+  const declined = await probe(binding, { command: "git push origin main", outwardAllow: allow, taint: { eventId: 7, source: "web_search" }, decision: { behavior: "deny", message: "Declined." } });
+  expect(declined.executed, "PI_TAINTED_OUTWARD_ASKS").toBe(false); expect(declined.requests).toHaveLength(1);
+  expect(declined.events.find(e => e.kind === "outward_action")).toMatchObject({ payload: { tainted: true, decision: "declined", rule: null } });
+});
 test(`${binding}: a matching allow cannot waive force push confirmation`, async () => {
   const result = await probe(binding, { command: "git push origin --force main", outwardAllow: allow, decision: { behavior: "deny", message: "Declined." } });
   expect(result.executed, "PI_OUTWARD_FORCE_ALWAYS_ASKS").toBe(false); expect(result.requests).toHaveLength(1);

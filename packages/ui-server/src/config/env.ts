@@ -332,6 +332,24 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_REFERENCE_VALIDATION_SECONDS",
+    description: "Lifetime of a successful reference-source authority check of one exact commit (#2429). After it, a new mount needs a fresh check; failure refuses. Independent of refresh.",
+    default: "300",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_REFERENCE_REFRESH_SECONDS",
+    description: "Minimum time since a reference source's last successful refresh before a request fetches again (#2429). Refresh only ever happens on request.",
+    default: "300",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_REFERENCE_ACQUISITIONS",
+    description: "Host-wide reference acquisitions and refreshes that may run at once (#2429). Requests for the same source join one operation; readers are not limited.",
+    default: "2",
+    required: false,
+  },
+  {
     name: "BRAIN_UI_WORKER_STATE_BYTES",
     description:
       "Each Claude worker's private runtime-state tmpfs, in bytes (a positive multiple of 4096): its session " +
@@ -756,6 +774,8 @@ export interface ServerConfig {
   storage?: { backupRoots: readonly string[]; gitRoots: readonly string[] };
   /** Host-only Unix service for managed native brain storage. */
   nativeBrain?: { socketPath: string; timeoutMs: number; maxDeltaBytes: number; leasePath?: string };
+  /** Reference-source clocks and admission (#2429); absent programmatic callers use the five-minute, two-operation defaults. */
+  referenceSource?: { validationMs: number; refreshMs: number; operations: number };
   /** Resolved by the host edge; optional for existing programmatic callers, which use SDK defaults. */
   maintenanceTemp?: { allowanceBytes: number; budgetBytes: number };
   askUserFormLimits?: AskUserFormLimits;
@@ -1024,6 +1044,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
 
   return {
     nativeBrain: resolveNativeBrainConfig(env),
+    referenceSource: resolveReferenceSourceConfig(env),
     maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath,
     storage: { backupRoots: storageRoots(env.BRAIN_UI_STORAGE_BACKUP_ROOTS, 4), gitRoots: storageRoots(env.BRAIN_UI_STORAGE_GIT_ROOTS, 16) },
@@ -1130,6 +1151,16 @@ function resolveNativeBrainConfig(env: EnvRecord): ServerConfig["nativeBrain"] {
   } : undefined;
 }
 
+function resolveReferenceSourceConfig(env: EnvRecord): NonNullable<ServerConfig["referenceSource"]> {
+  const positive = (name: string, fallback: number, maximum: number) => {
+    const value = env[name] === undefined || env[name] === "" ? fallback : Number(env[name]);
+    if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw new Error(`${name} must be a whole number from 1 to ${maximum}.`);
+    return value;
+  };
+  return { validationMs: positive("BRAIN_UI_REFERENCE_VALIDATION_SECONDS", 300, 86_400) * 1000,
+    refreshMs: positive("BRAIN_UI_REFERENCE_REFRESH_SECONDS", 300, 86_400) * 1000, operations: positive("BRAIN_UI_REFERENCE_ACQUISITIONS", 2, 16) };
+}
+
 /**
  * Resolve the standalone cron bin's paths and allowlisted scheduled-job
  * environment. The escape hatch is parsed here, at this package's sole env
@@ -1203,6 +1234,14 @@ export function execConfig(env: EnvRecord): ExecWrapperConfig {
     wrapper: validateExecWrapper(env.BRAIN_UI_EXEC_WRAPPER),
     killer: validateExecWrapper(env.BRAIN_UI_EXEC_KILLER),
   };
+}
+
+/**
+ * Values of the fixed host credential selectors a reference grant may name
+ * (#2429), read once at the edge. A value alone authorizes nothing.
+ */
+export function referenceCredentialValues(env: EnvRecord = process.env): Record<string, string | undefined> {
+  return { BRAIN_UI_SYNC_GITHUB_TOKEN: env.BRAIN_UI_SYNC_GITHUB_TOKEN, BRAIN_UI_SKILLS_GITHUB_TOKEN: env.BRAIN_UI_SKILLS_GITHUB_TOKEN, GITHUB_TOKEN: env.GITHUB_TOKEN };
 }
 
 /**

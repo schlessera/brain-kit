@@ -159,6 +159,17 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held reference pool root can be sealed.");
       return raw.poolSeal(id, signal);
     }); },
+    poolPublish(id, view, name, signal) { return operation(async () => {
+      if (poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held reference pool root can be published.");
+      const record = await raw.poolPublish(id, view, name, signal);
+      if (record.id !== id || record.view !== view || record.state !== "sealed") throw new NativeBrainManagerError("unknown", "Reference publication reply does not match its durable lease identity.");
+      return record;
+    }); },
+    poolUnpublish(view, name, signal) { return operation(() => raw.poolUnpublish(view, name, signal)); },
+    poolWithdraw(id, signal) { return operation(async () => {
+      if (poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held reference pool root can be withdrawn.");
+      return raw.poolWithdraw(id, signal);
+    }); },
     poolRelease(id, signal) { return operation(async () => {
       const lease = poolRow(id);
       if (!lease) throw new NativeBrainManagerError("unknown", "This reference pool identity has no recorded app lease; arbitrary pool roots cannot be deleted.");

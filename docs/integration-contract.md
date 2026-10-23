@@ -577,3 +577,23 @@ The host-only `brain-native-store` configuration gains an optional separate
 reference pool volume, and the launcher gains a deterministic `pool`
 status/recovery/release projection, described in
 [the package API](integration-contract/package-api.md#reference-pool-storage-additive-2428).
+
+## Reference-source grants (additive, #2429)
+
+Owner-managed grant records are the only authority for private reference
+acquisition. Three password-owner routes under `/api/auth/principals/:id/`
+create, list and revoke them, described in
+[the HTTP contract](integration-contract/http.md#reference-source-grants-additive-2429).
+
+## Reference publication (additive, #2429)
+
+The native manager client and lease owner gain `poolPublish`/`poolUnpublish`/`poolWithdraw`,
+which publish sealed reference roots into per-domain view directories, and
+`NativePoolRecord` gains `view`; described in
+[the package API](integration-contract/package-api.md#reference-publication-additive-2429).
+
+## Reference source acquisition (additive, #2429)
+
+`ServerConfig` gains optional `referenceSource` clocks and admission, resolved
+from three documented environment inputs; described in
+[the package API](integration-contract/package-api.md#reference-source-acquisition-additive-2429).

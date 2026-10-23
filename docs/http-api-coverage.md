@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:164-183`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:168-187`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -71,6 +71,9 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/auth/principals` | `mounted supported handler: GET /api/auth/principals` | D, O |
 | `POST /api/auth/principals` | `mounted supported handler: POST /api/auth/principals` | D, O |
 | `DELETE /api/auth/principals/:id` | `mounted supported handler: DELETE /api/auth/principals/:id` | D, O |
+| `GET /api/auth/principals/:id/reference-grants` | `mounted supported handler: GET /api/auth/principals/:id/reference-grants` | RG, O |
+| `POST /api/auth/principals/:id/reference-grants` | `mounted supported handler: POST /api/auth/principals/:id/reference-grants` | RG, O, Z |
+| `DELETE /api/auth/principals/:id/reference-grants/:grantId` | `mounted supported handler: DELETE /api/auth/principals/:id/reference-grants/:grantId` | RG, O |
 | `POST /api/brain/add` | `mounted supported handler: POST /api/brain/add` | B, C, Z |
 | `GET /api/brain/briefing` | `mounted supported handler: GET /api/brain/briefing` | B |
 | `POST /api/brain/index` | `mounted supported handler: POST /api/brain/index` | B, C |
@@ -199,6 +202,13 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 - `revocation rejects the cookie on the next request and leaves the owner live` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`revocation rejects the cookie on the next request and leaves the owner live`, `packages/ui-server/tests/principal-routes.test.ts:277-328`)
 - `self-revocation is a logout and missing or already-revoked ids are 404` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`self-revocation is a logout and missing or already-revoked ids are 404`, `packages/ui-server/tests/principal-routes.test.ts:330-376`)
 - `ambient modes return the same not-enabled response on all three routes` ([source](../packages/ui-server/tests/principal-routes.test.ts)), (`ambient modes return the same not-enabled response on all three routes`, `packages/ui-server/tests/principal-routes.test.ts:378-395`)
+
+**RG — Reference-source grants.**
+
+- `an owner creates, lists and revokes a principal's grants` ([source](../packages/ui-server/tests/reference-grants.test.ts))
+- `validation, unknown principals, duplicates and non-owners refuse` ([source](../packages/ui-server/tests/reference-grants.test.ts))
+- `principal revocation reports lost reference authority` ([source](../packages/ui-server/tests/reference-grants.test.ts))
+- `revoking the grant or its principal removes authority immediately` ([source](../packages/ui-server/tests/reference-grants.test.ts))
 
 **B — Corpus transport and CLI errors.**
 

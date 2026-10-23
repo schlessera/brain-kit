@@ -41,18 +41,25 @@ try {
   if (control.exitCode !== 0) throw Error(control.stderr.toString());
   await new Promise<void>((done, reject) => controlServer.close(error => error ? reject(error) : done()));
   await listen(join(proxy.dir, "inference.sock"));
+  // The socket walk takes each entry's type from readdir and stats only what the
+  // filesystem left untyped: one syscall per directory, not one per file.
   const program = `const fs=require("node:fs"), net=require("node:net");
     const reach=path=>new Promise(done=>{const s=net.connect(path);s.once("connect",()=>{s.destroy();done(true)});s.once("error",e=>done(e.code))});
     const sockets=[];
     function walk(path){let entries;try{entries=fs.readdirSync(path,{withFileTypes:true})}catch(e){if(["EACCES","ENOENT","EPERM"].includes(e.code))return;throw e}
       for(const entry of entries){const child=path==="/"?"/"+entry.name:path+"/"+entry.name;
         if(child==="/proc"||child==="/sys")continue;
-        if(entry.isDirectory())walk(child);else{try{if(fs.lstatSync(child).isSocket())sockets.push(child)}catch(e){if(e.code!=="ENOENT")throw e}}}}
+        let kind=entry;
+        if(![entry.isFile(),entry.isDirectory(),entry.isSymbolicLink(),entry.isSocket(),entry.isFIFO(),entry.isCharacterDevice(),entry.isBlockDevice()].includes(true))
+          try{kind=fs.lstatSync(child)}catch(e){if(e.code==="ENOENT")continue;throw e}
+        if(kind.isDirectory())walk(child);else if(kind.isSocket())sockets.push(child)}}
     walk("/");let runtimeWrite;try{fs.writeFileSync(${JSON.stringify(input)},"attack");runtimeWrite="writable"}catch(e){runtimeWrite=e.code}
     console.log(JSON.stringify({runtime:fs.readFileSync(${JSON.stringify(input)},"utf8"),runtimeWrite,
       hostSockets:await Promise.all(${JSON.stringify(paths)}.map(reach)),
       cups:${existsSync(cups) ? `await reach(${JSON.stringify(cups)})` : "null"},sockets}));`;
-  for (const profile of ["governed", "strict", "maintenance"] as const) {
+  // The three walks are independent, and each covers the whole visible tree:
+  // run them together so the receipt costs one walk of wall time, not three.
+  await Promise.all((["governed", "strict", "maintenance"] as const).map(async profile => {
     const view = profile === "governed" ? undefined : createFixtureWorkerStartupView(brain);
     try {
       const launch: WorkerLaunch = profile === "maintenance"
@@ -63,6 +70,6 @@ try {
       const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       workers[profile] = { exit, stderr, ...(exit === 0 ? JSON.parse(stdout.trim()) : { stdout }) };
     } finally { view?.cleanup(); }
-  }
+  }));
   console.log(JSON.stringify({ control: control.stdout.toString().trim() === "connected", hostControls, workers }));
 } finally { proxy.stop(); for (const server of servers) server.close(); }

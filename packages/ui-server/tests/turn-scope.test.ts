@@ -391,8 +391,14 @@ test("failed freeze or resume stops the real worker, retains work and exposes an
 test("periodic capture resumes a productive worker and snapshot failure terminates its held worker", async () => {
   for (const failCapture of [false, true]) {
     const f = scopeFixture(); let child: ReturnType<typeof f.worker> | undefined;
+    const clock = registeredInterval(), checkpoint = f.native.manager.checkpoint;
+    const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    let completionTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await f.begin(); child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done');
+      await f.begin(); clock.finishRegistration();
+      expect(clock.registrations.length, "SCOPE_PERIODIC_INTERVAL_REGISTERED").toBe(1);
+      expect(clock.registrations[0]!.delay, "SCOPE_PERIODIC_INTERVAL_IS_15000_MS").toBe(15_000);
+      child = f.worker('while :; do printf x >> heartbeat; sleep 0.02; done');
       await wait(() => Bun.file(join(f.brain, "heartbeat")).size > 0);
       if (failCapture) {
         // Actual non-root CAS publication fails on this owned read-only store.
@@ -411,19 +417,52 @@ test("periodic capture resumes a productive worker and snapshot failure terminat
       const freeze = child.freeze, resume = child.resume;
       child.freeze = () => { freeze(); freezes++; };
       child.resume = () => { resume(); resumes++; };
-      await wait(() => failCapture ? freezes > 0 : captureWitness !== undefined, 16_000);
+      // Hold the real checkpoint so a confirmed freeze cannot stand in for
+      // completion of capture, retention and the scope's temporary hold.
+      f.native.manager.checkpoint = async (...args) => {
+        entered.resolve(); await release.promise; return checkpoint(...args);
+      };
+      clock.advanceTo(14_999); await f.journal.idle();
+      expect(freezes, "SCOPE_PERIODIC_NO_FREEZE_BEFORE_DEADLINE").toBe(0);
+      expect(resumes, "SCOPE_PERIODIC_NO_RESUME_BEFORE_DEADLINE").toBe(0);
+      expect(captureWitness, "SCOPE_PERIODIC_NO_CAPTURE_BEFORE_DEADLINE").toBeUndefined();
+      clock.advanceTo(15_000);
+      expect(clock.dispatches, "SCOPE_PERIODIC_DISPATCH_AT_DEADLINE").toBe(1);
+      expect(freezes, "SCOPE_PERIODIC_FREEZES_AT_DEADLINE").toBe(1);
+      await entered.promise;
+      expect(f.journal.isHeld(), "SCOPE_PERIODIC_CAPTURE_HELD").toBe(true);
+      expect(resumes, "SCOPE_PERIODIC_NEVER_RESUMES_PENDING_CAPTURE").toBe(0);
+      expect(captureWitness, "SCOPE_PERIODIC_WITNESS_REQUIRES_CAPTURE_COMPLETION").toBeUndefined();
+      release.resolve();
+      // The native 15-second timer previously consumed almost all of this
+      // failure budget. Await actual observation completion after dispatch.
+      try {
+        await Promise.race([f.journal.idle(), new Promise<never>((_, reject) => {
+          completionTimeout = setTimeout(() => reject(Error("Scope periodic observation timed out")), 16_000);
+        })]);
+      } finally { clearTimeout(completionTimeout); }
+      expect(f.journal.isHeld(), "SCOPE_PERIODIC_CAPTURE_COMPLETED").toBe(false);
       if (failCapture) {
         await child.exited;
         expect(resumes, "SCOPE_CAPTURE_FAILURE_NEVER_RESUMES_ENDED_WORKER").toBe(0);
         expect(f.stopped.length, "SCOPE_CAPTURE_FAILURE_STOPS_WITH_REASON").toBeGreaterThan(0);
         expect(f.journal.summary("voyage").state).toBe("partial");
       } else {
+        expect(captureWitness, "SCOPE_PERIODIC_OBSERVATION_WITNESSED").toBeDefined();
         expect(captureWitness!.after, "SCOPE_PERIODIC_CAPTURE_STOPS_PRODUCTIVE_WORKER").toBe(captureWitness!.before);
         const before = Bun.file(join(f.brain, "heartbeat")).size;
         await wait(() => Bun.file(join(f.brain, "heartbeat")).size > before);
         expect(resumes, "SCOPE_PRODUCTIVE_OBSERVATION_RESUMES_ONLY_TEMPORARY_HOLD").toBe(1);
         expect(f.journal.summary("voyage").scope!.receipts).toEqual([]);
       }
-    } finally { child?.kill("SIGKILL"); if (child) await child.exited; chmodSync(join(f.root, "objects"), 0o700); await f.close(); }
+    } finally {
+      await clock.cleanup([
+        () => { clearTimeout(completionTimeout); release.resolve(); f.native.manager.checkpoint = checkpoint; },
+        () => child?.kill("SIGKILL"),
+        async () => { if (child) await child.exited; },
+        () => chmodSync(join(f.root, "objects"), 0o700),
+        () => f.close(),
+      ]);
+    }
   }
 }, 45_000);

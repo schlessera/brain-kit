@@ -1,6 +1,6 @@
 /** Real reference-pool qualification on owned Btrfs loop volumes (#2428). Runs only inside reference-pool-fixture.py. */
 import { expect } from "bun:test";
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createNativeBrainManager, serveNativeBrainManager, type NativeBrainManagerConfig } from "../../packages/ui-sdk/src/server/native-brain-manager.js";
@@ -333,6 +333,133 @@ const shapes = await create("staging", 32 * MIB);
   unlinkSync(join(POOL, "filler.bin")); sync();
   manager = await restart({});
   expect((await status()).qualified, "REFERENCE_POOL_REARMED_AFTER_RESTART").toBe(true);
+}
+
+// 15. Worker-visible publication (#2429): a sandbox binds one whole view, so a
+// name swap reaches its next path read while staging and other views stay out.
+{
+  const VIEW = randomUUID(), OTHER = randomUUID();
+  const write = (root: string, text: string) => writeFileSync(join(root, "README.md"), text);
+  const first = await create("source", 4 * MIB);
+  write(first.path!, "revision one\n");
+  await seal(first.id);
+  const published = await call<NativePoolRecord>({ operation: "poolPublish", id: first.id, view: VIEW, name: "ithaca" });
+  expect(published, "REFERENCE_VIEW_PUBLISHED_RECORD").toMatchObject({ id: first.id, view: VIEW, state: "sealed", path: join(POOL, "views", VIEW, first.id) });
+  expect(statSync(published.path!).mode & 0o7777, "REFERENCE_VIEW_SEALED_ROOT_READABLE").toBe(0o755);
+  const hidden = await create("source", 4 * MIB);
+  write(hidden.path!, "another domain\n");
+  await seal(hidden.id);
+  await call<NativePoolRecord>({ operation: "poolPublish", id: hidden.id, view: OTHER, name: "ithaca" });
+  // One long-lived reader, like a worker between tool calls: it holds an open
+  // file and a working directory from the first revision, then reads by path.
+  const script = "cd /mnt/reference/ithaca && exec 3<README.md\nwhile read cmd; do case \"$cmd\" in\n"
+    + "path) cat /mnt/reference/ithaca/README.md 2>/dev/null || echo MISSING;;\nfd) cat /proc/self/fd/3;;\ncwd) cat README.md 2>/dev/null || echo MISSING;;\n"
+    + "list) ls -A /mnt/reference | sort | tr '\\n' ' '; echo;;\npool) ls " + POOL + " 2>&1 | head -1;;\nesac\necho @@\ndone\n";
+  const reader = Bun.spawn(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/mnt", "--ro-bind", join(POOL, "views", VIEW), "/mnt/reference", "--proc", "/proc", "--dev", "/dev",
+    "--unshare-pid", "--die-with-parent", "--", "/bin/sh", "-c", script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const lines = reader.stdout.getReader(); let buffered = "";
+  const ask = async (cmd: string) => {
+    reader.stdin.write(cmd + "\n"); reader.stdin.flush();
+    while (!buffered.includes("@@\n")) { const chunk = await lines.read(); if (chunk.done) throw Error(`reference reader exited: ${await new Response(reader.stderr).text()}`); buffered += new TextDecoder().decode(chunk.value); }
+    const at = buffered.indexOf("@@\n"), answer = buffered.slice(0, at).trim(); buffered = buffered.slice(at + 3); return answer;
+  };
+  expect(await ask("path"), "REFERENCE_VIEW_READER_SEES_PUBLISHED").toBe("revision one");
+  expect(await ask("list"), "REFERENCE_VIEW_ONLY_ITS_OWN_DOMAIN").toBe(`${first.id} ithaca`);
+  expect(await ask("pool"), "REFERENCE_VIEW_POOL_MASKED").toBe("");
+  // Refresh: a writable snapshot is staging, invisible until it is complete and published.
+  const second = await create("source", 4 * MIB, first.id);
+  write(second.path!, "revision two, partial");
+  expect(await ask("path"), "REFERENCE_VIEW_STAGING_NOT_PUBLISHED").toBe("revision one");
+  expect((await refusal({ operation: "poolPublish", id: second.id, view: VIEW, name: "ithaca" })).code, "REFERENCE_VIEW_PARTIAL_PUBLISH_REFUSED").toBe("invalid");
+  expect(await ask("path"), "REFERENCE_VIEW_PARTIAL_NEVER_VISIBLE").toBe("revision one");
+  write(second.path!, "revision two\n");
+  await seal(second.id);
+  const swapped = await call<NativePoolRecord>({ operation: "poolPublish", id: second.id, view: VIEW, name: "ithaca" });
+  note("publication", { first: published, second: swapped });
+  expect(await ask("path"), "REFERENCE_VIEW_EXISTING_READER_SEES_REFRESH").toBe("revision two");
+  expect(await ask("fd"), "REFERENCE_VIEW_OPEN_FILE_KEEPS_ITS_REVISION").toBe("revision one");
+  expect(await ask("cwd"), "REFERENCE_VIEW_MULTI_STEP_READ_MAY_SPAN_REVISIONS").toBe("revision one");
+  expect((await refusal({ operation: "poolPublish", id: second.id, view: OTHER, name: "ithaca" })).code, "REFERENCE_VIEW_ONE_VIEW_PER_ROOT").toBe("invalid");
+  // Unpublish removes the name for the next read; the root stays charged until released.
+  expect(await call<{ removed: boolean }>({ operation: "poolUnpublish", view: VIEW, name: "ithaca" }), "REFERENCE_VIEW_UNPUBLISHED").toMatchObject({ removed: true });
+  expect(await ask("path"), "REFERENCE_VIEW_UNPUBLISHED_NAME_GONE").toBe("MISSING");
+  // Withdrawal moves the root out of the view: no reader can reach it by identity either.
+  expect(await ask("list"), "REFERENCE_VIEW_IDENTITY_LISTED_BEFORE_WITHDRAW").toContain(first.id);
+  expect((await call<NativePoolRecord>({ operation: "poolWithdraw", id: first.id })).view, "REFERENCE_VIEW_WITHDRAWN_RECORD").toBeNull();
+  expect(await ask("list"), "REFERENCE_VIEW_WITHDRAWN_IDENTITY_GONE").not.toContain(first.id);
+  expect(await ask("fd"), "REFERENCE_VIEW_WITHDRAW_KEEPS_OPEN_FILE").toBe("revision one");
+  // A publication retried after an interrupted reseal reseals the root before exposing it.
+  command(["btrfs", "property", "set", "-ts", join(POOL, "views", VIEW, second.id), "ro", "false"]);
+  await call<NativePoolRecord>({ operation: "poolPublish", id: second.id, view: VIEW, name: "ithaca" });
+  expect(command(["btrfs", "property", "get", "-ts", join(POOL, "views", VIEW, second.id), "ro"]).trim(), "REFERENCE_VIEW_REPUBLISH_RESEALS").toBe("ro=true");
+  expect(await ask("path"), "REFERENCE_VIEW_REPUBLISHED").toBe("revision two");
+  reader.stdin.end(); reader.kill("SIGKILL"); await reader.exited;
+  // A publish interrupted after its rename, before its record: restart adopts the moved root.
+  const moved = await create("source", 4 * MIB);
+  await seal(moved.id);
+  command(["btrfs", "property", "set", "-ts", join(POOL, "roots", moved.id), "ro", "false"]);
+  renameSync(join(POOL, "roots", moved.id), join(POOL, "views", VIEW, moved.id));
+  manager = await restart({});
+  expect(command(["btrfs", "property", "get", "-ts", join(POOL, "views", VIEW, moved.id), "ro"]).trim(), "REFERENCE_VIEW_CRASH_UNSEALED_RESEALED").toBe("ro=true");
+  expect((await status()).refusal, "REFERENCE_VIEW_CRASH_RENAME_RECONCILED").toBeNull();
+  const adopted = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === moved.id);
+  expect(adopted?.view, "REFERENCE_VIEW_CRASH_RENAME_ADOPTED").toBe(VIEW);
+  await call<NativePoolRecord>({ operation: "poolPublish", id: second.id, view: VIEW, name: "ithaca" });
+  for (const id of [first.id, second.id, hidden.id, moved.id]) expect(["deleted", "reclaimed"], "REFERENCE_VIEW_RELEASED").toContain((await release(id)).state);
+  expect(existsSync(join(POOL, "views", VIEW, "ithaca")) || (() => { try { return Boolean(readlinkSync(join(POOL, "views", VIEW, "ithaca"))); } catch { return false; } })(),
+    "REFERENCE_VIEW_RELEASE_REMOVES_ITS_NAMES").toBe(false);
+}
+
+// 16. Acquisition (#2429): the real reference service and its real transport
+// workers fetch and check out a 1,200-file Odysseus repository into a
+// quota-limited pool root, publish it, and a sandbox bound to its view reads it.
+{
+  const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
+  const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
+  const { createReferenceGrant } = await import("../../packages/ui-server/src/db/reference-grants.js");
+  const { createReferenceSources } = await import("../../packages/ui-server/src/brain/reference-source.js");
+  const { createReferenceTransport } = await import("../../packages/ui-server/src/brain/reference-transport.js");
+  const srv = "/native-runtime/srv", work = "/native-runtime/ithaca-work";
+  mkdirSync(srv, { recursive: true }); mkdirSync(work, { recursive: true });
+  const gitIn = (cwd: string, ...args: string[]) => command(["git", "-C", cwd, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...args]);
+  gitIn(work, "init", "-q", "-b", "main");
+  for (let book = 0; book < 24; book++) {
+    mkdirSync(join(work, "odyssey", `book-${book}`), { recursive: true });
+    for (let line = 0; line < 50; line++) writeFileSync(join(work, "odyssey", `book-${book}`, `line-${line}.md`), `Ithaca chart: book ${book}, line ${line}.\n`);
+  }
+  gitIn(work, "add", "."); gitIn(work, "commit", "-q", "-m", "Odysseus charts the way home");
+  command(["git", "clone", "-q", "--bare", work, join(srv, "ithaca.git")]);
+  const db = createUiDb(":memory:");
+  const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
+  createReferenceGrant(db, { brain: "ithaca", principalId: penelope.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: penelope.id, now: Date.now() });
+  const pool: import("../../packages/ui-server/src/brain/reference-source.js").ReferencePool = {
+    poolStatus: () => status(),
+    poolCreate: (id: string, purpose: NativePoolRecord["purpose"], from: string | null, allowanceBytes: number) => call<NativePoolRecord>({ operation: "poolCreate", id, purpose, from, allowanceBytes }),
+    poolSeal: (id: string) => seal(id),
+    poolRelease: (id: string) => release(id),
+    poolPublish: (id: string, view: string, name: string) => call<NativePoolRecord>({ operation: "poolPublish", id, view, name }),
+    poolUnpublish: (view: string, name: string) => call<{ view: string; name: string; removed: boolean }>({ operation: "poolUnpublish", view, name }),
+    poolWithdraw: (id: string) => call<NativePoolRecord>({ operation: "poolWithdraw", id }),
+    listPoolRecovery: (after: string | null = null) => call<{ records: NativePoolRecord[]; next: string | null }>({ operation: "listPoolRecovery", after }),
+  };
+  const sources = createReferenceSources({ db, pool, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {} });
+  const lease = await sources.request({ principalId: penelope.id, repository: `file://${srv}/ithaca.git`, revision: "main" });
+  const record = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.view === lease.view && item.state === "sealed")!;
+  note("acquisition", { lease: { ...lease, release: undefined }, record });
+  expect(lease, "REFERENCE_ACQUISITION_PRIVATE_FILE_SOURCE").toMatchObject({ domain: "private", stale: false, commit: gitIn(join(srv, "ithaca.git"), "rev-parse", "main").trim() });
+  expect(record.ownerBytes!, "REFERENCE_ACQUISITION_CHARGED_TO_ITS_ROOT").toBeGreaterThan(256 * 1024);
+  expect(record.ownerBytes!, "REFERENCE_ACQUISITION_WITHIN_ALLOWANCE").toBeLessThanOrEqual(32 * MIB);
+  const count = command(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/mnt", "--ro-bind", lease.viewPath, "/mnt/reference", "--proc", "/proc", "--dev", "/dev",
+    "--unshare-pid", "--die-with-parent", "--", "/bin/sh", "-c", `find /mnt/reference/${lease.name}/odyssey -type f | wc -l; cat /mnt/reference/${lease.name}/odyssey/book-23/line-49.md`]);
+  expect(count, "REFERENCE_ACQUISITION_WORKER_INSPECTS_THROUGH_VIEW").toBe("1200\nIthaca chart: book 23, line 49.\n");
+  lease.release();
+  await sources.revoke({ grantIds: [], principalIds: [penelope.id] }).catch(() => {});
+  db.query("UPDATE reference_grants SET revoked_at = 1").run();
+  await sources.revoke({ grantIds: [], principalIds: [penelope.id] });
+  await sources.close();
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.filter(item => item.view === lease.view && item.state === "sealed"),
+    "REFERENCE_ACQUISITION_WITHDRAWN_ROOT_RELEASED").toEqual([]);
+  db.close();
 }
 
 // 14. Restart reconstruction and the deterministic host projection.

@@ -24,9 +24,10 @@ function observation(roots: Array<{ id: string; rootId: string; referenced: numb
     subvolumes: roots.map(root => ({ rootId: root.rootId, parentId: "5", dirId: "257", name: root.id })), dropping: [] };
 }
 const intent = (id: string, rootId: string | null, state: PoolIntent["state"], from: string | null = null): PoolIntent => ({ version: 1, fsid: pool().fsid, id, purpose: from ? "worktree" : "source", from,
-  allowanceBytes: 32 * MIB, state, root: rootId ? { rootId, uuid: "a".repeat(32), otransid: "10" } : null, path: null, ownerBytes: null, reason: null, reservedGeneration: "9" });
+  allowanceBytes: 32 * MIB, state, root: rootId ? { rootId, uuid: "a".repeat(32), otransid: "10" } : null, path: null, ownerBytes: null, reason: null, view: null, reservedGeneration: "9" });
+const VIEW = "44444444-4444-4444-8444-444444442429";
 const account = (observed: PoolObservation, intents: PoolIntent[]) =>
-  referencePoolAccounting({ observation: observed, intents, limits: limits(), rootsDirId: "257", emergencyAllocatedBytes: 4 * MIB });
+  referencePoolAccounting({ observation: observed, intents, limits: limits(), rootsDirId: "257", emergencyAllocatedBytes: 4 * MIB, viewDirIds: new Map([["900", VIEW]]) });
 
 test("pool operations accept only generated identities and bounded allowances, never host paths", () => {
   for (const operation of [
@@ -59,6 +60,7 @@ test("pool mount is one top-level read-write tree with no unmanaged alias or nes
   const device = "/dev/ithaca-reference";
   expect(referencePoolMount(top, "/srv/ithaca-reference", device).options).toContain("discard=async");
   expect(() => referencePoolMount(top + "52 25 0:41 /roots/x /run/view ro - btrfs /dev/ithaca-reference ro\n", "/srv/ithaca-reference", device)).not.toThrow();
+  expect(() => referencePoolMount(top + "52 25 0:41 /views/x /run/reference ro - btrfs /dev/ithaca-reference ro\n", "/srv/ithaca-reference", device)).not.toThrow();
   for (const input of [top.replace("btrfs", "ext4"), top.replace(" / /srv", " /roots /srv"), top.replace("btrfs /dev/ithaca-reference", "btrfs /dev/other"),
     top + "52 25 0:41 / /srv/alias rw - btrfs /dev/ithaca-reference rw\n",
     top + "53 51 0:40 / /srv/ithaca-reference/roots/x rw - tmpfs tmpfs rw\n",
@@ -147,4 +149,24 @@ test("allocation beyond the combined allowance refuses admission and still repor
   const result = account(observation([{ id: ID, rootId: "256", referenced: MIB }], 300 * MIB, MIB), [intent(ID, "256", "writable")]);
   expect(result.accounting.availableBytes).toBeLessThan(0);
   expect(result.refusal, "REFERENCE_POOL_OVER_COMBINED_REFUSES").toMatchObject({ code: "capacity" });
+});
+
+test("publication requests name one generated view and a plain entry, never a path or a root identity", () => {
+  expect(nativeManagerRequest.parse({ operation: "poolPublish", id: ID, view: VIEW, name: "github.com_odysseus_ithaca@main-1a2b3c4d" }).operation).toBe("poolPublish");
+  for (const name of ["", ".ithaca", "..", "ithaca/main", "/srv/ithaca", "Ithaca", "ithaca\u0000", ID, "x".repeat(129)])
+    expect(nativeManagerRequest.safeParse({ operation: "poolPublish", id: ID, view: VIEW, name }).success, `REFERENCE_VIEW_NAME_REFUSED ${JSON.stringify(name)}`).toBe(false);
+  expect(nativeManagerRequest.safeParse({ operation: "poolPublish", id: ID, view: "/srv/views/x", name: "ithaca" }).success, "REFERENCE_VIEW_IS_GENERATED").toBe(false);
+  expect(nativeManagerRequest.safeParse({ operation: "poolUnpublish", view: VIEW, name: "ithaca", id: ID }).success).toBe(false);
+});
+
+test("a published root is accounted only inside its recorded view directory", () => {
+  const inView = observation([{ id: ID, rootId: "256", referenced: MIB }], MIB, MIB);
+  inView.subvolumes[0]!.dirId = "900";
+  expect(account(inView, [{ ...intent(ID, "256", "sealed"), view: VIEW }]).refusal, "REFERENCE_VIEW_ROOT_ACCOUNTED").toBeNull();
+  expect(account(inView, [intent(ID, "256", "sealed")]).refusal?.message, "REFERENCE_VIEW_UNRECORDED_LOCATION_REFUSES").toMatch(/outside its recorded view/);
+  const roots = observation([{ id: ID, rootId: "256", referenced: MIB }], MIB, MIB);
+  expect(account(roots, [{ ...intent(ID, "256", "sealed"), view: VIEW }]).refusal?.message).toMatch(/outside its recorded view/);
+  const stray = observation([{ id: ID, rootId: "256", referenced: MIB }], MIB, MIB);
+  stray.subvolumes[0]!.dirId = "901";
+  expect(account(stray, [{ ...intent(ID, "256", "sealed"), view: VIEW }]).refusal?.message, "REFERENCE_VIEW_UNKNOWN_DIRECTORY_REFUSES").toMatch(/outside the managed roots directory/);
 });
