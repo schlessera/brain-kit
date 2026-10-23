@@ -6,10 +6,12 @@
  */
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test, type Mock } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
+import * as startup from "../../ui-sdk/src/server/worker-startup-view";
+import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worker-startup-view-fixture";
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
@@ -24,7 +26,7 @@ const SENTINEL = "Zakynthosmarker";
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
 
-function fixture() {
+function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile: "governed" | "strict" = "governed") {
   // Inside the repository: the corpus config imports @schlessera/brain, and a
   // governed brain may not link node_modules, so resolution walks up to the
   // workspace install, which the worker's runtime read paths restore.
@@ -36,8 +38,9 @@ function fixture() {
   rmSync(join(brain, ".brain-index"), { recursive: true, force: true });
   mkdirSync(join(brain, "context/policies"), { recursive: true });
   writeFileSync(join(brain, "context/policies/governance.md"),
-    "---\nschema_version: 1\nproviders: [{ paths: [me/**], allow: [anthropic] }]\n---\nOnly Anthropic may read Odysseus's own folder.\n");
+    `---\nschema_version: 1\nproviders: ${providers}\n---\nOnly Anthropic may read Odysseus's own folder.\n`);
   mkdirSync(join(brain, ".git")); writeFileSync(join(brain, ".git/HEAD"), "ref: refs/heads/main\n");
+  writeFileSync(join(brain, "me/identity.md"), `${readFileSync(join(brain, "me/identity.md"), "utf8")}\nHis identity word is ${SENTINEL}.\n`);
   writeFileSync(join(brain, "me/oath.md"), `---\ntype: note\ntitle: "Odysseus's private oath"\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [note]\n---\n\n${SENTINEL} is the word Odysseus keeps to himself.\n`);
   // The real index, built on the host from every document, me/ included.
   const index = Bun.spawnSync([...CLI, "index", "--json"], { cwd: brain, env: { PATH, BRAIN_ROOT: brain, HOME: root, NO_COLOR: "1" }, stdout: "pipe", stderr: "pipe" });
@@ -47,8 +50,8 @@ function fixture() {
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const reports: string[] = [];
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
-    profile: "governed", maskPaths: [], index: async () => {}, report: message => reports.push(message), privateIndexCommand: CLI });
-  return { root, brain, turns, reports };
+    profile, maskPaths: [], index: async () => {}, report: message => reports.push(message), privateIndexCommand: CLI });
+  return { root, brain, turns, reports, execution };
 }
 
 function search(brain: string, sandbox: Parameters<typeof workerCommand>[0]["sandbox"], query: string): string[] {
@@ -123,15 +126,101 @@ test("the private index survives the real index being replaced under a running d
 });
 
 test.each([
-  ["types: [identity]", "type identity"],
+  ["types: [identity]"],
+  ["paths: [me/**/*]"],
+])("a selector that maps exactly onto a folder masks it in a denied turn (%s)", async selector => {
+  const f = fixture(`[{ ${selector}, allow: [anthropic] }]`);
+  const hold = await f.turns.begin("translated", new AbortController().signal);
+  try {
+    expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
+    expect(hold.sandbox.providerMasks?.folders, "SELECTOR_TRANSLATED_TO_ITS_FOLDER").toEqual(["me"]);
+    expect(hold.sandbox.retainedFolders, "TRANSLATED_FOLDER_RETAINED").toEqual([".brain-index", "me"]);
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c", `
+      printf 'me=%s\\n' "$(ls -A me | wc -l)"
+      cat me/identity.md 2>/dev/null && printf 'READ_IDENTITY\\n'
+      grep -rl ${SENTINEL} . 2>/dev/null || true
+    `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.exitCode, shell.stderr.toString()).toBe(0);
+    expect(shell.stdout.toString(), "BASH_CANNOT_READ_THE_TYPED_DOCUMENT").toBe("me=0\n");
+    expect(search(f.brain, hold.sandbox, SENTINEL).filter(path => path.startsWith("me/")), "PRIVATE_INDEX_LACKS_THE_TYPED_DOCUMENT").toEqual([]);
+    expect(search(f.brain, hold.sandbox, "eagle"), "PRIVATE_INDEX_KEEPS_PERMITTED_DOCUMENTS").toContain("notes/quick-note-eagle.md");
+  } finally { await hold.end(); }
+  // A writer admitted once no turn holds the gate, such as the post-turn index
+  // refresh, still plans the translated folder, so the next turn admits.
+  const refresh = await f.execution.gate()!.acquire("shared", "index refresh", {});
+  try {
+    expect(refresh.folderPaths, "LATER_WRITER_PLANS_THE_TRANSLATED_FOLDER").toContain("me");
+    await (await f.turns.begin("next", new AbortController().signal)).end();
+  } finally { refresh.release(); }
+});
+
+test.each([
+  ["types: [note]", "type note (the inbox type"],
+  ["types: [index]", "type index (it has no folder)"],
+  ["types: [voyage]", "type voyage (not a type this brain defines)"],
   ["paths: [me/*.md]", "me/*.md"],
   ["paths: [me/identity.md]", "me/identity.md"],
-])("a provider selector hosted turns cannot mask refuses admission by name (%s)", async (selector, named) => {
-  const f = fixture();
-  writeFileSync(join(f.brain, "context/policies/governance.md"),
-    `---\nschema_version: 1\nproviders: [{ ${selector}, allow: [anthropic] }]\n---\nOnly Anthropic may read Odysseus's identity.\n`);
+])("a provider selector that does not map exactly onto folders refuses admission by name (%s)", async (selector, named) => {
+  const f = fixture(`[{ ${selector}, allow: [anthropic] }]`);
   let refusal: unknown;
   try { await (await f.turns.begin("unsupported", new AbortController().signal)).end(); } catch (error) { refusal = error; }
   expect((refusal as Error)?.name, "UNSUPPORTED_SELECTOR_REFUSED").toBe("ProviderPolicyRefusedError");
   expect(String((refusal as Error).message)).toContain(named);
+});
+
+test("a type refuses admission while a document of it lies outside its folder", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  writeFileSync(join(f.brain, "notes/stray-identity.md"), `---\ntype: identity\ntitle: "Odysseus's second name"\ncreated: 2026-07-12\nupdated: 2026-07-12\n---\n\n${SENTINEL} again.\n`);
+  let refusal: unknown;
+  try { await (await f.turns.begin("stray", new AbortController().signal)).end(); } catch (error) { refusal = error; }
+  expect((refusal as Error)?.name, "STRAY_TYPED_DOCUMENT_REFUSED").toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message)).toContain("type identity (notes/stray-identity.md declares it outside me)");
+});
+
+test("a type refuses admission when another type's folder lies inside its own", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  const config = join(f.brain, "brain.config.ts");
+  writeFileSync(config, readFileSync(config, "utf8").replace(`study: { dir: "studies" },`, `study: { dir: "studies" },\n      biography: { dir: "me/basics" },`));
+  let refusal: unknown;
+  try { await (await f.turns.begin("nested", new AbortController().signal)).end(); } catch (error) { refusal = error; }
+  expect((refusal as Error)?.name, "NESTED_TYPE_REFUSED").toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message)).toContain("type identity (its folder holds type biography (me/basics))");
+});
+
+test("the taxonomy worker cannot leave a selected document in the turn's private index", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  // Configuration code runs in that worker, which sees only literal folders
+  // masked; here it copies the typed document into whatever index it gets.
+  const config = join(f.brain, "brain.config.ts");
+  writeFileSync(config, `import { copyFileSync } from "node:fs";\nif (process.argv.includes("config")) try { copyFileSync(\`\${process.env.BRAIN_ROOT}/me/identity.md\`, \`\${process.env.BRAIN_ROOT}/.brain-index/copied.md\`); } catch {}\n${readFileSync(config, "utf8")}`);
+  const hold = await f.turns.begin("hostile-taxonomy", new AbortController().signal);
+  try {
+    expect(hold.sandbox.providerMasks?.folders).toEqual(["me"]);
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c",
+      `test -e .brain-index/copied.md && printf 'COPIED\\n'; grep -rl ${SENTINEL} . 2>/dev/null; printf 'searched\\n'`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.exitCode, shell.stderr.toString()).toBe(0);
+    expect(shell.stdout.toString(), "TAXONOMY_WORKER_OUTPUT_DISCARDED").toBe("searched\n");
+  } finally { await hold.end(); }
+});
+
+test("a checkpoint refreshed during admission is judged again before the turn runs on it", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]", "strict");
+  rmSync(join(f.brain, ".brain"), { recursive: true, force: true }); rmSync(join(f.brain, "workspaces"), { recursive: true, force: true });
+  let views = 0;
+  // Host setup creates the writable roots after the first checkpoint, and a
+  // peer retypes a note to identity before the refreshed one is taken.
+  (startup.prepareNativeWorkerStartupView as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>).mockImplementation(async (brain, _manager, signal) => {
+    signal?.throwIfAborted();
+    const view = createFixtureWorkerStartupView(brain);
+    if (views++ === 0) {
+      mkdirSync(join(f.brain, ".brain/scratch"), { recursive: true }); mkdirSync(join(f.brain, "workspaces"), { recursive: true });
+      writeFileSync(join(f.brain, "notes/retyped.md"), `---\ntype: identity\ntitle: "Odysseus's other name"\ncreated: 2026-07-12\nupdated: 2026-07-12\n---\n\n${SENTINEL} too.\n`);
+    }
+    return view;
+  });
+  let refusal: unknown;
+  try { await (await f.turns.begin("refreshed", new AbortController().signal)).end(); } catch (error) { refusal = error; }
+  expect(views, "CHECKPOINT_REFRESHED_DURING_ADMISSION").toBeGreaterThan(1);
+  expect((refusal as Error)?.name, `REFRESHED_CHECKPOINT_JUDGED_AGAIN: ${String(refusal)}`).toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message)).toContain("type identity (notes/retyped.md declares it outside me)");
 });

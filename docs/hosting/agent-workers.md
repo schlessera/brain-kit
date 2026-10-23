@@ -55,8 +55,8 @@ Short-lived helpers receive bounded version-1 JSON packets over a private
 server/supervisor PID start identities and operation. Helper argv is exactly
 `<helper> --brain-worker-identity-v1 <operation> <control-fd>`; no shell prefix
 or repository-selected executable is accepted. Operations cover launch,
-authorized mount acquisition, verified-tree signalling, fixed worker-UID raw
-reading and owned cleanup. SCM_RIGHTS transfers only explicitly expected
+authorized mount acquisition, the gated brain view, verified-tree signalling,
+fixed worker-UID raw reading and owned cleanup. SCM_RIGHTS transfers only explicitly expected
 descriptors; unexpected handles, substituted roots, wrong filesystem/size,
 malformed status, stale identities and unrelated targets refuse.
 
@@ -70,6 +70,17 @@ masks the helper-side source paths. Runtime directories use group access
 `0770` (setgid where needed), populated files `0660`, relay directories
 `0750` and relay/proxy sockets `0660`. Shared brain/scratch/workspace
 directories require the host's setgid ownership arrangement.
+
+A governed launch that retains provider folders also names one `view` path in
+its launch request. The helper accepts it only as that launch's own
+`--bind <path> <path>` and records it. After the coordinator has acquired the
+mounts, the `view` operation (no request descriptors) opens that path inside
+the authenticated worker's root as the worker UID. It replies with
+`{ dev, ino }` and exactly one directory descriptor. The coordinator holds it
+for the server, which qualifies the worker's folder mounts through it and
+returns it. Release refuses while it is held. A helper that refuses `view`
+keeps these launches from starting; other launches never request it
+([the brain view](../decisions/governed-writable-workers.md#data-to-provider-routing-g2)).
 
 The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its

@@ -5,7 +5,7 @@
  * repository-controlled content runs in a separate worker with no credential
  * and no network. Neither worker mounts the brain.
  */
-import { constants, closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
+import { chmodSync, constants, closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runMaintenanceWorker, type MaintenanceCommand } from "@schlessera/brain-ui-sdk/internal";
@@ -26,7 +26,10 @@ export const REFERENCE_GIT_CONFIG = `[core]
 \tauto = 0
 `;
 const CREDENTIAL_HELPER = '!f() { printf "username=x-access-token\\npassword=%s\\n" "$BRAIN_REFERENCE_TOKEN"; }; f';
-const UMASK = ["/bin/sh", "-c", 'umask 022 && exec "$@"', "reference-git"];
+// Group-writable: a managed worktree (#2430) snapshots this checkout, and a
+// separate worker identity edits it through the app group. Sealed source stays
+// read-only whatever its modes say.
+const UMASK = ["/bin/sh", "-c", 'umask 002 && exec "$@"', "reference-git"];
 
 export type ReferenceCheck =
   | { ok: true; commit: string; ref: string }
@@ -60,13 +63,15 @@ export function referenceRevision(input: unknown): string {
 export function prepareReferenceGitDirectory(root: string): string {
   const gitDir = join(root, ".git");
   for (const path of [gitDir, join(gitDir, "objects"), join(gitDir, "objects/info"), join(gitDir, "objects/pack"), join(gitDir, "refs"), join(gitDir, "refs/heads"), join(gitDir, "refs/tags")]) {
-    try { mkdirSync(path, { mode: 0o755 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    try { mkdirSync(path, { mode: 0o775 }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
     const info = lstatSync(path);
     if (!info.isDirectory() || info.isSymbolicLink()) throw new ReferenceTransportError("invalid", "reference Git metadata is not an owned directory");
+    if ((info.mode & 0o7777) !== 0o775) chmodSync(path, 0o775);
   }
   for (const [name, text] of [["config", REFERENCE_GIT_CONFIG], ["HEAD", "ref: refs/heads/reference\n"]] as const) {
-    const fd = openSync(join(gitDir, name), constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o644);
+    const fd = openSync(join(gitDir, name), constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o664);
     try { writeSync(fd, text); } finally { closeSync(fd); }
+    chmodSync(join(gitDir, name), 0o664);
   }
   return gitDir;
 }

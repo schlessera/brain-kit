@@ -3225,6 +3225,29 @@ cancels and withdraws private source when a grant or principal is revoked. No
 HTTP route, tool or worker mount exposes it in this release. The behaviour is
 recorded in the [acquisition decision](../decisions/reference-source-acquisition.md).
 
+### Managed worktree storage (additive, #2430)
+
+The native manager client and the lease owner gain worktree checkpoints and
+access generations. `poolCheckpoint(id, from)` returns `NativePoolCheckpoint`:
+a sealed `checkpoint` record of the writable worktree `from`, with its native
+`transaction` and `readOnly: true`. `poolDelta(from, to)` returns the same
+framed metadata delta as `delta`, for two checkpoints of one worktree.
+`poolReadCheckpoint`, `poolStatCheckpoint` and `poolListCheckpoint` read a
+checkpoint through the fixed worker-UID reader, with the bounds of
+`readCheckpoint`. `poolAccessOpen(access)` and `poolAccessClose(access)` return
+`NativePoolAccess` (`{ access, path, roots }`); `poolAccess(id, access)` and
+`poolPark(id)` return the worktree's `NativePoolRecord`. `access` is a
+caller-generated UUID naming one worker generation. `NativePoolRecord.purpose`
+gains `checkpoint`, and records gain `access`, the generation holding a
+writable worktree, else `null`; earlier records read as `access: null`.
+`poolCreate` refuses the `checkpoint` purpose and a checkpoint as its source.
+The lease owner checkpoints only a held worktree, reads and diffs only held
+checkpoints, and moves only held worktrees; its lease table migrates in place.
+No call accepts a host path, UID or mount. Worker masks now include the pool's
+`access` directory, and `brain-native-store pool` records carry the new fields.
+The mechanism is recorded in the
+[pool decision](../decisions/reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.
