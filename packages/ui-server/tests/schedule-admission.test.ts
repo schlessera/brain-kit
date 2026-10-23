@@ -24,6 +24,15 @@ function start(): ScheduleFixture {
   return scheduleFixture(Math.ceil(Date.now() / MINUTE) * MINUTE);
 }
 
+/**
+ * A cron in UTC, for tests that start from the wall clock. In a zone with DST
+ * a fold's second pass is no instant, so a run started near one would see the
+ * minutes and hours it walks vanish (#2721). The fold has its own pinned test.
+ */
+function cron(expression: string, extra: Record<string, unknown> = {}) {
+  return cronDefinition(expression, { timeZone: "UTC", ...extra });
+}
+
 function harness(f: ScheduleFixture, script: Script, options: Parameters<typeof scheduleRuntime>[1] extends infer O ? Partial<O> : never = {}) {
   const h = scheduleRuntime(f.db, { root: f.root, clock: f.clock, script, ...options });
   closers.push(() => h.close());
@@ -165,7 +174,7 @@ test("Budget A: retry, yield and a continuation item share one three-operation c
 test("the host deadline aborts the backend, and the claim and reservation are held until it unwinds", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
-  await create(f, "ithaca-deadline", cronDefinition("* * * * *"));
+  await create(f, "ithaca-deadline", cron("* * * * *"));
   const clock = manualTimers();
   let release!: () => void, aborted!: () => void;
   const unwound = new Promise<void>((resolve) => { release = resolve; });
@@ -254,7 +263,7 @@ test("a crash after the attempt started but before the backend acquired it is re
 test("a crash after a possible effect, before its receipt, is unknown: never replayed, task paused for the operator", async () => {
   const f = fixture = start();
   const first = f.clock.now + MINUTE;
-  const task = await create(f, "ithaca-effect-crash", cronDefinition("*/5 * * * *"));
+  const task = await create(f, "ithaca-effect-crash", cron("*/5 * * * *"));
   f.clock.now = Math.ceil(first / (5 * MINUTE)) * 5 * MINUTE;
   const h = harness(f, succeed("Checked after reconciliation."));
   const [id] = await h.admission.admit();
@@ -296,7 +305,7 @@ test("a crash after a possible effect, before its receipt, is unknown: never rep
 test("a fresh due instant reports the unknown-effect pause after recovery", async () => {
   const f = fixture = start();
   const first = f.clock.now + MINUTE;
-  const task = await create(f, "ithaca-paused-due", cronDefinition("*/5 * * * *"));
+  const task = await create(f, "ithaca-paused-due", cron("*/5 * * * *"));
   f.clock.now = Math.ceil(first / (5 * MINUTE)) * 5 * MINUTE;
   const h = harness(f, succeed("Should not run while paused."));
   await h.admission.admit();
@@ -354,7 +363,7 @@ test("an occurrence whose claims were all lost before starting is failed, not le
 test("instants that pass while an occurrence runs are busy even when it finishes between passes", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
-  await create(f, "ithaca-busy", cronDefinition("* * * * *"));
+  await create(f, "ithaca-busy", cron("* * * * *"));
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const h = harness(f, async (request, n) => { await gate; await succeed("Slow minute.")(request, n); });
@@ -457,7 +466,7 @@ test("a turn that finishes after its deadline is a timeout even when the timer n
 test("recovery settles a finished turn from its receipt even while its claim's lease is unexpired", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
-  await create(f, "ithaca-fresh-lease", cronDefinition("* * * * *"));
+  await create(f, "ithaca-fresh-lease", cron("* * * * *"));
   const h = harness(f, succeed("Finished; the dispatcher died before recording it."));
   f.clock.now = at;
   const [id] = await h.admission.admit();
@@ -483,7 +492,7 @@ test("recovery settles a finished turn from its receipt even while its claim's l
 /** Run one successful attempt, then rewind to "the turn settled, the dispatcher died before recording it". */
 async function settledButUnrecorded(f: ScheduleFixture, key: string) {
   const at = f.clock.now + MINUTE;
-  const task = await create(f, key, cronDefinition("* * * * *"));
+  const task = await create(f, key, cron("* * * * *"));
   const h = harness(f, succeed("Finished; nothing recorded the schedule outcome."));
   f.clock.now = at;
   const [id] = await h.admission.admit();
@@ -521,7 +530,7 @@ test("a pruned run's retained rollup still proves its outcome to recovery", asyn
 test("an item the Queue expired late still leaves the latest fresh instant for catch-up", async () => {
   const f = fixture = start();
   const hour = Math.ceil((f.clock.now + MINUTE) / HOUR) * HOUR;
-  await create(f, "ithaca-late-expiry", cronDefinition("0 * * * *"));
+  await create(f, "ithaca-late-expiry", cron("0 * * * *"));
   const h = harness(f, succeed("Hourly."));
   f.clock.now = hour;
   const [first] = await h.admission.admit();
@@ -563,7 +572,7 @@ test("cancel versus start: a cancellation that commits first leaves nothing to s
 test("cancel versus start: a started attempt is reported running and finishes; cancel does not stop it", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
-  const task = await create(f, "ithaca-start-first", cronDefinition("* * * * *"));
+  const task = await create(f, "ithaca-start-first", cron("* * * * *"));
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const h = harness(f, async (request, n) => { await gate; await succeed("Finished despite cancel.")(request, n); });
@@ -599,7 +608,7 @@ test("cancel drops unclaimed work, so the Queue never claims it", async () => {
 test("Timing A: busy instants are skipped, one latest catch-up runs, and unstarted work expires at 24 hours", async () => {
   const f = fixture = start();
   const hour = Math.ceil((f.clock.now + MINUTE) / HOUR) * HOUR;
-  await create(f, "ithaca-hourly", cronDefinition("0 * * * *"));
+  await create(f, "ithaca-hourly", cron("0 * * * *"));
   const h = harness(f, succeed("Hourly check."));
   f.clock.now = hour;
   const [first] = await h.admission.admit();
@@ -624,6 +633,30 @@ test("Timing A: busy instants are skipped, one latest catch-up runs, and unstart
   expect(occurrences(f).at(-1)).toMatchObject({ due_at: hour + 33 * HOUR, state: "queued" });
 });
 
+test("Timing A across a DST fold: the fold's second pass is no catch-up instant, and the next real one is", async () => {
+  // Pinned: Athens leaves summer time at 2026-10-25T01:00Z, so local 03:00
+  // occurs at 00:00Z and again at 01:00Z, and only the earlier is an instant.
+  // No turn runs, so the wall-clock budget lease is not involved.
+  const fold = Date.parse("2026-10-25T01:00:00Z");
+  const f = fixture = scheduleFixture(fold - 24 * HOUR - 10 * MINUTE);
+  await create(f, "ithaca-hourly-fold", cronDefinition("0 * * * *", { timeZone: "Europe/Athens" }));
+  const h = harness(f, succeed("Hourly check."));
+  f.clock.now = fold - 24 * HOUR;
+  const [first] = await h.admission.admit();
+  expect(occurrences(f)).toEqual([expect.objectContaining({ id: first, due_at: fold - 24 * HOUR, state: "queued" })]);
+  // It expires exactly on the fold's second pass: the first pass at 00:00Z was
+  // busy behind it, and 01:00Z is not an instant, so nothing is admitted.
+  f.clock.now = fold;
+  expect(await h.admission.admit(), "FOLD_SECOND_PASS_IS_NOT_AN_INSTANT").toEqual([]);
+  expect(occurrences(f)).toEqual([expect.objectContaining({ id: first, state: "expired" })]);
+  expect(createInboxStore(f.db).getItem(`${first}-1`)).toMatchObject({ status: "dropped" });
+  // The next instant, local 04:00 after the fold, is admitted normally.
+  f.clock.now = fold + HOUR;
+  const [next] = await h.admission.admit();
+  expect(occurrences(f).map((o) => [o.id, o.due_at, o.state]), "FOLD_NEXT_INSTANT_ADMITTED")
+    .toEqual([[first, fold - 24 * HOUR, "expired"], [next, fold + HOUR, "queued"]]);
+});
+
 test("a one-off that was never admitted expires after its freshness window and never runs", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
@@ -637,7 +670,7 @@ test("a one-off that was never admitted expires after its freshness window and n
 test("revoked creator authority refuses admission and start instead of reporting an empty success", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
-  const task = await create(f, "ithaca-revoked", cronDefinition("* * * * *"));
+  const task = await create(f, "ithaca-revoked", cron("* * * * *"));
   const h = harness(f, succeed("Should not run."), {
     afterClaim: () => { revokePrincipal(f.db, f.owner.id, f.clock.now); },
   });
@@ -655,7 +688,7 @@ test("revoked creator authority refuses admission and start instead of reporting
 test("a changed host execution policy refuses admission and start under the approved one", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE;
-  const task = await create(f, "ithaca-policy", cronDefinition("* * * * *"));
+  const task = await create(f, "ithaca-policy", cron("* * * * *"));
   let policy = POLICY;
   const h = harness(f, succeed("Should not run."), { policy: () => policy });
   f.clock.now = at;
@@ -681,7 +714,7 @@ test("revoking the approving operator stops a delegated creator's schedule", asy
   const f = fixture = start();
   const approver = createPrincipal(f.db, { authMethod: "password", label: "Eurycleia", ttlSeconds: 3600 * 24 });
   const service = f.service({ dispatchAvailable: () => true });
-  const { proposal } = await service.propose(f.agent, { key: "agent-schedule", definition: cronDefinition("* * * * *") });
+  const { proposal } = await service.propose(f.agent, { key: "agent-schedule", definition: cron("* * * * *") });
   await service.approve(approver, proposal.id, { fingerprint: proposal.fingerprint, decision: "approve" });
   const { task } = await service.publish(f.agent, { proposalId: proposal.id });
   const h = harness(f, succeed("Agent work."));
@@ -700,7 +733,7 @@ test("revoking the approving operator stops a delegated creator's schedule", asy
 test("nothing new starts at or after an approved recurrence end, not even queued work", async () => {
   const f = fixture = start();
   const at = f.clock.now + MINUTE, end = f.clock.now + 3 * MINUTE;
-  const task = await create(f, "ithaca-ending", cronDefinition("* * * * *", { endAt: isoInstant(end) }));
+  const task = await create(f, "ithaca-ending", cron("* * * * *", { endAt: isoInstant(end) }));
   const h = harness(f, succeed("Should not run."));
   f.clock.now = at;
   const [id] = await h.admission.admit();
