@@ -1029,6 +1029,7 @@ export "./internal" (./src/internal.ts)
   WORKER_STATE_BUDGET_ENV
   WORKER_STATE_BYTES_ENV
   WORKER_STATE_PAGE
+  WORKER_WORKTREE_ROOT
   WORKER_XDG_DIRS
   type WorkerArea
   type WorkerAreaName

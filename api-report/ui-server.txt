@@ -418,6 +418,8 @@ signatures (every public export and the types it is made of)
         attributes: FlatAttributes;
         timestamp: number;
     }
+  Client (packages/ui-server/src/brain/reference-worktree-journal.ts)
+    type Client = ReturnType<typeof createNativeBrainManagerClient>;
   CoastlineConfig (packages/ui-server/src/config/env.ts)
     export interface CoastlineConfig {
         enabled: boolean;
@@ -1032,6 +1034,13 @@ signatures (every public export and the types it is made of)
         logs: RecordingLoggerProvider;
         reset(): void;
     }
+  ReferenceWorktreeCheckpointLedger (packages/ui-server/src/brain/reference-worktree-journal.ts)
+    export interface ReferenceWorktreeCheckpointLedger {
+        record(id: string, worktreeId: string): void;
+        forget(id: string): void;
+    }
+  ReferenceWorktreeJournalPool (packages/ui-server/src/brain/reference-worktree-journal.ts)
+    export type ReferenceWorktreeJournalPool = Pick<Client, "poolCheckpoint" | "poolDelta" | "poolRelease" | "poolReadCheckpoint" | "poolStatCheckpoint" | "poolListCheckpoint">;
   RunRollupRow (packages/ui-server/src/activity/store.ts)
     export interface RunRollupRow {
         runId: string;
@@ -1589,8 +1598,11 @@ signatures (every public export and the types it is made of)
         capBytes?: number;
         now?: () => number;
         nativeManager: NativeJournalManager;
+        referencePool?: ReferenceWorktreeJournalPool;
+        referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
         changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
     }): {
+        attachWorktree(turnId: string, worktreeId: string, signal?: AbortSignal): Promise<void>;
         begin(turnId: string, metadata: {
             actor: "interactive" | "user" | "voice";
             coveredPaths?: readonly string[];
@@ -1652,6 +1664,7 @@ signatures (every public export and the types it is made of)
         };
         withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): T;
         withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T;
+        worktrees(turnId: string): string[];
         writeOperation<T>(write: () => T): T;
     };
   inspect (packages/ui-server/src/inbox/resolve.ts)

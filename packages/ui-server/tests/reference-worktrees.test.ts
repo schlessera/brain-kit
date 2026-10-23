@@ -8,7 +8,7 @@ import { createPrincipal } from "../src/db/principals";
 import { createReferenceGrant, revokeReferenceGrant } from "../src/db/reference-grants";
 import { createReferenceSources } from "../src/brain/reference-source";
 import type { ReferenceTransport } from "../src/brain/reference-transport";
-import { createReferenceWorktrees, referenceWorktreeDependents, referenceWorktreeOwner, REFERENCE_WORKTREE_INACTIVITY_MS } from "../src/brain/reference-worktrees";
+import { createReferenceWorktrees, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner, REFERENCE_WORKTREE_INACTIVITY_MS } from "../src/brain/reference-worktrees";
 import { referencePoolDouble } from "./helpers/reference-pool-double";
 
 const BRAIN = "ithaca-brain", DAY = 86_400, TOKEN = "fixture-reference-token";
@@ -387,4 +387,25 @@ describe("re-review hardening", () => {
     expect(recovered.closed, "REFERENCE_WORKTREE_CLOSED_SERVICE_GENERATIONS_ENDED").toContain(generation.id);
     expect(first.pool.records.get(tree.id)?.access).toBeNull();
   });
+});
+
+test("recovery releases only checkpoints whose owning process provably ended", async () => {
+  const { worktrees, pool } = service();
+  const penelope = owner();
+  const tree = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+  const self = referenceWorktreeOwner();
+  const take = async (change: Partial<typeof self>) => {
+    const id = crypto.randomUUID();
+    recordReferenceWorktreeCheckpoint(db, { ...self, ...change }, id, tree.id);
+    await pool.poolCheckpoint(id, tree.id);
+    return id;
+  };
+  const ended = await take({ pid: 4_194_002, start: "0" }), otherBoot = await take({ boot: "00000000-0000-4000-8000-000000000000" });
+  const unknown = await take({ pidNamespace: "1" }), mine = await take({});
+  const recovered = await worktrees.recover();
+  const sealed = (id: string) => pool.records.get(id)?.state === "sealed";
+  expect({ ended: sealed(ended), otherBoot: sealed(otherBoot), unknown: sealed(unknown), mine: sealed(mine) }, "REFERENCE_WORKTREE_RECOVERY_RELEASES_ONLY_ENDED_OWNERS")
+    .toEqual({ ended: false, otherBoot: false, unknown: true, mine: true });
+  expect(recovered.retained).toEqual(expect.arrayContaining([unknown, mine]));
+  expect((db.query("SELECT id FROM reference_worktree_checkpoints ORDER BY id").all() as { id: string }[]).map(row => row.id).sort()).toEqual([unknown, mine].sort());
 });

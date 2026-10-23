@@ -52,6 +52,8 @@ export const WORKER_AREAS = {
 export type WorkerAreaName = keyof typeof WORKER_AREAS;
 /** Strict workers write named areas outside their configuration execution view. */
 export const WORKER_AREA_ROOT = "/tmp/brain-worker-areas";
+/** Where a worker sees its turn's managed reference worktrees (#2430), one directory per granted worktree. */
+export const WORKER_WORKTREE_ROOT = "/tmp/brain-worktrees";
 
 export interface WorkerArea {
   readonly name: WorkerAreaName;
@@ -105,6 +107,12 @@ export interface WorkerSandbox {
   readonly scratchAliasesRemoved: readonly string[];
   /** Absent in a restricted turn, whose home is its runtime state. */
   readonly home?: WorkerHome;
+  /**
+   * @internal The turn's managed worktree generation (#2430): one root-owned
+   * pool directory, bound whole at `WORKER_WORKTREE_ROOT`. The host moves a
+   * granted worktree into it and parks it out again; the worker never names it.
+   */
+  readonly worktrees?: { readonly source: string };
 }
 
 function decode(path: string): string {
@@ -455,6 +463,18 @@ const SHARED_UID_NOTE = "The worker shares the server's uid; server state is pro
 
 /** The line naming an interactive worker's profile and what it lets the agent do to the brain. */
 const EGRESS_NOTE = "Network access goes through this turn's host proxy: connections are recorded and limited by policy, and a connection to an outward host waits for approval unless the call in progress was classified as a read or an approved outward action.";
+/**
+ * Fixed guidance for managed reference worktrees (#2430). It never carries a
+ * live fact: identities, commits and expiry arrive in the results that grant
+ * access, so earlier provider-facing content never has to change.
+ */
+const WORKTREE_GUIDANCE = [
+  "**Managed reference worktrees.** Shared reference source is read-only and moves: a later read may see a newer commit. To edit reference source, or to read one fixed commit across several steps, request a managed worktree. It starts at a reported commit that never moves, and its files are writable.",
+  `- Work only inside \`${WORKER_WORKTREE_ROOT}/<worktree id>/\`. A worktree appears there once access to it is granted for this turn; do not make an unmanaged clone instead.`,
+  "- Edits there are journaled and count toward this turn's scope limits, like workspace edits. A worktree has no configured remote.",
+  "- A worktree left without explicit activity for three days expires. Only requesting access again or renewing it resets that clock; reading, writing and running commands do not. Expiry and release never delete unfinished work: it is kept for the user to decide.",
+  "- Release a worktree once you no longer need it; a released worktree cannot be resumed. When a request is refused, say why instead of working around it.",
+];
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox, identityNote: string, egress: boolean) => string> = {
   governed: (sandbox, identityNote, egress) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} ${egress ? EGRESS_NOTE : "Egress is unrecorded."} Maintenance workers may receive provider credentials until inference relays land.`,
   strict: (sandbox, identityNote, egress) => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${identityNote}${egress ? ` ${EGRESS_NOTE}` : ""}`,
@@ -527,6 +547,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
     lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }
+  if (profile !== "restricted" && sandbox.worktrees) lines.push("", ...WORKTREE_GUIDANCE);
   if (profile !== "restricted" && sandbox.retainedFolders?.length) {
     lines.push("", `Keep these folders and their ancestors in place: ${sandbox.retainedFolders.map(path => `\`${path}\``).join(", ")}. Their contents keep the usual write permissions; do not remove or replace the folders themselves.`);
   }
@@ -542,7 +563,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
   }
   if (profile !== "restricted" && sandbox.scopePolicy) {
     const scope = sandbox.scopePolicy;
-    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in brain, scratch and workspaces.`,
+    lines.push("", `Scope limits per turn: ${scope.max_tool_calls} tool calls, ${scope.max_minutes} wall minutes, ${scope.max_files_changed} distinct observed changed paths and ${scope.max_bytes_written} observed written bytes in brain, scratch and workspaces${sandbox.worktrees ? ", and managed worktrees" : ""}.`,
       "One finite Continue grant per dimension adds its original cap. A second hit and the free-space floor max(5%, 2 GiB) allow Stop only. Voice stops without a grant. Observations cannot capture writes overwritten between snapshots.",
       ...(resolvedFacts.hardTimeoutMs === undefined ? [] : [`The independent host hard timeout is ${resolvedFacts.hardTimeoutMs / 60_000} minutes, including paused time. Resource and storage limits remain binding.`]));
   }

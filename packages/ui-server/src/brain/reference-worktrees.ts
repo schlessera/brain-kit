@@ -440,6 +440,17 @@ export function createReferenceWorktrees(options: {
       if (live(row) !== false) { result.retained.push(row.id); continue; }
       try { await closeGeneration(row.id, signal); result.closed.push(row.id); } catch (error) { warn("abandoned worktree generation could not be closed", error); result.retained.push(row.id); }
     }
+    // Journal and assessment checkpoints are released only when the process
+    // that took them is provably gone; a live or unverifiable owner keeps them.
+    const checkpoints = db.query("SELECT * FROM reference_worktree_checkpoints").all() as (Omit<GenerationRow, "principal_id" | "turn_id" | "profile" | "path" | "opened_at" | "closed_at">
+      & { worktree_id: string })[];
+    for (const row of checkpoints) {
+      const ended = row.owner_boot !== owner.boot ? true : row.owner_pid_namespace !== owner.pidNamespace ? null
+        : row.owner_pid === owner.pid && row.owner_start === owner.start ? false : !processAlive(row.owner_pid, row.owner_start);
+      if (ended !== true) { result.retained.push(row.id); continue; }
+      try { await pool.poolRelease(row.id, signal); forgetReferenceWorktreeCheckpoint(db, row.id); }
+      catch (error) { warn("stale worktree checkpoint was not released", error); result.retained.push(row.id); }
+    }
     await reconcile(signal);
     return result;
   }

@@ -736,6 +736,12 @@ no execution tree because the parser imports or executes no repository code.
 > cleanup retains unfinished or unknown-state work for hygiene disposition.
 > These are selected requirements, not implementation or runtime evidence.
 
+> **2026-10-23 — Managed worktree journaling (#2430).** A managed worktree is
+> journaled as its own root, from its own checkpoints, under scope
+> `reference_worktree`, and counts toward the holding turn's scope caps
+> ([managed-worktree decision](managed-worktrees.md#journal-and-scope)).
+> Workspaces keep their existing journaling.
+
 Ruling 6 adopts the maintainer's model. Each area has a lifecycle contract, and
 the capabilities note states all three and says which one to link:
 
@@ -789,7 +795,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:983-1011`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:995-1023`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1448,7 +1454,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1632`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1644`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2129,11 +2135,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:950-978`;
+`packages/ui-sdk/src/server/worker-launcher.ts:962-990`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:983-1009`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:995-1021`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1142-1215`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1154-1227`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2528,7 +2534,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:202-270`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -2551,7 +2557,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:374-409`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:438-473`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
@@ -2623,7 +2629,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:489-552`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:509-572`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

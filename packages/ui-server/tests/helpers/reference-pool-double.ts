@@ -9,7 +9,7 @@
  * worktree is renamed into and out of.
  */
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { cpSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { NativeBrainManagerError, type NativePoolCheckpoint, type NativePoolRecord, type NativePoolStatus } from "@schlessera/brain-ui-sdk/internal";
 import type { ReferencePool } from "../../src/brain/reference-source";
@@ -22,7 +22,10 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
   const roots = join(root, "roots"), views = join(root, "views"), access = join(root, "access");
   mkdirSync(roots, { recursive: true }); mkdirSync(views, { recursive: true }); mkdirSync(access, { recursive: true });
   const checkpoints = new Map<string, { entries: Map<string, Entry>; transaction: string }>();
-  let transactions = 0;
+  // Copies lack Btrfs inode lineage: reserve each checkpoint file's inode so a
+  // later copy cannot reuse it and manufacture a hardlink candidate.
+  const pins = join(root, "inode-pins"); mkdirSync(pins, { recursive: true });
+  let transactions = 0, pinned = 0;
   const records = new Map<string, NativePoolRecord>();
   const events: PoolEvent[] = [];
   let clock = 0;
@@ -119,7 +122,9 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       if (!worktree || worktree.purpose !== "worktree" || worktree.state !== "writable") fail("unknown", "A worktree checkpoint requires one retained writable worktree root.");
       const path = join(roots, id);
       cpSync(location(worktree!), path, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
-      checkpoints.set(id, { entries: inventory(path), transaction: String(++transactions) });
+      const entries = inventory(path);
+      for (const [relative, entry] of entries) if (entry.kind === "file") linkSync(join(path, relative), join(pins, String(++pinned)));
+      checkpoints.set(id, { entries, transaction: String(++transactions) });
       const record: NativePoolRecord = { id, purpose: "checkpoint", from, allowanceBytes: 1024 * 1024, state: "sealed",
         root: { rootId: String(256 + records.size), uuid: createHash("sha256").update(id).digest("hex").slice(0, 32), otransid: "1" }, path, ownerBytes: 0, reason: null, view: null, access: null };
       records.set(id, record);

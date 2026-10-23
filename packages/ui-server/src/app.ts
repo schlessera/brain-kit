@@ -146,7 +146,7 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
-import { createReferenceWorktrees, referenceWorktreeDependents } from "./brain/reference-worktrees.js";
+import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
@@ -443,7 +443,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     // Managed worktrees (#2430) keep the source roots they were snapshotted from.
     dependents: rootId => referenceWorktreeDependents(db, rootId) }) : undefined;
   // Worktree lifecycle (#2430). Access stays refused until journal coverage is wired.
-  const referenceWorktrees = referenceSources ? createReferenceWorktrees({ db, pool: nativeManager, sources: referenceSources, log: brainLog }) : undefined;
+  const referenceWorktrees = referenceSources ? createReferenceWorktrees({ db, pool: nativeManager, sources: referenceSources, log: brainLog,
+    // Every grant is covered by the turn journal first; the journal exists once a turn can run.
+    coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) }) : undefined;
   if (referenceSources) {
     bootCleanup.push(() => referenceSources.close());
     const recovered = await referenceSources.recover().catch((error: Error) => ({ released: [], retained: [error.message] }));
@@ -576,6 +578,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const budgets = createTurnBudgets(db, pricing);
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
+    ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
+      const owner = referenceWorktreeOwner();
+      return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
+    })() } : {}),
     changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...summary, ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   bootCleanup.push(() => journal.close());
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,
@@ -593,6 +599,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     policyProposals,
     journal,
     governedTurns,
+    ...(referenceWorktrees ? { referenceWorktrees } : {}),
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
