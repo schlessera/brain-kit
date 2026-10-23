@@ -1220,7 +1220,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       identityBroker = prepareWorkerIdentity(helper, payload.argv, [
         ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
         ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
-      ], cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage);
+      ], cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage,
+      input.sandbox?.profile === "governed" && input.sandbox.retainedFolders?.length ? brain : undefined);
       payload.argv = identityBroker.command;
       // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
       delete payload.cgroup;
@@ -1271,7 +1272,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       if (identityBroker) tempFd = undefined;
     }
     if (input.sandbox?.profile === "governed")
-      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks);
+      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
+        identityBroker?.brainView());
     // Release the gate: the worker's command starts only now.
     if (identityBroker) identityBroker.request("release"); else status!.release();
     stateFd = tempFd = undefined;
