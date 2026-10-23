@@ -1889,7 +1889,7 @@ voice turn, and admission applies the masks to all of them:
     worker cannot export into them.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:53-59`). Its stored native
+    `packages/ui-backend-pi/src/worker-session.ts:63-69`). Its stored native
     file observations are content hashes, not text.
   - Autonomous turns carry nothing: Claude's state is ephemeral, and Pi's
     restricted envelope copies no native state.
