@@ -462,6 +462,116 @@ const shapes = await create("staging", 32 * MIB);
   db.close();
 }
 
+// 17. Managed worktrees (#2430): a writable snapshot of sealed source is
+// isolated from it, its read-only checkpoints feed metadata deltas, and an
+// access generation bound into an already running non-root sandbox gains
+// exactly the granted worktree without any mount in that namespace.
+{
+  const { parseNativeBrainDelta } = await import("../../packages/ui-sdk/src/server/native-brain-delta.js");
+  type Checkpoint = NativePoolRecord & { transaction: string; readOnly: true };
+  const base = await create("source", 4 * MIB);
+  mkdirSync(join(base.path!, "odyssey"), { mode: 0o775 });
+  for (const book of ["book-1.md", "book-2.md"]) { writeFileSync(join(base.path!, "odyssey", book), `Ithaca ${book}\n`); chmodSync(join(base.path!, "odyssey", book), 0o664); }
+  chmodSync(join(base.path!, "odyssey"), 0o775); command(["chown", "-R", "0:1000", join(base.path!, "odyssey")]);
+  await seal(base.id);
+  const tree = await create("worktree", 16 * MIB, base.id), other = await create("worktree", 16 * MIB, base.id);
+  // Copy-on-write isolation: worktree edits never reach the shared source.
+  writeFileSync(join(tree.path!, "odyssey", "book-1.md"), "Penelope's loom, rewoven\n");
+  expect(readFileSync(join(POOL, "roots", base.id, "odyssey", "book-1.md"), "utf8"), "REFERENCE_WORKTREE_SOURCE_UNCHANGED").toBe("Ithaca book-1.md\n");
+  let sourceWrite = "";
+  try { writeFileSync(join(POOL, "roots", base.id, "odyssey", "book-2.md"), "overwritten"); } catch (error) { sourceWrite = (error as NodeJS.ErrnoException).code ?? String(error); }
+  expect(sourceWrite, "REFERENCE_WORKTREE_SOURCE_READ_ONLY").toBe("EROFS");
+  // Checkpoints are read-only snapshots of one worktree, and deltas stay inside it.
+  const first = await call<Checkpoint>({ operation: "poolCheckpoint", id: randomUUID(), from: tree.id });
+  expect(first, "REFERENCE_CHECKPOINT_SEALED").toMatchObject({ purpose: "checkpoint", from: tree.id, state: "sealed", readOnly: true });
+  expect(command(["btrfs", "property", "get", "-ts", first.path!, "ro"]).trim(), "REFERENCE_CHECKPOINT_READ_ONLY").toBe("ro=true");
+  writeFileSync(join(tree.path!, "odyssey", "book-3.md"), "The suitors' feast\n");
+  rmSync(join(tree.path!, "odyssey", "book-2.md"));
+  const second = await call<Checkpoint>({ operation: "poolCheckpoint", id: randomUUID(), from: tree.id });
+  const response = await manager.run({ operation: "poolDelta", from: first.id, to: second.id } as never);
+  const framed = (await import("../../packages/ui-sdk/src/server/native-brain-manager-client.js")).decodeNativeDelta(response.body!, 64 * MIB);
+  const changed = new Set<string>();
+  for await (const candidate of parseNativeBrainDelta(framed.stream, { before: { uuid: first.root!.uuid, transaction: BigInt(first.transaction) },
+    after: { uuid: second.root!.uuid, transaction: BigInt(second.transaction) } })) for (const path of candidate.paths) changed.add(path);
+  await framed.completed;
+  note("worktree-delta", { changed: [...changed] });
+  expect([...changed].sort(), "REFERENCE_WORKTREE_DELTA_NAMES_EDITS").toEqual(expect.arrayContaining(["odyssey/book-2.md", "odyssey/book-3.md"]));
+  expect(changed.has("odyssey/book-1.md"), "REFERENCE_WORKTREE_DELTA_ONLY_SINCE_ITS_CHECKPOINT").toBe(false);
+  const foreign = await call<Checkpoint>({ operation: "poolCheckpoint", id: randomUUID(), from: other.id });
+  expect((await refusal({ operation: "poolDelta", from: first.id, to: foreign.id })).code, "REFERENCE_WORKTREE_DELTA_ONE_LINEAGE").toBe("invalid");
+  expect((await refusal({ operation: "poolCheckpoint", id: randomUUID(), from: base.id })).code, "REFERENCE_CHECKPOINT_ONLY_OF_A_WORKTREE").toBe("unknown");
+  expect((await refusal({ operation: "poolCreate", id: randomUUID(), purpose: "worktree", from: first.id, allowanceBytes: 4 * MIB })).code,
+    "REFERENCE_WORKTREE_NEVER_FROM_A_CHECKPOINT").toBe("unknown");
+  // An access generation is one root-owned directory a running non-root sandbox binds whole.
+  const ACCESS = randomUUID(), SECOND_ACCESS = randomUUID();
+  const opened = await call<{ access: string; path: string; roots: string[] }>({ operation: "poolAccessOpen", access: ACCESS });
+  expect(opened, "REFERENCE_ACCESS_OPENED_EMPTY").toEqual({ access: ACCESS, path: join(POOL, "access", ACCESS), roots: [] });
+  // Production masks hide every generation from every worker; each worker binds only its own.
+  expect((await call<{ privatePaths: string[] }>({ operation: "ready" })).privatePaths, "REFERENCE_ACCESS_GENERATIONS_MASKED_FOR_WORKERS").toContain(join(POOL, "access"));
+  await call({ operation: "poolAccessOpen", access: SECOND_ACCESS });
+  const script = "while read cmd; do case \"$cmd\" in\n"
+    + "list) ls -A /tmp/brain-worktrees | sort | tr '\\n' ' '; echo;;\n"
+    + "read) cat /tmp/brain-worktrees/" + tree.id + "/odyssey/book-1.md 2>/dev/null || echo MISSING;;\n"
+    + "edit) printf 'Telemachus returns\\n' > /tmp/brain-worktrees/" + tree.id + "/odyssey/book-1.md && printf 'Argos waits\\n' > /tmp/brain-worktrees/" + tree.id + "/odyssey/book-4.md && echo EDITED || echo REFUSED;;\n"
+    + "sibling) mkdir /tmp/brain-worktrees/intruder 2>/dev/null && echo CREATED || echo REFUSED;;\n"
+    + "pool) ls " + POOL + " 2>&1 | head -1;;\nwho) id -u;;\nesac\necho @@\ndone\n";
+  const worker = Bun.spawn(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/tmp", "--bind", opened.path, "/tmp/brain-worktrees", "--proc", "/proc", "--dev", "/dev",
+    "--unshare-pid", "--die-with-parent", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1000", "--clear-groups", "/bin/sh", "-c", script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const lines = worker.stdout.getReader(); let buffered = "";
+  const ask = async (cmd: string) => {
+    worker.stdin.write(cmd + "\n"); worker.stdin.flush();
+    while (!buffered.includes("@@\n")) { const chunk = await lines.read(); if (chunk.done) throw Error(`worktree worker exited: ${await new Response(worker.stderr).text()}`); buffered += new TextDecoder().decode(chunk.value); }
+    const at = buffered.indexOf("@@\n"), answer = buffered.slice(0, at).trim(); buffered = buffered.slice(at + 3); return answer;
+  };
+  expect(await ask("who"), "REFERENCE_ACCESS_WORKER_NOT_ROOT").toBe("1001");
+  expect(await ask("list"), "REFERENCE_ACCESS_STARTS_EMPTY").toBe("");
+  expect(await ask("pool"), "REFERENCE_ACCESS_POOL_MASKED").toBe("");
+  const granted = await call<NativePoolRecord>({ operation: "poolAccess", id: tree.id, access: ACCESS });
+  expect(granted, "REFERENCE_ACCESS_RECORDED").toMatchObject({ id: tree.id, access: ACCESS, state: "writable", path: join(opened.path, tree.id) });
+  await call({ operation: "poolAccess", id: other.id, access: SECOND_ACCESS });
+  expect(await ask("list"), "REFERENCE_ACCESS_GRANT_VISIBLE_TO_RUNNING_WORKER").toBe(tree.id);
+  expect(await ask("read"), "REFERENCE_ACCESS_WORKER_READS_ITS_WORKTREE").toBe("Penelope's loom, rewoven");
+  expect(await ask("edit"), "REFERENCE_ACCESS_WORKER_EDITS_WORKTREE").toBe("EDITED");
+  expect(readFileSync(join(opened.path, tree.id, "odyssey", "book-4.md"), "utf8"), "REFERENCE_ACCESS_EDIT_LANDS_IN_WORKTREE").toBe("Argos waits\n");
+  expect(readFileSync(join(POOL, "roots", base.id, "odyssey", "book-1.md"), "utf8"), "REFERENCE_ACCESS_EDIT_NEVER_REACHES_SOURCE").toBe("Ithaca book-1.md\n");
+  expect(await ask("sibling"), "REFERENCE_ACCESS_GENERATION_NOT_WRITABLE").toBe("REFUSED");
+  expect((await refusal({ operation: "poolAccess", id: tree.id, access: SECOND_ACCESS })).code, "REFERENCE_ACCESS_NO_CROSS_GENERATION").toBe("invalid");
+  expect((await refusal({ operation: "poolAccess", id: base.id, access: ACCESS })).code, "REFERENCE_ACCESS_ONLY_WORKTREES").toBe("unknown");
+  expect((await status()).refusal, "REFERENCE_ACCESS_ACCOUNTED").toBeNull();
+  // Parking returns the worktree to the masked roots: the next lookup misses it.
+  expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
+  expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");
+  // A grant interrupted after its rename, before its record: restart adopts the actual generation.
+  renameSync(join(POOL, "roots", tree.id), join(opened.path, tree.id));
+  manager = await restart({});
+  const adopted = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id);
+  expect((await status()).refusal, "REFERENCE_ACCESS_CRASH_RECONCILED").toBeNull();
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id)?.access,
+    "REFERENCE_ACCESS_CRASH_ADOPTED").toBe(ACCESS);
+  note("access-adopted", { adopted });
+  expect(await ask("read"), "REFERENCE_ACCESS_ADOPTED_STILL_VISIBLE").toBe("Telemachus returns");
+  const closed = await call<{ roots: string[] }>({ operation: "poolAccessClose", access: ACCESS });
+  expect(closed.roots, "REFERENCE_ACCESS_CLOSE_PARKS").toEqual([tree.id]);
+  expect(existsSync(opened.path), "REFERENCE_ACCESS_CLOSE_REMOVES_GENERATION").toBe(false);
+  expect(await ask("list"), "REFERENCE_ACCESS_CLOSED_EMPTY").toBe("");
+  await call({ operation: "poolAccessClose", access: SECOND_ACCESS });
+  worker.stdin.end(); worker.kill("SIGKILL"); await worker.exited;
+  // Released checkpoints are forgotten once reclaimed, so identities stay bounded.
+  for (const checkpoint of [first, second, foreign]) expect(["deleted", "reclaimed"], "REFERENCE_CHECKPOINT_RELEASED").toContain((await release(checkpoint.id)).state);
+  sync(); await status();
+  const remaining = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.map(item => item.id);
+  expect(remaining.filter(id => [first.id, second.id, foreign.id].includes(id)), "REFERENCE_CHECKPOINT_IDENTITY_FORGOTTEN").toEqual([]);
+  expect((await release(first.id)).state, "REFERENCE_CHECKPOINT_RELEASE_RETRY_RECLAIMED").toBe("reclaimed");
+  expect((await refusal({ operation: "poolCheckpoint", id: first.id, from: tree.id })).code, "REFERENCE_CHECKPOINT_NEVER_RECREATED").toBe("released");
+  // The forgotten identity survives a manager restart, so a retry after a lost reply still reads as reclaimed.
+  manager = await restart({});
+  const retried = await release(second.id);
+  expect(retried, "REFERENCE_CHECKPOINT_RELEASE_RETRY_AFTER_RESTART").toMatchObject({ id: second.id, purpose: "checkpoint", state: "reclaimed" });
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.some(item => item.id === second.id),
+    "REFERENCE_CHECKPOINT_RETRY_LEAVES_NO_TOMBSTONE").toBe(false);
+  for (const id of [tree.id, other.id, base.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_RELEASED").toContain((await release(id)).state);
+}
+
 // 14. Restart reconstruction and the deterministic host projection.
 {
   const kept = await create("source", 4 * MIB);

@@ -24,7 +24,7 @@ function observation(roots: Array<{ id: string; rootId: string; referenced: numb
     subvolumes: roots.map(root => ({ rootId: root.rootId, parentId: "5", dirId: "257", name: root.id })), dropping: [] };
 }
 const intent = (id: string, rootId: string | null, state: PoolIntent["state"], from: string | null = null): PoolIntent => ({ version: 1, fsid: pool().fsid, id, purpose: from ? "worktree" : "source", from,
-  allowanceBytes: 32 * MIB, state, root: rootId ? { rootId, uuid: "a".repeat(32), otransid: "10" } : null, path: null, ownerBytes: null, reason: null, view: null, reservedGeneration: "9" });
+  allowanceBytes: 32 * MIB, state, root: rootId ? { rootId, uuid: "a".repeat(32), otransid: "10" } : null, path: null, ownerBytes: null, reason: null, view: null, access: null, reservedGeneration: "9" });
 const VIEW = "44444444-4444-4444-8444-444444442429";
 const account = (observed: PoolObservation, intents: PoolIntent[]) =>
   referencePoolAccounting({ observation: observed, intents, limits: limits(), rootsDirId: "257", emergencyAllocatedBytes: 4 * MIB, viewDirIds: new Map([["900", VIEW]]) });
@@ -169,4 +169,47 @@ test("a published root is accounted only inside its recorded view directory", ()
   const stray = observation([{ id: ID, rootId: "256", referenced: MIB }], MIB, MIB);
   stray.subvolumes[0]!.dirId = "901";
   expect(account(stray, [{ ...intent(ID, "256", "sealed"), view: VIEW }]).refusal?.message, "REFERENCE_VIEW_UNKNOWN_DIRECTORY_REFUSES").toMatch(/outside the managed roots directory/);
+});
+
+const ACCESS = "55555555-5555-4555-8555-555555552430";
+test("worktree checkpoints, deltas and access generations take generated identities only, never a path", () => {
+  for (const operation of [
+    { operation: "poolCheckpoint", id: SECOND, from: ID },
+    { operation: "poolDelta", from: ID, to: SECOND },
+    { operation: "poolReadCheckpoint", id: SECOND, action: "file", path: "odyssey/book-1.md", maximum: 4096 },
+    { operation: "poolAccessOpen", access: ACCESS },
+    { operation: "poolAccess", id: ID, access: ACCESS },
+    { operation: "poolPark", id: ID },
+    { operation: "poolAccessClose", access: ACCESS },
+  ]) expect(nativeManagerRequest.parse(operation).operation as string, "REFERENCE_WORKTREE_OPERATION_ACCEPTED").toBe(operation.operation);
+  for (const operation of [
+    { operation: "poolCheckpoint", id: SECOND, from: "/srv/ithaca-reference/roots/x" },
+    { operation: "poolCheckpoint", id: SECOND, from: ID, allowanceBytes: 4096 },
+    { operation: "poolAccess", id: ID, access: "/tmp/brain-worktrees" },
+    { operation: "poolAccess", id: ID, access: ACCESS, uid: 0 },
+    { operation: "poolAccessOpen", access: ACCESS, path: "/srv/other" },
+    { operation: "poolReadCheckpoint", id: SECOND, action: "file", path: "../roots", maximum: 1 },
+    { operation: "poolReadCheckpoint", id: SECOND, action: "file", path: "/etc/passwd", maximum: 1 },
+    { operation: "poolCreate", id: SECOND, purpose: "checkpoint", from: ID, allowanceBytes: MIB },
+  ]) expect(nativeManagerRequest.safeParse(operation).success, `REFERENCE_WORKTREE_NO_CALLER_AUTHORITY ${operation.operation}`).toBe(false);
+});
+
+test("a held worktree is accounted only inside its recorded access generation", () => {
+  const accountAt = (dirId: string, recorded: string | null) => {
+    const observed = observation([{ id: ID, rootId: "256", referenced: MIB }], MIB, MIB);
+    observed.subvolumes[0]!.dirId = dirId;
+    return referencePoolAccounting({ observation: observed, intents: [{ ...intent(ID, "256", "writable", SECOND), access: recorded }], limits: limits(), rootsDirId: "257",
+      emergencyAllocatedBytes: 4 * MIB, viewDirIds: new Map([["900", VIEW]]), accessDirIds: new Map([["910", ACCESS]]) }).refusal;
+  };
+  expect(accountAt("910", ACCESS), "REFERENCE_WORKTREE_ACCESS_ACCOUNTED").toBeNull();
+  expect(accountAt("910", null), "REFERENCE_WORKTREE_UNRECORDED_ACCESS_REFUSES").toMatchObject({ message: expect.stringMatching(/outside its recorded access generation/) });
+  expect(accountAt("257", ACCESS), "REFERENCE_WORKTREE_PARKED_BUT_RECORDED_HELD_REFUSES").toMatchObject({ message: expect.stringMatching(/outside its recorded access generation/) });
+  expect(accountAt("900", ACCESS), "REFERENCE_WORKTREE_NEVER_IN_A_VIEW").toMatchObject({ message: expect.stringMatching(/outside its recorded view/) });
+  expect(accountAt("911", ACCESS), "REFERENCE_WORKTREE_UNKNOWN_DIRECTORY_REFUSES").toMatchObject({ message: expect.stringMatching(/outside the managed roots directory/) });
+});
+
+test("the pool mount may present access generations like other managed roots", () => {
+  const top = "51 25 7:2429 / /srv/ithaca-reference rw,nosuid,nodev - btrfs /dev/ithaca-reference rw,discard=async,subvolid=5,subvol=/\n";
+  expect(() => referencePoolMount(top + "52 25 0:41 /access/x /run/worktrees rw - btrfs /dev/ithaca-reference rw\n", "/srv/ithaca-reference", "/dev/ithaca-reference")).not.toThrow();
+  expect(() => referencePoolMount(top + "52 25 0:41 /accessory /run/worktrees rw - btrfs /dev/ithaca-reference rw\n", "/srv/ithaca-reference", "/dev/ithaca-reference")).toThrow();
 });

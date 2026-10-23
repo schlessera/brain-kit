@@ -971,6 +971,9 @@ export "./internal" (./src/internal.ts)
   type NativeBrainRootIdentity
   type NativeFileVersion
   NativeFileVersions
+  type NativePoolAccess
+  type NativePoolCheckpoint
+  type NativePoolCreatePurpose
   type NativePoolRecord
   type NativePoolState
   type NativePoolStatus
@@ -990,6 +993,7 @@ export "./internal" (./src/internal.ts)
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
   type QuestionObservation
+  REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
   type ReplayReceipt
   type Reservation

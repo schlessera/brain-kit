@@ -621,3 +621,11 @@ which publish sealed reference roots into per-domain view directories, and
 `ServerConfig` gains optional `referenceSource` clocks and admission, resolved
 from three documented environment inputs; described in
 [the package API](integration-contract/package-api.md#reference-source-acquisition-additive-2429).
+
+## Managed worktree storage (additive, #2430)
+
+The native manager client and lease owner gain worktree checkpoints, deltas and
+fixed-reader checkpoint reads, plus access generations that move a writable
+worktree into or out of one worker-bound directory; `NativePoolRecord` gains
+the `checkpoint` purpose and `access`. Described in
+[the package API](integration-contract/package-api.md#managed-worktree-storage-additive-2430).
