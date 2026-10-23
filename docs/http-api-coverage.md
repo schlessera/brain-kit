@@ -265,8 +265,8 @@ checks both nonempty priced and mixed-knownness fixtures
 
 **I — Local poke.**
 
-- `separate server processes rotate boot authorization and recover the persisted lease` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`separate server processes rotate boot authorization and recover the persisted lease`, `packages/ui-server/tests/inbox-runtime.test.ts:248-267`)
-- `unconfigured poke is unavailable and invalid runtime provisioning refuses boot` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`unconfigured poke is unavailable and invalid runtime provisioning refuses boot`, `packages/ui-server/tests/inbox-runtime.test.ts:326-332`)
+- `separate server processes rotate boot authorization and recover the persisted lease` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`separate server processes rotate boot authorization and recover the persisted lease`, `packages/ui-server/tests/inbox-runtime.test.ts:250-269`)
+- `unconfigured poke is unavailable and invalid runtime provisioning refuses boot` ([source](../packages/ui-server/tests/inbox-runtime.test.ts)), (`unconfigured poke is unavailable and invalid runtime provisioning refuses boot`, `packages/ui-server/tests/inbox-runtime.test.ts:328-334`)
 
 **M — Model roster and discovery.**
 
