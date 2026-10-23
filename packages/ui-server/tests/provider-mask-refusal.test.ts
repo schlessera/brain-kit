@@ -46,3 +46,14 @@ test("a nested selector collapses into its outer folder, which refuses everythin
   expect(() => guard.assert("brain_read_base", ["me/journal/2026-07-12.md"]), "OUTER_FOLDER_COVERS_NESTED_PATHS").toThrow("provider_masked");
   expect(refusals.map(refusal => refusal.rule)).toEqual([{ list: "providers", index: 0, pattern: "me/**" }]);
 });
+
+test("a refusal names a rule that denies the turn's recipient, never one that allows it (#2695)", () => {
+  const refusals: ProviderMaskRefusal[] = [];
+  // `me/**` allows Anthropic, but the nested rule denies it, so `me/` is masked whole.
+  const guard = createProviderMaskGuard({ folders: ["me"], recipient: "anthropic",
+    policy: { providers: [{ paths: ["me/**"], allow: ["anthropic"] }, { paths: ["me/letters/**"], allow: ["google"] }] },
+    record: refusal => refusals.push(refusal) });
+  expect(() => guard.assert("brain_read_base", ["me/letters/penelope.md"])).toThrow("provider_masked");
+  expect(() => guard.assert("brain_read_base", ["notes/raft.md"]), "UNMASKED_PATH_PASSES").not.toThrow();
+  expect(refusals.map(refusal => refusal.rule), "DENYING_RULE_NAMED").toEqual([{ list: "providers", index: 1, pattern: "me/letters/**" }]);
+});

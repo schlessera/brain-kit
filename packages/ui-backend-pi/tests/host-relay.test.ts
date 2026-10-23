@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { canonicalOrigin, literalValue, piCredentialOrigins, sanitized } from "../src/host-inference.js";
 
-type Result = { hostFetches: string[]; outcomes: Array<string | null>; thrown: string | null; refreshes: number; toolFetches: number; toolOutputSeen: boolean; requests: Array<Record<string, string | null>>;
+type Result = { hostFetches: string[]; outcomes: Array<string | null>; origins: Array<string | null>; thrown: string | null; refreshes: number; toolFetches: number; toolOutputSeen: boolean; requests: Array<Record<string, string | null>>;
   inference: Array<{ inference: boolean; host: string; path: string | null; outcome: string }>; workerObserved: boolean;
   secretInWorker: boolean; withheldKeys: string | null; hostCredentialFilesVisible: number; workerViewObserved: boolean; placeholderInWorker: boolean; commandRan: boolean; hostRefreshed: boolean; relayLinkRemoved: boolean };
 let results: Record<string, Result>;
@@ -138,4 +138,17 @@ test("BRAIN_UI_PI_CREDENTIAL_ORIGINS keys exact origins by provider and refuses 
     expect(() => piCredentialOrigins(value), value).toThrow("BRAIN_UI_PI_CREDENTIAL_ORIGINS");
   }
   expect(canonicalOrigin("https://GATEWAY.ithaca.invalid:443")).toBe("https://gateway.ithaca.invalid");
+});
+
+test("the backend names the origin a relayed turn reaches, for a new and a resumed conversation (#2695)", () => {
+  expect(results["openai-env-key"]!.origins, "PI_ORIGIN_FROM_PROFILE_AND_SAVED_MODEL").toEqual(["https://api.openai.com", "https://api.openai.com"]);
+  expect(results["anthropic-custom-listed"]!.origins, "PI_ORIGIN_FOLLOWS_MODELS_JSON").toEqual([expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/)]);
+  expect(results["codex-custom-unlisted-expired"]!.origins, "PI_ORIGIN_IS_NOT_AUTHORIZATION").toEqual([expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/)]);
+});
+test("a turn admitted for one recipient's origin reaches only that origin (#2695)", () => {
+  relayed("recipient-admitted", { path: "/v1/responses", authorization: "openai", apiKey: null }, "api.openai.com");
+  const other = results["recipient-other"]!;
+  expect(other.thrown, "PI_OTHER_RECIPIENT_REFUSED").toContain("the recipient this turn's provider folders were admitted for");
+  expect(other.hostFetches, "PI_OTHER_RECIPIENT_NO_HOST_CREDENTIAL_TRAFFIC").toEqual([]);
+  expect(other.requests, "PI_OTHER_RECIPIENT_SENDS_NOTHING").toEqual([]);
 });

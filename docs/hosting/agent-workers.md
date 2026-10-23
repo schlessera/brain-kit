@@ -750,7 +750,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:64-243`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:70-252`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -1401,6 +1401,19 @@ worker holds a placeholder under `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`,
 the variable the profile names stays on the host, and the host login is
 cleared. Project settings that move the route refuse the turn before its
 prompt is sent.
+
+**Provider policy recipients (#2695).** These origin lists authorize a
+credential, not data. A governance policy's `providers` rules judge a turn by
+the recipient its relay reaches. Built-in vendor origins name one, such as
+`https://api.anthropic.com` for `anthropic`; any other origin is unknown, and
+a turn on it sees no provider folder. If you run a gateway you trust with the
+data a rule allows, name it with `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`, for
+example `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS="anthropic=https://gateway.ithaca.invalid"`.
+Listing an origin in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or
+`BRAIN_UI_PI_CREDENTIAL_ORIGINS` alone does not. Without managed native
+storage no relay runs, so no recipient is proven and every provider folder
+stays masked. The table and the rules are in
+[supported inputs](../supported-inputs.md#governance-policy).
 
 ### Untrusted input (#1667)
 

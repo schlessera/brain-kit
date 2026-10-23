@@ -59,7 +59,7 @@ export function makeBridge(
   pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute },
   mainModel?: { current(): string | null; bind(model: string): void },
   /** The admitted turn's masked provider folders (`sandbox.providerMasks.folders`) and the policy that named them. */
-  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>> }
+  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>>; recipient?: string }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -112,7 +112,7 @@ export function makeBridge(
   // Host bridge tools run outside the worker's mounts, so they refuse the
   // folders the worker masks, with one governance event per refused call (#2690).
   const maskGuard = providerMasks?.folders.length ? createProviderMaskGuard({ folders: providerMasks.folders, policy: providerMasks.policy.policy,
-    ...(providerMasks.typeFolders ? { typeFolders: providerMasks.typeFolders } : {}),
+    ...(providerMasks.typeFolders ? { typeFolders: providerMasks.typeFolders } : {}), ...(providerMasks.recipient ? { recipient: providerMasks.recipient } : {}),
     record: refusal => catalog.recordGovernanceEvent?.({ kind: "provider_mask_refusal", turnId, sessionId: turn.sessionId,
       actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null,
       payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;

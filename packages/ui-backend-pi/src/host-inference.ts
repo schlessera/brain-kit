@@ -208,8 +208,41 @@ async function guardedCredentials(authPath: string, provider: string): Promise<C
   };
 }
 
+/**
+ * The pi model a relayed turn would use, resolved as the relay resolves it:
+ * from a private snapshot of the provider's own `models.json` entry over
+ * pi's built-in catalog. No credential is read.
+ */
+async function relayModel(provider: string, modelId: string, configured: Record<string, unknown> | undefined, scratch: string,
+  credentials: CredentialStore | undefined, signal: AbortSignal | undefined): Promise<{ runtime: ModelRuntime; model: Model<Api> | undefined }> {
+  writeFileSync(join(scratch, "models.json"), JSON.stringify({ providers: configured ? { [provider]: configured } : {} }), { mode: 0o600 });
+  const runtime = await ModelRuntime.create({ ...(credentials ? { credentials } : { authPath: join(scratch, "auth.json") }),
+    modelsPath: join(scratch, "models.json"), modelsStorePath: join(scratch, "models-store.json"),
+    refreshOnCreate: false, allowModelNetwork: false, ...(signal ? { signal } : {}) });
+  return { runtime, model: runtime.getModel(provider, modelId) };
+}
+
+/**
+ * The exact origin a relayed turn on this provider and model would reach
+ * (#2695): what turn admission names the recipient from. Undefined when it
+ * cannot be resolved, which leaves the turn's provider folders masked.
+ */
+export async function piRelayOrigin(options: { provider: string; modelId: string; agentDir: string; signal?: AbortSignal }): Promise<string | undefined> {
+  const scratch = mkdtempSync(join(tmpdir(), "brain-pi-origin-"));
+  chmodSync(scratch, 0o700);
+  try {
+    const modelsPath = join(options.agentDir, "models.json");
+    const models = existsSync(modelsPath) ? JSON.parse(readFileSync(modelsPath, "utf8")) as { providers?: Record<string, Record<string, unknown>> } : {};
+    const { model } = await relayModel(options.provider, options.modelId, models.providers?.[options.provider], scratch, undefined, options.signal);
+    return model ? new URL(model.baseUrl).origin : undefined;
+  } catch { return undefined; }
+  finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+
 export async function preparePiHostInference(options: {
   provider: string; modelId: string; agentDir: string; brainPath: string;
+  /** The origin turn admission proved the recipient from (#2695); any other endpoint refuses before a credential is read. */
+  recipientOrigin?: string;
   /** The turn proxy's private directory; the relay socket is linked into it. */
   egress: { dir: string; inference: NonNullable<Parameters<typeof startInferenceRelay>[0]["egress"]>["inference"] };
   environment: Readonly<Record<string, string | undefined>>;
@@ -243,11 +276,7 @@ export async function preparePiHostInference(options: {
   let relay: InferenceRelay | undefined;
   const link = join(options.egress.dir, "inference.sock");
   try {
-    writeFileSync(join(scratch, "models.json"), JSON.stringify({ providers: configured ? { [provider]: configured } : {} }), { mode: 0o600 });
-    const runtime = await ModelRuntime.create({ credentials: await guardedCredentials(authPath, provider),
-      modelsPath: join(scratch, "models.json"), modelsStorePath: join(scratch, "models-store.json"),
-      refreshOnCreate: false, allowModelNetwork: false, ...(options.signal ? { signal: options.signal } : {}) });
-    const model = runtime.getModel(provider, options.modelId);
+    const { runtime, model } = await relayModel(provider, options.modelId, configured, scratch, await guardedCredentials(authPath, provider), options.signal);
     if (!model) refuse(`${provider}/${options.modelId} is not a configured pi model`);
     const routes = routesFor(model);
     if (!routes) refuse(`${provider}/${model.id} uses the ${model.api} API, which the relay does not carry`);
@@ -255,6 +284,10 @@ export async function preparePiHostInference(options: {
     // Refused before any credential is read: the configured route must be authorized.
     if (!authorized.has(endpoint.origin)) {
       refuse(`${endpoint.origin} may not receive ${provider}'s credential; list it as ${provider}=${endpoint.origin} in BRAIN_UI_PI_CREDENTIAL_ORIGINS`);
+    }
+    // Provider folders were admitted for the recipient at one origin (#2695).
+    if (options.recipientOrigin !== undefined && endpoint.origin !== options.recipientOrigin) {
+      refuse(`${provider}/${model.id} now reaches ${endpoint.origin}, not ${options.recipientOrigin}, the recipient this turn's provider folders were admitted for; retry the turn`);
     }
     const stored = readStoredCredential(provider, authPath) as { type?: string; key?: unknown } | undefined;
     if (stored?.type === "api_key" && isCommand(stored.key)) refuse(`pi's stored key for ${provider} runs a command, which the host never runs`);
@@ -264,6 +297,7 @@ export async function preparePiHostInference(options: {
     const shape = shapeOf(model, check.type, first?.auth.apiKey);
     const basePath = endpoint.pathname.replace(/\/+$/, "");
     relay = startInferenceRelay({ upstream: model.baseUrl, routes, egress: options.egress,
+      ...(options.recipientOrigin !== undefined ? { recipientOrigin: options.recipientOrigin } : {}),
       credentials: async (signal, target) => {
         const resolved = await runtime.getAuth(model, { signal });
         const auth = resolved?.auth;

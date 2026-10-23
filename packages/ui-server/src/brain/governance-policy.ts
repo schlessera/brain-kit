@@ -177,6 +177,61 @@ export function providerMaskedFolders(policy: Pick<EffectiveGovernancePolicy, "p
   return outermostFolders([...providerFolderRoots(policy), ...Object.values(typeFolders).flat()]);
 }
 
+/**
+ * The folders a hosted turn masks for its proven recipient (#2695): those of
+ * every provider rule that does not allow it. Matching rules intersect their
+ * allowlists, so a folder that a denying rule selects stays masked even where
+ * another rule allows the recipient. Only outermost provider folders are
+ * retained against peers (#2718), so a mask nested inside a visible folder
+ * would not survive a peer replacing it: a denied folder inside another
+ * provider folder masks that outer folder whole. An unproven recipient
+ * (`undefined`) is allowed nothing, so every provider folder is masked, as
+ * `providerMaskedFolders`. The same set feeds the masks, the private index,
+ * the hardlink scan and every server-side refusal.
+ */
+export function providerDeniedFolders(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: Readonly<Record<string, readonly string[]>>,
+  recipient: string | undefined): string[] {
+  const all = providerMaskedFolders(policy, typeFolders);
+  if (recipient === undefined) return all;
+  const denied = policy.providers.filter(rule => !rule.allow.includes(recipient)).flatMap(rule => [
+    ...rule.paths.map(selectorFolder).filter((root): root is string => root !== undefined),
+    ...(rule.types ?? []).flatMap(type => typeFolders[type] ?? []),
+  ]);
+  return outermostFolders(denied.map(folder => all.find(outer => folder === outer || folder.startsWith(`${outer}/`)) ?? folder));
+}
+
+/** What an admitted turn's recipient saw of the provider folders (#2695). */
+export interface ProviderExposure {
+  readonly recipient: string;
+  /** Every provider folder of the turn's policy. */
+  readonly visible: readonly string[];
+  /** The folders still masked from it; everything else in `visible` was shown. */
+  readonly hidden: readonly string[];
+}
+
+const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
+
+/** Whether any part of an exposure's provider folders was shown to its recipient. */
+export function exposedAnything(exposure: Pick<ProviderExposure, "visible" | "hidden">): boolean {
+  return exposure.visible.some(folder => !exposure.hidden.some(hidden => within(folder, hidden)));
+}
+
+/**
+ * The earlier exposures a turn masking `denied` conflicts with: a denied
+ * folder overlaps a provider folder an earlier turn showed, and was not
+ * itself hidden from that turn. Provider history keeps what earlier turns
+ * read, so this turn's recipient would receive it (#2695, ruling 2).
+ */
+export function exposureConflicts(exposures: readonly ProviderExposure[], denied: readonly string[]): { folder: string; recipient: string }[] {
+  const conflicts = new Map<string, { folder: string; recipient: string }>();
+  for (const exposure of exposures) for (const folder of denied) {
+    if (exposure.hidden.some(hidden => within(folder, hidden))) continue;
+    const shown = exposure.visible.find(visible => within(folder, visible) || within(visible, folder));
+    if (shown) conflicts.set(`${folder}\0${exposure.recipient}`, { folder, recipient: exposure.recipient });
+  }
+  return [...conflicts.values()].sort((a, b) => a.folder.localeCompare(b.folder) || a.recipient.localeCompare(b.recipient));
+}
+
 // The writer gate plans retention when it is acquired, before a turn can run
 // the worker that reads the taxonomy. It reuses the folders the last admission
 // under the same policy version translated, so peers acquired meanwhile retain
@@ -190,6 +245,22 @@ export function rememberProviderTypeFolders(brainPath: string, hash: string | nu
 export function rememberedProviderTypeFolders(brainPath: string, hash: string | null): readonly string[] {
   const entry = lastTypeFolders.get(brainKey(brainPath));
   return entry && entry.hash === hash ? entry.folders : [];
+}
+
+/**
+ * Turn admission refused because earlier turns of the conversation showed
+ * provider folders to a recipient, and this turn's recipient may not see
+ * them: the provider history would carry them there (#2695, ruling 2).
+ */
+export class ProviderRecipientRefusedError extends Error {
+  constructor(readonly conflicts: readonly { folder: string; recipient: string }[], readonly recipient: string | undefined) {
+    const shown = conflicts.map(conflict => `\`${conflict.folder}/\` to ${conflict.recipient}`);
+    const listed = `${shown.slice(0, 3).join(", ")}${shown.length > 3 ? ` and ${shown.length - 3} more` : ""}`;
+    super(`This turn cannot start: earlier turns of this conversation showed ${listed}, and the governance policy's provider rules do not let `
+      + `${recipient === undefined ? "this turn's unproven recipient" : `this turn's recipient, ${recipient},`} see ${conflicts.length === 1 ? "it" : "them"}. `
+      + "The conversation's history would carry it there. Continue on a profile that reaches the same recipient, or start a new conversation.");
+    this.name = "ProviderRecipientRefusedError";
+  }
 }
 
 /**

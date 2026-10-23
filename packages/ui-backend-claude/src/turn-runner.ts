@@ -41,7 +41,7 @@ function sameRoute(value: unknown, selected: string): boolean {
   } catch { return false; }
 }
 import { join, resolve } from "node:path";
-import { createClaudeSdkTurn, turnEnv } from "./sdk-options.js";
+import { createClaudeSdkTurn, selectedInferenceUpstream, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime, installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
 import {
@@ -398,10 +398,14 @@ export function createClaudeTurnRunner(options: {
       // The server selects the route: the profile's baseUrl, else the host's
       // ANTHROPIC_BASE_URL. Only the host's explicit list authorizes a custom
       // origin to receive the login (docs/decisions/claude-code-runtime.md).
-      const selectedUpstream = (turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+      const selectedUpstream = selectedInferenceUpstream(turnEnvironment);
+      // Provider folders admitted for a proven recipient (#2695): only its relay may carry this turn.
+      const recipient = !req.autonomous ? req.workerSandbox?.inferenceRecipient : undefined;
+      if (recipient && !preparedEgress) throw new BackendRequestError("This turn's provider folders were admitted for a recipient, but it has no inference relay to hold it to.");
       const authorizedOrigins = resolveEnv().claudeOAuthOrigins;
       if (preparedEgress) {
         hostRelay = startInferenceRelay({ upstream: selectedUpstream, routes: ANTHROPIC_INFERENCE_ROUTES, egress: preparedEgress,
+          ...(recipient ? { recipientOrigin: recipient.origin } : {}),
           credentials: async (signal, target) => {
             if (!hostRelayAuthorized) throw new Error("Native inference has not passed its prompt gate");
             routeInputs?.assertUnchanged();

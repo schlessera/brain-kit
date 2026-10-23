@@ -76,6 +76,15 @@ export function turnEnv(profile: InferenceProfile): Record<string, string | unde
   return env;
 }
 
+/**
+ * The route the server selects for a turn: the profile's baseUrl (built into
+ * its environment), else the host's `ANTHROPIC_BASE_URL`, else first-party
+ * inference. Turn admission names the recipient from its origin (#2695).
+ */
+export function selectedInferenceUpstream(turnEnvironment: Readonly<Record<string, string | undefined>> | undefined): string {
+  return (turnEnvironment?.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+}
+
 interface ClaudeSdkTurnOptions {
   identity?: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   backend: ClaudeBackendOptions;

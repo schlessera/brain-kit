@@ -129,9 +129,10 @@ reader. A future privacy admission must qualify all those boundaries and refuse
 unsupported unsafe selectors. Arbitrary type/glob requirements remain open;
 folder retention cannot authorize protected data for an unknown recipient.
 
-**Hosted turns (additive in 0.44.0, #1668).** No hosted turn has a proven
-inference recipient yet, so a provider rule denies every interactive, voice
-and autonomous turn. Each literal `folder/**` root present in the turn's view reads as an
+**Hosted turns (additive in 0.44.0, #1668).** A provider rule denies every
+interactive and voice turn whose recipient it does not allow, every turn
+without a proven recipient, and every autonomous turn. Each literal
+`folder/**` root of a denying rule present in the turn's view reads as an
 empty read-only directory, a selected folder inside another selected folder
 is hidden with it (#2718), `.git` is hidden, and `.brain-index/` is a
 turn-private, writable index. It is built before the turn by the brain's own
@@ -151,8 +152,73 @@ unsupported path selector before any worker starts, an untranslatable type
 once the brain's taxonomy has been read, a hardlink out of a masked folder as
 for hosted turns. Its bridge refuses masked paths the same way (#2691). In
 every denied turn the committed generated-text caches (`.context-cache.jsonl`,
-`.asset-cache.jsonl`) read as empty (#2692). The allowed recipient's unmasked
-view is not covered yet.
+`.asset-cache.jsonl`) read as empty (#2692), and so they do in every turn
+allowed some or all provider folders (below).
+
+**Allowed recipients (additive in 0.44.0, #2695).** A turn's recipient is the
+provider that receives its inference, named only from the exact origin its
+host inference relay forwards to. That relay runs for governed and strict
+Claude and pi turns on managed native storage; any other turn has no proven
+recipient. These origins name a recipient:
+
+| Origin | Recipient |
+| --- | --- |
+| `https://api.anthropic.com` | `anthropic` |
+| `https://api.openai.com`, `https://chatgpt.com` (pi's `openai-codex`) | `openai` |
+| `https://generativelanguage.googleapis.com` | `google` |
+| `https://api.x.ai` | `xai` |
+| `https://api.mistral.ai` | `mistral` |
+| `https://api.deepseek.com` | `deepseek` |
+| `https://api.groq.com` | `groq` |
+| `https://api.cerebras.ai` | `cerebras` |
+| `https://api.fireworks.ai` | `fireworks` |
+| `https://api.together.ai` | `together` |
+| `https://api.moonshot.ai`, `https://api.moonshot.cn`, `https://api.kimi.com` | `moonshotai` |
+| `https://api.minimax.io`, `https://api.minimaxi.com` | `minimax` |
+| `https://api.z.ai`, `https://open.bigmodel.cn` | `zai` |
+| An origin the server's `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` names | That name |
+
+Any other origin is an unknown recipient, which no rule allows. That includes
+a custom `baseUrl` or `ANTHROPIC_BASE_URL`, an origin listed only so a
+credential may reach it (`BRAIN_UI_CLAUDE_OAUTH_ORIGINS`,
+`BRAIN_UI_PI_CREDENTIAL_ORIGINS`), routers such as OpenRouter, and clouds that
+host several vendors' models, such as Bedrock or Vertex. A model name, vendor
+label or cost route never names a recipient. An operator who runs a trusted
+gateway names it with `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`
+(`name=origin[,origin];name=origin`, for example
+`anthropic=https://gateway.ithaca.invalid`). A built-in origin cannot be given
+another name, and a malformed entry refuses the server's boot.
+
+Matching rules intersect their allowlists. A turn allowed every provider
+folder sees them all, `.git` and the real `.brain-index/`. A turn allowed some
+of them sees those, and the rest are masked as above; its private index is
+built from that partial view, so it lacks only the masked folders' documents.
+A folder that a denying rule selects inside a folder the recipient may see
+masks that outer folder whole: only outermost provider folders are kept in
+place against other writers (#2718), so a mask nested inside a visible folder
+would not survive a peer replacing it. The turn's relay then refuses to reach any origin but the one its
+recipient was named from.
+
+A conversation keeps what its turns read: provider history is never redacted.
+So the server records which recipient each turn showed which provider
+folders. A later turn of the same conversation whose recipient the current
+policy does not allow those folders is refused before it starts, with
+`ProviderRecipientRefusedError` naming the folders and the earlier recipient.
+That covers a profile pin that fell back to another profile, a changed route
+and a pi model change. A handoff carries its source's record into the new
+conversation, and a handoff summary is not drafted for a conversation that
+showed provider folders; write it by hand instead. A new conversation starts
+without a record. The record covers folders under a provider rule when the
+turn ran: content a turn read before a rule selected its folder is not
+tracked.
+
+The rule covers the inference recipient only. What a turn's tools send over
+the network, including the `brain` CLI's own provider calls such as search
+embeddings, is egress and follows the egress policy (`egress`, `outward`),
+not `providers`. A turn allowed every provider folder still carries the
+provider masks, empty. So whatever is hidden from every turn under a provider
+rule, such as the generated-text caches (#2692), stays hidden from it too,
+until those caches move into a masked directory (#2725).
 
 **Which selectors hosted turns enforce (additive in 0.44.0, #2694).** A
 selector is enforced only when it maps exactly onto whole folders; the turn

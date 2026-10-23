@@ -179,17 +179,21 @@ export const PROVIDER_CACHE_FILES = [".context-cache.jsonl", ".asset-cache.jsonl
  * restores what they cover (#1668). `view` is the tree the worker sees at the
  * brain path: the live brain, or the strict immutable checkpoint. A folder
  * absent from it has nothing to hide; a present one becomes an empty
- * read-only tmpfs. `.git` is hidden as in restricted turns, and the private
- * filtered index is bound over `.brain-index/`, which must exist in the view.
- * Each present committed cache of generated text reads as empty (#2692).
+ * read-only tmpfs. While any folder is masked, `.git` is hidden as in
+ * restricted turns and the private filtered index is bound over
+ * `.brain-index/`, which must exist in the view. A turn whose proven recipient
+ * is allowed every provider folder has no folder to mask (#2695). Each present
+ * committed cache of generated text reads as empty in every such turn (#2692).
  */
 export function providerMaskMounts(brain: string, view: string, masks: WorkerProviderMasks): string[] {
   const argv: string[] = [];
+  if (masks.folders.length && !masks.index) throw new Error("masked provider folders need the turn's private index");
   // A loose file mask detaches if another namespace renames or unlinks the
   // path. Only exclusive credentialed `--embeddings` runs write these caches,
-  // and while no recipient is proven every concurrent turn is denied alike, so
-  // a detached mask exposes nothing a denied turn could not already see
-  // (2026-10-23 ruling, option A). A link is refused rather than followed.
+  // and every concurrent turn under a provider rule hides them alike, allowed
+  // recipients included (2026-10-23 rulings on #2692 and #2695), so a detached
+  // mask exposes nothing such a turn could already see. A link is refused
+  // rather than followed.
   for (const name of PROVIDER_CACHE_FILES) {
     const info = lstatSync(join(view, name), { throwIfNoEntry: false });
     if (!info) continue;
@@ -204,17 +208,20 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`provider mask folder ${rel} is not a directory`);
     argv.push("--tmpfs", join(brain, rel), "--remount-ro", join(brain, rel));
   }
-  const git = lstatSync(join(view, ".git"), { throwIfNoEntry: false });
-  if (git?.isDirectory() && !git.isSymbolicLink()) argv.push("--tmpfs", join(brain, ".git"), "--remount-ro", join(brain, ".git"));
-  else if (git?.isFile()) argv.push("--ro-bind", "/dev/null", join(brain, ".git"));
-  else if (git) throw new Error("the brain's .git must be a directory or a gitlink file to be masked");
-  const index = lstatSync(masks.index, { throwIfNoEntry: false });
-  if (!isAbsolute(masks.index) || normalize(masks.index) !== masks.index || !index?.isDirectory() || index.isSymbolicLink()
-    || masks.index === brain || masks.index.startsWith(`${brain}/`) || brain.startsWith(`${masks.index}/`))
-    throw new Error("the private index must be an unaliased directory outside the brain");
-  const target = lstatSync(join(view, INDEX_DIR), { throwIfNoEntry: false });
-  if (!target?.isDirectory() || target.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the worker's view`);
-  argv.push("--bind", masks.index, join(brain, INDEX_DIR));
+  // A turn allowed every provider folder keeps `.git` and the real index (#2695).
+  if (masks.index) {
+    const git = lstatSync(join(view, ".git"), { throwIfNoEntry: false });
+    if (git?.isDirectory() && !git.isSymbolicLink()) argv.push("--tmpfs", join(brain, ".git"), "--remount-ro", join(brain, ".git"));
+    else if (git?.isFile()) argv.push("--ro-bind", "/dev/null", join(brain, ".git"));
+    else if (git) throw new Error("the brain's .git must be a directory or a gitlink file to be masked");
+    const index = lstatSync(masks.index, { throwIfNoEntry: false });
+    if (!isAbsolute(masks.index) || normalize(masks.index) !== masks.index || !index?.isDirectory() || index.isSymbolicLink()
+      || masks.index === brain || masks.index.startsWith(`${brain}/`) || brain.startsWith(`${masks.index}/`))
+      throw new Error("the private index must be an unaliased directory outside the brain");
+    const target = lstatSync(join(view, INDEX_DIR), { throwIfNoEntry: false });
+    if (!target?.isDirectory() || target.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the worker's view`);
+    argv.push("--bind", masks.index, join(brain, INDEX_DIR));
+  }
   return argv;
 }
 
@@ -293,7 +300,7 @@ function verifyMountedFolders(view: string, qualified: NonNullable<ReturnType<ty
     throw new Error("mounted brain identity changed");
   // A masked root shows its mask, not the retained directory beneath it:
   // the private index for `.brain-index`, an empty tmpfs for a folder.
-  const privateIndex = masks && statSync(masks.index, { bigint: true });
+  const privateIndex = masks?.index ? statSync(masks.index, { bigint: true }) : undefined;
   for (const pin of qualified.pins) {
     // A retained root inside a masked folder is hidden by that mask.
     if (masks?.folders.some(folder => pin.rel.startsWith(`${folder}/`))) continue;

@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:67-194`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:95-222`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:40-196`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:59-224`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1114,7 +1114,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:325`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:334`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1706,9 +1706,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:239-246`;
+`packages/ui-sdk/src/server/worker-protection.ts:246-253`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:249-287`).
+`packages/ui-sdk/src/server/worker-protection.ts:256-294`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -1817,7 +1817,9 @@ The contract change is recorded in the
 **Denied turns, before recipients are proven (2026-10-22, #1668).** No
 ordinary turn has a proven recipient until #1665 delivers per-credential
 exact-origin authority, so a provider rule denies every hosted interactive and
-voice turn, and admission applies the masks to all of them:
+voice turn, and admission applies the masks to all of them. Since #2695
+("Allowed recipients" below) this describes every turn a rule denies, and
+every turn without a proven recipient:
 
 - Each literal `folder/**` root present in the turn's view is an empty
   read-only tmpfs, laid after the retention pins (`providerMaskMounts`). The
@@ -1912,7 +1914,7 @@ voice turn, and admission applies the masks to all of them:
     worker cannot export into them.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:63-69`). Its stored native
+    `packages/ui-backend-pi/src/worker-session.ts:83-89`). Its stored native
     file observations are content hashes, not text.
   - Autonomous turns carry nothing: Claude's state is ephemeral, and Pi's
     restricted envelope copies no native state.
@@ -2083,9 +2085,90 @@ turn cannot create such a link itself, because it cannot name the masked file.
 Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
 the walk of `me` covers `me/x`.
 
-Still open under #1668: state written before a policy existed (#2726), what
-the activity record and inbox items retain (#2698), and the allowed
-recipient's unmasked turn, which needs #1665. Each restricted turn
+**Allowed recipients (maintainer, 2026-10-23, #2695).** #1665 put every
+governed and strict Claude and pi turn on managed native storage on a host
+inference relay that forwards to one server-selected upstream. That upstream
+is the turn's recipient. The maintainer ruled three things on #2695:
+
+1. **Origin to policy name.** Only the exact origin of that upstream names a
+   recipient. A fixed table names the vendors' own API origins, pi providers
+   included (`https://chatgpt.com`, pi's `openai-codex`, is `openai`). The
+   server variable `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`
+   (`name=origin[,origin];...`) lets an operator name a trusted gateway; it
+   cannot rename a built-in origin, and a malformed entry refuses the boot.
+   Every other origin is unknown and denied every folder: a custom `baseUrl`
+   or `ANTHROPIC_BASE_URL`, an origin listed only in
+   `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or `BRAIN_UI_PI_CREDENTIAL_ORIGINS` (they
+   authorize a credential, not data), routers, and multi-vendor clouds such as
+   Bedrock and Vertex unless an operator names them (`export function
+   providerRecipient`, `packages/ui-server/src/brain/provider-recipients.ts:81-85`).
+2. **History, option A.** A conversation's provider history keeps what its
+   turns read, so the server records, per conversation, which recipient each
+   turn showed which provider folders. A later turn whose recipient the
+   current policy does not allow those folders is refused by name with
+   `ProviderRecipientRefusedError`. That covers a pin that fell back to the
+   default profile, a changed route, a handoff and a pi model change.
+3. **Other exits, option a.** G2 governs the inference recipient only. A
+   turn's tool egress and the `brain` CLI's own provider calls (#1673) are
+   egress-policy territory (G5). The generated-text caches stay masked on
+   every turn under a provider rule, allowed ones included, until #2725 moves
+   them into a masked directory.
+
+The backend supplies the origin before admission through the optional
+`AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
+Claude from the profile's route, pi from the profile's declared model or a
+resumed session's last model over its `models.json` entry. Admission names the
+recipient only on managed native storage, where the relay runs, and only when
+it can record what the turn is shown (`const recipient = options.exposures`,
+`packages/ui-server/src/brain/governed-turn.ts:113-114`). The turn's relay is
+then held to that origin: it refuses to start toward any other
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:78-80`),
+pi refuses a changed endpoint before its credential is read, and a turn that
+has a recipient but no relay refuses to start. A model change inside a turn
+cannot leave the one relay socket the worker has.
+
+Matching rules intersect their allowlists, so the masked set is the folders of
+every rule that does not allow the recipient. Only outermost provider folders
+are retained (#2718), and a mask nested inside a visible folder would detach
+when a peer renames that folder, so a denied folder inside another provider
+folder masks the outer folder whole: a policy allowing `me/**` but denying
+`me/letters/**` hides all of `me/` from that recipient, which loses data but
+leaks nothing (`export function providerDeniedFolders`,
+`packages/ui-server/src/brain/governance-policy.ts:192-201`). An unproven
+recipient is allowed nothing, which is the denied-turn set above. A turn
+allowed every folder gets no folder masks, `.git` and the real
+`.brain-index/`. Its `providerMasks` stays present with no folders and no
+private index, so whatever every provider-rule turn hides regardless of
+recipient still applies. A turn allowed some folders masks the rest; `.git`
+stays hidden, because history holds every folder, and its private index is
+built from that partial view. One set again feeds retention checks, the
+hardlink scan, the private index and the server-tool refusals of #2690, which
+read the turn's `providerMasks.folders`. A refusal names a rule that denies the turn's recipient,
+which for an outer folder masked through a denied nested one is that nested
+rule. Autonomous turns (#2691) have no relay-named recipient, so they keep
+every mask.
+
+Admission records the turn's provider folders and the ones still hidden from
+it before the worker starts, in `session_provider_exposure`. A new
+conversation is named after admission, so its rows carry the turn until the
+session id binds them. A turn conflicts with an earlier record when a folder
+it would mask overlaps a folder that record showed, and that folder was not
+itself hidden then (`export function exposureConflicts`,
+`packages/ui-server/src/brain/governance-policy.ts:225-233`). A handoff's first
+turn is judged against its source's records and copies them into the new
+conversation. The handoff summary is drafted on the source's autonomous
+route, which has no proven recipient, so a conversation with any record gets
+no drafted summary. A user who writes one by hand is copying text, which path
+matching never promised to trace.
+
+**Limitation.** A record covers folders under a provider rule when the turn
+ran. Content a turn read before a rule selected its folder is not tracked, and
+neither is text a turn copied into an unselected document. Host-side helpers
+that read a user's own messages, such as pill labels and titles, are not
+inference over brain content and are not judged.
+
+Still open under #1668: state written before a policy existed (#2726) and
+what the activity record and inbox items retain (#2698). Each restricted turn
 also pays one keyword index build at admission.
 
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
@@ -2168,7 +2251,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:64`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:70`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -2640,7 +2723,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:292-309`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:301-318`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -2827,7 +2910,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:518-583`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:536-601`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing
