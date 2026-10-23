@@ -830,6 +830,7 @@ signatures (every public export and the types it is made of)
         path: string | null;
         ownerBytes: number | null;
         reason: string | null;
+        view: string | null;
     }
   NativePoolRootIdentity (packages/ui-sdk/src/server/native-brain-manager-protocol.ts)
     export interface NativePoolRootIdentity {
@@ -1064,6 +1065,11 @@ signatures (every public export and the types it is made of)
             timeoutMs: number;
             maxDeltaBytes: number;
             leasePath?: string;
+        };
+        referenceSource?: {
+            validationMs: number;
+            refreshMs: number;
+            operations: number;
         };
         maintenanceTemp?: {
             allowanceBytes: number;
@@ -1507,9 +1513,16 @@ signatures (every public export and the types it is made of)
         }>;
         listStage: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointMetadata[]>;
         poolCreate: (id: string, purpose: NativePoolRecord["purpose"], from: null | string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativePoolRecord>;
+        poolPublish: (id: string, view: string, name: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolRelease: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolSeal: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         poolStatus: (signal?: AbortSignal) => Promise<NativePoolStatus>;
+        poolUnpublish: (view: string, name: string, signal?: AbortSignal) => Promise<{
+            name: string;
+            removed: boolean;
+            view: string;
+        }>;
+        poolWithdraw: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
         readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;
         readStage: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;

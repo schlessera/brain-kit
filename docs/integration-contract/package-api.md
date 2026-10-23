@@ -3190,6 +3190,35 @@ filesystem API. The lease owner adds the same pool methods, refuses deletion
 without a recorded lease, and reports `retainedPool` from `recoverDeadOwners`,
 which never deletes pool roots.
 
+### Reference publication (additive, #2429)
+
+The native manager client and the lease owner gain `poolPublish(id, view, name)`,
+`poolUnpublish(view, name)` and `poolWithdraw(id)`. `view` is a caller-generated UUID naming one
+sharing domain; `name` is 1–128 characters of lowercase letters, digits and
+`._@+-`, starting with a letter or digit, and never a UUID. Publish requires a
+sealed `source` root and returns its `NativePoolRecord`; unpublish returns
+`{ view, name, removed }`; withdraw removes a published root's names, moves it
+out of its view and returns its record with `view: null`. `NativePoolRecord` gains `view`: the view whose
+directory holds a published root, else `null`. The lease owner publishes only
+roots it holds. Records from earlier pools read as `view: null`. Neither call
+accepts a host path. Worker masks now include the pool's `roots` and `views`
+directories, and a sealed root's top directory becomes `0755 root:root`. The
+mechanism is recorded in the
+[pool decision](../decisions/reference-pool-accounting.md#publication-views-2429).
+
+### Reference source acquisition (additive, #2429)
+
+`ServerConfig.referenceSource?` is `{ validationMs, refreshMs, operations }`.
+The host edge resolves it from `BRAIN_UI_REFERENCE_VALIDATION_SECONDS` and
+`BRAIN_UI_REFERENCE_REFRESH_SECONDS` (default 300 each, 1–86400) and from
+`BRAIN_UI_REFERENCE_ACQUISITIONS` (default 2, 1–16); invalid values refuse
+startup. An absent field in a programmatic configuration uses those defaults.
+When the native manager reports a reference pool, `createApp` starts the
+reference source service and reconciles owned source roots at boot. It also
+cancels and withdraws private source when a grant or principal is revoked. No
+HTTP route, tool or worker mount exposes it in this release. The behaviour is
+recorded in the [acquisition decision](../decisions/reference-source-acquisition.md).
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.

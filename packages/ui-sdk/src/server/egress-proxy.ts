@@ -33,6 +33,14 @@ export interface EgressProxyOptions {
   /** Host authority for this connection. An observation of a tool is not a grant. */
   approveOutward?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
   observe(record: EgressRecord): void;
+  /**
+   * Untrusted-input narrowing (G6). While `tainted()` holds, a destination
+   * other than the inference relay must also match `allow` or be one
+   * `contacted()` reports; deny and the ordinary rules still apply first.
+   */
+  taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean };
+  /** A destination passed every check; called before its first upstream byte. */
+  admitted?(destination: { host: string; port: number; method: string; inference: boolean }): void;
   signal?: AbortSignal;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
@@ -51,7 +59,7 @@ function headers(message: IncomingMessage): Record<string, string | string[]> {
 
 export async function startEgressProxy(options: EgressProxyOptions) {
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) throw new Error("Egress maxBytes must be a finite nonnegative integer");
-  for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts]) {
+  for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts, ...options.taint?.allow ?? []]) {
     if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
   }
   const separateIdentity = Boolean(workerIdentityHelper());
@@ -95,6 +103,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
     const admit = async () => {
       if (stopped || options.signal?.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       if (matches(host, options.deny) || options.mode === "allowlist" && !matches(host, options.allow)) { finish("denied", "destination_not_allowed"); return false; }
+      // Checked again after an approval wait, during which another connection may taint the session.
+      const narrowed = () => !inference && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
+      if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
       if (matches(host, options.outwardHosts)) {
         let approved = false;
@@ -110,6 +121,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
         finally { if (cancelled) controller.signal.removeEventListener("abort", cancelled); }
         if (!approved || controller.signal.aborted || stopped) { finish(stopped ? "cancelled" : "denied", "outward_not_approved"); return false; }
       }
+      if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
+      // A recorder failure aborts the turn through its own signal; it cannot admit.
+      try { options.admitted?.({ host, port, method, inference }); } catch { finish("failed", "proxy_error"); return false; }
       return true;
     };
     return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome };

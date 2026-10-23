@@ -2,6 +2,8 @@
 import { z } from "zod";
 
 export const nativeCheckpointId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+/** One published entry in a view: a plain lowercase name that can never be a root identity or a hidden or relative entry. */
+export const nativePoolName = z.string().regex(/^[a-z0-9][a-z0-9._@+-]{0,127}$/).refine(name => !nativeCheckpointId.safeParse(name).success);
 export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("ready") }).strict(),
   z.object({ operation: z.literal("checkpoint"), id: nativeCheckpointId }).strict(),
@@ -31,6 +33,11 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("poolSeal"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolRelease"), id: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("listPoolRecovery"), after: nativeCheckpointId.nullable() }).strict(),
+  // Reference publication (#2429). A view is one caller-generated sharing
+  // domain; the manager owns its directory and swaps one name atomically.
+  z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName }).strict(),
+  z.object({ operation: z.literal("poolUnpublish"), view: nativeCheckpointId, name: nativePoolName }).strict(),
+  z.object({ operation: z.literal("poolWithdraw"), id: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
 export type NativeManagerErrorCode = "unsupported" | "capacity" | "unavailable" | "unknown" | "released" | "invalid";
@@ -109,6 +116,8 @@ export interface NativePoolRecord {
   ownerBytes: number | null;
   /** Why a create ended without a root, or why deletion still awaits reclamation. */
   reason: string | null;
+  /** Reference view (#2429) whose directory holds this sealed root once published, else null. */
+  view: string | null;
 }
 export interface NativePoolSpace { profile: "single" | "dup"; diskUsed: number; diskTotal: number; bytesUsed: number; bytesReserved: number; bytesMayUse: number; bytesPinned: number }
 export interface NativePoolStatus {

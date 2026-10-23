@@ -42,8 +42,11 @@ export function prepareMaintenanceIndex(root: string, maximum: number): void {
     }
     if (inputs.length && inputs[0]!.name !== "brain.db") throw Error("Orphan disposable index sidecar");
     if (!inputs.some(input => !input.owned)) return;
-    temporary = `.brain-maintenance-index-${randomUUID()}`;
-    mkdirSync(at(temporary), { mode: 0o700 });
+    // Name the directory for cleanup only once it exists, so a refused mkdir
+    // (an index directory this identity cannot write) keeps its own error.
+    const name = `.brain-maintenance-index-${randomUUID()}`;
+    mkdirSync(at(name), { mode: 0o700 });
+    temporary = name;
     const buffer = Buffer.alloc(64 * 1024);
     // Finish every copy and check the entire source family before replacement.
     for (const input of inputs.filter(input => !input.owned)) {

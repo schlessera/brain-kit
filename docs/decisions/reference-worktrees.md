@@ -34,6 +34,11 @@ profile, network and governance restrictions continue to apply. Credentials
 remain in an isolated transport; no process evaluating repository-controlled
 inputs or reading source receives them.
 
+> **2026-10-22 — Authority (#2429).** An "already authorized connection" is an
+> [owner-managed reference-source grant](reference-source-grants.md) of brain,
+> principal, repository prefix and named host credential, checked live at every
+> use.
+
 The [sharing ruling](https://github.com/schlessera/brain-kit/issues/2390#issuecomment-6248113277)
 shares public source across the application host and isolates private source
 per brain and principal. Cached bytes do not grant access. Anonymous access to
@@ -49,6 +54,10 @@ mount; failure or inability to check refuses it. An outage allows reuse only
 inside still-valid authority. Validation cannot retract bytes already read.
 
 ## Request-only refresh and moving readers
+
+> **2026-10-22 — Implementation (#2429).** The
+> [acquisition record](reference-source-acquisition.md) implements these
+> clocks, the stale fallback and publication through per-domain pool views.
 
 The [refresh clarification](https://github.com/schlessera/brain-kit/issues/2390#issuecomment-6248351828)
 supersedes the earlier periodic-refresh wording: refresh happens only on

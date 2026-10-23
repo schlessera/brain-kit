@@ -255,3 +255,37 @@ test("turn stop synchronously records an active CONNECT exactly once", async () 
     expect(records).toHaveLength(1);
   } finally { proxy.stop(); client.destroy(); for (const peer of peers) peer.destroy(); origin.close(); await closed; }
 });
+test("a tainted turn reaches only taint-allowed or already contacted hosts; the inference relay is exempt", async () => {
+  let calls = 0; const records: EgressRecord[] = [], admitted: Array<{ host: string; inference: boolean }> = [];
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
+  let tainted = false; const contacted = new Set<string>(), allow: string[] = [];
+  const proxy = await startEgressProxy({ ...defaults(records), maxBytes: 65536, taint: { allow, tainted: () => tainted, contacted: host => contacted.has(host) },
+    admitted: destination => admitted.push({ host: destination.host, inference: destination.inference }) });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_CLEAN_TURN_UNCHANGED").toBe(200);
+    expect(admitted, "EGRESS_ADMISSION_REPORTED").toEqual([{ host: "127.0.0.1", inference: false }]);
+    tainted = true;
+    expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_REFUSES_UNLISTED_HOST").toBe(403);
+    expect(calls).toBe(1);
+    expect(records.at(-1)).toMatchObject({ outcome: "denied", reason: "taint_not_allowed", bytes: 0 });
+    expect(await tunnel(proxy.socketPath, `127.0.0.1:${origin.port}`, ""), "EGRESS_TAINT_REFUSES_TUNNEL").toContain("403");
+    // The relay's own admission is never narrowed.
+    const relay = proxy.inference("POST", new URL(`${origin.url.href}v1/messages`), new AbortController().signal);
+    expect(await relay.admit(), "EGRESS_TAINT_EXEMPTS_INFERENCE").toBe(true); relay.finish("completed");
+    contacted.add("127.0.0.1");
+    expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_KEEPS_CONTACTED_HOST").toBe(200);
+    contacted.clear(); allow.push("127.0.0.1");
+    expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_ALLOW_LIST").toBe(200);
+  } finally { proxy.stop(); origin.stop(true); }
+});
+test("taint narrowing never overrides deny or the ordinary allowlist, and its patterns are validated", async () => {
+  const records: EgressRecord[] = [];
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+  const proxy = await startEgressProxy({ ...defaults(records), mode: "allowlist", allow: ["example.org"],
+    taint: { allow: ["127.0.0.1"], tainted: () => true, contacted: () => true } });
+  try {
+    expect((await get(proxy.socketPath, origin.url.href)).status, "EGRESS_TAINT_IS_NARROWING_ONLY").toBe(403);
+    expect(records[0]).toMatchObject({ reason: "destination_not_allowed" });
+  } finally { proxy.stop(); origin.stop(true); }
+  await expect(startEgressProxy({ ...defaults([]), taint: { allow: ["bad host"], tainted: () => true, contacted: () => false } })).rejects.toThrow("Invalid egress host pattern");
+});

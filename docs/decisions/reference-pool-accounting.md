@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:251-604`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:255-745`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -185,6 +185,46 @@ The SDK lease ledger records pool roots in a separate table. Dead-owner
 recovery and app shutdown never delete them, because reference roots outlive
 any one app process. Deletion requires a recorded app lease.
 
+## Publication views (#2429)
+
+Readers must see a refreshed source on their next path read without a per-turn
+copy, a per-reader pin, or any view of staging
+([reference-worktree decision](reference-worktrees.md#request-only-refresh-and-moving-readers)).
+Binding a sealed root into a worker pins that root: replacing the root behind
+the bind changes nothing the worker sees. The pool therefore publishes through
+**views**: one manager-owned directory per sharing domain, `views/<view>`,
+root-owned and mode 0755. A worker binds the whole view, never a root.
+
+`poolPublish` takes a sealed source root, a caller-generated view identity and
+a plain name. The first publication moves the root from `roots/` into the view
+directory and records the view in its intent; a root belongs to one view for
+the rest of its life. The name is a relative symlink to the root's identity,
+replaced by writing a temporary symlink and renaming it over the old one. A
+reader's next lookup of `<view>/<name>` therefore resolves the whole previous
+root or the whole new one. Open files and working directories keep the
+revision they opened, so a multi-step read may span revisions. `poolUnpublish`
+removes a name; releasing a root first removes every name that points to it.
+`poolWithdraw` removes a root's names and moves it back into the masked
+`roots/` directory, so a reader of the view can no longer reach it by name or by
+identity. Withdrawal is how lost authority takes effect while readers still
+hold the root: they keep the files they already opened, and the root stays
+charged until it is released. Every publication verifies that the root is
+read-only, and reseals it if an earlier move was interrupted.
+
+Btrfs refuses to move a read-only subvolume (`EROFS`). Publication clears the
+root's read-only flag, renames it and reseals it inside the manager's single
+serialized request. The root's top directory is root-owned and its writers have
+finished, so nothing can grow it in that window. Startup reseals any sealed root
+left writable, and measurement adopts, and reseals, a root found in a view that
+its intent does not record yet, after verifying its identity. Census accepts a root only in the
+directory its intent records. Sealing also makes the root's top directory
+`0755 root:root`, so any worker identity can traverse it; writable roots are
+`0770 root:<app group>` so the app's acquisition writers can fill them.
+
+`roots/` and `views/` join the mandatory worker masks. A worker sees reference
+source only through a view bound for it, and other domains' views stay
+invisible.
+
 ## Native qualification
 
 `bun scripts/prove-reference-pool.ts` runs `reference-pool-fixture.py` inside
@@ -239,6 +279,16 @@ following:
 - The `brain-native-store pool` projection reported status and released a root
   through the running socket.
 - At the end the charge was back to within 64 KiB of the 327,680-byte baseline.
+- Publication (#2429): a bubblewrap reader bound only to one view read the
+  published revision, and read the refreshed revision on its next path read after
+  the name swap. Its open file and working directory kept the first revision. It
+  never saw a writable snapshot being filled, and publishing that snapshot before
+  sealing refused. Another domain's view and the pool itself stayed invisible,
+  unpublishing removed the name for the next read, and a publish interrupted
+  after its rename, with the root left writable, was resealed and adopted on
+  restart. A withdrawn root disappeared from the reader's listing while its
+  open file still read the old revision, and republishing a root left writable
+  resealed it first.
 
 The baseline was 4,521,984 aggregate bytes: the 4 MiB emergency file plus
 311,296 bytes of global metadata on an empty volume.

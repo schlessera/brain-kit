@@ -5,10 +5,11 @@
  */
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, lstatSync, readFileSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
 import { initContext, setContext } from "../src/lib/context";
+import { openDatabase } from "../src/lib/db";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const temps: string[] = [];
@@ -75,4 +76,15 @@ test("doctor names the legacy index and --fix deletes it after the rebuild", asy
   expect(existsSync(join(root, INDEX_DB_PATH)), "FIX_REBUILT_THE_INDEX").toBe(true);
   const after = Object.fromEntries((JSON.parse((await runCli(root, ["doctor", "--json"])).stdout).checks as { id: string; status: string }[]).map(check => [check.id, check.status]));
   expect(after["legacy-index"], "LEGACY_INDEX_CHECK_PASSES_AFTER_FIX").toBe("pass");
+});
+
+test("a created index directory takes the brain root's permission bits, not the writer's umask", () => {
+  // A hosted worker identity shares the brain through a setgid, group-writable
+  // root. The index directory it creates is published with its own mode, and a
+  // later worker must still be able to create SQLite sidecars in it.
+  const root = tempBrain();
+  chmodSync(root, 0o2775);
+  const previous = process.umask(0o022);
+  try { openDatabase(join(root, INDEX_DB_PATH)).close(); } finally { process.umask(previous); }
+  expect(statSync(join(root, ".brain-index")).mode & 0o7777, "INDEX_DIRECTORY_INHERITS_ROOT_MODE").toBe(0o2775);
 });

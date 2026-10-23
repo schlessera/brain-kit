@@ -124,6 +124,12 @@ db.run("BEGIN IMMEDIATE");db.run("UPDATE odysseus SET value=999");console.log("R
       expect(() => inherited(() => prepareMaintenanceIndex(root, 4096)), "INDEX_DIRECTORY_ALIAS_REFUSED").toThrow();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+  test("an index directory the worker cannot write reports its own error, not a cleanup ENOENT", () => fixture(root => {
+    writeFileSync(join(root, ".brain-index", "brain.db"), "Odysseus index"); chmodSync(join(root, ".brain-index"), 0o555);
+    try {
+      expect(() => inherited(() => prepareMaintenanceIndex(root, 4096)), "UNWRITABLE_INDEX_DIRECTORY_ERROR_PRESERVED").toThrow(/EACCES/);
+    } finally { chmodSync(join(root, ".brain-index"), 0o755); }
+  }));
   test("rejects super-journal trailer without following its name", () => fixture(root => {
     writeFileSync(join(root, ".brain-index", "brain.db"), "Odysseus index");
     const tail = Buffer.alloc(16); tail.writeUInt32BE(56); Buffer.from("d9d505f920a163d7", "hex").copy(tail, 8);

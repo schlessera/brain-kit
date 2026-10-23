@@ -41,7 +41,8 @@ import type { GovernanceEventInput, GovernanceProfile } from "../governance/even
 import { recordTurnRoadblocks, type TracedCall, type UsageSample } from "../governance/roadblocks.js";
 
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
-import { commandTaintSource, recordFirstCommandTaint } from "./command-taint.js";
+import { inputTaintSource, outputTaintSource, type IngestionSource } from "./ingestion-taint.js";
+import { recordFirstTaint } from "../governance/session-taint.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
@@ -59,6 +60,10 @@ export interface TurnRecorderDeps {
    * events as well as writing. Absent records none.
    */
   governanceDb?: Database;
+  /** The brain's host path, so an absolute file-tool path resolves to the area it reads (G6). */
+  brainPath?: string;
+  /** Stops the turn when its untrusted-input taint cannot be persisted: outward rules must not stay loose. */
+  abort?(error: Error): void;
 }
 
 export interface TurnRecorder {
@@ -161,7 +166,7 @@ export function createTurnRecorder(
   const calls = new Map<string, TracedCall>();
   // Classify the complete original input, independently of the bounded
   // roadblock trace. Record only after a result, when content was ingested.
-  const commandTaints = new Map<string, { source: "fetching_command" | "unclassified_command"; tool: string }>();
+  const ingestions = new Map<string, { source: IngestionSource | null; tool: string }>();
   const usageSamples: UsageSample[] = [];
   let outcomeDetail: string | null = null;
   let cancelledAt: number | null = null;
@@ -281,10 +286,7 @@ export function createTurnRecorder(
             break;
           }
           case "tool_use_complete": {
-            if (turn.origin !== "autonomous") {
-              const source = commandTaintSource(msg.toolName, msg.input);
-              if (source) commandTaints.set(msg.toolUseId, { source, tool: msg.toolName });
-            }
+            if (turn.origin !== "autonomous") ingestions.set(msg.toolUseId, { source: inputTaintSource(msg.toolName, msg.input, deps.brainPath), tool: msg.toolName });
             const traced = traceCall(msg.toolUseId, msg.toolName);
             if (traced) traced.input = boundedInput(msg.input);
             // The complete input object in one frame — tool_input_delta
@@ -305,15 +307,17 @@ export function createTurnRecorder(
             // before any response header/message_start is visible to us.
             atToolBoundary = false;
             const traced = calls.get(msg.toolUseId);
-            const commandTaint = commandTaints.get(msg.toolUseId);
-            commandTaints.delete(msg.toolUseId);
-            if (commandTaint && !traced?.denied && deps.governanceDb && deps.governance) {
+            const ingestion = ingestions.get(msg.toolUseId);
+            ingestions.delete(msg.toolUseId);
+            const source = ingestion && (ingestion.source ?? outputTaintSource(ingestion.tool, msg.output, deps.brainPath));
+            if (ingestion && source && !traced?.denied && deps.governanceDb && deps.governance) {
               try {
-                recordFirstCommandTaint(deps.governanceDb, { kind: "taint", payload: { ...commandTaint, detail: null },
+                recordFirstTaint(deps.governanceDb, { kind: "taint", payload: { source, tool: ingestion.tool, detail: null },
                   sessionId: sessionId ?? null, turnId: runId, actor: turn.posture ?? "interactive",
                   model: mainModel, profile: turn.profile ?? null }, deps.governance);
               } catch (error) {
-                log?.emit({ severityText: "WARN", body: `command taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
+                log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
+                deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
               }
             }
             if (traced && traced.output === null && !traced.denied) {

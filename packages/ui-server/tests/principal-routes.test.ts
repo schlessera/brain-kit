@@ -89,7 +89,7 @@ function app(mode: AuthMode = "password") {
           revocations.push({ ids: [...ids], code, reason });
         },
       },
-      log: observability.logger("auth"),
+      log: observability.logger("auth"), brain: "fixture-brain",
     })
   );
   instance.get("/api/who", (c) =>

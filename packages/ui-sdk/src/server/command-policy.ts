@@ -11,6 +11,11 @@ export interface WorkerCommandRule {
 }
 export interface WorkerCommandPolicy {
   readonly outwardAllow?: readonly import("./outward-policy.js").WorkerOutwardRule[];
+  /**
+   * @internal The session's first recorded untrusted input (G6), read live
+   * from the host's governance record; null while the session is clean.
+   */
+  readonly taint?: () => import("./outward-policy.js").WorkerSessionTaint | null;
   readonly hash: string | null;
   readonly deny: readonly WorkerCommandRule[];
   readonly confirm: readonly WorkerCommandRule[];

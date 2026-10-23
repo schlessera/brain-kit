@@ -7,11 +7,24 @@ import { generateSignedCookie } from "hono/cookie";
 import type { AppEnv } from "../app-env.js";
 import {
   createPrincipal,
+  isCookieBearingPrincipal,
+  isUsablePrincipal,
   listLivePrincipals,
   PrincipalCreatorNotUsableError,
   PrincipalLimitError,
+  resolvePrincipal,
   revokePrincipal,
 } from "../db/principals.js";
+import {
+  createReferenceGrant,
+  listReferenceGrants,
+  ReferenceGrantDuplicateError,
+  ReferenceGrantLimitError,
+  ReferenceGrantPrincipalError,
+  ReferenceRepositoryError,
+  revokeReferenceGrant,
+  type ReferenceGrant,
+} from "../db/reference-grants.js";
 import { readJsonBody } from "./body-limit.js";
 import {
   applyPrincipalRevocation,
@@ -34,6 +47,21 @@ export interface PrincipalManagementContext {
   db: Database;
   revoker: Pick<WsHost, "revokePrincipals">;
   log?: Logger;
+  /** Served brain identity that reference grants bind to (#2429). */
+  brain: string;
+  /** Told synchronously after a grant or principal loses authority, so in-flight private work stops. */
+  referenceAuthorityRevoked?: (input: { grantIds: string[]; principalIds: string[] }) => void;
+}
+
+function grantJson(grant: ReferenceGrant) {
+  return {
+    id: grant.id,
+    principal_id: grant.principalId,
+    repository_prefix: grant.repositoryPrefix,
+    credential: grant.credential,
+    created_by: grant.createdBy,
+    created_at: grant.createdAt,
+  };
 }
 
 function notEnabled(c: Context) {
@@ -174,6 +202,7 @@ export function principalManagementRoutes(
     }
 
     applyPrincipalRevocation(ctx.revoker, revokedIds);
+    ctx.referenceAuthorityRevoked?.({ grantIds: [], principalIds: revokedIds });
     ctx.log?.emit({
       severityText: "INFO",
       body: "principal revoked",
@@ -185,5 +214,91 @@ export function principalManagementRoutes(
     return c.json({ ok: true });
   });
 
+  // Reference-source grants (#2429): the only authority for private
+  // reference acquisition. Owner-only through the family guard above.
+  app.get("/auth/principals/:id/reference-grants", (c) => {
+    const principalId = c.req.param("id");
+    const now = Date.now();
+    if (!isGrantablePrincipal(ctx.db, principalId, now)) {
+      return c.json({ error: "Unknown principal" }, 404);
+    }
+    return c.json({
+      grants: listReferenceGrants(ctx.db, ctx.brain, principalId, now).map(grantJson),
+    });
+  });
+
+  app.post("/auth/principals/:id/reference-grants", requireJson(), async (c) => {
+    let body: { repositoryPrefix?: unknown; credential?: unknown };
+    try {
+      const result = await readJsonBody<{ repositoryPrefix?: unknown; credential?: unknown }>(c);
+      if (result instanceof Response) return result;
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        return c.json({ error: "Invalid request body" }, 400);
+      }
+      body = result;
+    } catch {
+      return c.json({ error: "Invalid request body" }, 400);
+    }
+    const caller = c.get("principal")!;
+    const principalId = c.req.param("id");
+    let grant: ReferenceGrant;
+    try {
+      grant = createReferenceGrant(ctx.db, {
+        brain: ctx.brain,
+        principalId,
+        repositoryPrefix: body.repositoryPrefix,
+        credential: body.credential === undefined ? null : body.credential,
+        createdBy: caller.id,
+        now: Date.now(),
+      });
+    } catch (error) {
+      if (error instanceof ReferenceRepositoryError) return c.json({ error: error.message }, 400);
+      if (error instanceof ReferenceGrantPrincipalError) return c.json({ error: "Unknown principal" }, 404);
+      if (error instanceof ReferenceGrantDuplicateError) return c.json({ error: "An identical live grant exists" }, 409);
+      if (error instanceof ReferenceGrantLimitError) {
+        return c.json({ error: "Reference grant capacity reached. Revoke another grant and try again." }, 503);
+      }
+      throw error;
+    }
+    ctx.log?.emit({
+      severityText: "INFO",
+      body: "reference grant created",
+      attributes: {
+        "auth.principal.id": caller.id,
+        "auth.target_principal.id": principalId,
+        "reference.grant.id": grant.id,
+      },
+    });
+    return c.json(grantJson(grant), 201);
+  });
+
+  app.delete("/auth/principals/:id/reference-grants/:grantId", (c) => {
+    const caller = c.get("principal")!;
+    const principalId = c.req.param("id");
+    const revoked = revokeReferenceGrant(ctx.db, {
+      brain: ctx.brain,
+      principalId,
+      id: c.req.param("grantId"),
+      now: Date.now(),
+    });
+    if (!revoked) return c.json({ error: "Unknown reference grant" }, 404);
+    ctx.referenceAuthorityRevoked?.({ grantIds: [revoked.id], principalIds: [] });
+    ctx.log?.emit({
+      severityText: "INFO",
+      body: "reference grant revoked",
+      attributes: {
+        "auth.principal.id": caller.id,
+        "auth.target_principal.id": principalId,
+        "reference.grant.id": revoked.id,
+      },
+    });
+    return c.json({ ok: true });
+  });
+
   return app;
+}
+
+function isGrantablePrincipal(db: Database, id: string, now: number): boolean {
+  const principal = resolvePrincipal(db, id);
+  return Boolean(principal && isCookieBearingPrincipal(principal) && isUsablePrincipal(principal, now));
 }

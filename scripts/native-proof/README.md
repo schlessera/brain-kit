@@ -232,10 +232,19 @@ admissions, a second ledger consumer, deletion of a source a snapshot still
 references, an open hold through the deletion deadline, crashes around each
 durable transition, stale identities, foreign qgroups, nested subvolumes,
 pool ENOSPC, restart reconstruction and the `brain-native-store pool`
-projection.
+projection. A publication case ([#2429](https://github.com/schlessera/brain-kit/issues/2429))
+runs a long-lived bubblewrap reader bound to one view only. It reads by path,
+open file and working directory across a name swap, staging, unpublishing and
+an interrupted publish. An acquisition case runs the real reference service and
+its transport workers against the pool: it fetches and checks out a
+1,200-file Odysseus repository into a quota-limited root and reads it through
+its view. The container therefore also has `SETUID`, `SETGID` and `SETFCAP`
+and unconfined system paths, like the native host proof, so the transport
+workers can map their user namespace and mount their own `/proc`.
 
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
-`MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN` and `KILL`. It deliberately omits
+`MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and
+`SETFCAP`. It deliberately omits
 `SYS_RESOURCE`, so `quota_override` cannot be set; the unit suite covers that
 refusal. Receipts, including measured physical-to-owner ratios, are kept under
 `tmp/reference-pool-proof/`.
