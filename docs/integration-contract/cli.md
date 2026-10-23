@@ -63,9 +63,12 @@ every credential header and adds three headers that are names, never values:
 provider reads) and `x-brain-provider-origin` (the origin it would have
 called, from its built-in default or its existing endpoint override). The
 server decides whether that key may go to that origin, adds the key and
-forwards the request; the response comes back unchanged. A refusal is a
-`403` JSON error whose `error.type` is `budget_exceeded` once a budget scope is
-blocked, or `brain_provider_refused` otherwise. Neither is retried.
+forwards the request; the response comes back unchanged except that any copy
+of the key in it is replaced by `[redacted]`. A streamed request (`"stream":
+true`) is refused. A refusal is a `403` JSON error whose `error.type` is
+`budget_exceeded` once a budget scope is blocked, or `brain_provider_refused`
+otherwise. Neither is retried. A relay that is busy answers `503`, which the
+built-in providers retry as a transient error.
 
 A seam that is only available through the relay counts as configured: hybrid
 `brain search` embeds its query, `brain process` completes, `brain image` lists

@@ -995,6 +995,7 @@ export "./internal" (./src/internal.ts)
   PROTECTED_ENV_PREFIX
   PROTECTED_TIER_A
   PROTECTED_TIER_B
+  PROVIDER_RELAY_KEYS_NAME
   PROVIDER_RELAY_SOCKET_NAME
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
@@ -1100,6 +1101,7 @@ export "./internal" (./src/internal.ts)
   handleTurnTemp
   hasManagedNativeStorage
   hasWebSearchCredential
+  heldCustomProviderKeys
   hostMaintenanceTempLimits
   hostOutputStagingLimits
   hostProviderCredential

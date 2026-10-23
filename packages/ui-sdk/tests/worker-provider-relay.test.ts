@@ -7,11 +7,11 @@
  */
 import { launchFixtureAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { WorkerSandbox } from "../src/server/worker-sandbox.js";
 import { startEgressProxy, type EgressRecord } from "../src/server/egress-proxy.js";
-import { PROVIDER_RELAY_SOCKET_NAME, startProviderRelay, type ProviderRelayReceipt } from "../src/server/provider-relay.js";
+import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, startProviderRelay, type ProviderRelayReceipt } from "../src/server/provider-relay.js";
 import { INFERENCE_PLACEHOLDER } from "../src/server/inference-relay.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
@@ -74,7 +74,7 @@ const sandbox = (profile: "governed" | "strict"): WorkerSandbox => ({ brain, res
 
 /** One worker on a turn proxy with the provider relay linked beside it, as the server composes a turn. */
 async function run(profile: "governed" | "strict", command: string[], options: { blocked?: boolean; listed?: boolean;
-  env?: Record<string, string>; credentialEnv?: readonly string[]; relayEgress?: false } = {}) {
+  env?: Record<string, string>; credentialEnv?: readonly string[]; relayEgress?: false; customKeys?: string[]; relayMode?: number } = {}) {
   const records: EgressRecord[] = [], receipts: ProviderRelayReceipt[] = [];
   // Offline by construction: the worker's proxy admits only the loopback fixture, so a
   // request that bypasses the relay is refused rather than sent to a real provider.
@@ -83,9 +83,12 @@ async function run(profile: "governed" | "strict", command: string[], options: {
   const relay = startProviderRelay({ ...(options.relayEgress === false ? {} : { egress: proxy }), credential: name => HOST_KEYS[name as keyof typeof HOST_KEYS],
     origins: new Map(options.listed === false ? [] : [["GEMINI_API_KEY", [upstream.url.origin]]]),
     admit: () => options.blocked ? { allowed: false, message: "Turn inference budget reached." } : { allowed: true },
-    observe: receipt => receipts.push(receipt) });
+    // Each attempt reports `dispatched` before contact, then its settled outcome.
+    observe: receipt => { if (receipt.outcome !== "dispatched") receipts.push(receipt); } });
   try {
     linkSync(relay.socketPath, join(proxy.dir, PROVIDER_RELAY_SOCKET_NAME));
+    if (options.relayMode !== undefined) chmodSync(join(proxy.dir, PROVIDER_RELAY_SOCKET_NAME), options.relayMode);
+    if (options.customKeys) writeFileSync(join(proxy.dir, PROVIDER_RELAY_KEYS_NAME), `${options.customKeys.join("\n")}\n`);
     const worker = launchFixtureAgentWorker({ brainPath: brain, command, sandbox: sandbox(profile), turnTempBytes: 64 * 1024 * 1024,
       egress: { proxyDir: proxy.dir }, ...(options.credentialEnv ? { credentialEnv: options.credentialEnv } : {}),
       env: { PATH: "/usr/bin:/bin", HOME: "/tmp", LANG: "C.UTF-8", BRAIN_ROOT: brain, GOOGLE_GEMINI_BASE_URL: upstream.url.origin, ...HOST_KEYS, ...options.env } });
@@ -95,7 +98,7 @@ async function run(profile: "governed" | "strict", command: string[], options: {
         new Response(worker.stderr as never).text()]);
       return { exit, stdout, stderr, records, receipts };
     } finally { worker.turnTemp?.close(); }
-  } finally { relay.stop(); proxy.stop(); }
+  } finally { await relay.stop(); proxy.stop(); }
 }
 
 const SEARCH = [process.execPath, BRAIN_CLI, "search", "Ithaca harbour", "--json"];
@@ -200,4 +203,18 @@ test("a relayed Claude API-key turn's anthropic-haiku completion uses the host k
     Object.defineProperty(globalThis, "fetch", realFetch);
     if (hostKey) Object.defineProperty(process.env, "ANTHROPIC_API_KEY", hostKey); else delete process.env.ANTHROPIC_API_KEY;
   }
+});
+
+test("an operator-listed custom key is named withheld, so the CLI relays it", async () => {
+  const { exit, stdout, stderr } = await run("governed", INSPECT, { customKeys: ["ITHACA_GATEWAY_KEY"] });
+  expect(exit, stderr).toBe(0);
+  const { env } = JSON.parse(stdout) as { env: Record<string, string> };
+  expect(env.BRAIN_WITHHELD_KEYS?.split(","), "LISTED_CUSTOM_KEY_NAMED_WITHHELD").toContain("ITHACA_GATEWAY_KEY");
+});
+
+test("a relay socket with the wrong mode is not handed to the worker", async () => {
+  const { exit, stdout, stderr } = await run("governed", INSPECT, { relayMode: 0o666 });
+  expect(exit, stderr).toBe(0);
+  const { env } = JSON.parse(stdout) as { env: Record<string, string> };
+  expect(env.BRAIN_PROVIDER_RELAY_SOCKET, "RELAY_SOCKET_MODE_VALIDATED").toBeUndefined();
 });

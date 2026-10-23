@@ -58,7 +58,7 @@ function boundary(options: { blocked?: boolean } = {}) {
     nativeManager: createNativeBrainManagerClient(native.nativeBrain),
     providerRelay: { origins: new Map([["GEMINI_API_KEY", [upstream.url.origin]]]),
       admit: turnId => { admitted.push(turnId); return options.blocked ? { allowed: false, message: "UTC day inference budget reached." } : { allowed: true }; },
-      observe: (turnId, attempt) => { metered.push({ turnId, attempt }); } } });
+      observe: (turnId, attempt) => { if (attempt.outcome !== "dispatched") metered.push({ turnId, attempt }); } } });
   return { host, metered, admitted };
 }
 
@@ -104,7 +104,8 @@ for (const method of ["run", "launch"] as const) {
     expect(found.results.map(entry => entry.path)).toContain("notes/ithaca.md");
     expect(seen, "RELAYED_MAINTENANCE_HOST_KEY_AT_PROVIDER").toEqual([{ path: "/v1beta/models/gemini-embedding-2:batchEmbedContents", key: HOST_KEYS.GEMINI_API_KEY }]);
     // A tool-started run is charged to its turn; any other run to its day alone.
-    expect(admitted, "RELAYED_MAINTENANCE_ADMITTED_PER_REQUEST").toEqual([turnId ?? null]);
+    // Admitted on arrival and again just before dispatch.
+    expect(admitted, "RELAYED_MAINTENANCE_ADMITTED_PER_REQUEST").toEqual([turnId ?? null, turnId ?? null]);
     expect(metered, "RELAYED_MAINTENANCE_METERED").toMatchObject([{ turnId: turnId ?? null,
       attempt: { family: "gemini", operation: "embeddings", outcome: "completed", usage: { inputTokens: 9 } } }]);
   });
@@ -118,4 +119,19 @@ test("a blocked day refuses maintenance's provider request before contact", asyn
   expect(found.warnings.join("\n"), "RELAYED_MAINTENANCE_BUDGET_REFUSED").toContain("budget_exceeded");
   expect(seen, "RELAYED_MAINTENANCE_REFUSED_BEFORE_CONTACT").toEqual([]);
   expect(metered).toEqual([]);
+});
+
+test("a built-in key outside the run's own environment is neither released nor named", async () => {
+  // A cron job's audience never held ANTHROPIC_API_KEY; the server's own value must not reach it through the relay.
+  const saved = Object.getOwnPropertyDescriptor(process.env, "ANTHROPIC_API_KEY");
+  process.env.ANTHROPIC_API_KEY = HOST_KEYS.ANTHROPIC_API_KEY;
+  try {
+    const { host } = boundary();
+    const { ANTHROPIC_API_KEY: _omitted, ...cronKeys } = HOST_KEYS;
+    void _omitted;
+    const result = await host.run({ argv: [process.execPath, "--config=/dev/null", "-e", "console.log(process.env.BRAIN_WITHHELD_KEYS ?? '')"],
+      env: { PATH: "/usr/bin:/bin", BRAIN_ROOT: brain, ...cronKeys }, credentials: true, gate: "exclusive", purpose: "Odysseus cron job" });
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.stdout.trim(), "MAINTENANCE_AUDIENCE_BOUNDS_RELAYED_KEYS").toBe("GEMINI_API_KEY,OPENAI_API_KEY");
+  } finally { if (saved) Object.defineProperty(process.env, "ANTHROPIC_API_KEY", saved); else delete process.env.ANTHROPIC_API_KEY; }
 });

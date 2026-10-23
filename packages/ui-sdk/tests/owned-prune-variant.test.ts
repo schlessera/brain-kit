@@ -91,6 +91,8 @@ test("real original and variant boundary methods preserve owned operation order,
         expect(options.signal).toBe(signal); expect(options.startupView).toBe(view);
         calls.push("output"); return output;
       },
+      // A scratch prune is credential-free: no CLI provider relay (#1673).
+      providerRelayFor: () => undefined,
       options: { log: logger }, command: () => launch, prepareMaintenanceGit: async (...args: unknown[]) => {
         expect(args.length, "OWNED_PRUNE_GIT_ARGUMENT_COUNT_PRESERVED").toBe(4);
         expect(args[0], "OWNED_PRUNE_GIT_COMMAND_IDENTITY_PRESERVED").toBe(launch);

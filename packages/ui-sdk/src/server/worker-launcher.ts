@@ -31,7 +31,7 @@ import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-
 import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
 import { INFERENCE_RELAY_PLACEHOLDER, WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
 import { PROVIDER_RELAY_SOCKET_ENV } from "@schlessera/brain-common/internal/provider-relay";
-import { PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
+import { PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
 import { hostProviderCredentialNames } from "../config/env.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
@@ -542,8 +542,10 @@ export function workerCommand(input: WorkerLaunch): string[] {
     throw new WorkerHostError("egress transport belongs only to a governed or strict interactive worker");
   }
   let egressMounts: string[] = [];
-  // The CLI provider relay (#1673) lives beside the proxy, linked by the server.
+  // The CLI provider relay (#1673) lives beside the proxy, linked by the server,
+  // with the names of the operator-listed keys it holds.
   let providerRelay = false;
+  let relayedKeyNames: string[] = [];
   if (input.egress) {
     const separateIdentity = Boolean(workerIdentityHelper());
     const serverUid = process.getuid?.(), serverGid = process.getgid?.();
@@ -562,8 +564,18 @@ export function workerCommand(input: WorkerLaunch): string[] {
     egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
     try {
       const relayInfo = lstatSync(join(directory, PROVIDER_RELAY_SOCKET_NAME));
-      providerRelay = relayInfo.isSocket() && relayInfo.uid === serverUid;
+      providerRelay = relayInfo.isSocket() && relayInfo.uid === serverUid
+        && (relayInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+        && (!separateIdentity || relayInfo.gid === serverGid);
     } catch { /* No relay: the CLI's providers stay withheld. */ }
+    if (providerRelay) {
+      try {
+        const keysPath = join(directory, PROVIDER_RELAY_KEYS_NAME), keysInfo = lstatSync(keysPath);
+        if (keysInfo.isFile() && keysInfo.uid === serverUid && keysInfo.size <= 64 * 1024) {
+          relayedKeyNames = readFileSync(keysPath, "utf8").split("\n").filter(name => /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name));
+        }
+      } catch { /* No listed custom keys. */ }
+    }
   }
   if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a transport worker has no brain execution envelope or agent state");
@@ -667,7 +679,9 @@ export function workerCommand(input: WorkerLaunch): string[] {
   // provider relay instead of sending the placeholder (#1673).
   const placeholders = credentials ? credentials.kept.filter(name => input.env[name] === INFERENCE_RELAY_PLACEHOLDER) : [];
   const withheld = credentials && [...new Set([...credentials.withheld,
-    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name) || placeholders.includes(name))])].sort();
+    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name) || placeholders.includes(name)),
+    // An operator-listed custom key the relay holds, unless the worker was given it.
+    ...relayedKeyNames.filter(name => !input.env[name])])].sort();
   if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
   if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
   else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);

@@ -14,10 +14,10 @@ import type {
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { linkSync, lstatSync } from "node:fs";
+import { linkSync, lstatSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { isEnvName, PROTECTED_TIER_A, PROVIDER_RELAY_SOCKET_NAME, startProviderRelay, type ProviderRelay } from "@schlessera/brain-ui-sdk/internal";
+import { isEnvName, PROTECTED_TIER_A, PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, heldCustomProviderKeys, startProviderRelay, type ProviderRelay } from "@schlessera/brain-ui-sdk/internal";
 import type { BudgetObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { BackendRegistry } from "../agent/backend.js";
@@ -688,20 +688,21 @@ async function runRetainedSession(
           // The CLI's paid providers reach the network only through this relay,
           // which holds their keys, shares the turn's egress admission and
           // meters each request on the turn (#1673).
-          const egress = turnEgress, hold = governedHold;
+          // The turn this relay meters, fixed now: a late report never lands on a later turn.
+          const egress = turnEgress, hold = governedHold, relayTurnId = turn.turnId;
           providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
             admit: () => {
               if (budgetFailure) return { allowed: false, message: budgetFailure.message };
               if (!host.budgets) return { allowed: true };
               try {
-                const blocked = host.budgets.providerAdmission(turn.turnId, hold.policy.policy);
+                const blocked = host.budgets.providerAdmission(relayTurnId, hold.policy.policy);
                 return blocked ? { allowed: false, message: new BudgetExceeded(blocked, "mid_turn").message } : { allowed: true };
               } catch { return { allowed: false, message: new BudgetUnavailable().message }; }
             },
             observe: attempt => {
               if (!host.budgets) return;
               try {
-                const result = host.budgets.observeProvider(turn.turnId, attempt);
+                const result = host.budgets.observeProvider(relayTurnId, attempt);
                 if (!result || budgetFailure || abortController.signal.aborted || turn.cancelled) return;
                 budgetWarnings(result.warnings);
                 if (result.blocked) budgetBlocked(result.blocked, false);
@@ -709,6 +710,8 @@ async function runRetainedSession(
             },
           });
           linkSync(providerRelay.socketPath, join(egress.dir, PROVIDER_RELAY_SOCKET_NAME));
+          const customKeys = heldCustomProviderKeys(host.cliProviderOrigins);
+          if (customKeys.length) writeFileSync(join(egress.dir, PROVIDER_RELAY_KEYS_NAME), `${customKeys.join("\n")}\n`, { mode: 0o640 });
         }
         // The session's recorded untrusted input, read live by outward admission and the note (G6).
         const governanceDb = host.activity?.governanceDb;
@@ -754,7 +757,8 @@ async function runRetainedSession(
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
         turn.backendStarted = false;
-        providerRelay?.stop();
+        // Every relayed attempt reports before the turn's accounting closes.
+        await providerRelay?.stop();
         turnEgress?.stop();
         const egressFailure = turnEgress?.recordingFailure();
         if (egressFailure) throw egressFailure;
@@ -823,7 +827,7 @@ async function runRetainedSession(
           ? "Turn timed out"
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
-        providerRelay?.stop();
+        await providerRelay?.stop();
         turnEgress?.stop();
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});

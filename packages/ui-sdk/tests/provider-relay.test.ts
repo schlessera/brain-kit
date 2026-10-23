@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { request as httpRequest } from "node:http";
 import {
-  FIRST_PARTY_PROVIDER_RECIPIENTS, parseCliProviderOrigins, providerUsage, startProviderRelay, type ProviderRelayOptions,
+  FIRST_PARTY_PROVIDER_RECIPIENTS, MAX_PROVIDER_CONCURRENT_REQUESTS, parseCliProviderOrigins, providerUsage, startProviderRelay, type ProviderRelayOptions,
   type ProviderRelayReceipt, type ProviderRelayRefusal,
 } from "../src/server/provider-relay.js";
 
@@ -27,9 +27,9 @@ const KEYS: Record<string, string> = { ANTHROPIC_API_KEY: "odysseus-host-anthrop
 
 async function relayed(options: Partial<ProviderRelayOptions>, request: { path: string; family?: string; key?: string; origin?: string;
   method?: string; headers?: Record<string, string>; body?: string | Uint8Array }) {
-  const receipts: ProviderRelayReceipt[] = [], refusals: ProviderRelayRefusal[] = [];
+  const receipts: ProviderRelayReceipt[] = [], dispatched: ProviderRelayReceipt[] = [], refusals: ProviderRelayRefusal[] = [];
   const relay = startProviderRelay({ credential: name => KEYS[name], origins: new Map([["ANTHROPIC_API_KEY", [upstream.url.origin]]]),
-    observe: receipt => receipts.push(receipt), refused: refusal => refusals.push(refusal), ...options });
+    observe: receipt => (receipt.outcome === "dispatched" ? dispatched : receipts).push(receipt), refused: refusal => refusals.push(refusal), ...options });
   seen.length = 0;
   try {
     const headers: Record<string, string> = { "content-type": "application/json", "x-brain-provider": request.family ?? "anthropic",
@@ -46,8 +46,8 @@ async function relayed(options: Partial<ProviderRelayOptions>, request: { path: 
       outgoing.on("error", reject);
       outgoing.end(body);
     });
-    return { ...response, receipts, refusals, upstream: [...seen] };
-  } finally { relay.stop(); }
+    return { ...response, receipts, dispatched, refusals, upstream: [...seen] };
+  } finally { await relay.stop(); }
 }
 
 describe("recipient authority", () => {
@@ -192,4 +192,88 @@ describe("BRAIN_UI_CLI_PROVIDER_ORIGINS", () => {
     "GEMINI_API_KEY", "=https://a.example", "GEMINI_API_KEY=", "GEMINI_API_KEY=https://a.example/v1beta",
     "GEMINI_API_KEY=http://gateway.ithaca.example", "GEMINI_API_KEY=https://user@a.example", "1KEY=https://a.example",
   ])("refuses %p", value => { expect(() => parseCliProviderOrigins(value)).toThrow("BRAIN_UI_CLI_PROVIDER_ORIGINS"); });
+});
+
+describe("review hardening", () => {
+  test("a streamed request is refused before contact, so its usage is never silently unknown", async () => {
+    const result = await relayed({}, { path: "/v1/messages", body: JSON.stringify({ model: "claude-haiku-4-5-20251001", stream: true, messages: [] }) });
+    expect(result.status).toBe(403);
+    expect(result.refusals, "RELAY_REFUSES_STREAMING").toMatchObject([{ reason: "streaming_not_relayed" }]);
+    expect(result.upstream).toEqual([]);
+  });
+
+  test("an upstream that echoes the key never hands it to the worker, even split across chunks", async () => {
+    reply = () => {
+      const half = KEYS.ANTHROPIC_API_KEY!.length >> 1;
+      const parts = [`{"echo":"${KEYS.ANTHROPIC_API_KEY!.slice(0, half)}`, `${KEYS.ANTHROPIC_API_KEY!.slice(half)}","usage":{"input_tokens":1,"output_tokens":1}}`];
+      const body = new ReadableStream<Uint8Array>({ start(controller) { for (const part of parts) controller.enqueue(new TextEncoder().encode(part)); controller.close(); } });
+      return new Response(body, { headers: { "content-type": "application/json", "x-debug-key": KEYS.ANTHROPIC_API_KEY!, "request-id": "odysseus-1" } });
+    };
+    try {
+      const result = await relayed({}, { path: "/v1/messages" });
+      expect(result.status).toBe(200);
+      expect(result.body.includes(KEYS.ANTHROPIC_API_KEY!), "RELAY_SCRUBS_ECHOED_KEY").toBe(false);
+      expect(JSON.parse(result.body).echo).toBe("[redacted]");
+      expect(result.receipts, "SCRUBBED_RESPONSE_STILL_METERED").toMatchObject([{ usage: { inputTokens: 1, outputTokens: 1 } }]);
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+
+  test("an echoed key in a response header is dropped", async () => {
+    reply = () => Response.json({ usage: { input_tokens: 1 } }, { headers: { "x-debug-key": KEYS.ANTHROPIC_API_KEY! } });
+    try {
+      const relay = startProviderRelay({ credential: name => KEYS[name], origins: new Map([["ANTHROPIC_API_KEY", [upstream.url.origin]]]) });
+      try {
+        const headers = await new Promise<Record<string, unknown>>((resolve, reject) => {
+          const outgoing = httpRequest({ socketPath: relay.socketPath, method: "POST", path: "/v1/messages", headers: { "x-brain-provider": "anthropic",
+            "x-brain-provider-key": "ANTHROPIC_API_KEY", "x-brain-provider-origin": upstream.url.origin, "content-type": "application/json" } },
+          incoming => { incoming.resume(); incoming.on("end", () => resolve(incoming.headers)); });
+          outgoing.on("error", reject); outgoing.end("{}");
+        });
+        expect(headers["x-debug-key"], "RELAY_DROPS_ECHOED_KEY_HEADER").toBeUndefined();
+      } finally { await relay.stop(); }
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+
+  test("admission is checked again just before dispatch", async () => {
+    let calls = 0;
+    const result = await relayed({ admit: () => ++calls === 1 ? { allowed: true } : { allowed: false, message: "Turn inference budget reached." } },
+      { path: "/v1/messages" });
+    expect(calls).toBe(2);
+    expect(result.refusals, "RELAY_RECHECKS_BUDGET_BEFORE_DISPATCH").toMatchObject([{ reason: "budget_exceeded" }]);
+    expect(result.upstream).toEqual([]);
+  });
+
+  test("each attempt reports dispatched before contact, then its outcome", async () => {
+    const result = await relayed({}, { path: "/v1/messages" });
+    expect(result.dispatched, "RELAY_REPORTS_DISPATCH").toHaveLength(1);
+    expect(result.dispatched[0]!.attemptId).toBe(result.receipts[0]!.attemptId);
+  });
+
+  test("more concurrent requests than the cap are refused as busy, and stop() waits for in-flight attempts", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    reply = () => new Response(new ReadableStream({ async start(controller) { await gate; controller.enqueue(new TextEncoder().encode('{"usage":{"input_tokens":1}}')); controller.close(); } }),
+      { headers: { "content-type": "application/json" } });
+    const receipts: ProviderRelayReceipt[] = [];
+    const relay = startProviderRelay({ credential: name => KEYS[name], origins: new Map([["ANTHROPIC_API_KEY", [upstream.url.origin]]]),
+      observe: receipt => { if (receipt.outcome !== "dispatched") receipts.push(receipt); } });
+    const send = () => new Promise<number>((resolve, reject) => {
+      const outgoing = httpRequest({ socketPath: relay.socketPath, method: "POST", path: "/v1/messages", headers: { "x-brain-provider": "anthropic",
+        "x-brain-provider-key": "ANTHROPIC_API_KEY", "x-brain-provider-origin": upstream.url.origin, "content-type": "application/json" } },
+      incoming => { incoming.resume(); incoming.on("end", () => resolve(incoming.statusCode ?? 0)); incoming.on("error", () => resolve(incoming.statusCode ?? 0)); });
+      outgoing.on("error", () => resolve(0)); outgoing.end("{}"); void reject;
+    });
+    try {
+      const inflight = Array.from({ length: MAX_PROVIDER_CONCURRENT_REQUESTS }, send);
+      // Wait until every slot holds a dispatched attempt.
+      for (let tries = 0; seen.length < MAX_PROVIDER_CONCURRENT_REQUESTS && tries < 200; tries++) await Bun.sleep(10);
+      expect(await send(), "RELAY_CAPS_CONCURRENT_REQUESTS").toBe(503);
+      const stopped = relay.stop();
+      await stopped;
+      expect(receipts.length, "RELAY_STOP_SETTLES_INFLIGHT").toBe(MAX_PROVIDER_CONCURRENT_REQUESTS);
+      expect(receipts.every(receipt => receipt.outcome === "cancelled" && receipt.usage === null)).toBe(true);
+      release();
+      await Promise.all(inflight);
+    } finally { release(); await relay.stop(); reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); seen.length = 0; }
+  });
 });

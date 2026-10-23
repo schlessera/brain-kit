@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:547-562`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:549-564`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -1284,12 +1284,26 @@ that key and exact origin in `BRAIN_UI_CLI_PROVIDER_ORIGINS`:
 `BRAIN_UI_CLI_PROVIDER_ORIGINS="GEMINI_API_KEY=https://gateway.ithaca.invalid;ITHACA_KEY=https://api.anthropic.com"`.
 Origins are exact `https` origins, or `http` for a loopback host. The relay
 strips every credential the worker sent, takes the key from the server's own
-environment (a maintenance run's from the environment the server built for
-it), never follows a redirect and never forwards a query string. A key kept
-only in the brain's `.env` is not available to it.
+environment, never follows a redirect and never forwards a query string. A
+maintenance run gets only the keys its own audience held: a cron job, which
+never had `ANTHROPIC_API_KEY`, cannot reach it through the relay either. A key
+kept only in the brain's `.env` is not available to it. The launcher names a
+listed custom key in `BRAIN_WITHHELD_KEYS` from a list of names the server
+writes beside the socket, so the CLI's custom `apiKeyEnv` uses the relay too.
 
-**Metering.** Each upstream attempt is one row, with the provider's reported
-units read from the raw response before any SDK drops them. Gemini embeddings
+**Limits.** A relay refuses streamed requests (their usage arrives in events
+it does not read), serves at most 8 requests at once, holds at most 64 MiB of
+request bodies across them, and needs each body within two minutes; a busy
+relay answers `503`. It replaces any copy of the key in a response, header or
+body, with `[redacted]`, so a gateway that echoes its credential cannot hand it
+to the worker. A hosted `brain sync` gets no relay: its local phase is
+credential-free, as before.
+
+**Metering.** Each upstream attempt is one row, written as unknown spend just
+before the request leaves and completed with the provider's reported units,
+read from the raw response before any SDK drops them. An attempt a crash
+interrupts therefore stays disclosed. When a turn ends, its relay waits for
+in-flight attempts to report before the turn's accounting closes. Gemini embeddings
 are priced at Google's published list price per modality; completions use
 the same Activity price table as the agent's own inference; image units stay
 unpriced. Reported tokens without a price count toward the unpriced-token
@@ -1299,8 +1313,8 @@ UTC-day budgets and appear in its budget receipt, whose coverage now names
 the relayed providers. A maintenance run started from a turn's tool is
 charged to that turn; any other (a search from the UI, a cron job, a module
 action) counts toward its UTC day only. Once a scope is blocked, each further
-request is refused with `budget_exceeded` before anything is sent. Nothing is
-reserved in advance, so requests already in flight when a scope becomes
+request is refused with `budget_exceeded` before anything is sent; the check
+runs on arrival and again just before dispatch. Nothing is reserved in advance, so requests already in flight when a scope becomes
 blocked complete and are counted: a busy turn can end slightly above its
 stop.
 

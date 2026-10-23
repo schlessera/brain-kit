@@ -407,14 +407,19 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
    */
   const providerRelayFor = (execution: BrainExecution): ProviderRelay | undefined => {
     const relay = options.providerRelay;
-    if (!relay || !execution.credentials) return undefined;
+    // A hosted sync's local phase runs credential-free; only its mirror transport holds a credential.
+    if (!relay || !execution.credentials || execution.sync) return undefined;
     const turnId = execution.turnId ?? null;
     return startProviderRelay({ ...(relay.origins ? { origins: relay.origins } : {}), credential: name => runCredential(execution, name),
       admit: () => relay.admit(turnId), observe: attempt => relay.observe(turnId, attempt) });
   };
-  /** The key a credentialed run would have held: its server-built environment, else the server's own (a listed custom key). */
+  /**
+   * The key a credentialed run would have held: its server-built environment.
+   * Only a custom key the operator listed comes from the server's own
+   * environment: a built-in key outside this run's audience stays out of reach.
+   */
   const runCredential = (execution: Pick<BrainExecution, "env">, name: string): string | undefined =>
-    execution.env[name] || hostProviderCredential(name);
+    execution.env[name] || (relayedProviderKeys().includes(name) ? undefined : hostProviderCredential(name));
   const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView, relay?: ProviderRelay): MaintenanceCommand => {
     const path = brainWorkerPath(brain, execution.env.PATH);
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
@@ -593,13 +598,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           if (result) return result;
         }
         return credentialed(admission, async () => {
-          if (execution.sync) return outputLock.withLock(brain, async () => {
-            const relay = providerRelayFor(execution);
-            try {
-              return await runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution, undefined, relay), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
-                ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) });
-            } finally { relay?.stop(); }
-          }, { signal: admissionSignal });
+          if (execution.sync) return outputLock.withLock(brain, () => runMirrorSync({ log: options.log, nativeManager: options.nativeManager, folderPaths: hold?.folderPaths, command: command(execution), transportEnv: execution.env, mirror: mirror ??= syncMirrorPath(brain, options.dbPath),
+            ...(execution.signal ? { signal: execution.signal } : {}), ...(execution.timeoutMs ? { timeoutMs: execution.timeoutMs } : {}) }), { signal: admissionSignal });
           const run = async () => {
             admissionSignal?.throwIfAborted();
             execution.assertAuthorized?.();
@@ -622,7 +622,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
                 else await outputs.publish();
               }
               return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
-            } finally { relay?.stop(); try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
+            } finally { await relay?.stop(); try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
           };
           return outputLock.withLock(brain, () => execution.lock
             ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: admissionSignal }) : run(), { signal: admissionSignal });
@@ -663,9 +663,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
           // An abort can arrive while the gate is resolving. Check it before
           // preparation; attaching a listener alone would miss that event.
           execution.signal?.throwIfAborted();
-          const relay = providerRelayFor(execution);
-          let selectedCommand: MaintenanceCommand;
-          try { selectedCommand = command(execution, undefined, relay); } catch (error) { relay?.stop(); throw error; }
+          const selectedCommand = command(execution);
           const selectedMirror = mirror ??= syncMirrorPath(brain, options.dbPath);
           const abort = new AbortController();
           const stdout = syncOutput();
@@ -678,7 +676,6 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             stdout.write(result.stdout); stderr.write(result.stderr); return result.exitCode;
           }, error => { stderr.write(error instanceof Error ? error.message : String(error)); return 1; })
             .finally(() => {
-              relay?.stop();
               try { stdout.close(); } finally {
                 try { stderr.close(); } finally {
                   try { execution.signal?.removeEventListener("abort", onAbort); } finally { try { releaseOutput(); } finally { hold?.release(); } }
@@ -707,7 +704,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         worker = launchMaintenanceWorker(maintenance);
       }
-      catch (error) { relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
+      catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
@@ -717,7 +714,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return code;
       })
-        .finally(async () => { relay?.stop(); try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
+        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill }, credential);

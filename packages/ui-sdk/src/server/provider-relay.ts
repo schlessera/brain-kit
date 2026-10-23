@@ -36,12 +36,24 @@ import { hostProviderCredential } from "../config/env.js";
 
 /** The relay's socket name inside the turn's egress directory. */
 export const PROVIDER_RELAY_SOCKET_NAME = "providers.sock";
+/**
+ * Beside it, the server writes the names (never values) of the operator-listed
+ * custom keys it holds, one per line, so the launcher can name them withheld.
+ */
+export const PROVIDER_RELAY_KEYS_NAME = "providers.keys";
 /** Where a governed or strict turn worker reaches the relay. */
 export const WORKER_PROVIDER_RELAY_SOCKET = `${WORKER_EGRESS_DIR}/${PROVIDER_RELAY_SOCKET_NAME}`;
 /** A request body larger than this is refused before anything is forwarded. */
 export const MAX_PROVIDER_REQUEST_BYTES = 32 * 1024 * 1024;
 /** Response bytes kept to read usage from; a larger response is forwarded with usage unknown. */
 const MAX_USAGE_CAPTURE_BYTES = 64 * 1024 * 1024;
+/** Requests one relay serves at once, and the request bytes it holds across them: host memory a worker cannot grow. */
+export const MAX_PROVIDER_CONCURRENT_REQUESTS = 8;
+export const MAX_PROVIDER_BUFFERED_BYTES = 64 * 1024 * 1024;
+/** A request body must arrive within this; only the provider's own answer may take longer. */
+export const PROVIDER_REQUEST_UPLOAD_MS = 120_000;
+/** How long `stop()` waits for in-flight attempts to settle and report. */
+const STOP_SETTLE_MS = 5_000;
 
 /** Each built-in's key variable, the only origin that key goes to by default, and where the key is placed. */
 export const FIRST_PARTY_PROVIDER_RECIPIENTS: Readonly<Record<ProviderRelayFamily, { key: string; origin: string }>> = Object.freeze({
@@ -89,7 +101,12 @@ export interface ProviderRelayReceipt {
   key: string;
   /** The requested model, when the request names one. An observation, never authority. */
   model: string | null;
-  outcome: "completed" | "failed" | "cancelled";
+  /**
+   * `dispatched` is reported just before the upstream request is sent, so an
+   * attempt a crash interrupts stays recorded as unknown spend; its settled
+   * outcome follows under the same `attemptId`.
+   */
+  outcome: "dispatched" | "completed" | "failed" | "cancelled";
   status: number;
   /** Null when the provider reported no usable usage: unknown spend, not zero. */
   usage: ProviderUsage | null;
@@ -104,7 +121,7 @@ export interface ProviderRelayRefusal {
   status: number;
   reason: "method_not_allowed" | "unknown_family" | "route_not_allowed" | "recipient_not_authorized"
     | "credential_unavailable" | "budget_exceeded" | "egress_refused" | "request_too_large" | "cancelled"
-    | "upstream_unreachable" | "upstream_redirected";
+    | "upstream_unreachable" | "upstream_redirected" | "streaming_not_relayed" | "relay_busy" | "upload_timeout";
 }
 
 export interface ProviderRelayOptions {
@@ -125,9 +142,19 @@ export interface ProviderRelay {
   /** Host directory holding the socket. */
   dir: string;
   socketPath: string;
-  stop(): void;
+  /**
+   * Closes the socket, cancels what is in flight and resolves once every
+   * dispatched attempt has reported (or after a short bound), so a turn's
+   * accounting is complete before its budgets close.
+   */
+  stop(): Promise<void>;
 }
 
+/** The operator-listed custom keys (not a built-in's own) the server holds, by name. */
+export function heldCustomProviderKeys(origins?: ReadonlyMap<string, readonly string[]>): string[] {
+  const builtIn = new Set(Object.values(FIRST_PARTY_PROVIDER_RECIPIENTS).map(recipient => recipient.key));
+  return [...origins?.keys() ?? []].filter(name => !builtIn.has(name) && Boolean(hostProviderCredential(name))).sort();
+}
 /** Every key variable the relay may release: the built-ins' own and those the operator lists. */
 export function relayedProviderKeys(origins?: ReadonlyMap<string, readonly string[]>): string[] {
   return [...new Set([...Object.values(FIRST_PARTY_PROVIDER_RECIPIENTS).map(recipient => recipient.key), ...origins?.keys() ?? []])].sort();
@@ -234,197 +261,296 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
   chmodSync(dir, separateIdentity ? 0o750 : 0o700);
   const socketPath = join(dir, "relay.sock");
   let server: ReturnType<typeof Bun.serve>;
+  let active = 0, buffered = 0;
+  const idle = new Set<() => void>();
+  const leave = () => { active--; if (active === 0) for (const wake of idle) wake(); };
   try {
     server = Bun.serve({
       unix: socketPath,
       async fetch(request, owner) {
-        // Image generation can take minutes before the first response byte.
+        // Image generation can take minutes before the first response byte;
+        // the request body has its own deadline below.
         owner.timeout(request, 0);
-        const url = new URL(request.url);
-        const path = url.pathname;
-        const familyName = request.headers.get(PROVIDER_RELAY_FAMILY_HEADER);
-        const refuse = (status: number, reason: ProviderRelayRefusal["reason"], message: string): Response => {
-          try { options.refused?.({ family: familyName && familyName in ROUTES ? familyName : null, path, status, reason }); } catch { /* Diagnostics never answer for the relay. */ }
-          return Response.json({ type: "error", error: { type: reason === "budget_exceeded" ? "budget_exceeded" : "brain_provider_refused", message } }, { status });
-        };
-        if (request.method !== "POST") return refuse(405, "method_not_allowed", "Only provider requests are relayed");
-        if (!familyName || !Object.hasOwn(ROUTES, familyName)) return refuse(403, "unknown_family", "Not a relayed provider");
-        const family = familyName as ProviderRelayFamily;
-        const route = url.search ? undefined : ROUTES[family].find(candidate => candidate.path.test(path));
-        if (!route) return refuse(403, "route_not_allowed", "This path is not a relayed provider route");
-        const key = request.headers.get(PROVIDER_RELAY_KEY_HEADER) ?? FIRST_PARTY_PROVIDER_RECIPIENTS[family].key;
-        const origin = request.headers.get(PROVIDER_RELAY_ORIGIN_HEADER) ?? FIRST_PARTY_PROVIDER_RECIPIENTS[family].origin;
-        if (!isExactProviderOrigin(origin) || !authorized(family, key, origin)) {
-          return refuse(403, "recipient_not_authorized", `${origin} may not receive ${key}; list it as ${key}=${origin} in BRAIN_UI_CLI_PROVIDER_ORIGINS`);
+        if (active >= MAX_PROVIDER_CONCURRENT_REQUESTS) {
+          try { options.refused?.({ family: null, path: new URL(request.url).pathname, status: 503, reason: "relay_busy" }); } catch { /* Diagnostics only. */ }
+          return Response.json({ type: "error", error: { type: "brain_provider_refused", message: "Provider relay busy" } }, { status: 503 });
         }
-        const secret = credential(key);
-        if (!secret || /[\r\n]/.test(secret)) return refuse(403, "credential_unavailable", `The host has no ${key} to relay`);
-        const budget = options.admit?.() ?? { allowed: true as const };
-        if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
-        const target = new URL(path, origin);
-        const operation = options.egress?.relayed(request.method, target, request.signal);
-        const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
-        if (operation && !await operation.admit()) {
-          const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
-          operation.finish(cancelled ? "cancelled" : "denied", "provider_admission_refused");
-          return refuse(cancelled ? 499 : 403, cancelled ? "cancelled" : "egress_refused", "Provider network admission refused");
-        }
-        const denied = (reason: string, status = 403): Response => {
-          operation?.finish("denied", reason);
-          return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
-            reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused");
-        };
-        if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
-        // Charge each received chunk before retaining or forwarding it.
-        const chunks: Uint8Array[] = [];
-        let length = 0;
-        const reader = request.body?.getReader();
-        const cancelBody = () => { void reader?.cancel().catch(() => {}); };
-        signal.addEventListener("abort", cancelBody, { once: true });
-        if (signal.aborted) cancelBody();
+        active++;
+        let held = 0, left = false;
+        const done = () => { if (left) return; left = true; buffered -= held; held = 0; leave(); };
         try {
-          if (reader) for (;;) {
-            const next = await reader.read();
-            if (next.done) break;
-            length += next.value.byteLength;
-            if (length > MAX_PROVIDER_REQUEST_BYTES || operation && !operation.charge(next.value.byteLength + 16)) {
-              await reader.cancel().catch(() => {});
-              return denied(length > MAX_PROVIDER_REQUEST_BYTES ? "provider_request_too_large" : "max_bytes_per_turn",
-                length > MAX_PROVIDER_REQUEST_BYTES ? 413 : 403);
-            }
-            chunks.push(next.value);
-          }
-        } catch {
-          operation?.finish("cancelled", "client_disconnected");
-          return refuse(499, "cancelled", "Provider request cancelled");
-        } finally { signal.removeEventListener("abort", cancelBody); reader?.releaseLock(); }
-        const body = new Uint8Array(length);
-        let offset = 0;
-        for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
-        const headers = new Headers();
-        for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
-        for (const [name, value] of Object.entries(PLACEMENT[family](secret))) headers.set(name, value);
-        const model = await requestedModel(family, path, headers.get("content-type"), body);
-        const inlineMedia = family === "gemini" && /"inlineData"|"inline_data"/.test(new TextDecoder().decode(body.subarray(0, Math.min(body.byteLength, 8 * 1024 * 1024))));
-        if (signal.aborted) {
-          operation?.finish("cancelled", "client_disconnected");
-          return refuse(499, "cancelled", "Provider request cancelled");
-        }
-        const headerBytes = (first: string, values: Headers): number => {
-          let bytes = Buffer.byteLength(first) + 1028;
-          for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
-          return bytes;
-        };
-        if (operation && !operation.charge(headerBytes(`POST ${path} HTTP/1.1`, headers))) return denied("max_bytes_per_turn");
-        const attemptId = crypto.randomUUID();
-        let reported = false;
-        const report = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
-          if (reported) return;
-          reported = true;
-          try { options.observe?.({ attemptId, family, operation: route.operation, origin, key, model, outcome, status, usage, inlineMedia }); }
-          catch { /* The host's own accounting reports its failure; the worker's answer is unaffected. */ }
-        };
-        let response: Response;
-        try {
-          // Never follow a redirect: the upstream must not choose another host.
-          response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
-        } catch {
-          operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
-          // The request may have reached the provider: its spend is unknown, never zero.
-          report(signal.aborted ? "cancelled" : "failed", 0, null);
-          return refuse(signal.aborted ? 499 : 502, signal.aborted ? "cancelled" : "upstream_unreachable",
-            signal.aborted ? "Provider request cancelled" : "Provider upstream unreachable");
-        }
-        if (response.status >= 300 && response.status < 400) {
-          operation?.finish("failed", "upstream_redirected");
-          await response.body?.cancel().catch(() => {});
-          report("failed", response.status, null);
-          return refuse(502, "upstream_redirected", "Provider upstream redirected; redirects are not followed");
-        }
-        const out = new Headers();
-        for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase())) out.set(name, value);
-        if (operation && !operation.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {
-          operation.finish("denied", "max_bytes_per_turn");
-          await response.body?.cancel().catch(() => {});
-          report("cancelled", response.status, null);
-          return refuse(403, "egress_refused", "Provider egress limit exceeded");
-        }
-        const json = /\bjson\b/i.test(response.headers.get("content-type") ?? "");
-        const captured: Uint8Array[] = [];
-        let capturedBytes = 0;
-        const settle = (): void => {
-          let usage: ProviderUsage | null = null;
-          if (json && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) {
-            try { usage = providerUsage(family, route.operation, JSON.parse(Buffer.concat(captured).toString("utf8"))); }
-            catch { usage = null; }
-          }
-          report(response.ok ? "completed" : "failed", response.status, usage);
-        };
-        if (!response.body) {
-          operation?.finish("completed");
-          settle();
-          return new Response(null, { status: response.status, headers: out });
-        }
-        const upstreamReader = response.body.getReader();
-        let released = false;
-        const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
-        const output = new ReadableStream<Uint8Array>({
-          async pull(controller) {
-            try {
-              const next = await upstreamReader.read();
-              if (next.done) { operation?.finish("completed"); settle(); release(); controller.close(); return; }
-              if (operation && !operation.charge(next.value.byteLength + 16)) {
-                operation.finish("denied", "max_bytes_per_turn");
-                report("cancelled", response.status, null);
-                await upstreamReader.cancel().catch(() => {}); release();
-                controller.error(new Error("Provider egress limit exceeded"));
-                return;
-              }
-              capturedBytes += next.value.byteLength;
-              if (json && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) captured.push(next.value);
-              controller.enqueue(next.value);
-            } catch {
-              operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
-              report(signal.aborted ? "cancelled" : "failed", response.status, null);
-              release(); controller.error(new Error("Provider response interrupted"));
-            }
-          },
-          async cancel() {
-            operation?.finish("cancelled", "client_disconnected");
-            report("cancelled", response.status, null);
-            await upstreamReader.cancel().catch(() => {}); release();
-          },
-        });
-        return new Response(output, { status: response.status, headers: out });
+          const response = await handle(request, bytes => {
+            if (buffered + bytes > MAX_PROVIDER_BUFFERED_BYTES) return false;
+            buffered += bytes; held += bytes; return true;
+          }, () => { buffered -= held; held = 0; }, done);
+          return response;
+        } catch (error) { done(); throw error; }
       },
     });
   } catch (error) { rmSync(dir, { recursive: true, force: true }); throw error; }
+  /**
+   * One request. `reserve` holds request bytes against the relay's aggregate
+   * cap and `free` releases them once the upstream has the body; `done` runs
+   * exactly once, when the attempt has reported or was refused.
+   */
+  async function handle(request: Request, reserve: (bytes: number) => boolean, free: () => void, done: () => void): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const familyName = request.headers.get(PROVIDER_RELAY_FAMILY_HEADER);
+    const refuse = (status: number, reason: ProviderRelayRefusal["reason"], message: string): Response => {
+      done();
+      try { options.refused?.({ family: familyName && familyName in ROUTES ? familyName : null, path, status, reason }); } catch { /* Diagnostics never answer for the relay. */ }
+      return Response.json({ type: "error", error: { type: reason === "budget_exceeded" ? "budget_exceeded" : "brain_provider_refused", message } }, { status });
+    };
+    if (request.method !== "POST") return refuse(405, "method_not_allowed", "Only provider requests are relayed");
+    if (!familyName || !Object.hasOwn(ROUTES, familyName)) return refuse(403, "unknown_family", "Not a relayed provider");
+    const family = familyName as ProviderRelayFamily;
+    const route = url.search ? undefined : ROUTES[family].find(candidate => candidate.path.test(path));
+    if (!route) return refuse(403, "route_not_allowed", "This path is not a relayed provider route");
+    const key = request.headers.get(PROVIDER_RELAY_KEY_HEADER) ?? FIRST_PARTY_PROVIDER_RECIPIENTS[family].key;
+    const origin = request.headers.get(PROVIDER_RELAY_ORIGIN_HEADER) ?? FIRST_PARTY_PROVIDER_RECIPIENTS[family].origin;
+    if (!isExactProviderOrigin(origin) || !authorized(family, key, origin)) {
+      return refuse(403, "recipient_not_authorized", `${origin} may not receive ${key}; list it as ${key}=${origin} in BRAIN_UI_CLI_PROVIDER_ORIGINS`);
+    }
+    const secret = credential(key);
+    if (!secret || /[\r\n]/.test(secret)) return refuse(403, "credential_unavailable", `The host has no ${key} to relay`);
+    const budget = options.admit?.() ?? { allowed: true as const };
+    if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
+    const target = new URL(path, origin);
+    const operation = options.egress?.relayed(request.method, target, request.signal);
+    const signal = operation ? AbortSignal.any([request.signal, operation.signal]) : request.signal;
+    if (operation && !await operation.admit()) {
+      const cancelled = request.signal.aborted || operation.outcome() === "cancelled";
+      operation.finish(cancelled ? "cancelled" : "denied", "provider_admission_refused");
+      return refuse(cancelled ? 499 : 403, cancelled ? "cancelled" : "egress_refused", "Provider network admission refused");
+    }
+    const denied = (reason: string, status = 403): Response => {
+      operation?.finish("denied", reason);
+      return refuse(status, reason === "provider_request_too_large" ? "request_too_large" : "egress_refused",
+        reason === "max_bytes_per_turn" ? "Provider egress limit exceeded" : "Provider request refused");
+    };
+    if (Number(request.headers.get("content-length") ?? "0") > MAX_PROVIDER_REQUEST_BYTES) return denied("provider_request_too_large", 413);
+    // Charge each received chunk before retaining or forwarding it, against
+    // this request's ceiling, the turn's byte ceiling and the relay's
+    // aggregate buffer. The whole body must arrive before its deadline.
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    const reader = request.body?.getReader();
+    const uploadDeadline = AbortSignal.timeout(PROVIDER_REQUEST_UPLOAD_MS);
+    const cancelBody = () => { void reader?.cancel().catch(() => {}); };
+    signal.addEventListener("abort", cancelBody, { once: true });
+    uploadDeadline.addEventListener("abort", cancelBody, { once: true });
+    if (signal.aborted) cancelBody();
+    try {
+      if (reader) for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        length += next.value.byteLength;
+        if (length > MAX_PROVIDER_REQUEST_BYTES || operation && !operation.charge(next.value.byteLength + 16)) {
+          await reader.cancel().catch(() => {});
+          return denied(length > MAX_PROVIDER_REQUEST_BYTES ? "provider_request_too_large" : "max_bytes_per_turn",
+            length > MAX_PROVIDER_REQUEST_BYTES ? 413 : 403);
+        }
+        if (!reserve(next.value.byteLength)) {
+          await reader.cancel().catch(() => {});
+          operation?.finish("denied", "relay_busy");
+          return refuse(503, "relay_busy", "Provider relay busy");
+        }
+        chunks.push(next.value);
+      }
+      if (uploadDeadline.aborted) throw new Error("upload deadline");
+    } catch {
+      const late = uploadDeadline.aborted && !signal.aborted;
+      operation?.finish(late ? "denied" : "cancelled", late ? "provider_upload_timeout" : "client_disconnected");
+      return late ? refuse(408, "upload_timeout", "Provider request body did not arrive in time")
+        : refuse(499, "cancelled", "Provider request cancelled");
+    } finally {
+      signal.removeEventListener("abort", cancelBody); uploadDeadline.removeEventListener("abort", cancelBody); reader?.releaseLock();
+    }
+    const body = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    const headers = new Headers();
+    for (const [name, value] of request.headers) if (!STRIPPED.has(name.toLowerCase())) headers.set(name, value);
+    for (const [name, value] of Object.entries(PLACEMENT[family](secret))) headers.set(name, value);
+    const { model, streaming } = await requestFacts(family, path, headers.get("content-type"), body);
+    // Streamed answers carry usage in events this relay does not read: refuse
+    // them rather than count their spend as unknown (#1673).
+    if (streaming) {
+      operation?.finish("denied", "streaming_not_relayed");
+      return refuse(403, "streaming_not_relayed", "Streaming provider requests are not relayed");
+    }
+    const inlineMedia = family === "gemini" && /"inlineData"|"inline_data"/.test(new TextDecoder().decode(body.subarray(0, Math.min(body.byteLength, 8 * 1024 * 1024))));
+    if (signal.aborted) {
+      operation?.finish("cancelled", "client_disconnected");
+      return refuse(499, "cancelled", "Provider request cancelled");
+    }
+    const headerBytes = (first: string, values: Headers): number => {
+      let bytes = Buffer.byteLength(first) + 1028;
+      for (const [name, value] of values) bytes += Buffer.byteLength(name) + Buffer.byteLength(value) + 4;
+      return bytes;
+    };
+    if (operation && !operation.charge(headerBytes(`POST ${path} HTTP/1.1`, headers))) return denied("max_bytes_per_turn");
+    // Admission again, after every wait: a scope may have blocked meanwhile.
+    const now = options.admit?.() ?? { allowed: true as const };
+    if (!now.allowed) {
+      operation?.finish("denied", "budget_exceeded");
+      return refuse(403, "budget_exceeded", now.message);
+    }
+    const attemptId = crypto.randomUUID();
+    let reported = false;
+    const observe = (outcome: ProviderRelayReceipt["outcome"], status: number, usage: ProviderUsage | null): void => {
+      try { options.observe?.({ attemptId, family, operation: route.operation, origin, key, model, outcome, status, usage, inlineMedia }); }
+      catch { /* The host's own accounting reports its failure; the worker's answer is unaffected. */ }
+    };
+    const report = (outcome: Exclude<ProviderRelayReceipt["outcome"], "dispatched">, status: number, usage: ProviderUsage | null): void => {
+      if (reported) return;
+      reported = true;
+      observe(outcome, status, usage);
+      done();
+    };
+    observe("dispatched", 0, null);
+    let response: Response;
+    try {
+      // Never follow a redirect: the upstream must not choose another host.
+      response = await fetch(target, { method: "POST", headers, body, redirect: "manual", signal });
+    } catch {
+      operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_unreachable");
+      // The request may have reached the provider: its spend is unknown, never zero.
+      report(signal.aborted ? "cancelled" : "failed", 0, null);
+      return refuse(signal.aborted ? 499 : 502, signal.aborted ? "cancelled" : "upstream_unreachable",
+        signal.aborted ? "Provider request cancelled" : "Provider upstream unreachable");
+    }
+    free();
+    if (response.status >= 300 && response.status < 400) {
+      operation?.finish("failed", "upstream_redirected");
+      await response.body?.cancel().catch(() => {});
+      report("failed", response.status, null);
+      return refuse(502, "upstream_redirected", "Provider upstream redirected; redirects are not followed");
+    }
+    const out = new Headers();
+    // An upstream that echoes the key (a gateway's diagnostics) must not hand it to the worker.
+    for (const [name, value] of response.headers) if (!RESPONSE_STRIPPED.has(name.toLowerCase()) && !value.includes(secret)) out.set(name, value);
+    const scrub = keyScrubber(secret);
+    if (operation && !operation.charge(headerBytes(`HTTP/1.1 ${response.status} ${response.statusText}`, response.headers))) {
+      operation.finish("denied", "max_bytes_per_turn");
+      await response.body?.cancel().catch(() => {});
+      report("cancelled", response.status, null);
+      return refuse(403, "egress_refused", "Provider egress limit exceeded");
+    }
+    const json = /\bjson\b/i.test(response.headers.get("content-type") ?? "");
+    const captured: Uint8Array[] = [];
+    let capturedBytes = 0;
+    const settle = (): void => {
+      let usage: ProviderUsage | null = null;
+      if (capturing && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) {
+        try { usage = providerUsage(family, route.operation, JSON.parse(Buffer.concat(captured).toString("utf8"))); }
+        catch { usage = null; }
+      }
+      report(response.ok ? "completed" : "failed", response.status, usage);
+    };
+    if (!response.body) {
+      operation?.finish("completed");
+      settle();
+      return new Response(null, { status: response.status, headers: out });
+    }
+    let capturing = json;
+    const upstreamReader = response.body.getReader();
+    let released = false;
+    const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
+    const output = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const next = await upstreamReader.read();
+          if (next.done) {
+            operation?.finish("completed"); settle(); release();
+            const tail = scrub(new Uint8Array(0), true);
+            if (tail.byteLength) controller.enqueue(tail);
+            controller.close(); return;
+          }
+          if (operation && !operation.charge(next.value.byteLength + 16)) {
+            operation.finish("denied", "max_bytes_per_turn");
+            report("cancelled", response.status, null);
+            await upstreamReader.cancel().catch(() => {}); release();
+            controller.error(new Error("Provider egress limit exceeded"));
+            return;
+          }
+          capturedBytes += next.value.byteLength;
+          if (capturing && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) captured.push(next.value);
+          // Past the ceiling the usage stays unknown: release what was kept.
+          else if (capturing) { capturing = false; captured.length = 0; }
+          const clean = scrub(next.value, false);
+          if (clean.byteLength) controller.enqueue(clean);
+        } catch {
+          operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
+          report(signal.aborted ? "cancelled" : "failed", response.status, null);
+          release(); controller.error(new Error("Provider response interrupted"));
+        }
+      },
+      async cancel() {
+        operation?.finish("cancelled", "client_disconnected");
+        report("cancelled", response.status, null);
+        await upstreamReader.cancel().catch(() => {}); release();
+      },
+    });
+    return new Response(output, { status: response.status, headers: out });
+  }
   chmodSync(socketPath, separateIdentity ? 0o660 : 0o600);
-  let stopped = false;
+  let stopping: Promise<void> | undefined;
   return {
     dir,
     socketPath,
     stop() {
-      if (stopped) return;
-      stopped = true;
-      void server.stop(true);
-      rmSync(dir, { recursive: true, force: true });
+      return stopping ??= (async () => {
+        // Closing every connection cancels each in-flight attempt, which then reports.
+        void server.stop(true);
+        rmSync(dir, { recursive: true, force: true });
+        if (active > 0) {
+          let wake!: () => void;
+          const settled = new Promise<void>(resolve => { wake = resolve; idle.add(wake); });
+          await Promise.race([settled, Bun.sleep(STOP_SETTLE_MS)]);
+          idle.delete(wake);
+        }
+      })();
     },
   };
 }
 
-/** The model the request names: in the path for Gemini, the JSON or multipart `model` field otherwise. */
-async function requestedModel(family: ProviderRelayFamily, path: string, contentType: string | null, body: Uint8Array): Promise<string | null> {
+/**
+ * Replace every occurrence of `secret` in a byte stream, including one split
+ * across chunks: the tail that could start a match is held for the next chunk.
+ */
+function keyScrubber(secret: string): (chunk: Uint8Array, final: boolean) => Uint8Array {
+  const needle = Buffer.from(secret), redacted = Buffer.from("[redacted]");
+  let carry = Buffer.alloc(0);
+  return (chunk, final) => {
+    const data = carry.byteLength ? Buffer.concat([carry, chunk]) : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    const parts: Buffer[] = [];
+    let start = 0;
+    for (let found = data.indexOf(needle); found !== -1; found = data.indexOf(needle, start)) {
+      parts.push(data.subarray(start, found), redacted); start = found + needle.byteLength;
+    }
+    const rest = data.subarray(start);
+    const keep = final ? 0 : Math.min(rest.byteLength, needle.byteLength - 1);
+    parts.push(rest.subarray(0, rest.byteLength - keep));
+    carry = Buffer.from(rest.subarray(rest.byteLength - keep));
+    return new Uint8Array(Buffer.concat(parts));
+  };
+}
+
+/**
+ * What the request names: its model (in the path for Gemini, the JSON or
+ * multipart `model` field otherwise) and whether it asks for a streamed answer.
+ */
+async function requestFacts(family: ProviderRelayFamily, path: string, contentType: string | null, body: Uint8Array): Promise<{ model: string | null; streaming: boolean }> {
   const valid = (value: unknown): string | null => typeof value === "string" && /^[A-Za-z0-9._:/-]{1,128}$/.test(value) ? value : null;
-  if (family === "gemini") {
-    const fromPath = /^\/v1beta\/models\/([^:]+):/.exec(path)?.[1];
-    if (fromPath) return valid(fromPath);
-  }
+  const fromPath = family === "gemini" ? /^\/v1beta\/models\/([^:]+):/.exec(path)?.[1] : undefined;
   try {
     if (/multipart\/form-data/i.test(contentType ?? "")) {
       const form = await new Response(body as Uint8Array<ArrayBuffer>, { headers: { "content-type": contentType! } }).formData();
-      return valid(form.get("model"));
+      return { model: fromPath ? valid(fromPath) : valid(form.get("model")), streaming: form.get("stream") === "true" };
     }
-    return valid((JSON.parse(new TextDecoder().decode(body)) as { model?: unknown }).model);
-  } catch { return null; }
+    const parsed = JSON.parse(new TextDecoder().decode(body)) as { model?: unknown; stream?: unknown };
+    return { model: fromPath ? valid(fromPath) : valid(parsed.model), streaming: parsed.stream === true };
+  } catch { return { model: fromPath ? valid(fromPath) : null, streaming: false }; }
 }

@@ -115,3 +115,18 @@ test("pricing: embedding modalities, inline media without a split, and completio
     .toBeCloseTo(0.01, 10);
   expect(priceProviderAttempt(attempt({ usage: null }), pricing)).toEqual({ costUsd: null, estimate: null, tokens: null });
 });
+
+test("a dispatched attempt is unknown spend until it settles, then counts once", () => {
+  const f = fixture();
+  try {
+    f.budgets.begin("athena", "ithaca", policy());
+    const settled = attempt();
+    const before = f.budgets.receipt("athena").scopes[0]!.unknownRuns;
+    const pending = f.budgets.observeProvider("athena", { ...settled, outcome: "dispatched", status: 0, usage: null })!;
+    expect(pending.receipt.scopes[0]!.unknownRuns, "DISPATCHED_ATTEMPT_DISCLOSED").toBe(before + 1);
+    const done = f.budgets.observeProvider("athena", settled)!;
+    expect(done.receipt.scopes[0]!.unknownRuns, "SETTLED_ATTEMPT_REPLACES_DISPATCH").toBe(before);
+    expect(done.receipt.scopes[0]!.costUsd).toBeCloseTo(0.2, 10);
+    expect(f.budgets.observeProvider("athena", { ...settled, outcome: "dispatched", status: 0, usage: null }), "SETTLED_ATTEMPT_FINAL").toBeUndefined();
+  } finally { f.close(); }
+});
