@@ -410,6 +410,58 @@ const shapes = await create("staging", 32 * MIB);
     "REFERENCE_VIEW_RELEASE_REMOVES_ITS_NAMES").toBe(false);
 }
 
+// 16. Acquisition (#2429): the real reference service and its real transport
+// workers fetch and check out a 1,200-file Odysseus repository into a
+// quota-limited pool root, publish it, and a sandbox bound to its view reads it.
+{
+  const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
+  const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
+  const { createReferenceGrant } = await import("../../packages/ui-server/src/db/reference-grants.js");
+  const { createReferenceSources } = await import("../../packages/ui-server/src/brain/reference-source.js");
+  const { createReferenceTransport } = await import("../../packages/ui-server/src/brain/reference-transport.js");
+  const srv = "/native-runtime/srv", work = "/native-runtime/ithaca-work";
+  mkdirSync(srv, { recursive: true }); mkdirSync(work, { recursive: true });
+  const gitIn = (cwd: string, ...args: string[]) => command(["git", "-C", cwd, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@ithaca.example", ...args]);
+  gitIn(work, "init", "-q", "-b", "main");
+  for (let book = 0; book < 24; book++) {
+    mkdirSync(join(work, "odyssey", `book-${book}`), { recursive: true });
+    for (let line = 0; line < 50; line++) writeFileSync(join(work, "odyssey", `book-${book}`, `line-${line}.md`), `Ithaca chart: book ${book}, line ${line}.\n`);
+  }
+  gitIn(work, "add", "."); gitIn(work, "commit", "-q", "-m", "Odysseus charts the way home");
+  command(["git", "clone", "-q", "--bare", work, join(srv, "ithaca.git")]);
+  const db = createUiDb(":memory:");
+  const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
+  createReferenceGrant(db, { brain: "ithaca", principalId: penelope.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: penelope.id, now: Date.now() });
+  const pool: import("../../packages/ui-server/src/brain/reference-source.js").ReferencePool = {
+    poolStatus: () => status(),
+    poolCreate: (id: string, purpose: NativePoolRecord["purpose"], from: string | null, allowanceBytes: number) => call<NativePoolRecord>({ operation: "poolCreate", id, purpose, from, allowanceBytes }),
+    poolSeal: (id: string) => seal(id),
+    poolRelease: (id: string) => release(id),
+    poolPublish: (id: string, view: string, name: string) => call<NativePoolRecord>({ operation: "poolPublish", id, view, name }),
+    poolUnpublish: (view: string, name: string) => call<{ view: string; name: string; removed: boolean }>({ operation: "poolUnpublish", view, name }),
+    poolWithdraw: (id: string) => call<NativePoolRecord>({ operation: "poolWithdraw", id }),
+    listPoolRecovery: (after: string | null = null) => call<{ records: NativePoolRecord[]; next: string | null }>({ operation: "listPoolRecovery", after }),
+  };
+  const sources = createReferenceSources({ db, pool, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {} });
+  const lease = await sources.request({ principalId: penelope.id, repository: `file://${srv}/ithaca.git`, revision: "main" });
+  const record = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.view === lease.view && item.state === "sealed")!;
+  note("acquisition", { lease: { ...lease, release: undefined }, record });
+  expect(lease, "REFERENCE_ACQUISITION_PRIVATE_FILE_SOURCE").toMatchObject({ domain: "private", stale: false, commit: gitIn(join(srv, "ithaca.git"), "rev-parse", "main").trim() });
+  expect(record.ownerBytes!, "REFERENCE_ACQUISITION_CHARGED_TO_ITS_ROOT").toBeGreaterThan(256 * 1024);
+  expect(record.ownerBytes!, "REFERENCE_ACQUISITION_WITHIN_ALLOWANCE").toBeLessThanOrEqual(32 * MIB);
+  const count = command(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/mnt", "--ro-bind", lease.viewPath, "/mnt/reference", "--proc", "/proc", "--dev", "/dev",
+    "--unshare-pid", "--die-with-parent", "--", "/bin/sh", "-c", `find /mnt/reference/${lease.name}/odyssey -type f | wc -l; cat /mnt/reference/${lease.name}/odyssey/book-23/line-49.md`]);
+  expect(count, "REFERENCE_ACQUISITION_WORKER_INSPECTS_THROUGH_VIEW").toBe("1200\nIthaca chart: book 23, line 49.\n");
+  lease.release();
+  await sources.revoke({ grantIds: [], principalIds: [penelope.id] }).catch(() => {});
+  db.query("UPDATE reference_grants SET revoked_at = 1").run();
+  await sources.revoke({ grantIds: [], principalIds: [penelope.id] });
+  await sources.close();
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.filter(item => item.view === lease.view && item.state === "sealed"),
+    "REFERENCE_ACQUISITION_WITHDRAWN_ROOT_RELEASED").toEqual([]);
+  db.close();
+}
+
 // 14. Restart reconstruction and the deterministic host projection.
 {
   const kept = await create("source", 4 * MIB);

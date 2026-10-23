@@ -55,6 +55,10 @@ inside still-valid authority. Validation cannot retract bytes already read.
 
 ## Request-only refresh and moving readers
 
+> **2026-10-22 — Implementation (#2429).** The
+> [acquisition record](reference-source-acquisition.md) implements these
+> clocks, the stale fallback and publication through per-domain pool views.
+
 The [refresh clarification](https://github.com/schlessera/brain-kit/issues/2390#issuecomment-6248351828)
 supersedes the earlier periodic-refresh wording: refresh happens only on
 request, with a five-minute cooldown from the last successful source refresh.

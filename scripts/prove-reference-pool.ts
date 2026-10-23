@@ -5,9 +5,11 @@ import { NATIVE_PROOF_IMAGE } from "./prove-native-host.js";
 
 export function referencePoolDockerArgs(root: string, artifact: string, apparmor: boolean, bun: string): string[] {
   return ["docker", "run", "--rm", "--pull=never", "--network=none", "--cap-drop=ALL",
-    ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "CHOWN", "KILL"].map(value => `--cap-add=${value}`),
+    // SETUID/SETGID/SETFCAP (root maps uid 0) and unconfined system paths let the real transport workers (#2429) map their
+    // user namespace and mount their own /proc, as in the native host proof.
+    ...["SYS_ADMIN", "MKNOD", "DAC_OVERRIDE", "FOWNER", "CHOWN", "KILL", "SETUID", "SETGID", "SETFCAP"].map(value => `--cap-add=${value}`),
     "--security-opt=no-new-privileges", `--security-opt=seccomp=${join(root, "scripts/native-proof/seccomp.json")}`,
-    ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []),
+    ...(apparmor ? ["--security-opt=apparmor=brain-kit-native-proof"] : []), "--security-opt=systempaths=unconfined",
     "--device=/dev/loop-control", "--device-cgroup-rule=b 7:2428 rwm", "--device-cgroup-rule=b 7:2429 rwm",
     "--mount", `type=bind,source=${dirname(artifact)},target=/proof-runs`,
     "--mount", `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
