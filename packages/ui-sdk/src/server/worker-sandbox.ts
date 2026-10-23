@@ -69,10 +69,26 @@ export interface WorkerArea {
  * the masked view, so it never held the masked documents.
  */
 export interface WorkerProviderMasks {
-  /** Literal repo-relative provider folder roots, masked when present in the worker's view. */
+  /**
+   * Literal repo-relative provider folder roots the turn's recipient may not
+   * see, masked when present in the worker's view. Empty when a proven
+   * recipient is allowed every provider folder (#2695).
+   */
   readonly folders: readonly string[];
-  /** Absolute host directory mounted read-write over `.brain-index/`. */
-  readonly index: string;
+  /**
+   * Absolute host directory mounted read-write over `.brain-index/`, with
+   * `.git` hidden. Present exactly when `folders` is not empty: a turn allowed
+   * every provider folder keeps the real index and its history.
+   */
+  readonly index?: string;
+}
+
+/** The proven inference recipient a turn's provider folders were judged against (#2695). */
+export interface WorkerInferenceRecipient {
+  /** The provider policy name, e.g. `anthropic`. */
+  readonly name: string;
+  /** The exact origin the name was proven from; the turn's relay reaches no other. */
+  readonly origin: string;
 }
 
 export interface WorkerSandbox {
@@ -95,8 +111,10 @@ export interface WorkerSandbox {
   readonly protection?: WorkerProtection;
   /** Frozen topology plan for host publication; does not grant access to provider-restricted data. */
   readonly retainedFolders?: readonly string[];
-  /** @internal Host-prepared provider data masks for a turn whose recipient no provider folder rule allows (#1668). */
+  /** @internal Host-prepared provider data masks for a turn under provider folder rules (#1668, #2695). */
   readonly providerMasks?: WorkerProviderMasks;
+  /** @internal The proven recipient admission unmasked provider folders for; absent while none is proven (#2695). */
+  readonly inferenceRecipient?: WorkerInferenceRecipient;
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -543,7 +561,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
   }
-  if (profile !== "restricted" && sandbox.providerMasks) {
+  if (profile !== "restricted" && sandbox.providerMasks?.folders.length) {
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
     lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }

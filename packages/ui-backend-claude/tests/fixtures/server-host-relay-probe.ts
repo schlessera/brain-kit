@@ -35,7 +35,11 @@ if (process.argv.includes("login-in-brain")) {
 }
 const mode = process.argv.find(arg => ["three", "project-aba", "project-custom", "managed-aba", "managed-custom", "recorder-failure", "cleanup-failure",
   "server-custom-unlisted", "server-custom-listed", "server-custom-other-port", "server-custom-project-same", "server-custom-project-other",
-  "api-key", "api-token", "api-key-project-custom", "api-key-project-credential", "outside-masks", "login-in-brain"].includes(arg)) ?? "three";
+  "api-key", "api-token", "api-key-project-custom", "api-key-project-credential", "outside-masks", "login-in-brain",
+  "recipient-admitted", "recipient-other"].includes(arg)) ?? "three";
+// Provider folders admitted for a recipient at one origin (#2695): the relay may reach only that origin.
+const inferenceRecipient = mode === "recipient-admitted" ? { name: "anthropic", origin: "https://api.anthropic.com" }
+  : mode === "recipient-other" ? { name: "anthropic", origin: "https://gateway.ithaca.invalid" } : undefined;
 // An API-billed profile: its key is read from the host environment by name.
 const apiBilled = mode.startsWith("api-");
 const apiSecret = "odysseus-api-secret-for-ithaca", hostLogin = "odysseus-ambient-host-login";
@@ -194,7 +198,8 @@ try {
       await runner.startTurn({ prompt: turn ? "Continue the Ithaca plan." : "Plan the return to Ithaca.",
         sessionId, profileId: "claude", signal: controller.signal, bridge,
         ...(view ? { workerStartupView: view } : {}),
-        workerSandbox: { brain: brainPath, restricted: false, profile: managed ? "strict" : "governed", areas: [], scratchAliasesRemoved: [], protection: { paths: [], ancestors: [] }, egress: proxy },
+        workerSandbox: { brain: brainPath, restricted: false, profile: managed ? "strict" : "governed", areas: [], scratchAliasesRemoved: [], protection: { paths: [], ancestors: [] }, egress: proxy,
+          ...(inferenceRecipient ? { inferenceRecipient } : {}) },
         workerStarted: worker => { const state = worker as unknown as { pid: number; state?: { root: string } }; liveWorker = state;
           if (state.state && !managed) { try { readFileSync(join(state.state.root, ".credentials.json")); projectedCredentials = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
         },

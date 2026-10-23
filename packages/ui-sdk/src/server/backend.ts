@@ -686,6 +686,17 @@ export interface AgentBackend {
   listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
   /** Resolve configured authority in the trusted host, before any worker initializes. */
   brainApplicationPolicy?(req: Pick<StartTurnRequest, "profileId" | "posture" | "autonomous" | "noGrantSurface" | "enforceAllowedTools">): import("./brain-application.js").BrainApplicationPolicy;
+  /**
+   * The exact origin (`scheme://host[:port]`) an ordinary turn on this
+   * profile, or resuming this session, sends inference to through the host
+   * inference relay, resolved in the trusted host before the turn starts.
+   * Undefined when the backend cannot say. Turn admission names the
+   * recipient from it and judges provider folders against that name (#2695);
+   * the turn then refuses a relay to any other origin
+   * (`WorkerSandbox.inferenceRecipient`). Optional; a backend without it has
+   * no proven recipient, so provider folders stay masked.
+   */
+  inferenceOrigin?(req: { profileId?: string; sessionId?: string }): Promise<string | undefined>;
   startTurn(req: StartTurnRequest): Promise<void>;
   /**
    * Inject a user message into a session's RUNNING turn (only when

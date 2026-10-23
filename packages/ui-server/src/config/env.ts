@@ -20,6 +20,7 @@ import { join, resolve } from "path";
 import { isThinkingLevel, type ThinkingLevel } from "@schlessera/brain-ui-sdk/protocol";
 
 import { CRON_CONTROL_ENV_NAMES } from "../cron/emit.js";
+import { parseProviderRecipientOrigins } from "../brain/provider-recipients.js";
 
 import { SEVERITIES, type Severity } from "../observability/types.js";
 import { envFlag, type DynamicEnvReadSpec } from "@schlessera/brain-common/internal/env";
@@ -329,6 +330,20 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "BRAIN_UI_NATIVE_BRAIN_DELTA_BYTES",
     description: "Positive bound for one native metadata delta stream; exceeding it refuses the observation explicitly. Content and retained-history capacities are separate.",
     default: "67108864 (64 MiB)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS",
+    description:
+      "Trusted gateway origins a provider policy may name (#2695): " +
+      "`name=origin[,origin];name=origin`, for example " +
+      "`anthropic=https://gateway.ithaca.invalid`. A hosted turn whose inference " +
+      "relay forwards to a listed origin counts as that recipient for the " +
+      "governance policy's `providers` rules. Built-in vendor origins need no " +
+      "entry; every other origin, including one listed only to receive a " +
+      "credential, is an unknown recipient that sees no provider folder. A " +
+      "malformed entry, or one naming a built-in origin another name, refuses the boot.",
+    default: "(empty)",
     required: false,
   },
   {
@@ -776,6 +791,8 @@ export interface ServerConfig {
   nativeBrain?: { socketPath: string; timeoutMs: number; maxDeltaBytes: number; leasePath?: string };
   /** Reference-source clocks and admission (#2429); absent programmatic callers use the five-minute, two-operation defaults. */
   referenceSource?: { validationMs: number; refreshMs: number; operations: number };
+  /** Operator-named gateway origins for provider policy recipients (#2695); absent names none. */
+  providerRecipientOrigins?: ReadonlyMap<string, string>;
   /** Resolved by the host edge; optional for existing programmatic callers, which use SDK defaults. */
   maintenanceTemp?: { allowanceBytes: number; budgetBytes: number };
   askUserFormLimits?: AskUserFormLimits;
@@ -1045,6 +1062,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
   return {
     nativeBrain: resolveNativeBrainConfig(env),
     referenceSource: resolveReferenceSourceConfig(env),
+    providerRecipientOrigins: parseProviderRecipientOrigins(env.BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS),
     maintenanceTemp: hostMaintenanceTempLimits(env),
     brainPath,
     storage: { backupRoots: storageRoots(env.BRAIN_UI_STORAGE_BACKUP_ROOTS, 4), gitRoots: storageRoots(env.BRAIN_UI_STORAGE_GIT_ROOTS, 16) },

@@ -71,7 +71,7 @@ test("a denied turn reads its provider folder as empty, has no history and searc
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
     const masks = hold.sandbox.providerMasks!;
     expect(masks.folders, "EVERY_PROVIDER_FOLDER_MASKED_WITHOUT_A_PROVEN_RECIPIENT").toEqual(["me"]);
-    expect(existsSync(join(masks.index, "brain.db")), "PRIVATE_INDEX_IN_ITS_OWN_DIRECTORY").toBe(true);
+    expect(existsSync(join(masks.index!, "brain.db")), "PRIVATE_INDEX_IN_ITS_OWN_DIRECTORY").toBe(true);
     const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c", `
       printf 'me=%s\\n' "$(ls -A me | wc -l)"
       cat me/oath.md 2>/dev/null && printf 'READ_MASKED\\n'
@@ -92,7 +92,7 @@ test("a denied turn reads its provider folder as empty, has no history and searc
       command: [...CLI, "index", "--json"] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(capture.exitCode, `PRIVATE_INDEX_WRITABLE: ${capture.stderr.toString()}`).toBe(0);
   } finally { await hold.end(); }
-  expect(existsSync(hold.sandbox.providerMasks!.index), "PRIVATE_INDEX_REMOVED_AFTER_THE_TURN").toBe(false);
+  expect(existsSync(hold.sandbox.providerMasks!.index!), "PRIVATE_INDEX_REMOVED_AFTER_THE_TURN").toBe(false);
 });
 
 test("the private index survives the real index being replaced under a running denied turn", async () => {

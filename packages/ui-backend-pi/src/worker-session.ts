@@ -18,7 +18,7 @@ import { sessionReplay, NativeFileVersions, workerOutwardNote, workerCommandPoli
 
 import { decidePiToolPermission } from "./permission-gate.js";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
-import { preparePiHostInference, type PiHostInference } from "./host-inference.js";
+import { piRelayOrigin, preparePiHostInference, type PiHostInference } from "./host-inference.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
 import { createTurnContext } from "./turn-context.js";
@@ -30,7 +30,7 @@ import { checkSessionSize, PI_WORKER_STATE, SessionTooLargeError, pipeMessages, 
 
 type Rpc = Extract<PiWorkerMessage, { type: "rpc" }>;
 /** The model a saved session last used: its latest model change, else its latest answer. */
-function savedModel(entries: import("@earendil-works/pi-coding-agent").FileEntry[]): { provider: string; id: string } | undefined {
+export function savedModel(entries: import("@earendil-works/pi-coding-agent").FileEntry[]): { provider: string; id: string } | undefined {
   for (const entry of [...entries].reverse() as Array<Record<string, any>>) {
     if (entry.type === "model_change" && typeof entry.provider === "string" && typeof entry.modelId === "string") return { provider: entry.provider, id: entry.modelId };
     const message = entry.type === "message" ? entry.message : undefined;
@@ -43,6 +43,26 @@ function grantedReadBasePath(granted: string): string | undefined {
   try { const parsed = brainReadBaseInput.safeParse(JSON.parse(granted)); return parsed.success ? parsed.data.path : undefined; }
   catch { return undefined; }
 }
+/**
+ * The exact origin a governed or strict turn's relay would reach (#2695): the
+ * model `openPiWorkerSession` relays, resolved without opening a worker. A
+ * new conversation uses the profile's declared model, a resumed one the
+ * session's last model. Undefined when either cannot be resolved here.
+ */
+export async function piInferenceOrigin(backend: CreatePiBackendOptions, sessionDir: string, req: { profileId?: string; sessionId?: string }): Promise<string | undefined> {
+  try {
+    let ref: { provider: string; id: string } | undefined;
+    if (req.sessionId) {
+      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(req.sessionId)) return undefined;
+      ref = savedModel(readPiSession(join(sessionDir, `${req.sessionId}.jsonl`)));
+    } else {
+      const declared = toModel(resolveModelSpec(backend, req.profileId));
+      ref = declared ? { provider: declared.provider, id: declared.id } : undefined;
+    }
+    return ref ? await piRelayOrigin({ provider: ref.provider, modelId: ref.id, agentDir: piSessionDirectory(backend.brainPath, getAgentDir()) }) : undefined;
+  } catch { return undefined; }
+}
+
 export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessionDir: string,
   env: SessionEnv, profileId?: string, resumeId?: string, nativeSessions = new Map<string, NativeFileVersions>()) {
   const startupStarted = performance.now();
@@ -117,6 +137,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const egress = !env.autonomous ? env.workerSandbox?.egress : undefined;
   const relayedModel = egress ? declared ?? (entries ? savedModel(entries) : undefined) : undefined;
   if (egress && !relayedModel) throw new BackendRequestError("A pi turn on the host inference relay needs a declared vendor/model profile.");
+  // Provider folders admitted for a proven recipient (#2695): only its relay may carry this turn.
+  const recipient = !env.autonomous ? env.workerSandbox?.inferenceRecipient : undefined;
+  if (recipient && !egress) throw new BackendRequestError("This turn's provider folders were admitted for a recipient, but it has no inference relay to hold it to.");
   // Acquired inside the admission scope below, so every later failure releases it.
   let hostInference: PiHostInference | undefined;
   // A relayed worker gets only settings: the host keeps credentials and endpoints.
@@ -149,6 +172,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   try {
     if (egress && relayedModel) {
       hostInference = await preparePiHostInference({ provider: relayedModel.provider, modelId: relayedModel.id, agentDir,
+        ...(recipient ? { recipientOrigin: recipient.origin } : {}),
         brainPath: backend.brainPath, egress, environment: subprocessEnv(), ...(env.workerSignal ? { signal: env.workerSignal } : {}) });
       Object.assign(init, { relayed: hostInference.worker });
     }

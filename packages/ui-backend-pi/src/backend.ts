@@ -44,6 +44,7 @@ import {
   toolLockFromWriteLock,
 } from "./tools.js";
 import { createPiTurnRunner, toImages } from "./turn-runner.js";
+import { piInferenceOrigin } from "./worker-session.js";
 
 export const PI_BACKEND_ID = "pi";
 
@@ -127,6 +128,8 @@ export function createPiBackend(options: CreatePiBackendOptions): AgentBackend {
       const autoAllowed = (Object.keys(names) as (keyof typeof names)[]).filter(op => allowed.has(names[op]));
       return { autoAllowed, enforceAllowedTools: req.enforceAllowedTools, available: (req.noGrantSurface || req.autonomous) ? autoAllowed : Object.keys(names) as (keyof typeof names)[], lock: { withLock: (key, fn, admission) => lock.withKey(key, fn, admission) } };
     },
+    // Only the worker path has a host inference relay to prove a recipient (#2695).
+    ...(!options.sessionFactory ? { inferenceOrigin: (req: { profileId?: string; sessionId?: string }) => piInferenceOrigin(options, sessionDir, req) } : {}),
     startTurn,
     async followUp(req: FollowUpRequest): Promise<void> {
       // Follow-up only lands in a RUNNING turn; the host queues it as the

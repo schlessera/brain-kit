@@ -86,9 +86,9 @@ providers refused rather than treated as first-party evidence.
 
 The current inference relay already strips inbound credentials, selects its
 fixed origin/routes and invokes host credentials for each dispatch
-(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:64-243`).
+(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:70-252`).
 Its event has outcome/status, not provider usage
-(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:40-46`).
+(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:46-52`).
 For these CLI consumers, the host would supply a non-secret transport projection
 and keep real keys outside the worker. A fixture key reaching a loopback upstream
 is not proof of that credential-free projection.

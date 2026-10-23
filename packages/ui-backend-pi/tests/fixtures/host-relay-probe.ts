@@ -123,9 +123,13 @@ interface Scenario { provider: string; model: string; auth?: object; models?: ob
   /** The model's first answer runs this bash command. */
   tool?: string;
   /** pi's models.json is a link into the brain. */
-  brainModels?: boolean }
+  brainModels?: boolean;
+  /** The origin turn admission proved the recipient from (#2695). */
+  recipient?: string }
 const custom = upstream.url.origin;
 const scenarios: Record<string, Scenario> = {
+  "recipient-admitted": { provider: "openai", model: "gpt-4o-mini", env: { OPENAI_API_KEY: SECRETS.openai }, recipient: "https://api.openai.com", turns: 2 },
+  "recipient-other": { provider: "openai", model: "gpt-4o-mini", env: { OPENAI_API_KEY: SECRETS.openai }, recipient: "https://api.anthropic.com" },
   "openai-env-key": { provider: "openai", model: "gpt-4o-mini", env: { OPENAI_API_KEY: SECRETS.openai }, turns: 2 },
   "configured-header-wins": { provider: "openai", model: "gpt-4o-mini", env: { OPENAI_API_KEY: SECRETS.openai, ODYSSEUS_GATEWAY_TOKEN: SECRETS.gateway },
     models: { providers: { openai: { headers: { Authorization: "Bearer $ODYSSEUS_GATEWAY_TOKEN" } } } } },
@@ -205,6 +209,7 @@ try {
     const frames: ServerMessage[] = [];
     const outcomes: Array<string | null> = [];
     let thrown: string | undefined, sessionId: string | undefined, relayLinkRemoved = true;
+    const origins: Array<string | null> = [];
     for (let turn = 0; turn < (scenario.turns ?? 1) && !thrown; turn++) {
       const controller = new AbortController();
       const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [], maxBytes: 8 * 1024 * 1024,
@@ -213,10 +218,12 @@ try {
       // Only this turn's frames decide its outcome.
       const firstFrame = frames.length;
       try {
+        origins.push(await backend.inferenceOrigin?.(sessionId ? { sessionId } : { profileId: "fixture" }) ?? null);
         // A resumed turn names only its session: the relay follows the saved model.
         await startFixtureTurn(backend, brain, { prompt: "Odysseus checks the route to Ithaca.", ...(sessionId ? { sessionId } : { profileId: "fixture" }),
           signal: controller.signal, turnId: `odysseus-${name}-${turn}`,
-          workerSandbox: { ...prepareFixtureWorkerSandbox(brain, { profile: "governed" }), egress: proxy },
+          workerSandbox: { ...prepareFixtureWorkerSandbox(brain, { profile: "governed" }), egress: proxy,
+            ...(scenario.recipient ? { inferenceRecipient: { name: "fixture", origin: scenario.recipient } } : {}) },
           workerStarted: started => { worker = started as unknown as typeof worker; },
           bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; } } });
       } catch (error) { thrown = error instanceof Error ? error.message : String(error); }
@@ -232,7 +239,7 @@ try {
     }
     const hostAuth = existsSync(join(agent, "auth.json")) ? JSON.parse(readFileSync(join(agent, "auth.json"), "utf8")) : undefined;
     results[name] = {
-      outcomes, thrown: thrown ?? null, refreshes, toolFetches, toolOutputSeen, hostFetches,
+      outcomes, origins, thrown: thrown ?? null, refreshes, toolFetches, toolOutputSeen, hostFetches,
       requests: requests.map(request => ({ ...request, authorization: credentialName(request.authorization), apiKey: credentialName(request.apiKey) })),
       inference: records.map(record => ({ inference: record.inference ?? false, host: record.host, path: record.path ?? null, outcome: record.outcome })),
       workerObserved: observed.length > 0, hostCredentialFilesVisible: viewed, workerViewObserved: controlViewed,

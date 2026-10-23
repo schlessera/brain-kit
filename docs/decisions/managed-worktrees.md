@@ -95,7 +95,7 @@ observation. Nothing in this layer deletes a worktree.
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:544-556`;
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:555-567`;
 `// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:754-765`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
@@ -152,7 +152,7 @@ Ordinary brain and workspace journaling is unchanged.
 ## Guidance
 
 Workers with a bound generation receive fixed guidance in the existing sandbox
-note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:471-477`):
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:489-495`):
 shared source is read-only and moves, a worktree starts at a reported commit
 that never moves, where to work, that edits are journaled and scope-counted,
 that only explicit access or renewal resets the three-day clock, that expiry

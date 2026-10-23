@@ -57,6 +57,27 @@ credential remains mandatory for custom OAuth recipients. This input neither
 sanitizes arbitrary unrelated provider/command credentials nor completes the
 credential capability and maintenance cutover in #1666.
 
+## Inference recipient origin (additive, #2695)
+
+`AgentBackend` adds optional `inferenceOrigin(req: { profileId?: string;
+sessionId?: string }): Promise<string | undefined>`. It returns the exact origin
+(`scheme://host[:port]`) that an ordinary turn on that profile, or resuming
+that session, sends inference to through the host inference relay. The server
+calls it in the trusted host before admission and names the turn's provider
+policy recipient from it: a built-in vendor origin, or one listed in the
+server's `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` (`name=origin[,origin];...`).
+A backend that omits it, returns `undefined` or does not run the relay has no
+proven recipient, so every provider folder stays masked for its turns.
+
+The internal `WorkerSandbox` gains optional `@internal inferenceRecipient`
+(`{ name, origin }`), and `providerMasks.index` becomes optional: absent
+exactly when `providerMasks.folders` is empty, for a turn whose recipient
+is allowed every provider folder. A backend that receives `inferenceRecipient`
+passes its origin to `startInferenceRelay` as the new internal
+`recipientOrigin` option. The relay then refuses to start toward any other
+origin, and a turn without a relay refuses to start. The first-party
+Claude and pi backends implement all three.
+
 **Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
 adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
 glyph and accessible label remain outside the truncating summary label, before

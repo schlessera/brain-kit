@@ -175,6 +175,7 @@ export async function startHandoff(
       ...(msg.draftId ? { draftId: msg.draftId } : {}),
       ...(msg.thinkingLevel !== undefined ? { thinkingLevel: msg.thinkingLevel } : {}),
       handoffHooks: {
+        sourceSessionId: handoff.sourceSessionId,
         onNamed: (sessionId) => {
           entry.sessionId = sessionId;
           recorded = catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceTurns);
@@ -304,6 +305,10 @@ export async function prepareHandoff(
     }
     const transcript = handoffTranscript(throughTurns(history, msg.turns));
     if (!transcript) return answer({ state: "failed", message: "There is nothing in this chat to summarize yet." });
+    // The summary run is not on a turn's inference relay, so no recipient is
+    // proven for it; a chat that showed provider folders keeps them (#2695).
+    const shown = [...new Set((host.governedTurns?.exposures([msg.sourceSessionId]) ?? []).map(exposure => exposure.recipient))].sort();
+    if (shown.length) return answer({ state: "failed", message: `This chat showed folders that the governance policy reserves for ${shown.join(", ")}, so it can't be summarized on a route that can't be proven to reach the same provider. Write the handoff summary yourself.` });
     const profileId = catalog.getStoredProviderId(msg.sourceSessionId) ?? undefined;
     const billing = await resolveRunBilling(host.registry, backend.id, profileId);
     const runId = crypto.randomUUID();

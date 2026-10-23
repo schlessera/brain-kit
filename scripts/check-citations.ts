@@ -578,7 +578,7 @@ export const CITATION_EXCEPTIONS: Record<string, CitationException> = {
     "clients.add without an identity; it now carries the principal",
   "docs/decisions/session-principals.md|ws/connection.ts:173":
     "onMessage dispatching without a re-check; it now re-checks authorization",
-  "docs/decisions/session-principals.md|ws/run-session.ts:134-142":
+  "docs/decisions/session-principals.md|ws/run-session.ts:136-144":
     "the recorder built without an actor; it now receives the principal",
   "docs/decisions/session-principals.md|ws/turns.ts:55-77":
     "RunningTurn without an actor; it now carries principalId",

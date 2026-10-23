@@ -19,7 +19,8 @@ import { createHistory } from "./history.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import { resolveClaudeProfiles } from "./options.js";
 import { resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
-import { listProfiles, listUnavailableProfiles } from "./profiles.js";
+import { getProfile, listProfiles, listUnavailableProfiles } from "./profiles.js";
+import { selectedInferenceUpstream, turnEnv } from "./sdk-options.js";
 import { createClaudeTurnRunner } from "./turn-runner.js";
 import { assertClaudeSdk, claudeRuntimeRequirements } from "./version-requirements.js";
 
@@ -147,6 +148,13 @@ export function createClaudeBackend(options: ClaudeBackendOptions): AgentBackend
         staged: ["mcp__brain-ui__apply_staged_changes"] };
       const autoAllowed = (Object.keys(names) as (keyof typeof names)[]).filter(op => names[op].some(n => allowed.has(n)));
       return { autoAllowed, enforceAllowedTools: req.enforceAllowedTools, available: (req.noGrantSurface || req.autonomous) ? autoAllowed : Object.keys(names) as (keyof typeof names)[], lock: writeLock };
+    },
+    async inferenceOrigin(req) {
+      // The same profile and route the turn runner selects (#2695).
+      const profiles = resolveProfiles();
+      const profile = req.profileId === undefined ? profiles[0] : getProfile(profiles, req.profileId);
+      if (!profile) return undefined;
+      try { return new URL(selectedInferenceUpstream(turnEnv(profile))).origin; } catch { return undefined; }
     },
     startTurn,
     followUp,

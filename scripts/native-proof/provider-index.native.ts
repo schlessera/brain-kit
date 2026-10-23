@@ -7,6 +7,7 @@ import type { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/s
 import { launchAgentWorker, workerCommand } from "../../packages/ui-sdk/src/server/worker-launcher.js";
 import { prepareNativeWorkerOutput } from "../../packages/ui-sdk/src/server/worker-native-output.js";
 import { createGovernedTurns } from "../../packages/ui-server/src/brain/governed-turn.js";
+import { createProviderExposures } from "../../packages/ui-server/src/brain/provider-exposure.js";
 import { createHostExecution } from "../../packages/ui-server/src/brain/host-execution.js";
 import { createUiDb } from "../../packages/ui-server/src/db/client.js";
 import { openDatabase } from "../../packages/core/src/lib/db.js";
@@ -60,7 +61,7 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         expect(hold.sandbox.providerMasks?.folders, "NATIVE_PROVIDER_INDEX_POLICY_APPLIED").toEqual(["me"]);
         const scratch = hold.sandbox.areas.find(area => area.name === "scratch")?.mount;
         expect(scratch?.writable, `NATIVE_PROVIDER_INDEX_WRITABLE_SCRATCH: ${JSON.stringify(scratch)}`).toBe(true);
-        privateIndex = hold.sandbox.providerMasks!.index;
+        privateIndex = hold.sandbox.providerMasks!.index!;
         const info = statSync(privateIndex);
         // The worker's user namespace deliberately does not map the server UID.
         expect(info.uid, "NATIVE_PRIVATE_INDEX_SERVER_OWNER").toBe(21001);
@@ -111,6 +112,51 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
         }
       }
       expect(privateIndex && existsSync(privateIndex), "NATIVE_PRIVATE_INDEX_REMOVED_AFTER_TURN").toBe(false);
+    }
+    // The allowed route (#2695): a turn whose relay reaches Anthropic's own
+    // origin sees the folder, `.git` and the real index on managed storage,
+    // through the separate-UID launch and its pre-payload qualification.
+    for (const profile of ["strict", "governed"] as const) {
+      const root = `/identity-fixture/provider-allowed-${profile}`;
+      mkdirSync(root, { mode: 0o700 });
+      const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
+      const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
+      execution.attach(db);
+      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+        index: async () => {}, report: () => {}, privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"],
+        exposures: createProviderExposures(db) });
+      let hold: Awaited<ReturnType<typeof turns.begin>> | undefined;
+      let prepared: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
+      try {
+        hold = await turns.begin(`native-provider-allowed-${profile}`, new AbortController().signal, "interactive", undefined,
+          { inferenceOrigin: "https://api.anthropic.com" });
+        expect(hold.managedStorage, "NATIVE_ALLOWED_ROUTE_MANAGED_ADMISSION").toBe(true);
+        expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe(profile);
+        expect(hold.sandbox.inferenceRecipient, "NATIVE_ALLOWED_ROUTE_RECIPIENT").toEqual({ name: "anthropic", origin: "https://api.anthropic.com" });
+        expect(hold.sandbox.providerMasks, "NATIVE_ALLOWED_ROUTE_NO_FOLDER_MASK").toEqual({ folders: [] });
+        if (profile === "strict") {
+          prepared = await prepareNativeWorkerOutput(brain, { startupView: hold.startupView!,
+            areas: hold.sandbox.areas.filter(area => area.mount.writable).map(area => area.rel), folderPaths: hold.sandbox.retainedFolders });
+        }
+        // A governed worker binds the live brain, so its real index is this directory; a strict one sees the checkpoint's.
+        const index = profile === "governed" ? (({ dev, ino }) => `${dev}:${ino}`)(statSync(join(brain, ".brain-index"))) : "checkpoint";
+        const worker = launchAgentWorker({ brainPath: brain, sandbox: hold.sandbox,
+          ...(prepared ? { startupView: prepared.view, preparedOutput: prepared } : {}), stateBytes: MIB, turnTempBytes: 16 * MIB,
+          env: { PATH: "/usr/local/bin:/usr/bin:/bin", BRAIN_ROOT: brain, HOME: "/tmp", NO_COLOR: "1" },
+          command: [process.execPath, "/repo/scripts/native-proof/provider-index-worker.ts", profile, index, "allowed"] });
+        const timer = setTimeout(() => worker.kill("SIGKILL"), 30_000);
+        worker.stdin.end();
+        const stdout = text(worker.stdout), stderr = text(worker.stderr);
+        let code: number;
+        try { code = await worker.exited; } finally { clearTimeout(timer); worker.state?.close(); worker.turnTemp?.close(); }
+        expect(code, `NATIVE_${profile.toUpperCase()}_ALLOWED_ROUTE_LAUNCHED: ${await stderr}`).toBe(0);
+        expect(await stdout, "NATIVE_ALLOWED_ROUTE_WORKER_COMPLETED").toContain('"nativeProviderAllowedWorker":"pass"');
+        console.log(JSON.stringify({ nativeProviderAllowed: "pass", profile }));
+      } finally {
+        try { await prepared?.cleanup(); } finally {
+          try { await hold?.end(); } finally { await turns.close(); execution.release(); db.close(); }
+        }
+      }
     }
     // A hardlink out of the masked folder (#2700): the managed Btrfs
     // checkpoint keeps it, so admission must refuse it by name. A governed

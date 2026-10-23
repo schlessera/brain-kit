@@ -41,13 +41,13 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:524-524`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1096`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:539-539`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1114`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:357`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:366`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:142-210`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:419`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:420`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:501-505`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:364-369`).
+  `packages/ui-server/src/app.ts:365-370`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -456,7 +456,7 @@ into them.
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:201-209`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:430`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:439`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -604,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:301`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:310`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1311,7 +1311,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:401-412`).
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:401-416`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a
@@ -1403,13 +1403,13 @@ this concrete delivered prerequisite.
 
 The existing SDK turn builder accepts the same concrete host-prepared proxy
 directory as the ordinary spawn adapter (`hostInference?:`,
-`packages/ui-backend-claude/src/sdk-options.ts:85`). The explicit selection pins
+`packages/ui-backend-claude/src/sdk-options.ts:94`). The explicit selection pins
 the inference OAuth placeholder and Unix socket in both the child environment
 and native flag settings, using the existing subscription credential-clearing
 policy. It does not remove other providers' CLI command environment. Only an
 ordinary subscription turn can select this input; API and autonomous turns
 retain their existing paths (`const inferenceEnv`,
-`packages/ui-backend-claude/src/sdk-options.ts:220-231`). The worker note derives
+`packages/ui-backend-claude/src/sdk-options.ts:229-240`). The worker note derives
 its active-proxy description from that same selection and retains per-use
 outward approvals.
 

@@ -6,7 +6,9 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { createGovernancePolicyReader, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
+import { createGovernancePolicyReader, exposedAnything, exposureConflicts, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
+import type { ProviderExposures } from "./provider-exposure.js";
+import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
 import { readProviderTaxonomy, strayTypedDocuments } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
@@ -25,8 +27,25 @@ export interface GovernedTurnHold {
   /** Call only once every worker has exited. Quarantine precedes gate release. */
   end(): Promise<Reconciliation | null>;
 }
+/** Who a turn's inference reaches and which conversation it continues (#2695). */
+export interface GovernedTurnRoute {
+  /**
+   * The exact origin the turn's host inference relay will forward to, from
+   * its backend. It names the recipient only on managed native storage, where
+   * the relay runs, and the turn's relay then refuses any other origin.
+   */
+  readonly inferenceOrigin?: string;
+  /** The session this turn resumes; absent for a new conversation. */
+  readonly sessionId?: string;
+  /** Sessions whose provider history this new conversation continues: a handoff's source. */
+  readonly inherit?: readonly string[];
+}
 export interface GovernedTurns {
-  begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict"): Promise<GovernedTurnHold>;
+  begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
+  /** A new conversation was named: what its first turn was shown belongs to it (#2695). */
+  bindSession(turnId: string, sessionId: string): void;
+  /** What earlier turns of these sessions showed their recipients (#2695). */
+  exposures(sessionIds: readonly string[]): ProviderExposure[];
   /** Display facts use the same process-local last-valid reader as admission. */
   facts(origin?: "interactive" | "voice"): { policyProfile: "governed" | "strict"; policy: TurnGovernancePolicy };
   /** Deferred maintenance, serialized with application/CLI mutations. */
@@ -43,6 +62,13 @@ export function createGovernedTurns(options: {
   recordPolicy?: (turnId: string, origin: "interactive" | "voice", profile: "governed" | "strict", policy: TurnGovernancePolicy) => void;
   /** The CLI argv that reads a restricted turn's taxonomy and builds its private index; default: the brain's packaged CLI. */
   privateIndexCommand?: readonly string[];
+  /**
+   * Where each conversation's shown provider folders are recorded (#2695).
+   * Without it no recipient is proven, so every provider folder stays masked.
+   */
+  exposures?: ProviderExposures;
+  /** Operator-named gateway origins (`BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`). */
+  recipientOrigins?: ReadonlyMap<string, string>;
 }): GovernedTurns {
   const policyReader = createGovernancePolicyReader(options.brainPath);
   let current: Promise<unknown> | undefined;
@@ -62,7 +88,9 @@ export function createGovernedTurns(options: {
       return { policyProfile: options.profile === "strict" ? "strict" : policy.policy.profiles[origin], policy };
     },
     async close() { closing = true; again = false; await current; },
-    async begin(turnId, signal, origin = "interactive", preference) {
+    bindSession(turnId, sessionId) { options.exposures?.bind(turnId, sessionId); },
+    exposures(sessionIds) { return options.exposures?.forSessions(sessionIds) ?? []; },
+    async begin(turnId, signal, origin = "interactive", preference, route) {
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
@@ -74,10 +102,14 @@ export function createGovernedTurns(options: {
         signal.throwIfAborted();
         const availability = await options.execution.boundary.prepare(signal, startupView);
         const policy = policyReader.load();
-        // No recipient is proven yet (#1665), so a provider rule denies every
-        // turn: each selector that maps exactly onto folders is masked, and
-        // the turn indexes into its own directory from the masked view
-        // (#1668). Any other selector refuses admission by name (#2694).
+        // A provider rule masks its folders from every turn whose recipient it
+        // does not allow (#1668). Only the exact origin of the host inference
+        // relay proves a recipient (#2695), and only on managed native storage,
+        // where that relay runs; any other turn is denied every folder. A masked
+        // turn indexes into its own directory from the masked view. A selector
+        // that does not map exactly onto folders refuses admission (#2694).
+        const recipient = options.exposures && route?.inferenceOrigin && isManagedWorkerStartupView(startupView)
+          ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
         const refused = unsupportedProviderSelectors(policy.policy);
         const types = providerTypeSelectors(policy.policy);
         const translate = async (view: WorkerStartupView) => {
@@ -113,7 +145,14 @@ export function createGovernedTurns(options: {
         if (refused.length) throw new ProviderPolicyRefusedError(refused);
         const typeFolderList = [...new Set(Object.values(typeFolders).flat())].sort();
         if (types.length) rememberProviderTypeFolders(options.brainPath, policy.hash, typeFolderList);
-        const maskedFolders = providerMaskedFolders(policy.policy, typeFolders);
+        const providerFolders = providerMaskedFolders(policy.policy, typeFolders);
+        const maskedFolders = providerDeniedFolders(policy.policy, typeFolders, recipient);
+        // A conversation's provider history keeps what its earlier turns, or a
+        // handoff's source, were shown; this turn's recipient would receive it.
+        const continued = [...(route?.sessionId ? [route.sessionId] : []), ...(route?.inherit ?? [])];
+        const inherited = route?.inherit?.length ? options.exposures?.forSessions(route.inherit) ?? [] : [];
+        const conflicts = exposureConflicts(continued.length ? options.exposures?.forSessions(continued) ?? [] : [], maskedFolders);
+        if (conflicts.length) throw new ProviderRecipientRefusedError(conflicts, recipient);
         const folderPaths = hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList))
           ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
         // Retention needs the directory to exist; the host creates the index
@@ -167,16 +206,25 @@ export function createGovernedTurns(options: {
             maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
           if (!built.ok) options.report(`turn ${turnId} starts with an incomplete private search index: ${built.detail}`);
         }
+        // A turn allowed every provider folder keeps empty masks, so whatever
+        // every provider-rule turn hides regardless of recipient still applies.
+        const providerMasks = privateIndex ? Object.freeze({ folders: Object.freeze(maskedFolders), index: privateIndex })
+          : providerFolders.length ? Object.freeze({ folders: Object.freeze([] as string[]) }) : undefined;
+        const inferenceRecipient = recipient !== undefined && providerFolders.length ? Object.freeze({ name: recipient, origin: route!.inferenceOrigin! }) : undefined;
         const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
-          ...(privateIndex ? { providerMasks: Object.freeze({ folders: Object.freeze(maskedFolders), index: privateIndex }) } : {}),
+          ...(providerMasks ? { providerMasks } : {}), ...(inferenceRecipient ? { inferenceRecipient } : {}),
           ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
         if (policy.errors.length) options.report(`Governance policy invalid; using ${policy.source}: ${policy.errors.join("; ")}`);
         for (const warning of policy.warnings) options.report(`Governance policy warning: ${warning}`);
         const managedStorage = isManagedWorkerStartupView(startupView);
+        if (inferenceRecipient && !managedStorage) throw new Error("The turn's startup view is no longer on managed storage; its inference recipient cannot be proven. Retry admission.");
         if (governed) { await startupView.cleanup(); startupView = undefined; }
         signal.throwIfAborted();
+        // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
+        const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
+        for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
         return { sandbox, policy, managedStorage, ...(startupView ? { startupView } : {}), async end() {
