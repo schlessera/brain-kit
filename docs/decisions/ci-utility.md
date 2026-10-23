@@ -161,6 +161,43 @@ proof. They are not substitutes for automatic event/checkout evidence.
 > offline-boundary and release-tooling test, including measurement isolation,
 > stays in the default discovery and the guarantees this record describes.
 
+### Isolated local import-graph feedback
+
+The coordinator selected option 2 in
+[#2708](https://github.com/schlessera/brain-kit/issues/2708#issuecomment-6366282293):
+reuse the private-workspace queue while keeping Bun's own changed selection
+authoritative. Bun 1.4.2 has no listing-only test mode; candidate listing flags
+are silently ignored and actually run tests. A real twelve-file fixture proves
+that `--changed` selects five files before `--shard` assigns them. Seeded costs
+give three shards of 1 / 1 / 3 files, whose union equals serial selection.
+
+Each local worker runs `bun run test --changed=<merge-base> --shard=i/N`
+with identical timing weights converted from `scripts/test-shard-costs.json`
+seconds to Bun milliseconds. Committed history remains intact. Separate binary
+index/worktree patches and copied untracked inputs preserve Bun's working-tree
+semantics; before/after fingerprints refuse changing source or a mismatched
+worker snapshot. Cleanup undoes only verified captured inputs before ordinary
+Git worktree removal. It never force-removes a dirty worker.
+
+Workers observe Bun's pre-shard selected count and assigned count, then
+reconcile JUnit paths with completed timing paths. All workers must agree on
+the selected count; every assigned count must match its actual report, and the
+union must contain exactly that many distinct paths. Missing or duplicate
+shards/files fail. Bun produces no JUnit for an empty shard; the observer emits
+an explicit zero-file JUnit only after Bun succeeds and reports zero assigned
+files, and timing coverage must still be empty. The real wide-change serial
+inventory is the independent equivalence control, rather than another import
+graph implementation.
+
+`--import-graph-workers=N` overrides local concurrency. Hosted explicit-file
+partitions retain `balanceTests` and N=2. Local workers retain the same private
+checkouts, dependency copies, full build/test lease, offline preload, serial
+compilers, test deadlines, maintenance ledger and diagnostics collector. Their
+CLI report destination is private and outside the public source tree, because
+failure logs may contain machine paths. Complete wall time includes private
+checkout/dependency setup, builds, proof and cleanup; the queue reports checkout,
+dependency-copy and per-worker preparation durations separately.
+
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap

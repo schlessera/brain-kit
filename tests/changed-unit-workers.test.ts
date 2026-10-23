@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runUnitWorkers } from "../scripts/unit-workers";
 import { validateChangedUnitReports, validateUnitReports } from "../scripts/unit-proof-report";
 import { changedSelection, timingSeed } from "../scripts/changed-unit-worker";
 import { localUnitWorkerCount } from "../scripts/unit-workers";
+import { unitInputKey } from "../scripts/unit-worker-inputs";
 import { unitWorkerFixture } from "./helpers/unit-worker-fixture";
 
 function changedFixture() {
@@ -42,7 +43,7 @@ test("${name} receives the same working inputs",()=>{expect(value).toBe(2);expec
   git("add", "packages/raft/staged.ts");
   write("packages/raft/shared.ts", "export const value = 2;\n");
   rmSync(join(root, "remove.txt"));
-  write("tests/new.test.ts", 'import {test,expect} from "bun:test";test("untracked input",()=>expect(2).toBe(2));\n');
+  write("tests/new.test.ts", 'import {test,expect} from "bun:test";import {existsSync} from "node:fs";test("untracked input",()=>{expect(2).toBe(2);expect(existsSync("tmp/unit-output.log"),"ACTIVE_LOG_STAYS_OUTSIDE_PUBLIC_TREE").toBe(false)});\n');
   return { ...fixture, base, write };
 }
 
@@ -94,7 +95,11 @@ test("changed queues accept empty selections and empty shards without hiding mis
     await runUnitWorkers(root, [], undefined, empty, { changed: "HEAD", workers: 2 });
     const summary = JSON.parse(readFileSync(join(empty, "unit-worker-summary.json"), "utf8"));
     expect(summary.selectedFiles).toBe(0);
-    expect(() => validateUnitReports([], readFileSync(join(empty, "unit-report.xml"), "utf8"), { version: 1, files: {} })).toThrow("passing execution");
+    const emptyXml = readFileSync(join(empty, "unit-report.xml"), "utf8");
+    expect(() => validateUnitReports([], emptyXml, { version: 1, files: {} })).toThrow("passing execution");
+    expect(() => validateUnitReports([], emptyXml.replace('tests="0"', 'tests="1"'), { version: 1, files: {} }, true)).toThrow("passing execution");
+    fixture.write("README.md", "Odysseus plans the return.\n");
+    await runUnitWorkers(root, [], undefined, join(root, "tmp/prose-only"), { changed: "HEAD", workers: 2 });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -102,6 +107,8 @@ test("changed costs use milliseconds and selection receipts fail closed on absen
   expect(timingSeed({ "tests/odysseus.test.ts": 2.5 })).toEqual({ version: 1, files: { "tests/odysseus.test.ts": 2500 } });
   expect(() => timingSeed({ "tests/odysseus.test.ts": -1 })).toThrow("cost");
   expect(changedSelection("--changed: 1 changed file, running 5/12 test files\n--shard=2/3: running 1/5 test files\n", "2/3")).toEqual({ selected: 5, assigned: 1 });
+  expect(changedSelection("--changed: 1 changed file, but no test files are affected\n", "1/2")).toEqual({ selected: 0, assigned: 0 });
+  expect(changedSelection("\u001b[0m\u001b[2m--changed:\u001b[0m 1 changed file, but no test files are affected\n", "1/2")).toEqual({ selected: 0, assigned: 0 });
   expect(() => changedSelection("", "2/3")).toThrow("did not report");
   expect(() => changedSelection("--changed: 1 changed file, running 5/12 test files\n--shard=2/3: running 1/12 test files\n", "2/3")).toThrow("complete changed-file selection");
   expect(localUnitWorkerCount(32, 47 * 1024 ** 3)).toBe(16);
@@ -122,5 +129,34 @@ test("a deliberately failing selected test fails the changed queue with its file
     expect(out + err).toContain("SELECTED_QUEUE_MUTATION");
     expect(existsSync(join(reports, "unit-worker-1-output.log"))).toBe(true);
     expect(existsSync(join(reports, "unit-worker-2-output.log"))).toBe(true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a new HEAD invalidates unit input identity even when the worktree stays clean", () => {
+  const fixture = unitWorkerFixture();
+  try {
+    const before = unitInputKey(fixture.root);
+    const commit = Bun.spawnSync(["git", "-C", fixture.root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "--allow-empty", "-qm", "New invocation input identity"]);
+    expect(commit.exitCode).toBe(0);
+    expect(unitInputKey(fixture.root)).not.toBe(before);
+  } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test("changed workers retain new automatic diagnostics and preserve pending screenshot inputs", async () => {
+  const fixture = changedFixture();
+  const { root, base } = fixture;
+  const reports = join(root, "tmp/screenshots");
+  const pending = "packages/ui-kit/tests/visual/__screenshots__/odysseus/pending-2.png";
+  const produced = "packages/ui-kit/tests/visual/__screenshots__/odysseus/failure-3.png";
+  try {
+    fixture.write(pending, "Odysseus owns this input; byte control, not raster proof.\n");
+    fixture.write("tests/new.test.ts", `import {test,expect} from "bun:test";import {writeFileSync} from "node:fs";test("automatic diagnostic byte control",()=>{writeFileSync(${JSON.stringify(produced)},"Odysseus retains this diagnostic; byte control, not raster proof.\\n");expect(1).toBe(1)});\n`);
+    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 2 });
+    expect(readFileSync(join(root, pending), "utf8")).toContain("owns this input");
+    const diagnostics = join(reports, "unit-worker-diagnostics");
+    const invocation = join(diagnostics, readdirSync(diagnostics)[0]!);
+    const retained = readdirSync(invocation).map(worker => join(invocation, worker, produced)).filter(path => existsSync(path));
+    expect(retained, "AUTOMATIC_DIAGNOSTIC_SURVIVES_CHANGED_WORKER_REMOVAL").toHaveLength(1);
+    expect(readFileSync(retained[0]!, "utf8")).toContain("retains this diagnostic");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

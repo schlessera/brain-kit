@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { runCommands } from "./ci-runner";
 import { balanceTests, FILE_COST_SECONDS } from "./test-shards";
 import { validateChangedUnitReports, validateUnitReports } from "./unit-proof-report";
-import { captureUnitInputs, unitInputKey } from "./unit-worker-inputs";
+import { captureUnitInputs } from "./unit-worker-inputs";
 import { timingSeed } from "./changed-unit-worker";
 
 /** Reserve 30% of memory; each local worker budgets two GiB and two CPUs. */
@@ -121,11 +121,13 @@ function preserveDiagnostics(worker: { root: string; device: number; inode: numb
   if (errors.length) throw new AggregateError(errors, "Unit worker diagnostic preservation failed");
 }
 
-export async function runUnitWorkers(root: string, files: readonly string[], chrome: string | undefined, reportDir = join(root, "tmp"), options: UnitWorkerOptions = {}) {
+export async function runUnitWorkers(root: string, files: readonly string[], chrome: string | undefined, outputDirectory?: string, options: UnitWorkerOptions = {}) {
   if (!options.changed && !files.length) throw new Error("Unit workers need discovered files");
   if (options.changed && files.length) throw new Error("Changed unit workers let Bun select files");
   const count = options.workers ?? (options.changed ? localUnitWorkerCount() : 2);
   if (!Number.isSafeInteger(count) || count < 1) throw new Error("Unit worker count must be a positive integer");
+  const reportDir = outputDirectory ?? (options.changed ? mkdtempSync(join(tmpdir(), "brain-import-graph-")) : join(root, "tmp"));
+  if (options.changed && outputDirectory === undefined) console.log(`Unit queue reports: ${reportDir}`);
   const started = performance.now();
   mkdirSync(join(root, "tmp"), { recursive: true });
   mkdirSync(reportDir, { recursive: true });
@@ -162,8 +164,12 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     for (const [index, worker] of workers.entries()) {
       try {
         for (const suffix of ["report.xml", "timings.json", "selection.json", "output.log"]) {
-          const path = join(worker.root, `tmp/unit-${suffix}`);
-          if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
+          const siblingLog = options.changed && suffix === "output.log";
+          const path = siblingLog ? join(container, `${index + 1}-output.log`) : join(worker.root, `tmp/unit-${suffix}`);
+          if (await Bun.file(path).exists()) {
+            copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
+            if (siblingLog) unlinkSync(path);
+          }
         }
         const workerTmp = join(worker.root, "tmp");
         if (existsSync(workerTmp)) for (const name of readdirSync(workerTmp)) {
@@ -196,6 +202,15 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       const match = /^[0-7]+ blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
       if (match) references.set(match[2]!, match[1]!);
     }
+    // Pending source screenshots belong to the captured input just like tracked
+    // references. Only newly produced automatic images may be removed after copy.
+    for (const file of inputs?.untracked ?? []) if (automaticScreenshot(file) && screenshotTrees.some(tree => file.startsWith(`${tree}/`))) {
+      const path = join(container, "inputs", file);
+      if (lstatSync(path).isFile()) {
+        const bytes = readFileSync(path);
+        references.set(file, createHash(objectFormat).update(`blob ${bytes.length}\0`).update(bytes).digest("hex"));
+      }
+    }
     for (const [index, selected] of partitions.entries()) {
       const workspace = join(container, String(index + 1));
       git(root, "worktree", "add", "--quiet", "--detach", workspace, head);
@@ -220,7 +235,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     await Bun.write(join(reportDir, "unit-worker-checkouts.json"), JSON.stringify(workers.map(({ root: workspace, files, checkout }, index) => {
       const { dev, ino } = statSync(join(workspace, "node_modules/typescript/package.json"));
       return { worker: index + 1, workspace: relative(root, workspace), files, checkout, dependency: { dev, ino },
-        ...(base ? { changed: base, shard: `${index + 1}/${workers.length}` } : {}) };
+        ...(base ? { changed: base, inputKey: inputs!.key, shard: `${index + 1}/${workers.length}` } : {}) };
     }), null, 2));
     for (const worker of workers) {
       mkdirSync(join(worker.root, "tmp/maintenance-ledger"), { recursive: true, mode: 0o700 });
@@ -234,7 +249,9 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
             "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"])],
       env: { BRAIN_REQUIRE_CHROME: "1", ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}) } })), root, count);
     const reports = workers.map(worker => {
-      if (inputs ? unitInputKey(worker.root) !== inputs.key : git(worker.root, "status", "--porcelain", "--untracked-files=no")) throw new Error("Unit worker changed tracked source");
+      // Dirty-input workers verify the complete snapshot during cleanup, after
+      // the unchanged collector has handed off and removed automatic images.
+      if (!inputs && git(worker.root, "status", "--porcelain", "--untracked-files=no")) throw new Error("Unit worker changed tracked source");
       const xml = readFileSync(join(worker.root, "tmp/unit-report.xml"), "utf8");
       const timings = JSON.parse(readFileSync(join(worker.root, "tmp/unit-timings.json"), "utf8"));
       let selection: { selected: number; assigned: number; preparationMs: number } | undefined;

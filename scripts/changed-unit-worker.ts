@@ -1,9 +1,11 @@
 /** Observe Bun's selection before reconciling its actual shard reports. */
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 export function changedSelection(output: string, shard: string) {
+  output = stripVTControlCharacters(output);
   const affected = /^--changed: \d+ changed files?, running (\d+)\/\d+ test files$/m.exec(output);
-  const empty = /^--changed: (?:no changed files, nothing to run|\d+ changed files?, no test files are affected)\.?$/m.test(output);
+  const empty = /^--changed: (?:no changed files, nothing to run|\d+ changed files?, but no test files are affected)\.?$/m.test(output);
   if (!affected && !empty) throw new Error("Bun did not report its changed-file selection");
   const selected = affected ? Number(affected[1]) : 0;
   const assignment = new RegExp(`^--shard=${shard}: running (\\d+)\\/(\\d+) test files$`, "m").exec(output);
@@ -24,7 +26,9 @@ if (import.meta.main) {
     if (!base || !/^[1-9]\d*\/[1-9]\d*$/.test(shard ?? "")) throw new Error("Expected changed worker <merge-base> <i/N>");
     const root = resolve(import.meta.dir, "..");
     const start = performance.now();
-    const log = Bun.file(join(root, "tmp/unit-output.log")).writer();
+    // The whole-tree leakage test must not see machine paths from active logs.
+    // This owned sibling survives until the parent copies it to private reports.
+    const log = Bun.file(join(dirname(root), `${basename(root)}-output.log`)).writer();
     const child = Bun.spawn([process.execPath, "run", "test", "--internal-full-preparation", `--changed=${base}`, `--shard=${shard}`, "--pass-with-no-tests",
       "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
     const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;

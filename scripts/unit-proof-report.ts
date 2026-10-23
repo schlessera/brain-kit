@@ -29,7 +29,8 @@ export function validateUnitReports(expected: readonly string[], xml: string, ti
   const tests = count("tests"), failures = count("failures"), skippedAndTodo = count("skipped");
   // Bun marks todo explicitly, while the root skipped total includes both.
   const todo = [...xml.matchAll(/<skipped\b[^>]*\bmessage="TODO"[^>]*\/?\s*>/g)].length;
-  if ((tests === 0 && (!allowEmpty || expected.length > 0)) || failures !== 0 || failures + skippedAndTodo > tests || todo > skippedAndTodo) throw new Error("Unit totals do not describe a passing execution");
+  const empty = allowEmpty && expected.length === 0;
+  if ((empty ? tests !== 0 : tests === 0) || failures !== 0 || failures + skippedAndTodo > tests || todo > skippedAndTodo) throw new Error("Unit totals do not describe a passing execution");
   return { files: [...files].sort(), tests, pass: tests - failures - skippedAndTodo, skip: skippedAndTodo - todo, todo, failures };
 }
 

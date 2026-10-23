@@ -16,6 +16,7 @@ function inputs(root: string) {
   ];
   const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).toString().split("\0").filter(Boolean);
   const hash = createHash("sha256");
+  hash.update(git(root, ["rev-parse", "HEAD"]));
   for (const patch of patches) hash.update(String(patch.length)).update("\0").update(patch);
   for (const file of untracked) {
     if (isAbsolute(file) || file.split("/").includes("..")) throw new Error("Escaped unit input path");
@@ -39,6 +40,7 @@ export function captureUnitInputs(root: string, destination: string) {
   if (unitInputKey(root) !== source.key) throw new Error("Unit source changed while capturing working inputs; retry after edits stop");
   return {
     key: source.key,
+    untracked: source.untracked,
     restore(workspace: string) {
       if (source.patches[0]!.length) git(workspace, ["apply", "--index", "--binary", "-"], source.patches[0]);
       if (source.patches[1]!.length) git(workspace, ["apply", "--binary", "-"], source.patches[1]);

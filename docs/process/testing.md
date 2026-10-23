@@ -419,15 +419,30 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   changeset validation and affected fast invariants. Import-graph affected
   feedback is skipped by default under the maintainer's 2026-10-23 ruling
   ([#2707](https://github.com/schlessera/brain-kit/issues/2707)). Add
-  `--import-graph` to run `bun run test --changed=<merge-base-sha>` through the
-  offline wrapper. `--plan` lists the selected commands and arguments and
+  `--import-graph` to run isolated local unit workers. Each worker runs the
+  offline wrapper with `--changed=<merge-base-sha> --shard=i/N`; Bun applies
+  changed selection before weighted sharding. The queue seeds Bun's timing
+  format from `scripts/test-shard-costs.json`, converting seconds to
+  milliseconds, rather than reconstructing the import graph.
+  `--import-graph-workers=N` overrides the CPU/memory-derived local worker
+  count. `--plan` lists the selected commands and arguments and
   explains when feedback is skipped and how to enable it. Bun includes
   committed, staged, unstaged and untracked changes; no affected test files
   prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
   remain `./packages ./tests`, and the optional changed value uses `=`. This
   feedback misses spawned commands and inputs read from disk or named as
   strings; complete hosted discovery remains the required proof. Full/all
-  modes retain their existing suites without this extra step.
+  modes retain their existing suites without this extra step. Every worker
+  receives the same committed tree plus separately captured index, worktree
+  and untracked inputs. Source changes during capture refuse the run; workers
+  may not change their captured inputs. Each worker reports Bun's pre-shard
+  selection count and its shard count. JUnit and timing paths must agree,
+  shard counts must reconcile, and the union must match the selected count
+  without duplicate files. Empty selections and empty shards retain explicit
+  zero-file receipts. The CLI prints its private report destination outside
+  the source tree; reports, build receipts, output logs and existing failure
+  diagnostics survive worker removal. The queue requires Linux mount/user
+  namespaces, the frozen install and real Chrome, like hosted unit workers.
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
