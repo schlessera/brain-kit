@@ -651,11 +651,10 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: turn.sessionId, actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel, profile: "strict",
           });
         }
-        // A governed or strict Claude turn on managed native storage gets its
-        // own proxy and the host inference relay (#1665). Without that storage,
-        // and for Pi until its relay consumer lands, the turn keeps its current
-        // network; worker-host status says which.
-        if (governedHold?.managedStorage && backend.id === "claude") {
+        // A governed or strict Claude or pi turn on managed native storage gets
+        // its own proxy and the host inference relay (#1665). Without that
+        // storage the turn keeps its current network; worker-host status says which.
+        if (governedHold?.managedStorage && (backend.id === "claude" || backend.id === "pi")) {
           const governance = host.activity?.governance;
           turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,

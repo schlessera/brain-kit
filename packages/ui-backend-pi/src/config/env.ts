@@ -84,6 +84,18 @@ export const ENV_VARS: readonly EnvVarSpec[] = [
     required: false,
   },
   {
+    name: "BRAIN_UI_PI_CREDENTIAL_ORIGINS",
+    description:
+      "Exact origins (scheme, host and port) each pi provider's credential " +
+      "may reach through a governed turn's inference relay, besides the " +
+      "origins of that provider's built-in models: " +
+      "`provider=origin[,origin];provider=origin`. Required when pi's " +
+      "models.json points a provider at another origin on a host with " +
+      "managed native storage; otherwise that turn is refused before its " +
+      "credential is read. A malformed entry refuses every relayed pi turn.",
+    required: false,
+  },
+  {
     name: "GEMINI_API_KEY",
     description:
       "Default API key gating the brain's embedding provider (default name " +

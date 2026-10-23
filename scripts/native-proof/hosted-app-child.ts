@@ -41,6 +41,7 @@ const observability = createRecordingObservability();
 const authorityProgram = readFileSync(join(import.meta.dir,"worker-authority.py"),"utf8");
 const authorityCommand = `/usr/bin/python3 -I -S -c '${authorityProgram.replaceAll("'", "'\\''")}' ${process.getuid!()}`;
 const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand) : undefined;
+if (inference) process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = inference.origin;
 const backend = inference ? createPiBackend({brainPath:brain!,model:inference.model,loadExtensions:false,log(level: string,message: string){event("backend_log",{level,message});}}) : createClaudeBackend({
   brainPath: brain,
   profiles: [{

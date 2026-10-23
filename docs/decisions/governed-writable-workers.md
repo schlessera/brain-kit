@@ -1070,7 +1070,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:118`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:134`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -1397,8 +1397,8 @@ unrecorded.
 embedding provider and headless Chromium all pass through the proxy in a real
 governed worker. SSH uses a first-party CONNECT helper that the worker
 bootstrap sets as Git's `ProxyCommand` (`sshProxy`,
-`packages/ui-sdk/src/server/egress-worker-entry.ts:28-32`). Pi inference
-through the relay is not measured yet. The socket walk passes now that all of
+`packages/ui-sdk/src/server/egress-worker-entry.ts:30-34`). Pi inference
+through the relay passes as of 2026-10-23. The socket walk passes now that all of
 `/var` is masked: before that, a host socket under `/var/snap` accepted a
 connection. The results are in
 [agent-workers.md](../hosting/agent-workers.md#first-party-path-measurement-1665).
@@ -1418,8 +1418,9 @@ failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
 `packages/ui-server/src/brain/turn-egress.ts:59-135`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
-API-key Claude profiles are routed too (2026-10-22); Pi's note still says
-"Egress is unrecorded" until Pi's relay consumer lands. The
+API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
+too. A pi turn whose credential the relay cannot carry is refused rather than
+left unrecorded ([pi endpoint routing](pi-endpoint-routing.md#host-held-credentials-on-the-turn-proxy)). The
 socket walk passes since all of `/var` is masked, so the note states no
 reachable-socket gap.
 
@@ -2221,9 +2222,9 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:59-135`). Pi turns and hosts
-without managed native storage have no proxy, so the Bash classifier remains
-their shell rule and nothing narrows their egress.
+`packages/ui-server/src/brain/turn-egress.ts:59-135`). Hosts without managed
+native storage have no proxy, so the Bash classifier remains their shell rule
+and nothing narrows their egress.
 
 The capabilities note states the taint sources, these rules, whether this
 turn's egress is narrowed or explicitly not enforced, and the session's first
@@ -2289,7 +2290,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:86-130`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:88-132`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely

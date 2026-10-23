@@ -19,7 +19,7 @@ export { execWrapperSpawnOptions, workerExecHelpers } from "./server/exec-wrappe
 export { assertScratchMask, assertScratchMaskAsync } from "./server/bridge-tools/mask.js";
 export { startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, INFERENCE_PLACEHOLDER, WORKER_INFERENCE_DIR, WORKER_INFERENCE_SOCKET, MAX_INFERENCE_REQUEST_BYTES } from "./server/inference-relay.js";
 export type { InferenceRelay, InferenceRelayEvent, InferenceRelayOptions } from "./server/inference-relay.js";
-export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET } from "./server/egress-proxy.js";
+export { startEgressProxy, WORKER_EGRESS_DIR, WORKER_EGRESS_SOCKET, WORKER_EGRESS_TRANSPORT_ENV } from "./server/egress-proxy.js";
 export type { EgressProxyOptions, EgressRecord } from "./server/egress-proxy.js";
 export type { RestrictedEnvelope, WorkerHostProbeOptions } from "./server/worker-launcher.js";
 export { restrictedReadPaths } from "./server/worker-launcher.js";

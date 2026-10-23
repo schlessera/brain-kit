@@ -83,7 +83,7 @@ and configuration audience; the old plan's “full host environment” descripti
 is historical. Preserve subscription billing and the selected runtime identity.
 
 Pi disables built-in tools but currently loads resources and extensions
-(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-145`)
+(`createSessionResources`, `packages/ui-backend-pi/src/session-resources.ts:29-149`)
 and gates extension calls (`createPermissionGate`,
 `packages/ui-backend-pi/src/permission-gate.ts:95-124`). Removing four curated
 tools cannot prove that extensions, MCP, scratch writers or in-process code have

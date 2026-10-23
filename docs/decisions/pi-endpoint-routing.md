@@ -69,6 +69,69 @@ ambient credentials. Ordinary resumes remain pinned to their saved model and
 refuse native fallback. This policy adds no custom-model discovery, brain-kit
 endpoint field, schema, provider seam or dependency update.
 
+### Host-held credentials on the turn proxy
+
+**Decided by the maintainer, 2026-10-23**
+([recorded on #1665](https://github.com/schlessera/brain-kit/issues/1665)).
+A governed or strict pi turn on the turn egress proxy keeps its credential on
+the host. Two rulings bind it:
+
+1. **An HTTP relay with a qualified matrix.** On each dispatch the host runs
+   pi's native `ModelRuntime.getAuth(model)`, so refresh and its writeback,
+   changed credentials and the native precedence stay pi's. The worker's pi
+   talks to a loopback forwarder and holds only a placeholder shaped like its
+   credential: an API-key string, a JWT for Codex, an `sk-ant-oat` token for
+   the Anthropic login. The relay replaces the credential headers, plus
+   `chatgpt-account-id` for Codex. The qualified matrix is API keys on the
+   `anthropic-messages`, `openai-completions` and `openai-responses` APIs, and
+   the OAuth logins of `openai-codex` (SSE only) and `anthropic`. The rejected
+   alternative ran the native provider on the host over an RPC.
+2. **Refuse with an action outside the matrix.** A pi turn whose credential is
+   command-sourced (a `!command` key or header), or whose provider and
+   credential type the matrix does not cover, is refused before launch with
+   an actionable message. It does not fall back to a worker that holds the
+   credential. The host never runs a credential command.
+
+The configuration shape is the coordinator's choice, and the maintainer may
+override it. `BRAIN_UI_PI_CREDENTIAL_ORIGINS` is a server variable of
+`provider=origin[,origin]` entries separated by `;`. pi stores one credential
+per provider, so the provider id is the credential the authorization belongs
+to. The implicit first-party origins are those of the provider's built-in
+catalog models, never `models.json`. The coordinator also applied this
+authorization to every credential the relay releases, not only OAuth: API keys
+from `auth.json`, the environment and `models.json` as well. That goes further
+than the 2026-10-17 amendment, which did not authorize an API-key recipient
+policy, because `models.json` routing may come from the writable brain.
+
+How the implementation holds to these rulings
+(`export async function preparePiHostInference`,
+`packages/ui-backend-pi/src/host-inference.ts:162-264`):
+
+- **Before launch:** the host refuses a command anywhere in the provider's key
+  or headers, an `auth.json` linked into the brain, a model outside the
+  matrix and a configured origin that is neither first-party nor listed. The
+  last refusal comes before the credential is read.
+- **Snapshot:** the host runtime reads a private snapshot of `models.json`
+  holding only this provider, so it cannot reach another provider's command
+  and no edit made during the turn reroutes it.
+- **Credential store:** credentials come from pi's own file-locked store,
+  limited to the turn's provider. The store refuses a stored command key
+  before pi could run it (`async function guardedCredentials`,
+  `packages/ui-backend-pi/src/host-inference.ts:143-160`). The store is not a
+  public pi export; the backend pins the installed pi version.
+- **Each dispatch:** pi resolves the credential. A changed shape refuses, as
+  does an auth-supplied endpoint that differs from the configured one (the
+  matrix has none) or an unlisted origin.
+- **The worker:** it receives only the provider's placeholder, its
+  `models.json` entry without key, headers or endpoints, and SSE for Codex.
+  It never writes credential state back. Variables that name or feed the
+  provider's credential, including `$NAME` templates, stay on the host. pi's
+  host `auth.json` and `models.json` are masked in the worker wherever the
+  host masks do not already hide them, unless `models.json` lives in the
+  brain.
+  Loopback alone bypasses the proxy variables, for the forwarder.
+- **A resumed turn:** it relays the saved session's model.
+
 ## Supported native integration inputs
 
 On 2026-10-03, a frozen install at main `ab55924e` resolved the backend's
@@ -106,7 +169,7 @@ The concrete adapter integration points are:
 | Declared-model validation (`export function toModel`, `packages/ui-backend-pi/src/profiles.ts:57-77`) | Keep built-in validation and identity refusal, then select the configured model from the inference runtime. The current function returns the raw catalog object. |
 | Ordinary/autonomous new sessions (`async newSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:41-72`) | Supply the native configured runtime and its selected model to the real `createAgentSession` call. The worker uses `SessionManager.inMemory`; the server persists ordinary JSONL over pipes, and autonomous turns remain nonpersistent. |
 | Ordinary persisted resumes (`async openSession`, `packages/ui-backend-pi/src/native-session-runtime.ts:74-109`) | Supply the configured runtime without a new model override; reject/dispose if `modelFallbackMessage` is present. |
-| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:90-129`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
+| Native resources (`const agentDir = getAgentDir()`, `packages/ui-backend-pi/src/session-resources.ts:92-131`) | Use the same native agent-directory discovery as settings/resources. Preserve loader failure behavior and its inline permission gate. |
 
 Runtime construction belongs at these concrete session boundaries. No runtime
 factory option, new public seam or authentication wrapper is needed. Each hosted turn reconstructs its native inference runtime inside a fresh

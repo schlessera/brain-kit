@@ -22,7 +22,7 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import { createPrincipal, isUsablePrincipal, resolvePrincipal } from "../src/db/principals";
 
-test.each([["claude", true], ["claude", false], ["pi", true]] as const)("a governed %s turn's network composition and durable egress record (managed storage: %p)", async (kind, managed) => {
+test.each([["claude", true], ["claude", false], ["pi", true], ["pi", false]] as const)("a governed %s turn's network composition and durable egress record (managed storage: %p)", async (kind, managed) => {
   // The copied fixture brain has no manager-acquired view; stand in for one where the case needs it.
   const storage = spyOn(startup, "isManagedWorkerStartupView").mockReturnValue(managed);
   const root = mkdtempSync(join(tmpdir(), "odysseus-turn-egress-")), brain = join(root, "brain");
@@ -59,21 +59,16 @@ test.each([["claude", true], ["claude", false], ["pi", true]] as const)("a gover
   try {
     await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus checks the harbour.", attachments: [] });
     const records = queryGovernanceEvents(db, { kinds: ["egress_connection"], limit: 10 });
-    if (kind === "pi") {
-      expect(proxyDir, "TURN_EGRESS_PI_UNCHANGED_UNTIL_ITS_RELAY").toBeUndefined();
-      expect(records).toEqual([]);
-      return;
-    }
     if (!managed) {
       expect(proxyDir, "TURN_EGRESS_UNMANAGED_STORAGE_KEEPS_NETWORK").toBeUndefined();
       expect(records).toEqual([]);
       return;
     }
-    expect(proxyDir, "TURN_EGRESS_GOVERNED_CLAUDE_COMPOSED").toBeDefined();
+    expect(proxyDir, "TURN_EGRESS_GOVERNED_TURN_COMPOSED").toBeDefined();
     expect(workerExit, `TURN_EGRESS_BACKEND_BRIDGE_TRACKS_CLASSIFICATION ${workerErrors}`).toBe(0);
     expect(output).toBe("Ithaca");
     expect(records, "TURN_EGRESS_COMPOSED_DURABLE_RECORD").toHaveLength(1);
-    expect(records[0]).toMatchObject({ actor: "interactive", profile: "governed", sessionId: "voyage-claude",
+    expect(records[0]).toMatchObject({ actor: "interactive", profile: "governed", sessionId: `voyage-${kind}`,
       payload: { method: "GET", host: "127.0.0.1", port: origin.port, path: "/voyage", outcome: "completed" } });
     expect(JSON.stringify(records)).not.toContain("odysseus-query");
     expect(existsSync(proxyDir!), "TURN_EGRESS_PROXY_REMOVED_AT_TURN_END").toBe(false);
