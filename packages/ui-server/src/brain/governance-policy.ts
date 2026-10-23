@@ -61,6 +61,19 @@ const invalidFolder = (folder: string) => !folder || folder.startsWith("~") || /
   || /[\u0000-\u001f\u007f*?[\]{}()!\\]/u.test(folder) || folder.split("/").some(part => !part || part === "." || part === "..")
   || [".git", INDEX_DIR].some(reserved => folder === reserved || folder.startsWith(`${reserved}/`));
 
+/**
+ * `folders` without any folder nested inside another of them (#2718). The
+ * outer folder's mask, an empty read-only tmpfs, already hides the nested
+ * one, and bubblewrap cannot create a second mount point inside it. Whatever
+ * judges a path against the set (retention, the private index, the hardlink
+ * scan, server-tool refusals) covers a folder and everything below it, so
+ * dropping the nested folder hides nothing less.
+ */
+function outermostFolders(folders: Iterable<string>): string[] {
+  const unique = [...new Set(folders)].sort();
+  return unique.filter(folder => !unique.some(outer => folder.startsWith(`${outer}/`)));
+}
+
 /** Path selectors that map exactly onto folders; topology planning, never a provider admission verdict. */
 export function providerFolderRoots(policy: Pick<EffectiveGovernancePolicy, "providers">): string[] {
   const roots = new Set<string>();
@@ -68,7 +81,7 @@ export function providerFolderRoots(policy: Pick<EffectiveGovernancePolicy, "pro
     const root = selectorFolder(pattern);
     if (root) roots.add(root);
   }
-  return [...roots].sort();
+  return outermostFolders(roots);
 }
 
 /** The document types provider rules select; a hosted turn translates them with the brain's taxonomy. */
@@ -84,7 +97,7 @@ export function providerTypeSelectors(policy: Pick<EffectiveGovernancePolicy, "p
  * replace it either (#1668, option B).
  */
 export function retainedFolderRoots(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: readonly string[] = []): string[] {
-  const roots = [...providerFolderRoots(policy), ...typeFolders];
+  const roots = outermostFolders([...providerFolderRoots(policy), ...typeFolders]);
   return roots.length ? [...new Set([...roots, INDEX_DIR])].sort() : [];
 }
 
@@ -140,11 +153,12 @@ export function translateProviderTypes(types: readonly string[], taxonomy: Provi
 
 /**
  * The folders a hosted turn masks: path selectors that map onto folders and
- * the folders its type selectors translated to. The same set feeds retention,
- * the masks, the private index and every server-side refusal for the turn.
+ * the folders its type selectors translated to, each nested folder dropped
+ * for its ancestor. The same set feeds retention, the masks, the private
+ * index, the hardlink scan and every server-side refusal for the turn.
  */
 export function providerMaskedFolders(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: Readonly<Record<string, readonly string[]>> = {}): string[] {
-  return [...new Set([...providerFolderRoots(policy), ...Object.values(typeFolders).flat()])].sort();
+  return outermostFolders([...providerFolderRoots(policy), ...Object.values(typeFolders).flat()]);
 }
 
 // The writer gate plans retention when it is acquired, before a turn can run
