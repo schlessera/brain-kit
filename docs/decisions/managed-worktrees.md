@@ -263,11 +263,12 @@ replicated card as a fixed reason; the pool's own error, which can name host
 paths, stays in the host receipt.
 
 **Removal.** Every operation on one worktree, from any service instance in the
-process, runs one at a time, so a grant and a removal never interleave. One
-server process owns a brain's pool; a second process granting the same worktree
-is outside this guarantee, and the pool's own release does not yet refuse a
-worktree held by an access generation
-([#2729](https://github.com/schlessera/brain-kit/issues/2729)). The worktree
+process, runs one at a time, so a grant and a removal never interleave. Across
+processes the pool's own release refuses a worktree an access generation holds,
+atomically with grants
+([#2729](https://github.com/schlessera/brain-kit/issues/2729),
+[pool accounting](reference-pool-accounting.md)), so a grant that lands between
+the last check and the release fails the removal instead of losing the grant. The worktree
 service is the only executor, through one effect
 (`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:332-371`).
 Immediately before it, with no await between the last check and the receipt:
