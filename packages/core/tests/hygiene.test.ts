@@ -84,14 +84,14 @@ describe("stable IDs", () => {
 
 describe("category fingerprint fields", () => {
   // Host-only managed-worktree findings (#2431) name fields the shared table does not hold.
-  const worktree = (facts: Record<string, string>): HygieneCandidate => ({ category: "managed-worktree", path: "reference-worktree://ithaca-1", evidence: "retained",
+  const worktree = (facts: Record<string, string>): HygieneCandidate => ({ category: "managed-worktree", path: "reference-worktree://ithaca-1", evidence: "",
     message: "A released managed worktree still holds unfinished work", source: { source: "hygiene", name: "managed-worktree", severity: "warning" }, facts });
-  const facts = { identity: "ithaca-1:root", base: "public:odysseus/ithaca:main:1111", owner: "none::none", work: "unpreserved:1:0:d1", failure: "none", renewed: "released:1:2" };
+  const facts = { kind: "retained", identity: "ithaca-1:root", base: "public:odysseus/ithaca:main:1111", owner: "none::none", work: "unpreserved:1:0:d1", failure: "none", renewed: "released:1:2" };
   const one = (c: HygieneCandidate) => [...canonicalFindings([c]).values()][0]!;
 
   test("a category's own facts fill its fingerprint fields, and a change names only that field", () => {
     const before = one(worktree(facts)), same = one(worktree({ ...facts })), after = one(worktree({ ...facts, work: "unpreserved:2:0:d2" }));
-    expect(Object.keys(before.fingerprintFields)).toEqual(["evidence", "identity", "base", "owner", "work", "failure", "renewed", "severity", "urgency"]);
+    expect(Object.keys(before.fingerprintFields)).toEqual(["kind", "identity", "base", "owner", "work", "failure", "renewed", "severity", "urgency"]);
     expect(same.fingerprint, "HYGIENE_CATEGORY_FACTS_STABLE").toBe(before.fingerprint);
     expect(after.id).toBe(before.id);
     expect(Object.keys(before.fingerprintFields).filter(key => before.fingerprintFields[key] !== after.fingerprintFields[key]), "HYGIENE_CATEGORY_FACTS_FINGERPRINTED").toEqual(["work"]);

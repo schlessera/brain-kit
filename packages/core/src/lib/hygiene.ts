@@ -237,11 +237,11 @@ export function candidateFromValidation(issue: DetailedValidationIssue): Hygiene
 export const FINGERPRINT_FIELDS: Record<string, readonly string[]> = {
   "broken-link": ["target", "tokens", "severity", "urgency"],
   "required-field": ["field", "value", "rule", "severity", "urgency"],
-  // Host-only (#2431): the exact managed identity and base, the owner and work
-  // the host last established, any cleanup failure and the last explicit
-  // renewal. The host keeps these findings and their dispositions; they never
-  // enter the Markdown log.
-  "managed-worktree": ["evidence", "identity", "base", "owner", "work", "failure", "renewed", "severity", "urgency"],
+  // Host-only (#2431): the kind of problem, the exact managed identity and
+  // base, the owner and work the host last established, any cleanup failure
+  // and the last explicit renewal. The host keeps these findings and their
+  // dispositions; they never enter the Markdown log.
+  "managed-worktree": ["kind", "identity", "base", "owner", "work", "failure", "renewed", "severity", "urgency"],
 };
 const DEFAULT_FINGERPRINT_FIELDS = ["evidence", "rule", "severity", "urgency"] as const;
 
