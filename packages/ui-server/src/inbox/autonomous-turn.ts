@@ -22,8 +22,9 @@ import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, type
 import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 import { recordGovernanceEvent } from "../governance/events.js";
-import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
-import { createProviderMaskGuard } from "../brain/provider-mask-refusal.js";
+import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
+import { createProviderMaskGuard, type ProviderMaskGuard } from "../brain/provider-mask-refusal.js";
+import { translateProviderTypesInView } from "../brain/provider-types.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "../brain/private-index.js";
 import { ensureIndexDirectory } from "../brain/index-directory.js";
 
@@ -107,7 +108,7 @@ export async function runAutonomousTurn(
   const policy = governancePolicyReaderFor(deps.brainPath ?? process.cwd()).load();
   const unsupported = unsupportedProviderSelectors(policy.policy);
   if (unsupported.length) throw new ProviderPolicyRefusedError(unsupported);
-  if (providerFolderRoots(policy.policy).length && !deps.privateIndex)
+  if ((providerFolderRoots(policy.policy).length || providerTypeSelectors(policy.policy).length) && !deps.privateIndex)
     throw new BackendRequestError("Autonomous turns under a provider folder rule need the host's private index masks; none are configured.");
   // The restricted envelope must be establishable, not only the ordinary worker (#676).
   try { requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime, { dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory }); }
@@ -138,7 +139,8 @@ async function executeAutonomousTurn(
 ): Promise<AutonomousTurnResult> {
   const principalId = input.principalId;
   const brainPath = deps.brainPath ?? process.cwd();
-  const maskedFolders = providerFolderRoots(policy.policy);
+  // Literal folders and types both mask folders; types are translated below.
+  const masksFolders = providerFolderRoots(policy.policy).length > 0 || providerTypeSelectors(policy.policy).length > 0;
   // Activity-linked items may share a run id. Only the admitted budget item
   // selects the origin; a model-authored record is never a scope grant.
   const origin = deps.db.query(`SELECT i.thread_id FROM inbox_budget_reservations r
@@ -253,16 +255,19 @@ async function executeAutonomousTurn(
     },
   };
   // The host bridge reads and writes the real brain, outside the masks (#2690).
-  const maskGuard = maskedFolders.length ? createProviderMaskGuard({ folders: maskedFolders, policy: policy.policy,
-    record: refusal => {
-      try { governance({ kind: "provider_mask_refusal", turnId: input.turnId, sessionId: null, actor: "autonomous", model: null, profile: "restricted",
-        payload: { ...refusal, policyHash: policy.hash } }); }
-      catch (error) { deps.log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` }); }
-    } }) : undefined;
+  const guardFor = (folders: readonly string[], typeFolders: Readonly<Record<string, readonly string[]>>): ProviderMaskGuard | undefined =>
+    folders.length ? createProviderMaskGuard({ folders, policy: policy.policy, typeFolders,
+      record: refusal => {
+        try { governance({ kind: "provider_mask_refusal", turnId: input.turnId, sessionId: null, actor: "autonomous", model: null, profile: "restricted",
+          payload: { ...refusal, policyHash: policy.hash } }); }
+        catch (error) { deps.log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` }); }
+      } }) : undefined;
   const request: StartTurnRequest = { prompt: input.prompt, profileId: input.profileId,
     signal: controller.signal, bridge, autonomous: mode, enforceAllowedTools: true, noGrantSurface: true };
   const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
-  if (input.application && deps.brainPath && lock) {
+  // Installed once the turn's masks are resolved, before the backend starts.
+  const installApplication = (maskGuard: ProviderMaskGuard | undefined): void => {
+    if (!input.application || !deps.brainPath || !lock) return;
     const root = deps.brainPath, approved = input.application.approved;
     let consumed = false;
     const current = (): boolean => !closed && !controller.signal.aborted && checkPrincipal();
@@ -298,17 +303,27 @@ async function executeAutonomousTurn(
         ? { guard: maskGuard, tool: deps.backend.id === "claude" ? "mcp__brain-ui__brain_read_base" : "brain_read_base" } : undefined);
     };
     bridge.applyBrain = (proposal) => apply({ principalId, turnId: input.turnId, input: proposal });
-  }
+  };
   const principalCheck = setInterval(checkPrincipal, 100);
   let startupView: WorkerStartupView | undefined, privateIndex: string | undefined;
   try {
     if (!deps.nativeManager) throw new BackendRequestError("Autonomous workers require the configured native brain manager; full-copy fallback is unsupported.");
     // The private index is mounted over `.brain-index/`, which the view must
     // hold; the host creates that directory, never a provider folder.
-    if (maskedFolders.length) ensureIndexDirectory(brainPath);
+    if (masksFolders) ensureIndexDirectory(brainPath);
     startupView = await prepareNativeWorkerStartupView(brainPath, deps.nativeManager, controller.signal);
     controller.signal.throwIfAborted();
     if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+    // Types map onto folders as for hosted turns, judged on this view (#2694).
+    let typeFolders: Record<string, string[]> = {};
+    if (providerTypeSelectors(policy.policy).length) {
+      const translated = await translateProviderTypesInView({ brainPath, policy: policy.policy, view: startupView, maskPaths: deps.privateIndex!.maskPaths,
+        signal: controller.signal, ...(deps.privateIndex!.command ? { command: deps.privateIndex!.command } : {}) });
+      if (translated.refused.length) throw new ProviderPolicyRefusedError(translated.refused);
+      typeFolders = translated.folders;
+    }
+    const maskedFolders = providerMaskedFolders(policy.policy, typeFolders);
+    installApplication(guardFor(maskedFolders, typeFolders));
     if (maskedFolders.length) {
       // As for a denied hosted turn (#1668): built from nothing through the
       // same masks, so it never held a masked document, and removed after.

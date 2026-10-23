@@ -140,18 +140,37 @@ test("a restricted autonomous worker reads a masked folder as empty and searches
   expect(index && existsSync(index), "PRIVATE_INDEX_REMOVED_AFTER_THE_TURN").toBe(false);
 }, 120_000);
 
-test("an autonomous turn under a type selector refuses by name before any worker starts", async () => {
-  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+test("an autonomous turn under a selector that cannot map onto folders refuses by name before any worker starts", async () => {
+  const f = fixture("[{ paths: [me/*.md], allow: [anthropic] }]");
   let started = 0;
   const acquisitions = (startup.prepareNativeWorkerStartupView as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
   const backend = restrictedBackend(f.brain, async () => { started++; });
   let refusal: unknown;
   try { await runAutonomousTurn({ ...f.deps, backend }, f.input); } catch (error) { refusal = error; }
   expect((refusal as Error | undefined)?.name, "AUTONOMOUS_UNSUPPORTED_SELECTOR_REFUSED").toBe("ProviderPolicyRefusedError");
-  expect(String((refusal as Error).message)).toContain("type identity");
+  expect(String((refusal as Error).message)).toContain("me/*.md");
   expect(started).toBe(0);
   expect((startup.prepareNativeWorkerStartupView as unknown as { mock: { calls: unknown[] } }).mock.calls.length, "NO_WORKER_INPUT_PREPARED").toBe(acquisitions);
 }, 60_000);
+
+test("an autonomous turn translates a type selector as hosted turns do: a mapping type masks its folder, the inbox type refuses", async () => {
+  // `identity` (dir: me) maps exactly onto me/ in the Odysseus corpus (#2694).
+  const mapped = fixture("[{ types: [identity], allow: [anthropic] }]");
+  let shell = "", folders: readonly string[] | undefined;
+  await runAutonomousTurn({ ...mapped.deps, backend: restrictedBackend(mapped.brain, async (request, run) => {
+    folders = request.workerProviderMasks?.folders;
+    shell = await run(`printf 'me=%s\\n' "$(ls -A me | wc -l)"`);
+  }) }, mapped.input);
+  expect(folders, "AUTONOMOUS_TYPE_TRANSLATED_TO_ITS_FOLDER").toEqual(["me"]);
+  expect(shell, "AUTONOMOUS_TYPE_FOLDER_READS_EMPTY").toBe("me=0\n");
+  // `note` is the inbox type, which covers every path outside the others.
+  const inbox = fixture("[{ types: [note], allow: [anthropic] }]");
+  let started = 0, refusal: unknown;
+  try { await runAutonomousTurn({ ...inbox.deps, backend: restrictedBackend(inbox.brain, async () => { started++; }) }, inbox.input); } catch (error) { refusal = error; }
+  expect((refusal as Error | undefined)?.name, "AUTONOMOUS_UNTRANSLATABLE_TYPE_REFUSED").toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message)).toContain("type note");
+  expect(started).toBe(0);
+}, 180_000);
 
 test("an autonomous turn under a provider folder rule refuses without the host's private index masks", async () => {
   const f = fixture();

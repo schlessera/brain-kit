@@ -6,9 +6,9 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
+import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
-import { readProviderTaxonomy, strayTypedDocuments } from "./provider-types.js";
+import { translateProviderTypesInView } from "./provider-types.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
@@ -81,30 +81,8 @@ export function createGovernedTurns(options: {
         // (#1668). Any other selector refuses admission by name (#2694).
         const refused = unsupportedProviderSelectors(policy.policy);
         const types = providerTypeSelectors(policy.policy);
-        const translate = async (view: WorkerStartupView) => {
-          // The taxonomy worker sees only the literal folders masked, so it
-          // writes into a throwaway directory, never the turn's private index.
-          const scratch = createPrivateIndexDirectory();
-          let read: Awaited<ReturnType<typeof readProviderTaxonomy>>;
-          try {
-            read = await readProviderTaxonomy({ brainPath: options.brainPath, startupView: view, folders: providerFolderRoots(policy.policy), index: scratch,
-              maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
-          } finally { removePrivateIndexDirectory(scratch); }
-          signal.throwIfAborted();
-          if (!read.ok) return { folders: {}, refused: types.map(type => `type ${type} (the brain's taxonomy could not be read: ${read.detail})`) };
-          const translated = translateProviderTypes(types, read.taxonomy);
-          // A document declares its type in frontmatter, so the folders hold
-          // the type only if no document of it lies outside them.
-          const strays = strayTypedDocuments(view.root, Object.keys(translated.folders), providerMaskedFolders(policy.policy, translated.folders), options.brainPath);
-          const listed = (paths: string[]) => `${paths.slice(0, 3).join(", ")}${paths.length > 3 ? ` and ${paths.length - 3} more` : ""}`;
-          const unverified = strays.filter(stray => stray.type === undefined).map(stray => stray.path);
-          for (const [type, folders] of Object.entries(translated.folders)) {
-            const paths = strays.filter(stray => stray.type === type).map(stray => stray.path);
-            if (paths.length) translated.refused.push(`type ${type} (${listed(paths)} ${paths.length === 1 ? "declares" : "declare"} it outside ${folders.join(", ")})`);
-            if (unverified.length) translated.refused.push(`type ${type} (${listed(unverified)} ${unverified.length === 1 ? "links" : "link"} to a folder outside the brain, which cannot be checked)`);
-          }
-          return translated;
-        };
+        const translate = (view: WorkerStartupView) => translateProviderTypesInView({ brainPath: options.brainPath, policy: policy.policy, view,
+          maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
         let typeFolders: Record<string, string[]> = {};
         if (types.length && !refused.length) {
           const translated = await translate(startupView);
