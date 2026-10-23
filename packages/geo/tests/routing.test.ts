@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { GeoConfigInput, RoutingDataset, RoutingMode } from "../src/config.js";
 import { GeoClient } from "../src/server/client.js";
 import type { GeoRuntimeOptions } from "../src/server/io.js";
 
 const roots: string[]=[];
 afterEach(async()=>{for(const root of roots.splice(0)) await rm(root,{recursive:true,force:true});});
-async function client(fetchImpl:GeoRuntimeOptions["fetchImpl"],routing:GeoConfigInput["routing"],extra:GeoConfigInput={}) {
+async function setup(fetchImpl:GeoRuntimeOptions["fetchImpl"],routing:GeoConfigInput["routing"],extra:GeoConfigInput={}) {
   const root=await mkdtemp(join(tmpdir(),"brain-geo-route-"));roots.push(root);
-  return new GeoClient({userAgent:"brain-geo-fixture/1.0",cacheDir:root,minimumIntervalMs:0,routing,...extra},{fetchImpl,admissionDir:join(root,"admission")});
+  const runtime={fetchImpl,admissionDir:join(root,"admission")};
+  return {geo:new GeoClient({userAgent:"brain-geo-fixture/1.0",cacheDir:root,minimumIntervalMs:0,routing,...extra},runtime),runtime};
+}
+async function client(fetchImpl:GeoRuntimeOptions["fetchImpl"],routing:GeoConfigInput["routing"],extra:GeoConfigInput={}) {
+  return (await setup(fetchImpl,routing,extra)).geo;
 }
 const points=[{lat:38.36,lon:20.71},{lat:38.37,lon:20.72}];
 const dataset=(mode:RoutingMode): RoutingDataset=>({url:`https://route.example.invalid/${mode}/route/v1`,profile:"driving",preparedMode:mode,
@@ -18,6 +22,24 @@ const dataset=(mode:RoutingMode): RoutingDataset=>({url:`https://route.example.i
 const reply={code:"Ok",waypoints:[{location:[20.711,38.361],name:"First stop",distance:10},{location:[20.721,38.371],name:"Last stop",distance:15}],
   routes:[{geometry:{type:"LineString",coordinates:[[20.711,38.361],[20.716,38.366],[20.721,38.371]]},distance:1_667,duration:60,legs:[{distance:1_667,duration:60}]}]};
 const eligible={enabled:true,noncommercialLightUse:true};
+const footDemo="https://routing.openstreetmap.de/routed-foot/route/v1";
+const footUrls=[dataset("foot").url,footDemo].map(endpoint=>endpoint+
+  "/driving/20.71,38.36;20.72,38.37?geometries=geojson&overview=full&steps=false&alternatives=false");
+
+/** Instance-local latency observation; retain the real fsync/rename writer. */
+function delayAdmissionWrites(geo: GeoClient, delayMs: number, admissionDir: string) {
+  const instrumented = (geo as unknown as {transport: {writeAtomic(path: string, value: unknown): Promise<void>}}).transport;
+  const original = instrumented.writeAtomic;
+  const writes = new Map<string, number>(), delayed: string[] = [];
+  instrumented.writeAtomic = async (path, value) => {
+    const count = (writes.get(path) ?? 0) + 1; writes.set(path, count);
+    const admission = dirname(path) === admissionDir;
+    if (admission && count === 2) await Bun.sleep(delayMs);
+    await original.call(instrumented, path, value);
+    if (admission && count === 2) delayed.push(path);
+  };
+  return {writes, delayed, restore() {instrumented.writeAtomic = original;}};
+}
 
 describe("configured OSRM routing and explicit demo fallback",()=>{
   test("configured primary wins, preserves requested/snapped stops and reports the actual dataset",async()=>{
@@ -149,18 +171,88 @@ describe("configured OSRM routing and explicit demo fallback",()=>{
     expect(result.value!.unknown).toContainEqual({field:"duration",reason:"provider_missing_or_invalid"});
   });
 
-  test("malformed geometry, timeout and a disabled primary dataset can use exactly one eligible fallback",async()=>{
-    for(const failure of ["malformed","timeout","DisabledDataset"]) {
-      const urls:string[]=[];
-      const geo=await client(async(url,init)=>{
+  // Immediate replies prove classification even with slow real persistence.
+  // Only the separate stalled request below proves the transport deadline.
+  for (const admissionDelayMs of [0, 150]) {
+    for (const failure of [
+      {name: "malformed geometry", code: "bad_response", reason: "bad_response", serviceCode: undefined,
+        response: () => Response.json({...reply, routes: [{...reply.routes[0], geometry: {type: "LineString", coordinates: [[0, 91], [0, 0]]}}]})},
+      {name: "DisabledDataset", code: "capability", reason: "DisabledDataset", serviceCode: "DisabledDataset",
+        response: () => Response.json({code: "DisabledDataset"}, {status: 400})},
+    ] as const) test(`${failure.name} keeps classification and exactly one matching fallback after ${admissionDelayMs}ms persistence`, async () => {
+      const urls: string[] = [], primary = dataset("foot");
+      const {geo, runtime} = await setup(async url => {
         urls.push(url);
-        if(new URL(url).hostname!=="route.example.invalid") return Response.json(reply);
-        if(failure==="malformed") return Response.json({...reply,routes:[{...reply.routes[0],geometry:{type:"LineString",coordinates:[[0,91],[0,0]]}}]});
-        if(failure==="DisabledDataset") return Response.json({code:"DisabledDataset"},{status:400});
-        return new Promise((_,reject)=>init.signal!.addEventListener("abort",()=>reject(new Error("timeout")),{once:true}));
-      },{endpoints:{foot:dataset("foot")},demo:eligible},{timeoutMs:100});
-      expect((await geo.route(points,"foot")).value!.geometry[0]).toHaveLength(3);
+        return new URL(url).hostname === "route.example.invalid" ? failure.response() : Response.json(reply);
+      }, {endpoints: {foot: primary}, demo: eligible}, {timeoutMs: 5_000});
+      const persistence = delayAdmissionWrites(geo, admissionDelayMs, runtime.admissionDir);
+      try {
+        const result = await geo.route(points, "foot");
+        expect(result.attempts[0]?.error?.code, "OSRM_PRIMARY_CLASSIFICATION").toBe(failure.code);
+        expect(result.attempts[0]?.error?.serviceCode).toBe(failure.serviceCode);
+        expect(result.value, "OSRM_CLASSIFIED_NONEMPTY_FALLBACK").not.toBeNull();
+        expect(result.value!.geometry[0]).toHaveLength(3);
+        expect(result.value!.geometry.map(section => section.map(p => [p.lon, p.lat]))).toEqual([reply.routes[0]!.geometry.coordinates]);
+        expect(urls).toHaveLength(2);
+        expect(urls, "OSRM_ORDERED_EXACTLY_ONCE_FALLBACK").toEqual(footUrls);
+        expect(result.attempts.map(a => ({endpoint: a.endpoint, fromCache: a.fromCache, requestSent: a.requestSent}))).toEqual([
+          {endpoint: primary.url, fromCache: false, requestSent: true},
+          {endpoint: footDemo, fromCache: false, requestSent: true},
+        ]);
+        expect(result.attempts[1]!.error).toBeNull();
+        expect(result.error).toBeNull();
+        expect(result.source).toMatchObject({endpoint: footDemo, fromCache: false, dataset: {preparedMode: "foot", profile: "driving"},
+          fallback: {used: true, primaryEndpoint: primary.url, reason: failure.reason}, transfer: {data: "coordinates", sent: true}});
+        expect(persistence.delayed, "OSRM_REAL_ADMISSION_WRITES_COMPLETED").toHaveLength(2);
+        for (const path of persistence.delayed) {
+          expect(persistence.writes.get(path)).toBe(2);
+          expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({blockedUntil: 0});
+        }
+        expect((await readdir(runtime.admissionDir)).filter(name => name.endsWith(".lock"))).toEqual([]);
+      } finally {persistence.restore();}
+    });
+  }
+
+  test("a genuinely stalled primary observes abort and one matching fallback settles within a bounded watchdog", async () => {
+    const timeoutMs = 5_000, watchdogHeadroomMs = 1_500;
+    const urls: string[] = [], primary = dataset("foot");
+    let aborted = false, releaseStalled: (() => void) | undefined;
+    const geo = await client(async (url, init) => {
+      urls.push(url);
+      if (new URL(url).hostname !== "route.example.invalid") return Response.json(reply);
+      return new Promise<Response>((resolve, reject) => {
+        releaseStalled = () => resolve(Response.json(reply));
+        init.signal!.addEventListener("abort", () => {aborted = true; reject(new Error("aborted"));}, {once: true});
+      });
+    }, {endpoints: {foot: primary}, demo: eligible}, {timeoutMs});
+    const pending = geo.route(points, "foot");
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([pending, new Promise<null>(resolve => {
+        watchdog = setTimeout(() => resolve(null), timeoutMs + watchdogHeadroomMs);
+      })]);
+      expect(result, "OSRM_CHAIN_SETTLED_WITHIN_BUDGET").not.toBeNull();
+      expect(aborted, "OSRM_PRIMARY_ABORT_OBSERVED").toBe(true);
+      expect(result!.attempts[0]?.error?.code).toBe("timeout");
+      expect(result!.value, "OSRM_TIMEOUT_NONEMPTY_FALLBACK").not.toBeNull();
+      expect(result!.value!.geometry[0]).toHaveLength(3);
+      expect(result!.value!.geometry.map(section => section.map(p => [p.lon, p.lat]))).toEqual([reply.routes[0]!.geometry.coordinates]);
       expect(urls).toHaveLength(2);
+      expect(urls, "OSRM_TIMEOUT_EXACTLY_ONCE_ENDPOINT_ORDER").toEqual(footUrls);
+      expect(result!.attempts.map(a => ({endpoint: a.endpoint, fromCache: a.fromCache, requestSent: a.requestSent}))).toEqual([
+        {endpoint: primary.url, fromCache: false, requestSent: true},
+        {endpoint: footDemo, fromCache: false, requestSent: true},
+      ]);
+      expect(result!.attempts[1]!.error).toBeNull();
+      expect(result!.error).toBeNull();
+      expect(result!.source).toMatchObject({endpoint: footDemo, fromCache: false, dataset: {preparedMode: "foot", profile: "driving"},
+        fallback: {used: true, reason: "timeout", primaryEndpoint: primary.url}, transfer: {data: "coordinates", sent: true}});
+    } finally {
+      clearTimeout(watchdog);
+      // Removing the deadline must fail the settlement assertion, then release
+      // the pending request before afterEach removes its real admission state.
+      releaseStalled?.();
+      await pending;
     }
   });
 

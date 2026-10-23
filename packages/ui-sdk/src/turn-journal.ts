@@ -53,7 +53,10 @@ export interface TurnRevertRequest {
 export interface TurnJournalChange {
   sequence: number;
   path: string;
-  /** `claude_memory` identifies external persisted notes; their path is a logical `claude-memory://<note.md>` identity, never a host pathname. */
+  /**
+   * `claude_memory` identifies external persisted notes; their path is a logical `claude-memory://<note.md>` identity, never a host pathname.
+   * `reference_worktree` identifies a managed reference worktree edit; its path is a logical `reference-worktree://<worktree id>/<path>` identity.
+   */
   scope: string;
   class: "content" | "steering" | "policy";
   actor: "agent" | "user";
