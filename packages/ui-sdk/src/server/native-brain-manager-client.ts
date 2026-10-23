@@ -6,7 +6,7 @@ import { consumeNativeStageAuthority, consumeNativeCheckpointRead, nativeCheckpo
 import { nativeCheckpointId } from "./native-brain-manager-protocol.js";
 import { NativeBrainManagerError, nativeManagerRequest, NATIVE_CONTROL_BYTES, NATIVE_DATA_CHUNK_BYTES, NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES,
   type NativeCheckpoint, type NativeManagerErrorCode, type NativeManagerReady, type NativeManagerRequest, type NativeRecoveryRecord, type NativeStage, type NativeStageChange,
-  type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
+  type NativePoolAccess, type NativePoolCheckpoint, type NativePoolCreatePurpose, type NativePoolRecord, type NativePoolStatus } from "./native-brain-manager-protocol.js";
 
 export interface NativeDeltaStream {
   stream: ReadableStream<Uint8Array>;
@@ -132,7 +132,7 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     }
   }
   async function checkpointRead(id: string, action: "file" | "stat" | "list", path: string, maximum: number,
-    expectedWorkerUid: number, signal?: AbortSignal, operation: "readCheckpoint" | "readStage" = "readCheckpoint"): Promise<NativeCheckpointFile> {
+    expectedWorkerUid: number, signal?: AbortSignal, operation: "readCheckpoint" | "readStage" | "poolReadCheckpoint" = "readCheckpoint"): Promise<NativeCheckpointFile> {
     if (!Number.isSafeInteger(expectedWorkerUid) || expectedWorkerUid <= 0)
       throw new NativeBrainManagerError("unsupported", "Private checkpoint reads require an actual qualified worker identity.");
     const ticket = await control({ operation, id, action, path, maximum }, signal) as NativeCheckpointReadTicket & { token: string };
@@ -159,7 +159,7 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     });
     return { workerUid: ticket.workerUid, stream, completed };
   }
-  async function checkpointMetadata(id: string, action: "stat" | "list", path: string, expectedWorkerUid: number, signal?: AbortSignal, operation: "readCheckpoint" | "readStage" = "readCheckpoint"): Promise<unknown> {
+  async function checkpointMetadata(id: string, action: "stat" | "list", path: string, expectedWorkerUid: number, signal?: AbortSignal, operation: "readCheckpoint" | "readStage" | "poolReadCheckpoint" = "readCheckpoint"): Promise<unknown> {
     const copy = await checkpointRead(id, action, path, options.maxDeltaBytes, expectedWorkerUid, signal, operation);
     const pieces: Uint8Array[] = []; let length = 0;
     const reader = copy.stream.getReader();
@@ -170,6 +170,25 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
       if (receipt.bytes !== length) throw new NativeBrainManagerError("unavailable", "Checkpoint metadata completion size differs.");
       return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(pieces, length)));
     } finally { await reader.cancel(); await copy.completed.catch(() => {}); }
+  }
+  async function statRead(id: string, path: string, expectedWorkerUid: number, signal: AbortSignal | undefined, operation: "readCheckpoint" | "poolReadCheckpoint"): Promise<NativeCheckpointMetadata | null> {
+    const value = await checkpointMetadata(id, "stat", path, expectedWorkerUid, signal, operation);
+    if (value === null) return null;
+    const item = metadata(value);
+    if (item.path !== path) throw new NativeBrainManagerError("unavailable", "Checkpoint metadata path differs from its request.");
+    return item;
+  }
+  async function listRead(id: string, path: string, expectedWorkerUid: number, signal: AbortSignal | undefined, operation: "readCheckpoint" | "poolReadCheckpoint"): Promise<NativeCheckpointMetadata[]> {
+    const value = await checkpointMetadata(id, "list", path, expectedWorkerUid, signal, operation);
+    if (!Array.isArray(value) || value.length > 200_000) throw new NativeBrainManagerError("unavailable", "Malformed checkpoint directory inventory.");
+    const entries = value.map(metadata), names = new Set<string>(), prefix = path ? `${path}/` : "";
+    for (const item of entries) {
+      const name = item.path.slice(prefix.length);
+      if (!item.path.startsWith(prefix) || !name || name.includes("/") || names.has(name))
+        throw new NativeBrainManagerError("unavailable", "Checkpoint directory inventory escapes or duplicates its requested directory.");
+      names.add(name);
+    }
+    return entries;
   }
   function metadata(value: unknown): NativeCheckpointMetadata {
     const item = value as NativeCheckpointMetadata;
@@ -219,25 +238,17 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     },
     readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointFile> =>
       checkpointRead(id, "file", path, maximum, expectedWorkerUid, signal),
-    statCheckpoint: async (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata | null> => {
-      const value = await checkpointMetadata(id, "stat", path, expectedWorkerUid, signal);
-      if (value === null) return null;
-      const item = metadata(value);
-      if (item.path !== path) throw new NativeBrainManagerError("unavailable", "Checkpoint metadata path differs from its request.");
-      return item;
-    },
-    listCheckpoint: async (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata[]> => {
-      const value = await checkpointMetadata(id, "list", path, expectedWorkerUid, signal);
-      if (!Array.isArray(value) || value.length > 200_000) throw new NativeBrainManagerError("unavailable", "Malformed checkpoint directory inventory.");
-      const entries = value.map(metadata), names = new Set<string>(), prefix = path ? `${path}/` : "";
-      for (const item of entries) {
-        const name = item.path.slice(prefix.length);
-        if (!item.path.startsWith(prefix) || !name || name.includes("/") || names.has(name))
-          throw new NativeBrainManagerError("unavailable", "Checkpoint directory inventory escapes or duplicates its requested directory.");
-        names.add(name);
-      }
-      return entries;
-    },
+    statCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata | null> =>
+      statRead(id, path, expectedWorkerUid, signal, "readCheckpoint"),
+    listCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata[]> =>
+      listRead(id, path, expectedWorkerUid, signal, "readCheckpoint"),
+    /** Fixed worker-UID reads of one sealed worktree checkpoint (#2430), with the same bounds as brain checkpoints. */
+    poolReadCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointFile> =>
+      checkpointRead(id, "file", path, maximum, expectedWorkerUid, signal, "poolReadCheckpoint"),
+    poolStatCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata | null> =>
+      statRead(id, path, expectedWorkerUid, signal, "poolReadCheckpoint"),
+    poolListCheckpoint: (id: string, path: string, expectedWorkerUid: number, signal?: AbortSignal): Promise<NativeCheckpointMetadata[]> =>
+      listRead(id, path, expectedWorkerUid, signal, "poolReadCheckpoint"),
     ready: async (signal?: AbortSignal): Promise<NativeManagerReady> => control({ operation: "ready" }, signal),
     checkpoint: async (id: string, signal?: AbortSignal): Promise<NativeCheckpoint> => control({ operation: "checkpoint", id }, signal),
     release: async (id: string, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> => control({ operation: "release", id }, signal),
@@ -278,7 +289,7 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
       };
     },
     poolStatus: async (signal?: AbortSignal): Promise<NativePoolStatus> => control({ operation: "poolStatus" }, signal),
-    poolCreate: async (id: string, purpose: NativePoolRecord["purpose"], from: string | null, allowanceBytes: number, signal?: AbortSignal): Promise<NativePoolRecord> =>
+    poolCreate: async (id: string, purpose: NativePoolCreatePurpose, from: string | null, allowanceBytes: number, signal?: AbortSignal): Promise<NativePoolRecord> =>
       control({ operation: "poolCreate", id, purpose, from, allowanceBytes }, signal),
     poolSeal: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolSeal", id }, signal),
     poolRelease: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolRelease", id }, signal),
@@ -288,6 +299,17 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     poolUnpublish: async (view: string, name: string, signal?: AbortSignal): Promise<{ view: string; name: string; removed: boolean }> =>
       control({ operation: "poolUnpublish", view, name }, signal),
     poolWithdraw: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolWithdraw", id }, signal),
+    poolCheckpoint: async (id: string, from: string, signal?: AbortSignal): Promise<NativePoolCheckpoint> => control({ operation: "poolCheckpoint", id, from }, signal),
+    poolDelta: async (from: string, to: string, signal?: AbortSignal): Promise<NativeDeltaStream> => {
+      const response = await call({ operation: "poolDelta", from, to }, signal);
+      if (response.headers.get("content-type") !== "application/x-brain-native-delta" || !response.body)
+        throw new NativeBrainManagerError("unavailable", "Native manager returned no framed delta.");
+      return decodeNativeDelta(response.body, options.maxDeltaBytes);
+    },
+    poolAccessOpen: async (access: string, signal?: AbortSignal): Promise<NativePoolAccess> => control({ operation: "poolAccessOpen", access }, signal),
+    poolAccess: async (id: string, access: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolAccess", id, access }, signal),
+    poolPark: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolPark", id }, signal),
+    poolAccessClose: async (access: string, signal?: AbortSignal): Promise<NativePoolAccess> => control({ operation: "poolAccessClose", access }, signal),
     listRecovery: async (after: string | null = null, signal?: AbortSignal): Promise<{ records: NativeRecoveryRecord[]; next: string | null }> => control({ operation: "listRecovery", after }, signal),
     delta: async (from: string, to: string, signal?: AbortSignal): Promise<NativeDeltaStream> => {
       const response = await call({ operation: "delta", from, to }, signal);

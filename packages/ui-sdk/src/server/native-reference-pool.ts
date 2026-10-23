@@ -16,11 +16,11 @@
  *   materializes; sealing converts the rest to measured allocation.
  */
 import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync,
-  statSync, symlinkSync, unlinkSync, writeFileSync, ftruncateSync, chownSync, chmodSync, realpathSync } from "node:fs";
+  rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync, ftruncateSync, chownSync, chmodSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
-import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, type NativePoolRecord, type NativePoolSpace, type NativePoolState,
-  type NativePoolStatus } from "./native-brain-manager-protocol.js";
+import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, type NativePoolAccess, type NativePoolCheckpoint, type NativePoolRecord,
+  type NativePoolSpace, type NativePoolState, type NativePoolStatus } from "./native-brain-manager-protocol.js";
 import { NativeRecoveryIndex } from "./native-recovery-index.js";
 import { POOL_HELPER } from "./native-reference-pool-helper.js";
 
@@ -36,7 +36,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Interval between transaction-thread wakes while a deleted root awaits its cleaner. */
 const RECLAIM_WAKE_MS = 1_000;
 const STATES: readonly NativePoolState[] = ["reserved", "writable", "sealed", "deleting", "deleted", "reclaimed"];
-const PURPOSES = ["source", "worktree", "staging"] as const;
+const PURPOSES = ["source", "worktree", "staging", "checkpoint"] as const;
+/**
+ * Kernel allowance of one worktree checkpoint (#2430). A read-only snapshot
+ * owns only the tree blocks it allocates at creation; later copy-on-write by
+ * the worktree is charged to the worktree.
+ */
+export const REFERENCE_POOL_CHECKPOINT_BYTES = 1024 * 1024;
 
 export interface NativeReferencePoolConfig {
   /** Root-owned mount of the pool volume's top-level tree, separate from the brain store. */
@@ -147,6 +153,8 @@ export function referencePoolAccounting(input: {
   rootsDirId: string; emergencyAllocatedBytes: number;
   /** Directory inode of each reference view (#2429) that may hold its published sealed roots. */
   viewDirIds?: ReadonlyMap<string, string>;
+  /** Directory inode of each open access generation (#2430) that may hold writable worktrees. */
+  accessDirIds?: ReadonlyMap<string, string>;
 }): { accounting: NonNullable<NativePoolStatus["accounting"]>; owner: Map<string, number>; refusal: NativePoolStatus["refusal"] } {
   const { observation, intents, limits } = input;
   let refusal: NativePoolStatus["refusal"] = null;
@@ -179,11 +187,12 @@ export function referencePoolAccounting(input: {
     refuse("unknown", "Reference pool combined kernel limit differs from its configured allowance.");
   // Census first: a nested or impostor root is the precise reason, not its qgroup.
   for (const root of observation.subvolumes) {
-    const intent = byRoot.get(root.rootId), view = root.dirId === input.rootsDirId ? null : input.viewDirIds?.get(root.dirId);
-    if (root.parentId !== "5" || view === undefined)
+    const intent = byRoot.get(root.rootId), place = poolPlace(root.dirId, input);
+    if (root.parentId !== "5" || place === undefined)
       refuse("unknown", `Reference pool subvolume ${root.rootId} is nested or outside the managed roots directory; nested roots would escape their allowance.`);
     else if (!intent || intent.id !== root.name) refuse("unknown", `Reference pool subvolume ${root.name} has no recorded identity.`);
-    else if (view !== (intent.view ?? null)) refuse("unknown", `Reference pool root ${intent.id} is outside its recorded view.`);
+    else if (place.view !== (intent.view ?? null)) refuse("unknown", `Reference pool root ${intent.id} is outside its recorded view.`);
+    else if (place.access !== (intent.access ?? null)) refuse("unknown", `Reference pool root ${intent.id} is outside its recorded access generation.`);
     else if (BigInt(intent.root!.otransid) < BigInt(observation.enableGeneration)) refuse("unknown", `Reference pool root ${intent.id} predates simple-quota enablement and is uncharged.`);
   }
   const live = new Set(observation.subvolumes.map(root => root.rootId)), dropping = new Set(observation.dropping);
@@ -222,6 +231,16 @@ export function referencePoolAccounting(input: {
   return { accounting, owner, refusal };
 }
 
+/** Which managed directory holds a root: roots (both null), one view or one access generation; undefined is unmanaged. */
+function poolPlace(dirId: string, input: { rootsDirId: string; viewDirIds?: ReadonlyMap<string, string>; accessDirIds?: ReadonlyMap<string, string> })
+  : { view: string | null; access: string | null } | undefined {
+  if (dirId === input.rootsDirId) return { view: null, access: null };
+  const view = input.viewDirIds?.get(dirId);
+  if (view !== undefined) return { view, access: null };
+  const access = input.accessDirIds?.get(dirId);
+  return access === undefined ? undefined : { view: null, access };
+}
+
 /** Identity of the physical capacity a pool can still draw from. */
 export interface PoolBacking { kind: "dedicated-device" | "sparse-loop"; deviceBytes: number; backingPath: string | null; backingAllocatedBytes: number | null; unbackedBytes: number }
 
@@ -243,7 +262,7 @@ export function referencePoolMount(mountinfo: string, pool: string, device: stri
   if (mounted.length !== 1 || mounted[0]!.type !== "btrfs" || mounted[0]!.root !== "/" || !mounted[0]!.options.includes("rw") || mounted[0]!.source !== device)
     throw new NativeBrainManagerError("unsupported", "Provision one read-write top-level Btrfs mount of the configured reference pool device.");
   // Btrfs reports anonymous per-subvolume st_dev numbers in mountinfo; the mount source names the volume.
-  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views"].some(managed => row.root === managed || row.root.startsWith(managed + "/"))))
+  if (rows.some(row => row.source === device && row.path !== pool && !["/roots", "/views", "/access"].some(managed => row.root === managed || row.root.startsWith(managed + "/"))))
     throw new NativeBrainManagerError("unsupported", "The reference pool volume is also mounted outside its managed roots; one capacity must not be presented twice.");
   if (rows.some(row => row.path !== pool && inside(row.path, pool)))
     throw new NativeBrainManagerError("unsupported", "The reference pool must not contain nested mounts.");
@@ -258,10 +277,16 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   // Reference views (#2429): one directory per sharing domain. A worker binds a
   // whole view, so a published root and its name swap stay visible to it.
   const views = join(pool.storePath, "views");
+  // Access generations (#2430): one directory per worker generation. A worker
+  // binds its whole generation, so a worktree moved into it appears there and
+  // a parked one disappears, without a mount in the running namespace.
+  const accessRoot = join(pool.storePath, "access");
   const rootPath = (id: string) => join(roots, id);
   const viewPath = (view: string) => join(views, view);
-  /** A root lives in the roots directory until it is published into one view. */
-  const location = (intent: Pick<PoolIntent, "id" | "view">) => intent.view ? join(viewPath(intent.view), intent.id) : rootPath(intent.id);
+  const accessPath = (access: string) => join(accessRoot, access);
+  /** A root lives in the roots directory until it is published into one view or held by one access generation. */
+  const location = (intent: Pick<PoolIntent, "id" | "view"> & { access?: string | null }) =>
+    intent.access ? join(accessPath(intent.access), intent.id) : intent.view ? join(viewPath(intent.view), intent.id) : rootPath(intent.id);
   let backing: PoolBacking | undefined, emergencyConsumed = false;
   const helper = async (args: string[], signal?: AbortSignal, permitFailure = false) => {
     const result = await context.command([PYTHON, "-I", "-S", "-c", POOL_HELPER, ...args], signal, permitFailure);
@@ -315,13 +340,13 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     return backing = { kind: "dedicated-device", deviceBytes, backingPath: null, backingAllocatedBytes: null, unbackedBytes: 0 };
   }
   await qualify();
-  for (const [path, mode, gid] of [[privateRoot, 0o700, 0], [state, 0o700, 0], [roots, 0o750, context.appGid], [views, 0o750, context.appGid]] as const) {
+  for (const [path, mode, gid] of [[privateRoot, 0o700, 0], [state, 0o700, 0], [roots, 0o750, context.appGid], [views, 0o750, context.appGid], [accessRoot, 0o750, context.appGid]] as const) {
     if (!existsSync(path)) { mkdirSync(path, { mode }); chownSync(path, 0, gid); chmodSync(path, mode); }
     trusted(path, mode);
   }
   const rootsDirId = String(statSync(roots, { bigint: true }).ino);
-  for (const directory of [roots, views]) if (statSync(directory, { bigint: true }).dev !== statSync(pool.storePath, { bigint: true }).dev)
-    throw new NativeBrainManagerError("unsupported", "Reference pool roots and views directories must live in the pool's top-level tree.");
+  for (const directory of [roots, views, accessRoot]) if (statSync(directory, { bigint: true }).dev !== statSync(pool.storePath, { bigint: true }).dev)
+    throw new NativeBrainManagerError("unsupported", "Reference pool roots, views and access directories must live in the pool's top-level tree.");
   /** Directory inode → view identity for every manager-created view; anything else in views/ is unknown evidence. */
   function viewDirIds(): Map<string, string> {
     const result = new Map<string, string>();
@@ -329,6 +354,16 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       if (!nativeCheckpointId.safeParse(name).success) throw new NativeBrainManagerError("unknown", `Reference pool views directory holds an unrecognized entry ${name}.`);
       trusted(viewPath(name), 0o755);
       result.set(String(statSync(viewPath(name), { bigint: true }).ino), name);
+    }
+    return result;
+  }
+  /** Directory inode → access generation for every manager-created access directory (#2430). */
+  function accessDirIds(): Map<string, string> {
+    const result = new Map<string, string>();
+    for (const name of readdirSync(accessRoot)) {
+      if (!nativeCheckpointId.safeParse(name).success) throw new NativeBrainManagerError("unknown", `Reference pool access directory holds an unrecognized entry ${name}.`);
+      trusted(accessPath(name), 0o755);
+      result.set(String(statSync(accessPath(name), { bigint: true }).ino), name);
     }
     return result;
   }
@@ -357,15 +392,19 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       const info = fstatSync(fd);
       if (!info.isFile() || info.uid !== 0 || info.nlink !== 1 || info.size > NATIVE_CONTROL_BYTES) throw new NativeBrainManagerError("unknown", "Untrusted reference pool intent.");
       const intent = JSON.parse(readFileSync(fd, "utf8")) as PoolIntent;
-      // Intents recorded before publication existed carry no view.
+      // Intents recorded before publication or access existed carry neither.
       intent.view ??= null;
+      intent.access ??= null;
       const root = intent.root;
       if (intent.version !== 1 || intent.id !== id || intent.fsid !== pool.fsid || !STATES.includes(intent.state) || !PURPOSES.includes(intent.purpose)
         || (intent.from !== null && !nativeCheckpointId.safeParse(intent.from).success) || !page(intent.allowanceBytes) || !digits(intent.reservedGeneration)
         || (root !== null && (!digits(root?.rootId) || !/^[0-9a-f]{32}$/.test(root?.uuid ?? "") || !digits(root?.otransid)))
         || (intent.ownerBytes !== null && !count(intent.ownerBytes)) || (intent.reason !== null && typeof intent.reason !== "string")
         || (["writable", "sealed"].includes(intent.state) && root === null)
-        || (intent.view !== null && (!nativeCheckpointId.safeParse(intent.view).success || ["reserved", "writable"].includes(intent.state))))
+        || (intent.view !== null && (!nativeCheckpointId.safeParse(intent.view).success || ["reserved", "writable"].includes(intent.state)))
+        || (intent.purpose === "checkpoint" && (intent.from === null || intent.state === "writable" || intent.view !== null))
+        || (intent.access !== null && (!nativeCheckpointId.safeParse(intent.access).success || intent.purpose !== "worktree" || intent.view !== null
+          || !["writable", "deleting"].includes(intent.state))))
         throw new NativeBrainManagerError("unknown", "Invalid reference pool intent.");
       return intent;
     } finally { closeSync(fd); }
@@ -434,17 +473,21 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       backingAvailableBytes: ledger.availableBytes, otherConsumersBytes: ledger.otherBytes, headroomBytes: ledger.headroomBytes };
   }
   /** Reconcile durable intents against one observation; only proven outcomes move state. */
-  async function reconcile(observation: PoolObservation, viewDirs: ReadonlyMap<string, string>, signal?: AbortSignal): Promise<void> {
+  async function reconcile(observation: PoolObservation, places: { viewDirIds: ReadonlyMap<string, string>; accessDirIds: ReadonlyMap<string, string> }, signal?: AbortSignal): Promise<void> {
     const census = new Map(observation.subvolumes.map(root => [root.name, root]));
     for (const intent of [...intents.values()]) {
-      // A publish or release interrupted between its rename and its durable
-      // record: adopt the root's actual directory once its identity is proven.
+      // A publish, access, park or release interrupted between its rename and
+      // its durable record: adopt the root's actual directory once its
+      // identity is proven. Sealed roots only move between roots and views;
+      // writable worktrees only between roots and access generations.
       const found = intent.root && intent.state !== "reserved" ? observation.subvolumes.find(root => root.rootId === intent.root!.rootId && root.name === intent.id) : undefined;
-      const actual = found ? (found.dirId === rootsDirId ? null : viewDirs.get(found.dirId)) : undefined;
-      if (found && actual !== undefined && actual !== intent.view && (intent.state === "sealed" || intent.state === "deleting")) {
-        const adopted = await verifyRoot({ ...intent, view: actual }, signal);
-        if (intent.state === "sealed" && !adopted.readOnly) await helper(["seal", location({ id: intent.id, view: actual })], signal);
-        await commit({ ...intent, view: actual }, true);
+      const actual = found ? poolPlace(found.dirId, { rootsDirId, ...places }) : undefined;
+      const moved = actual && (actual.view !== intent.view || actual.access !== intent.access);
+      if (moved && ((intent.state === "sealed" && actual.access === null) || (intent.purpose === "worktree" && (intent.state === "writable" || intent.state === "deleting") && actual.view === null)
+        || (intent.state === "deleting" && (actual.view === null || actual.access === null)))) {
+        const adopted = await verifyRoot({ ...intent, ...actual }, signal);
+        if (intent.state === "sealed" && !adopted.readOnly) await helper(["seal", location({ id: intent.id, ...actual })], signal);
+        await commit({ ...intent, ...actual }, true);
         continue;
       }
       if (intent.state === "reserved") {
@@ -452,35 +495,44 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
         if (!found) continue;
         // A create whose reply was lost: adopt only the root created in our directory after reservation.
         const info = (await helper(["inspect", rootPath(intent.id)], signal)).value;
-        if (info.rootId !== found.rootId || info.fsid !== pool.fsid || BigInt(info.otransid) < BigInt(intent.reservedGeneration) || info.readOnly || info.parentUuid !== (intent.from ? intents.get(intent.from)?.root?.uuid : "0".repeat(32)))
+        const checkpoint = intent.purpose === "checkpoint";
+        if (info.rootId !== found.rootId || info.fsid !== pool.fsid || BigInt(info.otransid) < BigInt(intent.reservedGeneration) || info.readOnly !== checkpoint || info.parentUuid !== (intent.from ? intents.get(intent.from)?.root?.uuid : "0".repeat(32)))
           throw new NativeBrainManagerError("unknown", `Reference pool root ${intent.id} does not match its reservation; no adoption is authorized.`);
-        await commit({ ...intent, state: "writable", root: { rootId: info.rootId, uuid: info.uuid, otransid: info.otransid }, path: rootPath(intent.id), view: null }, true);
+        await commit({ ...intent, state: checkpoint ? "sealed" : "writable", root: { rootId: info.rootId, uuid: info.uuid, otransid: info.otransid }, path: rootPath(intent.id), view: null, access: null }, true);
       } else if (intent.state === "deleted" && !intent.root) {
         // Never created: nothing was allocated, so nothing remains to reclaim.
         await commit({ ...intent, state: "reclaimed", ownerBytes: 0 }, true);
       } else if ((intent.state === "deleting" || intent.state === "deleted") && intent.root) {
         const present = observation.subvolumes.some(root => root.rootId === intent.root!.rootId), dropping = observation.dropping.includes(intent.root.rootId);
         const qgroup = observation.qgroups[level0(intent.root.rootId)];
-        if (intent.state === "deleting" && !present && !dropping) await commit({ ...intent, state: "deleted", path: null, ownerBytes: ownerCharge(qgroup) }, true);
+        if (intent.state === "deleting" && !present && !dropping) await commit({ ...intent, state: "deleted", path: null, ownerBytes: ownerCharge(qgroup), access: null }, true);
         const current = intents.get(intent.id)!;
         // Credit only after the cleaner dropped the root and squota shows no retained owner charge.
         if (current.state === "deleted" && !present && !dropping && observation.stable && (!qgroup || ownerCharge(qgroup) === 0))
           await commit({ ...current, state: "reclaimed", ownerBytes: 0, reason: null }, true);
         // Keep the qgroup census bounded; the kernel refuses this while any usage or root item remains.
         if (intents.get(intent.id)!.state === "reclaimed" && qgroup) await helper(["qgroup-remove", pool.storePath, current.root!.rootId], signal, true);
+        // A worktree takes a checkpoint at every journal observation (#2430):
+        // reclaimed checkpoint identities are forgotten, so they never exhaust
+        // the identity bound. Only the server's own lease names a checkpoint.
+        if (intents.get(intent.id)!.state === "reclaimed" && intent.purpose === "checkpoint") forget(intent.id);
         else if (current.state === "deleted" && qgroup && ownerCharge(qgroup) !== current.ownerBytes)
           await commit({ ...current, ownerBytes: ownerCharge(qgroup), reason: "Shared extents still referenced by other roots retain this allocation." }, true);
       }
     }
   }
   async function commit(intent: PoolIntent, recovery: boolean) { await writeIntent(intent, recovery); intents.set(intent.id, intent); }
+  function forget(id: string) {
+    unlinkSync(join(state, `${id}.json`)); fsyncSync(stateFd);
+    intents.delete(id); index.forget(id);
+  }
   function emergencyAllocated(dataFactor: number): number {
     try { return lstatSync(emergency).blocks * 512 * dataFactor; } catch { return 0; }
   }
   async function measure(signal?: AbortSignal) {
-    const observation = await observe(signal), viewDirs = viewDirIds();
-    await reconcile(observation, viewDirs, signal);
-    const result = referencePoolAccounting({ observation, intents: [...intents.values()], limits: pool, rootsDirId, viewDirIds: viewDirs,
+    const observation = await observe(signal), places = { viewDirIds: viewDirIds(), accessDirIds: accessDirIds() };
+    await reconcile(observation, places, signal);
+    const result = referencePoolAccounting({ observation, intents: [...intents.values()], limits: pool, rootsDirId, ...places,
       emergencyAllocatedBytes: emergencyAllocated(profileFactor(observation.spaces.data.profiles[0] ?? "") || 1) });
     return { observation, ...result };
   }
@@ -510,15 +562,17 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   }
   function publicRecord(intent: PoolIntent, owner?: number): NativePoolRecord {
     return { id: intent.id, purpose: intent.purpose, from: intent.from, allowanceBytes: intent.allowanceBytes, state: intent.state, root: intent.root,
-      path: intent.state === "writable" || intent.state === "sealed" ? location(intent) : null, ownerBytes: owner ?? intent.ownerBytes, reason: intent.reason, view: intent.view };
+      path: intent.state === "writable" || intent.state === "sealed" ? location(intent) : null, ownerBytes: owner ?? intent.ownerBytes, reason: intent.reason, view: intent.view,
+      access: intent.access };
   }
   async function verifyRoot(intent: PoolIntent, signal?: AbortSignal) {
     const info = (await helper(["inspect", location(intent)], signal)).value;
     if (!intent.root || info.fsid !== pool.fsid || info.rootId !== intent.root.rootId || info.uuid !== intent.root.uuid || info.otransid !== intent.root.otransid || info.parentId !== "5")
       throw new NativeBrainManagerError("unknown", "Recorded reference pool root identity changed; no use or deletion is authorized.");
-    return info as { readOnly: boolean };
+    return info as { readOnly: boolean; ctransid: string; parentUuid: string };
   }
   async function create(request: { id: string; purpose: NativePoolRecord["purpose"]; from: string | null; allowanceBytes: number }, signal?: AbortSignal): Promise<NativePoolRecord> {
+    if ((request.purpose as string) === "checkpoint") throw new NativeBrainManagerError("invalid", "Worktree checkpoints are created only from their writable worktree.");
     if (!page(request.allowanceBytes) || request.allowanceBytes > pool.operationLimitBytes)
       throw new NativeBrainManagerError("capacity", "Requested reference allowance exceeds the configured per-operation allowance; nothing ran.");
     const existing = intents.get(request.id);
@@ -534,7 +588,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       if (existsSync(rootPath(request.id))) throw new NativeBrainManagerError("unknown", "Unrecorded reference pool storage occupies this identity.");
       if (request.from !== null) {
         const source = intents.get(request.from);
-        if (!source || source.state !== "sealed") throw new NativeBrainManagerError("unknown", "A reference snapshot requires one retained sealed pool root.");
+        if (!source || source.state !== "sealed" || source.purpose === "checkpoint") throw new NativeBrainManagerError("unknown", "A reference snapshot requires one retained sealed pool root.");
       }
       const physicalView = await physical(signal);
       if (physicalView.headroomBytes !== null && physicalView.headroomBytes < 0)
@@ -543,7 +597,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       if (needed > measured.accounting.availableBytes)
         throw new NativeBrainManagerError("capacity", `Reference pool combined allowance cannot reserve ${needed} physical bytes (${measured.accounting.availableBytes} available); nothing was admitted.`);
       await commit({ version: 1, fsid: pool.fsid, id: request.id, purpose: request.purpose, from: request.from, allowanceBytes: request.allowanceBytes, state: "reserved",
-        root: null, path: null, ownerBytes: null, reason: null, view: null, reservedGeneration: measured.observation.generation }, false);
+        root: null, path: null, ownerBytes: null, reason: null, view: null, access: null, reservedGeneration: measured.observation.generation }, false);
     }
     const reserved = intents.get(request.id)!;
     signal?.throwIfAborted();
@@ -607,7 +661,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       if (existsSync(rootPath(id))) throw new NativeBrainManagerError("unknown", "Unrecorded reference pool storage cannot be released.");
       const generation = (await observe(signal)).generation;
       await commit({ version: 1, fsid: pool.fsid, id, purpose: "source", from: null, allowanceBytes: 4096, state: "deleted", root: null, path: null, ownerBytes: 0,
-        reason: "Released before any reservation was recorded.", view: null, reservedGeneration: generation }, true);
+        reason: "Released before any reservation was recorded.", view: null, access: null, reservedGeneration: generation }, true);
       return publicRecord(intents.get(id)!);
     }
     if ([...intents.values()].some(other => other.from === id && (other.state === "reserved" && !other.root)))
@@ -635,8 +689,10 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
       // A retained descriptor, cwd or mount keeps the root alive: the deadline expires and its charge stays.
       await syncDeleted(intent.root!.rootId, signal);
     }
+    const last = intents.get(id)!;
     await measure(signal);
-    return publicRecord(intents.get(id)!);
+    // A reclaimed checkpoint is forgotten by the measurement that proved it.
+    return publicRecord(intents.get(id) ?? { ...last, state: "reclaimed", path: null, ownerBytes: 0, access: null });
   }
   /** Remove every name in one view that resolves to `id`; other entries are left alone. */
   function unlinkNames(view: string, id: string) {
@@ -700,6 +756,130 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     return moved;
   }
   /**
+   * Create one read-only checkpoint of a writable worktree (#2430). The
+   * snapshot shares every extent with the worktree; its deltas feed the
+   * worktree's own journal observer, never the brain's.
+   */
+  async function checkpoint(request: { id: string; from: string }, signal?: AbortSignal): Promise<NativePoolCheckpoint> {
+    const existing = intents.get(request.id);
+    if (existing && (existing.purpose !== "checkpoint" || existing.from !== request.from))
+      throw new NativeBrainManagerError("invalid", "An existing reference pool identity cannot change its purpose or source.");
+    if (existing && ["deleting", "deleted", "reclaimed"].includes(existing.state)) throw new NativeBrainManagerError("released", "This reference pool identity was released; it cannot be recreated.");
+    if (existing?.state === "sealed") return checkpointRecord(existing, signal);
+    const worktree = intents.get(request.from);
+    if (!worktree || worktree.purpose !== "worktree" || worktree.state !== "writable")
+      throw new NativeBrainManagerError("unknown", "A worktree checkpoint requires one retained writable worktree root.");
+    const measured = await measure(signal), refreshed = intents.get(request.id);
+    if (refreshed?.state === "sealed") return checkpointRecord(refreshed, signal);
+    if (measured.refusal) throw new NativeBrainManagerError(measured.refusal.code === "changing" ? "unavailable" : measured.refusal.code === "capacity" ? "capacity" : measured.refusal.code === "unsupported" ? "unsupported" : "unknown", measured.refusal.message);
+    if (!refreshed) {
+      if (emergencyConsumed) throw new NativeBrainManagerError("capacity", "Reference pool recovery consumed its emergency allocation; admission refuses until it is rearmed.");
+      if (intents.size >= pool.maxIdentities) throw new NativeBrainManagerError("capacity", "Reference pool retained identities reached their configured bound; nothing was admitted.");
+      if (existsSync(rootPath(request.id))) throw new NativeBrainManagerError("unknown", "Unrecorded reference pool storage occupies this identity.");
+      const physicalView = await physical(signal);
+      if (physicalView.headroomBytes !== null && physicalView.headroomBytes < 0)
+        throw new NativeBrainManagerError("capacity", "Physical backing headroom does not cover the reference pool and other ledger consumers; nothing was admitted.");
+      const needed = reservePhysical(REFERENCE_POOL_CHECKPOINT_BYTES, measured.accounting.reservationFactor);
+      if (needed > measured.accounting.availableBytes)
+        throw new NativeBrainManagerError("capacity", `Reference pool combined allowance cannot reserve ${needed} physical bytes for a checkpoint (${measured.accounting.availableBytes} available); nothing was admitted.`);
+      await commit({ version: 1, fsid: pool.fsid, id: request.id, purpose: "checkpoint", from: request.from, allowanceBytes: REFERENCE_POOL_CHECKPOINT_BYTES, state: "reserved",
+        root: null, path: null, ownerBytes: null, reason: null, view: null, access: null, reservedGeneration: measured.observation.generation }, false);
+    }
+    const reserved = intents.get(request.id)!;
+    signal?.throwIfAborted();
+    const source = intents.get(request.from)!;
+    if ((await verifyRoot(source, signal)).readOnly) throw new NativeBrainManagerError("unknown", "A worktree checkpoint source is no longer writable.");
+    const made = await helper(["create", roots, reserved.id, String(reserved.allowanceBytes), QGROUP_NUMBER, location(source), "readonly"], signal, true);
+    if (made.code === 3) {
+      await commit({ ...reserved, state: "deleted", reason: `Reference pool checkpoint creation refused: ${made.value.error}.`, ownerBytes: 0 }, true);
+      throw new NativeBrainManagerError("capacity", `Reference pool checkpoint creation refused with ${made.value.error}; the reservation was released.`);
+    }
+    if (made.code !== 0) throw new NativeBrainManagerError("unknown", `Reference pool checkpoint creation outcome is unknown; its reservation remains charged. ${made.errors.trim()}`);
+    const info = made.value;
+    if (info.fsid !== pool.fsid || info.parentId !== "5" || !info.readOnly || info.parentUuid !== source.root!.uuid || BigInt(info.otransid) < BigInt(reserved.reservedGeneration))
+      throw new NativeBrainManagerError("unknown", "Created reference pool checkpoint identity cannot be verified; its reservation remains charged.");
+    const sealed: PoolIntent = { ...reserved, state: "sealed", root: { rootId: info.rootId, uuid: info.uuid, otransid: info.otransid }, path: rootPath(reserved.id) };
+    await commit(sealed, true);
+    return { ...publicRecord(sealed), purpose: "checkpoint", state: "sealed", transaction: info.ctransid, readOnly: true };
+  }
+  async function checkpointRecord(intent: PoolIntent, signal?: AbortSignal): Promise<NativePoolCheckpoint> {
+    const info = await verifyRoot(intent, signal);
+    if (!info.readOnly) throw new NativeBrainManagerError("unknown", "A worktree checkpoint is no longer read-only.");
+    return { ...publicRecord(intent), purpose: "checkpoint", state: "sealed", transaction: info.ctransid, readOnly: true };
+  }
+  /** One retained sealed checkpoint, verified, for a fixed worker-UID read or a delta endpoint. */
+  async function checkpointPath(id: string, signal?: AbortSignal): Promise<{ path: string; from: string }> {
+    const intent = intents.get(id);
+    if (!intent || intent.purpose !== "checkpoint" || intent.state !== "sealed")
+      throw new NativeBrainManagerError("unknown", "Worktree checkpoint reading requires one retained sealed checkpoint identity.");
+    await checkpointRecord(intent, signal);
+    return { path: location(intent), from: intent.from! };
+  }
+  /** Both ends of a worktree delta: two sealed checkpoints of the same worktree, never another root. */
+  async function deltaRoots(from: string, to: string, signal?: AbortSignal): Promise<{ from: string; to: string }> {
+    const before = await checkpointPath(from, signal), after = await checkpointPath(to, signal);
+    if (before.from !== after.from) throw new NativeBrainManagerError("invalid", "A worktree delta compares two checkpoints of the same worktree.");
+    return { from: before.path, to: after.path };
+  }
+  function ensureAccess(access: string) {
+    if (!existsSync(accessPath(access))) { mkdirSync(accessPath(access), { mode: 0o755 }); chownSync(accessPath(access), 0, 0); chmodSync(accessPath(access), 0o755); syncDirectory(accessRoot); }
+    trusted(accessPath(access), 0o755);
+  }
+  const held = (access: string) => [...intents.values()].filter(intent => intent.access === access && intent.state === "writable").map(intent => intent.id).sort();
+  /** Open one access generation (#2430): an empty root-owned directory its worker binds whole. */
+  function accessOpen(access: string): NativePoolAccess {
+    ensureAccess(access);
+    return { access, path: accessPath(access), roots: held(access) };
+  }
+  /**
+   * Move one writable worktree into an open access generation. The worker
+   * bound to that generation sees it on its next path lookup; no mount is
+   * added to a running namespace. A worktree held by another generation must
+   * be parked first, so a stale generation can never keep or take a grant.
+   */
+  async function grant(request: { id: string; access: string }, signal?: AbortSignal): Promise<NativePoolRecord> {
+    const intent = intents.get(request.id);
+    if (!intent || intent.purpose !== "worktree") throw new NativeBrainManagerError("unknown", "Only a recorded worktree root can be made accessible.");
+    if (intent.state !== "writable") throw new NativeBrainManagerError(["deleting", "deleted", "reclaimed"].includes(intent.state) ? "released" : "invalid", "Only a writable worktree can be made accessible.");
+    if (intent.access === request.access) { await verifyRoot(intent, signal); return publicRecord(intent); }
+    if (intent.access) throw new NativeBrainManagerError("invalid", "This worktree is held by another access generation; park it first.");
+    if (!existsSync(accessPath(request.access))) throw new NativeBrainManagerError("unavailable", "This access generation is not open.");
+    trusted(accessPath(request.access), 0o755);
+    await verifyRoot(intent, signal);
+    return publicRecord(await relocate(intent, request.access, signal));
+  }
+  /** Return a worktree to the masked roots directory; its generation no longer reaches it by name or identity. */
+  async function park(id: string, signal?: AbortSignal): Promise<NativePoolRecord> {
+    const intent = intents.get(id);
+    if (!intent || intent.purpose !== "worktree") throw new NativeBrainManagerError("unknown", "Only a recorded worktree root can be parked.");
+    if (!intent.access) return publicRecord(intent);
+    await verifyRoot(intent, signal);
+    return publicRecord(await relocate(intent, null, signal));
+  }
+  /** Park everything an access generation holds and remove its directory. */
+  async function accessClose(access: string, signal?: AbortSignal): Promise<NativePoolAccess> {
+    const parked = held(access);
+    for (const id of parked) await park(id, signal);
+    if (existsSync(accessPath(access))) {
+      trusted(accessPath(access), 0o755);
+      const left = readdirSync(accessPath(access));
+      if (left.length) throw new NativeBrainManagerError("unknown", "An access generation holds unrecorded entries; it is not removed.");
+      rmdirSync(accessPath(access)); syncDirectory(accessRoot);
+    }
+    return { access, path: accessPath(access), roots: parked };
+  }
+  /** Writable worktrees rename freely; Btrfs refuses only read-only subvolume moves. */
+  async function relocate(intent: PoolIntent, access: string | null, signal?: AbortSignal): Promise<PoolIntent> {
+    const from = location(intent), to = location({ id: intent.id, view: null, access });
+    if (existsSync(to)) throw new NativeBrainManagerError("unknown", "Unrecorded storage occupies this root's destination.");
+    renameSync(from, to);
+    syncDirectory(dirname(from)); syncDirectory(dirname(to));
+    await commit({ ...intent, access }, true);
+    const moved = intents.get(intent.id)!;
+    if ((await verifyRoot(moved, signal)).readOnly) throw new NativeBrainManagerError("unknown", "A moved worktree became read-only.");
+    return moved;
+  }
+  /**
    * Withdraw one published root from its view (#2429): its names go first, then
    * the root returns to the masked roots directory, so no reader of the view
    * can reach it by name or identity. Open files and working directories keep
@@ -737,9 +917,10 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     return { records, next: last && candidates.some(id => id > last!) ? last : null };
   }
   return {
-    /** Mandatory worker masks for pool private state, roots and views; a worker sees only a view bound for it. */
-    privatePaths: [privateRoot, roots, views, pool.devicePath, ...(backing?.backingPath ? [backing.backingPath] : []), ...(pool.headroomLedgerPath ? [dirname(pool.headroomLedgerPath)] : [])],
+    /** Mandatory worker masks for pool private state, roots, views and access generations; a worker sees only what is bound for it. */
+    privatePaths: [privateRoot, roots, views, accessRoot, pool.devicePath, ...(backing?.backingPath ? [backing.backingPath] : []), ...(pool.headroomLedgerPath ? [dirname(pool.headroomLedgerPath)] : [])],
     status, create, seal, release, publish, unpublish, withdraw, list, rearm: ensureEmergency,
+    checkpoint, checkpointPath, deltaRoots, accessOpen, grant, park, accessClose,
     close() { index.close(); closeSync(stateFd); },
   };
 }

@@ -36,7 +36,7 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       if (existing) return existing;
       if (live().length >= pool.capacityRoots) fail("capacity", "Reference pool combined allowance cannot reserve its allowance; nothing was admitted.");
       const record: NativePoolRecord = { id, purpose, from, allowanceBytes, state: "writable", root: { rootId: String(256 + records.size), uuid: "a".repeat(32), otransid: "1" },
-        path: join(roots, id), ownerBytes: 0, reason: null, view: null };
+        path: join(roots, id), ownerBytes: 0, reason: null, view: null, access: null };
       if (from) { const source = records.get(from); if (!source || source.state !== "sealed") fail("unknown", "A reference snapshot requires one retained sealed pool root."); cpSync(location(source!), record.path!, { recursive: true, verbatimSymlinks: true }); }
       else mkdirSync(record.path!);
       records.set(id, record);
@@ -86,7 +86,7 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       note({ operation: "release", id });
       if (!record) {
         // Like the manager, fence an identity whose create never recorded anything.
-        const fenced: NativePoolRecord = { id, purpose: "source", from: null, allowanceBytes: 4096, state: "deleted", root: null, path: null, ownerBytes: 0, reason: "Released before any reservation was recorded.", view: null };
+        const fenced: NativePoolRecord = { id, purpose: "source", from: null, allowanceBytes: 4096, state: "deleted", root: null, path: null, ownerBytes: 0, reason: "Released before any reservation was recorded.", view: null, access: null };
         records.set(id, fenced);
         return fenced;
       }

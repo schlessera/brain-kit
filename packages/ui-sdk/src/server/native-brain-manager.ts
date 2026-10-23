@@ -373,11 +373,26 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       if (request.operation === "poolStatus") return Response.json(await pool().status(signal));
       if (request.operation === "poolCreate") return Response.json(await pool().create(request, signal));
       if (request.operation === "poolSeal") return Response.json(await pool().seal(request.id, signal));
-      if (request.operation === "poolRelease") return Response.json(await pool().release(request.id, signal));
+      if (request.operation === "poolRelease") {
+        if ([...checkpointReaders.values()].some(reader => reader.checkpointId === request.id))
+          throw new NativeBrainManagerError("unavailable", "Close the checkpoint's active fixed-reader handle before releasing it.");
+        return Response.json(await pool().release(request.id, signal));
+      }
       if (request.operation === "listPoolRecovery") return Response.json(pool().list(request.after));
       if (request.operation === "poolPublish") return Response.json(await pool().publish(request, signal));
       if (request.operation === "poolUnpublish") return Response.json(pool().unpublish(request));
       if (request.operation === "poolWithdraw") return Response.json(await pool().withdraw(request.id, signal));
+      if (request.operation === "poolCheckpoint") return Response.json(await pool().checkpoint(request, signal));
+      if (request.operation === "poolAccessOpen") return Response.json(pool().accessOpen(request.access));
+      if (request.operation === "poolAccess") return Response.json(await pool().grant(request, signal));
+      if (request.operation === "poolPark") return Response.json(await pool().park(request.id, signal));
+      if (request.operation === "poolAccessClose") return Response.json(await pool().accessClose(request.access, signal));
+      if (request.operation === "poolDelta") {
+        const roots = await pool().deltaRoots(request.from, request.to, signal);
+        const response = sendDelta(roots.from, roots.to, signal, release);
+        handedToStream = true;
+        return response;
+      }
       if (request.operation === "cancelCheckpointRead") {
         const reader = checkpointReaders.get(request.id);
         if (reader) await reader.close();
@@ -397,14 +412,18 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
         if (signal?.aborted) { await close(); signal.throwIfAborted(); }
         return Response.json({ id, token, socketPath, workerUid: fixed.workerUid, maximum });
       }
-      if (request.operation === "readCheckpoint") {
+      if (request.operation === "readCheckpoint" || request.operation === "poolReadCheckpoint") {
         if (fixed.workerUid === undefined || fixed.appUid === undefined)
           throw new NativeBrainManagerError("unsupported", "Configure the native manager's fixed workerUid to match the qualified identity helper before private checkpoint reads.");
         if (checkpointReaders.size >= 8) throw new NativeBrainManagerError("unavailable", "Native checkpoint reader slots are busy.");
-        const intent = readIntent(request.id);
-        if (!intent || intent.kind === "stage" || intent.state !== "sealed")
-          throw new NativeBrainManagerError("unknown", "Checkpoint reading requires one retained sealed checkpoint identity.");
-        const checkpoint = await verifyOwned(intent, signal);
+        let checkpoint: { path: string };
+        if (request.operation === "poolReadCheckpoint") checkpoint = await pool().checkpointPath(request.id, signal);
+        else {
+          const intent = readIntent(request.id);
+          if (!intent || intent.kind === "stage" || intent.state !== "sealed")
+            throw new NativeBrainManagerError("unknown", "Checkpoint reading requires one retained sealed checkpoint identity.");
+          checkpoint = await verifyOwned(intent, signal);
+        }
         const maximum = Math.min(request.maximum, request.action === "file" ? fixed.capacityBytes : fixed.maxDeltaBytes);
         const id = randomUUID(), token = randomUUID(), socketPath = nativeCheckpointReaderPath(fixed.socketPath, id);
         const rootFd = openSync(checkpoint.path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
@@ -585,40 +604,45 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       const from = readIntent(request.from), to = readIntent(request.to);
       if (!from || !to || from.state !== "sealed" || to.state !== "sealed") throw new NativeBrainManagerError("unknown", "Native delta requires two retained sealed checkpoint identities.");
       await verifyOwned(from, signal); await verifyOwned(to, signal);
-      const running = spawn([BTRFS, "send", "--no-data", "--proto", "1", "-p", rootPath(from.id), rootPath(to.id)], signal);
-      const reader = (running.child.stdout as ReadableStream<Uint8Array>).getReader(), errors = collect(running.child.stderr as ReadableStream<Uint8Array>, NATIVE_CONTROL_BYTES);
-      let bytes = 0, finished = false, released = false;
-      const releaseSend = () => { if (!released) { released = true; release(); } };
-      // A stalled/disconnected consumer must not retain the broker lock after its owned command exits.
-      void errors.catch(() => running.kill());
-      void running.finished.then(releaseSend, releaseSend);
-      const finish = async () => { if (finished) return; finished = true; running.kill(); await running.finished; await errors.catch(() => {}); releaseSend(); };
-      const body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          try {
-            const item = await reader.read();
-            if (!item.done) {
-              bytes += item.value.byteLength; if (bytes > fixed.maxDeltaBytes) throw new NativeBrainManagerError("capacity", "Native send exceeded the maxDeltaBytes transport work bound; configure it for this host workload. This is not a history quota.");
-              for (let offset = 0; offset < item.value.byteLength; offset += NATIVE_DATA_CHUNK_BYTES) controller.enqueue(nativeManagerFrame(1, item.value.slice(offset, offset + NATIVE_DATA_CHUNK_BYTES)));
-              return;
-            }
-            const code = await running.finished, detail = new TextDecoder().decode(await errors);
-            if (code !== 0 || running.signal.aborted) throw new NativeBrainManagerError("unavailable", `Native send did not complete: ${detail.trim()}`);
-            controller.enqueue(nativeManagerFrame(2, new TextEncoder().encode(JSON.stringify({ ok: true, exitCode: 0, bytes }))));
-            controller.close(); await finish();
-          } catch (error) {
-            try {
-              const known = plainError(error);
-              controller.enqueue(nativeManagerFrame(2, new TextEncoder().encode(JSON.stringify({ ok: false, code: known.code, message: known.message })))); controller.close();
-            } catch { /* A disconnected/cancelled receiver gets no successful completion. */ }
-            finally { await reader.cancel(error); await finish(); }
-          }
-        },
-        async cancel(reason) { await reader.cancel(reason); await finish(); },
-      });
+      const response = sendDelta(rootPath(from.id), rootPath(to.id), signal, release);
       handedToStream = true;
-      return new Response(body, { headers: { "content-type": "application/x-brain-native-delta" } });
+      return response;
     } finally { if (!handedToStream) release(); }
+  }
+  /** Stream one metadata-only send between two verified read-only roots; the lock is released when the send ends. */
+  function sendDelta(parent: string, child: string, signal: AbortSignal | undefined, release: () => void): Response {
+    const running = spawn([BTRFS, "send", "--no-data", "--proto", "1", "-p", parent, child], signal);
+    const reader = (running.child.stdout as ReadableStream<Uint8Array>).getReader(), errors = collect(running.child.stderr as ReadableStream<Uint8Array>, NATIVE_CONTROL_BYTES);
+    let bytes = 0, finished = false, released = false;
+    const releaseSend = () => { if (!released) { released = true; release(); } };
+    // A stalled/disconnected consumer must not retain the broker lock after its owned command exits.
+    void errors.catch(() => running.kill());
+    void running.finished.then(releaseSend, releaseSend);
+    const finish = async () => { if (finished) return; finished = true; running.kill(); await running.finished; await errors.catch(() => {}); releaseSend(); };
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const item = await reader.read();
+          if (!item.done) {
+            bytes += item.value.byteLength; if (bytes > fixed.maxDeltaBytes) throw new NativeBrainManagerError("capacity", "Native send exceeded the maxDeltaBytes transport work bound; configure it for this host workload. This is not a history quota.");
+            for (let offset = 0; offset < item.value.byteLength; offset += NATIVE_DATA_CHUNK_BYTES) controller.enqueue(nativeManagerFrame(1, item.value.slice(offset, offset + NATIVE_DATA_CHUNK_BYTES)));
+            return;
+          }
+          const code = await running.finished, detail = new TextDecoder().decode(await errors);
+          if (code !== 0 || running.signal.aborted) throw new NativeBrainManagerError("unavailable", `Native send did not complete: ${detail.trim()}`);
+          controller.enqueue(nativeManagerFrame(2, new TextEncoder().encode(JSON.stringify({ ok: true, exitCode: 0, bytes }))));
+          controller.close(); await finish();
+        } catch (error) {
+          try {
+            const known = plainError(error);
+            controller.enqueue(nativeManagerFrame(2, new TextEncoder().encode(JSON.stringify({ ok: false, code: known.code, message: known.message })))); controller.close();
+          } catch { /* A disconnected/cancelled receiver gets no successful completion. */ }
+          finally { await reader.cancel(error); await finish(); }
+        }
+      },
+      async cancel(reason) { await reader.cancel(reason); await finish(); },
+    });
+    return new Response(body, { headers: { "content-type": "application/x-brain-native-delta" } });
   }
   return {
     /** Only an already authenticated Unix endpoint invokes this fixed operation set. */

@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:255-745`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:274-926`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -225,6 +225,41 @@ directory its intent records. Sealing also makes the root's top directory
 source only through a view bound for it, and other domains' views stay
 invisible.
 
+## Worktree checkpoints and access generations (#2430)
+
+A managed worktree is a `worktree` root: a writable snapshot of one sealed
+source root. Copy-on-write keeps every edit inside the worktree, the source
+stays read-only, and the shared extents stay charged once to the source. Two
+mechanisms let the host observe and expose it.
+
+**Checkpoints.** `poolCheckpoint(id, from)` takes a read-only snapshot of one
+writable worktree. The snapshot is created read-only inside its own
+transaction, with a 1 MiB kernel allowance (`REFERENCE_POOL_CHECKPOINT_BYTES`):
+it owns only the tree blocks it allocates, and later copy-on-write by the
+worktree is charged to the worktree. `poolDelta(from, to)` streams a
+metadata-only `btrfs send` between two checkpoints of the same worktree, framed
+like brain deltas; any other pair refuses. `poolReadCheckpoint` reads a
+checkpoint through the same fixed worker-UID reader as brain checkpoints. A
+worktree takes a checkpoint at every journal observation, so a checkpoint's
+intent is removed once its reclamation is proved, and checkpoints never exhaust
+`maxIdentities`. Such an identity is then no longer fenced; only the server's
+own lease names checkpoints, and it generates a new one each time. A worktree
+is never created from a checkpoint.
+
+**Access generations.** A worker reaches a worktree only through an access
+generation: one manager-owned directory `access/<generation>`, root-owned and
+mode 0755, bound whole into one worker generation. `poolAccess(id, access)`
+renames a writable worktree into it, `poolPark(id)` renames it back into the
+masked `roots/`, and `poolAccessClose(access)` parks everything and removes
+the directory. A running sandbox sees a grant on its next path lookup and loses
+a parked worktree the same way, so no mount is ever added to its namespace.
+Btrfs renames writable subvolumes freely. A worktree held by one generation
+must be parked before another can take it, so a stale generation can neither
+keep nor pass on a grant. The worker cannot create entries in the generation
+directory itself. `access/` joins the mandatory worker masks. Census accepts a
+writable worktree only in the directory its intent records, and measurement
+adopts a grant or park interrupted between its rename and its record.
+
 ## Native qualification
 
 `bun scripts/prove-reference-pool.ts` runs `reference-pool-fixture.py` inside
@@ -289,6 +324,19 @@ following:
   restart. A withdrawn root disappeared from the reader's listing while its
   open file still read the old revision, and republishing a root left writable
   resealed it first.
+- Managed worktrees (#2430): an edit in a worktree left its sealed source
+  byte-identical, and a write to the source failed with `EROFS`. Checkpoints
+  were read-only; the delta between two of them named the deleted and the added
+  file, but not the file edited before the first checkpoint. A delta across two
+  worktrees and a worktree created from a checkpoint both refused. A non-root
+  bubblewrap worker (UID 1001, app group) bound to one empty access generation
+  saw the worktree appear after the grant, read and edited it, and the edits
+  landed in the worktree, never in the source. It could not create an entry in
+  the generation directory, saw neither the pool nor another generation's
+  worktree, and a cross-generation grant refused. Parking removed the worktree
+  from its next lookup. A grant interrupted after its rename was adopted on
+  restart and stayed visible; closing the generation parked it and removed the
+  directory. Released checkpoints were forgotten once reclaimed.
 
 The baseline was 4,521,984 aggregate bytes: the 4 MiB emergency file plus
 311,296 bytes of global metadata on an empty volume.
