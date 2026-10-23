@@ -40,6 +40,9 @@ export function providerHardlinks(root: string, masked: readonly string[]): Prov
     visit: (path: Buffer, info: BigIntStats) => boolean): boolean => {
     let names: Buffer[];
     try { names = readdirSync(at(rel), { encoding: "buffer" }); } catch (error) { if (vanished(error)) return true; throw error; }
+    // Directory order is filesystem-specific; sorting makes which masked name
+    // a refusal reports, and where an early stop lands, the same on every host.
+    names.sort(Buffer.compare);
     for (const name of names) {
       const path = rel.length ? Buffer.concat([rel, SLASH, name]) : name;
       if (skip(path)) continue;

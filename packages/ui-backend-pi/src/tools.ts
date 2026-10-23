@@ -37,7 +37,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { KeyedLock, KeyedLockAcquireOptions, WriteLock } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { killWrapped } from "@schlessera/brain-ui-sdk/server";
-import { RTK_WORKER_ENV, NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions } from "@schlessera/brain-ui-sdk/internal";
+import { RTK_WORKER_ENV, NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
 import {
   BRIDGE_TOOL_POSTURE,
   bashLockKey,
@@ -387,7 +387,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       const exec = deps.exec ?? ambientExecConfig();
       const proc = spawn(wrapCommand(["grep", "-rInE", "--", params.pattern, rel], exec.wrapper), {
         cwd: brain.root,
-        env: subprocessEnv(resolveEnabledWebSearchEnvNames()),
+        env: subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]),
         stdout: "pipe",
         stderr: "pipe",
         ...execWrapperSpawnOptions(exec.wrapper),
@@ -556,7 +556,7 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
       // by now (and may have edited the command via updatedInput). The rtk
       // rewrite runs AFTER the gate, so confirm patterns see the command as
       // the model wrote it; when rtk is absent or declines, it is untouched.
-      const childEnv = { ...subprocessEnv(resolveEnabledWebSearchEnvNames()), ...RTK_WORKER_ENV };
+      const childEnv = { ...subprocessEnv([...resolveEnabledWebSearchEnvNames(), ...WORKER_EGRESS_TRANSPORT_ENV]), ...RTK_WORKER_ENV };
       const cmd = await rtkRewriteCommand(params.command, childEnv);
       if (signal?.aborted) throw new DOMException("Tool cancelled before lock admission", "AbortError");
       // Only commands that touch git staging/history or the brain CLI's

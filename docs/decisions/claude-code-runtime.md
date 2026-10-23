@@ -47,7 +47,7 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:352`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:358`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
@@ -455,8 +455,8 @@ into them.
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
-  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:196-204`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:425`). A declared bearer-token profile clears both
+  `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:201-209`), handed to the SDK
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:431`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -604,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:296`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:302`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1311,7 +1311,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:389-399`).
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:401-412`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a
@@ -1320,6 +1320,32 @@ discovery writes are read back (`function cachedModel`,
 `packages/ui-backend-claude/src/model-discovery.ts:265-273`). An operator whose
 existing custom `ANTHROPIC_BASE_URL` receives the subscription login must list
 that origin when the host gains managed native storage.
+
+**API-billed profiles — 2026-10-22.** A governed or strict turn on an
+API-billed profile uses the same relay. The relay injects the profile's
+`ANTHROPIC_API_KEY` as `x-api-key` and its `ANTHROPIC_AUTH_TOKEN` as a bearer
+token, whichever the profile sets, and the worker holds the placeholder under
+the same variable, so the CLI chooses the same header and reports the same key
+source (`export function apiKeyRelayCredential`,
+`packages/ui-backend-claude/src/api-key-relay.ts:19-31`). The relay takes the
+credential from the profile's own declaration, so an ambient
+`ANTHROPIC_AUTH_TOKEN` never rides along to the profile's route. The variable
+the profile names, any host `CLAUDE_CODE_OAUTH_TOKEN` and the inference keys
+only agent runtimes read (`AGENT_INFERENCE_CREDENTIAL_ENV`) stay out of the
+worker, unless the operator admits one explicitly
+(`BRAIN_UI_SUBPROCESS_ENV_EXTRA`). Keys the `brain` CLI's own providers read stay until #1673 relays
+them.
+The key needs no origin list: `BRAIN_UI_CLAUDE_PROFILES` declares the key and
+its route together, which is the trusted host authorization the 2026-10-16
+ruling asks for. The prompt gate applies the same settings-source and route
+checks as for the host login, plus the subscription's credential-settings
+check: a settings file that sets a credential variable or an `apiKeyHelper`
+would stand in for the placeholder. It refuses as a transport failure
+(`auth_failure`) rather than a subscription one. Billing stays the API key's:
+the CLI reports the same `apiKeySource`. On any relayed turn, the host's
+stored login (`.credentials.json` in the selected config directory) is masked
+in the worker wherever the host masks do not already hide it. A login file
+linked into the brain cannot be masked, so that turn is refused.
 
 The relay can also consume the concrete turn proxy's existing admission,
 shared byte counter and redacted recorder. Inference records carry an internal
@@ -1383,7 +1409,7 @@ and native flag settings, using the existing subscription credential-clearing
 policy. It does not remove other providers' CLI command environment. Only an
 ordinary subscription turn can select this input; API and autonomous turns
 retain their existing paths (`const inferenceEnv`,
-`packages/ui-backend-claude/src/sdk-options.ts:218-225`). The worker note derives
+`packages/ui-backend-claude/src/sdk-options.ts:220-231`). The worker note derives
 its active-proxy description from that same selection and retains per-use
 outward approvals.
 

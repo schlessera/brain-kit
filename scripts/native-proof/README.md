@@ -44,6 +44,17 @@ Btrfs mutation ioctls and trusted OverlayFS markers are denied, and native
 manager state/socket paths are masked. UID-0 workers also prove `/proc` is
 read-only; the root app must emit its existing boot and status warning.
 
+On this managed storage every governed turn runs on its turn egress proxy and
+the host inference relay. In the first and warm turns, each worker fetches a
+fixture origin as `localhost`, which only the proxy resolves. The proof reads
+`ui.db` and requires exactly one durable `egress_connection` record per turn
+for that fetch. The record must carry its host, port, path, method, bytes and
+outcome, the turn's session, the interactive actor and the governed profile.
+Pi's model requests must each appear as their own record with
+`inference: true`, and the fixture model accepts only the host-held fixture key,
+so a request that did not pass through the relay's credential injection fails; Claude's fixture makes none. `egress-records.json` keeps the
+rows.
+
 The fixture refuses an existing loop1790, creates an exclusive fully allocated
 backing, and verifies its device/inode/minor before format and cleanup. Its
 bounded filesystem preserves the existing 2 GiB free-space floor. The Docker

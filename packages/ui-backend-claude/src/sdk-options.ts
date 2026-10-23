@@ -1,4 +1,4 @@
-import { INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
+import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeTitleUsageCollector } from "./title-usage.js";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
@@ -25,7 +25,7 @@ import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
-import { envSnapshot, ambientExecConfig } from "./config/env.js";
+import { envSnapshot, ambientExecConfig, operatorAdmittedEnvNames } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import { userMessage } from "./turn-input.js";
@@ -82,7 +82,9 @@ interface ClaudeSdkTurnOptions {
   /** One resolved environment selects both host observation storage and native runtime state. */
   turnEnvironment?: Record<string, string | undefined>;
   /** Concrete host-prepared transport only; ordinary selection/route/lifetime are owned by its caller. */
-  hostInference?: { proxyDir: string; baseUrl?: string };
+  hostInference?: { proxyDir: string; baseUrl?: string;
+    /** An API-billed profile's placeholders; absent for the host Claude login. */
+    placeholders?: Readonly<Record<string, string>> };
   fileVersions?: import("@schlessera/brain-ui-sdk/internal").NativeFileVersions;
   req: StartTurnRequest;
   profile: InferenceProfile;
@@ -94,8 +96,8 @@ interface ClaudeSdkTurnOptions {
 }
 
 export function createClaudeSdkTurn(options: ClaudeSdkTurnOptions): ClaudeSdkTurn {
-  if (options.hostInference && (options.req.autonomous || options.profile.billing === "api")) {
-    throw new Error("The prepared Claude host OAuth transport requires an ordinary subscription turn.");
+  if (options.hostInference && (options.req.autonomous || (options.profile.billing === "api") !== Boolean(options.hostInference.placeholders))) {
+    throw new Error("The prepared Claude inference transport requires an ordinary turn and its profile's own credential placeholders.");
   }
   // An autonomous turn gets the restricted envelope (#676): only the relay
   // route out, a placeholder credential and no ambient project configuration.
@@ -217,11 +219,15 @@ function assembleClaudeSdkTurn(
   // Other provider/command environment compatibility remains #1666 work.
   const inferenceEnv = options.hostInference ? {
     ...CLEARED_API_CREDENTIALS,
-    CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER,
+    ...(options.hostInference.placeholders ?? { CLAUDE_CODE_OAUTH_TOKEN: INFERENCE_PLACEHOLDER }),
     ANTHROPIC_UNIX_SOCKET: `${WORKER_EGRESS_DIR}/inference.sock`,
     ANTHROPIC_BASE_URL: options.hostInference.baseUrl ?? "http://localhost",
   } : undefined;
-  const childEnv = inferenceEnv ? { ...inheritedEnv, ...inferenceEnv } : inheritedEnv;
+  // The relay holds the profile's credential, so the variables it names stay on the host.
+  const childEnv = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
+    .filter(([name]) => !profile.requiredEnvKeys.includes(name)
+      // An operator who admits an agent-only key explicitly keeps it.
+      && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))), ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
@@ -429,7 +435,9 @@ function assembleClaudeSdkTurn(
     sdkOptions.settingSources = [];
     // Flag settings outrank every settings file: none can reroute inference.
     sdkOptions.settings = { apiKeyHelper: "", env: { ...envelope.pinned } };
-  } else if (subscriptionOnly) {
+  } else if (subscriptionOnly || inferenceEnv) {
+    // Flag settings outrank every settings file: none can reroute inference
+    // or put a credential back in front of the relay's placeholder.
     sdkOptions.settings = { ...NEUTRALISED_SETTINGS, env: { ...NEUTRALISED_SETTINGS.env,
       ...(inferenceEnv ?? {}),
     } };
