@@ -45,6 +45,22 @@ test("every outside name is reported, against the masked name that was found fir
   expect(providerHardlinks(b.root, ["me"]).map(link => link.path), "ALL_ALIASES_NAMED").toEqual(["logs/b", "notes/a", "notes/c"]);
 });
 
+test("names that are not valid UTF-8 are inspected under their raw bytes", () => {
+  const b = brain();
+  // 0xFF never decodes; the worker still addresses these names.
+  const raw = (rel: string, byte: string) => Buffer.concat([Buffer.from(join(b.root, rel)), Buffer.from(byte, "latin1")]);
+  fs.mkdirSync(raw("notes/", "\xff"), { recursive: true });
+  fs.linkSync(join(b.root, "me/oath.md"), raw("notes/", "\xff/oath"));
+  fs.linkSync(join(b.root, "me/oath.md"), raw("notes/x", "\xfe"));
+  expect(providerHardlinks(b.root, ["me"]), "RAW_BYTE_NAMES_FOUND").toHaveLength(2);
+});
+
+test("a masked folder reached twice through a symlinked parent counts each name once", () => {
+  const b = brain(); b.link("me/oath.md", "notes/x");
+  fs.symlinkSync(".", join(b.root, "alias"));
+  expect(providerHardlinks(b.root, ["me", "alias/me"]), "ALIASED_MASK_NOT_DOUBLE_COUNTED").toEqual([{ path: "notes/x", masked: "alias/me/oath.md" }]);
+});
+
 test("a masked folder that is a symbolic link is not followed; the launcher refuses it", () => {
   const b = brain(); b.link("me/oath.md", "notes/x");
   fs.symlinkSync("me", join(b.root, "alias"));
@@ -67,7 +83,11 @@ test("a masked file linked only from outside the brain is looked for, and not fo
   const b = brain();
   const elsewhere = fs.mkdtempSync(join(tmpdir(), "odysseus-elsewhere-"));
   cleanup.push(() => fs.rmSync(elsewhere, { recursive: true, force: true }));
-  try { fs.linkSync(join(b.root, "me/oath.md"), join(elsewhere, "oath")); } catch { return; /* another device */ }
+  try { fs.linkSync(join(b.root, "me/oath.md"), join(elsewhere, "oath")); } catch (error) {
+    // Only a temporary directory on another device cannot hold the link.
+    if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+    return;
+  }
   b.write("notes/plain.md");
   expect(providerHardlinks(b.root, ["me"])).toEqual([]);
 });

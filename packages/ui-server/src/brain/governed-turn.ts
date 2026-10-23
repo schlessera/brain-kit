@@ -156,9 +156,11 @@ export function createGovernedTurns(options: {
           confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
         });
         if (maskedFolders.length) {
-          // A mask hides names, not inodes (#2700): a governed worker sees the
-          // live brain, a strict one the final checkpoint taken above.
-          const hardlinks = providerHardlinks(workerProfile(resolved) === "governed" ? options.brainPath : startupView!.root, maskedFolders);
+          // A mask hides names, not inodes (#2700). The private index below is
+          // built from the final checkpoint; a governed worker also sees the
+          // live brain, which may differ from it.
+          const roots = [startupView!.root, ...(workerProfile(resolved) === "governed" ? [options.brainPath] : [])];
+          const hardlinks = [...new Map(roots.flatMap(root => providerHardlinks(root, maskedFolders)).map(link => [link.path, link])).values()];
           if (hardlinks.length) throw ProviderPolicyRefusedError.hardlinks(hardlinks);
           privateIndex = createPrivateIndexDirectory();
           const built = await buildPrivateIndex({ brainPath: options.brainPath, startupView: startupView!, folders: maskedFolders, index: privateIndex,

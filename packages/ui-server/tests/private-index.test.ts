@@ -207,6 +207,25 @@ test.each([
   expect(refusal?.message).toContain("notes/x.txt is a hardlink to me/oath.md");
 });
 
+test("a governed turn refuses a hardlink that only its private index's checkpoint holds", async () => {
+  const f = fixture();
+  // Gone from the live brain by the time the governed worker is qualified,
+  // but the private index is built from the checkpoint, where it remains.
+  (startup.prepareNativeWorkerStartupView as unknown as Mock<typeof startup.prepareNativeWorkerStartupView>).mockImplementation(async (brain, _manager, signal) => {
+    signal?.throwIfAborted();
+    const view = createFixtureWorkerStartupView(brain);
+    linkSync(join(view.root, "me/oath.md"), join(view.root, "notes/x.md"));
+    return view;
+  });
+  let refusal: Error | undefined, indexed: string[] = [];
+  try {
+    const hold = await f.turns.begin("hardlink-checkpoint", new AbortController().signal);
+    try { indexed = search(f.brain, hold.sandbox, SENTINEL); } finally { await hold.end(); }
+  } catch (error) { refusal = error as Error; }
+  expect(refusal?.name, `GOVERNED_CHECKPOINT_HARDLINK_REFUSED: the private index held ${JSON.stringify(indexed)}`).toBe("ProviderPolicyRefusedError");
+  expect(refusal?.message).toContain("notes/x.md is a hardlink to me/oath.md");
+});
+
 test("symbolic links out of a masked folder and hardlinks within it admit, and the target stays masked", async () => {
   const f = fixture();
   symlinkSync("../me/oath.md", join(f.brain, "notes/oath-link.txt"));
