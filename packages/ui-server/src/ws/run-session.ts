@@ -704,8 +704,10 @@ async function runRetainedSession(
               try {
                 const result = host.budgets.observeProvider(relayTurnId, attempt);
                 if (!result || budgetFailure || abortController.signal.aborted || turn.cancelled) return;
+                // A crossed block refuses each further relayed request (ruling D3 on
+                // #1673); the agent's next completed response, which sees the same
+                // scopes, stops the turn as any usage over a block does.
                 budgetWarnings(result.warnings);
-                if (result.blocked) budgetBlocked(result.blocked, false);
               } catch { if (!budgetFailure) budgetUnavailable(); }
             },
           });

@@ -130,3 +130,16 @@ test("a dispatched attempt is unknown spend until it settles, then counts once",
     expect(f.budgets.observeProvider("athena", { ...settled, outcome: "dispatched", status: 0, usage: null }), "SETTLED_ATTEMPT_FINAL").toBeUndefined();
   } finally { f.close(); }
 });
+
+test("an attempt that settles after midnight counts toward the day it settled in", () => {
+  const f = fixture();
+  try {
+    f.tick(14 * 60 * 60 * 1000 + 59 * 60 * 1000); // 23:59 UTC
+    f.budgets.begin("athena", "ithaca", policy());
+    const settled = attempt({ usage: { inputTokens: 20_000_000, inputByModality: { TEXT: 20_000_000 } } });
+    f.budgets.observeProvider("athena", { ...settled, outcome: "dispatched", status: 0, usage: null });
+    f.tick(2 * 60 * 1000);
+    f.budgets.observeProvider("athena", settled);
+    expect(f.budgets.providerAdmission(null, policy())?.scope, "SETTLED_ATTEMPT_ON_ITS_SETTLEMENT_DAY").toBe("day");
+  } finally { f.close(); }
+});

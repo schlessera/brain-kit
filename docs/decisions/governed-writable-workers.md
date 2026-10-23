@@ -1264,8 +1264,10 @@ leaves and completed when it settles, so a crash leaves it disclosed. Before
 each request, and again just before dispatch, the relay asks whether any scope
 is blocked and refuses with `budget_exceeded` if one is
 (`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:224-228`).
-A request that crosses a block also stops the turn, as an inference usage
-event does. Nothing is reserved, so requests already in flight complete and
+A request that crosses a block does not stop the turn by itself, under the
+ruling: each further relayed request is refused, and the agent's next
+completed response, which sees the same scopes, stops the turn as any usage
+over a block does. Nothing is reserved, so requests already in flight complete and
 are counted; a scope can end above its stop by those requests. A credentialed
 maintenance run is charged to the turn whose tool started it, otherwise to its
 UTC day alone, under the brain's current policy.

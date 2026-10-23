@@ -278,3 +278,37 @@ describe("review hardening", () => {
     } finally { release(); await relay.stop(); reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); seen.length = 0; }
   });
 });
+
+describe("second review", () => {
+  test("small delayed chunks that the scrubber holds back still stream to the end and settle", async () => {
+    reply = () => new Response(new ReadableStream<Uint8Array>({ async start(controller) {
+      for (const byte of new TextEncoder().encode('{"usage":{"input_tokens":2}}')) { await Bun.sleep(1); controller.enqueue(new Uint8Array([byte])); }
+      controller.close();
+    } }), { headers: { "content-type": "application/json" } });
+    try {
+      const result = await relayed({}, { path: "/v1/messages" });
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body), "SCRUBBER_NEVER_STALLS_SMALL_CHUNKS").toEqual({ usage: { input_tokens: 2 } });
+      expect(result.receipts).toMatchObject([{ outcome: "completed", usage: { inputTokens: 2 } }]);
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+
+  test("a bodyless upstream response settles its attempt", async () => {
+    reply = () => new Response(null, { status: 204 });
+    try {
+      const result = await relayed({}, { path: "/v1/messages" });
+      expect(result.status).toBe(204);
+      expect(result.receipts, "BODYLESS_RESPONSE_SETTLES").toMatchObject([{ outcome: "completed", status: 204, usage: null }]);
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+
+  test("a key with surrounding whitespace is sent and redacted as the same value", async () => {
+    const padded = ` ${KEYS.ANTHROPIC_API_KEY} `;
+    reply = () => Response.json({ echo: KEYS.ANTHROPIC_API_KEY }, { headers: { "x-debug-key": KEYS.ANTHROPIC_API_KEY! } });
+    try {
+      const result = await relayed({ credential: name => name === "ANTHROPIC_API_KEY" ? padded : undefined }, { path: "/v1/messages" });
+      expect(result.upstream[0]!.headers["x-api-key"]).toBe(KEYS.ANTHROPIC_API_KEY);
+      expect(result.body.includes(KEYS.ANTHROPIC_API_KEY!), "TRIMMED_KEY_REDACTED").toBe(false);
+    } finally { reply = () => Response.json({ usage: { input_tokens: 7, output_tokens: 3 } }); }
+  });
+});

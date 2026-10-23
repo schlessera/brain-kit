@@ -240,7 +240,7 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
       return db.transaction(() => {
         const inserted = db.query(`INSERT INTO provider_relay_usage (attempt_id, turn_id, day_start, observed_at, family, operation, origin, model,
           outcome, status, usage, cost_usd, pricing_estimate, tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(attempt_id) DO UPDATE SET observed_at=excluded.observed_at, outcome=excluded.outcome, status=excluded.status, usage=excluded.usage,
+          ON CONFLICT(attempt_id) DO UPDATE SET day_start=excluded.day_start, observed_at=excluded.observed_at, outcome=excluded.outcome, status=excluded.status, usage=excluded.usage,
             cost_usd=excluded.cost_usd, pricing_estimate=excluded.pricing_estimate, tokens=excluded.tokens
           WHERE provider_relay_usage.outcome = 'dispatched' AND excluded.outcome <> 'dispatched'`).run(attempt.attemptId, turnId, utcBudgetDay(now), now,
           attempt.family, attempt.operation, attempt.origin, attempt.model, attempt.outcome, attempt.status,

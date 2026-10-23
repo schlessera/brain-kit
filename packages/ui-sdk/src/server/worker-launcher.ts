@@ -571,7 +571,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (providerRelay) {
       try {
         const keysPath = join(directory, PROVIDER_RELAY_KEYS_NAME), keysInfo = lstatSync(keysPath);
-        if (keysInfo.isFile() && keysInfo.uid === serverUid && keysInfo.size <= 64 * 1024) {
+        if (keysInfo.isFile() && keysInfo.uid === serverUid && (keysInfo.mode & 0o022) === 0 && keysInfo.size <= 64 * 1024) {
           relayedKeyNames = readFileSync(keysPath, "utf8").split("\n").filter(name => /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name));
         }
       } catch { /* No listed custom keys. */ }

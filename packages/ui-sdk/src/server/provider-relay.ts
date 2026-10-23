@@ -312,7 +312,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     if (!isExactProviderOrigin(origin) || !authorized(family, key, origin)) {
       return refuse(403, "recipient_not_authorized", `${origin} may not receive ${key}; list it as ${key}=${origin} in BRAIN_UI_CLI_PROVIDER_ORIGINS`);
     }
-    const secret = credential(key);
+    // Header placement trims surrounding whitespace: redact and send the same value.
+    const secret = credential(key)?.trim();
     if (!secret || /[\r\n]/.test(secret)) return refuse(403, "credential_unavailable", `The host has no ${key} to relay`);
     const budget = options.admit?.() ?? { allowed: true as const };
     if (!budget.allowed) return refuse(403, "budget_exceeded", budget.message);
@@ -440,7 +441,7 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
     }
     const json = /\bjson\b/i.test(response.headers.get("content-type") ?? "");
     const captured: Uint8Array[] = [];
-    let capturedBytes = 0;
+    let capturedBytes = 0, capturing = json;
     const settle = (): void => {
       let usage: ProviderUsage | null = null;
       if (capturing && capturedBytes <= MAX_USAGE_CAPTURE_BYTES) {
@@ -454,13 +455,14 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
       settle();
       return new Response(null, { status: response.status, headers: out });
     }
-    let capturing = json;
     const upstreamReader = response.body.getReader();
     let released = false;
     const release = () => { if (!released) { released = true; upstreamReader.releaseLock(); } };
     const output = new ReadableStream<Uint8Array>({
       async pull(controller) {
-        try {
+        // Read until something is enqueued, the upstream ends or fails: a chunk
+        // the scrubber holds back whole must not leave this pull empty.
+        try { for (;;) {
           const next = await upstreamReader.read();
           if (next.done) {
             operation?.finish("completed"); settle(); release();
@@ -480,8 +482,8 @@ export function startProviderRelay(options: ProviderRelayOptions = {}): Provider
           // Past the ceiling the usage stays unknown: release what was kept.
           else if (capturing) { capturing = false; captured.length = 0; }
           const clean = scrub(next.value, false);
-          if (clean.byteLength) controller.enqueue(clean);
-        } catch {
+          if (clean.byteLength) { controller.enqueue(clean); return; }
+        } } catch {
           operation?.finish(signal.aborted ? "cancelled" : "failed", "upstream_response_failed");
           report(signal.aborted ? "cancelled" : "failed", response.status, null);
           release(); controller.error(new Error("Provider response interrupted"));
