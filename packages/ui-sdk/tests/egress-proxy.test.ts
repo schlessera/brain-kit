@@ -178,16 +178,19 @@ test("outward POST waits for approval and pending HTTP approval cancels before o
 });
 test("CONNECT opaque bytes require outward approval and retain bidirectional accounting", async () => {
   const records: EgressRecord[] = []; let approved = false, calls = 0;
+  const recorded = Promise.withResolvers<void>();
   const origin = createServer(socket => { calls++; socket.on("data", bytes => socket.end(bytes.toString().toUpperCase())); });
   await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
   const port = (origin.address() as { port: number }).port;
-  const proxy = await startEgressProxy({ ...defaults(records), outwardHosts: ["127.0.0.1"], approveOutward: async () => approved });
+  const proxy = await startEgressProxy({ ...defaults(records), outwardHosts: ["127.0.0.1"], approveOutward: async () => approved,
+    observe: record => { records.push(record); if (records.length === 2) recorded.resolve(); } });
   try {
     expect(await tunnel(proxy.socketPath, `127.0.0.1:${port}`, "raft")).toContain("403");
     expect(calls).toBe(0);
     approved = true;
     expect(await tunnel(proxy.socketPath, `127.0.0.1:${port}`, "raft")).toContain("RAFT");
-    await Bun.sleep(1);
+    // The client can receive its payload before the proxy's close callback records completion.
+    await recorded.promise;
     expect(records[1]).toMatchObject({ method: "CONNECT", bytes: 8, outcome: "completed" });
     expect(records[1]).not.toHaveProperty("path");
   } finally { proxy.stop(); origin.close(); }
