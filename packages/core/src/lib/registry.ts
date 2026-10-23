@@ -190,8 +190,10 @@ function withheldBuiltin(
   entry: unknown,
   apiKeyEnv: string | undefined
 ): WithheldProvider | undefined {
+  // Only a built-in name: an unknown one is the resolver's to report.
+  if (typeof entry !== "string" || !Object.hasOwn(registry, entry)) return undefined;
   const key = unsetKey(registry, entry, apiKeyEnv);
-  return key !== undefined && isWithheldKey(key) ? { provider: entry as string, key } : undefined;
+  return key !== undefined && isWithheldKey(key) ? { provider: entry, key } : undefined;
 }
 
 /** The unset key variable that keeps the configured embedding provider off. */

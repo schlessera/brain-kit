@@ -44,7 +44,7 @@ deadline, one bounded rate-limit retry and explicit failure outcomes
 (`createJevClient`, `packages/core/src/lib/jev.ts:248-333`). The search
 reranker also uses Choice, but asks which search candidate answers a query;
 its probabilities rank candidate IDs, not briefing action categories
-(`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-243`).
+(`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:227-244`).
 Reuse the transport, not the search question. TypeSafe's
 [API reference](https://docs.typesafe.ai/api) and
 [model limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13)
@@ -53,7 +53,7 @@ confidence does not establish correctness.
 
 An existing configurable Anthropic completion provider could synthesize text
 without a new seam (`anthropicCompletions`,
-`packages/core/src/providers/completions/anthropic.ts:62-132`). Its direct
+`packages/core/src/providers/completions/anthropic.ts:63-133`). Its direct
 Messages API path was inventoried but **not called** in this evaluation.
 Every Claude call used the subscription CLI with both Anthropic key variables
 removed. Official [Haiku](https://platform.claude.com/docs/en/models/haiku-5-5/overview)

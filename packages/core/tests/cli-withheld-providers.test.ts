@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { parseProviderUnavailable } from "@schlessera/brain-common/internal/provider-unavailable";
 import { rerankSetup, resolveProviders } from "../src/lib/registry";
+import { geminiCompletions } from "../src/providers/completions/gemini";
 import { cleanup, makeTempBrain, runCli } from "./cli-harness";
 
 const WITHHELD = { BRAIN_WITHHELD_KEYS: "GEMINI_API_KEY,TYPESAFE_API_KEY" };
@@ -78,6 +79,26 @@ describe("resolution", () => {
     });
     expect(withEnv({ GEMINI_API_KEY: "odysseus-fixture-key", BRAIN_WITHHELD_KEYS: "GEMINI_API_KEY" },
       () => resolveProviders({}).withheld?.embeddings)).toBeUndefined();
+  });
+
+  test("an unknown configured provider name is the resolver's to report, never a withheld notice", () => {
+    expect(withEnv({ GEMINI_API_KEY: undefined, BRAIN_WITHHELD_KEYS: "GEMINI_API_KEY" },
+      () => resolveProviders({ completions: { provider: "ithaca/custom gateway", apiKeyEnv: "GEMINI_API_KEY" } } as never).withheld?.completions),
+    "UNKNOWN_PROVIDER_NOT_WITHHELD").toBeUndefined();
+  });
+
+  test("a provider a command calls directly names its withheld key too", async () => {
+    // `brain video watch` builds its Gemini completion provider itself.
+    const saved = { GEMINI_API_KEY: process.env.GEMINI_API_KEY, BRAIN_WITHHELD_KEYS: process.env.BRAIN_WITHHELD_KEYS };
+    delete process.env.GEMINI_API_KEY; process.env.BRAIN_WITHHELD_KEYS = "GEMINI_API_KEY";
+    try {
+      const failure = await geminiCompletions().complete({ prompt: "Odysseus" }).then(() => "", (error: Error) => error.message);
+      expect(parseProviderUnavailable(failure), "DIRECT_PROVIDER_WITHHELD_NOTICE").toEqual([
+        { provider: "gemini", capability: "completions", key: "GEMINI_API_KEY", degradedTo: null },
+      ]);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
   });
 
   test("an enabled jev reranker without its withheld key keeps lifecycle order and names it", () => {

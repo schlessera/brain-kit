@@ -71,3 +71,13 @@ export function parseProviderUnavailable(text: string): ProviderUnavailable[] {
   }
   return [...found.values()];
 }
+
+/**
+ * A provider's own missing-key error: the notice when the host withheld the
+ * key from this worker, otherwise the provider's ordinary message. For a
+ * provider a command calls directly, outside the registry's degradation.
+ */
+export function missingKeyMessage(key: string, provider: string, capability: string, ordinary: string): string {
+  return isWithheldKey(key) && PROVIDER.test(provider) && MODE.test(capability) && NAME.test(key)
+    ? providerUnavailableNotice({ provider, capability, key, degradedTo: null }) : ordinary;
+}

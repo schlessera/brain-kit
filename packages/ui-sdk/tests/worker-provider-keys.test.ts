@@ -78,8 +78,9 @@ describe.each(["governed", "strict"] as const)("a %s turn worker", (profile) => 
       const { exit, stdout, stderr } = await run(f.brain, profile, READ, ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]);
       expect(stderr).toBe(""); expect(exit).toBe(0);
       const { env } = JSON.parse(stdout) as { env: Record<string, string> };
-      expect(Object.keys(HOST_KEYS).filter(name => env[name] !== undefined).sort(), "WORKER_KEEPS_DECLARED_INFERENCE_CREDENTIALS")
-        .toEqual(["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]);
+      expect(Object.fromEntries(Object.keys(HOST_KEYS).filter(name => env[name] !== undefined).map(name => [name, env[name]])),
+        "WORKER_KEEPS_DECLARED_INFERENCE_CREDENTIALS")
+        .toEqual({ ANTHROPIC_API_KEY: HOST_KEYS.ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN: HOST_KEYS.CLAUDE_CODE_OAUTH_TOKEN });
       expect(env.BRAIN_WITHHELD_KEYS).toBe("GEMINI_API_KEY,OPENAI_API_KEY,OPENROUTER_API_KEY,TYPESAFE_API_KEY");
     } finally { f.cleanup(); }
   });

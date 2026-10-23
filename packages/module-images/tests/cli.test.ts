@@ -216,6 +216,19 @@ describe("brain image — keys withheld from an agent worker (#1666)", () => {
     }
   });
 
+  test("a pinned provider whose key is withheld is named while another provider stays available", async () => {
+    const previous = process.env.BRAIN_WITHHELD_KEYS;
+    process.env.BRAIN_WITHHELD_KEYS = "GEMINI_API_KEY";
+    try {
+      expect(await run(["a harbour at dawn", "--provider", "gemini", "--out", "h.png"])).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(out.join("\n"), "IMAGE_NAMES_PINNED_WITHHELD_PROVIDER").toContain(
+        "[provider_unavailable provider=gemini capability=image key=GEMINI_API_KEY degraded_to=none]");
+    } finally {
+      if (previous === undefined) delete process.env.BRAIN_WITHHELD_KEYS; else process.env.BRAIN_WITHHELD_KEYS = previous;
+    }
+  });
+
   test("a keyless brain outside a worker keeps its ordinary refusal", async () => {
     delete process.env.OPENAI_API_KEY;
     expect(await run(["a harbour at dawn", "--out", "h.png"])).toBe(1);

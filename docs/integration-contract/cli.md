@@ -28,7 +28,8 @@ token:
 
 Where it appears: a `brain search` (and the `brain mcp` server's search)
 `warnings` entry, a `brain index --embeddings` stderr warning, the
-`brain process` usage error and the `brain image` error. `brain search` still
+`brain process` usage error, the `brain image` error, and the missing-key
+error of a built-in provider a command calls directly (`brain video watch`). `brain search` still
 returns its keyword results and exits `0`; the refusals keep their existing
 exit codes. The server records each distinct token in a tool result as a
 `provider_unavailable` governance event ([HTTP](../http-api.md#governance-event-kinds)).

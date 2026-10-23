@@ -628,7 +628,7 @@ subscription authenticates.
    users of an Anthropic key, such as the core CLI's `anthropic-haiku`
    completions, have to keep working under a separately named key. The
    provider can already read one
-   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:64`),
+   (`const apiKeyEnv`, `packages/core/src/providers/completions/anthropic.ts:65`),
    but nothing public reaches that option: the `completions` config schema
    admits only `provider` and `fallback`
    (`completions: z`, `packages/core/src/lib/config.ts:166-171`), and the registry

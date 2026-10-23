@@ -1229,7 +1229,8 @@ runs in its worker:
 | `brain search` with an enabled `jev` reranker or `--rerank jev` | The reranker's `apiKeyEnv` (`TYPESAFE_API_KEY`) | Lifecycle order, `degraded_to=lifecycle_order` |
 | `brain index --embeddings` | The embeddings key | A keyword index, `degraded_to=keyword_index` on stderr |
 | `brain process` | The completions provider's `apiKeyEnv` (`GEMINI_API_KEY` for `gemini-flash`, `ANTHROPIC_API_KEY` for `anthropic-haiku`) | Refused, naming the provider |
-| `brain image` | `OPENAI_API_KEY`, `GEMINI_API_KEY` | Refused, naming each withheld provider |
+| `brain image` | `OPENAI_API_KEY`, `GEMINI_API_KEY` | Refused, naming each withheld provider (the pinned one with `--provider` or `--model`) |
+| `brain video watch` | The completions provider's key (`GEMINI_API_KEY` for the built-in Gemini model) | Refused, naming the provider: the built-in providers' own missing-key errors carry the notice when the key was withheld |
 | `brain context`, `brain eval`, `brain doctor`, keyword `brain index` | The embeddings or completions key, when configured | The same degraded behaviour a keyless brain has, without a notice |
 
 The server's own `brain_search` and `brain_add` tools are not on this list:
@@ -1446,10 +1447,10 @@ or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
 | Reranked search / JeV (unqualified by this audit) | Configured `apiKeyEnv`, default `TYPESAFE_API_KEY` | Configured `baseUrl`, default `https://api.typesafe.ai/v1/systemone`; POST JSON | Separate usage-bearing direct request; no CLI relay coverage inferred |
 
 The factories and concrete recipient provenance are implemented at
-(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:58-221`),
-(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:55-133`),
-(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:62-146`)
-and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-346`).
+(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:59-221`),
+(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:56-134`),
+(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:63-147`)
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:227-347`).
 Configured model labels, endpoint overrides and key-variable names select native
 routing; none grants permission to release a host-held credential.
 

@@ -243,7 +243,9 @@ export const imageCommand: CommandModule<ImagesConfig> = {
 
     if (decision.kind === "impossible") {
       // In an agent worker the host may hold the keys back (#1666): name each provider it withheld.
-      const withheld = models.length === 0 ? PROVIDERS.filter((p) => isWithheldKey(p.apiKeyEnv)) : [];
+      const pinned = (parsed.flags.provider as string | undefined)
+        ?? PROVIDERS.find((p) => p.models.some((m) => m.id === parsed.flags.model))?.id;
+      const withheld = PROVIDERS.filter((p) => isWithheldKey(p.apiKeyEnv) && (pinned ? p.id === pinned : models.length === 0));
       console.error(withheld.length
         ? withheld.map((p) => providerUnavailableNotice({ provider: p.id, capability: "image", key: p.apiKeyEnv, degradedTo: null })).join("\n")
         : decision.reason);

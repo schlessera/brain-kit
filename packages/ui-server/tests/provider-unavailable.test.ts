@@ -101,10 +101,14 @@ describe("withheld provider keys in a governed turn", () => {
       turn.onApprovalDecision("denied", "deny", "command");
       turn.observeFrame({ type: "tool_result", sessionId, toolUseId: "denied", output: notice("gemini"), isError: true });
       expect(events()).toHaveLength(0);
-      const many = Array.from({ length: MAX_PROVIDER_UNAVAILABLE_PER_TURN + 5 }, (_, i) => notice(`gemini-${i}`)).join("\n");
-      turn.observeFrame({ type: "tool_use_start", sessionId, toolUseId: "many", toolName: "Bash" });
-      turn.observeFrame({ type: "tool_result", sessionId, toolUseId: "many", output: many, isError: false });
-      expect(events(), "PROVIDER_UNAVAILABLE_PER_TURN_CAP").toHaveLength(MAX_PROVIDER_UNAVAILABLE_PER_TURN);
+      // Across several results, and within the one that crosses the cap.
+      expect(MAX_PROVIDER_UNAVAILABLE_PER_TURN).toBe(20);
+      for (let call = 0; call < 3; call++) {
+        const many = Array.from({ length: 9 }, (_, i) => notice(`gemini-${call}-${i}`)).join("\n");
+        turn.observeFrame({ type: "tool_use_start", sessionId, toolUseId: `many-${call}`, toolName: "Bash" });
+        turn.observeFrame({ type: "tool_result", sessionId, toolUseId: `many-${call}`, output: many, isError: false });
+      }
+      expect(events(), "PROVIDER_UNAVAILABLE_PER_TURN_CAP").toHaveLength(20);
       turn.finish("success");
     } finally { db.close(); }
   });
