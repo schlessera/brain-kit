@@ -83,6 +83,13 @@ export function prepareClaudeWorkerState(brainPath: string, env: Record<string, 
  * namespace, an explicit read envelope holding only the executable, empty
  * runtime state, and the relay directory as the one route out.
  */
+/**
+ * The variables the Claude CLI reads its inference credential from. A turn
+ * sets them itself: placeholders on the host relay, the profile's credential
+ * without it. A worker always keeps them (#1666).
+ */
+export const CLAUDE_INFERENCE_ENV: readonly string[] = Object.freeze(["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]);
+
 export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, immediateSignal: AbortSignal,
   restricted?: { inferenceDir: string }, sandbox?: WorkerSandbox, limitsPlan?: WorkerLimitsPlan, promotion?: WorkerPromotion,
   stateOptions: Pick<NonNullable<Parameters<typeof createClaudeWorkerState>[2]>, "limits" | "ledger" | "turnTempLimits"> = {},
@@ -92,7 +99,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   /** Host-prepared ordinary transport; selecting it keeps native credentials on the host. */
   egress?: { proxyDir: string },
   /** The provider keys a governed or strict worker keeps; the launcher withholds the rest (#1666). */
-  credentialEnv?: readonly string[]) {
+  credentialEnv: readonly string[] = CLAUDE_INFERENCE_ENV) {
   // The wrapper becomes the worker's first program: a regular file, never a directory bound into its view (#1429).
   if (!restricted) workerExecHelpers({ wrapper: config.wrapper });
   const completions: Promise<void>[] = [];
@@ -152,7 +159,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(credentialEnv ? { credentialEnv } : {}), ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }

@@ -53,6 +53,7 @@ describe("config/env descriptor", () => {
         "BRAIN_ROOT",
         "BRAIN_STORAGE_GIT_ROOTS",
         "BRAIN_UI_CHROME_NO_SANDBOX",
+        "BRAIN_WITHHELD_KEYS",
         "BRAIN_WORKER_CONFIG_ROOT",
         "BRAIN_WORKER_DATA_ROOT",
         "CLAUDE_CODE_PATH",

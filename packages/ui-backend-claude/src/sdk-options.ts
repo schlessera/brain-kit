@@ -33,7 +33,7 @@ import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
-import { createWorkerSpawn } from "./worker-spawn.js";
+import { CLAUDE_INFERENCE_ENV, createWorkerSpawn } from "./worker-spawn.js";
 import { launchLimits, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } from "./turn-temp-tool.js";
 import { workerStateLimit } from "./worker-state.js";
@@ -75,9 +75,6 @@ export function turnEnv(profile: InferenceProfile): Record<string, string | unde
   if (profile.billing !== "api") Object.assign(env, CLEARED_API_CREDENTIALS);
   return env;
 }
-
-/** The variables the Claude CLI reads its inference credential from. */
-const CLAUDE_INFERENCE_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
 
 interface ClaudeSdkTurnOptions {
   identity?: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];

@@ -75,7 +75,7 @@ optional inputs are (`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/serve
 not a claim of filesystem or network containment.
 
 The ordinary Claude assembly loads project settings and appends bridge tools
-(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:101-489`).
+(`createClaudeSdkTurn`, `packages/ui-backend-claude/src/sdk-options.ts:98-486`).
 Its environment is already filtered (`envSnapshot`,
 `packages/ui-backend-claude/src/config/env.ts:201-209`), with profile credentials
 and operator extras. An autonomous envelope needs its own narrower credential
