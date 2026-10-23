@@ -1311,7 +1311,7 @@ profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the server's
 `ANTHROPIC_BASE_URL`, else first-party inference. The relay forwards to that
 route, keeping its base path. Before the prompt is sent, the runner refuses a
 route whose origin is neither first-party nor listed
-(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:399-410`).
+(`const selectedUpstream`, `packages/ui-backend-claude/src/turn-runner.ts:401-412`).
 Each dispatch checks the same list again before the credential is read. Native
 settings may repeat the server's route, compared as a canonical origin and base
 path, but never replace it. A discovered profile never carries a route or a
@@ -1327,16 +1327,24 @@ API-billed profile uses the same relay. The relay injects the profile's
 token, whichever the profile sets, and the worker holds the placeholder under
 the same variable, so the CLI chooses the same header and reports the same key
 source (`export function apiKeyRelayCredential`,
-`packages/ui-backend-claude/src/api-key-relay.ts:19-31`). The variable the
-profile names and any host `CLAUDE_CODE_OAUTH_TOKEN` stay out of the worker.
+`packages/ui-backend-claude/src/api-key-relay.ts:19-31`). The relay takes the
+credential from the profile's own declaration, so an ambient
+`ANTHROPIC_AUTH_TOKEN` never rides along to the profile's route. The variable
+the profile names, any host `CLAUDE_CODE_OAUTH_TOKEN` and the inference keys
+only agent runtimes read (`AGENT_INFERENCE_CREDENTIAL_ENV`) stay out of the
+worker. Keys the `brain` CLI's own providers read stay until #1673 relays
+them.
 The key needs no origin list: `BRAIN_UI_CLAUDE_PROFILES` declares the key and
 its route together, which is the trusted host authorization the 2026-10-16
 ruling asks for. The prompt gate applies the same settings-source and route
-checks as for the host login, but refuses as a transport failure
+checks as for the host login, plus the subscription's credential-settings
+check: a settings file that sets a credential variable or an `apiKeyHelper`
+would stand in for the placeholder. It refuses as a transport failure
 (`auth_failure`) rather than a subscription one. Billing stays the API key's:
 the CLI reports the same `apiKeySource`. On any relayed turn, the host's
 stored login (`.credentials.json` in the selected config directory) is masked
-in the worker wherever the host masks do not already hide it.
+in the worker wherever the host masks do not already hide it. A login file
+linked into the brain cannot be masked, so that turn is refused.
 
 The relay can also consume the concrete turn proxy's existing admission,
 shared byte counter and redacted recorder. Inference records carry an internal

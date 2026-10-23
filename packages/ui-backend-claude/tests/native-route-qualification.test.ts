@@ -99,5 +99,14 @@ test("an API-billed profile whose project settings move its route is refused bef
 test("the host's stored login outside every host mask is masked in the worker", () => {
   const proof = probe("server-host-relay-probe.ts", "outside-masks");
   expect(proof.requests, "OUTSIDE_MASKS_HOST_LOGIN_STILL_RELAYED").toEqual([{ credential: 0, model: "claude-haiku-4-5", history: 1 }]);
+  expect(proof.controlVisible, "OUTSIDE_MASKS_WORKER_VIEW_OBSERVED").toBe(true);
   expect(proof.hostLoginVisible, "OUTSIDE_MASKS_HOST_LOGIN_MASKED").toBe(false);
+});
+
+for (const [mode, reason] of [["api-key-project-credential", "projectSettings set ANTHROPIC_API_KEY"],
+  ["login-in-brain", "the host's Claude login is inside the brain"]] as const) test(`${mode} is refused before the prompt is sent`, () => {
+  const proof = probe("server-host-relay-probe.ts", mode);
+  expect(proof.requests, "RELAY_REFUSAL_SENDS_NOTHING").toEqual([]);
+  expect(proof.apiRequests).toEqual([]);
+  expect(proof.results[0]?.failure?.message, "RELAY_REFUSAL_NAMES_ITS_REASON").toContain(reason);
 });

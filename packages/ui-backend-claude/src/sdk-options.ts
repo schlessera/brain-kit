@@ -1,4 +1,4 @@
-import { INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
+import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeTitleUsageCollector } from "./title-usage.js";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
@@ -225,7 +225,7 @@ function assembleClaudeSdkTurn(
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
   const childEnv = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
-    .filter(([name]) => !profile.requiredEnvKeys.includes(name))), ...inferenceEnv } : inheritedEnv;
+    .filter(([name]) => !profile.requiredEnvKeys.includes(name) && !AGENT_INFERENCE_CREDENTIAL_ENV.includes(name))), ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })

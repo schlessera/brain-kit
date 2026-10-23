@@ -928,6 +928,7 @@ export "./client" (./src/client/index.ts)
   visibleToolName
 
 export "./internal" (./src/internal.ts)
+  AGENT_INFERENCE_CREDENTIAL_ENV
   ANTHROPIC_INFERENCE_ROUTES
   ARCHIVING_UPDATE_REASON
   BRAIN_SCRATCH_DIR

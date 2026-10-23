@@ -189,6 +189,14 @@ export function filterSubprocessEnv(
   );
 }
 
+/**
+ * Inference credentials only agent runtimes read. A worker whose inference
+ * the host relays drops them (#1665). Keys the brain CLI's own providers read
+ * stay until those providers are relayed (#1673).
+ */
+export const AGENT_INFERENCE_CREDENTIAL_ENV: readonly string[] = Object.freeze(
+  Object.entries(SUBPROCESS_ENV).filter(([name, audience]) => audience.length === 1 && audience[0] === "agent"
+    && /(?:_API_KEY|_AUTH_TOKEN|_OAUTH_TOKEN)$/.test(name)).map(([name]) => name));
 /** Host Git credentials belong to fixed transports/installers, never repository-evaluating workers. */
 export const HOST_GIT_CREDENTIAL_ENV: readonly string[] = Object.freeze([
   "GITHUB_TOKEN",

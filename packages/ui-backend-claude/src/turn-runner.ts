@@ -25,12 +25,12 @@ import { homedir } from "node:os";
 import { authorizeDestination, resolveClaudeHostOAuth } from "./host-oauth.js";
 import { apiKeyRelayCredential } from "./api-key-relay.js";
 
-/** The host's stored Claude login, unless it is absent or inside the brain (which the worker reads anyway). */
-function hostLoginFile(configDirectory: string, brainPath: string): string[] {
+/** The host's stored Claude login: masked in a relayed worker, or refused when the brain itself holds it. */
+function hostLoginFile(configDirectory: string, brainPath: string): { mask: string[]; inBrain: boolean } {
   const file = join(configDirectory, ".credentials.json");
-  if (!existsSync(file)) return [];
+  if (!existsSync(file)) return { mask: [], inBrain: false };
   const real = realpathSync(file), brain = realpathSync(brainPath);
-  return real === brain || real.startsWith(`${brain}/`) ? [] : [real];
+  return real === brain || real.startsWith(`${brain}/`) ? { mask: [], inBrain: true } : { mask: [real], inBrain: false };
 }
 /** The same endpoint: canonical origin and base path, nothing else. */
 function sameRoute(value: unknown, selected: string): boolean {
@@ -391,8 +391,10 @@ export function createClaudeTurnRunner(options: {
         profile.allowedTools ?? options.backend.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
       const preparedEgress = !req.autonomous ? req.workerSandbox?.egress : undefined;
       // An API-billed profile's own key: declared by the host together with its route.
-      const apiCredential = preparedEgress && profile.billing === "api" ? apiKeyRelayCredential(profile.id, turnEnvironment ?? {}) : undefined;
+      // Only what the profile itself declares: an ambient credential never rides along.
+      const apiCredential = preparedEgress && profile.billing === "api" ? apiKeyRelayCredential(profile.id, profile.buildEnv()) : undefined;
       const configDirectory = resolve(turnEnvironment?.CLAUDE_CONFIG_DIR || join(turnEnvironment?.HOME || homedir(), ".claude"));
+      const hostLogin = preparedEgress ? hostLoginFile(configDirectory, options.backend.brainPath) : undefined;
       // The server selects the route: the profile's baseUrl, else the host's
       // ANTHROPIC_BASE_URL. Only the host's explicit list authorizes a custom
       // origin to receive the login (docs/decisions/claude-code-runtime.md).
@@ -420,7 +422,7 @@ export function createClaudeTurnRunner(options: {
         fileVersions,
         req: { ...req, signal: abortController.signal, ...(preparedEgress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
           // The relay holds the login: hide the host's file wherever the host masks do not.
-          maskPaths: [...req.workerSandbox.maskPaths ?? [], ...hostLoginFile(configDirectory, options.backend.brainPath)] } } : {}) },
+          maskPaths: [...req.workerSandbox.maskPaths ?? [], ...hostLogin?.mask ?? []] } } : {}) },
         profile,
         abortController,
         allowedTools,
@@ -538,6 +540,10 @@ export function createClaudeTurnRunner(options: {
               if (!Array.isArray(settings?.sources) || settings.sources.some(source => !["projectSettings", "flagSettings", "policySettings"].includes(source.source ?? ""))) {
                 return refuse("the native inference settings sources are not qualified for this prepared transport");
               }
+              if (hostLogin?.inBrain) return refuse("the host's Claude login is inside the brain, where the worker can read it; move the Claude config directory out of the brain");
+              // A settings credential or helper would stand in for the relay's placeholder.
+              const credentialConflict = sdkTurn.subscriptionOnly ? null : settingsRefusal(settings, sdkTurn.pinnedSettingsEnv);
+              if (credentialConflict) return refuse(credentialConflict);
               try { if (!apiCredential) authorizeDestination({ origin: new URL(selectedUpstream).origin, authorizedOrigins }); }
               catch { return refuse("the selected inference origin is not authorized to receive the host Claude login; list its exact origin in BRAIN_UI_CLAUDE_OAUTH_ORIGINS"); }
               for (const source of settings?.sources ?? []) {

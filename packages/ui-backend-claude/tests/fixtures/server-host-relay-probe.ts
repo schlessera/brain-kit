@@ -1,5 +1,5 @@
 /** Real turn runner and an explicitly prepared transport; no live provider calls. */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "bun:test";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -18,6 +18,8 @@ const brainPath = managed ? "/brain-fixture/brain" : join(root, "brain");
 // outside-masks: the host's Claude config sits where no host mask hides it (the caller mounts /opt).
 const home = process.argv.includes("outside-masks") ? "/opt/odysseus-home" : join(root, "home"), config = join(home, ".claude");
 for (const path of [...(managed ? [] : [brainPath]), home, config]) mkdirSync(path, { mode: 0o700 });
+// A readable control beside the masked login: the worker view must observe this one.
+writeFileSync(join(config, "visible.json"), "{}");
 const tokens = ["odysseus-first", "odysseus-changed", "odysseus-refreshed"];
 function save(index: number, expired = false) {
   writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: {
@@ -26,13 +28,21 @@ function save(index: number, expired = false) {
   } }), { mode: 0o600 });
 }
 save(0);
+// The config directory stays outside the brain, but its login file is linked into it.
+if (process.argv.includes("login-in-brain")) {
+  renameSync(join(config, ".credentials.json"), join(brainPath, ".odysseus-login.json"));
+  symlinkSync(join(brainPath, ".odysseus-login.json"), join(config, ".credentials.json"));
+}
 const mode = process.argv.find(arg => ["three", "project-aba", "project-custom", "managed-aba", "managed-custom", "recorder-failure", "cleanup-failure",
   "server-custom-unlisted", "server-custom-listed", "server-custom-other-port", "server-custom-project-same", "server-custom-project-other",
-  "api-key", "api-token", "api-key-project-custom", "outside-masks"].includes(arg)) ?? "three";
+  "api-key", "api-token", "api-key-project-custom", "api-key-project-credential", "outside-masks", "login-in-brain"].includes(arg)) ?? "three";
 // An API-billed profile: its key is read from the host environment by name.
 const apiBilled = mode.startsWith("api-");
 const apiSecret = "odysseus-api-secret-for-ithaca", hostLogin = "odysseus-ambient-host-login";
-if (apiBilled) { process.env.ODYSSEUS_ANTHROPIC_KEY = apiSecret; process.env.CLAUDE_CODE_OAUTH_TOKEN = hostLogin; }
+const ambientBearer = "odysseus-ambient-bearer", ambientRouter = "odysseus-ambient-router-key";
+// Ambient credentials the profile does not declare: neither may reach the worker or the profile's route.
+if (apiBilled) Object.assign(process.env, { ODYSSEUS_ANTHROPIC_KEY: apiSecret, CLAUDE_CODE_OAUTH_TOKEN: hostLogin,
+  OPENROUTER_API_KEY: ambientRouter, ...(mode === "api-token" ? {} : { ANTHROPIC_AUTH_TOKEN: ambientBearer }) });
 // The server's own route: a custom gateway with a base path, selected by trusted host configuration.
 const gateway = mode.startsWith("server-custom-") ? "https://gateway.ithaca.invalid/anthropic" : undefined;
 if (["server-custom-listed", "server-custom-project-same", "server-custom-project-other"].includes(mode)) process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://other.ithaca.invalid, https://gateway.ithaca.invalid";
@@ -47,6 +57,10 @@ if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");
   writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
 }
+if (mode === "api-key-project-credential") {
+  mkdirSync(join(brainPath, ".claude"));
+  writeFileSync(join(brainPath, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "odysseus-project-key" } }));
+}
 if (mode === "project-custom" || mode === "api-key-project-custom") {
   mkdirSync(join(brainPath, ".claude"));
   writeFileSync(join(brainPath, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
@@ -58,7 +72,7 @@ const nativeEnvironments: string[] = [];
 let liveWorker: { pid: number; state?: { root: string } } | undefined;
 let stateFiles = "";
 /** Whether a process in the worker's own mount namespace could open the host login file. */
-let hostLoginVisible: boolean | null = null;
+let hostLoginVisible: boolean | null = null, controlVisible = false;
 function workerViewOfHostLogin(): void {
   const pending = [liveWorker?.pid ?? 0];
   hostLoginVisible ??= false;
@@ -67,6 +81,7 @@ function workerViewOfHostLogin(): void {
     try {
       if (readlinkSync(`/proc/${pid}/ns/mnt`) !== readlinkSync("/proc/self/ns/mnt")) {
         try { readFileSync(`/proc/${pid}/root${config}/.credentials.json`); hostLoginVisible = true; } catch { /* masked */ }
+        try { readFileSync(`/proc/${pid}/root${config}/visible.json`); controlVisible = true; } catch { /* not this process */ }
       }
     } catch { /* exited */ }
     try { pending.push(...readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number)); } catch { /* No children. */ }
@@ -198,8 +213,8 @@ try {
     }
   }
   const observed = JSON.stringify({ nativeEnvironments, stateFiles });
-  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible,
-    secretInWorker: [apiSecret, hostLogin].some(secret => observed.includes(secret)),
+  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible,
+    secretInWorker: [apiSecret, hostLogin, ambientBearer, ambientRouter].some(secret => observed.includes(secret)),
     workerPlaceholders: nativeEnvironments.map(value => ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ODYSSEUS_ANTHROPIC_KEY"]
       .map(name => new RegExp(`(?:^|\0)${name}=([^\0]*)`).exec(value)?.[1] ?? null)), sessionId, projectedCredentials, recordingFailure, cleanupFailures, releaseFailures,
     results: frames.filter(frame => frame.type === "result" || frame.type === "error"),
