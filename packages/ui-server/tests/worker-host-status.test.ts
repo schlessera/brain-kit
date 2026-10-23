@@ -94,7 +94,7 @@ describe("boot probe", () => {
       const managed = spyOn(startup, "hasManagedNativeStorage").mockReturnValue(true);
       try {
         const checked = await (await t.fetch("/api/status/worker-host", { method: "POST" })).json() as WorkerHostStatus;
-        expect(checked.governed?.egress, "TURN_EGRESS_STATUS_MANAGED_ACTIVE").toEqual({ active: true, detail: expect.stringContaining("on a subscription profile run on their own turn egress proxy") });
+        expect(checked.governed?.egress, "TURN_EGRESS_STATUS_MANAGED_ACTIVE").toEqual({ active: true, detail: expect.stringContaining("Governed and strict Claude and pi turns run on their own turn egress proxy") });
       } finally { managed.mockRestore(); }
     } finally { await t.teardown(); }
   });

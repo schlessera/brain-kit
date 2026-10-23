@@ -8,6 +8,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { compileConfirmPatterns } from "@schlessera/brain-ui-sdk/server";
 import { createTurnTempPressure, TURN_TEMP_ROOT, WORKER_INFERENCE_SOCKET, WORKER_SCRATCH } from "@schlessera/brain-ui-sdk/internal";
 import type { PiWorkerInference } from "./autonomous-envelope.js";
+import type { PiRelayedInference } from "./host-inference.js";
 import { createBrainAccess } from "./brain-access.js";
 import { createSessionResources } from "./session-resources.js";
 import { createSessionRuntime } from "./native-session-runtime.js";
@@ -33,6 +34,8 @@ interface Init {
   sharedLock?: boolean;
   /** Present for an autonomous turn: pi reaches inference only through the relay socket. */
   inference?: PiWorkerInference;
+  /** Present for a governed or strict turn on the turn proxy: the host holds the credential (#1665). */
+  relayed?: PiRelayedInference;
 }
 sendPipe(process.stdout, { type: "startup_timing", phase: "worker_started", durationMs: 0 });
 let session: PiSessionLike | undefined;
@@ -43,6 +46,8 @@ const toolScope = new AsyncLocalStorage<{ id: string; name: string }>();
 let nextId = 0;
 let authPath: string;
 let originalAuth: string | undefined;
+/** A relayed worker holds only a placeholder, which must never reach the host's credential file. */
+let relayed = false;
 const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
 const send = (value: unknown) => sendPipe(process.stdout, value);
 function rpc(method: Extract<PiWorkerMessage, { type: "rpc" }>["method"], toolName: string, toolCallId: string, input: Record<string, unknown>): Promise<any> {
@@ -101,18 +106,29 @@ async function initialize(init: Init): Promise<void> {
     mkdirSync(join(state, "npm"));
     symlinkSync(init.cachedNpmModules, join(state, "npm", "node_modules"));
   }
+  const forwarder = (socket: string) => Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
+    const url = new URL(request.url);
+    return fetch(`http://localhost${url.pathname}${url.search}`, { method: request.method, headers: request.headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
+      unix: socket } as RequestInit);
+  } });
   if (init.inference) {
     // This trusted entry runs before pi or any tool initializes. The worker's
     // network namespace holds only loopback; this port forwards to the server's
     // relay socket, the one route out. pi holds a placeholder, never the key.
-    const forward = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
-      const url = new URL(request.url);
-      return fetch(`http://localhost${url.pathname}${url.search}`, { method: request.method, headers: request.headers,
-        body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
-        unix: WORKER_INFERENCE_SOCKET } as RequestInit);
-    } });
+    const forward = forwarder(WORKER_INFERENCE_SOCKET);
     writeFileSync(join(state, "models.json"), JSON.stringify({ providers: { [init.inference.provider]: {
       baseUrl: `http://127.0.0.1:${forward.port}${init.inference.basePath}`, apiKey: init.inference.placeholder } } }));
+  }
+  if (init.relayed) {
+    // The same loopback route to the host relay, inside the turn proxy's
+    // namespace; the launcher exempts only loopback from the proxy variables.
+    // pi's auth.json holds only a placeholder shaped like the host credential.
+    relayed = true;
+    const forward = forwarder(init.relayed.socket);
+    writeFileSync(join(state, "auth.json"), JSON.stringify({ [init.relayed.provider]: init.relayed.credential }));
+    writeFileSync(join(state, "models.json"), JSON.stringify({ providers: { [init.relayed.provider]: {
+      ...init.relayed.providerConfig, baseUrl: `http://127.0.0.1:${forward.port}${init.relayed.basePath}` } } }));
   }
   const resources = createSessionResources({ backend: init.backend,
     brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ? {
@@ -127,6 +143,7 @@ async function initialize(init: Init): Promise<void> {
     allowedTools: new Set(), confirmPatterns: compileConfirmPatterns([], () => {}), loadExtensions: init.backend.loadExtensions ?? true,
     // pi settings changes stay in scratch; source settings/extensions remain read-only.
     settingsSnapshot: init.agentFiles["settings.json"] ?? "{}",
+    ...(init.relayed?.transport ? { pinnedSettings: { transport: init.relayed.transport } } : {}),
     requireInstalledPackages: true,
     ...(init.governed ? { directWrites: true, ...(init.env.autonomous ? {} : { nativeFileObservation: async (phase: string, path: string, id: string) => {
       const scope = toolScope.getStore();
@@ -210,7 +227,7 @@ async function initialize(init: Init): Promise<void> {
 }
 
 async function syncAuth(): Promise<void> {
-  if (controller.signal.aborted || !existsSync(authPath)) return;
+  if (relayed || controller.signal.aborted || !existsSync(authPath)) return;
   const content = readFileSync(authPath, "utf8");
   if (content === originalAuth) return;
   await rpc("syncAuth", "", "", { content });

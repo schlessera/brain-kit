@@ -140,10 +140,10 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Tool enforcement:** (`const enforcementHook: HookCallback`, `packages/ui-backend-claude/src/permission-hooks.ts:200-229`) closes measured bypasses.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
-- **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:196-204`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:96-472`). Restricted execution needs
+- **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:201-209`) and
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:98-480`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
-- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-144`) and
+- **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-152`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:95-124`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
 - **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:674`) settles after execution;
@@ -156,7 +156,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:95`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2348`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
-- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1220-1232`) gates WS starts;
+- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1219-1231`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
   Shared-target priority and cooperative yield belong to the keyed lock and backend lifecycle.
 
@@ -1274,7 +1274,7 @@ full-v1 enablement; predicates and schema tests cannot substitute for it.
 
 **Approach:** **hybrid — reserve capacity normally, yield only at denial risk.**
 `MAX_AUTONOMOUS_RUNS` (default 2) is necessary but not sufficient: the host cap applies only at
-WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1220-1232`) and an autonomous turn can hold a path write lock
+WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1219-1231`) and an autonomous turn can hold a path write lock
 while an interactive turn waits or is denied at 30s
 (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`).
 
@@ -1318,7 +1318,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:96-472`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:98-480`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, deterministic package-owned trusted instructions,

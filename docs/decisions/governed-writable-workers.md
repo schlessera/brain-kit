@@ -478,7 +478,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:193-197`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:201-205`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -1078,7 +1078,7 @@ classification:
   `packages/ui-backend-claude/src/tool-policy.ts:246`). The parent process is
   shared across sessions, so the lock is too.
 - Pi takes its lock inside the worker (`brain: createBrainAccess(init.backend.brainPath), lock: init.sharedLock ?`,
-  `packages/ui-backend-pi/src/worker-entry.ts:118`). Under `governed`, pi's tool
+  `packages/ui-backend-pi/src/worker-entry.ts:134`). Under `governed`, pi's tool
   lock must instead be the server's keyed lock, acquired over the worker RPC.
   Otherwise two pi sessions can interleave `git add` and `git commit`.
 
@@ -1090,7 +1090,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:313`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:319`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1115,7 +1115,7 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:97`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:105`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
@@ -1405,8 +1405,8 @@ unrecorded.
 embedding provider and headless Chromium all pass through the proxy in a real
 governed worker. SSH uses a first-party CONNECT helper that the worker
 bootstrap sets as Git's `ProxyCommand` (`sshProxy`,
-`packages/ui-sdk/src/server/egress-worker-entry.ts:28-32`). Pi inference
-through the relay is not measured yet. The socket walk passes now that all of
+`packages/ui-sdk/src/server/egress-worker-entry.ts:30-34`). Pi inference
+through the relay passes as of 2026-10-23. The socket walk passes now that all of
 `/var` is masked: before that, a host socket under `/var/snap` accepted a
 connection. The results are in
 [agent-workers.md](../hosting/agent-workers.md#first-party-path-measurement-1665).
@@ -1424,10 +1424,11 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:49-124`). The note says egress is
-recorded only when the backend actually routed the worker through the proxy;
-an API-key Claude profile is not routed yet. Its note still says
-"Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
+`packages/ui-server/src/brain/turn-egress.ts:59-135`). The note says egress is
+recorded only when the backend actually routed the worker through the proxy.
+API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
+too. A pi turn whose credential the relay cannot carry is refused rather than
+left unrecorded ([pi endpoint routing](pi-endpoint-routing.md#host-held-credentials-on-the-turn-proxy)). The
 socket walk passes since all of `/var` is masked, so the note states no
 reachable-socket gap.
 
@@ -1961,7 +1962,7 @@ which the private index is built from and a strict worker runs on, plus the
 live brain for a governed worker. It refuses through
 `ProviderPolicyRefusedError`, naming up to three outside names with the masked
 file each aliases and counting the rest (`providerHardlinks`,
-`packages/ui-server/src/brain/provider-hardlinks.ts:33-82`). It uses the same
+`packages/ui-server/src/brain/provider-hardlinks.ts:33-85`). It uses the same
 `providerMaskedFolders` set as the masks. In practice the leak is on the
 checkpoint: a governed turn already falls back to strict when a retained
 folder holds any multiply linked file (`checkTree`), and a Btrfs checkpoint
@@ -2431,10 +2432,24 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:26-47`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:35-57`).
 A background process left by an earlier call can still connect inside such a
-window; the proxy records it either way. No mail-submission host is built in
-yet. Only the GitHub API hosts are defaults, and `outward.hosts` adds the rest.
+window; the proxy records it either way.
+
+**Built-in outward destinations — 2026-10-22.** The defaults are the GitHub
+API hosts and mail submission, and `outward.hosts` adds the rest; a policy
+cannot remove a default. SMTP submission is defined by its port rather than
+its host, so a connection to port 25, 465 or 587 on any host is outward. The
+built-in mail hosts are HTTP mail-send APIs and provider relays that also
+listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
+`outlook.office365.com`, `api.fastmail.com`, `api.sendgrid.com`,
+`smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
+`smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
+`smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:16-19`).
+Microsoft Graph and Exchange Online carry more than mail, so their reads by
+an opaque script also wait on the card. The coordinator chose this list for
+#1665; the maintainer may override it.
 
 ### Untrusted input (G6)
 
@@ -2502,9 +2517,9 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:49-124`). Pi turns, API-key
-Claude profiles and hosts without managed native storage have no proxy, so the
-Bash classifier remains their shell rule and nothing narrows their egress.
+`packages/ui-server/src/brain/turn-egress.ts:59-135`). Hosts without managed
+native storage have no proxy, so the Bash classifier remains their shell rule
+and nothing narrows their egress.
 
 The capabilities note states the taint sources, these rules, whether this
 turn's egress is narrowed or explicitly not enforced, and the session's first
@@ -2534,7 +2549,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:280-297`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:286-303`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -2570,7 +2585,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:86-130`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:88-132`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely
