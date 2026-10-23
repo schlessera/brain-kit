@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:63-142`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:64-185`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:36-144`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:37-187`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1774,7 +1774,90 @@ voice turn, and admission applies the masks to all of them:
   turn, the shared refresh rebuilds the real index from Markdown.
 - A policy whose provider rules name a document type, a non-literal glob or a
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
-  selector, per the 2026-10-16 ruling.
+  selector, per the 2026-10-16 ruling. The 2026-10-23 ruling below narrows the
+  refusal to selectors that do not map exactly onto folders.
+
+**Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
+A type, glob or single-path selector is translated to whole-folder masks when
+it maps exactly onto folders, and every selector that does not is still
+refused by name. This keeps the live model: a folder mask is retained like a
+literal `folder/**` root, so no peer can detach it. Per-file masks on the
+strict checkpoint view (option B) and refusing every such selector (option A)
+were rejected.
+
+"Maps exactly" is defined as follows (`translateProviderTypes`,
+`packages/ui-server/src/brain/governance-policy.ts:124-139`):
+
+- **Paths.** `F/**` and `F/**/*` with a literal `F` map onto `F`; under
+  Bun.Glob both match every file at any depth below `F`, hidden files
+  included, and nothing else. Every other pattern selects part of a folder or
+  files across folders, and a single path is a file, never a folder. They
+  refuse, as does a `.git` or `.brain-index` folder, which a denied turn
+  already sees hidden or private and the launcher cannot mask.
+- **Types.** A type maps onto its effective `match` prefixes (default `[dir]`)
+  when it is defined and is not the inbox type, has at least one prefix, each
+  prefix is a literal folder outside `.git` and `.brain-index`, and no other
+  type's prefix equals or lies inside one of them. Inside those folders, longest-prefix inference then gives no
+  other type. The inbox type also covers every path outside all prefixes, and
+  a nested type's territory would be hidden with it, so both refuse. A type
+  that only an ancestor folder shares (`me/` for one type, `me/identity/` for
+  the selected one) still maps, because the longer prefix wins there.
+- **Frontmatter.** A Markdown document declares its own type, and the indexer
+  stores that value whatever its path. The taxonomy alone therefore does not
+  bound a type. Admission also reads the turn's immutable view, data only, for
+  `.md` files outside the masked folders whose frontmatter declares the type
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:59-97`).
+  It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
+  and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
+  the file it resolves to, as the indexer reads it, unless that file is in a
+  masked folder of the view or the live brain; a link to a folder outside both
+  is not followed and refuses as unverifiable. Any such document refuses the
+  type, naming the files. Each file is read through one nonblocking
+  descriptor checked to be a regular file, so a target swapped for a FIFO
+  cannot block the host. A document of another type inside the
+  folders is hidden with them, which loses data but leaks nothing.
+
+The taxonomy is code in `brain.config.ts` and its modules, so the host does
+not load it. The brain's own CLI reports it (`brain config check --json`)
+from a credential-free strict worker on the startup view with the literal
+folders masked (`readProviderTaxonomy`,
+`packages/ui-server/src/brain/provider-types.ts:34-45`). That worker sees
+selected documents outside the literal folders, so it writes into a throwaway
+directory that is deleted before the private index is created. Its answer is
+parsed as untrusted data: a malformed or oversized answer refuses every type
+selector, and whatever it claims, a Markdown document of the type outside the
+resulting folders refuses the turn. Assets are the exception. An asset's type
+is its path's type under the same configuration, so the reported folders
+decide which assets are hidden. That trusts the code the configuration runs.
+`brain.config.ts` and `node_modules` are protected (tier B), but local
+modules, helper files the configuration imports and the `scripts/brain-cli.ts`
+fallback are not: a turn that rewrites them can make a later admission's
+taxonomy misreport, and so leave that type's assets outside the masks.
+Markdown documents of the type stay covered by the frontmatter check. Closing
+the asset gap needs the configuration's whole load set protected, which
+[#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
+One matched set (`providerMaskedFolders`) then feeds retention, the masks,
+the private index and the server-tool refusals planned in #2690 and #2691.
+
+The writer gate plans retention when a writer is admitted, before any
+taxonomy is read. It reuses the folders the last admission translated for the
+same policy hash, so a writer admitted between turns, such as the post-turn
+index refresh, retains them and the next turn's peer check passes. A stale
+entry only retains an extra folder. Admission still refuses a peer lacking
+what it actually masks.
+
+When admission refreshes the startup view before the turn starts (a strict
+turn whose writable roots appeared after the first checkpoint), it reads the
+taxonomy and checks frontmatter again on the newer view. It refuses if a type
+no longer maps, or the folder set changed from the one retention planned.
+
+**Limitation.** The frontmatter check covers the brain as admission sees it.
+A document created or retyped to a selected type outside its folders during a
+turn, by that turn or a peer, stays readable to the running turn. The next
+admission refuses until it is moved or retyped. Hardlinks are not followed
+either: a hardlink to a masked document under a name other than `.md` is not
+found by the check, as for literal folder masks
+([#2700](https://github.com/schlessera/brain-kit/issues/2700)).
 
 Still open under #1668: server search, read and context tools do not yet
 refuse masked paths; autonomous (restricted) turns do not apply the masks;
