@@ -220,17 +220,13 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (!lease) throw new NativeBrainManagerError("unknown", "This reference pool identity has no recorded app lease; arbitrary pool roots cannot be deleted.");
       if (db.query("SELECT 1 FROM native_pool_leases WHERE from_id=? AND state='creating' LIMIT 1").get(id))
         throw new NativeBrainManagerError("unavailable", "A reference snapshot is still being created from this root.");
-      // A retried checkpoint release the pool no longer records was reclaimed and
-      // forgotten after its reply was lost; releasing it again would leave a tombstone.
-      if (lease.purpose === "checkpoint" && lease.state === "releasing" && await poolRecord(id, signal) === null) {
-        db.query("DELETE FROM native_pool_leases WHERE id=? AND state='releasing'").run(id);
-        return { id, purpose: "checkpoint", from: lease.from_id, allowanceBytes: lease.allowance, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null };
-      }
       // Survives a lost reply; a retry continues the same identity's release.
       db.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(id);
       let record: NativePoolRecord;
+      releases.set(id, (releases.get(id) ?? 0) + 1);
       try { record = await raw.poolRelease(id, signal); }
-      catch (error) { await settleRelease(id).catch(() => {}); throw error; }
+      catch (error) { await settleRelease(id, undefined, 1).catch(() => {}); throw error; }
+      finally { releases.set(id, releases.get(id)! - 1); if (!releases.get(id)) releases.delete(id); }
       if (record.id !== id || !["deleted", "reclaimed"].includes(record.state)) throw new NativeBrainManagerError("unknown", "Reference pool release receipt is unreadable; retain and reconcile the same identity.");
       db.query("DELETE FROM native_pool_leases WHERE id=? AND state='releasing'").run(id);
       return record;
@@ -242,6 +238,8 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       return releaseOwned(lease, signal);
     }); },
   };
+  /** Releases in flight per pool identity in this owner; a settled intent never overrides a newer one. */
+  const releases = new Map<string, number>();
   async function poolRecord(id: string, signal?: AbortSignal): Promise<NativePoolRecord | null> {
     for (let after: string | null = null; ;) {
       const page = await raw.listPoolRecovery(after, signal);
@@ -256,9 +254,11 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
    * it deletes. The lease is held again, so the root stays assessable; any
    * other outcome keeps the intent for a retry to finish.
    */
-  async function settleRelease(id: string, signal?: AbortSignal) {
-    if (poolRow(id)?.state !== "releasing") return;
+  async function settleRelease(id: string, signal?: AbortSignal, own = 0) {
+    if (poolRow(id)?.state !== "releasing" || (releases.get(id) ?? 0) !== own) return;
     const record = await poolRecord(id, signal);
+    // Another release of this identity may have started while the pool answered; its intent stands.
+    if ((releases.get(id) ?? 0) !== own) return;
     if (record && (record.state === "writable" || record.state === "sealed")) db.query("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='releasing'").run(id);
   }
   async function recoverDeadOwners(): Promise<{ released: string[]; retainedLive: number; retainedUnverifiable: number; unknown: string[]; retainedPool: number }> {

@@ -483,6 +483,19 @@ describe("receipts and recovery", () => {
     expect(await (await f.previewed((await f.next()).finding!)).apply()).toMatchObject({ status: "fixed" });
   });
 
+  test("settling a removed worktree after a crash forgets a checkpoint the pool no longer records, without releasing it again", async () => {
+    const f = await fixture();
+    const tree = await f.worktrees.allocate({ principalId: f.penelope.id, repository: PUBLIC, revision: "main" });
+    await f.worktrees.release({ worktreeId: tree.id, principalId: f.penelope.id });
+    expect(f.receipt(tree.id)?.state).toBe("reclaimed");
+    // A checkpoint whose release finished just before a crash, then forgotten by the pool.
+    const forgotten = "00000000-0000-4000-8000-000000002431";
+    db.query(`INSERT INTO reference_worktree_checkpoints (id, worktree_id, owner_pid, owner_start, owner_boot, owner_pid_namespace, created_at) VALUES (?, ?, 1, 'x', 'x', 'x', ?)`).run(forgotten, tree.id, clock);
+    await f.worktrees.reconcile();
+    expect({ pool: f.pool.records.has(forgotten), ledger: db.query("SELECT 1 FROM reference_worktree_checkpoints WHERE id = ?").get(forgotten) }, "REFERENCE_WORKTREE_SETTLE_RETRY_FORGETS_RELEASED_CHECKPOINT")
+      .toEqual({ pool: false, ledger: null });
+  });
+
   test("a restart after a committed removal recovers its outcome without deleting again; an interrupted one reappears for review", async () => {
     const f = await fixture();
     const done = await f.retained(), interrupted = await f.retained();
@@ -530,6 +543,21 @@ describe("human-started review", () => {
     db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ?").run(tree.id);
     const card = (await f.review().command(f.penelope.id, "start")).action!;
     expect({ title: card.payload.title, options: card.options.map(option => option.id) }, "REFERENCE_WORKTREE_SELECTION_USES_FRESH_EVIDENCE")
+      .toEqual({ title: "A managed worktree's work or owner cannot be established", options: ["check", "later", "dismiss"] });
+  });
+
+  test("a card never offers a repair whose preview could not be taken", async () => {
+    const f = await fixture();
+    const tree = await f.retained();
+    // Selection's own assessment succeeds; every later one, the preview's included, fails.
+    const checkpoint = f.pool.poolCheckpoint;
+    let assessments = 0;
+    f.pool.poolCheckpoint = async (id, from, signal) => {
+      if (from === tree.id && db.query("SELECT 1 FROM reference_worktrees WHERE baseline = ?").get(id) === null && ++assessments > 1) throw new Error("capacity is exhausted");
+      return checkpoint(id, from, signal);
+    };
+    const card = (await f.review().command(f.penelope.id, "start")).action!;
+    expect({ title: card.payload.title, options: card.options.map(option => option.id) }, "REFERENCE_WORKTREE_CARD_NEVER_OFFERS_AN_UNPREVIEWED_REPAIR")
       .toEqual({ title: "A managed worktree's work or owner cannot be established", options: ["check", "later", "dismiss"] });
   });
 

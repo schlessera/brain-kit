@@ -7,7 +7,7 @@ commit. It builds on the [acquisition service](reference-source-acquisition.md)
 and the pool's [checkpoints and access generations](reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
-(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:150-682`),
+(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:150-691`),
 created with the acquisition service. Agent tools that call it arrive with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:420-450`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:429-459`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -39,7 +39,7 @@ restricted (autonomous) turn holds no worktree. The generation records the
 owning process (PID, start time, boot and PID namespace).
 
 Access makes a worktree available to one open generation
-(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:504-514`):
+(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:513-523`):
 
 1. The generation must be open in this process for a running turn, and belong
    to the requesting principal.
@@ -80,7 +80,7 @@ such as an owner in another PID namespace, is **unknown**
 (`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:204-210`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:578-605`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:587-614`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;
@@ -254,8 +254,9 @@ the host, never to the CLI
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
 afresh, after a failed removal too. Selection assesses its winner again before
-the card is shown, so a card never offers a repair its own preview would find
-stale. A preview takes a fresh assessment and never removes anything. Because the ID does not carry the kind, a removal that fails
+the card is shown, and a winner whose preview could not be taken is selected
+again or shown without that repair, so a card never offers a repair it cannot
+confirm. A preview takes a fresh assessment and never removes anything. Because the ID does not carry the kind, a removal that fails
 changes the finding's fingerprint: an approval or a recovered review attempt for
 the earlier evidence reads as stale, never as fixed. A failure reaches the
 replicated card as a fixed reason; the pool's own error, which can name host
@@ -297,14 +298,14 @@ recorded. A failed or interrupted
 removal keeps identity and charge and appears as a `cleanup-failed` finding,
 once; only review retries it. A lost reply or a restart reads the pool's record
 and never releases again; a deletion the pool already committed is completed,
-which is the same effect. A checkpoint the pool no longer records was reclaimed
-and forgotten, so it leaves the ledger without another release, which would
-leave a tombstone identity. The lease owner applies both rules for every pool
-release: a release the pool never committed (its root still writable or sealed)
-holds its lease again, so a failed removal stays assessable, and a retried
-checkpoint release the pool no longer records is dropped without another
-release
-(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:378-405`).
+which is the same effect. Once the worktree is deleted no checkpoint of it can
+be created any more, so on a retry a checkpoint the pool no longer records is
+gone, released before a crash or reclaimed and forgotten: it leaves the ledger
+without another release, which would fail or leave a tombstone identity. The
+lease owner holds a release's lease again when the pool never committed it (the
+root is still writable or sealed), so a failed removal stays assessable; it never
+does so over a newer release of the same identity
+(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:378-414`).
 Capacity is credited only when the pool reports the worktree `reclaimed`:
 until then its source root stays protected from eviction.
 
@@ -368,9 +369,10 @@ reporting a failed removal as fixed and a forgotten checkpoint released into a
 tombstone. Its second round added a deleted file read as unknown work, an
 unresolved removal checked as gone, a card selected over stale evidence,
 removal and grant interleaving across service instances, and, in
-`native-brain-leases.test.ts`, an uncommitted release left unassessable, an
-interrupted one after a restart and a forgotten checkpoint released by the lease
-owner. Further mutations cover checkpoints released before the worktree,
+`native-brain-leases.test.ts`, an uncommitted release left unassessable and an
+interrupted one after a restart. Its third round added a settled release
+overriding a newer one, a settle retry after a crash and a card admitted with a
+repair whose preview failed. Further mutations cover checkpoints released before the worktree,
 access after a failed removal, a lost reply read as a failure, the
 reconciliation retry and automatic removal itself. Native case 18 removes a clean
 worktree automatically and a private worktree's retained work through the real

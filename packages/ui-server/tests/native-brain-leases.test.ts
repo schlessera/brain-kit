@@ -240,7 +240,7 @@ test("worktree checkpoints, deltas, reads and access moves need this app's held 
   } finally { await f.close(); }
 });
 
-test("a release the pool never committed holds its lease again; a forgotten checkpoint leaves no tombstone (#2431)", async () => {
+test("a release the pool never committed holds its lease again (#2431)", async () => {
   const f = await fixture(), calls: string[] = [];
   const SOURCE = "33333333-3333-4333-8333-333333332431", WORKTREE = "44444444-4444-4444-8444-444444442431", CHECKPOINT = "55555555-5555-4555-8555-555555552431";
   const NEXT = "77777777-7777-4777-8777-777777772431";
@@ -271,13 +271,33 @@ test("a release the pool never committed holds its lease again; a forgotten chec
     f.state.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(WORKTREE);
     await expect(f.owner.client.poolCheckpoint(NEXT, WORKTREE), "REFERENCE_POOL_INTERRUPTED_RELEASE_ASSESSABLE").resolves.toMatchObject({ id: NEXT });
     expect(lease(WORKTREE)).toEqual({ state: "held" });
-    // A checkpoint whose release committed after its reply was lost, then forgotten by the pool.
-    f.state.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(CHECKPOINT);
-    records.delete(CHECKPOINT);
-    failRelease = false;
-    calls.length = 0;
-    expect((await f.owner.client.poolRelease(CHECKPOINT)).state).toBe("reclaimed");
-    expect({ calls, lease: lease(CHECKPOINT) }, "REFERENCE_POOL_FORGOTTEN_CHECKPOINT_NO_TOMBSTONE").toEqual({ calls: [], lease: null });
+  } finally { await f.close(); }
+});
+
+test("settling a failed release never overrides a newer release of the same identity (#2431)", async () => {
+  const f = await fixture();
+  const SOURCE = "33333333-3333-4333-8333-333333332432";
+  const records = new Map<string, Record<string, unknown>>();
+  f.native.client.poolCreate = async (id, purpose, from) => {
+    const value = { id, purpose, from, allowanceBytes: 4096, state: "writable", root: null, path: null, ownerBytes: null, reason: null, view: null, access: null };
+    records.set(id, value); return value as never;
+  };
+  f.native.client.listPoolRecovery = async () => ({ records: [...records.values()] as never, next: null });
+  let attempts = 0, commit: () => void = () => {};
+  const committed = new Promise<void>(resolve => { commit = resolve; });
+  f.native.client.poolRelease = async id => {
+    if (++attempts === 1) { await Bun.sleep(20); throw new Error("the first reply was lost"); }
+    await committed;
+    records.delete(id);
+    return { id, purpose: "source", from: null, allowanceBytes: 4096, state: "reclaimed", root: null, path: null, ownerBytes: 0, reason: null, view: null, access: null } as never;
+  };
+  try {
+    await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
+    const first = f.owner.client.poolRelease(SOURCE).catch(error => error), second = f.owner.client.poolRelease(SOURCE);
+    await first;
+    commit();
+    expect((await second).state).toBe("reclaimed");
+    expect(f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(SOURCE), "REFERENCE_POOL_SETTLE_NEVER_OVERRIDES_A_NEWER_RELEASE").toBeNull();
   } finally { await f.close(); }
 });
 

@@ -90,6 +90,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   function effect(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"]): HygieneEffect {
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
+  /** A repair that takes no input but has no confirmed preview cannot be applied. */
+  const missingPreview = (options: InboxOption[]) => options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
   async function prepareOptions(finding: z.infer<typeof findingSchema> | null) {
     const options: InboxOption[] = [];
     if (finding) {
@@ -133,8 +135,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         update(current, { version: 1, status: "refused", reason: "refresh-checks-unavailable" });
         return read();
       }
-      const missingPreview = options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
-      if (!finding || !verified.finding || finding.id !== old.hygiene!.findingId || verified.finding.id !== finding.id || verified.finding.fingerprint !== finding.fingerprint || missingPreview) {
+      if (!finding || !verified.finding || finding.id !== old.hygiene!.findingId || verified.finding.id !== finding.id || verified.finding.fingerprint !== finding.fingerprint || missingPreview(options)) {
         update(current, { version: 1, status: "stale", reason: finding ? "refresh-premise-changed" : "finding-not-detected" });
         return read();
       }
@@ -158,7 +159,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     // Recovery/next-item selection cannot authorize re-admission after retirement.
     if (paused && (!principalId || !resumeRetired)) return;
     // CLI selection/reconciliation and previews are outside write transactions.
-    const next = nextSchema.parse(await cli(["next"]));
+    let next = nextSchema.parse(await cli(["next"]));
     if (principalId) authority(principalId);
     let finding = "finding" in next ? next.finding : null;
     if (paused && !("blocker" in next)) {
@@ -169,7 +170,15 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
           finding = findingSchema.parse(retired.hygiene!.finding);
       }
     }
-    const options = await prepareOptions(finding);
+    let options = await prepareOptions(finding);
+    // A host worktree finding's preview assesses it afresh: evidence that changed
+    // meanwhile is selected again, and a repair left without a preview is not offered.
+    for (let attempt = 0; finding && deps.worktrees?.owns(finding.id) && missingPreview(options); attempt++) {
+      if (attempt === 2) { options = options.filter(o => !(o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview)); break; }
+      next = nextSchema.parse(await cli(["next"]));
+      finding = "finding" in next ? next.finding : null;
+      options = await prepareOptions(finding);
+    }
     if (principalId) authority(principalId);
     db.transaction(() => {
       const review = state();

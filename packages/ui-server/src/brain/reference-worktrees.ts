@@ -366,7 +366,7 @@ export function createReferenceWorktrees(options: {
       receipt = after;
     }
     db.query("UPDATE reference_worktree_cleanups SET state = ?, finished_at = ? WHERE worktree_id = ?").run(receipt.state === "reclaimed" ? "reclaimed" : "deleted", now(), row.id);
-    await settle(row.id, signal);
+    await settle(row.id, signal, false);
     return { status: cleanupOf(row.id)!.state as "deleted" | "reclaimed" };
   }
   /**
@@ -375,7 +375,7 @@ export function createReferenceWorktrees(options: {
    * committed is completed, the removed worktree's checkpoints are released,
    * and only the pool's observed reclamation credits the removal.
    */
-  async function settle(id: string, signal?: AbortSignal) {
+  async function settle(id: string, signal?: AbortSignal, retry = true) {
     const cleanup = cleanupOf(id);
     if (!cleanup || !["started", "deleted", "reclaimed"].includes(cleanup.state)) return;
     let record = await poolRecord(id, signal).catch(() => undefined);
@@ -392,12 +392,21 @@ export function createReferenceWorktrees(options: {
     if (record && record.state === "deleting") record = await pool.poolRelease(id, signal).catch(error => { warn("committed worktree deletion not yet finished", error); return record; });
     const row = worktree(id);
     if (row) for (const checkpoint of checkpointsOf(row)) {
+      // Released once: a removed worktree never names its baseline again.
+      const forget = () => { forgetReferenceWorktreeCheckpoint(db, checkpoint); db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ? AND baseline = ?").run(id, checkpoint); };
       try {
+        // A retry first asks the pool. With the worktree deleted no checkpoint of it
+        // can still be created, so an identity the pool no longer records is gone:
+        // released before a crash, or reclaimed and forgotten. Releasing it again
+        // would fail or leave a tombstone.
+        if (retry && await poolRecord(checkpoint, signal) === null) { forget(); continue; }
         await pool.poolRelease(checkpoint, signal);
-        forgetReferenceWorktreeCheckpoint(db, checkpoint);
-        // Released once: a removed worktree never names its baseline again.
-        db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ? AND baseline = ?").run(id, checkpoint);
-      } catch (error) { warn("removed worktree's checkpoint was not released; reconciliation retries it", error); }
+        forget();
+      } catch (error) {
+        const record = await poolRecord(checkpoint).catch(() => undefined);
+        if (record === null || (record && (record.state === "deleted" || record.state === "reclaimed"))) forget();
+        else warn("removed worktree's checkpoint was not released; reconciliation retries it", error);
+      }
     }
     // Releasing the checkpoints can complete the worktree's reclamation.
     const observed = await poolRecord(id, signal).catch(() => record);
