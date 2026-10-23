@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:276-964`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:270-958`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
