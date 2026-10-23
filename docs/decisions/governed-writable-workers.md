@@ -1084,7 +1084,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:312`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:313`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1800,10 +1800,22 @@ voice turn, and admission applies the masks to all of them:
   which tells the agent such a destination exists. The maintenance worker is
   not mount-masked: the brain's own code running there could still read a
   masked file, though nothing the agent supplies makes planning do so.
+- **Autonomous turns (#2691).** A restricted turn is denied the same way. Its
+  admission reads the same process-local last-valid policy as hosted turns
+  (`governancePolicyReaderFor`, keyed by and reading the brain's canonical
+  path) and refuses unsupported selectors with `ProviderPolicyRefusedError`
+  before the host probe or any worker. The
+  envelope's brain is the immutable startup view, so no peer can replace a
+  root under it and no retention pins are needed: each present masked folder
+  is an empty read-only tmpfs over that view, `.git` stays hidden, and the
+  private index, built as above with the host's operational-state masks, is
+  bound over `.brain-index/`, which the host creates first. Without those
+  masks configured, such a turn refuses rather than build an index in a
+  worker that sees the host. The private index is removed when the turn
+  ends, and the autonomous bridge refuses masked paths as above.
 
-Still open under #1668: autonomous (restricted) turns do not apply the masks;
-the committed sidecar caches (`.context-cache.jsonl` holds generated chunk
-contexts) and other retained copies have not been audited;
+Still open under #1668: the committed sidecar caches (`.context-cache.jsonl`
+holds generated chunk contexts) and other retained copies have not been audited;
 and the allowed recipient's unmasked turn needs #1665. Each restricted turn
 also pays one keyword index build at admission.
 
@@ -2345,7 +2357,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:279-296`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:280-297`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.

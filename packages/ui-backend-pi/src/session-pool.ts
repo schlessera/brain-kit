@@ -56,6 +56,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       ...(req.workerStartupView ? { workerStartupView: req.workerStartupView } : {}),
       ...(req.workerStarted ? { workerStarted: req.workerStarted } : {}),
       ...(req.workerSandbox ? { workerSandbox: req.workerSandbox } : {}),
+      ...(req.workerProviderMasks ? { workerProviderMasks: req.workerProviderMasks } : {}),
       ...(req.workerLock ? { workerLock: req.workerLock } : {}),
       ...(req.autonomous ? { autonomous: req.autonomous } : {}),
       ...(req.client ? { client: req.client } : {}),

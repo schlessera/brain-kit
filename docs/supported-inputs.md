@@ -130,8 +130,8 @@ unsupported unsafe selectors. Arbitrary type/glob requirements remain open;
 folder retention cannot authorize protected data for an unknown recipient.
 
 **Hosted turns (additive in 0.44.0, #1668).** No hosted turn has a proven
-inference recipient yet, so a provider rule denies every interactive and voice
-turn. Each literal `folder/**` root present in the turn's view reads as an
+inference recipient yet, so a provider rule denies every interactive, voice
+and autonomous turn. Each literal `folder/**` root present in the turn's view reads as an
 empty read-only directory, `.git` is hidden, and `.brain-index/` is a
 turn-private, writable index. It is built before the turn by the brain's own
 CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
@@ -143,8 +143,11 @@ left silently readable. Host bridge tools that run on the server, outside the
 worker's mounts, refuse every path at or below a masked root with the named
 refusal `provider_masked` and one `provider_mask_refusal` governance event per
 call: `brain_read_base`, the application tools, share completion, image masks,
-`inbox_add` and policy proposals (#2690). Autonomous turns and the allowed recipient's
-unmasked view are not covered yet.
+`inbox_add` and policy proposals (#2690). An autonomous (restricted) turn applies the same
+masks and private index to its envelope, reads the same last-valid policy and
+refuses the same unsupported selectors before any worker starts; its bridge
+refuses masked paths the same way (#2691). The allowed recipient's unmasked
+view is not covered yet.
 
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing

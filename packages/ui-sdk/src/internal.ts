@@ -26,7 +26,7 @@ export { restrictedReadPaths } from "./server/worker-launcher.js";
 export { prepareWorkerSandbox } from "./server/worker-launcher.js";
 export type { PrepareWorkerSandboxOptions } from "./server/worker-launcher.js";
 export { workerProfile, workerSandboxNote, workerSandboxWarnings, mountPointsUnder, WORKER_AREAS, BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, WORKER_XDG_DIRS } from "./server/worker-sandbox.js";
-export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile } from "./server/worker-sandbox.js";
+export type { WorkerSandbox, WorkerArea, WorkerAreaName, WorkerMount, WorkerHome, WorkerNoteFacts, WorkerNoteLimit, WorkerProfile, WorkerProviderMasks } from "./server/worker-sandbox.js";
 export { createLimitTracker, describeLimitHits, limitFailureMessage, mergeLimitReports, workerLimitsPlan,
   workerLimitsStatus, workerNoteLimits, WORKER_LIMITS_ENV } from "./server/worker-limits.js";
 export type { WorkerLimitHit, WorkerLimitReport, WorkerLimitsPlan, WorkerLimitsStatus } from "./server/worker-limits.js";

@@ -18,14 +18,15 @@ afterEach(async () => {
 });
 
 function turn(profile: { billing?: "api" | "subscription"; env: Record<string, string> }, allowedTools = ["Bash", "mcp__brain-ui__show_block"],
-  containment: "restricted" | "none" = "restricted") {
+  containment: "restricted" | "none" = "restricted", workerProviderMasks?: { folders: string[]; index: string }) {
   const brain = mkdtempSync(join(tmpdir(), "claude-autonomous-envelope-"));
   brains.push(brain);
   const sdkTurn = createClaudeSdkTurn({
     backend: { brainPath: brain } as never,
     req: { prompt: "Odysseus triage", signal: new AbortController().signal, enforceAllowedTools: true, noGrantSurface: true,
       bridge: { emit: () => {}, checkpointPermission: () => {}, requestPermission: async () => ({ behavior: "deny", message: "no" }) },
-      autonomous: { origin: "autonomous", persistence: "none", ...(containment === "restricted" ? { containment } : {}), allowedTools, systemPromptAppend: "Server snapshot." } } as never,
+      autonomous: { origin: "autonomous", persistence: "none", ...(containment === "restricted" ? { containment } : {}), allowedTools, systemPromptAppend: "Server snapshot." },
+      ...(workerProviderMasks ? { workerProviderMasks } : {}) } as never,
     profile: { id: "fixture", label: "Fixture", requiredEnvKeys: [], billing: profile.billing, buildEnv: () => profile.env } as never,
     abortController: new AbortController(),
     allowedTools,
@@ -55,6 +56,15 @@ describe("autonomous Claude envelope", () => {
   test("the restricted worker reads the runtime-state note rendered from its allowance (#1625)", () => {
     const { options } = turn({ billing: "api", env: { ANTHROPIC_API_KEY: "sk-odysseus-real" } });
     expect((options.systemPrompt as string[]).join("\n")).toContain("- **Runtime state: 64 MiB.**");
+  });
+
+  test("host-admitted provider masks join the restricted sandbox its mounts and note come from (#2691)", () => {
+    const plain = (turn({ billing: "api", env: { ANTHROPIC_API_KEY: "sk-odysseus-real" } }).options.systemPrompt as string[]).join("\n");
+    expect(plain).not.toContain("Provider policy hides");
+    const masked = turn({ billing: "api", env: { ANTHROPIC_API_KEY: "sk-odysseus-real" } }, undefined, "restricted",
+      { folders: ["me"], index: join(tmpdir(), "brain-private-index-odysseus") });
+    expect((masked.options.systemPrompt as string[]).join("\n"), "RESTRICTED_NOTE_NAMES_THE_MASKS")
+      .toContain("Provider policy hides `me/` from this turn: it reads as empty");
   });
 
   test("the worker environment holds a placeholder and the relay route, never the credential or host variables", () => {

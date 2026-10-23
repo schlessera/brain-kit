@@ -6,7 +6,7 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { createGovernancePolicyReader, ProviderPolicyRefusedError, providerFolderRoots, retainedFolderRoots, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
+import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, retainedFolderRoots, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
@@ -42,7 +42,7 @@ export function createGovernedTurns(options: {
   /** The CLI argv that builds a restricted turn's private index; default: the brain's packaged CLI. */
   privateIndexCommand?: readonly string[];
 }): GovernedTurns {
-  const policyReader = createGovernancePolicyReader(options.brainPath);
+  const policyReader = governancePolicyReaderFor(options.brainPath);
   let current: Promise<unknown> | undefined;
   let again = false;
   let closing = false;

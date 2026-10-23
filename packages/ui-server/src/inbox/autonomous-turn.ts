@@ -22,6 +22,10 @@ import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, type
 import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 import { recordGovernanceEvent } from "../governance/events.js";
+import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
+import { createProviderMaskGuard } from "../brain/provider-mask-refusal.js";
+import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "../brain/private-index.js";
+import { ensureIndexDirectory } from "../brain/index-directory.js";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -59,6 +63,12 @@ export interface AutonomousTurnDeps extends TurnRecorderDeps {
   applicationPlanner?: ApplicationPlanner;
   /** Authoritative brain; standalone callers default to their working directory. */
   brainPath?: string;
+  /**
+   * How a provider-restricted turn's private index is built, as for hosted
+   * turns: the host's operational-state masks and optionally the CLI argv.
+   * Absent, a turn under a provider folder rule refuses before any worker.
+   */
+  privateIndex?: { maskPaths: readonly string[]; command?: readonly string[] };
   db: Database;
   backend: AgentBackend;
   /** Must commit checkpoint + Action/block intent synchronously or throw. */
@@ -92,6 +102,13 @@ export async function runAutonomousTurn(
     return Boolean(principal && isUsablePrincipal(principal, Date.now()));
   };
   if (!usable()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+  // The hosted turns' last-valid policy decides provider masks (#2691). What
+  // the masks cannot hide refuses by name before any worker starts.
+  const policy = governancePolicyReaderFor(deps.brainPath ?? process.cwd()).load();
+  const unsupported = unsupportedProviderSelectors(policy.policy);
+  if (unsupported.length) throw new ProviderPolicyRefusedError(unsupported);
+  if (providerFolderRoots(policy.policy).length && !deps.privateIndex)
+    throw new BackendRequestError("Autonomous turns under a provider folder rule need the host's private index masks; none are configured.");
   // The restricted envelope must be establishable, not only the ordinary worker (#676).
   try { requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime, { dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory }); }
   catch (error) {
@@ -108,7 +125,7 @@ export async function runAutonomousTurn(
   try {
     try { acquireInboxBudgetRun(deps.db, input.turnId, principalId); }
     catch (error) { throw new BackendRequestError(error instanceof Error ? error.message : "Autonomous budget admission failed."); }
-    return await executeAutonomousTurn(deps, input, usable, lifetime);
+    return await executeAutonomousTurn(deps, input, usable, lifetime, policy);
   } finally { lifetime.close(); }
 }
 
@@ -117,8 +134,11 @@ async function executeAutonomousTurn(
   input: AutonomousTurnInput,
   usable: () => boolean,
   lifetime: ReturnType<typeof acquireInboxRunLifetime>,
+  policy: TurnGovernancePolicy,
 ): Promise<AutonomousTurnResult> {
   const principalId = input.principalId;
+  const brainPath = deps.brainPath ?? process.cwd();
+  const maskedFolders = providerFolderRoots(policy.policy);
   // Activity-linked items may share a run id. Only the admitted budget item
   // selects the origin; a model-authored record is never a scope grant.
   const origin = deps.db.query(`SELECT i.thread_id FROM inbox_budget_reservations r
@@ -128,7 +148,8 @@ async function executeAutonomousTurn(
   if (!origin) throw new BackendRequestError("Autonomous inbox origin is unavailable.");
   // Own immutable request policy for the attempt; callbacks cannot widen it.
   // Governance events (#1651) and roadblocks (#1671) go to the same database as the attempt.
-  const recorder = createTurnRecorder({ ...deps, governance: deps.governance ?? ((event) => { recordGovernanceEvent(deps.db, event); }),
+  const governance = deps.governance ?? ((event: Parameters<typeof recordGovernanceEvent>[1]) => { recordGovernanceEvent(deps.db, event); });
+  const recorder = createTurnRecorder({ ...deps, governance,
     governanceDb: deps.governanceDb ?? deps.db },
     { turnId: input.turnId, sessionId: null,
     principalId, origin: "autonomous", profileId: input.profileId,
@@ -231,6 +252,13 @@ async function executeAutonomousTurn(
       throw new Error("Autonomous work stopped for a durable decision.");
     },
   };
+  // The host bridge reads and writes the real brain, outside the masks (#2690).
+  const maskGuard = maskedFolders.length ? createProviderMaskGuard({ folders: maskedFolders, policy: policy.policy,
+    record: refusal => {
+      try { governance({ kind: "provider_mask_refusal", turnId: input.turnId, sessionId: null, actor: "autonomous", model: null, profile: "restricted",
+        payload: { ...refusal, policyHash: policy.hash } }); }
+      catch (error) { deps.log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` }); }
+    } }) : undefined;
   const request: StartTurnRequest = { prompt: input.prompt, profileId: input.profileId,
     signal: controller.signal, bridge, autonomous: mode, enforceAllowedTools: true, noGrantSurface: true };
   const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
@@ -243,6 +271,7 @@ async function executeAutonomousTurn(
     const apply = createBrainApplication({ root, principalId, turnId: input.turnId, signal: controller.signal,
       planner: deps.applicationPlanner ?? boundaryPlanner(createHostBoundary({ brainPath: root, nativeManager: deps.nativeManager, dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory })),
       policy: { autoAllowed: [], available: ["write", "edit", "add", "update", "archive", "staged"], enforceAllowedTools: true, lock },
+      ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => applicationToolName(deps.backend.id, operation) } } : {}),
       isAuthorized: current,
       approve: async (proposal, destructive) => {
         const toolName = applicationToolName(deps.backend.id, proposal.operation);
@@ -265,17 +294,31 @@ async function executeAutonomousTurn(
     });
     bridge.readBrainBase = async (path) => {
       if (!current()) throw new Error("This turn no longer has current principal authority.");
-      return readBrainApplicationBase(root, path);
+      return readBrainApplicationBase(root, path, maskGuard
+        ? { guard: maskGuard, tool: deps.backend.id === "claude" ? "mcp__brain-ui__brain_read_base" : "brain_read_base" } : undefined);
     };
     bridge.applyBrain = (proposal) => apply({ principalId, turnId: input.turnId, input: proposal });
   }
   const principalCheck = setInterval(checkPrincipal, 100);
-  let startupView: WorkerStartupView | undefined;
+  let startupView: WorkerStartupView | undefined, privateIndex: string | undefined;
   try {
     if (!deps.nativeManager) throw new BackendRequestError("Autonomous workers require the configured native brain manager; full-copy fallback is unsupported.");
-    startupView = await prepareNativeWorkerStartupView(deps.brainPath ?? process.cwd(), deps.nativeManager, controller.signal);
+    // The private index is mounted over `.brain-index/`, which the view must
+    // hold; the host creates that directory, never a provider folder.
+    if (maskedFolders.length) ensureIndexDirectory(brainPath);
+    startupView = await prepareNativeWorkerStartupView(brainPath, deps.nativeManager, controller.signal);
     controller.signal.throwIfAborted();
     if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
+    if (maskedFolders.length) {
+      // As for a denied hosted turn (#1668): built from nothing through the
+      // same masks, so it never held a masked document, and removed after.
+      privateIndex = createPrivateIndexDirectory();
+      const built = await buildPrivateIndex({ brainPath, startupView, folders: maskedFolders, index: privateIndex, maskPaths: deps.privateIndex!.maskPaths,
+        signal: controller.signal, ...(deps.privateIndex!.command ? { command: deps.privateIndex!.command } : {}) });
+      if (!built.ok) deps.log?.emit({ severityText: "WARN", body: `autonomous turn ${input.turnId} starts with an incomplete private search index: ${built.detail}` });
+      controller.signal.throwIfAborted();
+      request.workerProviderMasks = Object.freeze({ folders: Object.freeze([...maskedFolders]), index: privateIndex });
+    }
     request.workerStartupView = startupView;
     await deps.backend.startTurn(request);
     if (!terminal) {
@@ -307,7 +350,7 @@ async function executeAutonomousTurn(
         recorder.finish(outcome);
         if (yielded) finishYield(deps.db, input.turnId);
       }).immediate();
-    } finally { await startupView?.cleanup(); }
+    } finally { try { await startupView?.cleanup(); } finally { if (privateIndex) removePrivateIndexDirectory(privateIndex); } }
   }
 }
 

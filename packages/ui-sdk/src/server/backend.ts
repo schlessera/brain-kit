@@ -506,6 +506,11 @@ export interface StartTurnRequest {
   persistClaudeMemory?: (change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void) => void;
   /** @internal Host-resolved filesystem view, never a client or model grant. */
   workerSandbox?: import("./worker-sandbox.js").WorkerSandbox;
+  /**
+   * @internal Host-admitted provider folder masks for the restricted
+   * autonomous envelope, which prepares its own sandbox (#2691).
+   */
+  workerProviderMasks?: import("./worker-sandbox.js").WorkerProviderMasks;
   /** @internal The host's shared contention locks, including server applications. */
   workerLock?: import("./keyed-lock.js").KeyedLock;
   /** Server-only explicit mode. Absent preserves the ordinary session contract. */
