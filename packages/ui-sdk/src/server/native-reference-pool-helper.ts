@@ -89,6 +89,9 @@ if command=="observe":
 elif command=="inspect": print(json.dumps(info(sys.argv[2])))
 elif command=="create":
  parent,name,limit,qgroup,source=sys.argv[2],sys.argv[3],int(sys.argv[4]),int(sys.argv[5]),sys.argv[6]
+ # A worktree checkpoint (#2430) is born read-only inside the creating transaction.
+ readonly=len(sys.argv)>7 and sys.argv[7]=="readonly"
+ if readonly and source=="-": raise RuntimeError("a read-only pool root must be a snapshot")
  if not re.fullmatch(r"[0-9a-f-]{36}",name): raise RuntimeError("invalid pool root name")
  inherit=struct.pack("<4Q5QQ",SET_LIMITS,1,0,0,MAX_RFER|MAX_EXCL,limit,limit,0,0,qgroup)
  buffer=ctypes.create_string_buffer(inherit,len(inherit))
@@ -96,7 +99,7 @@ elif command=="create":
  try:
   args=bytearray(4096)
   # btrfs_ioctl_vol_args_v2: fd, transid, flags, {size, qgroup_inherit}, name.
-  struct.pack_into("<qQQQQ",args,0,sourcefd,0,INHERIT,len(inherit),ctypes.addressof(buffer))
+  struct.pack_into("<qQQQQ",args,0,sourcefd,0,INHERIT|(RDONLY if readonly else 0),len(inherit),ctypes.addressof(buffer))
   encoded=name.encode(); args[56:56+len(encoded)]=encoded
   try: fcntl.ioctl(parentfd,SNAP_CREATE if source!="-" else SUBVOL_CREATE,args)
   except OSError as error:

@@ -72,7 +72,7 @@ export { NativeFileVersions, nativeFileVersion, STALE_NATIVE_WRITE } from "./ser
 export type { NativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
 export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
-export { WORKER_AREA_ROOT } from "./server/worker-sandbox.js";
+export { WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT } from "./server/worker-sandbox.js";
 export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-brain-delta.js";
 export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
 
@@ -80,7 +80,9 @@ export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutput
 
 export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
 export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";
-export type { NativePoolRecord, NativePoolStatus, NativePoolState } from "./server/native-brain-manager-protocol.js";
+export type { NativePoolRecord, NativePoolStatus, NativePoolState, NativePoolCheckpoint, NativePoolAccess, NativePoolCreatePurpose } from "./server/native-brain-manager-protocol.js";
+// Runtime-neutral: the pool module reaches `bun:sqlite`, which this entry's Node build must never load.
+export { REFERENCE_POOL_CHECKPOINT_BYTES } from "./server/native-brain-manager-protocol.js";
 
 export { RTK_WORKER_ENV } from "./server/rtk.js";
 export { sessionPromptContext } from "./server/session-prompt-context.js";
