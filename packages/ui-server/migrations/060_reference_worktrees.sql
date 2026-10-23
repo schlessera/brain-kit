@@ -19,6 +19,17 @@ CREATE TABLE reference_worktrees (
   cleanup       TEXT                        -- JSON eligibility facts from release or expiry
 );
 CREATE INDEX reference_worktrees_source ON reference_worktrees (source_root);
+-- Observation and assessment checkpoints and the process that took them. Only
+-- a provably ended owner's checkpoints are released by recovery.
+CREATE TABLE reference_worktree_checkpoints (
+  id                  TEXT PRIMARY KEY NOT NULL,  -- pool checkpoint identity
+  worktree_id         TEXT NOT NULL,
+  owner_pid           INTEGER NOT NULL,
+  owner_start         TEXT NOT NULL,
+  owner_boot          TEXT NOT NULL,
+  owner_pid_namespace TEXT NOT NULL,
+  created_at          INTEGER NOT NULL
+);
 CREATE TABLE reference_worktree_generations (
   id                  TEXT PRIMARY KEY NOT NULL,  -- native access generation
   principal_id        TEXT NOT NULL,

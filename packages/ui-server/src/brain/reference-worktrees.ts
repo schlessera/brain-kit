@@ -26,6 +26,15 @@ import { parseNativeBrainDelta, type createNativeBrainManagerClient, type Native
 import { processAlive, SELF } from "./writer-gate.js";
 import { ReferenceSourceError, type ReferenceSources } from "./reference-source.js";
 
+/**
+ * Generations whose turn runs in this process (`running`), and the subset that
+ * still accepts grants (`accepting`). Process-wide, so any service instance in
+ * this process reads the same liveness evidence.
+ */
+const running = new Set<string>(), accepting = new Set<string>();
+/** Accesses in flight per generation; retiring a generation waits for them. */
+const inflight = new Map<string, Set<Promise<unknown>>>();
+
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export type ReferenceWorktreePool = Pick<Client, "poolStatus" | "poolCreate" | "poolRelease" | "poolCheckpoint" | "poolDelta"
   | "poolAccessOpen" | "poolAccess" | "poolPark" | "poolAccessClose">;
@@ -97,8 +106,18 @@ export function referenceWorktreeOwner(): { pid: number; start: string; boot: st
     pidNamespace: String(statSync("/proc/self/ns/pid", { bigint: true }).ino) };
 }
 
+type Owner = ReturnType<typeof referenceWorktreeOwner>;
+/** Record a checkpoint before the pool creates it, so recovery can tell whose it is. */
+export function recordReferenceWorktreeCheckpoint(db: Database, owner: Owner, id: string, worktreeId: string, at = Date.now()) {
+  db.query(`INSERT OR IGNORE INTO reference_worktree_checkpoints (id, worktree_id, owner_pid, owner_start, owner_boot, owner_pid_namespace, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, worktreeId, owner.pid, owner.start, owner.boot, owner.pidNamespace, at);
+}
+export function forgetReferenceWorktreeCheckpoint(db: Database, id: string) {
+  db.query("DELETE FROM reference_worktree_checkpoints WHERE id = ?").run(id);
+}
+
 export function createReferenceWorktrees(options: {
-  db: Database; pool: ReferenceWorktreePool; sources: Pick<ReferenceSources, "request">;
+  db: Database; pool: ReferenceWorktreePool; sources: Pick<ReferenceSources, "request" | "covers">;
   /**
    * Journal coverage for a worktree a worker generation is about to reach.
    * Absent: access refuses, so no write path exists without the journal.
@@ -113,8 +132,6 @@ export function createReferenceWorktrees(options: {
   const now = options.now ?? Date.now, inactivity = options.inactivityMs ?? REFERENCE_WORKTREE_INACTIVITY_MS;
   if (!Number.isSafeInteger(inactivity) || inactivity < 1) throw new ReferenceWorktreeError("invalid", "worktree inactivity must be a positive integer");
   const owner = options.owner ?? referenceWorktreeOwner();
-  /** Generations this process opened and has not closed: their turns are running here. */
-  const open = new Set<string>();
   const chains = new Map<string, Promise<unknown>>();
   let closed = false;
 
@@ -154,7 +171,7 @@ export function createReferenceWorktrees(options: {
     if (row.closed_at !== null) return false;
     if (row.owner_boot !== owner.boot) return false;
     if (row.owner_pid_namespace !== owner.pidNamespace) return null;
-    if (row.owner_pid === owner.pid && row.owner_start === owner.start) return open.has(row.id);
+    if (row.owner_pid === owner.pid && row.owner_start === owner.start) return running.has(row.id);
     return processAlive(row.owner_pid, row.owner_start);
   }
   function holderState(row: WorktreeRow): boolean | null {
@@ -164,8 +181,15 @@ export function createReferenceWorktrees(options: {
     return holder ? live(holder) : null;
   }
 
-  /** Authority is read again for new access: a path or cached identity alone grants nothing. */
-  async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision">, signal?: AbortSignal) {
+  /**
+   * Authority is read again for new access: a path or cached identity alone
+   * grants nothing. A worktree of private source needs a live grant covering
+   * its repository, whatever the revision's current visibility; the
+   * repository's revision is then validated under the source's own clocks.
+   */
+  async function authorize(row: Pick<WorktreeRow, "principal_id" | "repository" | "revision" | "domain">, signal?: AbortSignal) {
+    if (row.domain !== "public" && !options.sources.covers({ principalId: row.principal_id, repository: row.repository }))
+      throw new ReferenceWorktreeError("unauthorized", "No live reference grant covers this private worktree's repository.");
     try { (await options.sources.request({ principalId: row.principal_id, repository: row.repository, revision: row.revision, signal })).release(); }
     catch (error) {
       if (error instanceof ReferenceSourceError) throw new ReferenceWorktreeError(error.code === "cancelled" || error.code === "busy" ? "unavailable"
@@ -182,6 +206,7 @@ export function createReferenceWorktrees(options: {
     let current: NativePoolCheckpoint | undefined;
     try {
       const baseline = await pool.poolCheckpoint(row.baseline, row.id, signal);
+      recordReferenceWorktreeCheckpoint(db, owner, id, row.id, now());
       current = await pool.poolCheckpoint(id, row.id, signal);
       const delta = await pool.poolDelta(baseline.id, current.id, signal);
       void delta.completed.catch(() => {});
@@ -189,10 +214,16 @@ export function createReferenceWorktrees(options: {
       for await (const candidate of parseNativeBrainDelta(delta.stream, {
         before: { uuid: baseline.root!.uuid, transaction: BigInt(baseline.transaction) },
         after: { uuid: current.root!.uuid, transaction: BigInt(current.transaction) }, signal,
-      })) for (const path of candidate.paths) if (path) candidates.add(path);
+      })) {
+        for (const path of candidate.paths) if (path) candidates.add(path);
+        // Both ends of a rename are compared, so a swap through a temporary name is seen.
+        if (candidate.rename) for (const path of [candidate.rename.from, candidate.rename.to]) if (path) candidates.add(path);
+      }
       await delta.completed;
       const changed: string[] = [];
       let unverified = 0;
+      // Any differing entry is work, directories included: a rename or swap
+      // changes the directories it moves even when every name still exists.
       for (const path of [...candidates].sort()) {
         const before = stamp(join(baseline.path!, path)), after = stamp(join(current.path!, path));
         if (before === undefined || after === undefined) unverified++;
@@ -202,7 +233,8 @@ export function createReferenceWorktrees(options: {
         sample: changed.slice(0, SAMPLE), error: null };
     } catch (error) { return unknown(error instanceof Error ? error.message : String(error)); }
     finally {
-      if (current) await pool.poolRelease(id).catch(cleanup => warn("worktree assessment checkpoint release failed; startup recovery retries it", cleanup));
+      if (current) await pool.poolRelease(id).then(() => forgetReferenceWorktreeCheckpoint(db, id),
+        cleanup => warn("worktree assessment checkpoint release failed; startup recovery retries it", cleanup));
     }
   }
   async function assess(row: WorktreeRow, reason: "released" | "expired", signal?: AbortSignal): Promise<ReferenceWorktreeCleanup> {
@@ -269,7 +301,7 @@ export function createReferenceWorktrees(options: {
     const access = await pool.poolAccessOpen(id, input.signal);
     db.query(`INSERT INTO reference_worktree_generations (id, principal_id, turn_id, profile, path, owner_pid, owner_start, owner_boot, owner_pid_namespace, opened_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, input.principalId, input.turnId, input.profile, access.path, owner.pid, owner.start, owner.boot, owner.pidNamespace, now());
-    open.add(id);
+    running.add(id); accepting.add(id);
     return { id, path: access.path, principalId: input.principalId, turnId: input.turnId, profile: input.profile };
   }
   /**
@@ -277,17 +309,27 @@ export function createReferenceWorktrees(options: {
    * recorded: park everything it holds, then assess released and expired
    * worktrees it was keeping.
    */
+  /**
+   * Stop granting to a generation and wait for accesses already in flight.
+   * Run it before the turn's final observation: everything granted is then
+   * covered by that observation, and nothing is granted after it.
+   */
+  async function retireGeneration(id: string): Promise<void> {
+    accepting.delete(id);
+    await Promise.allSettled([...(inflight.get(id) ?? [])]);
+  }
   function closeGeneration(id: string, signal?: AbortSignal): Promise<void> {
     return serial(`generation:${id}`, async () => {
+      await retireGeneration(id);
       const row = generation(id);
-      if (!row) return;
+      if (!row) { running.delete(id); return; }
       const held = db.query("SELECT id FROM reference_worktrees WHERE holder = ?").all(id) as { id: string }[];
-      await pool.poolAccessClose(id, signal);
+      // Its turn is over either way: a failed close leaves a generation recovery can prove ended.
+      try { await pool.poolAccessClose(id, signal); } finally { running.delete(id); }
       db.transaction(() => {
         db.query("UPDATE reference_worktrees SET holder = NULL WHERE holder = ?").run(id);
         db.query("UPDATE reference_worktree_generations SET closed_at = ? WHERE id = ? AND closed_at IS NULL").run(now(), id);
       }).immediate();
-      open.delete(id);
       for (const { id: worktreeId } of held) await serial(worktreeId, async () => {
         const current = worktree(worktreeId);
         if (current && (current.state === "released" || current.state === "expired")) await assess(current, current.state, signal);
@@ -296,11 +338,22 @@ export function createReferenceWorktrees(options: {
   }
 
   function access(input: { worktreeId: string; principalId: string; generation: string; signal?: AbortSignal }): Promise<ReferenceWorktree> {
+    // Registered before any await, so retiring the generation waits for this access.
+    if (!accepting.has(input.generation))
+      return Promise.reject(new ReferenceWorktreeError("unavailable", "This worker generation is not running; no worktree can be made available to it."));
+    const pending = inflight.get(input.generation) ?? new Set<Promise<unknown>>();
+    inflight.set(input.generation, pending);
+    const work = grant(input);
+    pending.add(work);
+    void work.catch(() => {}).finally(() => { pending.delete(work); if (!pending.size) inflight.delete(input.generation); });
+    return work;
+  }
+  function grant(input: { worktreeId: string; principalId: string; generation: string; signal?: AbortSignal }): Promise<ReferenceWorktree> {
     return serial(input.worktreeId, async () => {
       if (closed) throw new ReferenceWorktreeError("unavailable", "Managed worktrees are closed.");
       const target = generation(input.generation);
       // Only a generation this process opened for a running turn receives a grant.
-      if (!target || target.closed_at !== null || !open.has(target.id) || live(target) !== true)
+      if (!target || target.closed_at !== null || !accepting.has(target.id) || live(target) !== true)
         throw new ReferenceWorktreeError("unavailable", "This worker generation is not running; no worktree can be made available to it.");
       if (target.principal_id !== input.principalId) throw new ReferenceWorktreeError("unauthorized", "This worker generation belongs to another principal.");
       let row = owned(input.worktreeId, input.principalId);
@@ -384,7 +437,7 @@ export function createReferenceWorktrees(options: {
 
   return {
     allocate, access, renew, release, reconcile, recover,
-    openGeneration, closeGeneration,
+    openGeneration, retireGeneration, closeGeneration,
     get(input: { worktreeId: string; principalId: string }): ReferenceWorktree { return view(owned(input.worktreeId, input.principalId)); },
     list(principalId: string): ReferenceWorktree[] {
       return (db.query("SELECT * FROM reference_worktrees WHERE principal_id = ? AND state != 'creating' ORDER BY created_at, id").all(principalId) as WorktreeRow[]).map(view);
@@ -395,12 +448,12 @@ export function createReferenceWorktrees(options: {
 }
 export type ReferenceWorktrees = ReturnType<typeof createReferenceWorktrees>;
 
-/** Metadata that changes with content, mode, type or link target; access time is excluded. */
+/** Metadata that changes with content, mode, type, links or link target; access time is excluded. */
 function stamp(path: string): string | null | undefined {
   try {
     const info = lstatSync(path, { bigint: true });
     const target = info.isSymbolicLink() ? readlinkSync(path) : "";
-    return `${info.mode}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}:${target}`;
+    return `${info.mode}:${info.ino}:${info.nlink}:${info.size}:${info.mtimeNs}:${info.ctimeNs}:${target}`;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return null;

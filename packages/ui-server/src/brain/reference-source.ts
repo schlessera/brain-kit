@@ -480,6 +480,11 @@ export function createReferenceSources(options: {
 
   return {
     request,
+    /** Whether a live grant covers this repository for this principal now; private worktrees (#2430) need one for every access. */
+    covers(input: { principalId: string; repository: string }): boolean {
+      try { return Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: input.principalId, repository: referenceRepository(input.repository), now: now() })); }
+      catch { return false; }
+    },
     revoke,
     recover,
     /** Host directories a worker of this principal binds; null until something was published there. */

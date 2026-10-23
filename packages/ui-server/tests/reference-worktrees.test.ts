@@ -23,12 +23,12 @@ const grant = (principalId: string) => createReferenceGrant(db, { brain: BRAIN, 
 
 function service(options: { coverage?: false } = {}) {
   const tips = new Map([[PUBLIC, "1".repeat(40)], [PRIVATE, "2".repeat(40)]]);
-  const state = { unavailable: false, covered: [] as { turnId: string; worktreeId: string }[] };
+  const state = { unavailable: false, privateIsPublic: false, covered: [] as { turnId: string; worktreeId: string }[] };
   const transport: ReferenceTransport = {
     async resolve({ repository, token }) {
       if (state.unavailable) return { ok: false, reason: "unavailable", detail: "fixture network unavailable" };
       const tip = tips.get(repository.canonical);
-      if (!tip || (repository.canonical === PRIVATE && token !== TOKEN)) return { ok: false, reason: "denied", detail: "fatal: repository not found" };
+      if (!tip || (repository.canonical === PRIVATE && token !== TOKEN && !state.privateIsPublic)) return { ok: false, reason: "denied", detail: "fatal: repository not found" };
       return { ok: true, commit: tip, ref: "refs/heads/main" };
     },
     async fetch({ repository, root: target }) {
@@ -47,7 +47,7 @@ function service(options: { coverage?: false } = {}) {
   const worktrees = createReferenceWorktrees({ db, pool, sources, now: () => clock,
     ...(options.coverage === false ? {} : { coverage: async (input: { turnId: string; worktreeId: string }) => { order.push(`cover:${input.worktreeId}`); state.covered.push(input); } }) });
   const path = (id: string) => pool.records.get(id)!.path!;
-  return { pool, sources, worktrees, state, order, path };
+  return { pool, sources, worktrees, state, order, path, transport };
 }
 const days = (count: number) => { clock += count * DAY * 1000; };
 
@@ -257,12 +257,16 @@ describe("recovery", () => {
     const tree = await first.worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
     db.query(`INSERT INTO reference_worktrees (id, principal_id, domain, repository, revision, base_commit, source_root, baseline, allowance, state, created_at, accessed_at)
       VALUES ('11111111-1111-4111-8111-111111112430', ?, 'public', ?, 'main', NULL, ?, NULL, 4096, 'creating', ?, ?)`).run(penelope.id, PUBLIC, first.pool.records.get(tree.id)!.from, clock, clock);
-    const generation = await first.worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
-    await first.worktrees.access({ worktreeId: tree.id, principalId: penelope.id, generation: generation.id });
-    // The next process does not run that turn: its generation is provably over.
+    // A generation of an owner that is gone still holds the worktree.
+    const dead = foreignGeneration(penelope.id, { owner_pid: 4_194_001, owner_start: "0" });
+    await first.pool.poolAccessOpen(dead);
+    await first.pool.poolAccess(tree.id, dead);
+    db.query("UPDATE reference_worktrees SET holder = ? WHERE id = ?").run(dead, tree.id);
+    const live = await first.worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-running", profile: "governed" });
     const next = createReferenceWorktrees({ db, pool: first.pool, sources: first.sources, now: () => clock, coverage: async () => {} });
     const recovered = await next.recover();
-    expect(recovered, "REFERENCE_WORKTREE_RECOVERY").toMatchObject({ discarded: ["11111111-1111-4111-8111-111111112430"], closed: [generation.id] });
+    expect(recovered, "REFERENCE_WORKTREE_RECOVERY").toMatchObject({ discarded: ["11111111-1111-4111-8111-111111112430"], closed: [dead] });
+    expect(recovered.retained, "REFERENCE_WORKTREE_LIVENESS_PROCESS_WIDE").toContain(live.id);
     expect(first.pool.records.get(tree.id)?.access, "REFERENCE_WORKTREE_ABANDONED_GENERATION_PARKED").toBeNull();
     expect(next.get({ worktreeId: tree.id, principalId: penelope.id })).toMatchObject({ state: "active", generation: null });
   });
@@ -276,5 +280,61 @@ describe("recovery", () => {
     const recovered = await sources.recover();
     expect(recovered.retained, "REFERENCE_WORKTREE_SOURCE_KEPT_BY_RECOVERY").toContain(source);
     expect(pool.records.get(source)?.state).toBe("sealed");
+  });
+});
+
+describe("review hardening", () => {
+  test("a private worktree needs a live grant at every access, even when its branch became public", async () => {
+    const { worktrees, state } = service();
+    const penelope = owner(), issued = grant(penelope.id);
+    const tree = await worktrees.allocate({ principalId: penelope.id, repository: PRIVATE, revision: "main" });
+    const generation = await worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
+    expect(revokeReferenceGrant(db, { brain: BRAIN, id: issued.id, principalId: penelope.id, now: Date.now() })).not.toBeNull();
+    state.privateIsPublic = true; clock += 10 * 60_000;
+    await expect(worktrees.access({ worktreeId: tree.id, principalId: penelope.id, generation: generation.id }), "REFERENCE_WORKTREE_PRIVATE_ACCESS_NEEDS_LIVE_GRANT")
+      .rejects.toMatchObject({ code: "unauthorized" });
+    expect(state.covered).toEqual([]);
+  });
+
+  test("retiring a generation drains a grant in flight and refuses new ones", async () => {
+    const { worktrees, pool } = service();
+    const penelope = owner();
+    const tree = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    const other = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    const generation = await worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
+    let release!: () => void;
+    const gate = new Promise<void>(done => { release = done; });
+    const access = pool.poolAccess;
+    pool.poolAccess = async (...args) => { await gate; return access(...args); };
+    const granting = worktrees.access({ worktreeId: tree.id, principalId: penelope.id, generation: generation.id });
+    const closing = worktrees.closeGeneration(generation.id);
+    await expect(worktrees.access({ worktreeId: other.id, principalId: penelope.id, generation: generation.id }), "REFERENCE_WORKTREE_RETIRED_REFUSES")
+      .rejects.toMatchObject({ code: "unavailable" });
+    release();
+    const [granted, ended] = await Promise.allSettled([granting, closing]);
+    // The grant completes before the close, which then parks it: never a holder naming a closed generation.
+    expect({ granted: granted.status, ended: ended.status, holder: worktrees.get({ worktreeId: tree.id, principalId: penelope.id }).generation,
+      pool: pool.records.get(tree.id)?.access }, "REFERENCE_WORKTREE_CLOSE_DRAINS_ACCESS").toEqual({ granted: "fulfilled", ended: "fulfilled", holder: null, pool: null });
+  });
+
+  test("another service instance in this process sees this process's running generations as live", async () => {
+    const first = service();
+    const penelope = owner();
+    const tree = await first.worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    const generation = await first.worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
+    await first.worktrees.access({ worktreeId: tree.id, principalId: penelope.id, generation: generation.id });
+    const second = createReferenceWorktrees({ db, pool: first.pool, sources: first.sources, now: () => clock, coverage: async () => {} });
+    days(4);
+    await second.reconcile();
+    expect(second.get({ worktreeId: tree.id, principalId: penelope.id }), "REFERENCE_WORKTREE_SECOND_INSTANCE_KEEPS_LIVE_HOLDER").toMatchObject({ state: "active", generation: generation.id });
+  });
+
+  test("assessment checkpoints are owned while they exist and forgotten once released", async () => {
+    const { worktrees, path } = service();
+    const penelope = owner();
+    const tree = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    writeFileSync(join(path(tree.id), "odyssey.md"), "Changed.\n");
+    await worktrees.release({ worktreeId: tree.id, principalId: penelope.id });
+    expect(db.query("SELECT count(*) AS n FROM reference_worktree_checkpoints").get(), "REFERENCE_WORKTREE_ASSESSMENT_CHECKPOINT_UNRECORDED").toEqual({ n: 0 });
   });
 });
