@@ -1851,7 +1851,8 @@ voice turn, and admission applies the masks to all of them:
   (`translateProviderTypesInView`). It refuses the rest with
   `ProviderPolicyRefusedError`: an unsupported path selector before the host
   probe or any worker, an untranslatable type once the taxonomy worker has
-  answered. The envelope's brain is the immutable startup view, so no peer can replace a
+  answered, and a hardlink out of a masked folder (#2700) refuses as for hosted
+  turns, checked on its startup view and the live brain. The envelope's brain is the immutable startup view, so no peer can replace a
   root under it and no retention pins are needed: each present masked folder
   is an empty read-only tmpfs over that view, `.git` stays hidden, and the
   private index, built as above with the host's operational-state masks, is

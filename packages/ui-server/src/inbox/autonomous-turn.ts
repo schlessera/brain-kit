@@ -25,6 +25,7 @@ import { recordGovernanceEvent } from "../governance/events.js";
 import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { createProviderMaskGuard, type ProviderMaskGuard } from "../brain/provider-mask-refusal.js";
 import { translateProviderTypesInView } from "../brain/provider-types.js";
+import { providerHardlinks } from "../brain/provider-hardlinks.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "../brain/private-index.js";
 import { ensureIndexDirectory } from "../brain/index-directory.js";
 
@@ -325,6 +326,10 @@ async function executeAutonomousTurn(
     const maskedFolders = providerMaskedFolders(policy.policy, typeFolders);
     installApplication(guardFor(maskedFolders, typeFolders));
     if (maskedFolders.length) {
+      // A mask hides names, not inodes (#2700). The envelope sees the startup
+      // view; the live brain is checked too, as the view is taken from it.
+      const hardlinks = [...new Map([startupView.root, brainPath].flatMap(root => providerHardlinks(root, maskedFolders)).map(link => [link.path, link])).values()];
+      if (hardlinks.length) throw ProviderPolicyRefusedError.hardlinks(hardlinks);
       // As for a denied hosted turn (#1668): built from nothing through the
       // same masks, so it never held a masked document, and removed after.
       privateIndex = createPrivateIndexDirectory();

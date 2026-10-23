@@ -8,7 +8,7 @@
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createKeyedLock, type AgentBackend, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
@@ -210,4 +210,15 @@ test("an invalid policy edit keeps the hosted turns' last-valid masks for an aut
   const backend = restrictedBackend(f.brain, async request => { folders = request.workerProviderMasks?.folders; });
   await runAutonomousTurn({ ...f.deps, backend }, f.input);
   expect(folders, "LAST_VALID_MASKS_SURVIVE_AN_INVALID_EDIT").toEqual(["me"]);
+}, 120_000);
+
+test("an autonomous turn refuses a hardlink out of a masked folder before its worker starts", async () => {
+  const f = fixture();
+  // A mask hides names, not inodes (#2700): the same file under another name.
+  linkSync(join(f.brain, "me/oath.md"), join(f.brain, "notes/oath-copy.txt"));
+  let started = 0, refusal: unknown;
+  try { await runAutonomousTurn({ ...f.deps, backend: restrictedBackend(f.brain, async () => { started++; }) }, f.input); } catch (error) { refusal = error; }
+  expect((refusal as Error | undefined)?.name, "AUTONOMOUS_HARDLINK_REFUSED").toBe("ProviderPolicyRefusedError");
+  expect(String((refusal as Error).message)).toContain("notes/oath-copy.txt is a hardlink to me/oath.md");
+  expect(started).toBe(0);
 }, 120_000);
