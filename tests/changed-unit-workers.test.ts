@@ -1,12 +1,13 @@
 import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { runUnitWorkers } from "../scripts/unit-workers";
 import { validateChangedUnitReports, validateUnitReports } from "../scripts/unit-proof-report";
 import { changedSelection, timingSeed } from "../scripts/changed-unit-worker";
 import { localUnitWorkerCount } from "../scripts/unit-workers";
 import { unitInputKey } from "../scripts/unit-worker-inputs";
 import { unitWorkerFixture } from "./helpers/unit-worker-fixture";
+import { invocationFixture } from "./helpers/test-invocation-fixture";
 
 function changedFixture() {
   const fixture = unitWorkerFixture();
@@ -41,6 +42,7 @@ test("${name} receives the same working inputs",()=>{expect(value).toBe(2);expec
   git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Committed input");
   write("packages/raft/staged.ts", "export const value = 2;\n");
   git("add", "packages/raft/staged.ts");
+  write("packages/raft/staged.ts", "export const value = 2;\n// Penelope keeps this additional working edit.\n");
   write("packages/raft/shared.ts", "export const value = 2;\n");
   rmSync(join(root, "remove.txt"));
   write("tests/new.test.ts", 'import {test,expect} from "bun:test";import {existsSync} from "node:fs";test("untracked input",()=>{expect(2).toBe(2);expect(existsSync("tmp/unit-output.log"),"ACTIVE_LOG_STAYS_OUTSIDE_PUBLIC_TREE").toBe(false)});\n');
@@ -174,3 +176,86 @@ test("changed workers retain new automatic diagnostics and preserve pending scre
     expect(readFileSync(retained[0]!, "utf8")).toContain("retains this diagnostic");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("prepared changed workers share one live build through private views and revoke copied authority after a nested write", async () => {
+  const fixture = invocationFixture(dirname(resolve(import.meta.dir, "..")));
+  const { root, write } = fixture;
+  const reports = join(root, "tmp/prepared-reports"), shared = join(root, "tmp/shared");
+  mkdirSync(shared, { recursive: true });
+  write("scripts/changed-unit-worker.ts", readFileSync(join(import.meta.dir, "../scripts/changed-unit-worker.ts"), "utf8"));
+  write("remove.txt", "Odysseus removes this source input.\n");
+  const pending = "packages/ui-kit/tests/visual/__screenshots__/odysseus/pending-2.png";
+  const produced = "packages/ui-kit/tests/visual/__screenshots__/odysseus/failure-3.png";
+  for (const [index, name] of ["odysseus", "penelope"].entries()) {
+    const pkg = index === 0 ? "ithaca" : "troy";
+    write(`tests/${name}.test.ts`, `import {test,expect} from "bun:test";
+import {cargo} from "../packages/${pkg}/src/index";
+import {readFileSync,writeFileSync,existsSync,statSync} from "node:fs";
+import {join} from "node:path";
+import {invocationBuild} from "../scripts/test-invocation";
+import {runtimePackageBuild} from "../packages/ui-react/tests/fixtures/runtime-package-build";
+import {runtimeHookPhases} from "../packages/ui-react/tests/fixtures/runtime-hook-phases";
+test("${name} keeps copied output, source, lease and generation private",async()=>{
+ expect(cargo).toBe(2);expect(existsSync("remove.txt")).toBe(false);expect(readFileSync("pending.txt","utf8")).toBe("Odysseus owns this pending input.\\n");
+ const root=process.cwd(),record=invocationBuild(root,["ithaca","troy"]);
+ expect(record?.preparedSource,"PRIVATE_VIEW_USES_PREPARED_BUILD").toBeDefined();
+ expect(record!.build.kind).toBe("workspace-build-copy");
+ expect(process.env.BRAIN_TEST_PREPARED_TREE,"PREPARED_ADMISSION_IS_NOT_INHERITED_BY_NESTED_INVOCATIONS").toBeUndefined();
+ const source=record!.preparedSource!.root;
+ const parentOutput=join(source,"packages/${pkg}/dist/index.js"),ownOutput=join(root,"packages/${pkg}/dist/index.js");
+ const parentBytes=readFileSync(parentOutput,"utf8");
+ expect(()=>writeFileSync(parentOutput,"export const cargo=0;\\n"),"PREPARED_SOURCE_IS_READ_ONLY").toThrow();
+ writeFileSync(ownOutput,"export const cargo=${7 + index};\\n");
+ expect(readFileSync(parentOutput,"utf8"),"WORKER_WRITES_STAY_IN_ITS_UPPER_LAYER").toBe(parentBytes);
+ const native=Bun.spawnSync(["bwrap","--unshare-net","--ro-bind","/","/","--tmpfs","/tmp","--proc","/proc","--dev","/dev",process.execPath,"-e",'console.log(require("fs").readFileSync(process.argv[1],"utf8"))',ownOutput],{stdout:"pipe",stderr:"pipe"});
+ expect(native.exitCode,"NATIVE_CHILD_SEES_PRIVATE_PREPARED_OUTPUT: "+new TextDecoder().decode(native.stderr)).toBe(0);
+ expect(new TextDecoder().decode(native.stdout)).toContain("cargo=${7 + index}");
+ expect(record!.build.generation,"EACH_WORKER_REPLACES_THE_SOURCE_GENERATION").not.toBe(readFileSync(join(source,"tmp/workspace-operation/output.generation"),"utf8").trim());
+ writeFileSync(join(${JSON.stringify(shared)},"${name}.json"),JSON.stringify({nonce:record!.nonce,lease:record!.lease.dev+":"+record!.lease.ino,generation:record!.build.generation,source,build:record!.build.id,dependency:statSync("node_modules/typescript/package.json").ino}));
+ ${index === 0 ? `writeFileSync(${JSON.stringify(produced)},"Odysseus keeps this diagnostic; byte control, not raster proof.\\n");
+ const child=Bun.spawn([process.execPath,"scripts/build.ts","--for","ithaca"],{stdout:"pipe",stderr:"pipe"});
+ const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+ expect(code,out+err).toBe(0);expect(invocationBuild(root,["ithaca"]),"NESTED_WRITER_REVOKES_COPIED_AUTHORITY").toBeUndefined();
+ await runtimePackageBuild(root,["ithaca"],runtimeHookPhases("copied-worker-revocation"));` : ""}
+});\n`);
+  }
+  write("tests/unrelated.test.ts", 'import {test} from "bun:test";test("UNRELATED_MUST_NOT_RUN",()=>{throw Error("UNRELATED_MUST_NOT_RUN")});\n');
+  const git = (...args: string[]) => {
+    const child = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
+    return new TextDecoder().decode(child.stdout).trim();
+  };
+  git("init", "-q"); git("add", "."); git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Prepared source fixture");
+  const base = git("rev-parse", "HEAD");
+  write("packages/ithaca/src/index.ts", "export const cargo=2;\n");
+  git("add", "packages/ithaca/src/index.ts"); git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Committed source input");
+  write("packages/troy/src/index.ts", "export const cargo=2;\n"); git("add", "packages/troy/src/index.ts");
+  write("packages/troy/src/index.ts", "export const cargo=2; export const port='Ithaca';\n");
+  rmSync(join(root, "remove.txt"));
+  write("pending.txt", "Odysseus owns this pending input.\n"); write(pending, "Odysseus owns this screenshot input.\n");
+  const key = unitInputKey(root);
+  let passed = false;
+  try {
+    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 2, preparedTree: true });
+    expect(unitInputKey(root), "PREPARED_QUEUE_PRESERVES_ALL_CALLER_INPUTS").toBe(key);
+    const own = ["odysseus", "penelope"].map(name => JSON.parse(readFileSync(join(shared, `${name}.json`), "utf8")));
+    expect(new Set(own.map(value => value.build)).size, "ONE_FRESH_PREPARED_BUILD").toBe(1);
+    for (const field of ["nonce", "lease", "generation"]) expect(new Set(own.map(value => value[field])).size, `PRIVATE_WORKER_${field}`).toBe(2);
+    const times = JSON.parse(readFileSync(join(reports, "unit-timings.json"), "utf8"));
+    expect(Object.keys(times.files).sort()).toEqual(["tests/odysseus.test.ts", "tests/penelope.test.ts"]);
+    const summary = JSON.parse(readFileSync(join(reports, "unit-worker-summary.json"), "utf8"));
+    expect(summary.proofPassed).toBe(true); expect(summary.cleanupPassed).toBe(true);
+    expect(summary.preparedTree.preparationMs).toBeGreaterThan(0);
+    for (const phase of summary.workerPhases) expect(phase.dependencyCopyMs).toBe(0);
+    expect(readFileSync(join(root, pending), "utf8")).toContain("owns this screenshot");
+    const diagnosticRoot = join(reports, "unit-worker-diagnostics");
+    const invocation = join(diagnosticRoot, readdirSync(diagnosticRoot)[0]!);
+    expect(readdirSync(invocation).some(worker => existsSync(join(invocation, worker, produced))), "COW_DIAGNOSTICS_SURVIVE_VIEW_REMOVAL").toBe(true);
+    const checkouts = JSON.parse(readFileSync(join(reports, "unit-worker-checkouts.json"), "utf8"));
+    for (const checkout of checkouts) expect(existsSync(resolve(root, checkout.workspace))).toBe(false);
+    passed = true;
+  } finally {
+    if (passed) rmSync(root, { recursive: true, force: true });
+    else console.error(`Prepared queue control retained its owned fixture for diagnosis: ${root}`);
+  }
+}, 60_000);

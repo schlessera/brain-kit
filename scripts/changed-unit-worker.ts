@@ -51,7 +51,7 @@ if (import.meta.main) {
     try { selection = changedSelection(stderr, shard!); }
     catch (error) { if (!failed) throw error; }
     const events = [...stderr.matchAll(/^\{"kind":"test-invocation",.*$/gm)].map(([line]) => JSON.parse(line));
-    const preparation = events.find(event => ["build-attested", "build-unattested", "preparation-failed"].includes(event.event));
+    const preparation = events.find(event => ["build-attested", "build-unattested", "build-copied", "preparation-failed"].includes(event.event));
     const tests = events.find(event => event.event === "tests-complete" && event.pid === preparation?.pid);
     await Bun.write(join(root, "tmp/unit-selection.json"), JSON.stringify({ ...selection, shard, exitCode: failed ? code || 1 : 0,
       elapsedMs: performance.now() - start, preparationMs: preparation?.elapsedMs ?? null, testMs: tests?.elapsedMs ?? null }, null, 2));

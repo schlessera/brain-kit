@@ -41,6 +41,12 @@ export function captureUnitInputs(root: string, destination: string) {
   return {
     key: source.key,
     untracked: source.untracked,
+    restoreIndex(workspace: string) {
+      // A prepared lower tree already contains the complete working bytes.
+      // Give this view its own staged state without applying those bytes twice.
+      if (source.patches[0]!.length) git(workspace, ["apply", "--cached", "--binary", "-"], source.patches[0]);
+      if (unitInputKey(workspace) !== source.key) throw new Error("Prepared unit view does not match captured working inputs");
+    },
     restore(workspace: string) {
       if (source.patches[0]!.length) git(workspace, ["apply", "--index", "--binary", "-"], source.patches[0]);
       if (source.patches[1]!.length) git(workspace, ["apply", "--binary", "-"], source.patches[1]);
@@ -56,7 +62,13 @@ export function captureUnitInputs(root: string, destination: string) {
       // removal refuse any remaining unexpected source or untracked output.
       for (const file of source.untracked) unlinkSync(join(workspace, file));
       if (source.patches[1]!.length) git(workspace, ["apply", "--reverse", "--binary", "-"], source.patches[1]);
-      if (source.patches[0]!.length) git(workspace, ["apply", "--reverse", "--index", "--binary", "-"], source.patches[0]);
+      if (source.patches[0]!.length) {
+        // The same file may have staged and unstaged edits. Reversing the
+        // working patch changes its stat cache, so undo bytes and index
+        // independently after the complete snapshot check above.
+        git(workspace, ["apply", "--reverse", "--binary", "-"], source.patches[0]);
+        git(workspace, ["apply", "--reverse", "--cached", "--binary", "-"], source.patches[0]);
+      }
     },
   };
 }

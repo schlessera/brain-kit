@@ -20,8 +20,9 @@ export function verificationCommands(plan: CheckPlan, root: string): Command[] {
   return commands;
 }
 
-export async function runCommands(commands: readonly Command[], cwd: string, concurrency = 2): Promise<void> {
+export async function runCommands(commands: readonly Command[], cwd: string, concurrency = 2, cleanupGraceMs = 1000): Promise<void> {
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error("Check concurrency must be a positive integer");
+  if (!Number.isSafeInteger(cleanupGraceMs) || cleanupGraceMs < 1 || cleanupGraceMs > 60_000) throw new Error("Invalid coordinator cleanup grace");
   const children: ReturnType<typeof Bun.spawn>[] = [];
   let interrupted = false;
   let failed = false;
@@ -65,7 +66,7 @@ export async function runCommands(commands: readonly Command[], cwd: string, con
           else process.kill(-child.pid, "SIGKILL");
         } catch { /* A group that already exited needs no cleanup. */ }
       }
-    }, 1000);
+    }, cleanupGraceMs);
     try { await Promise.allSettled(children.map(child => child.exited)); }
     finally { clearTimeout(force); }
     throw error;
