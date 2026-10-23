@@ -77,6 +77,14 @@ test("changed queued workers match serial Bun for committed, staged, unstaged, d
     expect(() => validateChangedUnitReports(disagreement)).toThrow("disagree");
     const checkouts = JSON.parse(readFileSync(join(reports, "unit-worker-checkouts.json"), "utf8"));
     expect(checkouts).toHaveLength(3);
+    const phases = JSON.parse(readFileSync(join(reports, "unit-worker-summary.json"), "utf8")).workerPhases;
+    expect(phases).toHaveLength(3);
+    for (const phase of phases) {
+      expect(phase.checkoutMs).toBeGreaterThan(0);
+      expect(phase.dependencyCopyMs).toBeGreaterThan(0);
+      expect(phase.preparationMs).toBeGreaterThan(0);
+      expect(phase.testMs, "WORKER_TEST_TIME_SEPARATE_FROM_SETUP").toBeGreaterThan(0);
+    }
     for (const worker of checkouts) expect(existsSync(join(root, worker.workspace))).toBe(false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

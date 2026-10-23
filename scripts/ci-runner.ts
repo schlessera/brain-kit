@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests } from "./test-shards";
 
-export interface Command { name: string; argv: string[]; env?: Record<string, string>; }
+export interface Command { name: string; argv: string[]; env?: Record<string, string>; completed?: (elapsedMs: number) => void; }
 
 export function verificationCommands(plan: CheckPlan, root: string): Command[] {
   const commands: Command[] = [];
@@ -43,11 +43,13 @@ export async function runCommands(commands: readonly Command[], cwd: string, con
         const command = commands[next++]!;
         try {
           console.log(`Checking ${command.name}`);
+          const started = performance.now();
           const child = Bun.spawn(command.argv, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "inherit", "inherit"],
             env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
               GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "", ...command.env } });
           children.push(child);
           const code = await child.exited;
+          command.completed?.(performance.now() - started);
           if (code !== 0 || child.signalCode) throw new Error(`${command.name} failed (${child.signalCode ?? code})`);
         } catch (error) { failed = true; throw error; }
       }

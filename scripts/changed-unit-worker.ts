@@ -50,10 +50,11 @@ if (import.meta.main) {
     let selection: ReturnType<typeof changedSelection> | undefined;
     try { selection = changedSelection(stderr, shard!); }
     catch (error) { if (!failed) throw error; }
-    const preparation = [...stderr.matchAll(/^\{"kind":"test-invocation",.*$/gm)].map(([line]) => JSON.parse(line))
-      .find(event => ["build-attested", "build-unattested", "preparation-failed"].includes(event.event));
+    const events = [...stderr.matchAll(/^\{"kind":"test-invocation",.*$/gm)].map(([line]) => JSON.parse(line));
+    const preparation = events.find(event => ["build-attested", "build-unattested", "preparation-failed"].includes(event.event));
+    const tests = events.find(event => event.event === "tests-complete" && event.pid === preparation?.pid);
     await Bun.write(join(root, "tmp/unit-selection.json"), JSON.stringify({ ...selection, shard, exitCode: failed ? code || 1 : 0,
-      elapsedMs: performance.now() - start, preparationMs: preparation?.elapsedMs ?? null }, null, 2));
+      elapsedMs: performance.now() - start, preparationMs: preparation?.elapsedMs ?? null, testMs: tests?.elapsedMs ?? null }, null, 2));
     if (failed) process.exit(code || 1);
     // Bun writes no JUnit for a genuinely empty shard. Its timing report must
     // still be empty; the parent validates this explicit zero-file receipt.

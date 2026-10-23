@@ -136,7 +136,8 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
   const container = mkdtempSync(join(dirname(root), ".brain-unit-workers-"));
   const head = git(root, "rev-parse", "HEAD");
   const partitions = options.changed ? Array.from({ length: count }, () => [] as string[]) : balanceTests([...files], Math.min(count, files.length));
-  const workers: { root: string; files: string[]; checkout: string; device: number; inode: number; copiedInputs?: boolean }[] = [];
+  const workers: { root: string; files: string[]; checkout: string; device: number; inode: number; copiedInputs?: boolean;
+    checkoutMs: number; dependencyCopyMs: number }[] = [];
   let inputs: ReturnType<typeof captureUnitInputs> | undefined;
   let checkoutMs = 0, dependencyCopyMs = 0;
   let selectedFiles: number | undefined = options.changed ? undefined : files.length;
@@ -162,7 +163,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     // runCommands waits for stopped children. Preserve every partial report
     // before removing only this invocation's clean, inactive worktrees.
     const cleanupFailures: unknown[] = [];
-    const selectionReports: Array<{ selected?: number; preparationMs?: number | null; exitCode?: number } | null> = [];
+    const selectionReports: Array<{ selected?: number; preparationMs?: number | null; testMs?: number | null; elapsedMs?: number; exitCode?: number } | null> = [];
     for (const [index, worker] of workers.entries()) {
       try {
         for (const suffix of ["report.xml", "timings.json", "selection.json", "output.log"]) {
@@ -203,7 +204,10 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       await Bun.write(join(reportDir, "unit-worker-summary.json"), JSON.stringify({ workers: workers.length, head,
         selectedFiles: selectedFiles ?? agreed, proofPassed: primaryFailure === undefined && cleanupFailures.length === 0,
         elapsedMs: performance.now() - started, checkoutMs, dependencyCopyMs,
-        preparationMs: preparation.length ? Math.max(...preparation) : null, selections: options.changed ? selections : undefined }, null, 2));
+        preparationMs: preparation.length ? Math.max(...preparation) : null, selections: options.changed ? selections : undefined,
+        workerPhases: workers.map((worker, index) => ({ worker: index + 1, checkoutMs: worker.checkoutMs,
+          dependencyCopyMs: worker.dependencyCopyMs, preparationMs: selections[index]?.preparationMs ?? null,
+          testMs: selections[index]?.testMs ?? null, invocationMs: selections[index]?.elapsedMs ?? null })) }, null, 2));
     } catch (error) { cleanupFailures.push(error); }
     if (cleanupFailures.length) throw new AggregateError(primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
       "Unit worker report/diagnostic preservation or cleanup failed");
@@ -230,11 +234,14 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       }
     }
     for (const [index, selected] of partitions.entries()) {
+      const beforeCheckout = performance.now();
       const workspace = join(container, String(index + 1));
       git(root, "worktree", "add", "--quiet", "--detach", workspace, head);
       const identity = lstatSync(workspace);
-      workers.push({ root: workspace, files: selected, checkout: git(workspace, "show", "-s", "--format=%H %T %P", "HEAD"), device: identity.dev, inode: identity.ino });
+      workers.push({ root: workspace, files: selected, checkout: git(workspace, "show", "-s", "--format=%H %T %P", "HEAD"), device: identity.dev, inode: identity.ino,
+        checkoutMs: 0, dependencyCopyMs: 0 });
       if (inputs) { inputs.restore(workspace); workers[index]!.copiedInputs = true; }
+      workers[index]!.checkoutMs = performance.now() - beforeCheckout;
     }
     checkoutMs = performance.now() - started;
     // Copy the parent's frozen install without a package-manager/network phase.
@@ -248,6 +255,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     await runCommands(workers.flatMap((worker, index) => dependencyDirs.map(dir => ({
       name: `offline unit worker ${index + 1} dependency copy ${dir}`,
       argv: ["cp", "--archive", "--reflink=auto", join(root, dir), join(worker.root, dir)],
+      completed: (elapsedMs: number) => { worker.dependencyCopyMs += elapsedMs; },
     }))), root, 2);
     dependencyCopyMs = performance.now() - copying;
     await Bun.write(join(reportDir, "unit-worker-checkouts.json"), JSON.stringify(workers.map(({ root: workspace, files, checkout }, index) => {
