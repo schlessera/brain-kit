@@ -197,6 +197,7 @@ describe("BRAIN_UI_CLI_PROVIDER_ORIGINS", () => {
 describe("review hardening", () => {
   test("a streamed request is refused before contact, so its usage is never silently unknown", async () => {
     const result = await relayed({}, { path: "/v1/messages", body: JSON.stringify({ model: "claude-haiku-4-5-20251001", stream: true, messages: [] }) });
+    expect(result.upstream, "RELAY_REFUSES_STREAMING").toEqual([]);
     expect(result.status).toBe(403);
     expect(result.refusals, "RELAY_REFUSES_STREAMING").toMatchObject([{ reason: "streaming_not_relayed" }]);
     expect(result.upstream).toEqual([]);
@@ -238,7 +239,7 @@ describe("review hardening", () => {
     let calls = 0;
     const result = await relayed({ admit: () => ++calls === 1 ? { allowed: true } : { allowed: false, message: "Turn inference budget reached." } },
       { path: "/v1/messages" });
-    expect(calls).toBe(2);
+    expect(calls, "RELAY_RECHECKS_BUDGET_BEFORE_DISPATCH").toBe(2);
     expect(result.refusals, "RELAY_RECHECKS_BUDGET_BEFORE_DISPATCH").toMatchObject([{ reason: "budget_exceeded" }]);
     expect(result.upstream).toEqual([]);
   });
