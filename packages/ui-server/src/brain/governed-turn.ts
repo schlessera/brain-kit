@@ -9,6 +9,7 @@ import { protectedPaths } from "@schlessera/brain-common/internal/protected-path
 import { createGovernancePolicyReader, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
 import { readProviderTaxonomy, strayTypedDocuments } from "./provider-types.js";
+import { providerHardlinks } from "./provider-hardlinks.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
@@ -155,6 +156,10 @@ export function createGovernedTurns(options: {
           confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
         });
         if (maskedFolders.length) {
+          // A mask hides names, not inodes (#2700): a governed worker sees the
+          // live brain, a strict one the final checkpoint taken above.
+          const hardlinks = providerHardlinks(workerProfile(resolved) === "governed" ? options.brainPath : startupView!.root, maskedFolders);
+          if (hardlinks.length) throw ProviderPolicyRefusedError.hardlinks(hardlinks);
           privateIndex = createPrivateIndexDirectory();
           const built = await buildPrivateIndex({ brainPath: options.brainPath, startupView: startupView!, folders: maskedFolders, index: privateIndex,
             maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });

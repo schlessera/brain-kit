@@ -78,7 +78,9 @@ filtered `.brain-index/`. A rule that also selects a document type, a
 non-literal glob or a single path refuses turn admission by name. Since #2694
 (additive, 0.44.0) a `folder/**/*` path and a document type that maps exactly
 onto folders are masked the same way; every other such selector still refuses,
-naming why ([which selectors](supported-inputs.md#governance-policy)). No schema,
+naming why ([which selectors](supported-inputs.md#governance-policy)). Since
+#2700 (additive, 0.44.0) admission also refuses, naming them, regular files
+outside the masked folders that are hardlinks to files inside them. No schema,
 CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
 `--embeddings` now runs where only `.brain-index/` is writable.
 

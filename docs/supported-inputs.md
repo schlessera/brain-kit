@@ -190,10 +190,26 @@ folders, on top of the private index build. When admission takes a newer
 checkpoint of the brain before the turn starts, it judges the types again on
 that checkpoint.
 
-The check applies to the brain as admission sees it. A document that the turn
-or a peer creates or retypes to a selected type outside its folders during
-the turn stays readable to that turn; the next admission refuses until it is
-moved into the type's folders or retyped.
+**Hardlinks out of masked folders (additive in 0.44.0, #2700).** A folder
+mask hides names, not the file itself. Admission therefore refuses with
+`ProviderPolicyRefusedError` when a regular file outside the masked folders
+is a hardlink to a file inside one (same device and inode), whatever it is
+called. The refusal names each such file and the masked file it shares.
+Remove those hardlinks and retry. This applies to literal folders and to
+translated type folders alike. Symbolic links are not hardlinks and are not
+followed; the turn resolves them where the target is masked. A copy is a
+different file and is not detected.
+
+The check reads metadata only, never contents. It looks at every file in the
+masked folders, and walks the rest of the brain only if a file there has more
+names than the masked folders hold. Hidden folders and `node_modules` count;
+only the root `.git` and `.brain-index/` are skipped.
+
+These checks apply to the brain as admission sees it. A document that the
+turn or a peer creates or retypes to a selected type outside its folders
+during the turn stays readable to that turn; the next admission refuses until
+it is moved into the type's folders or retyped. The same holds for a hardlink
+a peer creates during the turn.
 
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing
