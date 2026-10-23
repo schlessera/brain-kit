@@ -1,9 +1,11 @@
 /** Test-only subprocess and transport safeguards; never imported by a published package. */
 import { basename, join } from "node:path";
+import { isIP, Socket } from "node:net";
 import { inheritWorkspaceLease } from "./workspace-lease.mjs";
 
 const LOOPBACK = new Set(["127.0.0.1", "[::1]", "localhost"]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+const socketLoopback = (host: string) => host === "localhost" || host === "::1" || isIP(host) === 4 && host.startsWith("127.");
 let installed: { assertNoEscapes(): void } | undefined;
 
 /** Test-owned repositories must not acquire detached writers behind a fixture. */
@@ -38,6 +40,41 @@ export function installNetworkGuard(): { assertNoEscapes(): void } {
       refuse(`fetch ${url.href}`);
     }
   }
+
+  // Bun's net.connect/createConnection and tls.connect (including saved
+  // factory references) all dispatch through this shared Socket method.
+  const nativeSocketConnect = Socket.prototype.connect;
+  Object.defineProperty(Socket.prototype, "connect", {
+    ...Object.getOwnPropertyDescriptor(Socket.prototype, "connect"),
+    value: function offlineSocketConnect(this: Socket, ...args: unknown[]) {
+      // Bun factories pass an already-normalized [options, callback] array;
+      // direct Socket/TLSSocket callers use the public overloads instead.
+      const values = Array.isArray(args[0]) ? args[0] : args;
+      const first = values[0];
+      const options = (typeof first === "object" && first !== null ? first
+        : typeof first === "string" && Number.isNaN(Number(first)) ? { path: first }
+        : { port: first, host: typeof values[1] === "string" ? values[1] : "localhost" }) as {
+          host?: string; port?: unknown; path?: string; socket?: unknown; fd?: number;
+        };
+      // Unix paths and adoption/TLS upgrades of an existing socket open no
+      // new TCP destination. SNI on an adopted socket is not its address.
+      if (!options.path && !options.socket && options.fd == null) {
+        const host = options.host ?? "localhost";
+        if (!socketLoopback(host)) refuse(`socket.connect ${host}:${options.port}`);
+      }
+      return Reflect.apply(nativeSocketConnect, this, args);
+    },
+  });
+  const nativeBunConnect = Bun.connect;
+  Object.defineProperty(Bun, "connect", {
+    ...Object.getOwnPropertyDescriptor(Bun, "connect"),
+    value: async function offlineBunConnect(options: Bun.TCPSocketConnectOptions<unknown> | Bun.UnixSocketOptions<unknown>) {
+      if ("hostname" in options && !socketLoopback(options.hostname)) {
+        refuse(`Bun.connect ${options.hostname}:${options.port}`);
+      }
+      return "hostname" in options ? nativeBunConnect(options) : nativeBunConnect(options);
+    },
+  });
 
   const nativeFetch = globalThis.fetch;
   globalThis.fetch = Object.assign(async function offlineFetch(input: Parameters<typeof fetch>[0], init?: RequestInit) {

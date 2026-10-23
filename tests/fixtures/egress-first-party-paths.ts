@@ -7,7 +7,7 @@
  * Usage: bun egress-first-party-paths.ts <root> [chromium]
  */
 import { mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { connect, createServer, type Server } from "node:net";
+import { connect, createServer, Socket, type Server } from "node:net";
 import { join, normalize, resolve } from "node:path";
 import { startEgressProxy, type EgressRecord } from "../../packages/ui-sdk/src/server/egress-proxy.js";
 import type { WorkerSandbox } from "../../packages/ui-sdk/src/server/worker-sandbox.js";
@@ -139,6 +139,19 @@ async function worker(name: string, command: string[], options: { env?: Record<s
 const originPort = origin.port;
 const page = `https://${ORIGIN_HOST}:${originPort}/voyage`;
 const results: Record<string, Awaited<ReturnType<typeof worker>>> = {};
+// Keep the fictional authority in TLS and CONNECT records, but give the host
+// transport concrete loopback addresses before the offline guard sees them.
+// Only these two owned listeners are mapped; all other destinations still
+// pass through the saved guarded method. The namespace also has no route out.
+const connectDescriptor = Object.getOwnPropertyDescriptor(Socket.prototype, "connect")!;
+Object.defineProperty(Socket.prototype, "connect", { ...connectDescriptor, value: function (this: Socket, ...args: unknown[]) {
+  const values = Array.isArray(args[0]) ? args[0] : args;
+  const options = values[0] as { host?: string; port?: number } | undefined;
+  if (options?.host === ORIGIN_HOST && (options.port === originPort || options.port === sshPort)) {
+    args = [{ ...options, host: "127.0.0.1" }, ...values.slice(1)];
+  }
+  return Reflect.apply(connectDescriptor.value, this, args);
+} });
 try {
   results.curl = await worker("curl", ["/usr/bin/curl", "--silent", "--show-error", "--fail", "--max-time", "20", "--cacert", workerCa, page]);
   results.gitHttps = await worker("git-https", ["/bin/sh", "-c",
@@ -200,6 +213,7 @@ try {
     results[`socketWalk_${profile}`] = await worker(`socket-walk-${profile}`, [process.execPath, "-e", walk], { profile });
   }
 } finally {
+  Object.defineProperty(Socket.prototype, "connect", connectDescriptor);
   proxy.stop(); origin.stop(true); daemon.kill(); relay.close();
   for (const server of hostSockets) server.close();
 }
