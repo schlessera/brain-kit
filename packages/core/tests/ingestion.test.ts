@@ -78,7 +78,7 @@ describe("ingest", () => {
 
   test("creates a new file under the type's canonical directory", async () => {
     const root = makeCorpus();
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     const out = await ingest({ content: "# Route Notes\n\nSaw an eagle.", type: "note" }, db, {
       root,
       taxonomy,
@@ -98,7 +98,7 @@ describe("ingest", () => {
     const root = makeCorpus({
       "projects/active/raft.md": doc("Raft", "project", "Original plan."),
     });
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     // Index so classifyContent can find the existing project by title.
     await indexAll(db, { root, taxonomy, quiet: true });
 
@@ -126,7 +126,7 @@ describe("ingest", () => {
     ];
     const original = [...frontmatter, "", "Original plan.", ""].join("\n");
     const root = makeCorpus({ "projects/active/raft.md": original });
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     await indexAll(db, { root, taxonomy, quiet: true });
 
     const out = await ingest({ content: "Raft\n\nAdded a mast support." }, db, { root, taxonomy });
@@ -154,7 +154,7 @@ describe("ingest", () => {
 
   test("rejects an invalid explicit type with the valid list", async () => {
     const root = makeCorpus();
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     await expect(
       ingest({ content: "x", type: "bogus" }, db, { root, taxonomy })
     ).rejects.toThrow('Invalid type "bogus"');
@@ -165,7 +165,7 @@ describe("ingest", () => {
 describe("capture collisions", () => {
   test("distinct and repeated titles create separate documents, including Unicode and empty slugs", async () => {
     const root = makeCorpus();
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       const titles = ["C++", "C#", "C++", "日本語", "中文", "!!!", "???", "é", "e\u0301"];
       const paths: string[] = [];
@@ -190,7 +190,7 @@ describe("capture collisions", () => {
   test("explicit title overrides do not append to the content's classified target", async () => {
     const original = doc("Raft", "project", "Original plan.");
     const root = makeCorpus({ "projects/active/raft.md": original });
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       await indexAll(db, { root, taxonomy, quiet: true });
       const result = await ingest({ content: "Raft\nDifferent project.", title: "Mast Support" }, db, { root, taxonomy });
@@ -202,7 +202,7 @@ describe("capture collisions", () => {
 
   test("a stale classified path cannot append to a renamed document", async () => {
     const root = makeCorpus({ "projects/active/raft.md": doc("Raft", "project") });
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       await indexAll(db, { root, taxonomy, quiet: true });
       const replacement = doc("Mast Support", "project", "Do not append here.");

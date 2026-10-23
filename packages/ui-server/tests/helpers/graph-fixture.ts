@@ -73,11 +73,11 @@ const DEFAULT_INDEXED_AT = "2026-08-01T00:00:00.000Z";
 
 export function createBrainFixture(brainPath: string, opts: FixtureOptions): string {
   rmSync(brainPath, { recursive: true, force: true });
-  mkdirSync(brainPath, { recursive: true });
+  mkdirSync(join(brainPath, ".brain-index"), { recursive: true });
 
   const schemaVersion = opts.schemaVersion ?? 8;
   const graphTables = opts.graphTables ?? schemaVersion >= 8;
-  const db = new Database(join(brainPath, "brain.db"), { create: true });
+  const db = new Database(join(brainPath, ".brain-index", "brain.db"), { create: true });
 
   db.run(`CREATE TABLE documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

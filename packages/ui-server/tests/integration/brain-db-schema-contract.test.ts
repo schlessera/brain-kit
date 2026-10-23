@@ -65,8 +65,10 @@ let graph: GraphQueries;
 beforeAll(async () => {
   brainPath = mkdtempSync(join(tmpdir(), "brain-ui-schema-gate-"));
   cpSync(FIXTURE_CORPUS, brainPath, { recursive: true });
-  // A locally indexed corpus can leave a stray (gitignored) brain.db behind;
-  // the copy must start from markdown only so THIS run's indexer writes the db.
+  // A locally indexed corpus can leave a stray (gitignored) index behind, in
+  // .brain-index/ or at the root from an earlier release; the copy must start
+  // from markdown only so THIS run's indexer writes the db.
+  rmSync(join(brainPath, ".brain-index"), { recursive: true, force: true });
   for (const stray of ["brain.db", "brain.db-wal", "brain.db-shm"]) {
     rmSync(join(brainPath, stray), { force: true });
   }
@@ -80,7 +82,7 @@ beforeAll(async () => {
   );
 
   const taxonomy = buildTaxonomy({ user: corpusConfig });
-  const db = openDatabase(join(brainPath, "brain.db"));
+  const db = openDatabase(join(brainPath, ".brain-index", "brain.db"));
   try {
     // Keyless and deterministic: no provider, no enrichment, no embeddings.
     // The graph precompute runs by default, so no separate compute step.
@@ -91,7 +93,7 @@ beforeAll(async () => {
     db.close();
   }
 
-  const raw = new Database(join(brainPath, "brain.db"), { readonly: true });
+  const raw = new Database(join(brainPath, ".brain-index", "brain.db"), { readonly: true });
   try {
     const row = raw
       .query<{ value: string }, []>("SELECT value FROM index_metadata WHERE key = 'schema_version'")

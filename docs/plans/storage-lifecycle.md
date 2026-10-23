@@ -31,7 +31,7 @@ Use maintenance workers for repository code, the CLI and Git. Host routes may
 perform narrowly validated descriptor operations, as the journal/revert do;
 they must not evaluate brain configuration, hooks, filters or executables.
 The existing brain client supplies boundary execution
-(`async function execBrain`, `packages/ui-server/src/brain/client.ts:240-294`).
+(`async function execBrain`, `packages/ui-server/src/brain/client.ts:256-310`).
 Do not turn the new surface into a host command runner or an extension seam.
 
 Reuse existing authorization. A requested reversible, fully journaled edit
@@ -200,7 +200,7 @@ read the original receipt. Undo is a fresh stale-safe operation, not a blind cop
 over a newer file. Such a receipt protocol is proposed, not implemented here.
 
 The writer gate is cross-process and tracks process identity, not age
-(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:126-257`).
+(`export function createWriterGate`, `packages/ui-server/src/brain/writer-gate.ts:128-262`).
 Use that primitive alongside lifecycle ownership; do not interpret stale leases
 as proof an actually running backend is dead. Locks, retained readers and backups
 can deliberately prevent immediate reclamation.

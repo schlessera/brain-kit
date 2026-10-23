@@ -194,8 +194,8 @@ Paths may appear in local diagnostics; public fixtures use temporary paths.
 | Requirement | Initial value | Evidence and limit of the claim |
 | --- | --- | --- |
 | Claude backend's SDK range | Retain `^0.3.241` | It is the published declaration (`"@anthropic-ai/claude-agent-sdk"`, `packages/ui-backend-claude/package.json:49`). Registry metadata on 2026-09-30 confirms 0.3.241 exists. This is a declared compatibility bound, not proof every allowed release passed current measurements. |
-| ui-server's content CLI floor | Retain `0.33.0` | `--` support is the reason documented immediately above `MIN_BRAIN_CLI_VERSION` (`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:100`); the initial boot refusal test used 0.32.9. The current test exercises the corrected floor (`a 0.40.0 brain repo pin`, `packages/ui-server/tests/brain-client.test.ts:244-256`). |
-| Bun engine floor | Retain existing `>=1.3.5` declarations | Existing engine metadata and the doctor's CVE-based warning (`const MIN_BUN`, `packages/core/src/cli/commands/doctor.ts:45`; `function checkRuntime`, `packages/core/src/cli/commands/doctor.ts:82-89`). This record introduces no new doctor verdict or blanket boot gate. |
+| ui-server's content CLI floor | Retain `0.33.0` | `--` support is the reason documented immediately above `MIN_BRAIN_CLI_VERSION` (`MIN_BRAIN_CLI_VERSION`, `packages/ui-server/src/brain/client.ts:111`); the initial boot refusal test used 0.32.9. The current test exercises the corrected floor (`a 0.40.0 brain repo pin`, `packages/ui-server/tests/brain-client.test.ts:245-257`). |
+| Bun engine floor | Retain existing `>=1.3.5` declarations | Existing engine metadata and the doctor's CVE-based warning (`const MIN_BUN`, `packages/core/src/cli/commands/doctor.ts:46`; `function checkRuntime`, `packages/core/src/cli/commands/doctor.ts:83-90`). This record introduces no new doctor verdict or blanket boot gate. |
 | Pi SDK requirements | Retain existing exact `0.87.1` declarations | `packages/ui-backend-pi/package.json`; a host floor composes with each actual imported Pi dependency's existing exact requirement. The Claude range ruling does not authorize changing Pi's pins. |
 | Additional default Claude runtime floor | None | There is no evidenced numerical incompatibility threshold in the existing record. The successful pairs are observations, not proof that the preceding release fails. A new library floor needs a feature requirement or reproducible incompatibility and its versioning review. |
 | Example host SDK/runtime floors | `0.3.283` / `2.1.283` | The installed SDK manifest and `MEASURED_RUNTIME` (`export const MEASURED_RUNTIME`, `packages/ui-backend-claude/src/measured-runtime.ts:18-25`) identify this measured pair, rechecked in commit `e1ce9600`. This is a host choosing the demonstrated baseline, not a new default package floor. |
@@ -203,8 +203,12 @@ Paths may appear in local diagnostics; public fixtures use temporary paths.
 **CLI floor correction, 2026-10-11 ([#1623](https://github.com/schlessera/brain-kit/issues/1623)):**
 The initial 0.33.0 floor above is historical. The existing hygiene review calls
 commands and flags first shipped in 0.41.0. The server required that version for
-hygiene review; #1656 raises the current floor to 0.42.0 for scratch pin input,
-with an invocation inventory guarding future changes. The original minimum
+hygiene review; #1656 raises the floor to 0.42.0 for scratch pin input,
+with an invocation inventory guarding future changes. #1668 needs 0.44.0, the
+first release that keeps the index in `.brain-index/`
+([index directory](../integration-contract.md#index-directory-breaking-0440-1668)).
+The 0.44.0 release raises the floor to it; until then the workspace CLI still
+reports the previous version, so an earlier floor bump would refuse it. The original minimum
 composition and unknown-version policy still bind. See the
 [integration contract classification](../integration-contract.md#content-cli-minimum-correction-patch-1623).
 
@@ -271,7 +275,7 @@ reciprocal host-version negotiation is involved.
 
 | Existing boundary | How this design uses it |
 | --- | --- |
-| `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:122-189`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
+| `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:138-205`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
 | `installedAgentSdkVersion` (`export function installedAgentSdkVersion`, `packages/ui-backend-claude/src/runtime-probe.ts:55-61`) | Retain importer-relative resolution; validate package name/version and the owner's manifest range. |
 | `selectedSpawn` / `probeClaudeRuntime` (`export function selectedSpawn`, `packages/ui-backend-claude/src/runtime-probe.ts:69-96`; `export async function probeClaudeRuntime`, `packages/ui-backend-claude/src/runtime-probe.ts:127-147`) | Keep SDK-selected command capture, native/JS override argv, environment, timeout and group cleanup; add strict identity validation and composed runtime floors. |
 | `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:394-444`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |

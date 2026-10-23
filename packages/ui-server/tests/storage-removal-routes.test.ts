@@ -47,7 +47,7 @@ test("mounted removal enforces human authority, origin, exact review and durable
     expect(existsSync(join(f.brainPath,request.paths[0]!))).toBe(false);
     expect(existsSync(join(f.brainPath,"attachments/keep.pdf")),"STORAGE_INDEX_REFRESH_CANNOT_PUBLISH_UNSELECTED_REMOVAL").toBe(true);
     expect(readFileSync(join(f.brainPath,"attachments/keep.pdf"),"utf8")).toBe("Penelope's unselected original");
-    expect(result.index).toBe("complete");expect(existsSync(join(f.brainPath,"brain.db"))).toBe(true);
+    expect(result.index).toBe("complete");expect(existsSync(join(f.brainPath, ".brain-index", "brain.db"))).toBe(true);
     expect(readFileSync(join(f.brainPath,"notes/arrival.md"),"utf8")).toContain("attachments/chart.pdf");
     expect(await(await post("/api/storage/removals",confirmed)).json(),"STORAGE_HTTP_LOST_RESPONSE_READBACK").toEqual(result);
     expect((await f.fetch(`/api/storage/removals/${request.id}`,{headers:{cookie:otherCookie}})).status).toBe(404);

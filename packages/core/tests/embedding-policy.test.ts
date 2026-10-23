@@ -47,7 +47,7 @@ async function corpus(embed?: boolean, assets = false) {
     writeFileSync(join(root, "generated/picture.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     writeFileSync(join(root, "generated/report.pdf"), "%PDF-1.0 fixture");
   }
-  const dbPath = join(root, "brain.db");
+  const dbPath = join(root, ".brain-index", "brain.db");
   const db = openDatabase(dbPath, { embeddingDimensions: 16 });
   cleanups.push(() => db.close());
   if (!await migrateVecSchema(db, 16)) throw new Error("sqlite-vec is required for embedding policy regressions");

@@ -3685,3 +3685,13 @@ every metadata request still waiting for admission as soon as it begins.
 Admitted metadata is a shared run: it drains within `close()`'s 10 s grace
 period and is then cancelled with the other shared runs (#2473). The response
 shapes and status codes are unchanged.
+
+## Pi provider sign-in export (additive, #2485)
+
+The `@schlessera/brain-backend-pi` root exports `createPiAuth(options?)` again,
+with the types its signature reaches: `CreatePiAuthOptions`, `PiAuth`,
+`PiAuthProviderStatus`, `PiAuthRuntime`, `PiLoginFlow` and `PiLoginFlowStatus`.
+`PiAuth` is the headless OAuth sign-in service ui-server's `/api/pi-auth/*`
+routes drive through the optional backend loader. The curated root dropped it
+in 0.41.0, so those routes threw on every request; restoring it changes no HTTP
+shape.

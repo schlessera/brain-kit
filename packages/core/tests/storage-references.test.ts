@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { readStorageReferences } from "../src/queries";
 
 test("Storage references are bounded resolved-link evidence from a read-only index", () => {
-  const root = mkdtempSync(join(tmpdir(), "storage-odysseus-")), db = new Database(join(root, "brain.db"));
+  const root = mkdtempSync(join(tmpdir(), "storage-odysseus-"));
+  mkdirSync(join(root, ".brain-index"));
+  const db = new Database(join(root, ".brain-index", "brain.db"));
   try {
     db.exec(`CREATE TABLE index_metadata(key TEXT,value TEXT); INSERT INTO index_metadata VALUES('schema_version','3');
       CREATE TABLE documents(id INTEGER PRIMARY KEY,path TEXT,title TEXT,type TEXT,summary TEXT,updated TEXT,indexed_at TEXT);
@@ -21,7 +23,7 @@ test("Storage references are bounded resolved-link evidence from a read-only ind
     expect(result.value.truncated).toBe(true);
     expect(result.value.sources[0]?.indexedAt).toBe("2026-07-12T00:00:00Z");
     expect(readStorageReferences({ brainPath: root, path: "Ithaca.pdf" })).toMatchObject({ ok: true, value: { sources: [], truncated: false } });
-    const redirected = join(root, "other"); mkdirSync(redirected); symlinkSync(join(root, "brain.db"), join(redirected, "brain.db"));
+    const redirected = join(root, "other"); mkdirSync(join(redirected, ".brain-index"), { recursive: true }); symlinkSync(join(root, ".brain-index", "brain.db"), join(redirected, ".brain-index", "brain.db"));
     expect(readStorageReferences({ brainPath: redirected, path: "Troy.pdf" }).ok, "STORAGE_REFERENCE_INDEX_SYMLINK_REFUSED").toBe(false);
     expect(readStorageReferences({ brainPath: root, path: "../Troy.pdf" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }

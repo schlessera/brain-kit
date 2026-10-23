@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import {
+  statSync,
   chmodSync,
   cpSync,
   symlinkSync,
@@ -260,6 +261,20 @@ describe("brain CLI version probe", () => {
     installBrainCli(root, `console.log("0.42.0");\n`);
     const app = await createApp({ config: appConfig(root), observability: createRecordingObservability(), registry: registry() });
     await app.close();
+  });
+
+  test("boot gives the index directory the brain root's mode, before any maintenance worker creates it", async () => {
+    if (await privateMaintenanceTest(import.meta.path, "boot gives the index directory the brain root's mode, before any maintenance worker creates it")) return;
+    // A worker identity creates directories under its own umask inside a
+    // staged view whose root mode is not the brain's. The server creates the
+    // index directory itself, so every later worker can write sidecars there.
+    const root = temporaryBrain();
+    chmodSync(root, 0o2775);
+    installBrainCli(root, `console.log("0.42.0");\n`);
+    const app = await createApp({ config: appConfig(root), observability: createRecordingObservability(), registry: registry() });
+    try {
+      expect(statSync(join(root, ".brain-index")).mode & 0o7777, "BOOT_INDEX_DIRECTORY_TAKES_ROOT_MODE").toBe(0o2775);
+    } finally { await app.close(); }
   });
 
   test("a malformed version string warns and still boots", async () => {

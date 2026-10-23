@@ -142,7 +142,7 @@ describe("validity gates exit 2 with no score", () => {
   // directly; the freshness gate checks markdown only, so nothing else
   // would notice an asset that is now a directory.
   test("an indexed expected asset that is now a directory, or a link to one", async () => {
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     try {
       for (const path of ["studies/star-chart.pdf", "studies/star-link.pdf"]) {
         db.run(

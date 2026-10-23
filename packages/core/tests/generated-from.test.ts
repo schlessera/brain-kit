@@ -33,7 +33,7 @@ describe("over a temp brain", () => {
   afterAll(() => cleanup(root));
 
   test("the indexer stores generated_from", () => {
-    const db = openDatabase(join(root, "brain.db"), { readonly: true });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       const rows = db.prepare("SELECT path, generated_from FROM documents ORDER BY path").all();
       expect(rows).toEqual([
@@ -101,7 +101,7 @@ describe("over a temp brain", () => {
 test("opening a schema 10 database adds the column and makes the next index re-read its files", () => {
   const dir = mkdtempSync(join(tmpdir(), "brain-generated-from-"));
   try {
-    const path = join(dir, "brain.db");
+    const path = join(dir, ".brain-index", "brain.db");
     // A current database taken back to what schema 10 looked like.
     const db = openDatabase(path);
     db.run("ALTER TABLE documents DROP COLUMN generated_from");
@@ -131,7 +131,7 @@ test("a schema 10 index serves search, audit and stats read-only before anything
     writeFileSync(join(root, "notes/lamp.md"), doc("Lantern"));
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
     // Put the database back the way schema 10 left it.
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     db.run("ALTER TABLE documents DROP COLUMN generated_from");
     db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
     db.close();
@@ -148,7 +148,7 @@ test("a schema 10 index serves search, audit and stats read-only before anything
     expect((await runCli(root, ["stats", "--json"])).code).toBe(0);
 
     // Nothing above migrated it.
-    const check = new Database(join(root, "brain.db"), { readonly: true });
+    const check = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       expect(check.prepare("SELECT value FROM index_metadata WHERE key = 'schema_version'").get()).toEqual({ value: "10" });
     } finally {
@@ -166,13 +166,13 @@ test("a reader kept open across the migration sees the new column", async () => 
     mkdirSync(join(root, "notes"), { recursive: true });
     writeFileSync(join(root, "notes/lamp.md"), doc("Lantern", "generated_from: notes/source.md\n"));
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     db.run("ALTER TABLE documents DROP COLUMN generated_from");
     db.run("INSERT OR REPLACE INTO index_metadata (key, value) VALUES ('schema_version', '10')");
     db.close();
 
     // A long-lived reader (an MCP server, say) searches before the migration.
-    const reader = openDatabase(join(root, "brain.db"), { readonly: true });
+    const reader = openDatabase(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       const before = await hybridSearch(reader, { query: "lantern", mode: "fts" });
       expect(before.results.map((r) => r.generatedFrom)).toEqual([null]);

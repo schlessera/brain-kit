@@ -5,14 +5,21 @@
 
 export "." (./src/index.ts)
   type BackendLogFn
+  type CreatePiAuthOptions
   type CreatePiBackendOptions
   DYNAMIC_ENV_READS
   type DynamicEnvReadSpec
   ENV_VARS
   type EnvVarSpec
+  type PiAuth
+  type PiAuthProviderStatus
+  type PiAuthRuntime
   type PiBackendEnv
+  type PiLoginFlow
+  type PiLoginFlowStatus
   type PiProfile
   backendModule
+  createPiAuth
   createPiBackend
   readEnvVar
   resolveEnv
@@ -29,6 +36,11 @@ export "./package.json" (./package.json) [asset]
 signatures (every public export and the types it is made of)
   BackendLogFn (packages/ui-backend-pi/src/backend-options.ts)
     export type BackendLogFn = (level: "debug" | "info" | "warn" | "error", message: string, attrs?: Record<string, string | number | boolean>) => void;
+  CreatePiAuthOptions (packages/ui-backend-pi/src/auth.ts)
+    export interface CreatePiAuthOptions {
+        log?: BackendLogFn;
+        runtime?: () => Promise<PiAuthRuntime>;
+    }
   CreatePiBackendOptions (packages/ui-backend-pi/src/backend-options.ts)
     export interface CreatePiBackendOptions {
         exec?: import("@schlessera/brain-ui-sdk/server").ExecWrapperConfig;
@@ -75,6 +87,42 @@ signatures (every public export and the types it is made of)
     export interface MaintenanceTempDomain {
         statePath: string;
     }
+  PiAuth (packages/ui-backend-pi/src/auth.ts)
+    export interface PiAuth {
+        status(providerIds: string[]): Promise<PiAuthProviderStatus[]>;
+        startLogin(providerId: string): Promise<PiLoginFlow>;
+        getFlow(id: string): PiLoginFlow | null;
+        cancelFlow(id: string): void;
+        logout(providerId: string): Promise<void>;
+    }
+  PiAuthProviderStatus (packages/ui-backend-pi/src/auth.ts)
+    export interface PiAuthProviderStatus {
+        providerId: string;
+        name: string;
+        configured: boolean;
+        source?: string;
+        oauth: boolean;
+    }
+  PiAuthRuntime (packages/ui-backend-pi/src/auth.ts)
+    export interface PiAuthRuntime {
+        login(providerId: string, type: "oauth", interaction: {
+            signal?: AbortSignal;
+            prompt(prompt: AuthPrompt): Promise<string>;
+            notify(event: AuthEvent): void;
+        }): Promise<unknown>;
+        logout(providerId: string): Promise<void>;
+        getProviderAuthStatus(providerId: string): {
+            configured: boolean;
+            source?: string;
+        };
+        getProvider(providerId: string): {
+            auth?: {
+                oauth?: {
+                    name?: string;
+                };
+            };
+        } | undefined;
+    }
   PiBackendEnv (packages/ui-backend-pi/src/config/env.ts)
     export interface PiBackendEnv {
         reverseGeocodeEnabled: boolean;
@@ -82,6 +130,20 @@ signatures (every public export and the types it is made of)
         nominatimUserAgent: string;
         nominatimPublicServiceEligible: boolean;
     }
+  PiLoginFlow (packages/ui-backend-pi/src/auth.ts)
+    export interface PiLoginFlow {
+        id: string;
+        providerId: string;
+        status: PiLoginFlowStatus;
+        userCode?: string;
+        verificationUri?: string;
+        intervalSeconds?: number;
+        expiresInSeconds?: number;
+        error?: string;
+        startedAt: number;
+    }
+  PiLoginFlowStatus (packages/ui-backend-pi/src/auth.ts)
+    export type PiLoginFlowStatus = "pending" | "success" | "error" | "cancelled";
   PiProfile (packages/ui-backend-pi/src/backend-options.ts)
     export interface PiProfile {
         id: string;
@@ -97,6 +159,8 @@ signatures (every public export and the types it is made of)
     }
   backendModule (packages/ui-backend-pi/src/module.ts)
     const backendModule: BackendModule;
+  createPiAuth (packages/ui-backend-pi/src/auth.ts)
+    export function createPiAuth(options?: CreatePiAuthOptions): PiAuth;
   createPiBackend (packages/ui-backend-pi/src/backend.ts)
     export function createPiBackend(options: CreatePiBackendOptions): AgentBackend;
   readEnvVar (packages/common/src/env-core.ts)

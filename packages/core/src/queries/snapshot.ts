@@ -1,6 +1,6 @@
 import { Database, constants } from "bun:sqlite";
 import { statSync } from "fs";
-import { join } from "path";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 import { SCHEMA_VERSION } from "../lib/db.js";
 import type { QueryCode, QueryResult, Root } from "./types.js";
 /** Private control flow: native messages and input values never escape. */
@@ -93,7 +93,7 @@ export function withSnapshot<T>(opts: Root, feature: Feature, validate: () => vo
       if (!opts || typeof opts.brainPath !== "string" || !opts.brainPath.trim() || /[\x00-\x1f]/.test(opts.brainPath))
         throw new QueryFailure("invalid_input");
       validate();
-      const dbPath = join(opts.brainPath, "brain.db");
+      const dbPath = indexDbPath(opts.brainPath);
       if (!statSync(dbPath).isFile())
         throw new QueryFailure("unavailable_index");
       db = new Database(dbPath, feature === "storage" ? constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_NOFOLLOW : { readonly: true });

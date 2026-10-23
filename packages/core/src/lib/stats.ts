@@ -19,6 +19,7 @@ import { findOrphans, findStale, loadAuditDocs } from "./auditor.js";
 import { DEFAULT_STATS_THRESHOLDS, type BrainConfig } from "./config.js";
 import { loadVecSupport, vecTableExists } from "./db.js";
 import { embeddingEligibilitySql, providerExcludedDocuments } from "./embedding-policy.js";
+import { LEGACY_INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 import { gitIgnoredMatcher, isAssetPath } from "./git-ignore.js";
 import { readVectorSlots, type VectorSlots } from "./indexer/compact.js";
 import type { Taxonomy } from "./taxonomy.js";
@@ -137,8 +138,10 @@ function tableCounts(db: Database): Record<string, number> {
  * excluded and not the index itself. This is the corpus as a *user* sees it
  * (notes, assets, the config), not the subset the indexer picks up — the same
  * `isExcludedPath` decides, dot files are skipped the way the indexer's glob
- * skips them (so `.git` never lands here), and brain.db with its journal
- * sidecars is the index, which is disposable and counted separately.
+ * skips them (so `.git` never lands here, nor the index in `.brain-index/`),
+ * and brain.db with its journal sidecars is the index, which is disposable
+ * and counted separately. A root-level copy left by a release before 0.44.0
+ * is not corpus either.
  *
  * Excluded directories are pruned BEFORE descending rather than filtered
  * afterwards. `isExcludedDirectory` applies only `dirs` and `segments`, with
@@ -164,7 +167,7 @@ function corpusSize(
   taxonomy: Taxonomy
 ): { bytes: number; files: number } | null {
   const dbRel = relative(root, dbPath);
-  const indexFiles = new Set([dbRel, `${dbRel}-wal`, `${dbRel}-shm`, `${dbRel}-journal`]);
+  const indexFiles = new Set([dbRel, `${dbRel}-wal`, `${dbRel}-shm`, `${dbRel}-journal`, ...LEGACY_INDEX_FAMILY]);
   let bytes = 0;
   let files = 0;
   // The index leaves out assets git ignores; so does this count (#433).

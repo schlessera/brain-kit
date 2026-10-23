@@ -1,10 +1,11 @@
 /** The governed layout: one resolved list for mounts, note and manifest. */
 import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { hasNativeBrainBoundary } from "./worker-startup-view.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
-  type WorkerProtection, type ProtectedWorkerPath } from "./worker-sandbox.js";
+  type WorkerProtection, type ProtectedWorkerPath, type WorkerProviderMasks } from "./worker-sandbox.js";
 
 const DIRECTORIES = new Set(["context/policies", ".git/hooks", ".git/info", ".git/modules", "node_modules"]);
 const code = (error: unknown) => (error as NodeJS.ErrnoException).code ?? String(error);
@@ -163,10 +164,44 @@ export function protectedWorkerMounts(brain: string, protection: WorkerProtectio
   return argv;
 }
 
+const invalidFolder = (rel: string) => !rel || rel.startsWith("/") || rel.startsWith("~") || /^[A-Za-z]:/.test(rel) || rel.includes("\\")
+  || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..");
+
+/**
+ * Provider data masks, applied after every pin and protected bind so nothing
+ * restores what they cover (#1668). `view` is the tree the worker sees at the
+ * brain path: the live brain, or the strict immutable checkpoint. A folder
+ * absent from it has nothing to hide; a present one becomes an empty
+ * read-only tmpfs. `.git` is hidden as in restricted turns, and the private
+ * filtered index is bound over `.brain-index/`, which must exist in the view.
+ */
+export function providerMaskMounts(brain: string, view: string, masks: WorkerProviderMasks): string[] {
+  const argv: string[] = [];
+  for (const rel of [...new Set(masks.folders)].sort()) {
+    if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`) || rel === ".git" || rel.startsWith(".git/"))
+      throw new Error("invalid provider mask folder");
+    const info = lstatSync(join(view, rel), { throwIfNoEntry: false });
+    if (!info) continue;
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`provider mask folder ${rel} is not a directory`);
+    argv.push("--tmpfs", join(brain, rel), "--remount-ro", join(brain, rel));
+  }
+  const git = lstatSync(join(view, ".git"), { throwIfNoEntry: false });
+  if (git?.isDirectory() && !git.isSymbolicLink()) argv.push("--tmpfs", join(brain, ".git"), "--remount-ro", join(brain, ".git"));
+  else if (git?.isFile()) argv.push("--ro-bind", "/dev/null", join(brain, ".git"));
+  else if (git) throw new Error("the brain's .git must be a directory or a gitlink file to be masked");
+  const index = lstatSync(masks.index, { throwIfNoEntry: false });
+  if (!isAbsolute(masks.index) || normalize(masks.index) !== masks.index || !index?.isDirectory() || index.isSymbolicLink()
+    || masks.index === brain || masks.index.startsWith(`${brain}/`) || brain.startsWith(`${masks.index}/`))
+    throw new Error("the private index must be an unaliased directory outside the brain");
+  const target = lstatSync(join(view, INDEX_DIR), { throwIfNoEntry: false });
+  if (!target?.isDirectory() || target.isSymbolicLink()) throw new Error(`${INDEX_DIR} is missing from the worker's view`);
+  argv.push("--bind", masks.index, join(brain, INDEX_DIR));
+  return argv;
+}
 
 /** Qualify this concrete launch's mounts while its trusted start gate is closed. */
 export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtection | undefined,
-  retainedFolders: readonly string[] | undefined, pid: number, deadline: number): void {
+  retainedFolders: readonly string[] | undefined, pid: number, deadline: number, masks?: WorkerProviderMasks): void {
   if (!retainedFolders?.length) return;
   const qualified = protection && qualifiedFolders.get(protection);
   if (!qualified || retainedFolders.some(root => !qualified.roots.includes(root)))
@@ -197,9 +232,19 @@ export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtec
     const root = statSync(`/proc/${pid}/root${brain}`, { bigint: true });
     if (!root.isDirectory() || String(root.dev) !== qualified.device || String(root.ino) !== qualified.inode)
       throw new Error("mounted brain identity changed");
+    // A masked root shows its mask, not the retained directory beneath it:
+    // the private index for `.brain-index`, an empty tmpfs for a folder.
+    const privateIndex = masks && statSync(masks.index, { bigint: true });
     for (const pin of qualified.pins) {
+      // A retained root inside a masked folder is hidden by that mask.
+      if (masks?.folders.some(folder => pin.rel.startsWith(`${folder}/`))) continue;
       const mounted = statSync(`/proc/${pid}/root${join(brain, pin.rel)}`, { bigint: true });
-      if (!mounted.isDirectory() || String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
+      if (!mounted.isDirectory()) throw new Error(`mounted folder identity changed: ${pin.rel}`);
+      if (privateIndex && pin.rel === INDEX_DIR) {
+        if (mounted.dev !== privateIndex.dev || mounted.ino !== privateIndex.ino) throw new Error("the private index is not mounted over the index directory");
+      } else if (masks?.folders.includes(pin.rel)) {
+        if (String(mounted.dev) === pin.device || readdirSync(`/proc/${pid}/root${join(brain, pin.rel)}`).length) throw new Error(`provider folder mask is not in place: ${pin.rel}`);
+      } else if (String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
         throw new Error(`mounted folder identity changed: ${pin.rel}`);
     }
     if (identity() !== started) throw new Error("worker identity changed");
