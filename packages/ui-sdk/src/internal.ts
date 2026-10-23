@@ -81,7 +81,8 @@ export { prepareNativeWorkerOutput, type PreparedWorkerOutput, type WorkerOutput
 export { createNativeBrainManagerClient } from "./server/native-brain-manager-client.js";
 export { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, NativeBrainManagerError } from "./server/native-brain-manager-protocol.js";
 export type { NativePoolRecord, NativePoolStatus, NativePoolState, NativePoolCheckpoint, NativePoolAccess, NativePoolCreatePurpose } from "./server/native-brain-manager-protocol.js";
-export { REFERENCE_POOL_CHECKPOINT_BYTES } from "./server/native-reference-pool.js";
+// Runtime-neutral: the pool module reaches `bun:sqlite`, which this entry's Node build must never load.
+export { REFERENCE_POOL_CHECKPOINT_BYTES } from "./server/native-brain-manager-protocol.js";
 
 export { RTK_WORKER_ENV } from "./server/rtk.js";
 export { sessionPromptContext } from "./server/session-prompt-context.js";
