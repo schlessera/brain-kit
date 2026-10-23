@@ -22,7 +22,9 @@ const at = (fd: number, name: string) => `/proc/self/fd/${fd}/${name}`;
 /**
  * Create `.brain-index/` when it is missing, with the brain root's permission
  * bits so every worker identity that can write the root can write the index.
- * An existing link or non-directory under the name is refused, never replaced.
+ * A server-owned directory with other bits (one a worker created under its
+ * own umask in a staged view) is set back to the root's. An existing link or
+ * non-directory under the name is refused, never replaced.
  */
 export function ensureIndexDirectory(brain: string): void {
   const root = openSync(brain, DIRECTORY);
@@ -42,6 +44,15 @@ export function ensureIndexDirectory(brain: string): void {
       info = lstatSync(path);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`${INDEX_DIR} in the brain root is not a directory`);
+    const wanted = fstatSync(root).mode & 0o7777;
+    if (info.uid === process.getuid?.() && (info.mode & 0o7777) !== wanted) {
+      const held = openSync(path, DIRECTORY);
+      try {
+        const opened = fstatSync(held);
+        if (opened.dev !== info.dev || opened.ino !== info.ino) throw new Error(`${INDEX_DIR} changed while its mode was checked`);
+        fchmodSync(held, wanted);
+      } finally { closeSync(held); }
+    }
   } finally { closeSync(root); }
 }
 
