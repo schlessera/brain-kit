@@ -91,6 +91,14 @@ an error whose message starts `provider_masked:`; the application tools return
 records one `provider_mask_refusal` [governance event](integration-contract/http.md#governance-events-additive-1651)
 (`tool`, `path`, `rule`, `policyHash`).
 
+Additive (#2698): for such a turn `query_activity` (every scope), `inbox_list`
+and `inbox_get` are refused whole, before any record is read, with an error
+whose message starts `provider_masked: <tool> is unavailable to this turn`.
+The activity record and inbox items keep free text from earlier runs that may
+quote a masked document. The tools stay registered with the same names and
+schemas; a turn without masked folders and the owner's UI read them as before.
+No governance event is recorded for these refusals.
+
 ## Separate-UID provider folder turns (additive, 0.44.0, #2696)
 
 The host identity helper protocol (`--brain-worker-identity-v1`) gains a
