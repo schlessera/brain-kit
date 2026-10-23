@@ -43,6 +43,8 @@ const PURPOSES = ["source", "worktree", "staging", "checkpoint"] as const;
  * the worktree is charged to the worktree.
  */
 export const REFERENCE_POOL_CHECKPOINT_BYTES = 1024 * 1024;
+/** Recently forgotten checkpoint identities kept across restarts; each still reads as reclaimed and is never recreated. */
+const REFERENCE_POOL_FORGOTTEN = 512;
 
 export interface NativeReferencePoolConfig {
   /** Root-owned mount of the pool volume's top-level tree, separate from the brain store. */
@@ -515,9 +517,14 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
         else if (current.state === "deleted" && qgroup && ownerCharge(qgroup) !== current.ownerBytes)
           await commit({ ...current, ownerBytes: ownerCharge(qgroup), reason: "Shared extents still referenced by other roots retain this allocation." }, true);
       }
-      // Rootless refusals and checkpoints reclaimed before a restart are forgotten too.
+      // Rootless refusals and checkpoints reclaimed before a restart are forgotten too. A
+      // qgroup a crash left behind holds nothing once reclaimed; removal is best effort,
+      // and an empty leftover qgroup is ignored by accounting.
       const settled = intents.get(intent.id);
-      if (settled?.purpose === "checkpoint" && settled.state === "reclaimed" && !(settled.root && observation.qgroups[level0(settled.root.rootId)])) forget(intent.id);
+      if (settled?.purpose === "checkpoint" && settled.state === "reclaimed") {
+        if (settled.root && observation.qgroups[level0(settled.root.rootId)]) await helper(["qgroup-remove", pool.storePath, settled.root.rootId], signal, true);
+        forget(intent.id);
+      }
     }
   }
   async function commit(intent: PoolIntent, recovery: boolean) { await writeIntent(intent, recovery); intents.set(intent.id, intent); }
@@ -528,9 +535,28 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
    * of its life: a retried release still reads as reclaimed, and the identity
    * is never created again.
    */
-  const forgotten = new Set<string>();
+  const forgottenPath = join(privateRoot, "forgotten.json");
+  const forgotten = new Set<string>(loadForgotten());
+  /** The most recent forgotten identities survive a restart, so a release retried after one still reads as reclaimed. */
+  function loadForgotten(): string[] {
+    if (!existsSync(forgottenPath)) return [];
+    const fd = openSync(forgottenPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const info = fstatSync(fd);
+      const ids = info.isFile() && info.uid === 0 && info.nlink === 1 && info.size <= NATIVE_CONTROL_BYTES ? JSON.parse(readFileSync(fd, "utf8")) : null;
+      if (!Array.isArray(ids) || ids.length > REFERENCE_POOL_FORGOTTEN || ids.some(id => !nativeCheckpointId.safeParse(id).success))
+        throw new NativeBrainManagerError("unknown", "Reference pool forgotten checkpoint record is untrusted.");
+      return ids;
+    } finally { closeSync(fd); }
+  }
   function forget(id: string) {
-    forgotten.add(id);
+    forgotten.delete(id); forgotten.add(id);
+    while (forgotten.size > REFERENCE_POOL_FORGOTTEN) forgotten.delete(forgotten.values().next().value!);
+    const temporary = `${forgottenPath}.tmp`;
+    if (existsSync(temporary)) unlinkSync(temporary);
+    const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+    try { writeFileSync(fd, JSON.stringify([...forgotten])); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(temporary, forgottenPath); syncDirectory(privateRoot);
     unlinkSync(join(state, `${id}.json`)); fsyncSync(stateFd);
     intents.delete(id); index.forget(id);
   }

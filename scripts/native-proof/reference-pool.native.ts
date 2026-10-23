@@ -563,6 +563,12 @@ const shapes = await create("staging", 32 * MIB);
   expect(remaining.filter(id => [first.id, second.id, foreign.id].includes(id)), "REFERENCE_CHECKPOINT_IDENTITY_FORGOTTEN").toEqual([]);
   expect((await release(first.id)).state, "REFERENCE_CHECKPOINT_RELEASE_RETRY_RECLAIMED").toBe("reclaimed");
   expect((await refusal({ operation: "poolCheckpoint", id: first.id, from: tree.id })).code, "REFERENCE_CHECKPOINT_NEVER_RECREATED").toBe("released");
+  // The forgotten identity survives a manager restart, so a retry after a lost reply still reads as reclaimed.
+  manager = await restart({});
+  const retried = await release(second.id);
+  expect(retried, "REFERENCE_CHECKPOINT_RELEASE_RETRY_AFTER_RESTART").toMatchObject({ id: second.id, purpose: "checkpoint", state: "reclaimed" });
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.some(item => item.id === second.id),
+    "REFERENCE_CHECKPOINT_RETRY_LEAVES_NO_TOMBSTONE").toBe(false);
   for (const id of [tree.id, other.id, base.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_RELEASED").toContain((await release(id)).state);
 }
 
