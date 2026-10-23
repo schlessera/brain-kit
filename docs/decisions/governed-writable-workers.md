@@ -1941,8 +1941,8 @@ masks after the check, whether still during admission or while the turn runs,
 exposes it to that turn until the turn ends; the next admission refuses.
 Launch qualification rechecks folder identities, not link counts. The running
 turn cannot create such a link itself, because it cannot name the masked file.
-Nested masks (`me` and `me/x`) fail at launch independently of this check
-([#2718](https://github.com/schlessera/brain-kit/issues/2718)).
+Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
+the walk of `me` covers `me/x`.
 
 Still open under #1668: server search, read and context tools do not yet
 refuse masked paths; autonomous (restricted) turns do not apply the masks;
