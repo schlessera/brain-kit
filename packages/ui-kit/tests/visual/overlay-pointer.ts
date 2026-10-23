@@ -128,3 +128,66 @@ declare module "vitest/browser" {
     destinationSafeArea(bottom: number): Promise<void>;
   }
 }
+
+type FilesImportGate = {
+  owner: string;
+  arrived: Promise<void>;
+  release(): void;
+  finished: Promise<void>;
+  requests: number;
+  timer?: ReturnType<typeof setTimeout>;
+};
+const filesImportGates = new WeakMap<object, FilesImportGate>();
+const filesImportPattern = "**/file-viewer.*";
+
+/** Hold the first real Files chunk beyond the unchanged content poll (#2677). */
+export const destinationFilesImportGate: BrowserCommand<[string, "hold" | "arrived" | "release" | "stop"], number> = async (ctx, owner, action) => {
+  if (action === "hold") {
+    if (filesImportGates.has(ctx.page)) throw new Error("A Files import gate is already installed");
+    let arrived!: () => void;
+    let release!: () => void;
+    let finished!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const gate: FilesImportGate = {
+      owner,
+      arrived: new Promise<void>((resolve) => { arrived = resolve; }),
+      release: () => release(),
+      finished: new Promise<void>((resolve) => { finished = resolve; }),
+      requests: 0,
+    };
+    filesImportGates.set(ctx.page, gate);
+    await ctx.page.route(filesImportPattern, async (route) => {
+      gate.requests++;
+      arrived();
+      try { await held; await route.continue(); }
+      finally { finished(); }
+    });
+    return 0;
+  }
+  const gate = filesImportGates.get(ctx.page);
+  if (!gate) {
+    if (action === "stop") return 0;
+    throw new Error("The Files import gate is not installed");
+  }
+  if (gate.owner !== owner) throw new Error("The Files import gate belongs to another test");
+  if (action === "arrived") await gate.arrived;
+  if (action === "release") {
+    // Fixture hold, not a settling wait: omitting the import await must fail
+    // the original 1000ms content assertion even with a warm Vite cache.
+    gate.timer = setTimeout(gate.release, 1200);
+  }
+  if (action === "stop") {
+    clearTimeout(gate.timer);
+    gate.release();
+    if (gate.requests) await gate.finished;
+    await ctx.page.unroute(filesImportPattern);
+    filesImportGates.delete(ctx.page);
+  }
+  return gate.requests;
+};
+
+declare module "vitest/browser" {
+  interface BrowserCommands {
+    destinationFilesImportGate(owner: string, action: "hold" | "arrived" | "release" | "stop"): Promise<number>;
+  }
+}

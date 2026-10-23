@@ -445,9 +445,25 @@ for (const theme of ["dark", "light"] as const) for (const width of WIDTHS) for 
   for (const how of width < 480 ? ["pointer"] as const : ["pointer", "chord"] as const) {
     test(`D52 N3 at ${width} (${theme}): ${start} pressed again by ${how}`, async (ctx) => {
       const mode = pointer();
+      const coldFiles = theme === "dark" && width === 320 && start === "files";
+      if (coldFiles) {
+        await commands.destinationFilesImportGate(ctx.task.id, "hold");
+        ctx.onTestFinished(async () => { await commands.destinationFilesImportGate(ctx.task.id, "stop"); });
+      }
       // The Settings pane's sections are short at 1440, so its viewport is too.
       const s = await mount(ctx, start, width, start === "settings" && width >= 1440 ? 300 : HEIGHT, theme);
       const spec = SPECS[start];
+      if (coldFiles) {
+        expect(await commands.destinationFilesImportGate(ctx.task.id, "arrived"), "the real lazy Files import reached the gate").toBe(1);
+        expect(spec.ready(s), "Files content is absent while its chunk is held").toBe(false);
+        await commands.destinationFilesImportGate(ctx.task.id, "release");
+      }
+      if (start.startsWith("files")) {
+        // The real lazy loads have started. Cold Vite transforms must finish
+        // before the unchanged content/commit poll gets its 1000ms budget.
+        await import("../../src/components/files/file-viewer.js");
+        if (start === "files-tree" || isWide(s)) await import("../../src/components/files/file-tree.js");
+      }
       await expect.poll(() => spec.ready(s), { message: `${start} has its content` }).toBe(true);
       await expect.poll(() => moving(), { interval: 16, message: "entrances have settled" }).toBe(false);
 
