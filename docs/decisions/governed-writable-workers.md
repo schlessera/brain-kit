@@ -1706,9 +1706,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:220-227`;
+`packages/ui-sdk/src/server/worker-protection.ts:239-246`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:230-268`).
+`packages/ui-sdk/src/server/worker-protection.ts:249-287`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -1885,6 +1885,46 @@ voice turn, and admission applies the masks to all of them:
   masks configured, such a turn refuses rather than build an index in a
   worker that sees the host. The private index is removed when the turn
   ends, and the autonomous bridge refuses masked paths as above.
+- **Generated-text caches (maintainer, 2026-10-23, #2692 option A).** The
+  committed sidecar caches `.context-cache.jsonl` (chunk contexts) and
+  `.asset-cache.jsonl` (asset descriptions) hold text generated from every
+  document, masked ones included. Each present cache reads as empty in a
+  denied interactive, voice or autonomous worker, and in the private index
+  build: `providerMaskMounts` binds `/dev/null` over it
+  (`PROVIDER_CACHE_FILES`, the same list as core's `SIDECAR_CACHES`). A
+  cache that is a link or has a second name refuses the launch rather than
+  being followed, and the governed live launcher checks the mask before the
+  payload starts. A loose file mask detaches when another namespace renames
+  or unlinks the path, which is why the index moved into a directory. That is
+  acceptable here because only exclusive, credentialed `--embeddings` runs
+  write the caches, and while no recipient is proven every concurrent turn is
+  denied alike: a detached mask exposes nothing that a denied turn could not
+  already see. Once allowed routes exist (#2695) the argument no longer holds,
+  and the caches move into a masked directory
+  ([#2725](https://github.com/schlessera/brain-kit/issues/2725), option B).
+- **Backend-retained state (audit, 2026-10-23, #2692).** What a backend
+  copies into a denied turn's worker, beyond the brain view:
+  - Claude interactive and voice turns copy the brain project's whole
+    auto-memory folder (`memory/`, shared by every session of the brain) and,
+    when resuming, that session's own transcript
+    (`settings.push`,
+    `packages/ui-backend-claude/src/worker-state.ts:183-188`). Other
+    sessions' transcripts are never copied; only their names are read, so a
+    worker cannot export into them.
+  - Pi resumes that session's own entries
+    (`readPiSession`,
+    `packages/ui-backend-pi/src/worker-session.ts:63-69`). Its stored native
+    file observations are content hashes, not text.
+  - Autonomous turns carry nothing: Claude's state is ephemeral, and Pi's
+    restricted envelope copies no native state.
+
+  While every route is denied, a denied turn cannot add masked text to any of
+  these, because it cannot read the masked folders. Text written before the
+  policy existed remains. A memory note that quoted a masked document reaches
+  every later denied turn. A resumed session's history, which brain-kit never
+  edits ([provider history](provider-history.md)), is re-sent to the provider.
+  How to handle that state needs a ruling
+  ([#2726](https://github.com/schlessera/brain-kit/issues/2726)).
 
 
 **Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
@@ -2016,9 +2056,9 @@ turn cannot create such a link itself, because it cannot name the masked file.
 Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
 the walk of `me` covers `me/x`.
 
-Still open under #1668: the committed sidecar caches (`.context-cache.jsonl`
-holds generated chunk contexts) and other retained copies have not been audited;
-and the allowed recipient's unmasked turn needs #1665. Each restricted turn
+Still open under #1668: state written before a policy existed (#2726), what
+the activity record and inbox items retain (#2698), and the allowed
+recipient's unmasked turn, which needs #1665. Each restricted turn
 also pays one keyword index build at admission.
 
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):

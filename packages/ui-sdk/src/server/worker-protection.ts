@@ -168,15 +168,34 @@ const invalidFolder = (rel: string) => !rel || rel.startsWith("/") || rel.starts
   || /[\u0000-\u001f\u007f*?[\]{}()!]/u.test(rel) || rel.split("/").some(part => !part || part === "." || part === "..");
 
 /**
+ * The committed sidecar caches of generated text at the brain root (core's
+ * `SIDECAR_CACHES`): chunk contexts and asset descriptions, keyed by content,
+ * including masked documents' (#2692).
+ */
+export const PROVIDER_CACHE_FILES = [".context-cache.jsonl", ".asset-cache.jsonl"] as const;
+
+/**
  * Provider data masks, applied after every pin and protected bind so nothing
  * restores what they cover (#1668). `view` is the tree the worker sees at the
  * brain path: the live brain, or the strict immutable checkpoint. A folder
  * absent from it has nothing to hide; a present one becomes an empty
  * read-only tmpfs. `.git` is hidden as in restricted turns, and the private
  * filtered index is bound over `.brain-index/`, which must exist in the view.
+ * Each present committed cache of generated text reads as empty (#2692).
  */
 export function providerMaskMounts(brain: string, view: string, masks: WorkerProviderMasks): string[] {
   const argv: string[] = [];
+  // A loose file mask detaches if another namespace renames or unlinks the
+  // path. Only exclusive credentialed `--embeddings` runs write these caches,
+  // and while no recipient is proven every concurrent turn is denied alike, so
+  // a detached mask exposes nothing a denied turn could not already see
+  // (2026-10-23 ruling, option A). A link is refused rather than followed.
+  for (const name of PROVIDER_CACHE_FILES) {
+    const info = lstatSync(join(view, name), { throwIfNoEntry: false });
+    if (!info) continue;
+    if (!info.isFile() || info.nlink !== 1) throw new Error(`the generated-text cache ${name} must be a regular file with one link to be masked`);
+    argv.push("--ro-bind", "/dev/null", join(brain, name));
+  }
   for (const rel of [...new Set(masks.folders)].sort()) {
     if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`) || rel === ".git" || rel.startsWith(".git/"))
       throw new Error("invalid provider mask folder");
@@ -286,5 +305,10 @@ function verifyMountedFolders(view: string, qualified: NonNullable<ReturnType<ty
       if (String(mounted.dev) === pin.device || readdirSync(join(view, pin.rel)).length) throw new Error(`provider folder mask is not in place: ${pin.rel}`);
     } else if (String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
       throw new Error(`mounted folder identity changed: ${pin.rel}`);
+  }
+  // A present generated-text cache shows its `/dev/null` mask.
+  if (masks) for (const name of PROVIDER_CACHE_FILES) {
+    const cache = lstatSync(join(view, name), { throwIfNoEntry: false });
+    if (cache && !cache.isCharacterDevice()) throw new Error(`generated-text cache mask is not in place: ${name}`);
   }
 }
