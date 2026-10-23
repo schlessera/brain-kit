@@ -391,7 +391,7 @@ implementation. Any PR moving these lines owns their citation repairs.
 
 - Session summary shape: (`export interface ChatSession {`, `packages/ui-sdk/src/protocol.ts:1568-1584`).
 
-- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:138-139`).
+- Run identity: (`const runId = turn.turnId;`, `packages/ui-server/src/activity/recorder.ts:139-140`).
 
 - Outcome vocabulary: (`export type ActivitySpanOutcome =`, `packages/ui-sdk/src/protocol.ts:2930-2953`).
 

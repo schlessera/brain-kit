@@ -43,6 +43,7 @@ import { recordTurnRoadblocks, type TracedCall, type UsageSample } from "../gove
 import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import { inputTaintSource, outputTaintSource, type IngestionSource } from "./ingestion-taint.js";
 import { recordFirstTaint } from "../governance/session-taint.js";
+import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
 import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
 
 export interface TurnRecorderDeps {
@@ -172,6 +173,7 @@ export function createTurnRecorder(
   let cancelledAt: number | null = null;
   let cancelledCallIds: string[] = [];
   let roadblocksRecorded = false;
+  let providerUnavailableRecorded = 0;
   const traceCall = (toolUseId: string, toolName?: string): TracedCall | undefined => {
     let call = calls.get(toolUseId);
     if (!call && toolName && calls.size < MAX_TRACED_CALLS) {
@@ -318,6 +320,19 @@ export function createTurnRecorder(
               } catch (error) {
                 log?.emit({ severityText: "WARN", body: `taint not recorded: ${error instanceof Error ? error.message : String(error)}` });
                 deps.abort?.(new Error("Untrusted input could not be recorded; the turn was stopped."));
+              }
+            }
+            // A `brain` command in the worker that needed a withheld provider key (#1666).
+            if (turn.origin !== "autonomous" && deps.governance && !traced?.denied && providerUnavailableRecorded < MAX_PROVIDER_UNAVAILABLE_PER_TURN) {
+              for (const payload of providerUnavailablePayloads(traced?.tool ?? ingestion?.tool ?? "tool", traced?.input, msg.output)) {
+                if (providerUnavailableRecorded >= MAX_PROVIDER_UNAVAILABLE_PER_TURN) break;
+                providerUnavailableRecorded++;
+                try {
+                  deps.governance({ kind: "provider_unavailable", payload, sessionId: sessionId ?? null, turnId: runId,
+                    actor: turn.posture ?? "interactive", model: mainModel, profile: turn.profile ?? null });
+                } catch (error) {
+                  log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` });
+                }
               }
             }
             if (traced && traced.output === null && !traced.denied) {

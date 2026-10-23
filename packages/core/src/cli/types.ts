@@ -7,6 +7,7 @@
 import type { BrainContext } from "../lib/context.js";
 import type { Enrichment } from "../lib/enrichment.js";
 import type { AgentRunner, CompletionProvider, EmbeddingProvider } from "../lib/seams.js";
+import type { ResolvedProviders } from "../lib/registry.js";
 
 /**
  * Everything a core command needs beyond its arguments. Assembled once by the
@@ -26,6 +27,8 @@ export interface CliContext {
   completions?: CompletionProvider;
   enrichment?: Enrichment;
   agentRunner?: AgentRunner;
+  /** Seams that are off because the host withheld their key from this agent worker (#1666). */
+  withheld?: ResolvedProviders["withheld"];
 }
 
 /** A core command implementation. Modules use the public CommandModule instead. */

@@ -11,6 +11,7 @@ import { readEnvVar } from "../../config/env.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "../../lib/llm-defaults.js";
+import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
 
 const TEXT_BATCH_SIZE = 100;
 const installedProviders = new WeakMap<object, { initialize(): Promise<unknown>; recipient(): string | undefined }>();
@@ -66,9 +67,8 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
     if (!client) {
       const apiKey = readEnvVar(apiKeyEnv);
       if (!apiKey) {
-        throw new Error(
-          `${apiKeyEnv} environment variable is required for Gemini embeddings`
-        );
+        throw new Error(missingKeyMessage(apiKeyEnv, "gemini", "embeddings",
+          `${apiKeyEnv} environment variable is required for Gemini embeddings`));
       }
 
       const { GoogleGenAI } = await import("@google/genai").catch(() => {

@@ -10,6 +10,7 @@ import { readEnvVar } from "../../config/env.js";
 import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { CLAUDE_FAST_MODEL } from "../../lib/llm-defaults.js";
+import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -76,7 +77,7 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
     }
     const apiKey = readEnvVar(apiKeyEnv);
     if (!apiKey) {
-      throw new Error(`${apiKeyEnv} environment variable is required for Anthropic completions`);
+      throw new Error(missingKeyMessage(apiKeyEnv, "anthropic", "completions", `${apiKeyEnv} environment variable is required for Anthropic completions`));
     }
 
     // Media blocks precede the prompt text (context before instruction).

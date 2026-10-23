@@ -141,12 +141,12 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
   (`export const DEFAULT_ALLOWED_TOOLS = [`, `packages/ui-backend-claude/src/tool-policy.ts:27-80`) is still a broad interactive
   roster. A shell-command classifier is not a process write/network boundary.
 - **Filtered environment and project settings:** (`export function envSnapshot(`, `packages/ui-backend-claude/src/config/env.ts:201-209`) and
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:98-480`). Restricted execution needs
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:98-486`). Restricted execution needs
   narrower credentials/configuration; it does not start from the old full-host-env assumption.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-152`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:95-124`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
-- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:674`) settles after execution;
+- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:689`) settles after execution;
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
@@ -1193,7 +1193,7 @@ and a server-selected tool policy.
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (server-selected
-  origin defaults to `"session"` at (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:109-186`))
+  origin defaults to `"session"` at (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:110-188`))
 - Test: `packages/ui-backend-claude/tests/autonomous-turn.test.ts`
 
 **Approach:** an autonomous request carrying persistence, tool policy, origin, and prompt
@@ -1318,7 +1318,7 @@ exists to make, paid only when it would otherwise fail.
 
 **Files:**
 - Modify: `packages/ui-backend-claude/src/backend.ts` (prompt assembly at
-  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:98-480`))
+  (`export function createClaudeSdkTurn(`, `packages/ui-backend-claude/src/sdk-options.ts:98-486`))
 - Test: `packages/ui-backend-claude/tests/autonomous-prompt.test.ts`
 
 **Approach:** a fixed tool roster, deterministic package-owned trusted instructions,

@@ -23,6 +23,8 @@ export interface ReadDeps {
   db: Database;
   brain: Pick<BrainContext, "root" | "config" | "taxonomy">;
   embeddings?: EmbeddingProvider;
+  /** The embedding provider whose key the host withheld from this agent worker (#1666). */
+  withheldEmbeddings?: { provider: string; key: string };
 }
 
 export interface SearchInput {
@@ -77,6 +79,7 @@ export async function searchDocuments(
 
   const { results, warnings } = await hybridSearch(deps.db, opts, {
     embeddings: deps.embeddings,
+    ...(deps.withheldEmbeddings ? { withheldEmbeddings: deps.withheldEmbeddings } : {}),
     taxonomy: deps.brain.taxonomy,
     ...setup.deps,
   });

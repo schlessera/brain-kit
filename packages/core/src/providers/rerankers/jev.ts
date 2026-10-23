@@ -27,6 +27,7 @@
 import { readEnvVar } from "../../config/env.js";
 import { JEV_MODEL } from "../../lib/llm-defaults.js";
 import type { Ranked, RerankCandidate, Reranker, RerankRequest } from "../../lib/seams.js";
+import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
 
 const API_URL = "https://api.typesafe.ai/v1/systemone";
 export const JEV_API_KEY_ENV = "TYPESAFE_API_KEY";
@@ -240,7 +241,7 @@ export function jevReranker(config: JevRerankerConfig = {}): Reranker {
 
     async rerank(req) {
       const apiKey = readEnvVar(apiKeyEnv);
-      if (!apiKey) throw new Error(`${apiKeyEnv} environment variable is required for the jev reranker`);
+      if (!apiKey) throw new Error(missingKeyMessage(apiKeyEnv, "jev", "reranking", `${apiKeyEnv} environment variable is required for the jev reranker`));
       if (req.candidates.length < 2) return req.candidates.map((item) => ({ item, score: 1 }));
 
       const { body, included } = buildJevRequest(model, req);
