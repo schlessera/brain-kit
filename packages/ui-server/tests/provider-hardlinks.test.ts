@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { providerHardlinks } from "../src/brain/provider-hardlinks";
-import { ProviderPolicyRefusedError } from "../src/brain/governance-policy";
+import { ProviderPolicyRefusedError, providerMaskedFolders } from "../src/brain/governance-policy";
 
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
@@ -37,6 +37,14 @@ test("names inside the masks, the root .git and .brain-index, copies and symboli
   fs.symlinkSync("missing", join(b.root, "notes/dangling"));
   fs.symlinkSync("..", join(b.root, "me/cycle"));
   expect(providerHardlinks(b.root, ["me", "me/nested", "crew", "absent"]), "ONLY_NAMES_THE_TURN_CAN_READ").toEqual([]);
+});
+
+test("a nested folder dropped from the masked set still counts as masked", () => {
+  const b = brain(); b.write("me/sub/vow.md");
+  b.link("me/sub/vow.md", "notes/vow.txt"); b.link("me/sub/vow.md", "me/vow-alias.txt");
+  const masked = providerMaskedFolders({ providers: [{ paths: ["me/**", "me/sub/**"], allow: ["anthropic"] }] } as Parameters<typeof providerMaskedFolders>[0]);
+  expect(masked, "NESTED_FOLDER_COVERED_BY_ITS_ANCESTOR").toEqual(["me"]);
+  expect(providerHardlinks(b.root, masked), "NESTED_FILE_HARDLINK_STILL_FOUND").toEqual([{ path: "notes/vow.txt", masked: "me/sub/vow.md" }]);
 });
 
 test("every outside name is reported, against the masked name that was found first", () => {
