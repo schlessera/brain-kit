@@ -25,7 +25,7 @@ import { visibleToolName } from "@schlessera/brain-ui-sdk/server";
 import { createBrainUiMcpServer, ASK_USER_TOOL_NAME } from "./ask-user-tool.js";
 import { ASK_USER_LIST_TOOL_NAME } from "./ask-user-list-tool.js";
 import { ASK_USER_RANK_TOOL_NAME } from "./ask-user-rank-tool.js";
-import { envSnapshot, ambientExecConfig } from "./config/env.js";
+import { envSnapshot, ambientExecConfig, operatorAdmittedEnvNames } from "./config/env.js";
 import { GET_LOCATION_TOOL_NAME } from "./location-tool.js";
 import { MASK_TOOL_NAME } from "./mask-tool.js";
 import { userMessage } from "./turn-input.js";
@@ -225,7 +225,9 @@ function assembleClaudeSdkTurn(
   } : undefined;
   // The relay holds the profile's credential, so the variables it names stay on the host.
   const childEnv = inferenceEnv ? { ...Object.fromEntries(Object.entries(inheritedEnv)
-    .filter(([name]) => !profile.requiredEnvKeys.includes(name) && !AGENT_INFERENCE_CREDENTIAL_ENV.includes(name))), ...inferenceEnv } : inheritedEnv;
+    .filter(([name]) => !profile.requiredEnvKeys.includes(name)
+      // An operator who admits an agent-only key explicitly keeps it.
+      && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))), ...inferenceEnv } : inheritedEnv;
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
