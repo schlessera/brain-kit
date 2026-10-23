@@ -392,7 +392,10 @@ uses `Closes`. Inspect proof and release assignments for every PR included in
 
 Before opening or marking ready, run `bun run check:pr --base origin/main`
 (`--base <parent-ref>` for an upper stack layer) for focused local preflight
-and record actual behavioral/mutation receipts.
+and record actual behavioral/mutation receipts. Defaults are lint/leakage,
+environment documentation, changeset checks and affected fast invariants.
+Import-graph feedback is skipped unless `--import-graph` is supplied;
+`--plan` lists selected commands and explains the skip and enabling flag.
 Complete repeatable proof is authoritative in affected hosted jobs under #1326;
 `--full`/`--all` retain local fallback/release commands. Missing tools, failed or
 cancelled checks and unexpected skips cannot pass. Keep drafts cheap and batch
