@@ -40,7 +40,7 @@ test("fresh disk-backed module fallback agrees with actual config and pipeline C
     expect(JSON.parse(pipeline.stdout).index).toBe("work/leads/_index.md");
     expect(existsSync(join(lab.root, "work/leads/_index.md"))).toBe(true);
     successful(await cli(lab.root, ["index", "--force"]));
-    const db = openDatabase(join(lab.root, "brain.db"));
+    const db = openDatabase(join(lab.root, ".brain-index", "brain.db"));
     try {
       expect(db.query("SELECT path, deadline FROM documents WHERE deadline IS NOT NULL ORDER BY path").all()).toEqual([
         { path: "work/leads/ithaca/interview-prep.md", deadline: "2026-07-20" },

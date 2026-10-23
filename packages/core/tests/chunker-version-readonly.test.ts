@@ -20,7 +20,7 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   expect((await runCli(root, ["index", "--json"])).code).toBe(0);
 
   // Put the database back the way schema 9 left it.
-  const db = new Database(join(root, "brain.db"));
+  const db = new Database(join(root, ".brain-index", "brain.db"));
   db.run("ALTER TABLE documents DROP COLUMN chunker_version");
   db.run("ALTER TABLE documents DROP COLUMN generated_from");
   db.run("UPDATE index_metadata SET value = '9' WHERE key = 'schema_version'");
@@ -48,7 +48,7 @@ test("search, stats and doctor read a schema-9 index that has not been migrated"
   expect(checks.find((c) => c.id === "db")).toMatchObject({ status: "warn", detail: `schema_version 9 < ${SCHEMA_VERSION}` });
 
   // Still schema 9: nothing above migrated it.
-  const check = new Database(join(root, "brain.db"), { readonly: true });
+  const check = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   const cols = check.prepare("PRAGMA table_info(documents)").all() as { name: string }[];
   check.close();
   expect(cols.some((c) => c.name === "chunker_version")).toBe(false);

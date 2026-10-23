@@ -10,6 +10,7 @@
  */
 
 import { join } from "path";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 import { validateRenderInput } from "./commands/render.js";
 import { isReadOnlyBrainMount, readOnlyBrainError, writeTarget } from "./read-only.js";
 import { Console } from "node:console";
@@ -37,7 +38,7 @@ const TOLERATE_CONFIG_ERROR = new Set([
 
 // Commands that write to the brain tree or its database. They refuse to run
 // when no brain.config was found: resolveRoot's .git-ancestor/cwd fallbacks
-// would otherwise let e.g. `brain index` create a brain.db in any directory
+// would otherwise let e.g. `brain index` create an index in any directory
 // the CLI happens to be invoked from.
 const MUTATING_COMMANDS = new Set([
   "add", "import", "index", "archive", "accept-mtime", "process", "maintain", "sync",
@@ -111,7 +112,7 @@ function degradedContext(): BrainContext {
   const root = resolveRoot();
   return {
     root,
-    dbPath: join(root, "brain.db"),
+    dbPath: indexDbPath(root),
     config: null,
     configPath: detectConfigPath(root),
     modules: [],

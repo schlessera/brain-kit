@@ -62,7 +62,7 @@ const order = (hits: Hit[]) => hits.map((h) => h.path).filter((p) => p === OLD |
  * right on the query vector, the new plan's just off it, nothing else has one.
  */
 async function withVectors(root: string): Promise<{ db: Database; provider: EmbeddingProvider }> {
-  const db = openDatabase(join(root, "brain.db"));
+  const db = openDatabase(join(root, ".brain-index", "brain.db"));
   // The keyless index made a vector table of the default width; this one is 2-wide.
   await loadVec(db);
   db.run("DROP TABLE IF EXISTS vec_chunks");
@@ -147,7 +147,7 @@ describe("supersedes", () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
     // Lose the derived rows; the markdown stays.
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     db.run("DELETE FROM supersedes");
     db.close();
     expect((await fts(root)).find((h) => h.path === OLD)?.supersededBy).toBeUndefined(); // the precondition
@@ -180,7 +180,7 @@ describe("supersedes", () => {
   test("an index from before schema 12 gains supersession on its next index run, without --force", async () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     db.run("DROP TABLE supersedes");
     db.run("UPDATE index_metadata SET value = '11' WHERE key = 'schema_version'");
     db.close();

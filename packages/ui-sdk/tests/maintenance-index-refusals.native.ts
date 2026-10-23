@@ -11,13 +11,14 @@ const brain = "/brain-fixture/brain";
 if (process.getuid?.() !== 21001) throw Error("Disposable native index fixture requires its server UID");
 const probe = probeWorkerHost(brain, { profile: "governed", stateBytes: 1024 ** 2, turnTempBytes: 1024 ** 2 });
 if (!probe.ok) throw Error("Actual index refusal identity probe failed");
-const db = new Database(`${brain}/brain.db`); db.run("CREATE TABLE odysseus(value INTEGER)"); db.run("INSERT INTO odysseus VALUES(11)"); db.close();
-const original = readFileSync(`${brain}/brain.db`);
+mkdirSync(`${brain}/.brain-index`, { recursive: true });
+const db = new Database(`${brain}/.brain-index/brain.db`); db.run("CREATE TABLE odysseus(value INTEGER)"); db.run("INSERT INTO odysseus VALUES(11)"); db.close();
+const original = readFileSync(`${brain}/.brain-index/brain.db`);
 const manager = createNativeBrainManagerClient({ socketPath: "/native-runtime/server-ws-manager.sock" });
 for (const kind of ["readonly", "symlink", "hardlink", "fifo", "orphan", "oversized", "super-journal", "copy-enospc"] as const) {
   const previous = process.env.BRAIN_UI_OUTPUT_STAGING_BYTES;
   if (kind === "copy-enospc") {
-    writeFileSync(`${brain}/brain.db`, Buffer.alloc(36864));
+    writeFileSync(`${brain}/.brain-index/brain.db`, Buffer.alloc(36864));
     process.env.BRAIN_UI_OUTPUT_STAGING_BYTES = "40960";
   }
   const view = await prepareNativeWorkerStartupView(brain, manager);
@@ -41,9 +42,9 @@ for (const kind of ["readonly", "symlink", "hardlink", "fifo", "orphan", "oversi
     } else {
       const mutation = await runMaintenanceWorker({ ...base(), command: ["/usr/bin/python3", "-I", "-S", "-c", String.raw`
 import os,sys
-r=os.environ["BRAIN_ROOT"]; p=r+"/brain.db"; k=sys.argv[1]
+r=os.environ["BRAIN_ROOT"]; p=r+"/.brain-index/brain.db"; k=sys.argv[1]
 if k=="readonly":os.chmod(p,0o400)
-if k=="symlink":os.symlink("brain.config.ts",p+"-wal")
+if k=="symlink":os.symlink("../brain.config.ts",p+"-wal")
 if k=="hardlink":os.link(p,p+"-wal")
 if k=="fifo":os.mkfifo(p+"-wal")
 if k=="orphan":os.unlink(p);open(p+"-wal","wb").write(b"Odysseus orphan")
@@ -67,7 +68,7 @@ if k=="super-journal":open(p+"-journal","wb").write(bytes(56)+(56).to_bytes(4,"b
   } finally {
     try { await output?.cleanup(); } finally { await view.cleanup(); }
     if (previous === undefined) delete process.env.BRAIN_UI_OUTPUT_STAGING_BYTES; else process.env.BRAIN_UI_OUTPUT_STAGING_BYTES = previous;
-    rmSync(`${brain}/brain.db`, { force: true }); writeFileSync(`${brain}/brain.db`, original);
+    rmSync(`${brain}/.brain-index/brain.db`, { force: true }); writeFileSync(`${brain}/.brain-index/brain.db`, original);
   }
 }
-for (const suffix of ["", "-wal", "-shm", "-journal"]) rmSync(`${brain}/brain.db${suffix}`, { force: true });
+for (const suffix of ["", "-wal", "-shm", "-journal"]) rmSync(`${brain}/.brain-index/brain.db${suffix}`, { force: true });

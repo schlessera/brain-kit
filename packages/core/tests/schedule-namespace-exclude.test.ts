@@ -31,7 +31,7 @@ test("the reserved schedule namespace is excluded from indexing, and a forced re
   writeFileSync(join(root, "context/scheduled-tasks-notes/plan.md"), "---\ntitle: Plan\ntype: context\n---\n\nPlan.\n");
   const taxonomy = buildTaxonomy({});
   expect(getMarkdownFiles(root, taxonomy)).toEqual(["context/ithaca.md", "context/scheduled-tasks-notes/plan.md"]);
-  const db = openDatabase(join(root, "brain.db"));
+  const db = openDatabase(join(root, ".brain-index", "brain.db"));
   try {
     await indexAll(db, { root, taxonomy, quiet: true, graph: false, force: true });
     const paths = (db.prepare("SELECT path FROM documents ORDER BY path").all() as { path: string }[]).map((r) => r.path);

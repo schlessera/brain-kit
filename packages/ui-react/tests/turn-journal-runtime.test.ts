@@ -447,13 +447,13 @@ test("keep-both refreshes the actual disposable index with both retained files",
     await page.getByRole("button",{name:/changed file/}).click();await page.getByRole("button",{name:"Review notes/crossing.md",exact:true}).first().click();await page.getByRole("button",{name:"Keep both observations 1 and 2",exact:true}).click();await page.getByRole("button",{name:"Close",exact:true}).click();await page.locator("[data-revert-receipt='complete']").waitFor();
     let paths:string[]=[];
     for(let attempt=0;attempt<100;attempt++){
-      const path=resolve(root,"brain/brain.db");
+      const path=resolve(root,"brain/.brain-index/brain.db");
       if(await Bun.file(path).exists()) {
         // Read a frozen host view: opening live WAL-mode SQLite can mutate its SHM file.
         let view: ReturnType<typeof createFixtureWorkerStartupView> | undefined;
         try {
           view = createFixtureWorkerStartupView(resolve(root, "brain"));
-          const db = new Database(resolve(view.root, "brain.db"), { readonly: true });
+          const db = new Database(resolve(view.root, ".brain-index", "brain.db"), { readonly: true });
           try { if(db.query("SELECT 1 FROM sqlite_schema WHERE name='documents'").get()) paths=(db.query("SELECT path FROM documents WHERE path IN ('notes/crossing.md','notes/crossing-remote.md') ORDER BY path").all() as {path:string}[]).map(row=>row.path); }
           finally { db.close(); }
         } catch (error) {

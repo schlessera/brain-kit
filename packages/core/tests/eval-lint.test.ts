@@ -28,14 +28,14 @@ async function lint(lines: unknown[]) {
 }
 
 test("the premise: the brain has no index for --lint to open", () => {
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 });
 
 test("a paraphrase query sharing a word with its answer's title is reported, naming the word and the path", async () => {
   const { code, out } = await lint([{ id: "q1", q: "how do I keep the star guide aligned", class: "paraphrase", expected: [PATH] }]);
   expect(code).toBe(0);
   expect(out.warnings).toEqual([`q1: shares "star" with the title of ${PATH}`]);
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 });
 
 test("the same query with the word replaced is not", async () => {
@@ -62,7 +62,7 @@ test("a malformed line exits 2 naming the line, without an index", async () => {
   const { code, stderr } = await lint([{ id: "q1", q: "fine", class: "paraphrase", expected: [PATH] }, "{not json"]);
   expect(code).toBe(2);
   expect(stderr).toContain("line 2");
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 });
 
 test("a candidate valid on its own is refused when linted with the set it joins (the brain-eval skill's check)", async () => {

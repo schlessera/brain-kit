@@ -154,7 +154,7 @@ describe("brain index --on-commit", () => {
     const resultB = await index(root, HOOK_ARGS, b.provider).catch((e: Error) => ({ errors: e.message, stdout: "" }));
     expect(resultB.errors).toBe("");
     expect(b.calls).toEqual([]);
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const found = db
       .prepare("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'quixotic'")
       .all();

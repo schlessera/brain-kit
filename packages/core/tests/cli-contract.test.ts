@@ -380,7 +380,7 @@ describe("add", () => {
       expect((await runCli(brain, ["index", "--json"])).code).toBe(0);
       // Refuse every new document row, so the file is written and the
       // reindex after it throws.
-      const db = new Database(join(brain, "brain.db"));
+      const db = new Database(join(brain, ".brain-index", "brain.db"));
       db.run(
         "CREATE TRIGGER refuse_index BEFORE INSERT ON documents BEGIN SELECT RAISE(ABORT, 'contract test: index refused'); END"
       );

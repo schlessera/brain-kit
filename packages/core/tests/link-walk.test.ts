@@ -17,8 +17,8 @@ let writer: Database;
 beforeAll(async () => {
   root = makeTempBrain();
   expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-  reader = openDatabase(`${root}/brain.db`);
-  writer = openDatabase(`${root}/brain.db`);
+  reader = openDatabase(`${root}/.brain-index/brain.db`);
+  writer = openDatabase(`${root}/.brain-index/brain.db`);
 });
 
 afterAll(() => {

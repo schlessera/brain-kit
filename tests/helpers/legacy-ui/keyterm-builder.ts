@@ -419,7 +419,7 @@ export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
     if (err instanceof BrainDbUnavailableError) {
       if (err.reason === "missing") {
         // Preserved behavior: no brain.db is a hard error the caller reports.
-        throw new Error(`brain.db not found at ${join(brainPath, "brain.db")}`);
+        throw new Error(`brain.db not found at ${join(brainPath, ".brain-index", "brain.db")}`);
       }
       // Schema too old for this package's SQL: degrade to no custom
       // vocabulary rather than breaking voice entirely. Pronunciation

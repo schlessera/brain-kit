@@ -1,4 +1,6 @@
 import { Database, constants } from "bun:sqlite";
+import { chmodSync, mkdirSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
 import { nameKeys } from "./name-key.js";
 
@@ -34,11 +36,22 @@ export const JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
 /**
  * Open the brain database, creating tables if needed.
  * Synchronous for broad compatibility.
+ *
+ * A writable open creates the database's directory when it is missing: the
+ * index lives in its own `.brain-index/` directory, which a fresh clone or a
+ * brain migrating from the old root-level `brain.db` does not have yet. The
+ * new directory takes its parent's permission bits rather than this
+ * process's umask: a hosted brain is shared through a setgid, group-writable
+ * root, and every later writer must be able to create SQLite sidecars there.
  */
 export function openDatabase(
   dbPath: string,
   options?: { readonly?: boolean } & SchemaOptions
 ): Database {
+  if (!options?.readonly) {
+    const directory = dirname(dbPath);
+    if (mkdirSync(directory, { recursive: true }) !== undefined) chmodSync(directory, statSync(dirname(directory)).mode & 0o7777);
+  }
   const db = new Database(dbPath, {
     readonly: options?.readonly ?? false,
     create: !options?.readonly,

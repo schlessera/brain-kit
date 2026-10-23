@@ -52,7 +52,7 @@ describe("Gemini instructions stay outside brain content", () => {
         expect(validation.errors).toBe(0);
         expect(validation.issues).toEqual([]);
         expect(validation.warnings).toBe(0);
-        const db = openDatabase(join(root, "brain.db"));
+        const db = openDatabase(join(root, ".brain-index", "brain.db"));
         try {
           const paths = (db.query("SELECT path FROM documents ORDER BY path").all() as { path: string }[]).map(row => row.path);
           expect(paths).toEqual(["notes/GEMINI.md", "notes/sirens.md"]);

@@ -106,7 +106,8 @@ test("filtered file-entry total counts aliases while its allocation union does n
 });
 
 test("reference inspection runs the supported query without repository configuration and marks unchecked consumers", async () => {
-  const f = fixture(), db = new Database(join(f.brain, "brain.db"));
+  const f = fixture(); mkdirSync(join(f.brain, ".brain-index"));
+  const db = new Database(join(f.brain, ".brain-index", "brain.db"));
   db.exec(`CREATE TABLE index_metadata(key TEXT,value TEXT); INSERT INTO index_metadata VALUES('schema_version','3');
     CREATE TABLE documents(id INTEGER PRIMARY KEY,path TEXT,title TEXT,type TEXT,summary TEXT,updated TEXT,indexed_at TEXT);
     CREATE TABLE links(source_id INTEGER,target_id INTEGER,target TEXT);

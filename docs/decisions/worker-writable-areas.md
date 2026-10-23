@@ -81,15 +81,15 @@ on the transcript persist path and is not part of this record.
 
 **One resolution, two consumers.** `prepareWorkerSandbox` resolves the
 areas and the home mode once per worker
-(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:776-817`).
+(`export function prepareWorkerSandbox`, `packages/ui-sdk/src/server/worker-launcher.ts:778-819`).
 The backend passes the result both to the launcher, which turns it into
 bubblewrap arguments, and to `workerSandboxNote`, which renders the agent's
-note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:474-516`).
+note (`export function workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:489-552`).
 The launcher re-checks the resolved layout against the actual launch: the
 same brain and envelope, each writable area still a real directory at its
 own path in the brain, and `$HOME` still the home the overlay was probed for.
 A mismatch refuses the launch instead of binding something the note does not
-describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:723-753`).
+describe (`function sandboxMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:725-755`).
 A launch without a resolved layout keeps the 0.41 view: only the per-turn
 scratch is writable.
 
@@ -101,13 +101,13 @@ brain, as core's `isGitRepo` counts it) it is bound only while git ignores
 it, as core's own scratch writes already require; otherwise a file written
 there by any tool could be committed. Git runs with the server's `HOME`, so
 the operator's `safe.directory` applies
-(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:350-369`).
+(`export function resolveScratchMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:365-384`).
 
 **Workspaces.** The directory is `workspaces/`, a fixed name. Core excludes
 it from the index in every brain: `exclude.dirs` adds to the defaults and
 cannot remove `workspaces`, so it never holds an indexed document. Its
 existence is the opt-in: someone creates it outside a hosted turn, and every
-later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:378-389`).
+later turn binds it (`export function resolveWorkspacesMount`, `packages/ui-sdk/src/server/worker-sandbox.ts:393-404`).
 It needs no gitignore line, unlike scratch: the ruling's condition is the
 index exclusion, and committing a clone or a work file from `workspaces/` is
 the user's choice, as it was before 0.41, not something a turn's output
@@ -122,7 +122,7 @@ the launch, counting the names each regular file's inode has inside the area.
 A file is offending only when its link count is higher than the names found
 inside: links wholly within the area (local clones between workspace
 repositories, package-manager stores) are harmless
-(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:204-214`).
+(`export function scanForOutsideLinks`, `packages/ui-sdk/src/server/worker-sandbox.ts:219-229`).
 An offending scratch name is unlinked, because scratch is disposable and the
 other name keeps the data. An offending workspace file, or a walk over 200 000
 entries, leaves `workspaces/` read-only for that turn, named in the note and
@@ -151,7 +151,7 @@ its private, size-limited turn-temp tmpfs. Real HOME stays read-only: a tool
 that writes it directly receives `EROFS`, recorded through the roadblock
 path. `prepareWorkerSandbox` resolves this same XDG mode on every eligible
 host (`export function prepareWorkerSandbox`,
-`packages/ui-sdk/src/server/worker-launcher.ts:776-817`). Host-backed overlay
+`packages/ui-sdk/src/server/worker-launcher.ts:778-819`). Host-backed overlay
 uppers cannot live on the worker's private tmpfs; keeping them would leave
 an unbounded write area. Tools reading XDG config see the per-turn directory,
 while direct reads of real HOME retain the read-only host view.
@@ -175,12 +175,14 @@ render too, so a refusal repeats the note's rule word for word.
 
 **Errors.** The CLI's read-only pre-check asks about the directory a command
 actually writes: the scratch area for `brain scratch` and for `brain render`
-sent there (`export function writeTarget`, `packages/core/src/cli/read-only.ts:42-48`).
+sent there, and `.brain-index/` for an index pass without `--embeddings`, which
+a provider-restricted turn's private index makes writable (#1668)
+(`export function writeTarget`, `packages/core/src/cli/read-only.ts:45-54`).
 `brain render` and `brain image` into the read-only brain now say to write
 with `--scratch` and link the printed path; when scratch is read-only too, the
 message states that condition and points to the sandbox note for the reason,
 without guessing why the host left scratch read-only; nothing written now is
-kept (`export function readOnlyBrainError`, `packages/core/src/cli/read-only.ts:17-33`).
+kept (`export function readOnlyBrainError`, `packages/core/src/cli/read-only.ts:18-34`).
 Render source validation precedes the read-only refusal (#2038): outside
 and missing input paths remain usage errors, while a valid input retains the
 same refusal and scratch advice
