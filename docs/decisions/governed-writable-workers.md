@@ -1726,7 +1726,11 @@ folder like any qualified provider folder:
   or replace it with a non-directory. Its contents stay writable, so SQLite's
   cross-process locking and the post-turn shared `index` refresh are
   unchanged. A refresh renames files *inside* the directory, which no longer
-  detaches anything mounted *over* it.
+  detaches anything mounted *over* it. Like a provider root, `.brain-index` stays
+  in the plans an active peer passes on after the policy is removed: a
+  scheduled Git publication admitted beside a still-running turn inherits
+  `[".brain-index", <provider roots>]` and refuses to remove the directory that
+  turn's private index is mounted over (#2705).
 - **The host creates it.** Retention needs an existing, unaliased directory.
   The index directory is the one retained root the host creates before
   admission, with the brain root's permission bits. It holds nothing
