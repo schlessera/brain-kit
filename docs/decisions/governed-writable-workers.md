@@ -1871,7 +1871,7 @@ strict checkpoint view (option B) and refusing every such selector (option A)
 were rejected.
 
 "Maps exactly" is defined as follows (`translateProviderTypes`,
-`packages/ui-server/src/brain/governance-policy.ts:140-155`):
+`packages/ui-server/src/brain/governance-policy.ts:153-168`):
 
 - **Paths.** `F/**` and `F/**/*` with a literal `F` map onto `F`; under
   Bun.Glob both match every file at any depth below `F`, hidden files
@@ -1923,6 +1923,15 @@ the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
 One matched set (`providerMaskedFolders`) then feeds retention, the masks,
 the private index and the server-tool refusals (#2690; #2691 for autonomous turns).
+A folder inside another selected folder, such as `me/sub/**` beside `me/**`
+or a type folder below a literal one, is dropped from that set and from the
+literal folders the taxonomy worker masks (2026-10-23,
+[#2718](https://github.com/schlessera/brain-kit/issues/2718)). The outer
+mask's empty read-only tmpfs already hides it, and bubblewrap cannot create a
+second mount point inside that tmpfs, so keeping it failed every launch.
+Everything that consumes the set treats a folder as covering everything below
+it, so the hardlink scan and the refusals still count the nested folder's
+files as masked.
 
 The writer gate plans retention when a writer is admitted, before any
 taxonomy is read. It reuses the folders the last admission translated for the
@@ -1979,8 +1988,8 @@ masks after the check, whether still during admission or while the turn runs,
 exposes it to that turn until the turn ends; the next admission refuses.
 Launch qualification rechecks folder identities, not link counts. The running
 turn cannot create such a link itself, because it cannot name the masked file.
-Nested masks (`me` and `me/x`) fail at launch independently of this check
-([#2718](https://github.com/schlessera/brain-kit/issues/2718)).
+Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
+the walk of `me` covers `me/x`.
 
 Still open under #1668: the committed sidecar caches (`.context-cache.jsonl`
 holds generated chunk contexts) and other retained copies have not been audited;

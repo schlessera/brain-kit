@@ -61,6 +61,13 @@ test("one matched set feeds masks and retention, and the gate reuses the last tr
   expect(providerMaskedFolders(selected, { identity: ["me"] }), "MASKED_SET_IS_FOLDERS_PLUS_TYPE_FOLDERS").toEqual(["ithaca", "me"]);
   expect(retainedFolderRoots(policy({ types: ["identity"] }), ["me"]), "TYPE_FOLDERS_RETAINED_WITH_THE_INDEX").toEqual([".brain-index", "me"]);
   expect(retainedFolderRoots(policy({ types: ["identity"] })), "NOTHING_RETAINED_BEFORE_TRANSLATION").toEqual([]);
+  // A folder inside another is hidden by the outer mask alone; bubblewrap
+  // cannot mount inside that empty read-only tmpfs (#2718).
+  const nested = policy({ paths: ["me/**", "me/sub/**", "mean/**", "ithaca/palace/**/*"] });
+  expect(providerFolderRoots(nested), "NESTED_PATH_FOLDER_DROPPED").toEqual(["ithaca/palace", "me", "mean"]);
+  expect(providerMaskedFolders(nested, { place: ["ithaca"], vault: ["me/vault"] }), "NESTED_FOLDERS_DROPPED_FROM_THE_MASKED_SET")
+    .toEqual(["ithaca", "me", "mean"]);
+  expect(retainedFolderRoots(nested, ["ithaca", "me/vault"]), "NESTED_FOLDERS_DROPPED_FROM_RETENTION").toEqual([".brain-index", "ithaca", "me", "mean"]);
   const brain = mkdtempSync(join(tmpdir(), "odysseus-provider-types-"));
   cleanup.push(() => rmSync(brain, { recursive: true, force: true }));
   rememberProviderTypeFolders(brain, "v1", ["me"]);

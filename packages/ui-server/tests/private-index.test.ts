@@ -26,7 +26,7 @@ const SENTINEL = "Zakynthosmarker";
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const remove of cleanup.splice(0).reverse()) remove(); });
 
-function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile: "governed" | "strict" = "governed") {
+function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile: "governed" | "strict" = "governed", prepare?: (brain: string) => void) {
   // Inside the repository: the corpus config imports @schlessera/brain, and a
   // governed brain may not link node_modules, so resolution walks up to the
   // workspace install, which the worker's runtime read paths restore.
@@ -42,6 +42,7 @@ function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]", profile
   mkdirSync(join(brain, ".git")); writeFileSync(join(brain, ".git/HEAD"), "ref: refs/heads/main\n");
   writeFileSync(join(brain, "me/identity.md"), `${readFileSync(join(brain, "me/identity.md"), "utf8")}\nHis identity word is ${SENTINEL}.\n`);
   writeFileSync(join(brain, "me/oath.md"), `---\ntype: note\ntitle: "Odysseus's private oath"\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [note]\n---\n\n${SENTINEL} is the word Odysseus keeps to himself.\n`);
+  prepare?.(brain);
   // The real index, built on the host from every document, me/ included.
   const index = Bun.spawnSync([...CLI, "index", "--json"], { cwd: brain, env: { PATH, BRAIN_ROOT: brain, HOME: root, NO_COLOR: "1" }, stdout: "pipe", stderr: "pipe" });
   expect(index.exitCode, index.stderr.toString()).toBe(0);
@@ -152,6 +153,35 @@ test.each([
     expect(refresh.folderPaths, "LATER_WRITER_PLANS_THE_TRANSLATED_FOLDER").toContain("me");
     await (await f.turns.begin("next", new AbortController().signal)).end();
   } finally { refresh.release(); }
+});
+
+test("a folder nested inside another masked folder launches under the outer mask alone", async () => {
+  // Bubblewrap cannot create me/sub inside the empty read-only tmpfs over me,
+  // so a second mask for it would fail every launch (#2718).
+  const f = fixture("[{ paths: [me/**, me/sub/**], allow: [anthropic] }]", "governed", brain => {
+    mkdirSync(join(brain, "me/sub"));
+    writeFileSync(join(brain, "me/sub/x.md"), `---\ntype: note\ntitle: "Odysseus's buried oath"\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [note]\n---\n\n${SENTINEL} lies under the olive tree.\n`);
+    writeFileSync(join(brain, "me/y.md"), `---\ntype: note\ntitle: "Odysseus's scar"\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [note]\n---\n\n${SENTINEL} marks the boar's scar.\n`);
+  });
+  expect(search(f.brain, undefined, SENTINEL), "REAL_INDEX_HOLDS_THE_NESTED_DOCUMENT").toContain("me/sub/x.md");
+  const hold = await f.turns.begin("nested-masks", new AbortController().signal);
+  try {
+    expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/bash", "-c", `
+      printf 'me=%s\\n' "$(ls -A me | wc -l)"
+      cat me/sub/x.md 2>/dev/null && printf 'READ_NESTED\\n'
+      cat me/y.md 2>/dev/null && printf 'READ_OUTER\\n'
+      grep -rl ${SENTINEL} . 2>/dev/null || true
+    `] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.exitCode, `NESTED_MASK_LAUNCHES: ${shell.stderr.toString()}`).toBe(0);
+    expect(shell.stdout.toString(), "BASH_CANNOT_READ_NESTED_OR_OUTER_MASKED_DOCUMENTS").toBe("me=0\n");
+    // The launcher qualifies the concrete mounts before the payload starts.
+    const worker = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/true"] });
+    expect(await worker.exited, "NESTED_MASK_QUALIFIED_BEFORE_PAYLOAD").toBe(0);
+    expect(hold.sandbox.providerMasks?.folders, "NESTED_FOLDER_COVERED_BY_ITS_ANCESTOR").toEqual(["me"]);
+    expect(hold.sandbox.retainedFolders, "NESTED_FOLDER_NOT_RETAINED_SEPARATELY").toEqual([".brain-index", "me"]);
+    expect(search(f.brain, hold.sandbox, SENTINEL).filter(path => path.startsWith("me/")), "PRIVATE_INDEX_LACKS_NESTED_DOCUMENTS").toEqual([]);
+  } finally { await hold.end(); }
 });
 
 test.each([
