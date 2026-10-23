@@ -136,15 +136,68 @@ empty read-only directory, `.git` is hidden, and `.brain-index/` is a
 turn-private, writable index. It is built before the turn by the brain's own
 CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
 never held a masked document. The real index is refreshed from Markdown after
-the turn as usual. A policy whose provider rules also name a document type, a
-non-literal glob or a single path refuses turn admission with
-`ProviderPolicyRefusedError`, naming each such selector; nothing it selects is
-left silently readable. Host bridge tools that run on the server, outside the
+the turn as usual. Host bridge tools that run on the server, outside the
 worker's mounts, refuse every path at or below a masked root with the named
 refusal `provider_masked` and one `provider_mask_refusal` governance event per
 call: `brain_read_base`, the application tools, share completion, image masks,
-`inbox_add` and policy proposals (#2690). Autonomous turns and the allowed recipient's
-unmasked view are not covered yet.
+`inbox_add` and policy proposals (#2690). Autonomous turns and the allowed
+recipient's unmasked view are not covered yet.
+
+**Which selectors hosted turns enforce (additive in 0.44.0, #2694).** A
+selector is enforced only when it maps exactly onto whole folders; the turn
+then masks those folders as above. Every other selector refuses turn admission
+with `ProviderPolicyRefusedError`, which names it and says why, so nothing it
+selects is left silently readable.
+
+| Selector | Hosted turns |
+| --- | --- |
+| `paths: [folder/**]` or `[folder/**/*]` with a literal folder | Masks the folder. The two spellings match the same files. |
+| Any other path pattern: `me/*.md`, `**/oath/**`, `{a,b}/**`, a single path such as `me/identity.md`, or a `.git` or `.brain-index` folder | Refused. |
+| `types: [type]` whose folders map exactly | Masks the type's folders. |
+| Any other `types` entry | Refused, with the reason. |
+
+A type's folders are its effective `match` prefixes, or `[dir]` without
+`match`, as `brain config check --json` reports them. They map exactly when
+all of these hold at admission:
+
+- The type is defined, it is not the inbox type (which also takes every path
+  outside the other types' prefixes), and it has at least one prefix.
+- Each prefix is a literal folder a turn can hide: no glob characters, and
+  not `.git` or `.brain-index` or inside them.
+- No other type's prefix equals or lies inside one of them, so path inference
+  gives no other type within them.
+- No Markdown file outside the turn's masked folders declares the type in
+  frontmatter. The check reads every `.md` file the turn could see, hidden and
+  excluded folders and `node_modules` included; only `.git` and
+  `.brain-index/` are skipped. A `.md` symbolic link counts as the file it
+  resolves to, unless that file is in a masked folder. A link to a folder
+  outside the brain is not followed and refuses the type as unverifiable. A
+  file whose frontmatter does not parse declares no type, as for the indexer.
+
+For example, the core `identity` type (`dir: me`) masks `me/` as long as every
+`type: identity` document lives there. A `note` rule refuses, because `note`
+is the inbox type; so does an `index` rule, because `index` has no folder.
+Files of other types that sit inside a masked folder are hidden with it.
+
+The taxonomy comes from `brain.config.ts`, which the host never runs: the
+brain's own CLI reports it from a credential-free worker that sees the
+literal-folder masks, and anything that worker writes is discarded. Assets
+(images, PDFs) take their type from their path under that configuration, so
+the reported folders decide which assets are hidden. That trusts the code the
+configuration runs: `brain.config.ts` and `node_modules` are protected paths a
+governed turn cannot change, but local modules, files the configuration
+imports and the brain's own CLI fallback script are not, and a turn that rewrites them can
+change which assets a later turn's type rules hide. Markdown documents stay
+covered by the frontmatter check whatever the taxonomy reports. Admission
+therefore runs that worker and reads every Markdown file outside the masked
+folders, on top of the private index build. When admission takes a newer
+checkpoint of the brain before the turn starts, it judges the types again on
+that checkpoint.
+
+The check applies to the brain as admission sees it. A document that the turn
+or a peer creates or retypes to a selected type outside its folders during
+the turn stays readable to that turn; the next admission refuses until it is
+moved into the type's folders or retyped.
 
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing

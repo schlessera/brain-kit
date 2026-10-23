@@ -75,7 +75,10 @@ and voice turns, as specified under
 [supported inputs](supported-inputs.md#governance-policy). Every literal
 `folder/**` root is masked, `.git` is hidden, and the turn gets a private
 filtered `.brain-index/`. A rule that also selects a document type, a
-non-literal glob or a single path refuses turn admission by name. No schema,
+non-literal glob or a single path refuses turn admission by name. Since #2694
+(additive, 0.44.0) a `folder/**/*` path and a document type that maps exactly
+onto folders are masked the same way; every other such selector still refuses,
+naming why ([which selectors](supported-inputs.md#governance-policy)). No schema,
 CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
 `--embeddings` now runs where only `.brain-index/` is writable.
 
@@ -85,6 +88,16 @@ an error whose message starts `provider_masked:`; the application tools return
 `{ ok: false, code: "provider_masked" }` with no change. Each refused call
 records one `provider_mask_refusal` [governance event](integration-contract/http.md#governance-events-additive-1651)
 (`tool`, `path`, `rule`, `policyHash`).
+
+## Separate-UID provider folder turns (additive, 0.44.0, #2696)
+
+The host identity helper protocol (`--brain-worker-identity-v1`) gains a
+`view` operation and an optional `view` launch field, specified with the
+[host protocol](hosting/agent-workers.md#separate-worker-identity). The
+server uses them to qualify a separate-UID governed worker's mounted provider
+folders and private index before its payload starts. Other launches do not
+send the field. A helper without the operation refuses provider-folder turns
+before payload start, as before; nothing else changes.
 
 ## Authoritative surfaces
 

@@ -5,7 +5,7 @@ import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan"
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
 
-export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): Command[] {
+export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false): Command[] {
   const bun = process.execPath;
   const checks: Command[] = [
     { name: "all lint and leakage gates", argv: [bun, "run", "lint"] },
@@ -14,7 +14,7 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string): 
   ];
   if (!full) {
     if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
-    if (mergeBase) checks.push({
+    if (importGraph && mergeBase) checks.push({
       name: "import-graph affected tests (feedback only; misses spawned and file-read inputs; no matches skips)",
       argv: [bun, "run", "test", `--changed=${mergeBase}`, "--pass-with-no-tests"],
     });
@@ -120,25 +120,31 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
 
 if (import.meta.main) {
   try {
-    const args = process.argv.slice(2); let base = "origin/main"; let all = false; let full = false; let print = false;
+    const args = process.argv.slice(2); let base = "origin/main"; let all = false; let full = false; let print = false; let importGraph = false;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--base" && args[i + 1]) base = args[++i]!;
       else if (args[i] === "--all") { all = true; full = true; }
       else if (args[i] === "--full") full = true;
+      else if (args[i] === "--import-graph") importGraph = true;
       else if (args[i] === "--plan") print = true;
-      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--plan]");
+      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan]");
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
     const plan = planChecks(changed, workspaces(root), root);
     let mergeBase: string | undefined;
-    if (!full) {
+    if (!full && importGraph) {
       const merge = Bun.spawnSync(["git", "merge-base", base, "HEAD"], { cwd: root, stdout: "pipe", stderr: "pipe" });
       if (merge.exitCode !== 0) throw new Error(`Cannot determine import-graph feedback merge base: ${new TextDecoder().decode(merge.stderr)}`);
       mergeBase = new TextDecoder().decode(merge.stdout).trim();
     }
-    const commands = localChecks(plan, full, mergeBase);
-    console.log(JSON.stringify({ ...plan, commands: commands.map(command => command.name), packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
+    const commands = localChecks(plan, full, mergeBase, importGraph);
+    const contributionChangeset: Command = { name: "contribution changeset", argv: [process.execPath, "scripts/check-changeset.ts", base] };
+    const plannedCommands = [...commands.slice(0, 3), contributionChangeset, ...commands.slice(3)];
+    const importGraphFeedback = full ? "skipped: --full/--all retain their existing suites" :
+      importGraph ? "enabled with --import-graph" : "skipped by default; enable with --import-graph";
+    console.log(JSON.stringify({ ...plan, commands: plannedCommands.map(command => command.name), commandDetails: plannedCommands,
+      importGraphFeedback, packedConsumerChecks: full && plan.pack, hostedProofRequired: plan.local }, null, 2));
     if (print) process.exit(0);
     requireLocalSandbox();
     const chrome = full ? requireRuntimeTools(plan) : undefined;
@@ -149,7 +155,7 @@ if (import.meta.main) {
     const withEnv = (command: Command) => ({ ...command, env: { ...env, ...command.env } });
     const parallel = commands.filter(command => command.name === "strict typecheck" || command.name === "complete unit and integration suite");
     for (const command of commands.slice(0, 3)) await runCommands([withEnv(command)], root);
-    await runCommands([{ name: "contribution changeset", argv: [process.execPath, "scripts/check-changeset.ts", base] }], root);
+    await runCommands([contributionChangeset], root);
     if (full && plan.local.captures) await runCommands([{ name: "pinned capture fonts and original notices",
       argv: [process.execPath, "run", "capture:fonts"] }], root);
     if (chrome) await runCommands([{ name: "first real Chrome launch and render",

@@ -15,6 +15,7 @@ import { createUiDb } from "../../packages/ui-server/src/db/client.js";
 import { createJournalAccounting } from "../../packages/ui-server/src/brain/journal-accounting.js";
 import { createJournalObjects } from "../../packages/ui-server/src/brain/journal-objects.js";
 import { createNativeJournalCapture } from "../../packages/ui-server/src/brain/native-journal-capture.js";
+import { proveNativeProviderIndex } from "./provider-index.native.js";
 
 const brain = "/brain-fixture/brain", socketPath = "/native-runtime/identity-manager.sock";
 const MIB = 1024 ** 2;
@@ -57,6 +58,8 @@ print('Odysseus strict managed stage')`] });
       expect(statSync(join(brain, ".brain/scratch/private")).mode & 0o777).toBe(0o700);
       expect(statSync(join(brain, ".brain/scratch/private/result.md")).mode & 0o777).toBe(0o600);
     } finally { await prepared.cleanup(); }
+
+    await proveNativeProviderIndex(brain, manager);
 
     const data = "/identity-fixture/native-journal"; mkdirSync(data, { mode: 0o700 });
     const dbPath = join(data, "ui.db"), db = createUiDb(dbPath), ledger = createJournalAccounting(db, dbPath);
