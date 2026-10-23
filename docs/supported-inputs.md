@@ -141,7 +141,10 @@ the turn as usual. Host bridge tools that run on the server, outside the
 worker's mounts, refuse every path at or below a masked root with the named
 refusal `provider_masked` and one `provider_mask_refusal` governance event per
 call: `brain_read_base`, the application tools, share completion, image masks,
-`inbox_add` and policy proposals (#2690). An autonomous (restricted) turn applies the same
+`inbox_add` and policy proposals (#2690). `query_activity`, `inbox_list` and
+`inbox_get` read the server's own records, which keep text from earlier runs;
+such a turn is refused them whole with the same `provider_masked` refusal and
+no event (#2698). An autonomous (restricted) turn applies the same
 masks and private index to its envelope and reads the same last-valid policy.
 It translates selectors as below and refuses the rest the same way: an
 unsupported path selector before any worker starts, an untranslatable type

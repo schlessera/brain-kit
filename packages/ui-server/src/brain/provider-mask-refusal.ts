@@ -27,6 +27,22 @@ export class ProviderMaskRefusedError extends Error {
   }
 }
 
+/**
+ * A host read of the server's own records, refused whole while the turn has
+ * masked folders (#2698, option A). The activity record and inbox items keep
+ * free text from earlier runs, which may quote a masked document; no field
+ * says which, so nothing is filtered and nothing is read.
+ */
+export class ProviderRecordsRefusedError extends Error {
+  readonly code = PROVIDER_MASKED;
+  constructor(readonly tool: string, folders: readonly string[], what: string) {
+    super(`${PROVIDER_MASKED}: ${tool} is unavailable to this turn, because the governance policy's provider rules hide `
+      + `${folders.map(folder => `\`${folder}/\``).join(", ")} from it. ${what} keeps text from earlier runs, which may quote those folders; nothing was read. `
+      + "The user can still read it in the app.");
+    this.name = "ProviderRecordsRefusedError";
+  }
+}
+
 export interface ProviderMaskGuard {
   /** The admitted turn's masked roots, as its worker mounts them. */
   readonly folders: readonly string[];
