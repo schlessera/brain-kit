@@ -29,8 +29,9 @@ The existing `WorkerSandbox` input adds optional `@internal egress`, a concrete 
 turn proxy from the SDK's internal `startEgressProxy`. It is trusted host data,
 not a wire field, backend extension callback or destination permission. The
 ordinary Claude turn runner consumes an explicitly supplied proxy for its
-stored-login profile; API-billed and autonomous paths retain their existing
-selection. Existing callers omitting it keep their current behavior.
+stored-login and API-billed profiles; the autonomous path retains its existing
+selection. An API-billed profile's own key is injected by the relay and its
+worker holds a placeholder. Existing callers omitting it keep their current behavior.
 
 The prepared first-party composition uses the native worker's placeholder
 credential and host-held OAuth resolution on each actual dispatch. Native

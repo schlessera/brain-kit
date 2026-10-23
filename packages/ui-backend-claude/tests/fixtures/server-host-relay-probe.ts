@@ -1,5 +1,5 @@
 /** Real turn runner and an explicitly prepared transport; no live provider calls. */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect } from "bun:test";
 import { query } from "@anthropic-ai/claude-agent-sdk";
@@ -15,8 +15,11 @@ import { Database } from "bun:sqlite";
 const root = mkdtempSync(join(tmpdir(), "odysseus-server-inference-"));
 const managed = process.argv.includes("--managed");
 const brainPath = managed ? "/brain-fixture/brain" : join(root, "brain");
-const home = join(root, "home"), config = join(home, ".claude");
+// outside-masks: the host's Claude config sits where no host mask hides it (the caller mounts /opt).
+const home = process.argv.includes("outside-masks") ? "/opt/odysseus-home" : join(root, "home"), config = join(home, ".claude");
 for (const path of [...(managed ? [] : [brainPath]), home, config]) mkdirSync(path, { mode: 0o700 });
+// A readable control beside the masked login: the worker view must observe this one.
+writeFileSync(join(config, "visible.json"), "{}");
 const tokens = ["odysseus-first", "odysseus-changed", "odysseus-refreshed"];
 function save(index: number, expired = false) {
   writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: {
@@ -25,8 +28,21 @@ function save(index: number, expired = false) {
   } }), { mode: 0o600 });
 }
 save(0);
+// The config directory stays outside the brain, but its login file is linked into it.
+if (process.argv.includes("login-in-brain")) {
+  renameSync(join(config, ".credentials.json"), join(brainPath, ".odysseus-login.json"));
+  symlinkSync(join(brainPath, ".odysseus-login.json"), join(config, ".credentials.json"));
+}
 const mode = process.argv.find(arg => ["three", "project-aba", "project-custom", "managed-aba", "managed-custom", "recorder-failure", "cleanup-failure",
-  "server-custom-unlisted", "server-custom-listed", "server-custom-other-port", "server-custom-project-same", "server-custom-project-other"].includes(arg)) ?? "three";
+  "server-custom-unlisted", "server-custom-listed", "server-custom-other-port", "server-custom-project-same", "server-custom-project-other",
+  "api-key", "api-token", "api-key-project-custom", "api-key-project-credential", "outside-masks", "login-in-brain"].includes(arg)) ?? "three";
+// An API-billed profile: its key is read from the host environment by name.
+const apiBilled = mode.startsWith("api-");
+const apiSecret = "odysseus-api-secret-for-ithaca", hostLogin = "odysseus-ambient-host-login";
+const ambientBearer = "odysseus-ambient-bearer", ambientRouter = "odysseus-ambient-router-key";
+// Ambient credentials the profile does not declare: neither may reach the worker or the profile's route.
+if (apiBilled) Object.assign(process.env, { ODYSSEUS_ANTHROPIC_KEY: apiSecret, CLAUDE_CODE_OAUTH_TOKEN: hostLogin,
+  OPENROUTER_API_KEY: ambientRouter, ...(mode === "api-token" ? {} : { ANTHROPIC_AUTH_TOKEN: ambientBearer }) });
 // The server's own route: a custom gateway with a base path, selected by trusted host configuration.
 const gateway = mode.startsWith("server-custom-") ? "https://gateway.ithaca.invalid/anthropic" : undefined;
 if (["server-custom-listed", "server-custom-project-same", "server-custom-project-other"].includes(mode)) process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://other.ithaca.invalid, https://gateway.ithaca.invalid";
@@ -41,12 +57,50 @@ if (mode === "managed-custom") {
   mkdirSync("/etc/claude-code");
   writeFileSync("/etc/claude-code/managed-settings.json", JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
 }
-if (mode === "project-custom") {
+if (mode === "api-key-project-credential") {
+  mkdirSync(join(brainPath, ".claude"));
+  writeFileSync(join(brainPath, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_API_KEY: "odysseus-project-key" } }));
+}
+if (mode === "project-custom" || mode === "api-key-project-custom") {
   mkdirSync(join(brainPath, ".claude"));
   writeFileSync(join(brainPath, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://ithaca.invalid" } }));
 }
 
 const requests: Array<{ credential: number; model: string; history: number }> = [];
+const apiRequests: Array<{ apiKey: string | null; authorization: string | null }> = [];
+const nativeEnvironments: string[] = [];
+let liveWorker: { pid: number; state?: { root: string } } | undefined;
+let stateFiles = "";
+/** Whether a process in the worker's own mount namespace could open the host login file. */
+let hostLoginVisible: boolean | null = null, controlVisible = false;
+function workerViewOfHostLogin(): void {
+  const pending = [liveWorker?.pid ?? 0];
+  hostLoginVisible ??= false;
+  for (let count = 0; pending.length && count < 100; count++) {
+    const pid = pending.shift()!;
+    try {
+      if (readlinkSync(`/proc/${pid}/ns/mnt`) !== readlinkSync("/proc/self/ns/mnt")) {
+        try { readFileSync(`/proc/${pid}/root${config}/.credentials.json`); hostLoginVisible = true; } catch { /* masked */ }
+        try { readFileSync(`/proc/${pid}/root${config}/visible.json`); controlVisible = true; } catch { /* not this process */ }
+      }
+    } catch { /* exited */ }
+    try { pending.push(...readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number)); } catch { /* No children. */ }
+  }
+}
+function nativeEnvironment(): void {
+  const pending = [liveWorker?.pid ?? 0];
+  for (let count = 0; pending.length && count < 100; count++) {
+    const pid = pending.shift()!;
+    try { if (readlinkSync(`/proc/${pid}/exe`).endsWith("/claude")) { nativeEnvironments.push(readFileSync(`/proc/${pid}/environ`, "utf8")); return; } } catch { /* An exited wrapper is not the native process. */ }
+    try { pending.push(...readFileSync(`/proc/${pid}/task/${pid}/children`, "utf8").trim().split(/\s+/).filter(Boolean).map(Number)); } catch { /* No children. */ }
+  }
+}
+function files(path: string): string {
+  try {
+    return readdirSync(path, { withFileTypes: true }).map(entry => entry.isDirectory() ? files(join(path, entry.name))
+      : entry.isFile() ? readFileSync(join(path, entry.name), "utf8") : "").join("\n");
+  } catch { return ""; }
+}
 let refreshes = 0;
 const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   if (new URL(request.url).pathname === "/v1/oauth/token") {
@@ -54,6 +108,11 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
       scope: "user:inference user:profile" });
   }
   const body = await request.json() as { model: string; messages: unknown[] };
+  if (mode === "outside-masks") workerViewOfHostLogin();
+  if (apiBilled) {
+    nativeEnvironment(); if (liveWorker?.state) stateFiles += files(liveWorker.state.root);
+    apiRequests.push({ apiKey: request.headers.get("x-api-key"), authorization: request.headers.get("authorization") });
+  }
   requests.push({ credential: tokens.indexOf(request.headers.get("authorization")?.replace("Bearer ", "") ?? ""), model: body.model, history: body.messages.length });
   return nativeModelReply();
 } });
@@ -97,8 +156,9 @@ const runner = createClaudeTurnRunner({ backend: { brainPath, queryFn: input => 
     };
   }
   return native;
-} }, resolveProfiles: () => [{ id: "claude", label: "Claude",
-  billing: "subscription", requiredEnvKeys: [], model, buildEnv: () => environment }],
+} }, resolveProfiles: () => [apiBilled ? { id: "claude", label: "Claude", billing: "api" as const, requiredEnvKeys: ["ODYSSEUS_ANTHROPIC_KEY"], model,
+  buildEnv: () => ({ ...environment, ...(mode === "api-token" ? { ANTHROPIC_AUTH_TOKEN: apiSecret, ANTHROPIC_API_KEY: "", CLAUDE_CODE_OAUTH_TOKEN: "" } : { ANTHROPIC_API_KEY: apiSecret }) }) }
+  : { id: "claude", label: "Claude", billing: "subscription" as const, requiredEnvKeys: [], model, buildEnv: () => environment }],
   confirmPatterns: [], writeLock: createKeyedLock(), lockWaitMs: 1000, log(_level, message, attrs) { if (message === "host inference checkpoint") console.error(JSON.stringify(attrs)); },
 });
 let sessionId: string | undefined;
@@ -135,7 +195,7 @@ try {
         sessionId, profileId: "claude", signal: controller.signal, bridge,
         ...(view ? { workerStartupView: view } : {}),
         workerSandbox: { brain: brainPath, restricted: false, profile: managed ? "strict" : "governed", areas: [], scratchAliasesRemoved: [], protection: { paths: [], ancestors: [] }, egress: proxy },
-        workerStarted: worker => { const state = worker as { state?: { root: string } };
+        workerStarted: worker => { const state = worker as unknown as { pid: number; state?: { root: string } }; liveWorker = state;
           if (state.state && !managed) { try { readFileSync(join(state.state.root, ".credentials.json")); projectedCredentials = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
         },
       });
@@ -152,7 +212,11 @@ try {
       clearTimeout(timer); controller.abort(); proxy.stop(); await view?.cleanup();
     }
   }
-  console.log(JSON.stringify({ requests, refreshes, sessionId, projectedCredentials, recordingFailure, cleanupFailures, releaseFailures,
+  const observed = JSON.stringify({ nativeEnvironments, stateFiles });
+  console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible,
+    secretInWorker: [apiSecret, hostLogin, ambientBearer, ambientRouter].some(secret => observed.includes(secret)),
+    workerPlaceholders: nativeEnvironments.map(value => ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ODYSSEUS_ANTHROPIC_KEY"]
+      .map(name => new RegExp(`(?:^|\0)${name}=([^\0]*)`).exec(value)?.[1] ?? null)), sessionId, projectedCredentials, recordingFailure, cleanupFailures, releaseFailures,
     results: frames.filter(frame => frame.type === "result" || frame.type === "error"),
     observations: (db.query("SELECT session_id, model, record FROM observations").all() as Array<{ session_id: string; model: string; record: string }>).map(row => ({ sessionId: row.session_id, model: row.model, payload: JSON.parse(row.record) })),
   }));

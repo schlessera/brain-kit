@@ -1255,7 +1255,7 @@ This is a measurement of the paths, not a qualified host tuple.
 
 | Path | Result |
 | --- | --- |
-| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`); the existing offline relay controls qualify it. Ordinary server turns do not compose the relay yet. |
+| Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`). Governed and strict server turns on managed native storage compose it for subscription and API-key profiles alike; the worker holds a placeholder and the relay adds the host login or the profile's key. The real native CLI qualifies both offline (`packages/ui-backend-claude/tests/native-route-qualification.test.ts`). |
 | Pi inference through the relay | Not measured. Pi has no ordinary relay consumer yet; this is a stated gap. |
 | `git` over HTTPS | Passes: clone through CONNECT, opaque bytes recorded. |
 | `git` over SSH | Passes: clone through the first-party CONNECT helper, which the worker bootstrap sets as Git's `ProxyCommand` unless the caller already chose `GIT_SSH_COMMAND`. OpenSSH reads `~/.ssh` from the passwd home, which the worker masks, so keys and host keys must be supplied explicitly. |
@@ -1268,14 +1268,14 @@ Pi inference does not pass yet. Following the gate's rule, default-on goes
 ahead with that gap stated in the capabilities note, on hosts with managed
 native storage only:
 
-- **Claude.** A governed or strict Claude turn runs on its own turn proxy and
-  the host inference relay. Every connection is a governance event, and a
+- **Claude.** A governed or strict Claude turn, on a subscription or an
+  API-key profile, runs on its own turn proxy and the host inference relay. Every connection is a governance event, and a
   connection to an outward host waits for approval unless the call in progress
   was classified as a read or an approved outward action. Outward hosts are
   the GitHub API, mail submission (any host on port 25, 465 or 587, and the
   built-in mail-send APIs) and the policy's `outward.hosts`. The note says so.
-- **Not routed yet.** An API-key Claude profile and every Pi turn keep their
-  current network, and their note still says egress is unrecorded.
+- **Not routed yet.** Every Pi turn keeps its current network, and its note
+  still says egress is unrecorded.
 - **No managed native storage.** Governed and strict turns keep their current
   network without the turn proxy, and their note says egress is unrecorded.
   `GET /api/status` reports this as `runtime.workerHost.governed.egress`
@@ -1291,6 +1291,14 @@ in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
 custom origin refuses the turn before its prompt is sent or the login is read.
 A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
 must add this variable when it moves to managed native storage.
+
+An API-key profile needs no listing: its key and its route come from the same
+declaration in `BRAIN_UI_CLAUDE_PROFILES` (the profile's `baseUrl`, else the
+server's `ANTHROPIC_BASE_URL`), so the relay sends the key only there. The
+worker holds a placeholder under `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`,
+the variable the profile names stays on the host, and the host login is
+cleared. Project settings that move the route refuse the turn before its
+prompt is sent.
 
 ### Untrusted input (#1667)
 
@@ -1316,8 +1324,8 @@ on both backends. On the turn proxy, every admitted connection other than the
 inference relay taints the session too, and a tainted session's new
 connections reach only `taint.egress.allow` and hosts its proxies already
 admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
-Without the proxy (Pi, API-key Claude profiles, hosts without managed native
-storage) nothing narrows egress, and the capabilities note says so. Files the
+Without the proxy (Pi, hosts without managed native storage) nothing narrows
+egress, and the capabilities note says so. Files the
 user marks untrusted are not a source yet. The rules are in
 [the decision record](../decisions/governed-writable-workers.md#untrusted-input-g6).
 

@@ -478,7 +478,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:193-197`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:201-205`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -1090,7 +1090,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:312`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:318`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1115,7 +1115,7 @@ also preserves the previous observation: it supplied no new bytes
 
 Claude keeps these observations in its backend-owned session map
 (`const fileVersionsBySession`,
-`packages/ui-backend-claude/src/turn-runner.ts:97`). Pi keeps them in its
+`packages/ui-backend-claude/src/turn-runner.ts:105`). Pi keeps them in its
 backend-owned session runtime across fresh per-turn workers
 (`const nativeFileVersions`,
 `packages/ui-backend-pi/src/session-runtime.ts:19`); internal RPC reports
@@ -1425,9 +1425,9 @@ managed storage is follow-up work. Each connection is recorded as a governance e
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
 `packages/ui-server/src/brain/turn-egress.ts:59-135`). The note says egress is
-recorded only when the backend actually routed the worker through the proxy;
-an API-key Claude profile is not routed yet. Its note still says
-"Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
+recorded only when the backend actually routed the worker through the proxy.
+API-key Claude profiles are routed too (2026-10-22); Pi's note still says
+"Egress is unrecorded" until Pi's relay consumer lands. The
 socket walk passes since all of `/var` is masked, so the note states no
 reachable-socket gap.
 
@@ -2471,9 +2471,9 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:59-135`). Pi turns, API-key
-Claude profiles and hosts without managed native storage have no proxy, so the
-Bash classifier remains their shell rule and nothing narrows their egress.
+`packages/ui-server/src/brain/turn-egress.ts:59-135`). Pi turns and hosts
+without managed native storage have no proxy, so the Bash classifier remains
+their shell rule and nothing narrows their egress.
 
 The capabilities note states the taint sources, these rules, whether this
 turn's egress is narrowed or explicitly not enforced, and the session's first
@@ -2503,7 +2503,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:279-296`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:285-302`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
