@@ -3,6 +3,39 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Withheld provider keys (additive, 0.44.0, #1666)
+
+A governed or strict agent worker may lack provider keys the server holds. Its
+launcher names them, never their values, in `BRAIN_WITHHELD_KEYS`
+(comma-separated environment names). A key counts as withheld only while it is
+named there and unset. Without the variable, or for a key it does not name, the
+CLI keeps its ordinary keyless behaviour and messages.
+
+A command that needs a withheld key says so in a sentence that ends in one
+token:
+
+```text
+[provider_unavailable provider=<name> capability=<capability> key=<VARIABLE> degraded_to=<fallback>]
+```
+
+- `provider` is the configured provider name (`gemini`, `gemini-flash`,
+  `anthropic-haiku`, `jev`, `openai`), `[A-Za-z0-9][A-Za-z0-9._:-]*`.
+- `capability` is `embeddings`, `completions`, `reranking` or `image`.
+- `key` is the withheld variable.
+- `degraded_to` is the fallback used: `keyword_search`, `keyword_index`,
+  `lifecycle_order`, or `none` when the command refused or had nothing to fall
+  back to.
+
+Where it appears: a `brain search` (and the `brain mcp` server's search)
+`warnings` entry, a `brain index --embeddings` stderr warning, the
+`brain process` usage error, the `brain image` error, and the missing-key
+error of a built-in provider a command calls directly (`brain video watch`). `brain search` still
+returns its keyword results and exits `0`; the refusals keep their existing
+exit codes. The server records each distinct token in a tool result as a
+`provider_unavailable` governance event ([HTTP](../http-api.md#governance-event-kinds)).
+The wording before the token is prose and may change; the token's grammar and
+values are the contract. New capabilities or fallbacks are additive.
+
 ## Storage packing (additive, 0.44.0, #2011)
 
 `brain storage pack --json` runs only the existing non-destructive Git
@@ -284,7 +317,7 @@ resumption. The host must retain a successful complete export at least every
 
 | Command | Shape |
 |---------|-------|
-| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
+| `brain search "q" --json` | `{ "results": SearchResult[], "warnings": string[] }` — `warnings` reports degraded modes (no vectors, model mismatch, missing key, a reranker that did not run, a [withheld provider key](#withheld-provider-keys-additive-0440-1666)). `--rerank none\|heuristic\|jev`: `jev` added in 0.39.0, additively; unset, the configured `reranker.provider` (judgment requires `reranker.enabled: true`; otherwise local `heuristic`, or `none` when selected). `--rerank-dry-run` (0.39.0) prints the reranker's outbound request to stderr and sends nothing, even while disabled or keyless. Date filters `--updated-since`, `--updated-before`, `--deadline-from`, `--deadline-to` (`YYYY-MM-DD`, inclusive; a deadline filter drops undated docs), `--sort score\|updated\|deadline` (default `score`; `updated` newest first, `deadline` earliest first with undated docs last) and `--upcoming` (= `--deadline-from <today, UTC> --sort deadline`) added in 0.38.0, additively. Stored dates are compared as their UTC day (sorts keep full timestamp precision). A stored value counts only as an ISO `YYYY-MM-DD`, optionally followed by `T` or a space, `HH:MM`, seconds, a fraction and a `Z` or `±HH:MM` offset. Anything else, `2026-02-30` and `now` included, counts as missing: it matches no bound and sorts last. With a query, a date sort picks the results by date from a candidate pool: the full-text lane's best `max(limit × 20, 500)` documents, plus the documents behind the vector lane's nearest chunks (at most that many documents, from at most 500 chunks). An invalid date or sort is a usage error (exit `1`) |
 | `brain audit --json` | `{ "issues": AuditIssue[], "errors", "warnings", "infos", "mustFix", "informational" }` — markdown documents only (assets excluded). The three severity counts are the number of issues at each severity. `mustFix` is `errors + warnings` and `informational` is `infos` (both additive in 0.40.0): severity stays the one classification, and the two totals only name its halves. Every count is of issues, not of markers. **Breaking in 0.40.0:** `todo` and `verify` issues are grouped, one per document and category (see [`AuditIssue`](#auditissue)), and `verify` is `info` instead of `warning`, so a brain with markers reports fewer issues and fewer warnings than before for the same content. **Additive in 0.41.0:** `brain audit --fix --json` returns `AuditFixResult[]`, one result per finding in finding order: `{ path, issue, suggestion, canAutoFix, fix?, repair? }`. `path` is the finding path, `issue` its message, and `suggestion` its own advice (or "Manual review needed."); an unavailable `index-stale` instead names the failed repair premise, or says no registry content change is required. `canAutoFix` is true only for an actually available deterministic registry repair: safe contained path, valid opted-in registry with a content change, configured child types and no validation errors under the index directory. Available results also carry `repair: { capability: "registry", path: <index path> }`; all other categories and failed premises are manual with no `repair`. `repair` describes availability, grants no permission, and applies nothing. Optional `fix` means exact replacement text; this command never emits it. No completion provider is called, even if configured |
 | `brain context "q" --max-tokens N` | assembled markdown context (text) |
 | `brain read <path> [--section <heading>] [--max-tokens N]` | the document text; the flags behave as `brain_read`'s `section` and `max_tokens`, and an unknown section exits `1` (flags additive in 0.38.0) |

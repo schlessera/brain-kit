@@ -1026,6 +1026,7 @@ export "./internal" (./src/internal.ts)
   WORKER_INFERENCE_DIR
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
+  WORKER_PROVIDER_CREDENTIAL_ENV
   WORKER_SCRATCH
   WORKER_STATE
   WORKER_STATE_BUDGET_ENV
@@ -1169,6 +1170,7 @@ export "./internal" (./src/internal.ts)
   workerNoteLimits
   workerOutwardNote
   workerProfile
+  workerProviderCredentials
   workerSandboxNote
   workerSandboxWarnings
 

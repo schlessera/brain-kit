@@ -372,6 +372,15 @@ describe("the sandbox note's wording (#1654)", () => {
     expect(note, "READ_ONLY_IS_NOT_IDENTITY_ISOLATION").toContain("A read-only brain does not prevent access to other host paths available to that uid");
   });
 
+  test.each(["governed", "strict"] as const)("%s capabilities state that secrets are hidden and name the keys a worker keeps (#1666)", profile => {
+    const none = workerSandboxNote({ ...strict, profile });
+    expect(none, "SECRETS_NOTE_NO_KEYS").toContain("The brain's `.env*` files cannot be read here, and this worker holds no provider keys.");
+    expect(none).toContain("`brain search` then falls back to keyword results");
+    const kept = workerSandboxNote({ ...strict, profile }, { providerKeys: ["ANTHROPIC_API_KEY"] });
+    expect(kept, "SECRETS_NOTE_NAMES_KEPT_KEYS").toContain("holds no provider keys except `ANTHROPIC_API_KEY`. A `brain` command that needs another");
+    expect(workerSandboxNote({ ...strict, profile: "restricted", restricted: true })).not.toContain("**Secrets.**");
+  });
+
   test.each(["governed", "strict"] as const)("%s capabilities state recorded egress only for a worker routed through its turn proxy", profile => {
     const routed = workerSandboxNote({ ...strict, profile }, { egress: true });
     expect(routed, "EGRESS_NOTE_ROUTED").toContain("Network access goes through this turn's host proxy");
@@ -399,7 +408,9 @@ describe("the sandbox note's wording (#1654)", () => {
 
       Anything the reader should open goes in \`.brain/scratch/\` and is linked from there: a link in your answer must point into the brain or \`.brain/scratch/\`.
       The brain's packaged CLI directory \`/srv/ithaca/brain/node_modules/.bin\` is first on PATH.
-      The packaged \`brain\` CLI is missing. Install \`@schlessera/brain\` in the brain repository and run \`bun install\` there before using \`brain\` commands."
+      The packaged \`brain\` CLI is missing. Install \`@schlessera/brain\` in the brain repository and run \`bun install\` there before using \`brain\` commands.
+
+      **Secrets.** The brain's \`.env*\` files cannot be read here, and this worker holds no provider keys. A \`brain\` command that needs an embedding, completion, reranking or image provider key reports the provider as unavailable (\`provider_unavailable\`), and \`brain search\` then falls back to keyword results. Do not look for keys elsewhere; say which provider was unavailable."
     `);
   });
 

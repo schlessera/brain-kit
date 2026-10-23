@@ -35,3 +35,14 @@ test("overlapping rules name the first path selector, ahead of a type that maps 
   expect(() => guard.assert("brain_read_base", ["me/identity.md"])).toThrow("provider_masked");
   expect(refusals.map(refusal => refusal.rule), "FIRST_PATH_RULE_WINS").toEqual([{ list: "providers", index: 1, pattern: "me/**" }]);
 });
+
+test("a nested selector collapses into its outer folder, which refuses everything below it (#2718)", async () => {
+  const { providerMaskedFolders } = await import("../src/brain/governance-policy.js");
+  const policy = { providers: [{ paths: ["me/**"], allow: ["anthropic"] }, { paths: ["me/journal/**"], allow: ["anthropic"] }] };
+  const folders = providerMaskedFolders(policy);
+  expect(folders, "NESTED_MASK_COLLAPSED").toEqual(["me"]);
+  const refusals: ProviderMaskRefusal[] = [];
+  const guard = createProviderMaskGuard({ folders, policy, record: refusal => refusals.push(refusal) });
+  expect(() => guard.assert("brain_read_base", ["me/journal/2026-07-12.md"]), "OUTER_FOLDER_COVERS_NESTED_PATHS").toThrow("provider_masked");
+  expect(refusals.map(refusal => refusal.rule)).toEqual([{ list: "providers", index: 0, pattern: "me/**" }]);
+});

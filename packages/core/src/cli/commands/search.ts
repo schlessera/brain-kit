@@ -97,6 +97,7 @@ export const searchCommand: CoreCommand = {
 
       const response = await hybridSearch(db, opts, {
         embeddings: cli.embeddings,
+        ...(cli.withheld?.embeddings ? { withheldEmbeddings: cli.withheld.embeddings } : {}),
         taxonomy: cli.brain.taxonomy,
         ...setup.deps,
         ...(flags["rerank-dry-run"] === true
