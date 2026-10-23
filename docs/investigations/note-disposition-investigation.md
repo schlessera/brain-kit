@@ -17,16 +17,16 @@ quality benchmark, production write mechanism or adoption decision was measured.
 `brain process` reads the complete source note through containment, retrieves
 up to five related search results, then makes one completion request for both
 disposition and operations (`processNote`,
-`packages/core/src/cli/commands/process.ts:79-133`). Related documents are
+`packages/core/src/cli/commands/process.ts:80-134`). Related documents are
 represented by snippets or summaries, not complete target reads
-(`searchRelated`, `packages/core/src/cli/commands/process.ts:68-77`).
+(`searchRelated`, `packages/core/src/cli/commands/process.ts:69-78`).
 The prompt asks for combined replacement content despite that incomplete input.
 
 The completion parser extracts JSON and normalizes missing action/reasoning
 and a non-array operations field. It does not validate the action enum,
 operation fields, output paths, selected target, taxonomy or content retention.
 The command emits proposals and closes its database; it has no apply step
-(`processCommand`, `packages/core/src/cli/commands/process.ts:135-213`).
+(`processCommand`, `packages/core/src/cli/commands/process.ts:136-218`).
 `--keep-note` changes the prompt's archive instruction. It does not retain or
 delete a file through a different executor.
 
