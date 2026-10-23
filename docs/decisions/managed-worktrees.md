@@ -250,7 +250,7 @@ worktree through it.
 Markdown findings and the host's by core's ordinal rules (severity, known
 urgency, age, identity), and every operation that names a host finding goes to
 the host, never to the CLI
-(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:49-67`).
+(`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:45-57`).
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
 afresh, after a failed removal too. Selection assesses its winner again before

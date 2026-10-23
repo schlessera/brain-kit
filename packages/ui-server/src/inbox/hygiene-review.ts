@@ -36,34 +36,24 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     const p = resolvePrincipal(db, principalId);
     if (!p || !isUsablePrincipal(p, now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
   }
-  async function core(args: string[]): Promise<unknown> {
-    if (!deps.brain.hygiene) throw new Error("Hygiene CLI is unavailable");
-    return deps.brain.hygiene(args);
-  }
   /**
    * The review's one backlog: the CLI's Markdown findings and the host's
    * managed-worktree findings (#2431). Selection merges both by the same
-   * ordinal rules; an operation on a host finding goes to the host, never the
-   * CLI, and a confirmed one carries the reviewer's authority to its effect.
+   * ordinal rules, and an operation that names a host finding is answered by
+   * the host, never the CLI.
    */
-  async function cli(args: string[], principalId?: string): Promise<unknown> {
-    const host = deps.worktrees;
-    if (!host) return core(args);
-    const [command] = args, target = args.at(-1) ?? "";
-    if (command === "next") {
-      const at = args.indexOf("--finding");
-      if (at >= 0) return host.owns(args[at + 1]!) ? host.run(args) : core(args);
-      const [listed, own] = await Promise.all([core(args), host.run(args)]);
-      if (listed && typeof listed === "object" && "blocker" in listed) return listed;
-      return host.merge(listed as never, own as never);
-    }
-    if (command === "list") {
-      const [listed, own] = await Promise.all([core(args), host.run(args)]) as [{ entries: unknown[] }, { entries: unknown[] }];
-      return { ...listed, entries: [...listed.entries, ...own.entries] };
-    }
-    if (["check", "dismiss", "snooze", "resolve"].includes(command!) && host.owns(target))
-      return host.run(args, principalId === undefined ? {} : { authorize: () => authority(principalId) });
-    return core(args);
+  async function cli(args: string[]): Promise<unknown> {
+    const host = deps.worktrees, [command] = args, target = args.at(-1) ?? "", at = args.indexOf("--finding");
+    if (host && ((command === "next" && at >= 0 && host.owns(args[at + 1]!)) || (["check", "dismiss", "snooze", "resolve"].includes(command!) && host.owns(target))))
+      return host.run(args);
+    const own = host && (command === "list" || (command === "next" && at < 0)) ? host.run(args) : undefined;
+    void own?.catch(() => {});
+    if (!deps.brain.hygiene) throw new Error("Hygiene CLI is unavailable");
+    const listed = await deps.brain.hygiene(args);
+    if (!host || !own) return listed;
+    if (command === "list") return { ...(listed as object), entries: [...(listed as { entries: unknown[] }).entries, ...(await own as { entries: unknown[] }).entries] };
+    if (listed && typeof listed === "object" && "blocker" in listed) return listed;
+    return host.merge(listed as never, await own as never);
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
@@ -252,7 +242,9 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
       : e.operation === "undo" ? ["undo", "--", e.undoToken!]
       : e.operation === "check" ? ["check", "--", e.findingId]
       : [e.operation, "--expect-fingerprint", e.fingerprint, ...(waitUntil !== null ? ["--until", new Date(waitUntil).toISOString()] : []), ...(request.reason ? ["--reason", request.reason] : []), "--", e.findingId];
-    return resultSchema.parse(await cli(args, principalId));
+    // A confirmed effect on a host finding carries the reviewer's authority to its executor.
+    if (e.operation !== "undo" && deps.worktrees?.owns(e.findingId)) return resultSchema.parse(await deps.worktrees.run(args, { authorize: () => authority(principalId) }));
+    return resultSchema.parse(await cli(args));
   }
   async function finish(attempt: Attempt, result: Result, recovering = false) {
     const e = hygieneEffectSchema.parse(JSON.parse(attempt.effect_json));
