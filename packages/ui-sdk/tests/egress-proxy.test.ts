@@ -192,6 +192,24 @@ test("CONNECT opaque bytes require outward approval and retain bidirectional acc
     expect(records[1]).not.toHaveProperty("path");
   } finally { proxy.stop(); origin.close(); }
 });
+test("an outward port asks before contact on any host and invalid ports are refused", async () => {
+  for (const port of [0, 65536, 1.5, NaN]) {
+    await expect(startEgressProxy({ ...defaults([]), outwardPorts: [port] }), `EGRESS_INVALID_OUTWARD_PORT_${port}`).rejects.toThrow("Invalid outward port");
+  }
+  const records: EgressRecord[] = []; let approved = false, calls = 0, asked = 0;
+  const origin = createServer(socket => { calls++; socket.on("data", bytes => socket.end(bytes.toString().toUpperCase())); });
+  await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
+  const port = (origin.address() as { port: number }).port;
+  const proxy = await startEgressProxy({ ...defaults(records), outwardPorts: [port], approveOutward: async () => { asked++; return approved; } });
+  try {
+    expect(await tunnel(proxy.socketPath, `127.0.0.1:${port}`, "letter"), "EGRESS_OUTWARD_PORT_REQUIRES_APPROVAL").toContain("403");
+    expect(calls, "EGRESS_OUTWARD_PORT_REFUSED_BEFORE_CONTACT").toBe(0);
+    expect(records[0]).toMatchObject({ method: "CONNECT", port, outcome: "denied", reason: "outward_not_approved" });
+    approved = true;
+    expect(await tunnel(proxy.socketPath, `127.0.0.1:${port}`, "letter")).toContain("LETTER");
+    expect(asked).toBe(2);
+  } finally { proxy.stop(); origin.close(); }
+});
 test("per-turn payload ceiling is shared across requests and a pending approval cancels closed", async () => {
   const records: EgressRecord[] = [];
   const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("raft") });

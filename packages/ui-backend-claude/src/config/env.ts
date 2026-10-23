@@ -193,6 +193,11 @@ export function resolveEnv(env: NodeJS.ProcessEnv = process.env): ClaudeBackendE
  * overrides are merged on top by the caller). Documented in
  * `DYNAMIC_ENV_READS`; keep this the only whole-environment read.
  */
+/** Names an operator explicitly admits to the agent subprocess (BRAIN_UI_SUBPROCESS_ENV_EXTRA). */
+export function operatorAdmittedEnvNames(): string[] {
+  return parseSubprocessEnvExtra(process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA);
+}
+
 export function envSnapshot(extraNames: readonly string[] = []): NodeJS.ProcessEnv {
   const operatorNames = parseSubprocessEnvExtra(
     process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA

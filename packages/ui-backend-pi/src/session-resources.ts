@@ -34,6 +34,8 @@ export function createSessionResources(options: {
   confirmPatterns: readonly RegExp[];
   loadExtensions: boolean;
   settingsSnapshot?: string;
+  /** Settings the host fixes above project settings, such as a relayed turn's transport. */
+  pinnedSettings?: Record<string, unknown>;
   /** Per-turn workers consume prepared packages; installation belongs to setup. */
   requireInstalledPackages?: boolean;
   permissionFactory?: (turn: ReturnType<typeof createTurnContext>) => import("@earendil-works/pi-coding-agent").InlineExtension;
@@ -95,7 +97,7 @@ export function createSessionResources(options: {
     }
     const settingsManager = options.settingsSnapshot !== undefined
       ? SettingsManager.inMemory({ ...JSON.parse(options.settingsSnapshot),
-          ...SettingsManager.create(brainPath, agentDir).getProjectSettings() })
+          ...SettingsManager.create(brainPath, agentDir).getProjectSettings(), ...options.pinnedSettings })
       : SettingsManager.create(brainPath, agentDir);
     if (options.requireInstalledPackages) {
       await new DefaultPackageManager({ cwd: brainPath, agentDir, settingsManager }).resolve(async source => {

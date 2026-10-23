@@ -157,7 +157,7 @@ export const hostExecution = {
 };
 
 /** Worker-host status for turn egress (#1665); also stated in docs/hosting/agent-workers.md. */
-const TURN_EGRESS_ACTIVE = "Governed and strict Claude turns on a subscription profile run on their own turn egress proxy and the host inference relay. API-key Claude profiles and Pi turns keep their current network until their relay consumers land.";
+const TURN_EGRESS_ACTIVE = "Governed and strict Claude and pi turns run on their own turn egress proxy and the host inference relay. A pi turn whose credential runs a command, or whose provider and credential type the relay does not carry, is refused.";
 const TURN_EGRESS_INACTIVE = "This host has no managed native storage, so governed and strict turns keep their current network without the turn egress proxy, and their egress is unrecorded.";
 const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
