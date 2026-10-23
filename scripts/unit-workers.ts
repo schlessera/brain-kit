@@ -11,9 +11,9 @@ import { timingSeed } from "./changed-unit-worker";
 import { invocationBuild, preparedWorkerEnvironment } from "./test-invocation";
 import { selectBuildPackages } from "./publishable-packages";
 
-/** Reserve 30% of memory; each local worker budgets two GiB and two CPUs. */
+/** Reserve 30% of memory; the measured local setting budgets two GiB and four CPUs per worker. */
 export function localUnitWorkerCount(cores = availableParallelism(), memory = totalmem()): number {
-  return Math.max(1, Math.min(Math.floor(cores / 2), Math.floor(memory * 0.7 / (2 * 1024 ** 3))));
+  return Math.max(1, Math.min(Math.floor(cores / 4), Math.floor(memory * 0.7 / (2 * 1024 ** 3))));
 }
 
 export interface UnitWorkerOptions { changed?: string; workers?: number; preparedTree?: boolean; }
@@ -161,7 +161,7 @@ function preserveDiagnostics(worker: { root: string; device: number; inode: numb
 }
 
 export async function runUnitWorkers(root: string, files: readonly string[], chrome: string | undefined, outputDirectory?: string, options: UnitWorkerOptions = {}) {
-  if (options.preparedTree) return await bootstrapPreparedTree(root, files, chrome, outputDirectory, options);
+  if (options.preparedTree ?? Boolean(options.changed)) return await bootstrapPreparedTree(root, files, chrome, outputDirectory, options);
   return await runWorkers(root, files, chrome, outputDirectory, options);
 }
 
@@ -439,7 +439,8 @@ if (import.meta.main) {
       else if (/^--workers=[1-9]\d*$/.test(arg)) options.workers = Number(arg.slice("--workers=".length));
       else if (arg.startsWith("--reports=")) reportDir = resolve(root, arg.slice("--reports=".length));
       else if (arg === "--prepared-tree") options.preparedTree = true;
-      else if (arg.startsWith("-")) throw new Error("Expected unit-workers [files] [--changed=<base>] [--workers=N] [--reports=<directory>] [--prepared-tree]");
+      else if (arg === "--private-tree") options.preparedTree = false;
+      else if (arg.startsWith("-")) throw new Error("Expected unit-workers [files] [--changed=<base>] [--workers=N] [--reports=<directory>] [--prepared-tree|--private-tree]");
       else files.push(relative(root, arg));
     }
     // Local failure logs contain machine paths. Keep those private artifacts

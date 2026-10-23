@@ -167,9 +167,12 @@ invariants. Import-graph feedback is skipped by default; add `--import-graph`
 to run isolated local workers through the offline test wrapper. Each worker
 uses Bun's own `--changed=<merge-base-sha> --shard=i/N` and seeded timing costs;
 their JUnit/timing file union must reconcile exactly. This opt-in queue needs
-Linux user/mount namespaces and real Chrome. `--import-graph-workers=N`
-overrides its CPU/memory-derived sizing. Its private report destination is
-printed, and reports and diagnostics survive worker removal. See the
+Linux user/mount namespaces, unprivileged overlayfs with `userxattr`, Python 3
+and real Chrome. The queue builds one fresh tree and gives workers private
+overlay views. `--import-graph-workers=N` overrides its CPU/memory-derived sizing
+(eight on the measured 32-CPU, 47-GiB host); the queue CLI accepts
+`--private-tree` for the ordinary private-build comparison. Its private report
+destination is printed, and reports and diagnostics survive worker removal. See the
 [measurement and qualification decision](docs/decisions/ci-utility.md#isolated-local-import-graph-feedback).
 `--plan` lists selected commands and arguments, including the contribution
 changeset check, and explains the feedback skip and enabling flag. This feedback

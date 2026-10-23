@@ -443,6 +443,21 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   the source tree; reports, build receipts, output logs and existing failure
   diagnostics survive worker removal. The queue requires Linux mount/user
   namespaces, the frozen install and real Chrome, like hosted unit workers.
+  Changed-mode queues prepare one tree by default; `--private-tree` selects
+  ordinary private builds for comparison. The default budgets four CPUs and
+  two GiB per worker while reserving 30% RAM (eight on the measured host),
+  with `--import-graph-workers=N` as the override. It builds one clean
+  snapshot, then mounts an overlay view for each worker with a private upper/work directory
+  and Git index. The lower tree is read-only. Each view still owns its write
+  lease, nonce, output generation and maintenance ledger; explicit nested
+  builds revoke its copied authority. A local Unix socket lets the live
+  builder validate its descriptor and lease across user namespaces. The
+  offline client verifies the kernel peer PID, receipt digest and owner
+  lifetime. This mode additionally requires unprivileged overlayfs with
+  `userxattr` and Python 3; it never shares writable builds or dependencies.
+  Reports separate the common checkout/copy/build from each worker's setup
+  and test time. The [measurement decision](../decisions/ci-utility.md#isolated-local-import-graph-feedback)
+  records the sweep and the 900-second gate for default feedback.
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.

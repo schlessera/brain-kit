@@ -61,7 +61,7 @@ test("changed queued workers match serial Bun for committed, staged, unstaged, d
     const files = Object.keys(times.files).sort();
     expect(files).toHaveLength(5);
     validateUnitReports(files, readFileSync(join(root, "tmp/serial.xml"), "utf8"), times);
-    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 3 });
+    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 3, preparedTree: false });
     const queued = JSON.parse(readFileSync(join(reports, "unit-timings.json"), "utf8"));
     expect(Object.keys(queued.files).sort(), "QUEUED_CHANGED_UNION_EQUALS_SERIAL").toEqual(files);
     expect(validateUnitReports(files, readFileSync(join(reports, "unit-report.xml"), "utf8"), queued).pass).toBe(5);
@@ -96,20 +96,20 @@ test("changed queues accept empty selections and empty shards without hiding mis
   const { root, base } = fixture;
   try {
     const reports = join(root, "tmp/empty-shards");
-    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 8 });
+    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 8, preparedTree: false });
     expect(Object.keys(JSON.parse(readFileSync(join(reports, "unit-timings.json"), "utf8")).files)).toHaveLength(5);
     const empty = join(root, "tmp/no-selection");
     // Capture current staged/unstaged/untracked inputs into a fixture commit.
     const staged = Bun.spawnSync(["git", "-C", root, "add", "."]); expect(staged.exitCode).toBe(0);
     const commit = Bun.spawnSync(["git", "-C", root, "-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "Current inputs"]); expect(commit.exitCode).toBe(0);
-    await runUnitWorkers(root, [], undefined, empty, { changed: "HEAD", workers: 2 });
+    await runUnitWorkers(root, [], undefined, empty, { changed: "HEAD", workers: 2, preparedTree: false });
     const summary = JSON.parse(readFileSync(join(empty, "unit-worker-summary.json"), "utf8"));
     expect(summary.selectedFiles).toBe(0);
     const emptyXml = readFileSync(join(empty, "unit-report.xml"), "utf8");
     expect(() => validateUnitReports([], emptyXml, { version: 1, files: {} })).toThrow("passing execution");
     expect(() => validateUnitReports([], emptyXml.replace('tests="0"', 'tests="1"'), { version: 1, files: {} }, true)).toThrow("passing execution");
     fixture.write("README.md", "Odysseus plans the return.\n");
-    await runUnitWorkers(root, [], undefined, join(root, "tmp/prose-only"), { changed: "HEAD", workers: 2 });
+    await runUnitWorkers(root, [], undefined, join(root, "tmp/prose-only"), { changed: "HEAD", workers: 2, preparedTree: false });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -121,7 +121,7 @@ test("changed costs use milliseconds and selection receipts fail closed on absen
   expect(changedSelection("\u001b[0m\u001b[2m--changed:\u001b[0m 1 changed file, but no test files are affected\n", "1/2")).toEqual({ selected: 0, assigned: 0 });
   expect(() => changedSelection("", "2/3")).toThrow("did not report");
   expect(() => changedSelection("--changed: 1 changed file, running 5/12 test files\n--shard=2/3: running 1/12 test files\n", "2/3")).toThrow("complete changed-file selection");
-  expect(localUnitWorkerCount(32, 47 * 1024 ** 3)).toBe(16);
+  expect(localUnitWorkerCount(32, 47 * 1024 ** 3)).toBe(8);
   expect(localUnitWorkerCount(2, 47 * 1024 ** 3)).toBe(1);
   expect(localUnitWorkerCount(32, 4 * 1024 ** 3)).toBe(1);
 });
@@ -132,7 +132,7 @@ test("a deliberately failing selected test fails the changed queue with its file
   const reports = join(root, "tmp/failing");
   try {
     fixture.write("tests/new.test.ts", 'import {test,expect} from "bun:test";test("SELECTED_QUEUE_MUTATION",()=>expect("broken").toBe("restored"));\n');
-    const child = Bun.spawn([process.execPath, "-e", `import {runUnitWorkers} from ${JSON.stringify(join(import.meta.dir, "../scripts/unit-workers.ts"))}; await runUnitWorkers(${JSON.stringify(root)},[],undefined,${JSON.stringify(reports)},{changed:${JSON.stringify(base)},workers:2});`], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, "-e", `import {runUnitWorkers} from ${JSON.stringify(join(import.meta.dir, "../scripts/unit-workers.ts"))}; await runUnitWorkers(${JSON.stringify(root)},[],undefined,${JSON.stringify(reports)},{changed:${JSON.stringify(base)},workers:2,preparedTree:false});`], { stdout: "pipe", stderr: "pipe" });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, "FAILING_SELECTED_TEST_MUST_FAIL_QUEUE\n" + out + err).not.toBe(0);
     expect(out + err).toContain("tests/new.test.ts");
@@ -167,7 +167,7 @@ test("changed workers retain new automatic diagnostics and preserve pending scre
   try {
     fixture.write(pending, "Odysseus owns this input; byte control, not raster proof.\n");
     fixture.write("tests/new.test.ts", `import {test,expect} from "bun:test";import {writeFileSync} from "node:fs";test("automatic diagnostic byte control",()=>{writeFileSync(${JSON.stringify(produced)},"Odysseus retains this diagnostic; byte control, not raster proof.\\n");expect(1).toBe(1)});\n`);
-    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 2 });
+    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 2, preparedTree: false });
     expect(readFileSync(join(root, pending), "utf8")).toContain("owns this input");
     const diagnostics = join(reports, "unit-worker-diagnostics");
     const invocation = join(diagnostics, readdirSync(diagnostics)[0]!);
@@ -236,7 +236,7 @@ test("${name} keeps copied output, source, lease and generation private",async()
   const key = unitInputKey(root);
   let passed = false;
   try {
-    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 2, preparedTree: true });
+    await runUnitWorkers(root, [], undefined, reports, { changed: base, workers: 2 });
     expect(unitInputKey(root), "PREPARED_QUEUE_PRESERVES_ALL_CALLER_INPUTS").toBe(key);
     const own = ["odysseus", "penelope"].map(name => JSON.parse(readFileSync(join(shared, `${name}.json`), "utf8")));
     expect(new Set(own.map(value => value.build)).size, "ONE_FRESH_PREPARED_BUILD").toBe(1);
