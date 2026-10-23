@@ -1992,7 +1992,7 @@ cannot leave the one relay socket the worker has.
 Matching rules intersect their allowlists, so the masked set is the folders of
 every rule that does not allow the recipient, each nested folder dropped for
 its ancestor (`export function providerDeniedFolders`,
-`packages/ui-server/src/brain/governance-policy.ts:174-180`). An unproven
+`packages/ui-server/src/brain/governance-policy.ts:174-181`). An unproven
 recipient is allowed nothing, which is the denied-turn set above. A turn
 allowed every folder gets no folder masks, `.git` and the real
 `.brain-index/`. Its `providerMasks` stays present with no folders and no
@@ -2009,7 +2009,7 @@ conversation is named after admission, so its rows carry the turn until the
 session id binds them. A turn conflicts with an earlier record when a folder
 it would mask overlaps a folder that record showed, and that folder was not
 itself hidden then (`export function exposureConflicts`,
-`packages/ui-server/src/brain/governance-policy.ts:204-212`). A handoff's first
+`packages/ui-server/src/brain/governance-policy.ts:205-213`). A handoff's first
 turn is judged against its source's records and copies them into the new
 conversation. The handoff summary is drafted on the source's autonomous
 route, which has no proven recipient, so a conversation with any record gets

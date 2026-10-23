@@ -158,7 +158,7 @@ export function translateProviderTypes(types: readonly string[], taxonomy: Provi
  * index, the hardlink scan and every server-side refusal for the turn.
  */
 export function providerMaskedFolders(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: Readonly<Record<string, readonly string[]>> = {}): string[] {
-  return providerDeniedFolders(policy, typeFolders, undefined);
+  return outermostFolders([...providerFolderRoots(policy), ...Object.values(typeFolders).flat()]);
 }
 
 /**
@@ -173,7 +173,8 @@ export function providerMaskedFolders(policy: Pick<EffectiveGovernancePolicy, "p
  */
 export function providerDeniedFolders(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: Readonly<Record<string, readonly string[]>>,
   recipient: string | undefined): string[] {
-  return outermostFolders(policy.providers.filter(rule => recipient === undefined || !rule.allow.includes(recipient)).flatMap(rule => [
+  if (recipient === undefined) return providerMaskedFolders(policy, typeFolders);
+  return outermostFolders(policy.providers.filter(rule => !rule.allow.includes(recipient)).flatMap(rule => [
     ...rule.paths.map(selectorFolder).filter((root): root is string => root !== undefined),
     ...(rule.types ?? []).flatMap(type => typeFolders[type] ?? []),
   ]));
