@@ -31,7 +31,12 @@ not a wire field, backend extension callback or destination permission. The
 ordinary Claude turn runner consumes an explicitly supplied proxy for its
 stored-login and API-billed profiles; the autonomous path retains its existing
 selection. An API-billed profile's own key is injected by the relay and its
-worker holds a placeholder. Existing callers omitting it keep their current behavior.
+worker holds a placeholder. The pi backend consumes it as well: its relay
+resolves pi's native credential on the host for each dispatch, refuses a
+command-sourced or unqualified credential before launch, and sends a
+credential only to its provider's built-in origins or to the exact origins
+the server's `BRAIN_UI_PI_CREDENTIAL_ORIGINS` (`provider=origin[,origin];...`)
+lists for that provider. Existing callers omitting it keep their current behavior.
 
 The prepared first-party composition uses the native worker's placeholder
 credential and host-held OAuth resolution on each actual dispatch. Native

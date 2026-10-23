@@ -86,7 +86,7 @@ The explicitly prepared ordinary egress proxy follows that same helper
 selection. Its directory and socket remain owned by the server and use its
 shared primary group, with exact `0750`/`0660` modes; a setgid temporary parent
 cannot choose another IPC group (`const separateIdentity`,
-`packages/ui-sdk/src/server/egress-proxy.ts:70-76`). Without a helper they retain
+`packages/ui-sdk/src/server/egress-proxy.ts:73-79`). Without a helper they retain
 owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
@@ -1256,7 +1256,7 @@ This is a measurement of the paths, not a qualified host tuple.
 | Path | Result |
 | --- | --- |
 | Claude inference | Runs through the host inference relay, not the generic proxy, on the same turn counter and record (`inference: true`). Governed and strict server turns on managed native storage compose it for subscription and API-key profiles alike; the worker holds a placeholder and the relay adds the host login or the profile's key. The real native CLI qualifies both offline (`packages/ui-backend-claude/tests/native-route-qualification.test.ts`). |
-| Pi inference through the relay | Not measured. Pi has no ordinary relay consumer yet; this is a stated gap. |
+| Pi inference through the relay | Passes (2026-10-23): a real governed worker's pi session reaches inference only through the host relay over the turn proxy's socket, and each request is recorded with `inference: true`. Covered: API keys, the Codex login (with a host-side refresh) and the Anthropic login. Credentials that run a command, and provider and credential types outside the relay's matrix, are refused (`packages/ui-backend-pi/tests/host-relay.test.ts`). |
 | `git` over HTTPS | Passes: clone through CONNECT, opaque bytes recorded. |
 | `git` over SSH | Passes: clone through the first-party CONNECT helper, which the worker bootstrap sets as Git's `ProxyCommand` unless the caller already chose `GIT_SSH_COMMAND`. OpenSSH reads `~/.ssh` from the passwd home, which the worker masks, so keys and host keys must be supplied explicitly. |
 | `curl` | Passes: HTTPS through CONNECT. |
@@ -1264,9 +1264,8 @@ This is a measurement of the paths, not a qualified host tuple.
 | Headless Chromium | Passes: the page loads through CONNECT. Chrome's own background requests also go through the proxy and are recorded. |
 | Socket walk | Passes in both profiles. The relay and proxy sockets are the only sockets below a mask, fixture sockets under `/run` and a home directory are unreachable, and the walk of the rest of the visible filesystem completed without finding a host socket. Before all of `/var` was masked ([#2657](https://github.com/schlessera/brain-kit/pull/2657)), a CUPS socket under `/var/snap` accepted a connection on this host. |
 
-Pi inference does not pass yet. Following the gate's rule, default-on goes
-ahead with that gap stated in the capabilities note, on hosts with managed
-native storage only:
+Every path passes. Default-on applies on hosts with managed native storage
+only:
 
 - **Claude.** A governed or strict Claude turn, on a subscription or an
   API-key profile, runs on its own turn proxy and the host inference relay. Every connection is a governance event, and a
@@ -1274,8 +1273,21 @@ native storage only:
   was classified as a read or an approved outward action. Outward hosts are
   the GitHub API, mail submission (any host on port 25, 465 or 587, and the
   built-in mail-send APIs) and the policy's `outward.hosts`. The note says so.
-- **Not routed yet.** Every Pi turn keeps its current network, and its note
-  still says egress is unrecorded.
+- **Pi.** A governed or strict pi turn runs on the same turn proxy and relay,
+  with the same records and outward approvals. The host keeps the credential:
+  each request asks pi's own credential store on the host, so refresh and its
+  writeback happen there, and the worker holds only a placeholder. pi's tools
+  keep their network through the turn proxy. The relay
+  carries API keys on Anthropic Messages and OpenAI-compatible models and the
+  `openai-codex` and `anthropic` logins. Anything else is refused before the
+  worker starts, with the reason:
+  - a key or header that runs a command (`!command`), which the host never
+    runs;
+  - another provider login, such as GitHub Copilot;
+  - another provider API;
+  - pi's `auth.json` linked into the brain.
+
+  Before this, those turns ran with the credential inside the worker.
 - **No managed native storage.** Governed and strict turns keep their current
   network without the turn proxy, and their note says egress is unrecorded.
   `GET /api/status` reports this as `runtime.workerHost.governed.egress`
@@ -1291,6 +1303,16 @@ in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS`, for example
 custom origin refuses the turn before its prompt is sent or the login is read.
 A host that already sets a custom `ANTHROPIC_BASE_URL` for subscription turns
 must add this variable when it moves to managed native storage.
+
+**Custom pi origins.** A pi credential may reach the origins of its
+provider's built-in models. To send it elsewhere, for example where pi's
+`models.json` points a provider at a gateway, list that exact origin for that
+provider in `BRAIN_UI_PI_CREDENTIAL_ORIGINS`:
+`BRAIN_UI_PI_CREDENTIAL_ORIGINS="anthropic=https://gateway.ithaca.invalid;openai-codex=https://codex.ithaca.invalid"`.
+Each provider's list covers that provider's credential only, whether a login
+or an API key. An unlisted origin refuses the turn before the credential is
+read. A host that already routes a pi provider to a custom origin must add it
+when it moves to managed native storage.
 
 An API-key profile needs no listing: its key and its route come from the same
 declaration in `BRAIN_UI_CLAUDE_PROFILES` (the profile's `baseUrl`, else the
@@ -1324,7 +1346,7 @@ on both backends. On the turn proxy, every admitted connection other than the
 inference relay taints the session too, and a tainted session's new
 connections reach only `taint.egress.allow` and hosts its proxies already
 admitted. Refusals are `egress_denial` events with reason `taint_allowlist`.
-Without the proxy (Pi, hosts without managed native storage) nothing narrows
+Without the proxy (hosts without managed native storage) nothing narrows
 egress, and the capabilities note says so. Files the
 user marks untrusted are not a source yet. The rules are in
 [the decision record](../decisions/governed-writable-workers.md#untrusted-input-g6).

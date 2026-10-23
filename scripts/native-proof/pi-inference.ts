@@ -28,5 +28,6 @@ export function startPiNativeInference(agentDirectory:string,event:Event,authori
   // Native SDK auth requires a nonempty token; this fixture placeholder is
   // sent only to the offline loopback transport and is not a real API key.
   writeFileSync(join(agentDirectory,"models.json"),JSON.stringify({providers:{anthropic:{baseUrl:`http://127.0.0.1:${server.port}`,apiKey:"odysseus-offline-placeholder"}}}));
-  return {model:`anthropic/${model}`,close(){server.stop(true);}};
+  // The relay may send the host's key to this fixture origin only because the host lists it.
+  return {model:`anthropic/${model}`,origin:`anthropic=http://127.0.0.1:${server.port}`,close(){server.stop(true);}};
 }
