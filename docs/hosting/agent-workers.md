@@ -1282,6 +1282,12 @@ only:
   `GET /api/status` reports this as `runtime.workerHost.governed.egress`
   (`{ active, detail }`).
 
+The native hosted proof checks the records on real managed Btrfs storage for
+both backends. Each governed turn's proxied connection must be one durable
+`egress_connection` governance event attributed to its turn, session, actor
+and profile. Every pi model request is its own `inference: true` record
+([scripts/native-proof/README.md](../../scripts/native-proof/README.md)).
+
 **Custom inference origins.** A turn's relay forwards to the route the server
 selects: the profile's `baseUrl` from `BRAIN_UI_CLAUDE_PROFILES`, else the
 server's `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`. Only
