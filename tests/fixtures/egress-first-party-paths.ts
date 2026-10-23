@@ -114,7 +114,9 @@ const listen = (path: string, count = true) => new Promise<Server>(done => {
 const hostSockets = [await listen(HOST_RUN_SOCKET), await listen(join(root, "host-home.sock"))];
 
 const records: EgressRecord[] = [];
-const proxy = await startEgressProxy({ mode: "record", allow: [], deny: [], outwardHosts: [],
+// Chromium's background services may request public hosts independently of
+// the page. Only the owned fixture origin is admissible in this measurement.
+const proxy = await startEgressProxy({ mode: "allowlist", allow: [ORIGIN_HOST], deny: [], outwardHosts: [],
   maxBytes: 256 * 1024 * 1024, observe: record => records.push(record) });
 // The turn runner links its inference relay socket beside the proxy socket.
 const relay = await listen(join(proxy.dir, "inference.sock"), false);
