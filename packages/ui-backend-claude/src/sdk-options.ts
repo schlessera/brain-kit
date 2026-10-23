@@ -236,7 +236,8 @@ function assembleClaudeSdkTurn(
   const providerKeys = workerProviderCredentials(childEnv, credentialEnv).kept.filter(name => !inferenceEnv || !(name in inferenceEnv));
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
-  const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
+  const sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
+    ...(req.workerProviderMasks ? { providerMasks: req.workerProviderMasks } : {}) }
     : req.workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: childEnv.HOME, maintenance: backend.maintenance });
   for (const warning of workerSandboxWarnings(sandbox)) log("warn", warning);
   // The same for its resource limits (#1660).

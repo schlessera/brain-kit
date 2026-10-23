@@ -488,7 +488,7 @@ to a turn — `InferenceProfile.allowedTools`
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:52-53`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:182`, and what it
-becomes, `allowedTools: allowed`, `:321`). The voice posture is one
+becomes, `allowedTools: allowed`, `:322`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -590,7 +590,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:567`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:572`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`

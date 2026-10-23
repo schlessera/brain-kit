@@ -1114,7 +1114,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:324`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:325`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1868,6 +1868,23 @@ voice turn, and admission applies the masks to all of them:
   which tells the agent such a destination exists. The maintenance worker is
   not mount-masked: the brain's own code running there could still read a
   masked file, though nothing the agent supplies makes planning do so.
+- **Autonomous turns (#2691).** A restricted turn is denied the same way. Its
+  admission reads the same process-local last-valid policy as hosted turns
+  (`governancePolicyReaderFor`, keyed by and reading the brain's canonical
+  path) and translates its selectors exactly as hosted admission does,
+  including types through the same taxonomy worker and frontmatter check
+  (`translateProviderTypesInView`). It refuses the rest with
+  `ProviderPolicyRefusedError`: an unsupported path selector before the host
+  probe or any worker, an untranslatable type once the taxonomy worker has
+  answered, and a hardlink out of a masked folder (#2700) refuses as for hosted
+  turns, checked on its startup view and the live brain. The envelope's brain is the immutable startup view, so no peer can replace a
+  root under it and no retention pins are needed: each present masked folder
+  is an empty read-only tmpfs over that view, `.git` stays hidden, and the
+  private index, built as above with the host's operational-state masks, is
+  bound over `.brain-index/`, which the host creates first. Without those
+  masks configured, such a turn refuses rather than build an index in a
+  worker that sees the host. The private index is removed when the turn
+  ends, and the autonomous bridge refuses masked paths as above.
 
 
 **Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
@@ -1879,7 +1896,7 @@ strict checkpoint view (option B) and refusing every such selector (option A)
 were rejected.
 
 "Maps exactly" is defined as follows (`translateProviderTypes`,
-`packages/ui-server/src/brain/governance-policy.ts:137-152`):
+`packages/ui-server/src/brain/governance-policy.ts:153-168`):
 
 - **Paths.** `F/**` and `F/**/*` with a literal `F` map onto `F`; under
   Bun.Glob both match every file at any depth below `F`, hidden files
@@ -1899,7 +1916,7 @@ were rejected.
   stores that value whatever its path. The taxonomy alone therefore does not
   bound a type. Admission also reads the turn's immutable view, data only, for
   `.md` files outside the masked folders whose frontmatter declares the type
-  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:59-97`).
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:60-98`).
   It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
   and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
   the file it resolves to, as the indexer reads it, unless that file is in a
@@ -1914,7 +1931,7 @@ The taxonomy is code in `brain.config.ts` and its modules, so the host does
 not load it. The brain's own CLI reports it (`brain config check --json`)
 from a credential-free strict worker on the startup view with the literal
 folders masked (`readProviderTaxonomy`,
-`packages/ui-server/src/brain/provider-types.ts:34-45`). That worker sees
+`packages/ui-server/src/brain/provider-types.ts:35-46`). That worker sees
 selected documents outside the literal folders, so it writes into a throwaway
 directory that is deleted before the private index is created. Its answer is
 parsed as untrusted data: a malformed or oversized answer refuses every type
@@ -1999,9 +2016,8 @@ turn cannot create such a link itself, because it cannot name the masked file.
 Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
 the walk of `me` covers `me/x`.
 
-Still open under #1668: autonomous (restricted) turns do not apply the masks;
-the committed sidecar caches (`.context-cache.jsonl` holds generated chunk
-contexts) and other retained copies have not been audited;
+Still open under #1668: the committed sidecar caches (`.context-cache.jsonl`
+holds generated chunk contexts) and other retained copies have not been audited;
 and the allowed recipient's unmasked turn needs #1665. Each restricted turn
 also pays one keyword index build at admission.
 
@@ -2557,7 +2573,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:291-308`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:292-309`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.

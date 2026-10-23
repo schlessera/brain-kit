@@ -1,5 +1,6 @@
 /** Process-local last-valid policy. Every admission reads data anew; no repository code runs. */
 import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernancePolicy, type GovernanceCommandRuleIndices } from "@schlessera/brain-common/internal/governance-policy";
 
@@ -40,6 +41,21 @@ export function createGovernancePolicyReader(brainPath: string) {
   } };
 }
 
+const readers = new Map<string, ReturnType<typeof createGovernancePolicyReader>>();
+/**
+ * The process-local reader for a brain, shared by every admission path:
+ * hosted and autonomous turns keep one last-valid policy, so an invalid edit
+ * cannot drop an autonomous turn's provider masks (#2691).
+ */
+export function governancePolicyReaderFor(brainPath: string): ReturnType<typeof createGovernancePolicyReader> {
+  // One brain has one history, however its path is spelled.
+  let key = resolve(brainPath);
+  try { key = realpathSync(key); } catch { /* a missing brain keeps its resolved spelling */ }
+  let reader = readers.get(key);
+  // The reader reads the canonical path too, so no later alias change moves it.
+  if (!reader) { reader = createGovernancePolicyReader(key); readers.set(key, reader); }
+  return reader;
+}
 
 /**
  * The literal folder a path selector names in full, or undefined. `F/**` and

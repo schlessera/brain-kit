@@ -31,6 +31,7 @@ export interface InboxDispatchSelection {
 
 export interface InboxDispatcherDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "applicationPlanner" | "identitySentinelDirectory"> {
   nativeManager?: AutonomousTurnDeps["nativeManager"];
+  privateIndex?: AutonomousTurnDeps["privateIndex"];
   brainRoot: string;
   /** Resolved once per pass; null refuses agent-tier claims for that pass. */
   select(): Promise<InboxDispatchSelection | null>;
@@ -194,7 +195,7 @@ export function createInboxDispatcher(db: Database, deps: InboxDispatcherDeps) {
     let result: Awaited<ReturnType<typeof runAutonomousTurn>> | null = null;
     try {
       const { prompt, append } = await context(item, approved);
-      result = await runAutonomousTurn({ db, backend: chosen.backend, brainPath: deps.brainRoot, identitySentinelDirectory: deps.identitySentinelDirectory, nativeManager: deps.nativeManager, store: deps.store, runtime: deps.runtime,
+      result = await runAutonomousTurn({ db, backend: chosen.backend, brainPath: deps.brainRoot, identitySentinelDirectory: deps.identitySentinelDirectory, nativeManager: deps.nativeManager, privateIndex: deps.privateIndex, store: deps.store, runtime: deps.runtime,
         onWrite: deps.onWrite, log: deps.log, applicationPlanner: deps.applicationPlanner,
         checkpoint: (escalation) => {
           const current = store.getItem(item.id)!;

@@ -591,7 +591,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
     ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
-    ...(input.sandbox?.providerMasks && !input.restricted && !maintenance && !transport
+    ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a

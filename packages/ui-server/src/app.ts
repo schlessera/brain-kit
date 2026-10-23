@@ -567,12 +567,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // Per-session composer drafts (#979): the UI's operational database, one
   // namespace for this host, shared by its principals.
   const drafts = createDraftStore(db);
+  const turnMaskPaths = [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths];
   const governedTurns = createGovernedTurns({ nativeManager, brainPath: config.brainPath, execution: hostExecution,
       profile: options.workerProfile ?? "governed",
       recordPolicy: (turnId, origin, profile, policy) => db.query(`INSERT INTO turn_governance_policy
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
-      maskPaths: [...operationalStateMasks({ brainPath: config.brainPath, dbPath: config.dbPath, privateStatePaths }), ...nativeMaskPaths],
+      maskPaths: turnMaskPaths,
       index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
@@ -656,7 +657,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     },
   });
   bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
-  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager, applicationPlanner: host.applicationPlanner,
+  if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
+    privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
