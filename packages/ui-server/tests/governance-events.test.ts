@@ -37,6 +37,7 @@ const SAMPLE_PAYLOADS: { [K in GovernanceEventKind]: GovernanceEventPayload<K> }
   policy_block: { tool: "Bash", input: "git push --force origin main", inputTruncated: false, rule: { list: "commands.deny", index: 0, pattern: "^git push (-f|--force)", reason: "No force pushes." }, policyHash: "sha256:0f1e" },
   policy_confirm: { tool: "Bash", input: "git push origin main", inputTruncated: false, rule: { list: "commands.confirm", index: 0, pattern: "^git push" }, decision: "declined", policyHash: null },
   read_only_refusal: { path: "context/policies/governance.md", protection: "tier_a", code: "EROFS", tool: "Write", alternative: "Propose the change through the policy approval tool." },
+  provider_mask_refusal: { tool: "mcp__brain-ui__brain_read_base", path: "me/identity.md", rule: { list: "providers", index: 0, pattern: "me/**" }, policyHash: "sha256:0f1e" },
   quarantine: { path: "bunfig.toml", tier: "A", entry: "file", bytes: 120, trigger: "turn_end", objectId: "q-0001" },
   quarantine_reconciliation: { trigger: "boot_recovery", reconciledTurnIds: ["turn-aeolus"], quarantined: 1, masked: [] },
   budget_warning: { scope: "day", unit: "usd", limit: 25, observed: 25.4, source: "policy" },

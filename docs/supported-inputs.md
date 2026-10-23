@@ -139,8 +139,12 @@ never held a masked document. The real index is refreshed from Markdown after
 the turn as usual. A policy whose provider rules also name a document type, a
 non-literal glob or a single path refuses turn admission with
 `ProviderPolicyRefusedError`, naming each such selector; nothing it selects is
-left silently readable. Server-side tools, autonomous turns and the allowed
-recipient's unmasked view are not covered yet.
+left silently readable. Host bridge tools that run on the server, outside the
+worker's mounts, refuse every path at or below a masked root with the named
+refusal `provider_masked` and one `provider_mask_refusal` governance event per
+call: `brain_read_base`, the application tools, share completion, image masks,
+`inbox_add` and policy proposals (#2690). Autonomous turns and the allowed recipient's
+unmasked view are not covered yet.
 
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing

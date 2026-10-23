@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:580-584`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:599-604`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -194,7 +194,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:39`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:40`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -1771,9 +1771,37 @@ voice turn, and admission applies the masks to all of them:
 - A policy whose provider rules name a document type, a non-literal glob or a
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
   selector, per the 2026-10-16 ruling.
+- **Host bridge tools refuse masked paths (#2690).** These tools run on the
+  server, outside the worker's mounts, against the real brain, so the masks
+  alone do not cover them. The admitted turn's masked roots
+  (`sandbox.providerMasks.folders`) reach its bridge, and every bridge path
+  that reads or writes brain content checks the named path before opening
+  it: `brain_read_base`; the six application tools, before approval for every
+  named target and an archive's destination (dry run included), while capture
+  planning, in process or in the isolated maintenance worker, sees masked
+  documents as absent and its chosen destination is checked before it is
+  opened; share completion (its filed documents and
+  retained originals, checked before its transaction so the refusal's event
+  is kept); image masks (the image and its mask file), whose scratch prune
+  also keeps a masked folder's files; `inbox_add`, which stages and
+  reconciles under `.brain-ui/inbox/` and refuses when a mask is at, above
+  or inside that directory or the directory resolves into one; and policy proposals (the policy file, when a rule masks
+  its folder). The match is case-sensitive, by whole segments, after
+  `.`/`..` are resolved; aliases need no extra rule, because each route opens
+  its directory chain with `O_NOFOLLOW` and accepts only a regular file with
+  one link. A refusal is the named `provider_masked` error the agent sees and
+  one `provider_mask_refusal` governance event per call, naming the tool, the
+  path and the `providers` rule. Search and context need no host change: the
+  in-worker CLI and the `brain` MCP server already read the private index.
+  `inbox_list`, `inbox_get` and `query_activity` read the server's own
+  database, not brain paths; what that record retains is part of the
+  retained-copy audit. Capture planning still classifies against the real
+  index, so a capture it would file under a masked folder refuses by name,
+  which tells the agent such a destination exists. The maintenance worker is
+  not mount-masked: the brain's own code running there could still read a
+  masked file, though nothing the agent supplies makes planning do so.
 
-Still open under #1668: server search, read and context tools do not yet
-refuse masked paths; autonomous (restricted) turns do not apply the masks;
+Still open under #1668: autonomous (restricted) turns do not apply the masks;
 the committed sidecar caches (`.context-cache.jsonl` holds generated chunk
 contexts) and other retained copies have not been audited;
 and the allowed recipient's unmasked turn needs #1665. Each restricted turn

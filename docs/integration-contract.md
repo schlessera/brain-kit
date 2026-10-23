@@ -79,6 +79,13 @@ non-literal glob or a single path refuses turn admission by name. No schema,
 CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
 `--embeddings` now runs where only `.brain-index/` is writable.
 
+Additive (#2690): host bridge tools refuse a masked path for such a turn.
+`brain_read_base`, share completion, image masks, `inbox_add` and policy proposals fail with
+an error whose message starts `provider_masked:`; the application tools return
+`{ ok: false, code: "provider_masked" }` with no change. Each refused call
+records one `provider_mask_refusal` [governance event](integration-contract/http.md#governance-events-additive-1651)
+(`tool`, `path`, `rule`, `policyHash`).
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).
