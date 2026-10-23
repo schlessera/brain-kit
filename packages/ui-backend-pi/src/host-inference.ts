@@ -20,10 +20,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
-import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import type { CredentialStore } from "@earendil-works/pi-ai";
-import { INFERENCE_PLACEHOLDER, startInferenceRelay, WORKER_EGRESS_DIR, type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
+import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, startInferenceRelay, SUBPROCESS_ENV, WORKER_EGRESS_DIR,
+  type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
 import { readEnvVar } from "./config/env.js";
 
@@ -68,6 +69,23 @@ function refuse(reason: string): never {
   throw new BackendRequestError(`This pi turn cannot run on the host inference relay: ${reason}`);
 }
 const isCommand = (value: unknown): boolean => typeof value === "string" && value.trimStart().startsWith("!");
+/** Every string in a configuration value, at any depth. */
+const strings = (value: unknown): string[] => typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(strings)
+  : typeof value === "object" && value !== null ? Object.values(value).flatMap(strings) : [];
+/** Configuration fields that carry a credential or select where it goes: the worker never receives them. */
+const WORKER_DROPPED = new Set(["apiKey", "headers", "baseUrl", "authHeader", "oauth"]);
+const sanitized = (value: unknown): unknown => Array.isArray(value) ? value.map(sanitized)
+  : typeof value === "object" && value !== null ? Object.fromEntries(Object.entries(value)
+    .filter(([name]) => !WORKER_DROPPED.has(name)).map(([name, entry]) => [name, sanitized(entry)])) : value;
+/** A literal key, or a literal credential-like header, anywhere in a provider's configuration. */
+function literalCredential(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(literalCredential);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(([name, entry]) => name === "apiKey" ? typeof entry === "string" && !entry.includes("$")
+    : name === "headers" && typeof entry === "object" && entry !== null
+      ? Object.entries(entry).some(([header, text]) => /auth|key|token|secret|cookie/i.test(header) && typeof text === "string" && !text.includes("$"))
+      : literalCredential(entry));
+}
 /** Environment variables a `$NAME` or `${NAME}` template reads. */
 const templateNames = (value: unknown): string[] => typeof value === "string"
   ? [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g)].map(match => match[1]!) : [];
@@ -125,11 +143,15 @@ function routesFor(model: Model<Api>): readonly string[] | undefined {
 }
 
 function shapeOf(model: Model<Api>, type: "api_key" | "oauth", key: string | undefined): Shape {
-  if (model.api === "openai-codex-responses") {
+  // Copilot derives its endpoint and request shape from its own token.
+  if (model.provider === "github-copilot") {
+    // Refused below.
+  } else if (model.api === "openai-codex-responses") {
     if (type === "oauth" && model.provider === "openai-codex") return "codex_oauth";
   } else if (model.api === "anthropic-messages") {
-    if (model.provider === "anthropic" && (type === "oauth" || key?.includes("sk-ant-oat"))) return "anthropic_oauth";
-    if (type === "api_key" && !key?.includes("sk-ant-oat")) return "api_key";
+    // Native Anthropic Messages treats any sk-ant-oat key as a login, whatever the provider.
+    if (type === "oauth" ? model.provider === "anthropic" : key?.includes("sk-ant-oat")) return "anthropic_oauth";
+    if (type === "api_key") return "api_key";
   } else if (API_ROUTES[model.api] && type === "api_key") return "api_key";
   return refuse(`${model.provider}/${model.id} uses ${type === "oauth" ? "an OAuth login" : "an API key"} on the ${model.api} API, `
     + "which the relay does not carry. Use an API key on an Anthropic Messages or OpenAI-compatible model, or the openai-codex or anthropic login.");
@@ -137,21 +159,27 @@ function shapeOf(model: Model<Api>, type: "api_key" | "oauth", key: string | und
 
 /**
  * pi's own file-locked credential store, limited to the selected provider and
- * refusing a command-sourced key before pi could run it. The store is not a
- * public export; the backend pins the installed pi version.
+ * refusing a command-sourced key before pi could run it. The check and the
+ * read are one locked operation, so no edit can slip a command in between.
+ * Neither module is a public export; the backend pins the installed pi version.
  */
 async function guardedCredentials(authPath: string, provider: string): Promise<CredentialStore> {
-  const entry = Bun.resolveSync("@earendil-works/pi-coding-agent", import.meta.dir);
-  const { AuthStorage } = await import(join(dirname(entry), "core", "auth-storage.js")) as
-    { AuthStorage: { create(path: string): CredentialStore } };
+  const core = join(dirname(Bun.resolveSync("@earendil-works/pi-coding-agent", import.meta.dir)), "core");
+  const { AuthStorage } = await import(join(core, "auth-storage.js")) as { AuthStorage: { create(path: string): CredentialStore } };
+  const { resolveConfigValue } = await import(join(core, "resolve-config-value.js")) as
+    { resolveConfigValue(value: string, env?: Record<string, string>): string | undefined };
   const inner = AuthStorage.create(authPath);
   const ownProvider = (id: string) => { if (id !== provider) throw new Error("Only the turn's provider is resolved on the host"); };
   return {
     async read(id, options) {
-      if (id !== provider) return undefined;
-      const raw = readStoredCredential(id, authPath) as { type?: string; key?: unknown } | undefined;
-      if (raw?.type === "api_key" && isCommand(raw.key)) refuse("its stored key runs a command, which the host never runs");
-      return inner.read(id, options);
+      if (id !== provider || !existsSync(authPath)) return undefined;
+      // Returning nothing leaves the store unchanged and yields the locked credential.
+      const credential = await inner.modify(id, async current => {
+        if (current?.type === "api_key" && isCommand(current.key)) refuse("its stored key runs a command, which the host never runs");
+        return undefined;
+      }, options);
+      return credential?.type === "api_key" && credential.key !== undefined
+        ? { ...credential, key: resolveConfigValue(credential.key, credential.env as Record<string, string> | undefined) } : credential;
     },
     async list(options) { return (await inner.list(options)).filter(info => info.providerId === provider); },
     async modify(id, fn, options) { ownProvider(id); return inner.modify(id, fn, options); },
@@ -175,13 +203,15 @@ export async function preparePiHostInference(options: {
   try { if (existsSync(modelsPath)) models = JSON.parse(readFileSync(modelsPath, "utf8")); }
   catch { refuse("pi's models.json is not valid JSON"); }
   const configured = models.providers?.[provider];
-  const headerCommands = (headers: unknown) => typeof headers === "object" && headers !== null && Object.values(headers).some(isCommand);
-  if (isCommand(configured?.apiKey) || headerCommands(configured?.headers)
-    || (Array.isArray(configured?.models) && configured.models.some(model => headerCommands((model as { headers?: unknown })?.headers)))) {
-    refuse(`pi's models.json runs a command for ${provider}'s key or a header, which the host never runs. Use a literal, an environment variable or a stored key`);
+  // Anywhere in the provider's entry: its key, headers, models and model overrides.
+  if (strings(configured).some(isCommand)) {
+    refuse(`pi's models.json runs a command for ${provider}, which the host never runs. Use a literal, an environment variable or a stored key`);
   }
-  const stored = readStoredCredential(provider, authPath) as { type?: string; key?: unknown } | undefined;
-  if (stored?.type === "api_key" && isCommand(stored.key)) refuse(`pi's stored key for ${provider} runs a command, which the host never runs`);
+  if (configured?.oauth !== undefined) refuse(`pi's models.json gives ${provider} its own login implementation, which the relay does not carry`);
+  const modelsInBrain = existsSync(modelsPath) && inside(brain, realpathSync(modelsPath));
+  if (modelsInBrain && literalCredential(configured)) {
+    refuse(`pi's models.json is linked into the brain and holds a credential for ${provider}; reference it as $NAME or store it with pi instead`);
+  }
   const authorized = new Set([...firstPartyOrigins(provider), ...piCredentialOrigins().get(provider) ?? []]);
 
   // A private snapshot: only this provider, so the host runtime can never
@@ -200,10 +230,12 @@ export async function preparePiHostInference(options: {
     const routes = routesFor(model);
     if (!routes) refuse(`${provider}/${model.id} uses the ${model.api} API, which the relay does not carry`);
     const endpoint = new URL(model.baseUrl);
-    // Refused before the credential is read: the configured route must be authorized.
+    // Refused before any credential is read: the configured route must be authorized.
     if (!authorized.has(endpoint.origin)) {
       refuse(`${endpoint.origin} may not receive ${provider}'s credential; list it as ${provider}=${endpoint.origin} in BRAIN_UI_PI_CREDENTIAL_ORIGINS`);
     }
+    const stored = readStoredCredential(provider, authPath) as { type?: string; key?: unknown } | undefined;
+    if (stored?.type === "api_key" && isCommand(stored.key)) refuse(`pi's stored key for ${provider} runs a command, which the host never runs`);
     const check = await runtime.checkAuth(provider, options.signal ? { signal: options.signal } : undefined);
     if (!check) refuse(`pi has no credential for ${provider}`);
     const first = await runtime.getAuth(model, options.signal ? { signal: options.signal } : {});
@@ -221,12 +253,21 @@ export async function preparePiHostInference(options: {
         if (!authorized.has(target.origin)) throw new Error("Unauthorized recipient");
         const key = auth.apiKey;
         if (shapeOf(model, check.type, key) !== shape) throw new Error("The credential changed shape during the turn");
+        // Native precedence: configured headers override the key's own header,
+        // and a null removes it; Codex sets its bearer and account last.
         const headers: Record<string, string> = {};
-        for (const [name, value] of Object.entries(auth.headers ?? {})) if (typeof value === "string") headers[name.toLowerCase()] = value;
-        if (key) {
-          if (shape === "codex_oauth") { headers.authorization = `Bearer ${key}`; headers["chatgpt-account-id"] = codexAccount(key); }
-          else if (shape === "anthropic_oauth" || model.api !== "anthropic-messages") headers.authorization = `Bearer ${key}`;
-          else headers["x-api-key"] = key;
+        const configured = (into: Record<string, string>) => {
+          for (const [name, value] of Object.entries(auth.headers ?? {})) {
+            if (typeof value === "string") into[name.toLowerCase()] = value; else delete into[name.toLowerCase()];
+          }
+        };
+        if (shape === "codex_oauth") {
+          configured(headers);
+          if (key) { headers.authorization = `Bearer ${key}`; headers["chatgpt-account-id"] = codexAccount(key); }
+        } else {
+          if (key && shape === "api_key" && model.api === "anthropic-messages") headers["x-api-key"] = key;
+          else if (key) headers.authorization = `Bearer ${key}`;
+          configured(headers);
         }
         return headers;
       } });
@@ -236,29 +277,36 @@ export async function preparePiHostInference(options: {
       // Far from expiry, so the worker never tries to refresh a placeholder.
       ? { type: "oauth", access: placeholder, refresh: INFERENCE_PLACEHOLDER, expires: Date.now() + 365 * 86_400_000 }
       : { type: "api_key", key: placeholder };
-    // The worker keeps native model settings but no key, headers or endpoints.
-    const providerConfig: Record<string, unknown> = Object.fromEntries(Object.entries(configured ?? {})
-      .filter(([name]) => !["apiKey", "headers", "baseUrl", "authHeader"].includes(name)));
-    if (Array.isArray(configured?.models)) providerConfig.models = configured.models.map(entry => typeof entry === "object" && entry !== null
-      ? Object.fromEntries(Object.entries(entry).filter(([name]) => !["headers", "baseUrl"].includes(name))) : entry);
+    // The worker keeps native model settings but no key, headers, endpoints or
+    // login implementation, at any depth (models and model overrides included).
+    const providerConfig = (sanitized(configured ?? {}) ?? {}) as Record<string, unknown>;
     const stoppable = relay;
-    // Every variable that names or feeds this provider's credential stays on the host.
+    // Every variable that names or feeds this provider's credential stays on
+    // the host, and so does any agent-only inference key. Keys the brain
+    // CLI's own providers read stay until those are relayed (#1673).
     const credentialEnv = new Set([...findEnvKeys(provider, options.environment as Record<string, string>) ?? [],
-      ...templateNames(configured?.apiKey), ...templateNames(stored?.key),
-      ...[configured?.headers, ...(Array.isArray(configured?.models) ? configured.models.map(entry => (entry as { headers?: unknown })?.headers) : [])]
-        .flatMap(headers => typeof headers === "object" && headers !== null ? Object.values(headers).flatMap(templateNames) : [])]);
+      ...strings(configured).flatMap(templateNames), ...templateNames(stored?.key), ...AGENT_INFERENCE_CREDENTIAL_ENV,
+      ...getBuiltinProviders().flatMap(other => findEnvKeys(other, options.environment as Record<string, string>) ?? [])
+        .filter(name => !SUBPROCESS_ENV[name as keyof typeof SUBPROCESS_ENV]?.includes("brainCli"))]);
     return {
       worker: { provider, basePath, socket: `${WORKER_EGRESS_DIR}/inference.sock`, credential, providerConfig,
         ...(shape === "codex_oauth" ? { transport: "sse" as const } : {}) },
       credentialEnv: [...credentialEnv],
       // A models.json linked into the brain stays visible: the brain is the worker's to read.
       maskPaths: [authPath, modelsPath].filter(path => existsSync(path)).map(path => realpathSync(path)).filter(path => !inside(brain, path)),
-      stop() { rmSync(link, { force: true }); stoppable.stop(); rmSync(scratch, { recursive: true, force: true }); },
+      stop() { cleanup(link, stoppable, scratch); },
     };
   } catch (error) {
-    rmSync(link, { force: true });
-    relay?.stop();
-    rmSync(scratch, { recursive: true, force: true });
+    cleanup(link, relay, scratch);
     throw error;
   }
+}
+
+/** Every step runs even when an earlier one fails; the first failure is rethrown. */
+function cleanup(link: string, relay: InferenceRelay | undefined, scratch: string): void {
+  const failures: unknown[] = [];
+  for (const step of [() => rmSync(link, { force: true }), () => relay?.stop(), () => rmSync(scratch, { recursive: true, force: true })]) {
+    try { step(); } catch (error) { failures.push(error); }
+  }
+  if (failures.length) throw failures[0];
 }

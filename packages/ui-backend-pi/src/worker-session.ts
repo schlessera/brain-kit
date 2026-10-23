@@ -115,15 +115,12 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // A governed or strict turn on the turn proxy: the host holds the credential
   // and the worker's pi reaches inference only through the relay (#1665).
   const egress = !env.autonomous ? env.workerSandbox?.egress : undefined;
+  const relayedModel = egress ? declared ?? (entries ? savedModel(entries) : undefined) : undefined;
+  if (egress && !relayedModel) throw new BackendRequestError("A pi turn on the host inference relay needs a declared vendor/model profile.");
+  // Acquired inside the admission scope below, so every later failure releases it.
   let hostInference: PiHostInference | undefined;
-  if (egress) {
-    const selected = declared ?? (entries ? savedModel(entries) : undefined);
-    if (!selected) throw new BackendRequestError("A pi turn on the host inference relay needs a declared vendor/model profile.");
-    hostInference = await preparePiHostInference({ provider: selected.provider, modelId: selected.id, agentDir,
-      brainPath: backend.brainPath, egress, environment: subprocessEnv(), ...(env.workerSignal ? { signal: env.workerSignal } : {}) });
-  }
   // A relayed worker gets only settings: the host keeps credentials and endpoints.
-  if (!envelope) for (const name of hostInference ? ["settings.json"] : ["auth.json", "models.json", "settings.json"]) {
+  if (!envelope) for (const name of egress ? ["settings.json"] : ["auth.json", "models.json", "settings.json"]) {
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
@@ -141,8 +138,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   }
   const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { exec, brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
-    resume: Boolean(resumeId), entries, profileId, agentFiles, fixedAppend: promptContext?.append(), ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}),
-    ...(hostInference ? { relayed: hostInference.worker } : {}) };
+    resume: Boolean(resumeId), entries, profileId, agentFiles, fixedAppend: promptContext?.append(), ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
   // holds the worker's session state too (#1703).
   const turnTempLimits = resolveTurnTempLimits({ ...backend.turnTemp,
@@ -151,6 +147,11 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let admissionObservation: StateRoomObservation;
   let identity: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   try {
+    if (egress && relayedModel) {
+      hostInference = await preparePiHostInference({ provider: relayedModel.provider, modelId: relayedModel.id, agentDir,
+        brainPath: backend.brainPath, egress, environment: subprocessEnv(), ...(env.workerSignal ? { signal: env.workerSignal } : {}) });
+      Object.assign(init, { relayed: hostInference.worker });
+    }
     admissionObservation = checkSessionSize(init);
     const workerHost = requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
     if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) identity = { kind: "separate_uid", workerUid: workerHost.workerUid };

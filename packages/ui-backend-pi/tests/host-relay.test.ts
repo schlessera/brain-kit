@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { canonicalOrigin, piCredentialOrigins } from "../src/host-inference.js";
 
-type Result = { outcomes: Array<string | null>; thrown: string | null; refreshes: number; toolFetches: number; toolOutputSeen: boolean; requests: Array<Record<string, string | null>>;
+type Result = { hostFetches: string[]; outcomes: Array<string | null>; thrown: string | null; refreshes: number; toolFetches: number; toolOutputSeen: boolean; requests: Array<Record<string, string | null>>;
   inference: Array<{ inference: boolean; host: string; path: string | null; outcome: string }>; workerObserved: boolean;
-  secretInWorker: boolean; hostCredentialFilesVisible: number; placeholderInWorker: boolean; commandRan: boolean; hostRefreshed: boolean; relayLinkRemoved: boolean };
+  secretInWorker: boolean; hostCredentialFilesVisible: number; workerViewObserved: boolean; placeholderInWorker: boolean; commandRan: boolean; hostRefreshed: boolean; relayLinkRemoved: boolean };
 let results: Record<string, Result>;
 beforeAll(async () => {
   const root = resolve(import.meta.dir, "../../..");
@@ -54,8 +54,21 @@ test("a bash tool keeps its network through the turn proxy, recorded apart from 
   ]);
   expect(result.secretInWorker).toBe(false);
 });
+test("a configured authorization header wins over the key's own, as in native pi", () => {
+  relayed("configured-header-wins", { path: "/v1/responses", authorization: "gateway" }, "api.openai.com");
+});
+test("inference keys only agent runtimes read stay out of a relayed worker", () => {
+  relayed("agent-only-keys", { path: "/v1/responses", authorization: "openai" }, "api.openai.com");
+});
+test("an unlisted origin is refused before the stored login is read or refreshed", () => {
+  const result = results["codex-custom-unlisted-expired"]!;
+  expect(result.refreshes, "PI_RELAY_UNLISTED_ORIGIN_NO_CREDENTIAL_USE").toBe(0);
+  expect(result.thrown ?? "", "PI_RELAY_REFUSED_BEFORE_LAUNCH").toContain("may not receive openai-codex's credential");
+  expect(result.requests).toEqual([]);
+});
 test("pi's credential files outside every host mask are masked in the worker", () => {
   relayed("stored-key-outside-masks", { path: "/v1/responses", authorization: "openai" }, "api.openai.com");
+  expect(results["stored-key-outside-masks"]!.workerViewObserved, "PI_RELAY_WORKER_VIEW_OBSERVED").toBe(true);
   expect(results["stored-key-outside-masks"]!.hostCredentialFilesVisible, "PI_RELAY_HOST_CREDENTIAL_FILES_MASKED").toBe(0);
 });
 test("a Codex login keeps its native request: account header, zstd body, host bearer", () => {
@@ -78,11 +91,15 @@ for (const [name, reason] of [
   ["command-key-models", "models.json runs a command"],
   ["command-key-stored", "stored key for openai runs a command"],
   ["command-header", "models.json runs a command"],
+  ["command-model-override-header", "models.json runs a command"],
+  ["radius-overlay", "its own login implementation"],
+  ["brain-models-literal-key", "linked into the brain and holds a credential"],
   ["copilot-oauth", "uses an OAuth login on the anthropic-messages API, which the relay does not carry"],
   ["auth-in-brain", "auth.json is linked into the brain"],
 ] as const) test(`${name} is refused before launch, with nothing sent and no command run`, () => {
   const result = results[name]!;
   expect(result.commandRan, "PI_RELAY_HOST_NEVER_RUNS_A_CREDENTIAL_COMMAND").toBe(false);
+  expect(result.hostFetches, "PI_RELAY_REFUSAL_NO_HOST_CREDENTIAL_TRAFFIC").toEqual([]);
   expect(result.requests, "PI_RELAY_REFUSAL_SENDS_NOTHING").toEqual([]);
   expect(result.thrown ?? "", "PI_RELAY_REFUSED_BEFORE_LAUNCH").toContain(reason);
   expect(result.workerObserved).toBe(false);

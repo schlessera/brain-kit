@@ -105,27 +105,36 @@ policy, because `models.json` routing may come from the writable brain.
 
 How the implementation holds to these rulings
 (`export async function preparePiHostInference`,
-`packages/ui-backend-pi/src/host-inference.ts:162-264`):
+`packages/ui-backend-pi/src/host-inference.ts:190-303`):
 
-- **Before launch:** the host refuses a command anywhere in the provider's key
-  or headers, an `auth.json` linked into the brain, a model outside the
-  matrix and a configured origin that is neither first-party nor listed. The
-  last refusal comes before the credential is read.
+- **Before launch:** the host refuses a command anywhere in the provider's
+  `models.json` entry (including model definitions and overrides), a provider
+  login implementation configured there (`oauth`), an `auth.json` linked into
+  the brain, a brain-linked `models.json` holding a literal credential, a
+  model outside the matrix, and a configured origin that is neither
+  first-party nor listed. The origin check comes before any credential is
+  read or refreshed.
 - **Snapshot:** the host runtime reads a private snapshot of `models.json`
   holding only this provider, so it cannot reach another provider's command
   and no edit made during the turn reroutes it.
 - **Credential store:** credentials come from pi's own file-locked store,
   limited to the turn's provider. The store refuses a stored command key
-  before pi could run it (`async function guardedCredentials`,
-  `packages/ui-backend-pi/src/host-inference.ts:143-160`). The store is not a
+  before pi could run it, checking and reading under pi's own file lock so no
+  edit can slip in between (`async function guardedCredentials`,
+  `packages/ui-backend-pi/src/host-inference.ts:166-188`). The store is not a
   public pi export; the backend pins the installed pi version.
 - **Each dispatch:** pi resolves the credential. A changed shape refuses, as
   does an auth-supplied endpoint that differs from the configured one (the
-  matrix has none) or an unlisted origin.
+  matrix has none) or an unlisted origin. Header precedence matches native
+  pi: configured headers override the key's own header, and Codex sets its
+  bearer and account last.
 - **The worker:** it receives only the provider's placeholder, its
   `models.json` entry without key, headers or endpoints, and SSE for Codex.
   It never writes credential state back. Variables that name or feed the
-  provider's credential, including `$NAME` templates, stay on the host. pi's
+  provider's credential stay on the host, including `$NAME` templates. So do
+  inference keys only agent runtimes read, and other pi providers' keys that
+  the brain CLI does not read. Keys the brain CLI's own providers read stay
+  until #1673 relays them. pi's
   host `auth.json` and `models.json` are masked in the worker wherever the
   host masks do not already hide them, unless `models.json` lives in the
   brain.
