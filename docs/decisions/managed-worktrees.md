@@ -203,7 +203,7 @@ lost host database loses these dispositions together with the worktrees'
 ownership records; no brain content is lost.
 
 **Detection.** A worktree is one finding at most
-(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:51-58`):
+(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:77-84`):
 
 - `retained`: released or expired, held by no generation, with unpreserved work;
 - `unknown`: its holder's liveness, its owner or its work cannot be established,
@@ -220,7 +220,7 @@ liveness, the work (state, counts and a digest of every changed path's type,
 mode, size, link target and file bytes, or its absence; times are left out
 because a worker can set them), any removal failure, and the state and last
 explicit activity
-(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:68-84`).
+(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:94-110`).
 The time of an assessment is not in it, so a fresh assessment of unchanged work
 is the same evidence. One assessment hashes at most 64 MiB of changed files,
 read without blocking the server; a larger or sparse file is named instead by its
@@ -239,7 +239,7 @@ consent to remove anything, and nothing reads it as such.
 **Privacy and authority.** Inbox Actions replicate to every usable principal,
 so the card of a private worktree carries only its opaque identity, state and
 counts: no repository, revision, commit, changed path or principal
-(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:153-171`).
+(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:179-197`).
 A public worktree's card names its source and up to 16 changed paths. The owner
 principal is an authorized reader and reviewer of a delegated agent's worktree
 findings, as of any other finding; review authority stays with owner and ambient
