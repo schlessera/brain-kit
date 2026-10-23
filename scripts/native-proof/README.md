@@ -241,6 +241,11 @@ its transport workers against the pool: it fetches and checks out a
 its view. The container therefore also has `SETUID`, `SETGID` and `SETFCAP`
 and unconfined system paths, like the native host proof, so the transport
 workers can map their user namespace and mount their own `/proc`.
+A managed-worktree case ([#2430](https://github.com/schlessera/brain-kit/issues/2430))
+edits a writable snapshot of sealed source, diffs two of its read-only
+checkpoints and grants it to a running non-root bubblewrap worker through an
+access generation, then parks it, adopts an interrupted grant on restart and
+closes the generation.
 
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and

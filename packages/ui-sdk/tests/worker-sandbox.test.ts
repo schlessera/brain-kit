@@ -463,3 +463,42 @@ test("separate-UID notes use qualified identity facts in both ordinary profiles"
   }
   expect(workerSandboxNote(sandbox,{identity:{kind:"separate_uid",workerUid:0}}),"ROOT_UID_IS_NOT_VERIFIED_NONROOT").not.toContain("verified separate non-root uid");
 });
+
+describe("managed worktree generations (#2430)", () => {
+  test("a generation is bound whole, only into an interactive worker, and only from a root-owned directory outside the brain", () => {
+    const f = fixture();
+    try {
+      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      // A root-owned 0755 directory stands in for the pool's access generation.
+      const argv = workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, worktrees: { source: "/usr" } } });
+      const at = argv.findIndex((arg, i) => arg === "--bind" && argv[i + 1] === "/usr");
+      expect(argv.slice(at, at + 3), "REFERENCE_WORKTREE_GENERATION_BOUND_WHOLE").toEqual(["--bind", "/usr", "/tmp/brain-worktrees"]);
+      const turnTemp = argv.findIndex((arg, i) => arg === "--tmpfs" && argv[i + 1] === "/tmp");
+      expect(turnTemp >= 0 && turnTemp < at, "REFERENCE_WORKTREE_GENERATION_MOUNTED_OVER_TURN_TEMP").toBe(true);
+      const owned = join(f.root, "generation"); mkdirSync(owned, { mode: 0o755 });
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, worktrees: { source: owned } } }),
+        "REFERENCE_WORKTREE_GENERATION_MUST_BE_ROOT_OWNED").toThrow("root-owned directory outside the brain");
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, worktrees: { source: join(f.brain, "notes") } } }))
+        .toThrow("root-owned directory outside the brain");
+      const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: { readPaths: [process.execPath], inferenceDir: f.root },
+        sandbox: { ...restricted, worktrees: { source: "/usr" } } }), "REFERENCE_WORKTREE_NEVER_IN_A_RESTRICTED_WORKER").toThrow("only an interactive governed or strict worker");
+    } finally { f.cleanup(); }
+  });
+
+  test("the guidance is fixed text that appears only where a generation is bound", () => {
+    const brain = "/srv/ithaca/brain";
+    const base: WorkerSandbox = { brain, restricted: false, scratchAliasesRemoved: [], home: { mode: "xdg" }, profile: "governed", areas: [],
+      scopePolicy: { max_files_changed: 1000, max_minutes: 30, max_tool_calls: 500, max_bytes_written: 1 << 30 } };
+    const without = workerSandboxNote(base);
+    expect(without, "REFERENCE_WORKTREE_GUIDANCE_ONLY_WHEN_BOUND").not.toContain("Managed reference worktrees");
+    const first = workerSandboxNote({ ...base, worktrees: { source: "/srv/ithaca-reference/access/11111111-1111-4111-8111-111111112430" } });
+    const second = workerSandboxNote({ ...base, profile: "governed", worktrees: { source: "/srv/ithaca-reference/access/22222222-2222-4222-8222-222222222430" } });
+    expect(first, "REFERENCE_WORKTREE_GUIDANCE_STATIC").toBe(second);
+    expect(first, "REFERENCE_WORKTREE_GUIDANCE_NAMES_NO_HOST_PATH").not.toContain("ithaca-reference");
+    for (const phrase of ["Shared reference source is read-only and moves", "a reported commit that never moves", "`/tmp/brain-worktrees/<worktree id>/`",
+      "do not make an unmanaged clone", "Only requesting access again or renewing it resets that clock", "reading, writing and running commands do not",
+      "never delete unfinished work", "Release a worktree once you no longer need it", "and managed worktrees."])
+      expect(first, `REFERENCE_WORKTREE_GUIDANCE ${phrase}`).toContain(phrase);
+  });
+});

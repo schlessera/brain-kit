@@ -1,6 +1,6 @@
 /** Provider-folder admission on real Btrfs, including the strict output keeper. */
 import { expect } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { createNativeBrainManagerClient } from "../../packages/ui-sdk/src/server/native-brain-manager-client.js";
@@ -112,8 +112,30 @@ export async function proveNativeProviderIndex(brain: string, manager: ReturnTyp
       }
       expect(privateIndex && existsSync(privateIndex), "NATIVE_PRIVATE_INDEX_REMOVED_AFTER_TURN").toBe(false);
     }
+    // A hardlink out of the masked folder (#2700): the managed Btrfs
+    // checkpoint keeps it, so admission must refuse it by name. A governed
+    // turn falls back to that checkpoint because the retained folder now
+    // holds a multiply linked file.
+    linkSync(join(brain, "me/oath.md"), join(brain, "notes/oath-alias.txt"));
+    for (const profile of ["strict", "governed"] as const) {
+      const root = `/identity-fixture/provider-hardlink-${profile}`;
+      mkdirSync(root, { mode: 0o700 });
+      const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
+      const execution = createHostExecution({ brainPath: brain, dbPath, nativeManager: manager, profile, requireGate: true });
+      execution.attach(db);
+      const turns = createGovernedTurns({ nativeManager: manager, brainPath: brain, execution, profile, maskPaths: [],
+        index: async () => {}, report: () => {}, privateIndexCommand: [process.execPath, "/repo/packages/core/src/cli/brain.ts"] });
+      let refusal: unknown;
+      try {
+        try { await (await turns.begin(`native-provider-hardlink-${profile}`, new AbortController().signal)).end(); }
+        catch (error) { refusal = error; }
+      } finally { await turns.close(); execution.release(); db.close(); }
+      expect((refusal as Error | undefined)?.name, `NATIVE_PROVIDER_HARDLINK_REFUSED_${profile.toUpperCase()}: ${String(refusal)}`).toBe("ProviderPolicyRefusedError");
+      expect((refusal as Error).message, "NATIVE_PROVIDER_HARDLINK_NAMED").toContain("notes/oath-alias.txt is a hardlink to me/oath.md");
+      console.log(JSON.stringify({ nativeProviderHardlink: "refused", profile }));
+    }
   } finally {
-    for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", "notes/provider-voyage.md",
+    for (const rel of ["me", "context", ".git", ".gitignore", ".brain-index", "notes/provider-voyage.md", "notes/oath-alias.txt",
       ".brain/scratch/provider-index-strict", ".brain/scratch/provider-index-governed"])
       rmSync(join(brain, rel), { recursive: true, force: true });
   }
