@@ -1862,8 +1862,7 @@ voice turn, and admission applies the masks to all of them:
   path and the `providers` rule whose selector maps onto the folder. Search and context need no host change: the
   in-worker CLI and the `brain` MCP server already read the private index.
   `inbox_list`, `inbox_get` and `query_activity` read the server's own
-  database, not brain paths; what that record retains is part of the
-  retained-copy audit. Capture planning still classifies against the real
+  database, not brain paths; see the activity record and inbox items below. Capture planning still classifies against the real
   index, so a capture it would file under a masked folder refuses by name,
   which tells the agent such a destination exists. The maintenance worker is
   not mount-masked: the brain's own code running there could still read a
@@ -1925,6 +1924,34 @@ voice turn, and admission applies the masks to all of them:
   edits ([provider history](provider-history.md)), is re-sent to the provider.
   How to handle that state needs a ruling
   ([#2726](https://github.com/schlessera/brain-kit/issues/2726)).
+- **The activity record and inbox items (audit and maintainer ruling,
+  2026-10-23, #2698 option A).** Three bridge reads serve the server's own
+  database rather than a brain path, so no path refusal applies to them.
+  Source inspection finds these retained copies a masked document's text can
+  reach:
+  - `query_activity` (`runActivityQuery`,
+    `packages/ui-server/src/activity/query.ts:19-180`): run failure reasons
+    (`failureReason`, an error's message or a stderr tail), span outcome
+    reasons and tool spans of a single run (`scope=run`), subagent transcript
+    excerpts, notification intent titles (`scope=inbox`) and
+    roadblock signatures (`scope=roadblocks`). `running` and `rollups`
+    return labels and counts that may also name documents.
+  - `inbox_list` and `inbox_get` (`inboxList`,
+    `packages/ui-server/src/inbox/bridge-tools.ts:51-72`): each item's stored
+    payload, titles, details and option labels, and its thread.
+
+  None of these fields records which documents its text came from. A run from
+  before a provider rule existed, or on an allowed route, can leave masked
+  text in them, and a later denied turn would read it back. The ruling refuses
+  all three tools whole for a turn with masked folders, in every scope and on
+  a direct bridge call, before any record is read (`ProviderRecordsRefusedError`,
+  the `provider_masked` refusal). The tools stay registered with the same
+  names and schemas, so provider history is unchanged across turns; the
+  refusal is decided from the turn's admitted masks, the same set as every
+  other refusal. No record is filtered and no field is claimed safe or
+  traced to its source. Such a turn loses the agent's diagnostics over
+  earlier runs (failures, cost, roadblocks) and its inbox reads; the user
+  still reads both in the app, and turns without masked folders keep them.
 
 
 **Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
