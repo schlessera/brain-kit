@@ -12,6 +12,7 @@ import { openDatabase } from "../../lib/db.js";
 import type { CliContext, CoreCommand } from "../types.js";
 import type { SearchOptions } from "../../lib/types.js";
 import { emit, parseArgs, UsageError } from "../io.js";
+import { providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 
 const HELP = `brain process <path> — assimilate a note into proper brain content
 
@@ -137,6 +138,10 @@ export const processCommand: CoreCommand = {
   helpBlock: HELP,
   async run(args, cli) {
     const { args: pos, flags } = parseArgs(args);
+    if (!cli.completions && cli.withheld?.completions) {
+      throw new UsageError(providerUnavailableNotice({ ...cli.withheld.completions, capability: "completions", degradedTo: null },
+        "`brain process` needs a completion provider"));
+    }
     if (!cli.completions) {
       throw new UsageError("`brain process` requires a completion provider (set an API key).");
     }

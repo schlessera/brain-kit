@@ -47,11 +47,11 @@ next to it.
   `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
   and handed to the SDK (`backend.claudeCodePath`,
-  `packages/ui-backend-claude/src/sdk-options.ts:357`). Because of the `||`
+  `packages/ui-backend-claude/src/sdk-options.ts:366`). Because of the `||`
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
-  `packages/ui-sdk/src/server/subprocess-env.ts:123`), as
+  `packages/ui-sdk/src/server/subprocess-env.ts:126`), as
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:86-293`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:86-295`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
@@ -447,16 +447,16 @@ into them.
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:91-95` and admitted
-  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:58`).
+  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:61`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
-  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`). The container privilege record's
+  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:62`). The container privilege record's
   environment table (brain-hosting-template) keeps both.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
   A turn's environment is the filtered agent environment plus the profile's
   additions (`export function turnEnv`, `packages/ui-backend-claude/src/sdk-options.ts:71-77`,
   `envSnapshot`, `packages/ui-backend-claude/src/config/env.ts:201-209`), handed to the SDK
-  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:430`). A declared bearer-token profile clears both
+  whole (`sdkOptions.env = childEnv`, `sdk-options.ts:439`). A declared bearer-token profile clears both
   ambient credentials (`input.authTokenEnv !== undefined`, `profiles.ts:116-122`); a declared API-key profile sets
   the key on purpose (`input.apiKeyEnv !== undefined`, `profiles.ts:123-125`).
 - **Billing originally relied on ambient credential classification.** The
@@ -503,13 +503,13 @@ all, and nothing warns: `accountInfo()` still reports the OAuth token as the
 token source. Only `apiKeySource` shows it. So an `ANTHROPIC_API_KEY` that
 reaches the CLI for any reason moves every default-profile chat turn to API
 billing. The tree gives it reasons to be set: the core CLI's `anthropic-haiku`
-completion provider reads it (`"anthropic-haiku": { keyEnv: ANTHROPIC_KEY_ENV`, `packages/core/src/lib/registry.ts:54`), and so does
+completion provider reads it (`"anthropic-haiku": { keyEnv: ANTHROPIC_KEY_ENV`, `packages/core/src/lib/registry.ts:55`), and so does
 model discovery. The cost record then says `api`, which is accurate
 bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
 `claude` with the inherited environment
 (`Bun.spawn(args`, `packages/core/src/providers/agents/cli-runners.ts:37-43`; `Bun.spawn([...CLAUDE_BASE_ARGS`, `cli-runners.ts:66-72`), and that
-environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:59`).
+environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:62`).
 
 > **2026-09-30 — Implementation context (the core runner paragraph above).**
 > The [old Claude runners](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37-L72)
@@ -604,7 +604,7 @@ subscription authenticates.
    environment is necessary, whether or not a subscription credential is
    present. It is not sufficient: the CLI also takes an API key from an
    `apiKeyHelper` in settings — the backend loads the brain repo's project
-   settings (`settingSources: ["project"]`, `sdk-options.ts:301`) — and from a stored Console login, reported
+   settings (`settingSources: ["project"]`, `sdk-options.ts:310`) — and from a stored Console login, reported
    as `/login managed key` (`sdk.d.ts:5585`). So the turn has to check which
    credential the CLI selected **before the prompt is sent**, and end the turn
    if it is not a subscription. The check reads the account from the SDK's
@@ -1403,13 +1403,13 @@ this concrete delivered prerequisite.
 
 The existing SDK turn builder accepts the same concrete host-prepared proxy
 directory as the ordinary spawn adapter (`hostInference?:`,
-`packages/ui-backend-claude/src/sdk-options.ts:85`). The explicit selection pins
+`packages/ui-backend-claude/src/sdk-options.ts:88`). The explicit selection pins
 the inference OAuth placeholder and Unix socket in both the child environment
 and native flag settings, using the existing subscription credential-clearing
 policy. It does not remove other providers' CLI command environment. Only an
 ordinary subscription turn can select this input; API and autonomous turns
 retain their existing paths (`const inferenceEnv`,
-`packages/ui-backend-claude/src/sdk-options.ts:220-231`). The worker note derives
+`packages/ui-backend-claude/src/sdk-options.ts:223-240`). The worker note derives
 its active-proxy description from that same selection and retains per-use
 outward approvals.
 

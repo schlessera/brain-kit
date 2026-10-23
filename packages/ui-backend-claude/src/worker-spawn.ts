@@ -90,7 +90,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   startupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView,
   persistMemory?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["persistClaudeMemory"],
   /** Host-prepared ordinary transport; selecting it keeps native credentials on the host. */
-  egress?: { proxyDir: string }) {
+  egress?: { proxyDir: string },
+  /** The provider keys a governed or strict worker keeps; the launcher withholds the rest (#1666). */
+  credentialEnv?: readonly string[]) {
   // The wrapper becomes the worker's first program: a regular file, never a directory bound into its view (#1429).
   if (!restricted) workerExecHelpers({ wrapper: config.wrapper });
   const completions: Promise<void>[] = [];
@@ -150,7 +152,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         } else {
           worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
-            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
+            command: wrapCommand([command, ...args], config.wrapper), env: childEnv, ...(credentialEnv ? { credentialEnv } : {}), ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         }
       } catch (error) { record(error); if (!workerCleanupUnconfirmed(error)) state.release(); throw error; }

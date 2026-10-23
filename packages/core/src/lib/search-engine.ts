@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { SEARCH_SORTS, type ChunkMatch, type SearchResult, type SearchOptions } from "./types.js";
 import type { EmbeddingProvider, RerankCandidate, Reranker } from "./seams.js";
 import type { Taxonomy } from "./taxonomy.js";
+import { providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { hasVecSupport, getMeta, embeddingIdentityMatches, hasDocumentsColumn } from "./db.js";
 import { nameKey } from "./name-key.js";
 import {
@@ -30,6 +31,12 @@ export interface SearchResponse {
  */
 export interface SearchDeps {
   embeddings?: EmbeddingProvider;
+  /**
+   * The configured embedding provider whose key the host withheld from this
+   * agent worker (#1666). With no `embeddings`, the warning names it instead
+   * of reporting that none is configured.
+   */
+  withheldEmbeddings?: { provider: string; key: string };
   /** The brain's types, for the reranker's recency half-lives. Defaults to
    * the core types alone. */
   taxonomy?: Taxonomy;
@@ -857,6 +864,9 @@ export async function hybridSearch(
     const embeddings = deps.embeddings;
     if (!hasVecSupport(db)) {
       warnings.push(`vector search unavailable: sqlite-vec extension not loaded${degraded}`);
+    } else if (!embeddings && deps.withheldEmbeddings) {
+      warnings.push(`vector search unavailable: ${providerUnavailableNotice({ ...deps.withheldEmbeddings, capability: "embeddings",
+        degradedTo: mode === "hybrid" ? "keyword_search" : null }, mode === "hybrid" ? "results are FTS-only" : undefined)}`);
     } else if (!embeddings) {
       warnings.push(`vector search unavailable: no embedding provider configured${degraded}`);
     } else if (!embeddingIdentityMatches(getMeta(db, "embedding_model"), embeddings.id)) {

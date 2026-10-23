@@ -10,6 +10,7 @@
 import type { BrainConfig } from "./config.js";
 import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { readEnvVar } from "../config/env.js";
+import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { buildPathMatcher, envRerankMode, isRerankMode, RERANK_MODES } from "./reranker.js";
 import { jevReranker, JEV_API_KEY_ENV, type JevRerankerConfig } from "../providers/rerankers/jev.js";
 
@@ -179,9 +180,31 @@ function unsetKey(
   return env !== undefined && !readEnvVar(env) ? env : undefined;
 }
 
+/**
+ * A configured built-in whose key the host withheld from this agent worker
+ * (#1666), or undefined: the seam stays off as a keyless one would, but the
+ * command can say which provider is missing and why.
+ */
+function withheldBuiltin(
+  registry: Record<string, KeyedBuiltin<never, unknown>>,
+  entry: unknown,
+  apiKeyEnv: string | undefined
+): WithheldProvider | undefined {
+  const key = unsetKey(registry, entry, apiKeyEnv);
+  return key !== undefined && isWithheldKey(key) ? { provider: entry as string, key } : undefined;
+}
+
 /** The unset key variable that keeps the configured embedding provider off. */
 export function missingEmbeddingKey(config?: EmbeddingsConfig): string | undefined {
   return unsetKey(EMBEDDING_PROVIDERS, config ? config.provider : DEFAULT_EMBEDDING_PROVIDER, config?.apiKeyEnv);
+}
+
+/** A configured provider that is off because the host withheld its key (#1666). */
+export interface WithheldProvider {
+  /** The configured built-in name, such as `gemini` or `anthropic-haiku`. */
+  provider: string;
+  /** The withheld environment variable. */
+  key: string;
 }
 
 export interface ResolvedProviders {
@@ -190,6 +213,8 @@ export interface ResolvedProviders {
   agentRunner?: AgentRunner;
   /** Why a seam could not be resolved, by seam, for each host to report its own way. */
   warnings: { embeddings?: string; completions?: string; agentRunner?: string };
+  /** Seams left off because their key was withheld from this agent worker, not because none is configured. */
+  withheld?: { embeddings?: WithheldProvider; completions?: WithheldProvider };
 }
 
 /**
@@ -203,6 +228,11 @@ export function resolveProviders(config?: BrainConfig | null): ResolvedProviders
   const resolved: ResolvedProviders = { warnings: {} };
   try {
     if (!missingEmbeddingKey(config?.embeddings)) resolved.embeddings = resolveEmbeddingProvider(config?.embeddings);
+    else {
+      const withheld = withheldBuiltin(EMBEDDING_PROVIDERS, config?.embeddings ? config.embeddings.provider : DEFAULT_EMBEDDING_PROVIDER,
+        config?.embeddings?.apiKeyEnv);
+      if (withheld) resolved.withheld = { ...resolved.withheld, embeddings: withheld };
+    }
   } catch (e) {
     resolved.warnings.embeddings = `embedding provider unavailable — ${(e as Error).message}`;
   }
@@ -212,6 +242,10 @@ export function resolveProviders(config?: BrainConfig | null): ResolvedProviders
       !unsetKey(COMPLETION_PROVIDERS, cfg?.provider ?? DEFAULT_COMPLETION_PROVIDER, cfg?.apiKeyEnv) ||
       (cfg?.fallback !== undefined && !unsetKey(COMPLETION_PROVIDERS, cfg.fallback, cfg.fallbackApiKeyEnv));
     if (available) resolved.completions = resolveCompletionProvider(cfg);
+    else {
+      const withheld = withheldBuiltin(COMPLETION_PROVIDERS, cfg?.provider ?? DEFAULT_COMPLETION_PROVIDER, cfg?.apiKeyEnv);
+      if (withheld) resolved.withheld = { ...resolved.withheld, completions: withheld };
+    }
   } catch (e) {
     resolved.warnings.completions = `completion provider unavailable — ${(e as Error).message}`;
   }
@@ -313,11 +347,16 @@ export function selectReranker(
   if (!explicit && typeof provider !== "string") return { rerank: "jev", reranker: provider, warning };
   // A dry run builds the request without sending it, so it needs no key.
   if (!opts.preview && !readEnvVar(rerankerKeyEnv(config))) {
+    const key = rerankerKeyEnv(config);
     return {
       rerank: "heuristic",
-      warning: explicit
-        ? `rerank "jev" unavailable: ${rerankerKeyEnv(config)} not set; results are in lifecycle order`
-        : warning,
+      // A withheld key is named even for the configured default: the brain asked for reranking (#1666).
+      warning: isWithheldKey(key)
+        ? providerUnavailableNotice({ provider: name, capability: "reranking", key, degradedTo: "lifecycle_order" },
+          "results are in lifecycle order")
+        : explicit
+          ? `rerank "jev" unavailable: ${key} not set; results are in lifecycle order`
+          : warning,
     };
   }
   const configured = config?.provider;
