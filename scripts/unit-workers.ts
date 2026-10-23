@@ -1,10 +1,20 @@
 /** Concurrent serial Bun processes, each owning its source/dependencies/build lease. */
-import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, readSync, rmdirSync, statSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, readSync, rmSync, rmdirSync, statSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { availableParallelism, tmpdir, totalmem } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { runCommands } from "./ci-runner";
-import { balanceTests } from "./test-shards";
-import { validateUnitReports } from "./unit-proof-report";
+import { balanceTests, FILE_COST_SECONDS } from "./test-shards";
+import { validateChangedUnitReports, validateUnitReports } from "./unit-proof-report";
+import { captureUnitInputs, unitInputKey } from "./unit-worker-inputs";
+import { timingSeed } from "./changed-unit-worker";
+
+/** Reserve 30% of memory; each local worker budgets two GiB and two CPUs. */
+export function localUnitWorkerCount(cores = availableParallelism(), memory = totalmem()): number {
+  return Math.max(1, Math.min(Math.floor(cores / 2), Math.floor(memory * 0.7 / (2 * 1024 ** 3))));
+}
+
+export interface UnitWorkerOptions { changed?: string; workers?: number; }
 
 function git(root: string, ...args: string[]): string {
   const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
@@ -111,16 +121,22 @@ function preserveDiagnostics(worker: { root: string; device: number; inode: numb
   if (errors.length) throw new AggregateError(errors, "Unit worker diagnostic preservation failed");
 }
 
-export async function runUnitWorkers(root: string, files: readonly string[], chrome: string | undefined, reportDir = join(root, "tmp")) {
-  if (!files.length) throw new Error("Unit workers need discovered files");
+export async function runUnitWorkers(root: string, files: readonly string[], chrome: string | undefined, reportDir = join(root, "tmp"), options: UnitWorkerOptions = {}) {
+  if (!options.changed && !files.length) throw new Error("Unit workers need discovered files");
+  if (options.changed && files.length) throw new Error("Changed unit workers let Bun select files");
+  const count = options.workers ?? (options.changed ? localUnitWorkerCount() : 2);
+  if (!Number.isSafeInteger(count) || count < 1) throw new Error("Unit worker count must be a positive integer");
+  const started = performance.now();
   mkdirSync(join(root, "tmp"), { recursive: true });
   mkdirSync(reportDir, { recursive: true });
   // Keep cloned test trees outside parent discovery and the native worker's
   // private /tmp. mkdtemp keeps this owned sibling container mode 0700.
   const container = mkdtempSync(join(dirname(root), ".brain-unit-workers-"));
   const head = git(root, "rev-parse", "HEAD");
-  const partitions = balanceTests([...files], Math.min(2, files.length));
-  const workers: { root: string; files: string[]; checkout: string; device: number; inode: number }[] = [];
+  const partitions = options.changed ? Array.from({ length: count }, () => [] as string[]) : balanceTests([...files], Math.min(count, files.length));
+  const workers: { root: string; files: string[]; checkout: string; device: number; inode: number; copiedInputs?: boolean }[] = [];
+  let inputs: ReturnType<typeof captureUnitInputs> | undefined;
+  let checkoutMs = 0, dependencyCopyMs = 0;
   const references = new Map<string, string>();
   let objectFormat = "sha1";
   let diagnosticDirectory: string | undefined;
@@ -145,7 +161,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     const cleanupFailures: unknown[] = [];
     for (const [index, worker] of workers.entries()) {
       try {
-        for (const suffix of ["report.xml", "timings.json"]) {
+        for (const suffix of ["report.xml", "timings.json", "selection.json", "output.log"]) {
           const path = join(worker.root, `tmp/unit-${suffix}`);
           if (await Bun.file(path).exists()) copyFileSync(path, join(reportDir, `unit-worker-${index + 1}-${suffix}`));
         }
@@ -158,14 +174,20 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       } catch (error) { cleanupFailures.push(error); }
       try { preserveDiagnostics(worker, () => diagnosticDestination(index), references, objectFormat); }
       catch (error) { cleanupFailures.push(error); }
-      try { git(root, "worktree", "remove", worker.root); } catch (error) { cleanupFailures.push(error); }
+      try {
+        if (worker.copiedInputs) inputs!.remove(worker.root);
+        git(root, "worktree", "remove", worker.root);
+      } catch (error) { cleanupFailures.push(error); }
     }
+    if (options.changed) try { rmSync(join(container, "inputs"), { recursive: true, force: true }); } catch (error) { cleanupFailures.push(error); }
     try { rmdirSync(container); } catch (error) { cleanupFailures.push(error); }
     if (cleanupFailures.length) throw new AggregateError(primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
       "Unit worker report/diagnostic preservation or cleanup failed");
   }
 
   try {
+    const base = options.changed ? git(root, "rev-parse", "--verify", "--end-of-options", `${options.changed}^{commit}`) : undefined;
+    if (base) inputs = captureUnitInputs(root, join(container, "inputs"));
     objectFormat = git(root, "rev-parse", "--show-object-format");
     if (!["sha1", "sha256"].includes(objectFormat)) throw new Error("Unsupported unit workspace object format");
     // One immutable, bounded tree lookup per invocation; no Git process or
@@ -179,7 +201,9 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       git(root, "worktree", "add", "--quiet", "--detach", workspace, head);
       const identity = lstatSync(workspace);
       workers.push({ root: workspace, files: selected, checkout: git(workspace, "show", "-s", "--format=%H %T %P", "HEAD"), device: identity.dev, inode: identity.ino });
+      if (inputs) { inputs.restore(workspace); workers[index]!.copiedInputs = true; }
     }
+    checkoutMs = performance.now() - started;
     // Copy the parent's frozen install without a package-manager/network phase.
     // Relative workspace links retain their layout; copy-on-write still creates
     // private inodes. No worker shares mutable node_modules or build output.
@@ -187,25 +211,38 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
       .filter(entry => entry.isDirectory()).map(entry => `packages/${entry.name}/node_modules`)]
       .filter(dir => existsSync(join(root, dir)));
     if (!dependencyDirs.includes("node_modules")) throw new Error("Unit workers need the parent's frozen dependency install");
+    const copying = performance.now();
     await runCommands(workers.flatMap((worker, index) => dependencyDirs.map(dir => ({
       name: `offline unit worker ${index + 1} dependency copy ${dir}`,
       argv: ["cp", "--archive", "--reflink=auto", join(root, dir), join(worker.root, dir)],
     }))), root, 2);
+    dependencyCopyMs = performance.now() - copying;
     await Bun.write(join(reportDir, "unit-worker-checkouts.json"), JSON.stringify(workers.map(({ root: workspace, files, checkout }, index) => {
       const { dev, ino } = statSync(join(workspace, "node_modules/typescript/package.json"));
-      return { worker: index + 1, workspace: relative(root, workspace), files, checkout, dependency: { dev, ino } };
+      return { worker: index + 1, workspace: relative(root, workspace), files, checkout, dependency: { dev, ino },
+        ...(base ? { changed: base, shard: `${index + 1}/${workers.length}` } : {}) };
     }), null, 2));
-    for (const worker of workers) mkdirSync(join(worker.root, "tmp/maintenance-ledger"), { recursive: true, mode: 0o700 });
+    for (const worker of workers) {
+      mkdirSync(join(worker.root, "tmp/maintenance-ledger"), { recursive: true, mode: 0o700 });
+      if (base) await Bun.write(join(worker.root, "tmp/unit-timings.json"), JSON.stringify(timingSeed(FILE_COST_SECONDS)));
+    }
     await runCommands(workers.map((worker, index) => ({ name: `complete unit worker ${index + 1}/${workers.length}`,
       argv: ["unshare", "--user", "--map-current-user", "--keep-caps", "--mount", "bash", join(root, "scripts/unit-worker-entry.sh"),
-        join(worker.root, "tmp/maintenance-ledger"), process.execPath, "run", "--cwd", worker.root, "test", "--internal-full-preparation", ...worker.files.map(file => join(worker.root, file)),
-        "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"],
-      env: { BRAIN_REQUIRE_CHROME: "1", ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}) } })), root, 2);
+        join(worker.root, "tmp/maintenance-ledger"), process.execPath,
+        ...(base ? [join(worker.root, "scripts/changed-unit-worker.ts"), base, `${index + 1}/${workers.length}`] :
+          ["run", "--cwd", worker.root, "test", "--internal-full-preparation", ...worker.files.map(file => join(worker.root, file)),
+            "--reporter=junit", "--reporter-outfile=tmp/unit-report.xml", "--timings=tmp/unit-timings.json", "--update-timings"])],
+      env: { BRAIN_REQUIRE_CHROME: "1", ...(chrome ? { PUPPETEER_EXECUTABLE_PATH: chrome } : {}) } })), root, count);
     const reports = workers.map(worker => {
-      if (git(worker.root, "status", "--porcelain", "--untracked-files=no")) throw new Error("Unit worker changed tracked source");
+      if (inputs ? unitInputKey(worker.root) !== inputs.key : git(worker.root, "status", "--porcelain", "--untracked-files=no")) throw new Error("Unit worker changed tracked source");
       const xml = readFileSync(join(worker.root, "tmp/unit-report.xml"), "utf8");
       const timings = JSON.parse(readFileSync(join(worker.root, "tmp/unit-timings.json"), "utf8"));
-      return { xml, timings, summary: validateUnitReports(worker.files, xml, timings) };
+      let selection: { selected: number; assigned: number; preparationMs: number } | undefined;
+      if (base) {
+        selection = JSON.parse(readFileSync(join(worker.root, "tmp/unit-selection.json"), "utf8"));
+        worker.files = Object.keys(timings.files ?? {});
+      }
+      return { xml, timings, selection, summary: validateUnitReports(worker.files, xml, timings, Boolean(base)) };
     });
     const totals = { tests: 0, failures: 0, skipped: 0, assertions: 0, time: 0 };
     for (const report of reports) {
@@ -220,9 +257,15 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     const xml = `<testsuites ${Object.entries(totals).map(([key, value]) => `${key}="${value}"`).join(" ")}>\n` +
       reports.map(report => report.xml.replace(/^[\s\S]*?<testsuites\b[^>]*>/, "").replace(/<\/testsuites>\s*$/, "")).join("\n") + "\n</testsuites>\n";
     const timings = { version: 1, files: Object.assign({}, ...reports.map(report => report.timings.files)) };
-    validateUnitReports(files, xml, timings);
+    const expected = base ? validateChangedUnitReports(reports) : files;
+    validateUnitReports(expected, xml, timings, Boolean(base));
     await Bun.write(join(reportDir, "unit-report.xml"), xml);
     await Bun.write(join(reportDir, "unit-timings.json"), JSON.stringify(timings, null, 2));
+    await Bun.write(join(reportDir, "unit-worker-summary.json"), JSON.stringify({ workers: workers.length, selectedFiles: expected.length,
+      elapsedMs: performance.now() - started, checkoutMs, dependencyCopyMs,
+      preparationMs: Math.max(0, ...reports.map(report => report.selection?.preparationMs ?? 0)),
+      selections: reports.map(report => report.selection) }, null, 2));
+    console.log(`Unit queue reconciled ${expected.length} files exactly once across ${workers.length} workers`);
   } catch (error) { primaryFailure = error; throw error; } finally {
     await preserveReportsAndRemoveWorkers();
   }
@@ -231,6 +274,19 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
 if (import.meta.main) {
   try {
     const root = resolve(import.meta.dir, "..");
-    await runUnitWorkers(root, process.argv.slice(2).map(file => relative(root, file)), process.env.PUPPETEER_EXECUTABLE_PATH);
+    const options: UnitWorkerOptions = {}, files: string[] = [];
+    let reportDir: string | undefined;
+    for (const arg of process.argv.slice(2)) {
+      if (arg.startsWith("--changed=")) options.changed = arg.slice("--changed=".length);
+      else if (/^--workers=[1-9]\d*$/.test(arg)) options.workers = Number(arg.slice("--workers=".length));
+      else if (arg.startsWith("--reports=")) reportDir = resolve(root, arg.slice("--reports=".length));
+      else if (arg.startsWith("-")) throw new Error("Expected unit-workers [files] [--changed=<base>] [--workers=N] [--reports=<directory>]");
+      else files.push(relative(root, arg));
+    }
+    // Local failure logs contain machine paths. Keep those private artifacts
+    // outside the public tree; hosted callers retain their existing destination.
+    if (options.changed && reportDir === undefined) reportDir = mkdtempSync(join(tmpdir(), "brain-import-graph-"));
+    if (reportDir) console.log(`Unit queue reports: ${reportDir}`);
+    await runUnitWorkers(root, files, process.env.PUPPETEER_EXECUTABLE_PATH, reportDir, options);
   } catch (error) { console.error(error); process.exit(1); }
 }
