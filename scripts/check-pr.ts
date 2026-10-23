@@ -5,7 +5,7 @@ import { changedFiles, planChecks, workspaces, type CheckPlan } from "./ci-plan"
 import { runCommands, type Command } from "./ci-runner";
 import { checkPackages } from "./check-packages";
 
-export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false): Command[] {
+export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, importGraph = false, importGraphWorkers?: number): Command[] {
   const bun = process.execPath;
   const checks: Command[] = [
     { name: "all lint and leakage gates", argv: [bun, "run", "lint"] },
@@ -16,7 +16,7 @@ export function localChecks(plan: CheckPlan, full = false, mergeBase?: string, i
     if (plan.tests.length) checks.push({ name: "affected fast invariants", argv: [bun, "run", "test", ...plan.tests.map(path => `./${path}`)] });
     if (importGraph && mergeBase) checks.push({
       name: "import-graph affected tests (feedback only; misses spawned and file-read inputs; no matches skips)",
-      argv: [bun, "run", "test", `--changed=${mergeBase}`, "--pass-with-no-tests"],
+      argv: [bun, "scripts/unit-workers.ts", `--changed=${mergeBase}`, ...(importGraphWorkers === undefined ? [] : [`--workers=${importGraphWorkers}`])],
     });
     return checks;
   }
@@ -120,14 +120,18 @@ export function requireRuntimeTools(plan: CheckPlan): string | undefined {
 
 if (import.meta.main) {
   try {
-    const args = process.argv.slice(2); let base = "origin/main"; let all = false; let full = false; let print = false; let importGraph = false;
+    const args = process.argv.slice(2); let base = "origin/main"; let all = false; let full = false; let print = false; let importGraph = false; let importGraphWorkers: number | undefined;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--base" && args[i + 1]) base = args[++i]!;
       else if (args[i] === "--all") { all = true; full = true; }
       else if (args[i] === "--full") full = true;
       else if (args[i] === "--import-graph") importGraph = true;
       else if (args[i] === "--plan") print = true;
-      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan]");
+      else if (/^--import-graph-workers=[1-9]\d*$/.test(args[i]!)) {
+        importGraphWorkers = Number(args[i]!.slice("--import-graph-workers=".length));
+        if (!Number.isSafeInteger(importGraphWorkers)) throw new Error("Import-graph workers must be a positive integer");
+      }
+      else throw new Error("usage: bun run check:pr [--base <ref>] [--full|--all] [--import-graph] [--plan] [--import-graph-workers=N]");
     }
     const root = resolve(import.meta.dir, "..");
     const changed = all ? ["package.json"] : changedFiles(root, base, "HEAD", true, true);
@@ -138,7 +142,7 @@ if (import.meta.main) {
       if (merge.exitCode !== 0) throw new Error(`Cannot determine import-graph feedback merge base: ${new TextDecoder().decode(merge.stderr)}`);
       mergeBase = new TextDecoder().decode(merge.stdout).trim();
     }
-    const commands = localChecks(plan, full, mergeBase, importGraph);
+    const commands = localChecks(plan, full, mergeBase, importGraph, importGraphWorkers);
     const contributionChangeset: Command = { name: "contribution changeset", argv: [process.execPath, "scripts/check-changeset.ts", base] };
     const plannedCommands = [...commands.slice(0, 3), contributionChangeset, ...commands.slice(3)];
     const importGraphFeedback = full ? "skipped: --full/--all retain their existing suites" :

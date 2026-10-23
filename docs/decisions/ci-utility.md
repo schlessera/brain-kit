@@ -161,6 +161,127 @@ proof. They are not substitutes for automatic event/checkout evidence.
 > offline-boundary and release-tooling test, including measurement isolation,
 > stays in the default discovery and the guarantees this record describes.
 
+### Isolated local import-graph feedback
+
+Local import-graph feedback uses eight workers on the measured 32-CPU,
+47-GiB host. The default is
+`max(1, min(floor(cores / 4), floor(RAM * 0.7 / 2 GiB)))`, with
+`--import-graph-workers=N` as the override (`localUnitWorkerCount`,
+`scripts/unit-workers.ts:15-17`). Changed-mode workers use one fresh prepared
+build and private overlay views; `unit-workers --private-tree` retains the
+ordinary private-build comparison. Hosted explicit-file partitions retain
+`balanceTests`, their private builds and N=2.
+
+Feedback remains **opt-in** with `--import-graph`: the prepared N=8 result was
+25m 38s, above the 900-second gate for restoring default feedback. N=8 passed
+both queued observations, one with private builds and one with a prepared tree.
+These are different preparation modes, not two identical prepared replays.
+The maintainer requested trends and general figures and stopped full repeats
+for a one-file selection change; no additional full replay is claimed.
+
+The sweep ran on Bun 1.4.2 after merging #2728's main repair
+`9f930f6e335dca6f3be49ce35e378d11d7734c37`. The serial/private source was
+`1610c84de5f1804c2c6411bb030e2ce2f8b4e2d6`, compared with merge-base
+`f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162`. Serial, N=4 and N=8 passed
+exactly 464 files / 5,915 cases / four skips. The prepared source was
+`a529ebd288c1b806f347fb4e51638385327fd6a6`; its package tree, lockfile,
+manifest and dependencies were unchanged. Its changed invocation harness
+selects one additional existing file, `haiku-model-runtime.test.ts`, and adds
+one tooling case: prepared N=8 passed 465 files / 5,917 cases / four skips.
+Its inventory contains every earlier serial file plus that one addition.
+
+| Preparation | Workers | Wall until exit | Minimum available RAM | Host CPU | Start load (1/5/15m) | Other check:pr range | Result |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | --- |
+| Serial | 1 | 58m 30s | 31.1 GiB | 9.8% | 4.61/3.88/3.93 | 0 at start | Pass |
+| Private | 4 | 34m 29s | 32.6 GiB | 12.6% | 4.96/5.29/5.85 | 0–1 | Pass |
+| Private | 8 | 26m 29s | 29.6 GiB | 21.5% | 4.87/5.12/5.94 | 0–3 | Pass |
+| Private | 16 | 21m 51s | 21.4 GiB | 30.7% | 8.29/8.22/9.15 | 0–2 | Known #2701 failure; incomplete |
+| Prepared | 8 | 25m 38s | 32.5 GiB | 13.7% | 4.01/5.45/6.84 | 0–2 | Pass |
+| Prepared | 16 | 9m 01s | 34.3 GiB | 25.1% | 3.90/5.15/5.95 | 0–2 | #2737 plus exempt #2701; siblings cancelled |
+
+The N=16 failed durations are time until failure and cleanup, not successful
+completion times. No timeouts were observed. Private N=16 failed
+`host-fallback-folder-policy.test.ts`, “launch (descendant yes, replaces
+group/private, owner crash): a folder policy refuses the old host before a
+governed worker pins the folder”, with `invalid worker mount record`.
+Prepared N=16 hit that same exempt [#2701 class](https://github.com/schlessera/brain-kit/issues/2701#issuecomment-6373158682)
+in `governed-worker.test.ts`, “the live launch qualifies mounted folders before
+preserving their ordinary writes”. Its non-exempt failure was
+`egress-proxy.test.ts`, “CONNECT opaque bytes require outward approval and retain
+bidirectional accounting”: the completion record was absent after a fixed 1ms
+wait ([#2737](https://github.com/schlessera/brain-kit/issues/2737)). That prevents
+choosing N=16 from this sweep. No guard, assertion or deadline was weakened.
+
+| Preparation / N | Common checkout / copy / build | Worker checkout / copy / maximum build or adoption | Longest test shard |
+| --- | ---: | ---: | ---: |
+| Serial | — | 0 / 0 / 50.3 s | 3459.4 s |
+| Private / 4 | — | 2.7 / 12.2 / 86.0 s | 1962.0 s |
+| Private / 8 | — | 5.0 / 25.9 / 126.0 s | 1423.1 s |
+| Private / 16 | — | 12.1 / 36.2 / 217.8 s | 1022.0 s until cancellation |
+| Prepared / 8 | 0.8 / 6.9 / 75.9 s | 9.4 / 0 / 0.1 s | 1439.7 s |
+| Prepared / 16 | 0.8 / 9.0 / 63.2 s | 18.2 / 0 / 0.2 s | 439.3 s until cancellation |
+
+Checkout and dependency-copy columns are queue phase durations; build/adoption
+is the maximum per worker. The linked evidence records each worker separately.
+Private N=16 setup accounted for 266s, 20% of its attempted wall time, triggering
+the prepared-tree variant. Prepared setup was about 93s at N=8 and 91s at N=16.
+At N=8 the observed wall gain was only 51s: test imbalance remains the long tail.
+The same 16 Chrome runtime files took 1362 / 1503 / 1735 / 2007 seconds in summed
+file time for serial / private N=4 / N=8 / N=16. Parallel sessions rose from
+425s serially to 455 / 535 / 596s. Higher concurrency does slow individual suites.
+
+The timing seed was unchanged. N=4 assigned 150 / 6 / 6 / 302 files; known seed
+costs summed to 892 / 866 / 850 / 748s, while completed file times were
+679 / 550 / 584 / 1963s. The final shard held 75 unweighted files. A separate
+[qualified timing refresh](https://github.com/schlessera/brain-kit/issues/2736)
+tracks the stale costs; local observations were not pasted into the reviewed
+hosted table.
+
+Memory is whole-host minimum `MemAvailable`; CPU is whole-host busy time,
+including concurrent work. One-second independent process sampling excludes
+benchmark descendants, including tooling fixtures. Serial independent sampling
+covers its last 643 seconds, all with zero other check:pr processes. N=8 private
+execution overlapped other check:pr processes for 398 samples. Brief prototype
+checks also ran during private N=4/N=8. Runs were sequential and shared the host;
+these are trends, not a randomized speedup estimate. Full uptime, per-worker
+phases, inventories, hashes and historical receipts live in
+[the sanitized evidence](../process/evidence/local-import-graph-2708.json).
+The earlier 439-file comparison stopped on the separately repaired #2721;
+it remains historical evidence, not a new queue flake.
+
+The [option-2 ruling](https://github.com/schlessera/brain-kit/issues/2708#issuecomment-6366282293)
+keeps Bun authoritative. A real twelve-file fixture proves `--changed` selects
+five files before weighted `--shard` assigns 1 / 1 / 3 of them. Every worker
+runs `bun run test --changed=<merge-base> --shard=i/N` with the committed seconds
+converted to Bun timing milliseconds. Workers observe Bun's selected/assigned
+counts and reconcile JUnit with completed timing paths. Missing or duplicate
+files or shards fail (`changedSelection`, `scripts/changed-unit-worker.ts:5-16`;
+`validateChangedUnitReports`, `scripts/unit-proof-report.ts:38-57`). Empty shards
+need successful zero-file receipts. Committed history, staged/unstaged binary
+patches and untracked inputs retain Bun's working-tree semantics; verified
+cleanup reverses only captured inputs (`captureUnitInputs`,
+`scripts/unit-worker-inputs.ts:33-74`).
+
+The prepared owner holds one fresh build descriptor and lease until its private
+overlay views finish. Each view has its own Git index, upper/work directories,
+write lease, nonce and output generation. The lower tree is read-only and uses
+`userxattr`, allowing nested builds to remove/recreate lower directories in the
+private upper layer. The reference filesystem refused reflinks; overlayfs works
+in unprivileged user/mount namespaces. Ordinary private copies retain
+`cp --reflink=auto` fallback.
+
+Workers drop capabilities. An offline Unix-socket client verifies the live
+owner's peer PID, receipt digest and registered destination across namespaces;
+each view publishes its own `workspace-build-copy` authority. Ordinary nested
+wrappers still build afresh, and later writers revoke copied authority
+(`preparedSourceBuild`, `scripts/test-invocation.ts:129-149`;
+`prepareCopiedInvocation`, `scripts/test-invocation.ts:178-191`). There is no
+cross-run build reuse. Offline preload, per-test deadlines, maintenance ledger
+and diagnostics collection remain intact. Diagnostics are copied while views
+are mounted; failed cleanup retains dirty upper layers and the prepared source.
+Private reports stay outside the public tree. Invocation identifiers prevent a
+reused report destination from supplying stale cleanup receipts.
+
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap
