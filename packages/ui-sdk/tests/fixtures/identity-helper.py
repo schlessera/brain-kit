@@ -340,6 +340,13 @@ def launch(connection, request, token, record, fds):
     options = argv[1:argv.index("--")]
     if "--die-with-parent" not in options or "--unshare-pid" not in options:
         refuse("missing_lifecycle_boundary")
+    view = request.get("view")
+    if view is not None:
+        # The only view a launch may later expose: its own writable brain bind.
+        if not isinstance(view, str) or "\0" in view or not view.startswith("/") or os.path.normpath(view) != view \
+                or not any(options[index:index + 3] == ["--bind", view, view] for index in range(len(options) - 2)):
+            refuse("unauthorized_view")
+        record["view"] = view
     for key, flag in (("statusFd", "--json-status-fd"), ("gateFd", "--block-fd")):
         fd = request.get(key)
         if type(fd) is not int or fd < 3 or options.count(flag) != 1 or options[options.index(flag) + 1] != str(fd):
@@ -459,6 +466,56 @@ def mounts(connection, request, token, record):
             if (info.st_dev, info.st_ino) != (receipt["dev"], receipt["ino"]):
                 refuse("inspector_substituted_handle")
         send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)
+    finally:
+        parent.close()
+        for fd in fds:
+            os.close(fd)
+
+
+def view(connection, request, token, record):
+    value = worker(record, request)
+    # Only the authenticated worker whose mounts were acquired, at the path its launch authorized.
+    if record.get("worker") != {"pid": value["pid"], "start": value["start"]} or not record.get("view"):
+        refuse("unauthorized_view")
+    initial_pid_namespace = os.stat("/proc/self/ns/pid").st_ino
+    parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    inspector = os.fork()
+    if inspector == 0:
+        parent.close()
+        connection.close()
+        try:
+            drop()
+            same(value)
+            if os.stat("/proc/%s/ns/pid" % value["pid"]).st_ino == initial_pid_namespace:
+                refuse("wrong_pid_namespace")
+            fd = os.open("/proc/%s/root%s" % (value["pid"], record["view"]), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            info = os.fstat(fd)
+            send(child, {"dev": info.st_dev, "ino": info.st_ino}, [fd])
+            os._exit(0)
+        except BaseException as error:
+            traceback.print_exc(file=sys.stderr)
+            child.send(json.dumps({"ok": False, "reason": "inspector: " + str(error)}).encode())
+            os._exit(125)
+    child.close()
+    fds = []
+    try:
+        data, ancillary, flags, _ = parent.recvmsg(MAX_PACKET + 1, socket.CMSG_SPACE(4 * 4))
+        for level, kind, raw in ancillary:
+            if (level, kind) != (socket.SOL_SOCKET, socket.SCM_RIGHTS):
+                refuse("inspector_control")
+            values = array.array("i")
+            values.frombytes(raw[:len(raw) - len(raw) % values.itemsize])
+            fds.extend(values)
+        _, status = os.waitpid(inspector, 0)
+        result = json.loads(data)
+        if flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) or len(data) > MAX_PACKET or status or result.get("ok") is not True:
+            refuse(result.get("reason", "inspector_failed"))
+        if len(fds) != 1:
+            refuse("inspector_handles")
+        info = os.fstat(fds[0])
+        if not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino) != (result["dev"], result["ino"]):
+            refuse("inspector_substituted_handle")
+        send(connection, {"dev": info.st_dev, "ino": info.st_ino}, fds)
     finally:
         parent.close()
         for fd in fds:
@@ -659,6 +716,8 @@ def main():
             launch(connection, request, token, record, fds)
         elif operation == "mounts":
             mounts(connection, request, token, record)
+        elif operation == "view":
+            view(connection, request, token, record)
         elif operation == "signal":
             signal_tree(connection, request, record)
         elif operation == "reader":

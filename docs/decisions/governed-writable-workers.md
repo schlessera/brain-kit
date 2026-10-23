@@ -1448,7 +1448,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1630`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1632`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1658,10 +1658,42 @@ identity; public layout facts or copied layouts cannot mint folder mounts.
 The governed live launcher verifies the actual retained mount points and inode
 identities through its authenticated, still-gated worker view. A host-path check
 before spawning does not prove what bubblewrap subsequently mounted. Unknown
-views refuse before payload start; the existing separate-UID broker does not
-attest these folder mounts, and its state/temp authority is not repurposed into
-generic process inspection. This closes a launch-time check/mount gap without
-claiming complete active-peer or protected-reader admission.
+views refuse before payload start. Across UIDs the kernel refuses the server
+the worker's `/proc/<pid>/root`, so the separate-UID broker supplies one
+gated brain view instead (below); its state/temp authority is not repurposed
+into generic process inspection. This closes a launch-time check/mount gap
+without claiming complete active-peer or protected-reader admission.
+
+**Separate-UID brain view — 2026-10-23.** The maintainer selected a one-shot
+broker view on [#2696](https://github.com/schlessera/brain-kit/issues/2696).
+The launch request names one view path, and the helper accepts it only as
+that launch's own `--bind <brain> <brain>`. Before release, a new `view`
+operation runs as the worker UID, like mount acquisition. It opens that path
+inside the authenticated worker's root, after the same PID/start, UID,
+ancestry and PID-namespace checks, and hands the directory to the same-UID
+coordinator. The server checks the handle's mount ID against the worker's own
+mount table: it must be the top mount at the brain path. It then runs the
+unchanged comparison of brain, pins, empty masks and the private index
+relative to the handle (`function requireWorkerBrainMount`,
+`packages/ui-sdk/src/server/worker-protection.ts:220-227`;
+`export function verifyWorkerFolderMounts`,
+`packages/ui-sdk/src/server/worker-protection.ts:230-268`).
+The server returns the handle before release, and the coordinator refuses to
+release the start gate, or open a second view, while one is held
+(`if operation == 'release':`,
+`packages/ui-sdk/src/server/worker-identity-program.ts:189-209`).
+
+The view grants observation of exactly what the gated worker sees at its own
+brain path, and nothing the server cannot already read: the live brain, the
+server-owned private index and empty masks. The helper supplies no identity
+numbers for the server to trust. A handle from the host shows the same
+self-bound inodes, so the mount-ID check is what refuses it. Before release,
+only trusted bubblewrap runs in the worker's namespace, so the payload cannot
+shape the view. A helper without the operation refuses the launch before
+payload start. Every governed worker on a host shares the one worker UID. A
+running payload of another turn cannot reach this gated worker: that payload
+sees only its own PID namespace and `/proc`. A shared worker UID is therefore
+not a boundary between concurrent turns, and this view does not claim one.
 
 Known-unsafe active peers refuse new governed folder admission: legacy or
 missing-root plans cannot retain the requested topology. A retained descendant
