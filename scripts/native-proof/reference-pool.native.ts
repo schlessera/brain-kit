@@ -585,6 +585,7 @@ const shapes = await create("staging", 32 * MIB);
   const { createReferenceWorktrees, referenceWorktreeDependents } = await import("../../packages/ui-server/src/brain/reference-worktrees.js");
   const { createTurnJournal } = await import("../../packages/ui-server/src/brain/turn-journal.js");
   const { referenceWorktreeJournalPath } = await import("../../packages/ui-server/src/brain/reference-worktree-journal.js");
+  const { prepareWorkerSandbox, workerCommand } = await import("../../packages/ui-sdk/src/server/worker-launcher.js");
   const srv = "/native-runtime/srv", state = "/native-runtime/case-18";
   mkdirSync(state, { recursive: true });
   await manager.close();
@@ -622,6 +623,14 @@ const shapes = await create("staging", 32 * MIB);
       .toEqual([referenceWorktreeJournalPath(edited.id, "odyssey/argos.md"), referenceWorktreeJournalPath(edited.id, "odyssey/book-0/line-0.md")]);
     expect(rows("turn-18-edit").every(row => row.scope === "reference_worktree" && JSON.parse(row.after_json!).hash), "REFERENCE_WORKTREE_NATIVE_VERSIONS_RETAINED").toBe(true);
     expect(facts.get("turn-18-edit"), "REFERENCE_WORKTREE_NATIVE_SCOPE_COUNTS").toMatchObject({ changedPaths: 2, partial: false });
+    // The production launcher binds the generation with the production masks.
+    const masks = (await client.ready()).privatePaths;
+    const launched = workerCommand({ brainPath: "/brain-fixture/brain", env: { PATH: "/usr/bin:/bin" },
+      sandbox: { ...prepareWorkerSandbox("/brain-fixture/brain", { profile: "strict", areas: [], maskPaths: masks }), worktrees: { source: first.path } },
+      command: ["/bin/sh", "-c", `ls -A /tmp/brain-worktrees; cat /tmp/brain-worktrees/${edited.id}/odyssey/argos.md; for d in roots views access; do ls -A ${POOL}/$d 2>/dev/null | wc -l; done`] });
+    const production = Bun.spawnSync(launched, { stdout: "pipe", stderr: "pipe", env: {} });
+    note("worktree-production-launch", { code: production.exitCode, stderr: production.stderr.toString().slice(-2000) });
+    expect(production.stdout.toString(), "REFERENCE_WORKTREE_PRODUCTION_LAUNCH_SEES_ONLY_ITS_GRANT").toBe(`${edited.id}\nArgos waits.\n0\n0\n0\n`);
     await journal.finish("turn-18-edit");
     await worktrees.closeGeneration(first.id);
     const records = async () => {
@@ -633,7 +642,8 @@ const shapes = await create("staging", 32 * MIB);
       "REFERENCE_WORKTREE_NATIVE_JOURNAL_CHECKPOINTS_RELEASED").toBe(1);
     const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id });
     note("worktree-released", { cleanup: released.cleanup });
-    expect(released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 2, eligible: false });
+    expect(released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 3, eligible: false,
+      sample: ["odyssey", "odyssey/argos.md", "odyssey/book-0/line-0.md"] });
     // Reading is not work: access-time updates never make a worktree ineligible.
     const read = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
     const second = await turn("turn-18-read");
@@ -644,9 +654,19 @@ const shapes = await create("staging", 32 * MIB);
     await worktrees.closeGeneration(second.id);
     expect((await worktrees.release({ worktreeId: read.id, principalId: penelope.id })).cleanup, "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK")
       .toMatchObject({ owner: "none", work: "none", changedPaths: 0, eligible: true });
+    // Swapping two directories through a temporary name leaves every name in place, and is still work.
+    const swapped = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+    const third = await turn("turn-18-swap");
+    await worktrees.access({ worktreeId: swapped.id, principalId: penelope.id, generation: third.id });
+    expect(sandbox(third.path, `cd /tmp/brain-worktrees/${swapped.id}/odyssey && mv book-2 swap && mv book-3 book-2 && mv swap book-3 && echo SWAPPED`).trim(), "REFERENCE_WORKTREE_NATIVE_SWAPPED").toBe("SWAPPED");
+    await journal.finish("turn-18-swap");
+    await worktrees.closeGeneration(third.id);
+    const swapFacts = (await worktrees.release({ worktreeId: swapped.id, principalId: penelope.id })).cleanup;
+    note("worktree-swap", { cleanup: swapFacts });
+    expect(swapFacts, "REFERENCE_WORKTREE_NATIVE_SWAP_IS_WORK").toMatchObject({ owner: "none", work: "unpreserved", eligible: false });
     // Nothing above deleted a worktree; the proof releases its own roots.
     for (const record of await records()) if (record.purpose === "checkpoint" && (record.state === "sealed")) await client.poolRelease(record.id);
-    for (const id of [edited.id, read.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
+    for (const id of [edited.id, read.id, swapped.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
     db.query("DELETE FROM reference_worktrees").run();
     await worktrees.close(); await journal.close();
     db.query("UPDATE reference_grants SET revoked_at = 1").run();

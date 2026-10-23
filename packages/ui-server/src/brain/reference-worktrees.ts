@@ -37,7 +37,7 @@ const inflight = new Map<string, Set<Promise<unknown>>>();
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export type ReferenceWorktreePool = Pick<Client, "poolStatus" | "poolCreate" | "poolRelease" | "poolCheckpoint" | "poolDelta"
-  | "poolAccessOpen" | "poolAccess" | "poolPark" | "poolAccessClose" | "listPoolRecovery">;
+  | "poolAccessOpen" | "poolAccess" | "poolPark" | "poolAccessClose">;
 
 /** Inactivity after which an unheld worktree expires; only explicit access, resumption or renewal resets it. */
 export const REFERENCE_WORKTREE_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1000;
@@ -440,15 +440,16 @@ export function createReferenceWorktrees(options: {
       if (live(row) !== false) { result.retained.push(row.id); continue; }
       try { await closeGeneration(row.id, signal); result.closed.push(row.id); } catch (error) { warn("abandoned worktree generation could not be closed", error); result.retained.push(row.id); }
     }
-    // Journal and assessment checkpoints belong to an observation that ended with the old process; baselines stay.
-    const baselines = new Set((db.query("SELECT baseline FROM reference_worktrees WHERE baseline IS NOT NULL").all() as { baseline: string }[]).map(row => row.baseline));
-    for (let after: string | null = null; ;) {
-      const page = await pool.listPoolRecovery(after, signal);
-      for (const record of page.records)
-        if (record.purpose === "checkpoint" && (record.state === "sealed" || record.state === "deleting" || record.state === "reserved") && !baselines.has(record.id))
-          await pool.poolRelease(record.id, signal).catch(error => { warn("stale worktree checkpoint was not released", error); result.retained.push(record.id); });
-      if (!page.next) break;
-      after = page.next;
+    // Journal and assessment checkpoints are released only when the process
+    // that took them is provably gone; a live or unverifiable owner keeps them.
+    const checkpoints = db.query("SELECT * FROM reference_worktree_checkpoints").all() as (Omit<GenerationRow, "principal_id" | "turn_id" | "profile" | "path" | "opened_at" | "closed_at">
+      & { worktree_id: string })[];
+    for (const row of checkpoints) {
+      const ended = row.owner_boot !== owner.boot ? true : row.owner_pid_namespace !== owner.pidNamespace ? null
+        : row.owner_pid === owner.pid && row.owner_start === owner.start ? false : !processAlive(row.owner_pid, row.owner_start);
+      if (ended !== true) { result.retained.push(row.id); continue; }
+      try { await pool.poolRelease(row.id, signal); forgetReferenceWorktreeCheckpoint(db, row.id); }
+      catch (error) { warn("stale worktree checkpoint was not released", error); result.retained.push(row.id); }
     }
     await reconcile(signal);
     return result;

@@ -19,7 +19,8 @@ async function fixture() {
   const pool = referencePoolDouble(join(root, "pool"));
   const unsupported = async () => { throw Error("The pool double has no fixed worker-UID reader."); };
   const db = createUiDb(path);
-  const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"),
+  const ledger = new Set<string>();
+  const journal = createTurnJournal(db, { referenceCheckpoints: { record: id => ledger.add(id), forget: id => ledger.delete(id) }, nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"),
     referencePool: { poolCheckpoint: (...args) => pool.poolCheckpoint(...args), poolDelta: (...args) => pool.poolDelta(...args), poolRelease: (...args) => pool.poolRelease(...args),
       poolReadCheckpoint: unsupported, poolStatCheckpoint: unsupported, poolListCheckpoint: unsupported } });
   const stopped = new Map<string, Error>(), facts = new Map<string, Facts>();
@@ -34,7 +35,7 @@ async function fixture() {
   const worktree = async () => (await pool.poolCreate(crypto.randomUUID(), "worktree", source.id, 4096));
   const rows = (turnId: string) => db.query("SELECT path,scope,class,actor,after_json FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence").all(turnId) as
     { path: string; scope: string; class: string; actor: string; after_json: string | null }[];
-  return { root, brain, db, journal, native, pool, begin, stopped, facts, worktree, rows,
+  return { root, brain, db, journal, native, pool, begin, stopped, facts, worktree, rows, ledger,
     async close() { await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -73,6 +74,7 @@ test("each worktree has one observing turn, and finishing it releases the worktr
     await expect(f.journal.attachWorktree("turn-absent", tree.id), "REFERENCE_WORKTREE_COVERAGE_NEEDS_ACTIVE_TURN").rejects.toThrow("active complete observation window");
     await f.begin("turn-ithaca"); await f.begin("turn-other");
     await f.journal.attachWorktree("turn-ithaca", tree.id);
+    expect(f.ledger.size, "REFERENCE_WORKTREE_JOURNAL_CHECKPOINT_RECORDED").toBe(1);
     await f.journal.attachWorktree("turn-ithaca", tree.id);
     await expect(f.journal.attachWorktree("turn-other", tree.id), "REFERENCE_WORKTREE_ONE_OBSERVER").rejects.toThrow("already observes");
     expect(f.journal.worktrees("turn-ithaca")).toEqual([tree.id]);
@@ -81,6 +83,7 @@ test("each worktree has one observing turn, and finishing it releases the worktr
     expect(f.rows("turn-ithaca").map(row => row.path), "REFERENCE_WORKTREE_FINAL_OBSERVATION").toContain(referenceWorktreeJournalPath(tree.id, "odyssey/book-3.md"));
     const live = [...f.pool.records.values()].filter(record => record.purpose === "checkpoint" && record.state === "sealed");
     expect(live, "REFERENCE_WORKTREE_CHECKPOINTS_RELEASED_AT_FINISH").toEqual([]);
+    expect([...f.ledger], "REFERENCE_WORKTREE_JOURNAL_CHECKPOINTS_LEDGERED").toEqual([]);
     expect(f.journal.worktrees("turn-ithaca")).toEqual([]);
   } finally { await f.close(); }
 });

@@ -789,6 +789,8 @@ async function runRetainedSession(
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
         turnEgress?.stop();
+        // No grant after this point: the final observation covers everything granted.
+        if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
         try {
           // Observe after backend writers stop, before quarantine and gate release.
           await host.journal?.finish(turn.turnId);

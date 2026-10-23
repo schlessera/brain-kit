@@ -146,7 +146,7 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
-import { createReferenceWorktrees, referenceWorktreeDependents } from "./brain/reference-worktrees.js";
+import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
 export type { AppRenderer };
@@ -578,7 +578,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const budgets = createTurnBudgets(db, pricing);
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
-    ...(referencePoolConfigured ? { referencePool: nativeManager } : {}),
+    ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
+      const owner = referenceWorktreeOwner();
+      return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
+    })() } : {}),
     changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...summary, ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   bootCleanup.push(() => journal.close());
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,

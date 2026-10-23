@@ -7,7 +7,8 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
-import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeJournalPool } from "./reference-worktree-journal.js";
+import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeCheckpointLedger,
+  type ReferenceWorktreeJournalPool } from "./reference-worktree-journal.js";
 import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -30,6 +31,8 @@ export function createTurnJournal(db: Database, options: {
   nativeManager: NativeJournalManager;
   /** Managed worktrees (#2430): each is its own separately checkpointed root. */
   referencePool?: ReferenceWorktreeJournalPool;
+  /** Owner records for worktree observation checkpoints, so startup recovery releases only an ended process's. */
+  referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
 }) {
   const now = options.now ?? Date.now;
@@ -369,7 +372,7 @@ export function createTurnJournal(db: Database, options: {
       if (!active.has(turnId) || failures.has(turnId)) throw new JournalStorageUnavailable("worktree coverage requires an active complete observation window");
       const existing = worktrees.get(worktreeId);
       if (existing) { if (existing.turnId === turnId) return; throw new JournalStorageUnavailable("another turn already observes this worktree"); }
-      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId), retainVersion, {}, readIdentity, { steering: false });
+      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints), retainVersion, {}, readIdentity, { steering: false });
       try {
         await root.initialize(signal);
         const policy = await root.policy();

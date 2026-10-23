@@ -100,8 +100,12 @@ directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
 restricted worker never binds a generation. Nothing returns a host path to the
-agent. After the turn's workers exit and its final journal observation is
-recorded, the generation closes and parks what it held. A turn whose
+agent. After the turn's workers exit, the generation is retired, so no grant can
+follow; the turn's final journal observation is then recorded, and the
+generation closes and parks what it held. Parking renames the worktree, so it
+must never happen while a worker of that generation could still hold a
+descriptor inside it: the generation closes only after its workers exited, and
+recovery parks only for a holder that is provably gone. A turn whose
 generation cannot be opened runs without worktree access.
 
 Generations open only when the host enables worktree access
@@ -119,8 +123,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:367-379`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:213-226`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:370-382`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:216-229`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -138,6 +142,10 @@ observes the worktree too.
 - **Failure.** An unreadable entry is recorded as missing and makes the turn
   partial. A worktree observation that fails stops its holding turn and leaves
   it partial; other turns continue.
+- **Ownership.** Each observation checkpoint is recorded with the process that
+  took it before it exists and forgotten once released. Startup recovery
+  releases only checkpoints whose owner is provably gone (another boot or a dead
+  process); a live or unverifiable owner keeps them.
 
 Ordinary brain and workspace journaling is unchanged.
 
@@ -200,3 +208,9 @@ checkpoints with two changed paths counted by scope. Release reports the work as
 unpreserved; a second worktree whose worker only read 1,200 files is eligible.
 Native mutations cover a checkout without group write and an access-time
 comparison that turned a read into work.
+After the independent review, case 18 also launches a worker through the
+production launcher with the manager's real masks: it sees only its granted
+worktree and an empty pool, views and access directories. A worker that swaps
+two directories through a temporary name leaves every name in place, and the
+release reports unpreserved work naming both directories. A recovery case
+releases only checkpoints of a provably ended owner.
