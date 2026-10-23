@@ -457,7 +457,16 @@ export interface WorkerNoteFacts {
   readonly hardTimeoutMs?: number;
   /** Set only by a backend that actually routed this worker through its turn proxy. */
   readonly egress?: boolean;
+  /**
+   * The provider keys the worker keeps (#1666): its own unrelayed inference
+   * credentials and any the operator admits, as `workerProviderCredentials`
+   * reports for its launch. Names only. Absent or empty: it holds none.
+   */
+  readonly providerKeys?: readonly string[];
 }
+
+/** What the worker can read of the brain's secrets and the host's provider keys (#1666). */
+const secretsNote = (kept: readonly string[]) => `**Secrets.** The brain's \`.env*\` files cannot be read here, and this worker holds no provider keys${kept.length ? ` except ${kept.map(name => `\`${name}\``).join(", ")}` : ""}. A \`brain\` command that needs ${kept.length ? "another" : "an"} embedding, completion, reranking or image provider key reports the provider as unavailable (\`provider_unavailable\`), and \`brain search\` then falls back to keyword results. Do not look for keys elsewhere; say which provider was unavailable.`;
 
 const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
 
@@ -476,7 +485,7 @@ const WORKTREE_GUIDANCE = [
   "- Release a worktree once you no longer need it; a released worktree cannot be resumed. When a request is refused, say why instead of working around it.",
 ];
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox, identityNote: string, egress: boolean) => string> = {
-  governed: (sandbox, identityNote, egress) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} ${egress ? EGRESS_NOTE : "Egress is unrecorded."} Maintenance workers may receive provider credentials until inference relays land.`,
+  governed: (sandbox, identityNote, egress) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} ${egress ? EGRESS_NOTE : "Egress is unrecorded."} Maintenance workers may receive provider credentials until the \`brain\` CLI's providers are relayed.`,
   strict: (sandbox, identityNote, egress) => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${identityNote}${egress ? ` ${EGRESS_NOTE}` : ""}`,
 };
 
@@ -520,6 +529,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       "1. **Turn temp: deleted when the turn ends.** `$BRAIN_WORKER_SCRATCH`, `/tmp` and `$HOME` (the turn's own state, never the host home) are the only writable places. Nothing written there reaches the reader; never link to it.",
       `2. **No persistent scratch.** \`${WORKER_AREAS.scratch}/\` and \`${WORKER_AREAS.workspaces}/\` are read-only in this turn.`,
       "3. **The brain: canonical, and read-only here.** Change it only through the approved brain tools.",
+      ...(sandbox.providerMasks ? ["", `Provider policy hides ${sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ")} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty, and the brain tools refuse ${sandbox.providerMasks.folders.length === 1 ? "it" : "them"}. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents.`] : []),
     );
   } else {
     const scratch = sandbox.areas.find(area => area.name === "scratch" && area.mount.writable);
@@ -541,11 +551,13 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       `The brain's packaged CLI directory \`${join(sandbox.brain, "node_modules", ".bin")}\` is first on PATH.`,
       ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
+      "",
+      secretsNote(resolvedFacts.providerKeys ?? []),
     );
   }
   if (profile !== "restricted" && sandbox.providerMasks) {
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
-    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
+    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }
   if (profile !== "restricted" && sandbox.worktrees) lines.push("", ...WORKTREE_GUIDANCE);
   if (profile !== "restricted" && sandbox.retainedFolders?.length) {

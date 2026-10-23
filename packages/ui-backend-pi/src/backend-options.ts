@@ -197,6 +197,8 @@ export interface SessionEnv {
   workerStartupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView;
   workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"];
   workerSandbox?: import("@schlessera/brain-ui-sdk/internal").WorkerSandbox;
+  /** Host-admitted provider masks for the restricted envelope; never serialized into a worker. */
+  workerProviderMasks?: import("@schlessera/brain-ui-sdk/internal").WorkerProviderMasks;
   workerLock?: import("@schlessera/brain-ui-sdk/server").KeyedLock;
   autonomous?: AutonomousTurnOptions;
   client?: ClientEnvironment;

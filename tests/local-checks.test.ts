@@ -185,7 +185,7 @@ test("focused and full local CLI refuse setup before downstream proof while plan
     const importCommands = plan.commandDetails.filter((command: { name: string }) => command.name.startsWith("import-graph affected tests"));
     expect(importCommands).toHaveLength(feedback ? 1 : 0);
     if (feedback) {
-      expect(importCommands[0].argv.slice(1)).toEqual(["run", "test", `--changed=${base}`, "--pass-with-no-tests"]);
+      expect(importCommands[0].argv.slice(1)).toEqual(["scripts/unit-workers.ts", `--changed=${base}`]);
       expect(plan.importGraphFeedback).toBe("enabled with --import-graph");
     } else {
       expect(plan.importGraphFeedback).toContain("skipped");
@@ -334,7 +334,9 @@ test("opt-in local feedback uses the exact merge-base SHA and full proof does no
   const sha = "a".repeat(40);
   const feedback = localChecks(plan, false, sha, true).filter(command => command.name.startsWith("import-graph affected tests"));
   expect(feedback).toHaveLength(1);
-  expect(feedback[0]!.argv.slice(1)).toEqual(["run", "test", `--changed=${sha}`, "--pass-with-no-tests"]);
+  expect(feedback[0]!.argv.slice(1)).toEqual(["scripts/unit-workers.ts", `--changed=${sha}`]);
+  const overridden = localChecks(plan, false, sha, true, 8).find(command => command.name.startsWith("import-graph affected tests"))!;
+  expect(overridden.argv.slice(1)).toEqual(["scripts/unit-workers.ts", `--changed=${sha}`, "--workers=8"]);
   expect(localChecks(plan, true, sha, true)).toEqual(localChecks(plan, true, sha));
   expect(localChecks(plan, true, sha, true).some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
 });
@@ -366,7 +368,10 @@ function importFixture() {
   git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture");
   const sha = git("rev-parse", "HEAD");
   async function run() {
-    const command = localChecks(planChecks([], []), false, sha, true).find(command => command.name.startsWith("import-graph affected tests"))!;
+    // Serial Bun remains the independent oracle for the queue's changed-file
+    // semantics. Queue execution and union equivalence have their own real
+    // worktree controls in changed-unit-workers.test.ts.
+    const command = { argv: [process.execPath, "run", "test", `--changed=${sha}`, "--pass-with-no-tests"] };
     // The outer test guard deliberately does not recognize this alias. The
     // copied wrapper must install its own preload, as in an ordinary shell.
     const runtime = join(dir, "probe-runtime");

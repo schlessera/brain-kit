@@ -22,7 +22,16 @@ export function maintenanceGitEnvironment(): { path: string | undefined; env: No
 }
 /** Inside the trusted egress bootstrap, after the launcher's complete environment replacement. */
 export function workerEgressEnvironment(): NodeJS.ProcessEnv { return { ...process.env }; }
-export const DYNAMIC_ENV_READS = [{ source: "maintenance Git subprocess environment",
+/**
+ * The provider credentials the server's own environment sets, by name (#1666).
+ * Values are never returned: a turn worker is told only which keys it lacks.
+ */
+export function hostProviderCredentialNames(names: readonly string[]): string[] {
+  return names.filter(name => Boolean(readEnvVar(name)));
+}
+export const DYNAMIC_ENV_READS = [{ source: "provider credential presence",
+  description: "Whether each provider credential in the subprocess descriptor is set on the server, so a governed or strict turn worker's BRAIN_WITHHELD_KEYS names the keys the host withheld. Names only; no value leaves the server." },
+{ source: "maintenance Git subprocess environment",
   description: "Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential." },
 { source: "egress worker subprocess environment", description: "The trusted loopback bootstrap preserves only the worker environment already cleared and selected by the launcher, replacing proxy routing before its child starts. It admits no host environment or new operator setting." }] as const;
 

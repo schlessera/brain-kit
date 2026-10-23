@@ -1,5 +1,5 @@
 import { brainWorkerPath } from "@schlessera/brain-common/internal/worker-areas";
-import { workerCleanupUnconfirmed, sessionPromptContext, describeClient, workerExecHelpers } from "@schlessera/brain-ui-sdk/internal";
+import { workerCleanupUnconfirmed, sessionPromptContext, describeClient, workerExecHelpers, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { safeResolve } from "@schlessera/brain/internal";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, isAbsolute } from "node:path";
@@ -24,7 +24,7 @@ import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
 import { createTurnContext } from "./turn-context.js";
 import { createPiBridgeTools, REQUEST_IMAGE_MASK_INPUT_SCHEMA } from "./bridge-tools.js";
 import { DEFAULT_PI_ALLOWED_TOOLS } from "./tools.js";
-import { subprocessEnv, ambientExecConfig } from "./config/env.js";
+import { subprocessEnv, ambientExecConfig, operatorAdmittedEnvNames } from "./config/env.js";
 import { savePiSession, readPiSession, piSessionDirectory, syncPiAuth } from "./session-storage.js";
 import { checkSessionSize, PI_WORKER_STATE, SessionTooLargeError, pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
 
@@ -124,7 +124,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerLock, workerStarted, workerStartupView, workerSignal, ...workerSessionEnv } = env;
+  const { workerSandbox, workerProviderMasks, workerLock, workerStarted, workerStartupView, workerSignal, ...workerSessionEnv } = env;
   const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
   let cachedNpmModules: string | undefined;
   if (npmPath && existsSync(npmPath)) {
@@ -167,6 +167,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   if (!envelope) workerEnv.PATH = brainWorkerPath(backend.brainPath, workerEnv.PATH);
   for (const name of hostInference?.credentialEnv ?? []) delete workerEnv[name];
+  // The provider keys a governed or strict worker keeps (#1666). A relayed
+  // worker keeps only what an operator admits. Without the relay, pi resolves
+  // its own credentials in the worker and may read any of these, including
+  // through a models.json `$NAME`, so they stay under the ruling that hosts
+  // without managed native storage keep today's inference credentials (#2654).
+  const credentialEnv = [...(hostInference ? [] : WORKER_PROVIDER_CREDENTIAL_ENV), ...operatorAdmittedEnvNames()];
+  const providerKeys = workerProviderCredentials(workerEnv, credentialEnv).kept;
   workerEnv.PI_CODING_AGENT_DIR = PI_WORKER_STATE;
   // SDK offline mode silently skips missing sources. Validate prepared packages
   // explicitly in the child; the parent's environment remains unchanged.
@@ -183,7 +190,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   try {
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
-    sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
+    sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
+      ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}) }
       : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {
@@ -195,7 +203,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // Worker-local tools run the host's helpers: each file alone, never its parent.
     if (execHelpers.length && !envelope) sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), ...execHelpers] };
     const limits = launchLimits({});
-    sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), ...(hostInference ? { egress: true } : {}), hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
+    sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), ...(hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
       outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote(Boolean(hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
@@ -210,7 +218,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     backend.log?.("debug", "Pi startup phase", { phase: "preparation", durationMs: spawning - startupStarted, elapsedMs: spawning - startupStarted });
     child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
-      command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
+      command: [process.execPath, entry], env: workerEnv, credentialEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: [...restrictedReadPaths([entry]), ...execHelpers], inferenceDir: envelope.relay.dir } } : {}),
       ...(hostInference && egress ? { egress: { proxyDir: egress.dir, directLoopback: true } } : {}),
     });

@@ -538,6 +538,14 @@ const shapes = await create("staging", 32 * MIB);
   expect((await refusal({ operation: "poolAccess", id: tree.id, access: SECOND_ACCESS })).code, "REFERENCE_ACCESS_NO_CROSS_GENERATION").toBe("invalid");
   expect((await refusal({ operation: "poolAccess", id: base.id, access: ACCESS })).code, "REFERENCE_ACCESS_ONLY_WORKTREES").toBe("unknown");
   expect((await status()).refusal, "REFERENCE_ACCESS_ACCOUNTED").toBeNull();
+  // #2729: the pool's own release refuses a granted worktree, atomically with grants, so no
+  // second process can delete what a generation holds; nothing is deleted and the charge stays.
+  const heldBefore = await charged();
+  const heldRefusal = await refusal({ operation: "poolRelease", id: tree.id });
+  const heldRecord = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id);
+  note("access-held-release", { refusal: heldRefusal, record: heldRecord });
+  expect({ code: heldRefusal.code, state: heldRecord?.state, access: heldRecord?.access, read: await ask("read"), charged: (await charged()).chargedBytes },
+    "REFERENCE_ACCESS_HELD_NOT_RELEASED").toEqual({ code: "invalid", state: "writable", access: ACCESS, read: "Telemachus returns", charged: heldBefore.chargedBytes });
   // Parking returns the worktree to the masked roots: the next lookup misses it.
   expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
   expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");

@@ -70,8 +70,8 @@ longer reads. The template ignores `.brain-index/`; its existing unanchored
 
 ## Provider folder turns (additive, 0.44.0, #1668)
 
-A governance policy's `providers` rules now take effect in hosted interactive
-and voice turns, as specified under
+A governance policy's `providers` rules now take effect in hosted interactive,
+voice and autonomous turns (autonomous from #2691), as specified under
 [supported inputs](supported-inputs.md#governance-policy). Every literal
 `folder/**` root is masked, `.git` is hidden, and the turn gets a private
 filtered `.brain-index/`. A rule that also selects a document type, a
@@ -83,6 +83,13 @@ naming why ([which selectors](supported-inputs.md#governance-policy)). Since
 outside the masked folders that are hardlinks to files inside them. No schema,
 CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
 `--embeddings` now runs where only `.brain-index/` is writable.
+
+Additive (#2690): host bridge tools refuse a masked path for such a turn.
+`brain_read_base`, share completion, image masks, `inbox_add` and policy proposals fail with
+an error whose message starts `provider_masked:`; the application tools return
+`{ ok: false, code: "provider_masked" }` with no change. Each refused call
+records one `provider_mask_refusal` [governance event](integration-contract/http.md#governance-events-additive-1651)
+(`tool`, `path`, `rule`, `policyHash`).
 
 ## Separate-UID provider folder turns (additive, 0.44.0, #2696)
 

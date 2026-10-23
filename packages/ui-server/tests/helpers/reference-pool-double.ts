@@ -103,6 +103,8 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
         records.set(id, fenced);
         return fenced;
       }
+      // Like the manager (#2729), a worktree an access generation holds is parked before release.
+      if (record.state === "writable" && record.access) fail("invalid", "This worktree is held by an access generation; park it before releasing it.");
       if (record!.view && existsSync(join(views, record!.view)))
         for (const entry of readdirSync(join(views, record!.view))) {
           const path = join(views, record!.view, entry);

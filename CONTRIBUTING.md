@@ -154,6 +154,7 @@ Run from the contribution checkout using the relevant base:
 bun run check:pr --base origin/main --plan  # inspect selection only
 bun run check:pr --base origin/main         # local preflight and affected fast tests
 bun run check:pr --base origin/main --import-graph  # also run import-graph feedback
+bun run check:pr --base origin/main --import-graph --import-graph-workers=8  # override local concurrency
 bun run check:pr --base origin/main --full  # optional complete affected local fallback
 bun run check:pr --all                      # complete local release/diagnostic inventory
 ```
@@ -163,7 +164,16 @@ None of these runs the `experiments/` tier; release preparation does.
 Preflight includes committed, staged, unstaged and untracked changes. It runs
 lint/leakage, environment documentation, changeset checks and affected fast
 invariants. Import-graph feedback is skipped by default; add `--import-graph`
-to run offline-wrapped `bun run test --changed=<merge-base-sha>` as well.
+to run isolated local workers through the offline test wrapper. Each worker
+uses Bun's own `--changed=<merge-base-sha> --shard=i/N` and seeded timing costs;
+their JUnit/timing file union must reconcile exactly. This opt-in queue needs
+Linux user/mount namespaces, unprivileged overlayfs with `userxattr`, Python 3
+and real Chrome. The queue builds one fresh tree and gives workers private
+overlay views. `--import-graph-workers=N` overrides its CPU/memory-derived sizing
+(eight on the measured 32-CPU, 47-GiB host); the queue CLI accepts
+`--private-tree` for the ordinary private-build comparison. Its private report
+destination is printed, and reports and diagnostics survive worker removal. See the
+[measurement and qualification decision](docs/decisions/ci-utility.md#isolated-local-import-graph-feedback).
 `--plan` lists selected commands and arguments, including the contribution
 changeset check, and explains the feedback skip and enabling flag. This feedback
 misses spawned commands and file-read/string-named inputs; complete hosted

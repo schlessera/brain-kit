@@ -21,7 +21,7 @@ import { join, resolve } from "node:path";
 import { realpathSync } from "node:fs";
 import { invocationChild } from "./test-invocation-child";
 import { runtimeBuildSelection } from "./runtime-test-builds";
-import { acceptsSpeechDelegation, clearInvocation, prepareInvocation } from "./test-invocation";
+import { acceptsSpeechDelegation, clearInvocation, prepareCopiedInvocation, prepareInvocation, takePreparedTree } from "./test-invocation";
 import { ensureWorkspaceLease, workspaceTestAccess } from "./workspace-lease.mjs";
 
 /** What runs when the caller names no path. */
@@ -187,15 +187,19 @@ if (import.meta.main) {
   try {
     const paths = testPaths(argv);
     const borrowed = !unsupported && workspaceTestAccess() === "write" && delegatedSpeech && acceptsSpeechDelegation(root, paths);
+    const preparedTree = takePreparedTree(root);
     if (!borrowed) clearInvocation();
     if (fullPreparation && workspaceTestAccess() !== "write") throw new Error("Read-only verification cannot prepare workspace output");
     const directories = runtimeBuildSelection(root, process.cwd(), paths);
     if (!help && !borrowed && !unsupported && workspaceTestAccess() === "write" && (fullPreparation || directories.length)) {
-      const preparation = await prepareInvocation(root, fullPreparation ? undefined : directories, started);
+      const preparation = preparedTree ? prepareCopiedInvocation(root, preparedTree) :
+        await prepareInvocation(root, fullPreparation ? undefined : directories, started);
       dispose = preparation.dispose;
       if (preparation.code !== 0) { result = preparation.code; throw new Error(`Test invocation preparation failed (${result})`); }
     }
     if (!cancelled) {
+      const beforeTests = performance.now();
+      console.error(JSON.stringify({ kind: "test-invocation", event: "tests-start", pid: process.pid, at: Date.now() }));
       const tests = invocationChild([process.execPath, "test", "--preload", join(import.meta.dir, "test-network-preload.ts"), ...argv], { stdin: "inherit" });
       started(tests);
       await tests.ready;
@@ -205,6 +209,8 @@ if (import.meta.main) {
       result = joined[0].status === "fulfilled" ? joined[0].value : 1;
       if (joined.some(item => item.status === "rejected")) result = result || 1;
       if (tests.signalCode) result = 128 + (constants.signals[tests.signalCode] ?? 0);
+      console.error(JSON.stringify({ kind: "test-invocation", event: "tests-complete", pid: process.pid, at: Date.now(), code: result,
+        elapsedMs: performance.now() - beforeTests }));
     }
   } catch (error) { console.error(error); }
   finally {

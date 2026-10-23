@@ -11,6 +11,8 @@ import { createInboxRuntime } from "../src/inbox/runtime.js";
 import { createInteractiveShares } from "../src/inbox/interactive-share.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { makeFakeBackend } from "./helpers/fake-backend.js";
+import { createProviderMaskGuard } from "../src/brain/provider-mask-refusal.js";
+import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events.js";
 import { createTestApp } from "./helpers/test-app.js";
 
 const closes: (() => unknown | Promise<unknown>)[] = [];
@@ -156,6 +158,41 @@ test("unrelated writes, another item's receipt, changed binaries and stale autho
     await expect(req.bridge.completeShare!(complete)).rejects.toThrow("principal authority");
   });
   expect(f.item(share).status).toBe("ready"); expect(existsSync(join(f.brainPath, share.dir))).toBe(true);
+});
+
+test("share completion refuses a filed document or retained original under a provider-masked folder before reading it", async () => {
+  const f = await fixture(), share = await f.upload();
+  mkdirSync(join(f.brainPath, "assets"), { recursive: true }); writeFileSync(join(f.brainPath, "assets/ithaca.pdf"), pdf);
+  const refusals: unknown[] = [];
+  const shares = f.app.wsHost.inboxTools!.shares!;
+  const complete = shares.complete.bind(shares);
+  let masked: string[] = [];
+  // The bridge hands completion its turn's guard (#2690); here the masked roots vary per call.
+  shares.complete = (...args: Parameters<typeof complete>) => {
+    const guard = createProviderMaskGuard({ folders: masked, policy: { providers: masked.map(root => ({ paths: [`${root}/**`], allow: ["anthropic"] })) },
+      // The production writer, into the same database completion's transaction uses.
+      record: refusal => { refusals.push(refusal); recordGovernanceEvent(f.app.db, { kind: "provider_mask_refusal", turnId: null, sessionId: null,
+        actor: "interactive", model: null, profile: null, payload: { ...refusal, policyHash: null } }); } });
+    return complete(...(args.slice(0, 7) as [Parameters<typeof complete>[0], Parameters<typeof complete>[1], Parameters<typeof complete>[2], Parameters<typeof complete>[3], Parameters<typeof complete>[4], Parameters<typeof complete>[5], Parameters<typeof complete>[6]]),
+      paths => guard.assert("complete_share", paths));
+  };
+  await f.send(share, async req => {
+    const result = await req.bridge.applyBrain!(application(share));
+    const input = { receiptIds: [result.shareReceiptId!], files: [{ sourcePath: share.files[0]!.path, disposition: "retained" as const, path: "assets/ithaca.pdf" }] };
+    masked = ["notes"];
+    await expect(req.bridge.completeShare!(input), "MASKED_FILED_DOCUMENT_REFUSED").rejects.toThrow("provider_masked: notes/ithaca-share.md");
+    masked = ["assets"];
+    await expect(req.bridge.completeShare!(input), "MASKED_RETAINED_ORIGINAL_REFUSED").rejects.toThrow("provider_masked: assets/ithaca.pdf");
+    expect(f.item(share).status).toBe("claimed");
+    masked = [];
+    expect(await req.bridge.completeShare!(input), "UNMASKED_COMPLETION_STILL_FILES").toMatchObject({ status: "done", replay: false });
+  });
+  expect(refusals).toEqual([
+    { tool: "complete_share", path: "notes/ithaca-share.md", rule: { list: "providers", index: 0, pattern: "notes/**" } },
+    { tool: "complete_share", path: "assets/ithaca.pdf", rule: { list: "providers", index: 0, pattern: "assets/**" } },
+  ]);
+  expect(queryGovernanceEvents(f.app.db, { kinds: ["provider_mask_refusal"], limit: 10 }).map(event => event.payload.path), "REFUSAL_EVENTS_SURVIVE_THE_COMPLETION_TRANSACTION")
+    .toEqual(["notes/ithaca-share.md", "assets/ithaca.pdf"]);
 });
 
 test("a controlled dispatcher cannot acquire interactive ownership or replay partial filing", async () => {

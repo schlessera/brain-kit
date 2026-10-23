@@ -132,6 +132,13 @@ export const GOVERNANCE_EVENT_SCHEMAS = {
     tool: z.string().min(1).max(200).nullable(),
     alternative: text.nullable(),
   })),
+  /** A host bridge tool refused a path the turn's provider folder masks hide (#2690). */
+  provider_mask_refusal: kind(1, z.strictObject({
+    tool: z.string().min(1).max(200),
+    path,
+    rule: policyRule(["providers"]),
+    policyHash,
+  })),
   /** A protected file that appeared during a turn, moved into the journal quarantine. */
   quarantine: kind(1, z.strictObject({
     path,

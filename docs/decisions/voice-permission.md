@@ -225,7 +225,7 @@ as its allowlist and declares both `enforceAllowedTools` and `noGrantSurface`.
 | `mcp__brain__brain_graph` | Read-only. |
 | `mcp__brain__jobs_review` | Read-only query over the owner's local jobs queue, returning at most 50 summaries. No egress: it does not scrape, fetch listing URLs, change review decisions or create a missing database. Admitted 2026-10-01 (#605). |
 | `mcp__brain-ui__brain_add` | Creates a new document. The single most valuable eyes-free action there is — capture. A create destroys nothing: the worst case is a document the user did not want, which appears in Files and is removable. |
-| `mcp__brain-ui__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:426-431`), applied independently (`input.summary !== undefined`, `packages/core/src/lib/ops/write.ts:88-100`), so **a single call can overwrite all six** — and `tags` replaces the whole tag list rather than merging into it (the terminal MCP accepts a comma-separated string, while the hosted route accepts a string array; `input.tags !== undefined`, `packages/core/src/lib/ops/write.ts:91`), while `deadline` and `next_review` take `""` as *delete the field* (`input.deadline !== undefined`, `packages/core/src/lib/ops/write.ts:92-99`). `updated` is bumped unconditionally (`updates.updated = updated`, `packages/core/src/lib/ops/write.ts:115`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
+| `mcp__brain-ui__brain_update` | Edits an existing document. "Add this to my note about X" is the second most valuable eyes-free action, and the handler's shape is why it is safe enough to allow: it **never rewrites the body**, it only appends to it (`const appendTo`, `packages/core/src/lib/frontmatter-edit.ts:303-308`), so no prose can be lost. The exact bound on what it *can* destroy: the six frontmatter params are independent optionals on one call (`summary: z.string()`, `packages/core/src/mcp-server.ts:428-433`), applied independently (`input.summary !== undefined`, `packages/core/src/lib/ops/write.ts:88-100`), so **a single call can overwrite all six** — and `tags` replaces the whole tag list rather than merging into it (the terminal MCP accepts a comma-separated string, while the hosted route accepts a string array; `input.tags !== undefined`, `packages/core/src/lib/ops/write.ts:91`), while `deadline` and `next_review` take `""` as *delete the field* (`input.deadline !== undefined`, `packages/core/src/lib/ops/write.ts:92-99`). `updated` is bumped unconditionally (`updates.updated = updated`, `packages/core/src/lib/ops/write.ts:115`). None of it is checkpointed, so git recovers a prior value only if the document was committed. The claim this row rests on is therefore "loses no prose, and at most the six declared frontmatter fields, recoverable only if committed" — not "recoverable". `status` is the field that matters and it is handled separately below. |
 | `Read`, `Glob`, `Grep` | Read-only over the brain repo, for the questions the brain tools do not cover. No mutation, no egress. |
 | `WebSearch`, `WebFetch` | Read-only egress. Kept, with the exposure stated below. |
 | the bridge tools, minus the mask editor | `ask_user`, `get_current_location`, `query_activity`, `show_block`, `turn_temp` are auto-allowed today and none of them is a permission decision (the same `allowed.push` block, from `const allowed`, `sdk-options.ts:182-207`). `request_image_mask` needs the user to paint a region, so it needs eyes; it is out. |
@@ -250,9 +250,9 @@ database retains its schema initialization and migration, as that record's
 
 **The archive boundary leaked, and is now closed.** `brain_archive` is off the
 auto-allow list because archiving is a visibility change. But `brain_update`
-takes `status: "archived"` (`status: z.enum`, `packages/core/src/mcp-server.ts:427`;
+takes `status: "archived"` (`status: z.enum`, `packages/core/src/mcp-server.ts:429`;
 `input.status !== undefined`, `packages/core/src/lib/ops/write.ts:89`), writes it and reindexes, and search
-excludes archived documents by default (`include_archived`, `mcp-server.ts:212`)
+excludes archived documents by default (`include_archived`, `mcp-server.ts:214`)
 — so the visibility change `brain_archive`'s card exists to gate was reachable
 through a tool that is auto-allowed in *every* surface,
 chat included. `DEFAULT_CONFIRM_BASH_PATTERNS` closed the `brain archive` CLI
@@ -406,7 +406,7 @@ A microphone is a reflex surface with worse recognition than a keyboard. This
 costs nothing measurable:
 the server already refuses `always` for kind `command` requests
 (the block computing `remembers`, `dispatch.ts:438-444`, and the lookup computing
-`remembered`, `ws/bridge.ts:304-324`), and 192 of 192 measured
+`remembered`, `ws/bridge.ts:320-340`), and 192 of 192 measured
 approvals were kind `command`.
 
 ### When the announcement actually fires
@@ -460,10 +460,10 @@ An approval given by voice must be as reviewable afterwards as one given by
 tapping a card. Most of that already exists: every decision is written as an
 append-only `approval_decision` event carrying the principal, the decision and
 the request kind, and it patches the span
-(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:604-619`),
+(`onApprovalDecision`, `packages/ui-server/src/activity/recorder.ts:619-634`),
 fed from the bridge's
 `recorded()` wrapper
-(`const recorded`, `packages/ui-server/src/ws/bridge.ts:333-348`).
+(`const recorded`, `packages/ui-server/src/ws/bridge.ts:349-364`).
 
 One thing is missing and is a follow-up: **the event does not record the
 modality.** A denial decided by a phrase a microphone heard and one decided by a
@@ -488,7 +488,7 @@ to a turn — `InferenceProfile.allowedTools`
 `ClaudeBackendOptions.allowedTools` (`Backend-wide tool allowlist`,
 `options.ts:52-53`), resolved into the SDK's `allowedTools` per turn (the
 `allowed` array, from `const allowed`, `sdk-options.ts:182`, and what it
-becomes, `allowedTools: allowed`, `:315`). The voice posture is one
+becomes, `allowedTools: allowed`, `:322`). The voice posture is one
 named entry in that mechanism.
 
 **#51's U15 originally chose availability control for the same bypass reason.**
@@ -590,7 +590,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
 
 **Closed, by #141 (`42a4d86`), which closed #124.** A turn now declares
 `StartTurnRequest.enforceAllowedTools`
-(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:567`)
+(`enforceAllowedTools?: boolean`, `packages/ui-sdk/src/server/backend.ts:572`)
 — the declaration this record asked for, by that name — and under it:
 
 - The input-rewrite hooks no longer grant. `createAgentHook` and `createRtkHook`
@@ -608,7 +608,7 @@ matters because a reader cannot otherwise tell a live hazard from a fixed one.
   purpose, so a grant that exists and is deliberately not applied can be logged
   — but refuses to answer from it or add to it for a tool the enforced allowlist
   left out (the lookup computing `remembered`,
-  `packages/ui-server/src/ws/bridge.ts:304-324`,
+  `packages/ui-server/src/ws/bridge.ts:320-340`,
   and the block computing `remembers`,
   `packages/ui-server/src/ws/dispatch.ts:438-444`).
   The evaluation happens

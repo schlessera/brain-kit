@@ -13,8 +13,9 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 
 import { maintenanceDataRoot } from "../config/env.js";
+import { isProviderMasked } from "./provider-mask-refusal.js";
 
-interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown> }
+interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown>; masked?: string[] }
 interface IndexRequest { op: "index"; root: string }
 interface StorageRequest { op: "storage-facts"; root: string; paths: string[] }
 
@@ -48,7 +49,8 @@ async function main(): Promise<unknown> {
   try {
     if (request.op === "plan-add") {
       const plan = core.prepareIngest(request.input as unknown as Parameters<typeof core.prepareIngest>[0], db,
-        { root, taxonomy: context.taxonomy, readDocument: path => readDocument(root, path) });
+        // The turn's provider-masked documents are absent to planning (#2690).
+        { root, taxonomy: context.taxonomy, readDocument: path => isProviderMasked(path, request.masked ?? []) ? null : readDocument(root, path) });
       return { ok: true, plan: { path: plan.path, content: plan.content, baseContent: plan.baseContent, outcome: plan.outcome } };
     }
     await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false });

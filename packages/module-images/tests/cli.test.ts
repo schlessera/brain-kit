@@ -198,3 +198,40 @@ describe("brain image — what it reports without spending", () => {
     for (const r of rows) expect(r.approxCostUsd1K).toBeNull();
   });
 });
+
+describe("brain image — keys withheld from an agent worker (#1666)", () => {
+  test("with no image key, each withheld provider is named and nothing is sent", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const previous = process.env.BRAIN_WITHHELD_KEYS;
+    process.env.BRAIN_WITHHELD_KEYS = "GEMINI_API_KEY,OPENAI_API_KEY";
+    try {
+      expect(await run(["a harbour at dawn", "--out", "h.png"])).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(out.join("\n"), "IMAGE_NAMES_WITHHELD_PROVIDERS").toBe([
+        "openai image unavailable: the host withholds OPENAI_API_KEY from agent workers [provider_unavailable provider=openai capability=image key=OPENAI_API_KEY degraded_to=none]",
+        "gemini image unavailable: the host withholds GEMINI_API_KEY from agent workers [provider_unavailable provider=gemini capability=image key=GEMINI_API_KEY degraded_to=none]",
+      ].join("\n"));
+    } finally {
+      if (previous === undefined) delete process.env.BRAIN_WITHHELD_KEYS; else process.env.BRAIN_WITHHELD_KEYS = previous;
+    }
+  });
+
+  test("a pinned provider whose key is withheld is named while another provider stays available", async () => {
+    const previous = process.env.BRAIN_WITHHELD_KEYS;
+    process.env.BRAIN_WITHHELD_KEYS = "GEMINI_API_KEY";
+    try {
+      expect(await run(["a harbour at dawn", "--provider", "gemini", "--out", "h.png"])).toBe(1);
+      expect(calls).toHaveLength(0);
+      expect(out.join("\n"), "IMAGE_NAMES_PINNED_WITHHELD_PROVIDER").toContain(
+        "[provider_unavailable provider=gemini capability=image key=GEMINI_API_KEY degraded_to=none]");
+    } finally {
+      if (previous === undefined) delete process.env.BRAIN_WITHHELD_KEYS; else process.env.BRAIN_WITHHELD_KEYS = previous;
+    }
+  });
+
+  test("a keyless brain outside a worker keeps its ordinary refusal", async () => {
+    delete process.env.OPENAI_API_KEY;
+    expect(await run(["a harbour at dawn", "--out", "h.png"])).toBe(1);
+    expect(out.join("\n")).toStartWith("No image provider is configured.");
+  });
+});

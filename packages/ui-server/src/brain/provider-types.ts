@@ -17,8 +17,9 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import type { WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { taxonomyArgv } from "./client.js";
-import type { ProviderTaxonomy } from "./governance-policy.js";
-import { runMaskedBrainCli } from "./private-index.js";
+import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { providerFolderRoots, providerMaskedFolders, providerTypeSelectors, translateProviderTypes, type ProviderTaxonomy } from "./governance-policy.js";
+import { createPrivateIndexDirectory, removePrivateIndexDirectory, runMaskedBrainCli } from "./private-index.js";
 
 /** How long admission waits for the taxonomy. */
 export const PROVIDER_TAXONOMY_MS = 30_000;
@@ -94,4 +95,36 @@ export function strayTypedDocuments(root: string, types: readonly string[], mask
   };
   walk("");
   return strays.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Translate a policy's type selectors on one immutable view, as every turn
+ * admission does (hosted and autonomous, #2694, #2691). The taxonomy worker
+ * sees only the literal folders masked, so it writes into a throwaway
+ * directory, never a turn's private index. A type maps only if no Markdown
+ * document of it lies outside the folders it would mask.
+ */
+export async function translateProviderTypesInView(options: {
+  brainPath: string; policy: Pick<EffectiveGovernancePolicy, "providers">; view: WorkerStartupView;
+  maskPaths: readonly string[]; signal: AbortSignal; command?: readonly string[];
+}): Promise<{ folders: Record<string, string[]>; refused: string[] }> {
+  const types = providerTypeSelectors(options.policy);
+  const scratch = createPrivateIndexDirectory();
+  let read: Awaited<ReturnType<typeof readProviderTaxonomy>>;
+  try {
+    read = await readProviderTaxonomy({ brainPath: options.brainPath, startupView: options.view, folders: providerFolderRoots(options.policy), index: scratch,
+      maskPaths: options.maskPaths, signal: options.signal, ...(options.command ? { command: options.command } : {}) });
+  } finally { removePrivateIndexDirectory(scratch); }
+  options.signal.throwIfAborted();
+  if (!read.ok) return { folders: {}, refused: types.map(type => `type ${type} (the brain's taxonomy could not be read: ${read.detail})`) };
+  const translated = translateProviderTypes(types, read.taxonomy);
+  const strays = strayTypedDocuments(options.view.root, Object.keys(translated.folders), providerMaskedFolders(options.policy, translated.folders), options.brainPath);
+  const listed = (paths: string[]) => `${paths.slice(0, 3).join(", ")}${paths.length > 3 ? ` and ${paths.length - 3} more` : ""}`;
+  const unverified = strays.filter(stray => stray.type === undefined).map(stray => stray.path);
+  for (const [type, folders] of Object.entries(translated.folders)) {
+    const paths = strays.filter(stray => stray.type === type).map(stray => stray.path);
+    if (paths.length) translated.refused.push(`type ${type} (${listed(paths)} ${paths.length === 1 ? "declares" : "declare"} it outside ${folders.join(", ")})`);
+    if (unverified.length) translated.refused.push(`type ${type} (${listed(unverified)} ${unverified.length === 1 ? "links" : "link"} to a folder outside the brain, which cannot be checked)`);
+  }
+  return translated;
 }

@@ -697,6 +697,10 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     }
     if ([...intents.values()].some(other => other.from === id && (other.state === "reserved" && !other.root)))
       throw new NativeBrainManagerError("unavailable", "A pending reference snapshot is still being created from this root.");
+    // Requests run one at a time, so this refusal is atomic with grants (#2729): no
+    // caller, in this process or another, deletes a worktree a generation holds.
+    if (intent.state === "writable" && intent.access)
+      throw new NativeBrainManagerError("invalid", "This worktree is held by an access generation; park it before releasing it.");
     if (intent.state === "reserved") {
       await measure(signal); intent = intents.get(id)!;
       if (intent.state === "reserved") { await commit({ ...intent, state: "deleted", ownerBytes: 0, reason: "Released before its root was created." }, true); return publicRecord(intents.get(id)!); }

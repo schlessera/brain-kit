@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:270-958`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:270-962`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -257,7 +257,11 @@ the directory. A running sandbox sees a grant on its next path lookup and loses
 a parked worktree the same way, so no mount is ever added to its namespace.
 Btrfs renames writable subvolumes freely. A worktree held by one generation
 must be parked before another can take it, so a stale generation can neither
-keep nor pass on a grant. The worker cannot create entries in the generation
+keep nor pass on a grant. For the same reason `poolRelease` refuses a worktree
+a generation holds with `invalid`, deleting nothing and keeping its charge
+(#2729). The manager runs one request at a time, so the refusal is atomic with
+`poolAccess`: a caller in another process cannot grant a worktree between a
+release's check and its delete. The worker cannot create entries in the generation
 directory itself. `access/` joins the mandatory worker masks. Census accepts a
 writable worktree only in the directory its intent records, and measurement
 adopts a grant or park interrupted between its rename and its record.
