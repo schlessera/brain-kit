@@ -78,7 +78,9 @@ filtered `.brain-index/`. A rule that also selects a document type, a
 non-literal glob or a single path refuses turn admission by name. Since #2694
 (additive, 0.44.0) a `folder/**/*` path and a document type that maps exactly
 onto folders are masked the same way; every other such selector still refuses,
-naming why ([which selectors](supported-inputs.md#governance-policy)). No schema,
+naming why ([which selectors](supported-inputs.md#governance-policy)). Since
+#2700 (additive, 0.44.0) admission also refuses, naming them, regular files
+outside the masked folders that are hardlinks to files inside them. No schema,
 CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
 `--embeddings` now runs where only `.brain-index/` is writable.
 
@@ -602,6 +604,12 @@ authenticated recovery routes with an explicit logical scope, described in
 The host-only copy-out callback is described in
 [the package API](integration-contract/package-api.md#native-persisted-claude-memory-observation-additive-1658).
 
+## Managed reference worktree history (additive, #2430)
+
+Intentional edits to managed reference worktrees join the existing retained
+journal with an explicit logical scope and path, described in
+[the HTTP contract](integration-contract/http.md#managed-reference-worktree-history-additive-2430).
+
 ## Reference pool storage (additive, #2428)
 
 The host-only `brain-native-store` configuration gains an optional separate
@@ -628,3 +636,11 @@ which publish sealed reference roots into per-domain view directories, and
 `ServerConfig` gains optional `referenceSource` clocks and admission, resolved
 from three documented environment inputs; described in
 [the package API](integration-contract/package-api.md#reference-source-acquisition-additive-2429).
+
+## Managed worktree storage (additive, #2430)
+
+The native manager client and lease owner gain worktree checkpoints, deltas and
+fixed-reader checkpoint reads, plus access generations that move a writable
+worktree into or out of one worker-bound directory; `NativePoolRecord` gains
+the `checkpoint` purpose and `access`. Described in
+[the package API](integration-contract/package-api.md#managed-worktree-storage-additive-2430).

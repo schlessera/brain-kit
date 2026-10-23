@@ -55,6 +55,8 @@ export interface ReferenceSourceLease {
   repository: string;
   revision: string;
   commit: string;
+  /** Sealed pool root holding `commit`; a managed worktree (#2430) snapshots it. */
+  rootId: string;
   /** Last successful refresh and last successful authority check of `commit`, epoch ms. */
   refreshedAt: number;
   validatedAt: number;
@@ -129,7 +131,7 @@ export function createReferenceSources(options: {
     db.query("UPDATE reference_sources SET last_used_at = ? WHERE domain = ? AND repository = ? AND revision = ?").run(now(), source.domain, source.repository, source.revision);
     let released = false;
     return { domain: source.domain === PUBLIC ? "public" : "private", view: view.id, viewPath: view.hostPath!, name: source.name, repository: source.repository,
-      revision: source.revision, commit: source.commit_id, refreshedAt: source.refreshed_at, validatedAt: source.validated_at, stale, error,
+      revision: source.revision, commit: source.commit_id, rootId: source.root_id, refreshedAt: source.refreshed_at, validatedAt: source.validated_at, stale, error,
       release() {
         if (released) return; released = true;
         const left = (leases.get(key) ?? 1) - 1;
@@ -463,7 +465,9 @@ export function createReferenceSources(options: {
     // Everything else this app owns goes: interrupted staging, superseded or
     // withdrawn roots, roots the catalog lost and interrupted deletions.
     for (const record of records) {
+      // A root a managed worktree (#2430) was snapshotted from stays: releasing it would free nothing.
       if (record.purpose !== "source" || record.state === "reclaimed" || keep.has(record.id)) continue;
+      if (options.dependents?.(record.id)) { retained.push(record.id); continue; }
       try { await pool.poolRelease(record.id); released.push(record.id); }
       catch { retained.push(record.id); }
     }
@@ -476,6 +480,11 @@ export function createReferenceSources(options: {
 
   return {
     request,
+    /** Whether a live grant covers this repository for this principal now; private worktrees (#2430) need one for every access. */
+    covers(input: { principalId: string; repository: string }): boolean {
+      try { return Boolean(coveringReferenceGrant(db, { brain: options.brain, principalId: input.principalId, repository: referenceRepository(input.repository), now: now() })); }
+      catch { return false; }
+    },
     revoke,
     recover,
     /** Host directories a worker of this principal binds; null until something was published there. */

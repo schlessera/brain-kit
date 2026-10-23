@@ -8,7 +8,9 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
 export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>, steeringOptions: JournalSteeringOptions = {},
-  identity?: { brainPath: string; createTemporary: NativeJournalReadContext["createTemporary"] }) {
+  identity?: { brainPath: string; createTemporary: NativeJournalReadContext["createTemporary"] },
+  /** A separate root (#2430) is content only: none of its files configure the brain's agent. */
+  scope: { steering: boolean } = { steering: true }) {
   const workerUid = () => {
     if (!identity || !workerIdentityHelper()) return undefined;
     const actual = verifiedWorkerIdentity(identity.brainPath);
@@ -101,7 +103,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
           roots.set(stamp, root);
           return { ...value, stamp };
         };
-        if (policies.size && observation.changes.length) {
+        if (scope.steering && policies.size && observation.changes.length) {
           for (const [root, after] of [[observation.beforeRoot, false], [observation.afterRoot, true]] as const) {
             const entries: JournalSnapshotEntry[] = [];
             const append = (metadata: NativeJournalMetadata) => {

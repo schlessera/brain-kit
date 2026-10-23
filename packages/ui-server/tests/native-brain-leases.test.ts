@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNativeBrainLeaseManager } from "../src/brain/native-brain-leases.js";
@@ -176,7 +176,7 @@ test("unknown stage creation pins its lower root until confirmed stage deletion 
 
 test("reference pool roots are durable app leases that dead-owner recovery and close never delete", async () => {
   const f = await fixture(), calls: string[] = [];
-  const record = (id: string, purpose: "source" | "worktree" | "staging", from: string | null, allowanceBytes: number, state: string) =>
+  const record = (id: string, purpose: "source" | "worktree" | "staging" | "checkpoint", from: string | null, allowanceBytes: number, state: string) =>
     ({ id, purpose, from, allowanceBytes, state, root: null, path: null, ownerBytes: null, reason: null }) as never;
   f.native.client.poolCreate = async (id, purpose, from, allowanceBytes) => {
     calls.push(`create:${id}`);
@@ -204,4 +204,53 @@ test("reference pool roots are durable app leases that dead-owner recovery and c
     expect(f.state.query("SELECT COUNT(*) AS count FROM native_pool_leases").get(), "REFERENCE_POOL_LEASE_REMOVED_AFTER_RECEIPT").toEqual({ count: 0 });
     expect(calls).toEqual([`create:${ID}`, `seal:${ID}`, `release:${ID}`]);
   } finally { await second.close(); await f.close(); }
+});
+
+test("worktree checkpoints, deltas, reads and access moves need this app's held pool leases", async () => {
+  const f = await fixture(), calls: string[] = [];
+  const SOURCE = "33333333-3333-4333-8333-333333332430", WORKTREE = "44444444-4444-4444-8444-444444442430", CHECKPOINT = "55555555-5555-4555-8555-555555552430";
+  const ACCESS = "66666666-6666-4666-8666-666666662430";
+  const record = (id: string, purpose: string, from: string | null, state: string, extra: object = {}) =>
+    ({ id, purpose, from, allowanceBytes: 4096, state, root: null, path: null, ownerBytes: null, reason: null, view: null, access: null, ...extra }) as never;
+  f.native.client.poolCreate = async (id, purpose, from) => { calls.push(`create:${id}`); return record(id, purpose, from, "writable"); };
+  f.native.client.poolCheckpoint = async (id, from) => {
+    calls.push(`checkpoint:${id}`);
+    expect((f.state.query("SELECT purpose,from_id,state FROM native_pool_leases WHERE id=?").get(id)), "REFERENCE_CHECKPOINT_LEASE_DURABLE_BEFORE_RPC")
+      .toEqual({ purpose: "checkpoint", from_id: from, state: "creating" });
+    return record(id, "checkpoint", from, "sealed", { transaction: "12", readOnly: true });
+  };
+  f.native.client.poolDelta = async (from, to) => { calls.push(`delta:${from}:${to}`); return { stream: new ReadableStream(), completed: Promise.resolve({ exitCode: 0 as const, bytes: 0 }) }; };
+  f.native.client.poolStatCheckpoint = async id => { calls.push(`stat:${id}`); return null; };
+  f.native.client.poolAccess = async (id, access) => { calls.push(`access:${id}:${access}`); return record(id, "worktree", SOURCE, "writable", { access }); };
+  f.native.client.poolPark = async id => { calls.push(`park:${id}`); return record(id, "worktree", SOURCE, "writable"); };
+  try {
+    await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
+    await expect(f.owner.client.poolCheckpoint(CHECKPOINT, SOURCE), "REFERENCE_CHECKPOINT_ONLY_OF_A_HELD_WORKTREE").rejects.toThrow("held worktree");
+    await expect(f.owner.client.poolAccess(SOURCE, ACCESS), "REFERENCE_ACCESS_ONLY_FOR_A_WORKTREE").rejects.toThrow("held worktree");
+    await f.owner.client.poolCreate(WORKTREE, "worktree", SOURCE, 4096);
+    await expect(f.owner.client.poolDelta(CHECKPOINT, CHECKPOINT), "REFERENCE_DELTA_NEEDS_HELD_CHECKPOINTS").rejects.toThrow("held checkpoints");
+    await expect(f.owner.client.poolStatCheckpoint(CHECKPOINT, "", 1000), "REFERENCE_CHECKPOINT_READ_NEEDS_HELD_LEASE").rejects.toThrow("held checkpoint");
+    await f.owner.client.poolCheckpoint(CHECKPOINT, WORKTREE);
+    await f.owner.client.poolDelta(CHECKPOINT, CHECKPOINT);
+    await f.owner.client.poolStatCheckpoint(CHECKPOINT, "", 1000);
+    await f.owner.client.poolAccess(WORKTREE, ACCESS);
+    await f.owner.client.poolPark(WORKTREE);
+    expect(calls).toEqual([`create:${SOURCE}`, `create:${WORKTREE}`, `checkpoint:${CHECKPOINT}`, `delta:${CHECKPOINT}:${CHECKPOINT}`, `stat:${CHECKPOINT}`, `access:${WORKTREE}:${ACCESS}`, `park:${WORKTREE}`]);
+    expect(f.state.query("SELECT state FROM native_pool_leases WHERE id=?").get(CHECKPOINT)).toEqual({ state: "held" });
+  } finally { await f.close(); }
+});
+
+test("pool leases recorded before checkpoints migrate without losing a row", async () => {
+  const root = mkdtempSync(join(tmpdir(), "odysseus-native-lease-migrate-")), brain = join(root, "brain"), statePath = join(root, "native-leases.sqlite"); mkdirSync(brain);
+  const native = createNativeJournalFixture(brain, root), ready = await native.client.ready();
+  const old = new Database(statePath);
+  old.exec(`CREATE TABLE native_pool_leases (id TEXT PRIMARY KEY,purpose TEXT NOT NULL CHECK(purpose IN ('source','worktree','staging')),from_id TEXT,allowance INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','held','releasing')));
+    INSERT INTO native_pool_leases VALUES ('${ID}','source',NULL,4096,'held');`);
+  old.close(); chmodSync(statePath, 0o600);
+  const owner = await createNativeBrainLeaseManager(native.client, { statePath, brainPath: brain, fsid: ready.fsid, brainUuid: ready.brainUuid });
+  const state = new Database(statePath);
+  try {
+    expect(state.query("SELECT * FROM native_pool_leases").all(), "REFERENCE_POOL_LEASES_SURVIVE_MIGRATION").toEqual([{ id: ID, purpose: "source", from_id: null, allowance: 4096, state: "held" }]);
+    expect(() => state.query("INSERT INTO native_pool_leases VALUES (?,'checkpoint',?,4096,'creating')").run(OTHER, ID), "REFERENCE_POOL_LEASES_ACCEPT_CHECKPOINTS").not.toThrow();
+  } finally { state.close(); await owner.close().catch(() => {}); await native.close(); rmSync(root, { recursive: true, force: true }); }
 });

@@ -462,6 +462,220 @@ const shapes = await create("staging", 32 * MIB);
   db.close();
 }
 
+// 17. Managed worktrees (#2430): a writable snapshot of sealed source is
+// isolated from it, its read-only checkpoints feed metadata deltas, and an
+// access generation bound into an already running non-root sandbox gains
+// exactly the granted worktree without any mount in that namespace.
+{
+  const { parseNativeBrainDelta } = await import("../../packages/ui-sdk/src/server/native-brain-delta.js");
+  type Checkpoint = NativePoolRecord & { transaction: string; readOnly: true };
+  const base = await create("source", 4 * MIB);
+  mkdirSync(join(base.path!, "odyssey"), { mode: 0o775 });
+  for (const book of ["book-1.md", "book-2.md"]) { writeFileSync(join(base.path!, "odyssey", book), `Ithaca ${book}\n`); chmodSync(join(base.path!, "odyssey", book), 0o664); }
+  chmodSync(join(base.path!, "odyssey"), 0o775); command(["chown", "-R", "0:1000", join(base.path!, "odyssey")]);
+  await seal(base.id);
+  const tree = await create("worktree", 16 * MIB, base.id), other = await create("worktree", 16 * MIB, base.id);
+  // Copy-on-write isolation: worktree edits never reach the shared source.
+  writeFileSync(join(tree.path!, "odyssey", "book-1.md"), "Penelope's loom, rewoven\n");
+  expect(readFileSync(join(POOL, "roots", base.id, "odyssey", "book-1.md"), "utf8"), "REFERENCE_WORKTREE_SOURCE_UNCHANGED").toBe("Ithaca book-1.md\n");
+  let sourceWrite = "";
+  try { writeFileSync(join(POOL, "roots", base.id, "odyssey", "book-2.md"), "overwritten"); } catch (error) { sourceWrite = (error as NodeJS.ErrnoException).code ?? String(error); }
+  expect(sourceWrite, "REFERENCE_WORKTREE_SOURCE_READ_ONLY").toBe("EROFS");
+  // Checkpoints are read-only snapshots of one worktree, and deltas stay inside it.
+  const first = await call<Checkpoint>({ operation: "poolCheckpoint", id: randomUUID(), from: tree.id });
+  expect(first, "REFERENCE_CHECKPOINT_SEALED").toMatchObject({ purpose: "checkpoint", from: tree.id, state: "sealed", readOnly: true });
+  expect(command(["btrfs", "property", "get", "-ts", first.path!, "ro"]).trim(), "REFERENCE_CHECKPOINT_READ_ONLY").toBe("ro=true");
+  writeFileSync(join(tree.path!, "odyssey", "book-3.md"), "The suitors' feast\n");
+  rmSync(join(tree.path!, "odyssey", "book-2.md"));
+  const second = await call<Checkpoint>({ operation: "poolCheckpoint", id: randomUUID(), from: tree.id });
+  const response = await manager.run({ operation: "poolDelta", from: first.id, to: second.id } as never);
+  const framed = (await import("../../packages/ui-sdk/src/server/native-brain-manager-client.js")).decodeNativeDelta(response.body!, 64 * MIB);
+  const changed = new Set<string>();
+  for await (const candidate of parseNativeBrainDelta(framed.stream, { before: { uuid: first.root!.uuid, transaction: BigInt(first.transaction) },
+    after: { uuid: second.root!.uuid, transaction: BigInt(second.transaction) } })) for (const path of candidate.paths) changed.add(path);
+  await framed.completed;
+  note("worktree-delta", { changed: [...changed] });
+  expect([...changed].sort(), "REFERENCE_WORKTREE_DELTA_NAMES_EDITS").toEqual(expect.arrayContaining(["odyssey/book-2.md", "odyssey/book-3.md"]));
+  expect(changed.has("odyssey/book-1.md"), "REFERENCE_WORKTREE_DELTA_ONLY_SINCE_ITS_CHECKPOINT").toBe(false);
+  const foreign = await call<Checkpoint>({ operation: "poolCheckpoint", id: randomUUID(), from: other.id });
+  expect((await refusal({ operation: "poolDelta", from: first.id, to: foreign.id })).code, "REFERENCE_WORKTREE_DELTA_ONE_LINEAGE").toBe("invalid");
+  expect((await refusal({ operation: "poolCheckpoint", id: randomUUID(), from: base.id })).code, "REFERENCE_CHECKPOINT_ONLY_OF_A_WORKTREE").toBe("unknown");
+  expect((await refusal({ operation: "poolCreate", id: randomUUID(), purpose: "worktree", from: first.id, allowanceBytes: 4 * MIB })).code,
+    "REFERENCE_WORKTREE_NEVER_FROM_A_CHECKPOINT").toBe("unknown");
+  // An access generation is one root-owned directory a running non-root sandbox binds whole.
+  const ACCESS = randomUUID(), SECOND_ACCESS = randomUUID();
+  const opened = await call<{ access: string; path: string; roots: string[] }>({ operation: "poolAccessOpen", access: ACCESS });
+  expect(opened, "REFERENCE_ACCESS_OPENED_EMPTY").toEqual({ access: ACCESS, path: join(POOL, "access", ACCESS), roots: [] });
+  // Production masks hide every generation from every worker; each worker binds only its own.
+  expect((await call<{ privatePaths: string[] }>({ operation: "ready" })).privatePaths, "REFERENCE_ACCESS_GENERATIONS_MASKED_FOR_WORKERS").toContain(join(POOL, "access"));
+  await call({ operation: "poolAccessOpen", access: SECOND_ACCESS });
+  const script = "while read cmd; do case \"$cmd\" in\n"
+    + "list) ls -A /tmp/brain-worktrees | sort | tr '\\n' ' '; echo;;\n"
+    + "read) cat /tmp/brain-worktrees/" + tree.id + "/odyssey/book-1.md 2>/dev/null || echo MISSING;;\n"
+    + "edit) printf 'Telemachus returns\\n' > /tmp/brain-worktrees/" + tree.id + "/odyssey/book-1.md && printf 'Argos waits\\n' > /tmp/brain-worktrees/" + tree.id + "/odyssey/book-4.md && echo EDITED || echo REFUSED;;\n"
+    + "sibling) mkdir /tmp/brain-worktrees/intruder 2>/dev/null && echo CREATED || echo REFUSED;;\n"
+    + "pool) ls " + POOL + " 2>&1 | head -1;;\nwho) id -u;;\nesac\necho @@\ndone\n";
+  const worker = Bun.spawn(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/tmp", "--bind", opened.path, "/tmp/brain-worktrees", "--proc", "/proc", "--dev", "/dev",
+    "--unshare-pid", "--die-with-parent", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1000", "--clear-groups", "/bin/sh", "-c", script], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const lines = worker.stdout.getReader(); let buffered = "";
+  const ask = async (cmd: string) => {
+    worker.stdin.write(cmd + "\n"); worker.stdin.flush();
+    while (!buffered.includes("@@\n")) { const chunk = await lines.read(); if (chunk.done) throw Error(`worktree worker exited: ${await new Response(worker.stderr).text()}`); buffered += new TextDecoder().decode(chunk.value); }
+    const at = buffered.indexOf("@@\n"), answer = buffered.slice(0, at).trim(); buffered = buffered.slice(at + 3); return answer;
+  };
+  expect(await ask("who"), "REFERENCE_ACCESS_WORKER_NOT_ROOT").toBe("1001");
+  expect(await ask("list"), "REFERENCE_ACCESS_STARTS_EMPTY").toBe("");
+  expect(await ask("pool"), "REFERENCE_ACCESS_POOL_MASKED").toBe("");
+  const granted = await call<NativePoolRecord>({ operation: "poolAccess", id: tree.id, access: ACCESS });
+  expect(granted, "REFERENCE_ACCESS_RECORDED").toMatchObject({ id: tree.id, access: ACCESS, state: "writable", path: join(opened.path, tree.id) });
+  await call({ operation: "poolAccess", id: other.id, access: SECOND_ACCESS });
+  expect(await ask("list"), "REFERENCE_ACCESS_GRANT_VISIBLE_TO_RUNNING_WORKER").toBe(tree.id);
+  expect(await ask("read"), "REFERENCE_ACCESS_WORKER_READS_ITS_WORKTREE").toBe("Penelope's loom, rewoven");
+  expect(await ask("edit"), "REFERENCE_ACCESS_WORKER_EDITS_WORKTREE").toBe("EDITED");
+  expect(readFileSync(join(opened.path, tree.id, "odyssey", "book-4.md"), "utf8"), "REFERENCE_ACCESS_EDIT_LANDS_IN_WORKTREE").toBe("Argos waits\n");
+  expect(readFileSync(join(POOL, "roots", base.id, "odyssey", "book-1.md"), "utf8"), "REFERENCE_ACCESS_EDIT_NEVER_REACHES_SOURCE").toBe("Ithaca book-1.md\n");
+  expect(await ask("sibling"), "REFERENCE_ACCESS_GENERATION_NOT_WRITABLE").toBe("REFUSED");
+  expect((await refusal({ operation: "poolAccess", id: tree.id, access: SECOND_ACCESS })).code, "REFERENCE_ACCESS_NO_CROSS_GENERATION").toBe("invalid");
+  expect((await refusal({ operation: "poolAccess", id: base.id, access: ACCESS })).code, "REFERENCE_ACCESS_ONLY_WORKTREES").toBe("unknown");
+  expect((await status()).refusal, "REFERENCE_ACCESS_ACCOUNTED").toBeNull();
+  // Parking returns the worktree to the masked roots: the next lookup misses it.
+  expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
+  expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");
+  // A grant interrupted after its rename, before its record: restart adopts the actual generation.
+  renameSync(join(POOL, "roots", tree.id), join(opened.path, tree.id));
+  manager = await restart({});
+  const adopted = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id);
+  expect((await status()).refusal, "REFERENCE_ACCESS_CRASH_RECONCILED").toBeNull();
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id)?.access,
+    "REFERENCE_ACCESS_CRASH_ADOPTED").toBe(ACCESS);
+  note("access-adopted", { adopted });
+  expect(await ask("read"), "REFERENCE_ACCESS_ADOPTED_STILL_VISIBLE").toBe("Telemachus returns");
+  const closed = await call<{ roots: string[] }>({ operation: "poolAccessClose", access: ACCESS });
+  expect(closed.roots, "REFERENCE_ACCESS_CLOSE_PARKS").toEqual([tree.id]);
+  expect(existsSync(opened.path), "REFERENCE_ACCESS_CLOSE_REMOVES_GENERATION").toBe(false);
+  expect(await ask("list"), "REFERENCE_ACCESS_CLOSED_EMPTY").toBe("");
+  await call({ operation: "poolAccessClose", access: SECOND_ACCESS });
+  worker.stdin.end(); worker.kill("SIGKILL"); await worker.exited;
+  // Released checkpoints are forgotten once reclaimed, so identities stay bounded.
+  for (const checkpoint of [first, second, foreign]) expect(["deleted", "reclaimed"], "REFERENCE_CHECKPOINT_RELEASED").toContain((await release(checkpoint.id)).state);
+  sync(); await status();
+  const remaining = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.map(item => item.id);
+  expect(remaining.filter(id => [first.id, second.id, foreign.id].includes(id)), "REFERENCE_CHECKPOINT_IDENTITY_FORGOTTEN").toEqual([]);
+  expect((await release(first.id)).state, "REFERENCE_CHECKPOINT_RELEASE_RETRY_RECLAIMED").toBe("reclaimed");
+  expect((await refusal({ operation: "poolCheckpoint", id: first.id, from: tree.id })).code, "REFERENCE_CHECKPOINT_NEVER_RECREATED").toBe("released");
+  // The forgotten identity survives a manager restart, so a retry after a lost reply still reads as reclaimed.
+  manager = await restart({});
+  const retried = await release(second.id);
+  expect(retried, "REFERENCE_CHECKPOINT_RELEASE_RETRY_AFTER_RESTART").toMatchObject({ id: second.id, purpose: "checkpoint", state: "reclaimed" });
+  expect((await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.some(item => item.id === second.id),
+    "REFERENCE_CHECKPOINT_RETRY_LEAVES_NO_TOMBSTONE").toBe(false);
+  for (const id of [tree.id, other.id, base.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_RELEASED").toContain((await release(id)).state);
+}
+
+// 18. Managed worktree lifecycle and journal (#2430): the real services
+// allocate a worktree from acquired source, cover it in the turn journal and
+// grant it to a running non-root sandbox. Its edits are journaled from the
+// worktree's own checkpoints and counted by scope; reads are not work.
+{
+  const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
+  const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
+  const { createReferenceGrant } = await import("../../packages/ui-server/src/db/reference-grants.js");
+  const { createReferenceSources } = await import("../../packages/ui-server/src/brain/reference-source.js");
+  const { createReferenceTransport } = await import("../../packages/ui-server/src/brain/reference-transport.js");
+  const { createReferenceWorktrees, referenceWorktreeDependents } = await import("../../packages/ui-server/src/brain/reference-worktrees.js");
+  const { createTurnJournal } = await import("../../packages/ui-server/src/brain/turn-journal.js");
+  const { referenceWorktreeJournalPath } = await import("../../packages/ui-server/src/brain/reference-worktree-journal.js");
+  const { prepareWorkerSandbox, workerCommand } = await import("../../packages/ui-sdk/src/server/worker-launcher.js");
+  const srv = "/native-runtime/srv", state = "/native-runtime/case-18";
+  mkdirSync(state, { recursive: true });
+  await manager.close();
+  const served = await serveNativeBrainManager(config);
+  const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
+  const db = createUiDb(join(state, "ui.db"));
+  try {
+    const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
+    createReferenceGrant(db, { brain: "ithaca", principalId: penelope.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: penelope.id, now: Date.now() });
+    const sources = createReferenceSources({ db, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {},
+      dependents: rootId => referenceWorktreeDependents(db, rootId) });
+    const journal = createTurnJournal(db, { nativeManager: client, brainPath: "/brain-fixture/brain", dbPath: join(state, "ui.db"), objectsRoot: join(state, "objects"), referencePool: client });
+    const facts = new Map<string, { changedPaths: number; partial: boolean }>();
+    journal.onObservation((turnId, value) => facts.set(turnId, value));
+    const worktrees = createReferenceWorktrees({ db, pool: client, sources, coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) });
+    const repository = `file://${srv}/ithaca.git`, commit = command(["git", "--git-dir", join(srv, "ithaca.git"), "rev-parse", "main"]).trim();
+    const sandbox = (generation: string, script: string) => command(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/tmp", "--bind", generation, "/tmp/brain-worktrees",
+      "--proc", "/proc", "--dev", "/dev", "--unshare-pid", "--die-with-parent", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1000", "--groups=0", "/bin/sh", "-c", script]);
+    const turn = async (turnId: string) => {
+      await journal.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+      return worktrees.openGeneration({ principalId: penelope.id, turnId, profile: "governed" });
+    };
+    const edited = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+    expect(edited, "REFERENCE_WORKTREE_NATIVE_FIXED_COMMIT").toMatchObject({ domain: "private", commit, state: "active" });
+    const first = await turn("turn-18-edit");
+    await worktrees.access({ worktreeId: edited.id, principalId: penelope.id, generation: first.id });
+    expect(journal.worktrees("turn-18-edit"), "REFERENCE_WORKTREE_NATIVE_COVERED_BEFORE_GRANT").toEqual([edited.id]);
+    // The checkout is group-writable, so a worker identity in the app group edits files it did not create.
+    const output = sandbox(first.path, `cd /tmp/brain-worktrees/${edited.id} && cat odyssey/book-1/line-1.md && { printf 'Ithaca chart, corrected.\\n' > odyssey/book-0/line-0.md && printf 'Argos waits.\\n' > odyssey/argos.md && echo EDITED || echo REFUSED; } 2>/dev/null`);
+    expect(output, "REFERENCE_WORKTREE_WORKER_EDITS_CHECKOUT").toBe("Ithaca chart: book 1, line 1.\nEDITED\n");
+    await journal.observe();
+    const rows = (turnId: string) => (db.query("SELECT path,scope,after_json FROM turn_journal_changes WHERE turn_id=? ORDER BY path").all(turnId) as { path: string; scope: string; after_json: string | null }[]);
+    note("worktree-journal", { rows: rows("turn-18-edit"), facts: facts.get("turn-18-edit") });
+    expect(rows("turn-18-edit").map(row => row.path), "REFERENCE_WORKTREE_NATIVE_EDITS_JOURNALED")
+      .toEqual([referenceWorktreeJournalPath(edited.id, "odyssey/argos.md"), referenceWorktreeJournalPath(edited.id, "odyssey/book-0/line-0.md")]);
+    expect(rows("turn-18-edit").every(row => row.scope === "reference_worktree" && JSON.parse(row.after_json!).hash), "REFERENCE_WORKTREE_NATIVE_VERSIONS_RETAINED").toBe(true);
+    expect(facts.get("turn-18-edit"), "REFERENCE_WORKTREE_NATIVE_SCOPE_COUNTS").toMatchObject({ changedPaths: 2, partial: false });
+    // The production launcher binds the generation with the production masks.
+    const masks = (await client.ready()).privatePaths;
+    const launched = workerCommand({ brainPath: "/brain-fixture/brain", env: { PATH: "/usr/bin:/bin" },
+      sandbox: { ...prepareWorkerSandbox("/brain-fixture/brain", { profile: "strict", areas: [], maskPaths: masks }), worktrees: { source: first.path } },
+      command: ["/bin/sh", "-c", `ls -A /tmp/brain-worktrees; cat /tmp/brain-worktrees/${edited.id}/odyssey/argos.md; for d in roots views access; do ls -A ${POOL}/$d 2>/dev/null | wc -l; done`] });
+    const production = Bun.spawnSync(launched, { stdout: "pipe", stderr: "pipe", env: {} });
+    note("worktree-production-launch", { code: production.exitCode, stderr: production.stderr.toString().slice(-2000) });
+    expect(production.stdout.toString(), "REFERENCE_WORKTREE_PRODUCTION_LAUNCH_SEES_ONLY_ITS_GRANT").toBe(`${edited.id}\nArgos waits.\n0\n0\n0\n`);
+    await journal.finish("turn-18-edit");
+    await worktrees.closeGeneration(first.id);
+    const records = async () => {
+      const all: NativePoolRecord[] = [];
+      for (let after: string | null = null; ;) { const page = await client.listPoolRecovery(after); all.push(...page.records); if (!page.next) return all; after = page.next; }
+    };
+    expect((await records()).find(record => record.id === edited.id)?.access, "REFERENCE_WORKTREE_NATIVE_PARKED_AFTER_TURN").toBeNull();
+    expect((await records()).filter(record => record.purpose === "checkpoint" && record.state === "sealed" && record.from === edited.id).length,
+      "REFERENCE_WORKTREE_NATIVE_JOURNAL_CHECKPOINTS_RELEASED").toBe(1);
+    const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id });
+    note("worktree-released", { cleanup: released.cleanup });
+    expect(released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 3, eligible: false,
+      sample: ["odyssey", "odyssey/argos.md", "odyssey/book-0/line-0.md"] });
+    // Reading is not work: access-time updates never make a worktree ineligible.
+    const read = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+    const second = await turn("turn-18-read");
+    await worktrees.access({ worktreeId: read.id, principalId: penelope.id, generation: second.id });
+    expect(sandbox(second.path, `cat /tmp/brain-worktrees/${read.id}/odyssey/*/line-*.md | wc -l`).trim(), "REFERENCE_WORKTREE_NATIVE_READS").toBe("1200");
+    await journal.finish("turn-18-read");
+    expect(rows("turn-18-read"), "REFERENCE_WORKTREE_NATIVE_READS_NOT_JOURNALED").toEqual([]);
+    await worktrees.closeGeneration(second.id);
+    expect((await worktrees.release({ worktreeId: read.id, principalId: penelope.id })).cleanup, "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK")
+      .toMatchObject({ owner: "none", work: "none", changedPaths: 0, eligible: true });
+    // Swapping two directories through a temporary name leaves every name in place, and is still work.
+    const swapped = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+    const third = await turn("turn-18-swap");
+    await worktrees.access({ worktreeId: swapped.id, principalId: penelope.id, generation: third.id });
+    expect(sandbox(third.path, `cd /tmp/brain-worktrees/${swapped.id}/odyssey && mv book-2 swap && mv book-3 book-2 && mv swap book-3 && echo SWAPPED`).trim(), "REFERENCE_WORKTREE_NATIVE_SWAPPED").toBe("SWAPPED");
+    await journal.finish("turn-18-swap");
+    await worktrees.closeGeneration(third.id);
+    const swapFacts = (await worktrees.release({ worktreeId: swapped.id, principalId: penelope.id })).cleanup;
+    note("worktree-swap", { cleanup: swapFacts });
+    expect(swapFacts, "REFERENCE_WORKTREE_NATIVE_SWAP_IS_WORK").toMatchObject({ owner: "none", work: "unpreserved", eligible: false });
+    // Nothing above deleted a worktree; the proof releases its own roots.
+    for (const record of await records()) if (record.purpose === "checkpoint" && (record.state === "sealed")) await client.poolRelease(record.id);
+    for (const id of [edited.id, read.id, swapped.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
+    db.query("DELETE FROM reference_worktrees").run();
+    await worktrees.close(); await journal.close();
+    db.query("UPDATE reference_grants SET revoked_at = 1").run();
+    await sources.revoke({ grantIds: [], principalIds: [penelope.id] });
+    await sources.close();
+  } finally { db.close(); await served.close(); }
+  manager = await createNativeBrainManager(config);
+}
+
 // 14. Restart reconstruction and the deterministic host projection.
 {
   const kept = await create("source", 4 * MIB);
