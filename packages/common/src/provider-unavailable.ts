@@ -17,6 +17,12 @@ import { readEnvVar } from "./env-core.js";
 
 /** Comma-separated names of the provider keys the host withheld from this worker. Names only. */
 export const WITHHELD_KEYS_ENV = "BRAIN_WITHHELD_KEYS";
+/**
+ * What a worker whose inference the host relays holds where a credential would
+ * be (#1665). It is never a key: a relayed Claude API-key turn keeps it under
+ * `ANTHROPIC_API_KEY`, and the CLI must not send it to a provider (#1673).
+ */
+export const INFERENCE_RELAY_PLACEHOLDER = "brain-inference-relay-placeholder";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PROVIDER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/;
@@ -42,11 +48,13 @@ export function withheldKeys(env?: NodeJS.ProcessEnv): string[] {
 
 /**
  * Whether the host withheld `key` from this process: it is named in
- * `BRAIN_WITHHELD_KEYS` and still unset here. A key the user never set is not
- * withheld; the command keeps its ordinary keyless behaviour.
+ * `BRAIN_WITHHELD_KEYS` and unset here, or holds only the inference relay's
+ * placeholder. A key the user never set is not withheld; the command keeps its
+ * ordinary keyless behaviour.
  */
 export function isWithheldKey(key: string, env?: NodeJS.ProcessEnv): boolean {
-  return !readEnvVar(key, env) && withheldKeys(env).includes(key);
+  const value = readEnvVar(key, env);
+  return (!value || value === INFERENCE_RELAY_PLACEHOLDER) && withheldKeys(env).includes(key);
 }
 
 /**

@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:507-522`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:547-562`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -750,7 +750,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:64-243`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:65-244`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -1218,7 +1218,7 @@ keep.
 | pi through the relay | Nothing |
 | pi without the relay | Every credential above. pi resolves its own credentials in the worker there and may read any of them, also through a `models.json` `$NAME`. Hosts without managed native storage keep today's inference credentials until [#2654](https://github.com/schlessera/brain-kit/issues/2654). |
 | Restricted (autonomous) | Unchanged: its envelope's minimum environment |
-| Maintenance workers | Unchanged: credentialed maintenance keeps the `brainCli` and `cron` audiences until [#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the CLI's providers |
+| Maintenance workers | With managed native storage: no relayed key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and keys listed in `BRAIN_UI_CLI_PROVIDER_ORIGINS`) and no `.env*`; the CLI reaches those providers through the [metered relay](#metered-provider-relay-1673). Keys the relay does not carry (`TYPESAFE_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` for a `brain sync` agent runner) stay. Without managed native storage: unchanged, every key in the `brainCli` and `cron` audiences |
 
 **Which commands need a key.** The audit of the first-party commands an agent
 runs in its worker:
@@ -1240,7 +1240,7 @@ they run in a maintenance worker, not the turn's.
 in a fixed token, for example
 `[provider_unavailable provider=gemini capability=embeddings key=GEMINI_API_KEY degraded_to=keyword_search]`
 (`providerUnavailableNotice`,
-`packages/common/src/provider-unavailable.ts:56-64`). The turn recorder reads
+`packages/common/src/provider-unavailable.ts:64-72`). The turn recorder reads
 each tool result for the token and writes one `provider_unavailable`
 governance event per distinct token, with the call's command, at most 20 per
 turn (`providerUnavailablePayloads`,
@@ -1252,11 +1252,66 @@ nothing. A key that was never set is not withheld, so a keyless brain outside a
 worker keeps its ordinary messages. The token's grammar is part of the
 [CLI contract](../integration-contract/cli.md#withheld-provider-keys-additive-0440-1666).
 
-**What #1673 changes.** The metered relays give the CLI's providers back to
-turn workers without keys, and remove the keys from maintenance workers too.
-Until then, a relayed Claude API-key turn holds a placeholder under
-`ANTHROPIC_API_KEY`, so the CLI's `anthropic-haiku` completions call fails
-authentication instead of naming the provider.
+**What #1673 changes.** On a turn with a turn proxy, the commands above that
+use a Gemini, Anthropic or OpenAI image provider work again, through the
+[metered relay](#metered-provider-relay-1673), with no key in the worker. The
+`jev` reranker and `brain video watch` still report `provider_unavailable`.
+A relayed Claude API-key turn holds the inference placeholder under
+`ANTHROPIC_API_KEY`; the launcher names that key in `BRAIN_WITHHELD_KEYS`, and
+the CLI's `anthropic-haiku` reaches the host's key through the relay instead of
+sending the placeholder.
+
+### Metered provider relay (#1673)
+
+**What it is.** A host-owned Unix socket for the `brain` CLI's own paid
+providers. A governed or strict turn that runs on the turn egress proxy gets
+one, linked beside the proxy at `/run/brain-egress/providers.sock`. A
+credentialed maintenance run on a host with managed native storage gets its
+own at `/run/brain-providers/relay.sock`. The launcher names it in
+`BRAIN_PROVIDER_RELAY_SOCKET`. A built-in provider whose key is withheld sends
+its native request there (the routes are in the
+[CLI contract](../integration-contract/cli.md#provider-relay-additive-0440-1673)):
+Gemini embeddings and non-video completions, Anthropic completions, and OpenAI
+and Gemini images. Video uploads and the `jev` reranker are not relayed.
+
+**Who may receive a key.** The relay sends `GEMINI_API_KEY` only to
+`https://generativelanguage.googleapis.com`, `ANTHROPIC_API_KEY` only to
+`https://api.anthropic.com` and `OPENAI_API_KEY` only to
+`https://api.openai.com`, in the header that provider expects. A custom
+endpoint (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_BASE_URL`, `OPENAI_BASE_URL`) or a
+custom `apiKeyEnv` is refused, before any contact, unless the operator lists
+that key and exact origin in `BRAIN_UI_CLI_PROVIDER_ORIGINS`:
+`BRAIN_UI_CLI_PROVIDER_ORIGINS="GEMINI_API_KEY=https://gateway.ithaca.invalid;ITHACA_KEY=https://api.anthropic.com"`.
+Origins are exact `https` origins, or `http` for a loopback host. The relay
+strips every credential the worker sent, takes the key from the server's own
+environment (a maintenance run's from the environment the server built for
+it), never follows a redirect and never forwards a query string. A key kept
+only in the brain's `.env` is not available to it.
+
+**Metering.** Each upstream attempt is one row, with the provider's reported
+units read from the raw response before any SDK drops them. Gemini embeddings
+are priced at Google's published list price per modality; completions use
+the same Activity price table as the agent's own inference; image units stay
+unpriced. Reported tokens without a price count toward the unpriced-token
+stops; a request whose provider reported no usage is unknown spend and never
+blocks by itself. A turn's requests count toward its turn, conversation and
+UTC-day budgets and appear in its budget receipt, whose coverage now names
+the relayed providers. A maintenance run started from a turn's tool is
+charged to that turn; any other (a search from the UI, a cron job, a module
+action) counts toward its UTC day only. Once a scope is blocked, each further
+request is refused with `budget_exceeded` before anything is sent. Nothing is
+reserved in advance, so requests already in flight when a scope becomes
+blocked complete and are counted: a busy turn can end slightly above its
+stop.
+
+**Egress.** A turn's relayed request is ordinary turn egress (G5): it passes
+the turn's deny, allowlist and taint rules and byte ceiling, and appears as an
+`egress_connection` with the provider's host and path. An `allowlist` policy
+therefore has to allow the provider's host for the CLI to reach it.
+
+**Hosts without managed native storage** keep their current behaviour: turn
+workers report the CLI's providers unavailable, and maintenance workers keep
+the keys, unmetered. Worker-host status says which applies.
 
 ### Worker startup status
 
@@ -1434,8 +1489,10 @@ user marks untrusted are not a source yet. The rules are in
 ## Paid CLI provider qualification
 
 The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
-qualifies existing first-party request shapes. It does not activate CLI relaying
-or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+qualifies existing first-party request shapes. The
+[metered provider relay](#metered-provider-relay-1673) built on it in
+[#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the rows
+below except video and JeV.
 
 | CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
 | --- | --- | --- | --- |

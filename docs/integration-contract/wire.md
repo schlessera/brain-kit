@@ -88,6 +88,20 @@ and the server's UTC reset. Built-in inference is covered; provider/tool spend
 is unmetered until a relay actually records it. Scope facts share the same journal when their monitor supplies receipts; network
 facts remain unknown until enforcement supplies them.
 
+**Relayed CLI providers (0.44.0, #1673, ruled on the issue).** `coverage` is a
+`TurnBudgetCoverage`. New receipts carry `"Built-in inference and relayed brain
+CLI providers; other provider and tool spend is not metered"`; a receipt stored
+before 0.44.0 keeps `"Built-in inference only; provider and tool spend is not
+metered"`, and the schema accepts both. A client that validated the earlier
+literal must accept the new value. Each `scopes` entry now also counts the
+`brain` CLI's requests through the host provider relay: a priced request adds
+its list price to `costUsd`, reported tokens add to `tokens`, an unpriced
+request with reported tokens counts toward the token stop, and a request
+without reported usage adds to `unknownRuns` and never blocks by itself. The
+top-level `listPriceCostUsd` and `tokens` stay the agent's own completed
+inference. Nothing is reserved: requests already in flight when a scope
+becomes blocked complete and are counted, so a scope can end above its stop.
+
 `budget_exceeded` and `budget_unavailable` are additive host failure classes.
 The former names a turn/session/day `budgetScope`; a day stop carries
 `resetsAt`. Neither automatically retries. A conversation block offers the

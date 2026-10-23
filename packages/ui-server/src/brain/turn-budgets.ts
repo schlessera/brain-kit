@@ -3,6 +3,8 @@ import type { Database } from "bun:sqlite";
 import type { TurnUsage, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
 import { priceUsage, type RollupPricing } from "../activity/store.js";
+import { priceProviderAttempt } from "../pricing/provider-pricing.js";
+import type { ProviderRelayReceipt } from "@schlessera/brain-ui-sdk/internal";
 import type { BudgetObservation, TurnBudgetReceipt } from "@schlessera/brain-ui-sdk/protocol";
 export class BudgetUnavailable extends Error {
   constructor() { super("Inference budget accounting became unavailable. The turn stopped; review any partial work before continuing."); }
@@ -39,6 +41,25 @@ const tokensOf = (usage: TurnUsage): number | null => {
     throw new Error("Completed inference token total overflow");
   return sum;
 };
+/** What a budget receipt covers: the agent's own inference and the CLI's relayed providers (#1673). */
+export const TURN_BUDGET_COVERAGE = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" as const;
+interface ProviderTotals { attempts: number; cost: number; priced: number; tokens: number; measured: number; unpriced_measured: number }
+const NO_PROVIDER_ATTEMPTS: ProviderTotals = { attempts: 0, cost: 0, priced: 0, tokens: 0, measured: 0, unpriced_measured: 0 };
+/** One scope's totals against its limits. Unknown is never zero, and never blocks by itself. */
+function observation(scope: BudgetObservation["scope"], selected: Row[], provider: ProviderTotals, policy: EffectiveGovernancePolicy, day: number): BudgetObservation {
+  const limits = policy.budgets[scope];
+  const knownCosts = selected.filter(row => row.cost_lower_bound !== null), knownTokens = selected.filter(row => row.tokens !== null);
+  const total = selected.length + provider.attempts;
+  const costUsd = total && !knownCosts.length && !provider.priced ? null : knownCosts.reduce((sum, row) => sum + row.cost_lower_bound!, 0) + provider.cost;
+  const tokens = total && !knownTokens.length && !provider.measured ? null : knownTokens.reduce((sum, row) => sum + row.tokens!, 0) + provider.tokens;
+  const unknownRuns = selected.filter(row => row.cost_usd === null).length + provider.attempts - provider.priced;
+  const unpricedMeasured = selected.some(row => row.cost_usd === null && row.tokens !== null) || provider.unpriced_measured > 0;
+  return { scope, legacyRuns: selected.filter(row => row.legacy).length, costUsd, tokens, unknownRuns, warnUsd: limits.warn_usd, blockUsd: limits.block_usd,
+    blockTokens: limits.block_tokens, ...(limits.warn_tokens !== undefined ? { warnTokens: limits.warn_tokens } : {}),
+    ...(scope === "day" ? { resetAt: day + DAY } : {}),
+    warning: costUsd !== null && costUsd >= limits.warn_usd || unpricedMeasured && limits.warn_tokens !== undefined && tokens !== null && tokens >= limits.warn_tokens,
+    blocked: costUsd !== null && costUsd >= limits.block_usd || unpricedMeasured && tokens !== null && tokens >= limits.block_tokens };
+}
 /** Concrete host service; policy is the already frozen admission fact, never reparsed here. */
 export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: () => number = Date.now) {
   const active = new Map<string, {
@@ -61,6 +82,27 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
     }
     return [...merged.values()];
   };
+  /** A day scope's rows: completed responses on their observation day, legacy residuals on their start day. */
+  const daySelection = (all: Row[], day: number): Row[] => {
+    const dayRows = new Map((db.query("SELECT turn_id, cost_usd, cost_lower_bound, tokens FROM turn_budget_days WHERE day_start = ?").all(day) as Array<{
+      turn_id: string;
+      cost_usd: number | null;
+      cost_lower_bound: number | null;
+      tokens: number | null;
+    }>).map(row => [row.turn_id, row]));
+    return all.filter(row => row.started_at >= day && row.started_at < day + DAY || dayRows.has(row.turn_id)).map(row => {
+      const slice = dayRows.get(row.turn_id);
+      if (!slice)
+        return row;
+      // Completed responses use their observation's UTC day. Legacy/final residuals retain Activity's start-day attribution.
+      const slices = db.query("SELECT SUM(cost_lower_bound) AS cost, SUM(tokens) AS tokens FROM turn_budget_days WHERE turn_id = ?").get(row.turn_id) as {
+        cost: number | null;
+        tokens: number | null;
+      };
+      return { ...row, cost_lower_bound: slice.cost_lower_bound === null ? null : slice.cost_lower_bound + (utcBudgetDay(row.started_at) === day ? Math.max(0, (row.cost_lower_bound ?? 0) - (slices.cost ?? 0)) : 0),
+        tokens: slice.tokens === null ? null : slice.tokens + (utcBudgetDay(row.started_at) === day ? Math.max(0, (row.tokens ?? 0) - (slices.tokens ?? 0)) : 0) };
+    });
+  };
   const receipt = (id: string): TurnBudgetReceipt => {
     const current = active.get(id);
     if (!current) {
@@ -76,39 +118,26 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
       session_id: string | null;
     };
     const all = rows(id, ownRow.session_id, day), own = all.find(row => row.turn_id === id)!;
-    const dayRows = new Map((db.query("SELECT turn_id, cost_usd, cost_lower_bound, tokens FROM turn_budget_days WHERE day_start = ?").all(day) as Array<{
-      turn_id: string;
-      cost_usd: number | null;
-      cost_lower_bound: number | null;
-      tokens: number | null;
-    }>).map(row => [row.turn_id, row]));
     const scopes = (["turn", "session", "day"] as const).map(scope => {
-      const selected = scope === "turn" ? [own] : scope === "session" ? all.filter(row => own.session_id !== null && row.session_id === own.session_id) : all.filter(row => row.started_at >= day && row.started_at < day + DAY || dayRows.has(row.turn_id)).map(row => {
-        const slice = dayRows.get(row.turn_id);
-        if (!slice)
-          return row;
-        // Completed responses use their observation's UTC day. Legacy/final residuals retain Activity's start-day attribution.
-        const slices = db.query("SELECT SUM(cost_lower_bound) AS cost, SUM(tokens) AS tokens FROM turn_budget_days WHERE turn_id = ?").get(row.turn_id) as {
-          cost: number | null;
-          tokens: number | null;
-        };
-        return { ...row, cost_lower_bound: slice.cost_lower_bound === null ? null : slice.cost_lower_bound + (utcBudgetDay(row.started_at) === day ? Math.max(0, (row.cost_lower_bound ?? 0) - (slices.cost ?? 0)) : 0),
-          tokens: slice.tokens === null ? null : slice.tokens + (utcBudgetDay(row.started_at) === day ? Math.max(0, (row.tokens ?? 0) - (slices.tokens ?? 0)) : 0) };
-      });
-      const limits = current.policy.budgets[scope];
-      const knownCosts = selected.filter(row => row.cost_lower_bound !== null), knownTokens = selected.filter(row => row.tokens !== null);
-      const costUsd = selected.length && !knownCosts.length ? null : knownCosts.reduce((sum, row) => sum + row.cost_lower_bound!, 0);
-      const tokens = selected.length && !knownTokens.length ? null : knownTokens.reduce((sum, row) => sum + row.tokens!, 0);
-      const unknownRuns = selected.filter(row => row.cost_usd === null).length;
-      const unpricedMeasured = selected.some(row => row.cost_usd === null && row.tokens !== null);
-      return { scope, legacyRuns: selected.filter(row => row.legacy).length, costUsd, tokens, unknownRuns, warnUsd: limits.warn_usd, blockUsd: limits.block_usd,
-        blockTokens: limits.block_tokens, ...(limits.warn_tokens !== undefined ? { warnTokens: limits.warn_tokens } : {}),
-        ...(scope === "day" ? { resetAt: day + DAY } : {}),
-        warning: costUsd !== null && costUsd >= limits.warn_usd || unpricedMeasured && limits.warn_tokens !== undefined && tokens !== null && tokens >= limits.warn_tokens,
-        blocked: costUsd !== null && costUsd >= limits.block_usd || unpricedMeasured && tokens !== null && tokens >= limits.block_tokens };
+      const selected = scope === "turn" ? [own] : scope === "session" ? all.filter(row => own.session_id !== null && row.session_id === own.session_id) : daySelection(all, day);
+      const provider = scope === "turn" ? providerTotals("turn_id = ?", id)
+        : scope === "session" ? own.session_id === null ? NO_PROVIDER_ATTEMPTS : providerTotals("turn_id IN (SELECT turn_id FROM turn_budget_usage WHERE session_id = ?)", own.session_id)
+        : providerTotals("day_start = ?", day);
+      return observation(scope, selected, provider, current.policy, day);
     });
     return { listPriceCostUsd: own.cost_usd, listPriceIsEstimate: own.pricing_estimate === null ? null : Boolean(own.pricing_estimate), tokens: own.tokens, observedAt: now,
-      coverage: "Built-in inference only; provider and tool spend is not metered", scopes };
+      coverage: TURN_BUDGET_COVERAGE, scopes };
+  };
+  /** Relayed provider attempts in one scope (#1673): known prices, reported tokens and unknown spend. */
+  const providerTotals = (where: string, value: string | number): ProviderTotals => db.query(`SELECT COUNT(*) AS attempts,
+    COALESCE(SUM(cost_usd), 0) AS cost, COUNT(cost_usd) AS priced, COALESCE(SUM(tokens), 0) AS tokens, COUNT(tokens) AS measured,
+    COALESCE(SUM(CASE WHEN cost_usd IS NULL AND tokens IS NOT NULL THEN 1 ELSE 0 END), 0) AS unpriced_measured
+    FROM provider_relay_usage WHERE ${where}`).get(value) as ProviderTotals;
+  /** The day scope alone, for a relayed maintenance run that belongs to no turn. */
+  const dayObservation = (policy: EffectiveGovernancePolicy): BudgetObservation => {
+    const day = utcBudgetDay(clock());
+    const selected = daySelection(rows("", null, day), day);
+    return observation("day", selected, providerTotals("day_start = ?", day), policy, day);
   };
   const warningCrossings = (id: string, result: TurnBudgetReceipt) => {
     const row = db.query("SELECT session_id FROM turn_budget_usage WHERE turn_id=?").get(id) as {
@@ -186,6 +215,36 @@ export function createTurnBudgets(db: Database, pricing: RollupPricing, clock: (
       catch {
         return undefined;
       }
+    },
+    /**
+     * Before each relayed CLI provider request (#1673). A turn's request is
+     * refused once any of its scopes is blocked; a maintenance run outside any
+     * turn, once its UTC day is under `policy`. Nothing is reserved.
+     */
+    providerAdmission(turnId: string | null, policy: EffectiveGovernancePolicy): BudgetObservation | undefined {
+      if (turnId !== null && active.has(turnId)) return receipt(turnId).scopes.find(item => item.blocked);
+      const day = dayObservation(policy);
+      return day.blocked ? day : undefined;
+    },
+    /**
+     * Record one relayed attempt once, by its attempt identity, against its
+     * turn (or its day alone). For an active turn, returns the new receipt with
+     * any warning crossed and the scope it blocked.
+     */
+    observeProvider(turnId: string | null, attempt: ProviderRelayReceipt) {
+      const current = turnId !== null ? active.get(turnId) : undefined;
+      const priced = priceProviderAttempt(attempt, current?.pricing ?? pricing);
+      const now = clock();
+      return db.transaction(() => {
+        const inserted = db.query(`INSERT OR IGNORE INTO provider_relay_usage (attempt_id, turn_id, day_start, observed_at, family, operation, origin, model,
+          outcome, status, usage, cost_usd, pricing_estimate, tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(attempt.attemptId, turnId, utcBudgetDay(now), now,
+          attempt.family, attempt.operation, attempt.origin, attempt.model, attempt.outcome, attempt.status,
+          attempt.usage ? JSON.stringify(attempt.usage) : null, priced.costUsd, priced.estimate === null ? null : Number(priced.estimate), priced.tokens).changes > 0;
+        if (!current || !inserted) return undefined;
+        const result = receipt(turnId!);
+        db.query("UPDATE turn_budget_usage SET receipt = ? WHERE turn_id = ?").run(JSON.stringify(result), turnId);
+        return { receipt: result, warnings: warningCrossings(turnId!, result), blocked: result.scopes.find(item => item.blocked) };
+      }).immediate();
     },
     remaining(id: string) { const own = receipt(id).scopes[0]!; return Math.max(0, own.blockUsd - (own.costUsd ?? 0)); },
     end(id: string) { active.delete(id); },

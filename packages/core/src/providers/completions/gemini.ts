@@ -6,12 +6,12 @@
  * brain's generateContent usage and whatsup's Gemini backend.
  */
 
-import { readEnvVar } from "../../config/env.js";
 import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { withVideoFiles } from "./video.js";
 import { GEMINI_FLASH_MODEL } from "../../lib/llm-defaults.js";
-import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
+import { missingKeyMessage, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
+import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, providerRelayFetch, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 
 export interface GeminiCompletionConfig {
   /** Generation model (default: gemini-3-flash-preview). */
@@ -61,7 +61,10 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
 
   async function getClient(signal?: AbortSignal) {
     if (!client || signal) {
-      const apiKey = readEnvVar(apiKeyEnv);
+      // A worker without the key sends the native request through the host's
+      // metered relay, which adds the key on the host (#1673).
+      const relay = providerRelayFetch("gemini", apiKeyEnv);
+      const apiKey = relay ? PROVIDER_RELAY_PLACEHOLDER : providerCredential(apiKeyEnv);
       if (!apiKey) {
         throw new Error(missingKeyMessage(apiKeyEnv, "gemini", "completions", `${apiKeyEnv} environment variable is required for Gemini completions`));
       }
@@ -75,13 +78,14 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
       // The SDK may log a cosmetic dual-key warning when both GOOGLE_API_KEY
       // and GEMINI_API_KEY are set; the explicit apiKey option still wins
       // (see embeddings provider for the evidence).
+      const send = relay ?? fetch;
       const created = new GoogleGenAI({ apiKey, ...(signal ? { httpOptions: {
         // The SDK uploader ignores per-call abortSignal. Bind every HTTP request,
         // including binary upload requests, at client level instead.
-        fetch: (input: string | URL | Request, init?: RequestInit) => fetch(input, {
+        fetch: (input: string | URL | Request, init?: RequestInit) => send(input, {
           ...init, signal: init?.signal ? AbortSignal.any([signal, init.signal]) : signal,
         }),
-      } } : {}) });
+      } } : relay ? { httpOptions: { fetch: relay } } : {}) });
       if (signal) return created;
       client = created;
     }
@@ -97,6 +101,12 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
   }): Promise<string> {
     req.signal?.throwIfAborted();
     const hasVideo = req.parts?.some((part) => part.kind === "video") ?? false;
+    // The relay carries fixed POST routes only, never the Files upload, poll
+    // and delete lifecycle a video needs (#1673): refuse before any upload.
+    if (hasVideo && relayedKey(apiKeyEnv)) {
+      throw new Error(providerUnavailableNotice({ provider: "gemini", capability: "video", key: apiKeyEnv, degradedTo: null },
+        "the host's provider relay does not carry video uploads"));
+    }
     const signal = hasVideo ? (req.signal ?? AbortSignal.timeout(300_000)) : req.signal;
     const ai = await getClient(signal);
     const generate = async (media: ContentPart[]): Promise<string> => {

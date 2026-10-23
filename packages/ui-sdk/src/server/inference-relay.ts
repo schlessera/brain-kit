@@ -15,12 +15,13 @@ import { workerIdentityHelper } from "./worker-identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { startEgressProxy } from "./egress-proxy.js";
+import { INFERENCE_RELAY_PLACEHOLDER } from "@schlessera/brain-common/internal/provider-unavailable";
 
 /** Where the relay directory appears inside a restricted worker. */
 export const WORKER_INFERENCE_DIR = "/run/brain-inference";
 export const WORKER_INFERENCE_SOCKET = `${WORKER_INFERENCE_DIR}/relay.sock`;
-/** The value a worker holds where a credential would be. Never a secret. */
-export const INFERENCE_PLACEHOLDER = "brain-inference-relay-placeholder";
+/** The value a worker holds where a credential would be. Never a secret; the CLI never sends it (#1673). */
+export const INFERENCE_PLACEHOLDER = INFERENCE_RELAY_PLACEHOLDER;
 /** A request body larger than this is refused before anything is forwarded. */
 export const MAX_INFERENCE_REQUEST_BYTES = 32 * 1024 * 1024;
 

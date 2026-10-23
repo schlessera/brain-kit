@@ -29,7 +29,9 @@ import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupV
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
 import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
-import { WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
+import { INFERENCE_RELAY_PLACEHOLDER, WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
+import { PROVIDER_RELAY_SOCKET_ENV } from "@schlessera/brain-common/internal/provider-relay";
+import { PROVIDER_RELAY_SOCKET_NAME, WORKER_PROVIDER_RELAY_SOCKET } from "./provider-relay.js";
 import { hostProviderCredentialNames } from "../config/env.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
@@ -167,6 +169,18 @@ export interface MaintenanceEnvelope {
    * file, so Bun cannot load the brain's keys into it.
    */
   credentials: boolean;
+  /**
+   * A credentialed worker whose provider keys the host relays (#1673): its
+   * `.env*` files are masked as a credential-free worker's are, so no relayed
+   * key reaches it from the brain either.
+   */
+  maskEnvFiles?: boolean;
+  /**
+   * The server's private CLI provider relay directory (#1673), bound at
+   * {@link WORKER_PROVIDER_RELAY_DIR}; the launcher names its socket in
+   * `BRAIN_PROVIDER_RELAY_SOCKET`. Only a credentialed worker gets one.
+   */
+  providerRelay?: string;
   /**
    * The server's home, made visible again below the home masks. Only a
    * credentialed worker gets it (the interim exposure the decision record
@@ -337,6 +351,28 @@ function rlimitPrefix(plan: WorkerLimitsPlan): string[] {
   return [plan.prlimit, ...prlimitArgs(plan.rlimits), "--"];
 }
 
+/** Where a relayed maintenance worker reaches the CLI provider relay (#1673). */
+export const WORKER_PROVIDER_RELAY_DIR = "/run/brain-providers";
+/**
+ * A private server-owned directory holding one server-owned socket, outside
+ * the brain: never a path a worker or the brain could have supplied.
+ */
+function serverSocketDirectory(requested: string, socket: string, brain: string): string {
+  const separateIdentity = Boolean(workerIdentityHelper());
+  const serverUid = process.getuid?.(), serverGid = process.getgid?.();
+  try {
+    const directory = realpathSync(requested);
+    const directoryInfo = lstatSync(directory), socketInfo = lstatSync(join(directory, socket));
+    if (directory === normalize(requested) && directoryInfo.isDirectory() && socketInfo.isSocket()
+      && directoryInfo.uid === serverUid && socketInfo.uid === serverUid
+      && (directoryInfo.mode & 0o7777) === (separateIdentity ? 0o750 : 0o700)
+      && (socketInfo.mode & 0o7777) === (separateIdentity ? 0o660 : 0o600)
+      && (!separateIdentity || directoryInfo.gid === serverGid && socketInfo.gid === serverGid)
+      && !within(brain, directory) && !within(directory, brain)) return directory;
+  } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
+  throw new WorkerHostError("the provider relay requires its private server-owned directory and socket");
+}
+
 /**
  * The mounts of a maintenance worker (#1648), after the read-only host root:
  * the host masks, the runtime bound back below them, the server's home for a
@@ -414,6 +450,10 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
   // systemd-resolved `resolv.conf` under `/run`), stays readable for a
   // networked command. Only that one regular file: any other link from
   // `/etc` into a mask could re-expose a socket or a secret.
+  if (envelope.providerRelay) {
+    if (!envelope.credentials) throw new WorkerHostError("only a credentialed maintenance worker reaches the provider relay");
+    argv.push("--ro-bind", serverSocketDirectory(envelope.providerRelay, "relay.sock", brain), WORKER_PROVIDER_RELAY_DIR);
+  }
   if (envelope.network) {
     try {
       if (lstatSync("/etc/resolv.conf").isSymbolicLink() && statSync("/etc/resolv.conf").isFile()) bindBack("/etc/resolv.conf");
@@ -430,10 +470,8 @@ function maintenanceMounts(envelope: MaintenanceEnvelope, brain: string, egressM
     for (const mask of resolved) if (mask !== home && within(home, mask)) { argv.push("--tmpfs", mask); readOnlyMasks.add(mask); }
   }
   argv.push("--bind", brain, brain);
-  if (!envelope.credentials) {
-    argv.push("--dir", MAINTENANCE_HOME);
-    argv.push(...maintenanceEnvMasks(brain, brain));
-  }
+  if (!envelope.credentials) argv.push("--dir", MAINTENANCE_HOME);
+  if (!envelope.credentials || envelope.maskEnvFiles) argv.push(...maintenanceEnvMasks(brain, brain));
   for (const requested of envelope.writeFiles ?? []) {
     const real = realpathSync(requested);
     if (!lstatSync(real).isFile() || within(brain, real)) throw new WorkerHostError("a maintenance worker's writable file must be a regular file outside the brain");
@@ -504,6 +542,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
     throw new WorkerHostError("egress transport belongs only to a governed or strict interactive worker");
   }
   let egressMounts: string[] = [];
+  // The CLI provider relay (#1673) lives beside the proxy, linked by the server.
+  let providerRelay = false;
   if (input.egress) {
     const separateIdentity = Boolean(workerIdentityHelper());
     const serverUid = process.getuid?.(), serverGid = process.getgid?.();
@@ -520,6 +560,10 @@ export function workerCommand(input: WorkerLaunch): string[] {
     } catch { /* Missing, aliased or unreadable IPC is never launch authority. */ }
     if (!valid) throw new WorkerHostError("egress transport requires its private server-owned proxy directory and socket");
     egressMounts = ["--ro-bind", directory, WORKER_EGRESS_DIR];
+    try {
+      const relayInfo = lstatSync(join(directory, PROVIDER_RELAY_SOCKET_NAME));
+      providerRelay = relayInfo.isSocket() && relayInfo.uid === serverUid;
+    } catch { /* No relay: the CLI's providers stay withheld. */ }
   }
   if (transport && (input.startupView || maintenance || input.restricted || input.sandbox || input.stateBytes !== undefined || input.turnTempBytes !== undefined)) {
     throw new WorkerHostError("a transport worker has no brain execution envelope or agent state");
@@ -534,7 +578,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR, WORKER_PROVIDER_RELAY_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
@@ -577,8 +621,8 @@ export function workerCommand(input: WorkerLaunch): string[] {
       : !maintenance && input.sandbox?.profile === "strict" ? ["--ro-bind", brain, brain] : []),
     ...(input.restricted ? maskedGit(brain) : []),
     ...(maintenance?.output ? ["--bind", maintenance.output.source, maintenance.output.target] : []),
-    ...(input.startupView && maintenance && !maintenance.credentials ? maintenanceEnvMasks(input.startupView.root, brain, maintenance.output ? [{ from: brain, to: maintenance.output.target }] : []) : []),
-    ...(maintenance?.output && !maintenance.credentials ? (preparedMaintenanceMasks ?? maintenanceEnvMasks(maintenance.output.source, brain, [{ from: brain, to: maintenance.output.target }])) : []),
+    ...(input.startupView && maintenance && (!maintenance.credentials || maintenance.maskEnvFiles) ? maintenanceEnvMasks(input.startupView.root, brain, maintenance.output ? [{ from: brain, to: maintenance.output.target }] : []) : []),
+    ...(maintenance?.output && (!maintenance.credentials || maintenance.maskEnvFiles) ? (preparedMaintenanceMasks ?? maintenanceEnvMasks(maintenance.output.source, brain, [{ from: brain, to: maintenance.output.target }])) : []),
     ...(maintenance?.git ? ["--ro-bind", maintenance.git.source, maintenance.git.target, "--ro-bind", maintenance.git.entry, maintenance.git.entry,
       "--ro-bind", maintenance.git.binary, maintenance.git.binary,
       "--bind", join(maintenance.output!.source, ".git"), `${maintenance.output!.target}/.git`,
@@ -614,12 +658,19 @@ export function workerCommand(input: WorkerLaunch): string[] {
   const credentials = turnProfile ? workerProviderCredentials(input.env, input.credentialEnv ?? []) : undefined;
   for (const [key, value] of Object.entries(input.env)) {
     if (credentials && (key === WITHHELD_KEYS_ENV || WORKER_PROVIDER_CREDENTIAL_ENV.includes(key) && !(input.credentialEnv ?? []).includes(key))) continue;
+    // Only the server's own relay may name the socket: never a value carried from the host environment.
+    if (key === PROVIDER_RELAY_SOCKET_ENV) continue;
     if (transport || !HOST_GIT_CREDENTIAL_ENV.includes(key)) argv.push("--setenv", key, value);
   }
   // Names only: what the host or this launch had that the worker does not.
+  // A relay placeholder is not a key: the CLI reaches that key through the
+  // provider relay instead of sending the placeholder (#1673).
+  const placeholders = credentials ? credentials.kept.filter(name => input.env[name] === INFERENCE_RELAY_PLACEHOLDER) : [];
   const withheld = credentials && [...new Set([...credentials.withheld,
-    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name))])].sort();
+    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name) || placeholders.includes(name))])].sort();
   if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
+  if (providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, WORKER_PROVIDER_RELAY_SOCKET);
+  else if (maintenance?.providerRelay) argv.push("--setenv", PROVIDER_RELAY_SOCKET_ENV, `${WORKER_PROVIDER_RELAY_DIR}/relay.sock`);
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));

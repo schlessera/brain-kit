@@ -1112,6 +1112,7 @@ signatures (every public export and the types it is made of)
         schedules?: {
             inferenceOrigins: string[] | null;
         };
+        cliProviderOrigins?: ReadonlyMap<string, readonly string[]>;
         host: string;
         sourceCommit: string;
         allowedOrigins: string[];
@@ -1345,6 +1346,7 @@ signatures (every public export and the types it is made of)
         readonly brainPath?: string;
         readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
         readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
+        readonly cliProviderOrigins?: ReadonlyMap<string, readonly string[]>;
         readonly askUserFormLimits: AskUserFormLimits;
         readonly registry: BackendRegistry;
         appName: string;

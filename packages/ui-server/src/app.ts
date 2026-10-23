@@ -17,6 +17,7 @@ import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
 import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
 import { createTurnBudgets } from "./brain/turn-budgets.js";
+import { maintenanceProviderMeter } from "./brain/provider-meter.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
@@ -401,7 +402,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recorded) return recorded.available ? { ok: true, ...(recorded.identity ? { identity: recorded.identity, workerUid: recorded.workerUid } : {}) } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes, probeState);
   };
-  const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
+  // Credentialed maintenance reaches the CLI's providers through a metered
+  // relay where the host has managed native storage (#1673); the budgets it
+  // charges are created below.
+  let relayBudgets: ReturnType<typeof createTurnBudgets> | undefined;
+  const providerRelay = nativeManager ? maintenanceProviderMeter({ brainPath: config.brainPath,
+    ...(config.cliProviderOrigins ? { origins: config.cliProviderOrigins } : {}), budgets: () => relayBudgets,
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) }) : undefined;
+  const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
   bootCleanup.push(() => hostExecution.release());
   const boundary = hostExecution.boundary;
@@ -576,6 +584,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
+  relayBudgets = budgets;
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
@@ -603,6 +612,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
+    ...(config.cliProviderOrigins ? { cliProviderOrigins: config.cliProviderOrigins } : {}),
     applicationPlanner,
     drafts,
     brainPath: config.brainPath,
