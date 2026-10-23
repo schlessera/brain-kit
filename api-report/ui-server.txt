@@ -595,6 +595,7 @@ signatures (every public export and the types it is made of)
     export interface GovernedTurnHold {
         readonly sandbox: WorkerSandbox;
         readonly policy: TurnGovernancePolicy;
+        readonly typeFolders?: Readonly<Record<string, readonly string[]>>;
         readonly startupView?: WorkerStartupView;
         readonly managedStorage: boolean;
         end(): Promise<Reconciliation | null>;

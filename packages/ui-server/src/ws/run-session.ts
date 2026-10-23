@@ -642,7 +642,8 @@ async function runRetainedSession(
             if (host.journal && governedHold && !host.journal.bindModel(scopeTurnId, turn.sessionId, model)) return;
             mainModel = model; recorder?.setMainModel(model);
           } },
-          governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy } : undefined
+          governedHold?.sandbox.providerMasks ? { folders: governedHold.sandbox.providerMasks.folders, policy: governedHold.policy,
+            ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}) } : undefined
         );
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
