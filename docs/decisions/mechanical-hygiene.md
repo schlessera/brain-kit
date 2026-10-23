@@ -36,7 +36,7 @@ scratch state are excluded from source-byte scoring; an input hygiene file
 remains protected.
 
 The prototype reuses table detection (`indexTableLag`,
-`packages/core/src/lib/hygiene.ts:522-564`), scalar table rendering
+`packages/core/src/lib/hygiene.ts:528-570`), scalar table rendering
 (`renderRegistry`, `packages/core/src/lib/index-registry.ts:117-185`) and
 the surgical frontmatter editor (`editFrontmatter`,
 `packages/core/src/lib/frontmatter-edit.ts:216-224`). It intentionally refuses
@@ -134,7 +134,7 @@ one explicit providerless CLI planner/apply operation
 for this supported grammar, with `--json` and dry-run output, followed by the
 existing reconciliation. Re-read every consulted input and use the existing
 unchanged-source writer (`replaceIfUnchanged`,
-`packages/core/src/lib/hygiene.ts:1108-1118`) before application. Keep registry
+`packages/core/src/lib/hygiene.ts:1114-1124`) before application. Keep registry
 ownership, inbox/archive exclusions and all unhandled cases visible as log-only.
 The skill delegates these two mechanical operations; canonical judgment remains
 with it. That follow-up needs the additive contract documentation and normal

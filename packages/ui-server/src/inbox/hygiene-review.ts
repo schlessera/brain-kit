@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
 import { hygieneDiffSchema, hygieneEffectSchema, hygieneInputSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainClient } from "../brain/client.js";
+import type { ReferenceWorktreeHygiene } from "../brain/reference-worktree-hygiene.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxAction, insertInboxAction, inboxIdentity } from "./actions.js";
 import { createInboxResolver, inboxSnoozeUntil } from "./resolve.js";
@@ -22,6 +23,8 @@ interface Attempt { id: string; item_id: string; principal_id: string; request_j
 export class HygieneAuthorityError extends Error {}
 
 export function createHygieneReview(db: Database, deps: { brain: BrainClient; now?: () => number; timeZone?: string;
+  /** Host-only managed worktree findings (#2431), joined into the same review queue. */
+  worktrees?: ReferenceWorktreeHygiene;
   /** The gated dispatcher's current exact-operation envelope (#689); default empty. */
   allowedOperations?: Parameters<typeof createInboxResolver>[1]["allowedOperations"] }) {
   const now = deps.now ?? Date.now, store = createInboxStore(db, { now });
@@ -33,9 +36,34 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     const p = resolvePrincipal(db, principalId);
     if (!p || !isUsablePrincipal(p, now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
   }
-  async function cli(args: string[]) {
+  async function core(args: string[]): Promise<unknown> {
     if (!deps.brain.hygiene) throw new Error("Hygiene CLI is unavailable");
     return deps.brain.hygiene(args);
+  }
+  /**
+   * The review's one backlog: the CLI's Markdown findings and the host's
+   * managed-worktree findings (#2431). Selection merges both by the same
+   * ordinal rules; an operation on a host finding goes to the host, never the
+   * CLI, and a confirmed one carries the reviewer's authority to its effect.
+   */
+  async function cli(args: string[], principalId?: string): Promise<unknown> {
+    const host = deps.worktrees;
+    if (!host) return core(args);
+    const [command] = args, target = args.at(-1) ?? "";
+    if (command === "next") {
+      const at = args.indexOf("--finding");
+      if (at >= 0) return host.owns(args[at + 1]!) ? host.run(args) : core(args);
+      const [listed, own] = await Promise.all([core(args), host.run(args)]);
+      if (listed && typeof listed === "object" && "blocker" in listed) return listed;
+      return host.merge(listed as never, own as never);
+    }
+    if (command === "list") {
+      const [listed, own] = await Promise.all([core(args), host.run(args)]) as [{ entries: unknown[] }, { entries: unknown[] }];
+      return { ...listed, entries: [...listed.entries, ...own.entries] };
+    }
+    if (["check", "dismiss", "snooze", "resolve"].includes(command!) && host.owns(target))
+      return host.run(args, principalId === undefined ? {} : { authorize: () => authority(principalId) });
+    return core(args);
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
@@ -210,12 +238,12 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (status === "preview") throw new Error("Preview is not an outcome");
     return hygieneOutcomeSchema.parse({ version: 1, status, reason: reason ?? undefined, code, undoToken, fieldError });
   }
-  async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null): Promise<Result> {
+  async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string): Promise<Result> {
     const args = e.operation === "resolve" ? ["resolve", "--handler", e.handler!, "--input", JSON.stringify(e.input), "--expect-fingerprint", e.fingerprint, "--expect-preview", e.previewToken!, "--", e.findingId]
       : e.operation === "undo" ? ["undo", "--", e.undoToken!]
       : e.operation === "check" ? ["check", "--", e.findingId]
       : [e.operation, "--expect-fingerprint", e.fingerprint, ...(waitUntil !== null ? ["--until", new Date(waitUntil).toISOString()] : []), ...(request.reason ? ["--reason", request.reason] : []), "--", e.findingId];
-    return resultSchema.parse(await cli(args));
+    return resultSchema.parse(await cli(args, principalId));
   }
   async function finish(attempt: Attempt, result: Result, recovering = false) {
     const e = hygieneEffectSchema.parse(JSON.parse(attempt.effect_json));
@@ -283,7 +311,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (!admitted) return { replay: true, followUpId: undefined };
     inFlight.add(request.itemId);
     let result: Result;
-    try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until); }
+    try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until, principalId); }
     catch {
       // Unknown dispatch receipt stays journaled. Recovery checks; it never retries.
       const item = action(request.itemId);

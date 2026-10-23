@@ -13,16 +13,18 @@
  * - Only explicit access, resumption or renewal moves `accessed_at`. Expiry
  *   after three days protects a live holder, recovers a holder only on
  *   positive evidence that it is gone, and retains anything unknown.
- * - Release and expiry record durable cleanup eligibility facts. Nothing here
- *   deletes a worktree; hygiene review (#2431) owns disposition.
- * See docs/decisions/reference-worktrees.md.
+ * - Release and expiry record durable cleanup eligibility facts and remove
+ *   only a positively clean, unheld worktree. Anything else is kept and
+ *   charged until hygiene review (#2431) disposes of it; every removal is
+ *   revalidated here, just before it, and recorded before the pool sees it.
+ * See docs/decisions/managed-worktrees.md.
  */
 import type { Database } from "bun:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
-import { parseNativeBrainDelta, type createNativeBrainManagerClient, type NativePoolCheckpoint } from "@schlessera/brain-ui-sdk/internal";
+import { parseNativeBrainDelta, type createNativeBrainManagerClient, type NativePoolCheckpoint, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
 import { ReferenceSourceError, type ReferenceSources } from "./reference-source.js";
 
@@ -37,7 +39,7 @@ const inflight = new Map<string, Set<Promise<unknown>>>();
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 export type ReferenceWorktreePool = Pick<Client, "poolStatus" | "poolCreate" | "poolRelease" | "poolCheckpoint" | "poolDelta"
-  | "poolAccessOpen" | "poolAccess" | "poolPark" | "poolAccessClose">;
+  | "poolAccessOpen" | "poolAccess" | "poolPark" | "poolAccessClose" | "listPoolRecovery">;
 
 /** Inactivity after which an unheld worktree expires; only explicit access, resumption or renewal resets it. */
 export const REFERENCE_WORKTREE_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1000;
@@ -61,6 +63,8 @@ export interface ReferenceWorktreeCleanup {
   /** Changed candidates whose metadata could not be compared. */
   unverifiedPaths: number | null;
   sample: string[];
+  /** SHA-1 over every changed path, sorted; null when work was not established. */
+  digest?: string | null;
   error: string | null;
   eligible: boolean;
 }
@@ -84,11 +88,30 @@ export interface ReferenceWorktree {
   cleanup: ReferenceWorktreeCleanup | null;
 }
 
+/** What a removal must still find true just before it deletes; a returned reason refuses it. */
+export interface ReferenceWorktreeRemoval {
+  trigger: "automatic" | "review";
+  /** The eligibility or reviewed fingerprint the removal was admitted under. */
+  premise: string;
+  expect: (fresh: { row: ReferenceWorktreeRow; work: Pick<ReferenceWorktreeCleanup, "work" | "changedPaths" | "unverifiedPaths" | "sample" | "digest" | "error"> }) => string | null;
+  /** The requesting principal's authority, read once more after every await; it throws to refuse. */
+  authorize?: () => void;
+}
+export type ReferenceWorktreeRemovalOutcome = { status: "deleted" | "reclaimed" } | { status: "refused" | "failed"; reason: string };
+
 export interface ReferenceWorktreeGeneration { id: string; path: string; principalId: string; turnId: string; profile: "governed" | "strict" }
 
-interface WorktreeRow {
+/** A worktree's durable host record. */
+export interface ReferenceWorktreeRow {
   id: string; principal_id: string; domain: string; repository: string; revision: string; base_commit: string | null; source_root: string; baseline: string | null;
   allowance: number; state: "creating" | "active" | "released" | "expired"; created_at: number; accessed_at: number; released_at: number | null; holder: string | null; cleanup: string | null;
+  root_uuid: string | null;
+}
+type WorktreeRow = ReferenceWorktreeRow;
+/** A removal's durable receipt (#2431). */
+export interface ReferenceWorktreeCleanupReceipt {
+  worktree_id: string; trigger: "automatic" | "review"; state: "started" | "deleted" | "reclaimed" | "failed" | "interrupted";
+  premise: string; started_at: number; finished_at: number | null; error: string | null;
 }
 interface GenerationRow {
   id: string; principal_id: string; turn_id: string; profile: "governed" | "strict"; path: string; owner_pid: number; owner_start: string; owner_boot: string;
@@ -97,7 +120,9 @@ interface GenerationRow {
 
 /** Worktrees keep their source root's extents: capacity eviction of that root would free nothing. */
 export function referenceWorktreeDependents(db: Database, rootId: string): boolean {
-  return Boolean(db.query("SELECT 1 FROM reference_worktrees WHERE source_root = ? LIMIT 1").get(rootId));
+  // A removed worktree whose reclamation was observed holds nothing of its source any more.
+  return Boolean(db.query(`SELECT 1 FROM reference_worktrees w WHERE w.source_root = ? AND NOT EXISTS
+    (SELECT 1 FROM reference_worktree_cleanups c WHERE c.worktree_id = w.id AND c.state = 'reclaimed') LIMIT 1`).get(rootId));
 }
 
 /** This process's owner identity, recorded with each generation it opens. */
@@ -205,8 +230,8 @@ export function createReferenceWorktrees(options: {
   }
 
   /** Changes since the baseline, from one fresh checkpoint and a metadata delta; nothing of the worktree is executed. */
-  async function assessWork(row: WorktreeRow, signal?: AbortSignal): Promise<Pick<ReferenceWorktreeCleanup, "work" | "changedPaths" | "unverifiedPaths" | "sample" | "error">> {
-    const unknown = (error: string) => ({ work: "unknown" as const, changedPaths: null, unverifiedPaths: null, sample: [], error });
+  async function assessWork(row: WorktreeRow, signal?: AbortSignal): Promise<Pick<ReferenceWorktreeCleanup, "work" | "changedPaths" | "unverifiedPaths" | "sample" | "digest" | "error">> {
+    const unknown = (error: string) => ({ work: "unknown" as const, changedPaths: null, unverifiedPaths: null, sample: [], digest: null, error });
     if (!row.baseline) return unknown("The worktree has no baseline checkpoint.");
     const id = randomUUID();
     let current: NativePoolCheckpoint | undefined, recorded = false;
@@ -226,17 +251,18 @@ export function createReferenceWorktrees(options: {
         if (candidate.rename) for (const path of [candidate.rename.from, candidate.rename.to]) if (path) candidates.add(path);
       }
       await delta.completed;
-      const changed: string[] = [];
+      const changed: string[] = [], stamps: string[] = [];
       let unverified = 0;
       // Any differing entry is work, directories included: a rename or swap
       // changes the directories it moves even when every name still exists.
       for (const path of [...candidates].sort()) {
         const before = stamp(join(baseline.path!, path)), after = stamp(join(current.path!, path));
         if (before === undefined || after === undefined) unverified++;
-        else if (before !== after) changed.push(path);
+        else if (before !== after) { changed.push(path); stamps.push(`${path}\t${content(join(current.path!, path))}`); }
       }
       return { work: changed.length ? "unpreserved" : unverified ? "unknown" : "none", changedPaths: changed.length, unverifiedPaths: unverified,
-        sample: changed.slice(0, SAMPLE), error: null };
+        // The digest moves with every edit to a changed path, not only with which paths changed.
+        sample: changed.slice(0, SAMPLE), digest: createHash("sha1").update(stamps.join("\n")).digest("hex"), error: null };
     } catch (error) { return unknown(error instanceof Error ? error.message : String(error)); }
     finally {
       // Released even when its creation reply was lost: the identity is recorded, so it is never left behind.
@@ -244,15 +270,132 @@ export function createReferenceWorktrees(options: {
         cleanup => warn("worktree assessment checkpoint release failed; startup recovery retries it", cleanup));
     }
   }
-  async function assess(row: WorktreeRow, reason: "released" | "expired", signal?: AbortSignal): Promise<ReferenceWorktreeCleanup> {
+  /**
+   * Record release or expiry facts. With `remove`, a positively clean and
+   * unheld worktree is then removed, revalidated once more just before.
+   */
+  async function assess(row: WorktreeRow, reason: "released" | "expired", signal?: AbortSignal, remove = true): Promise<ReferenceWorktreeCleanup> {
     const holder = holderState(row);
     const ownerState = holder === false ? "none" : holder ? "live" : "unknown";
     // A live or unknown holder may still be writing: no work assessment can be final.
     const work = ownerState === "none" ? await assessWork(row, signal)
-      : { work: "unknown" as const, changedPaths: null, unverifiedPaths: null, sample: [], error: null };
+      : { work: "unknown" as const, changedPaths: null, unverifiedPaths: null, sample: [], digest: null, error: null };
     const facts: ReferenceWorktreeCleanup = { reason, assessedAt: now(), owner: ownerState, ...work, eligible: ownerState === "none" && work.work === "none" };
     db.query("UPDATE reference_worktrees SET cleanup = ? WHERE id = ?").run(JSON.stringify(facts), row.id);
+    // A removal that cannot run now leaves a clean worktree for the next reconciliation; release and expiry still succeed.
+    if (remove && facts.eligible) await removeClean(worktree(row.id)!, signal).catch(error => warn("automatic worktree removal did not run; reconciliation retries it", error));
     return facts;
+  }
+  /** Automatic removal: only a worktree whose fresh assessment is still positively clean and unheld. */
+  function removeClean(row: WorktreeRow, signal?: AbortSignal) {
+    return removeWorktree(row, { trigger: "automatic", premise: "eligible",
+      expect: fresh => fresh.work.work === "none" ? null : "The worktree is no longer positively clean." }, signal);
+  }
+
+  const cleanupOf = (id: string) => db.query("SELECT * FROM reference_worktree_cleanups WHERE worktree_id = ?").get(id) as ReferenceWorktreeCleanupReceipt | null;
+  /** A removal admitted, applied or observed: never applied again through this identity. */
+  const removed = (id: string) => ["started", "deleted", "reclaimed"].includes(cleanupOf(id)?.state ?? "");
+  async function poolRecord(id: string, signal?: AbortSignal): Promise<NativePoolRecord | null> {
+    for (let after: string | null = null; ;) {
+      const page = await pool.listPoolRecovery(after, signal);
+      const found = page.records.find(record => record.id === id);
+      if (found || !page.next) return found ?? null;
+      after = page.next;
+    }
+  }
+  /** The checkpoints that keep a worktree's extents charged: its baseline and any ledger entry. */
+  function checkpointsOf(row: WorktreeRow): string[] {
+    const ledger = (db.query("SELECT id FROM reference_worktree_checkpoints WHERE worktree_id = ?").all(row.id) as { id: string }[]).map(item => item.id);
+    return [...new Set([...(row.baseline ? [row.baseline] : []), ...ledger])];
+  }
+  /**
+   * The only destructive effect on a worktree (#2431). Immediately before it,
+   * the worktree must still be released or expired, held by no live or
+   * unknown owner, the same native root, unchanged while it was assessed, and
+   * its fresh assessment must satisfy the caller's premise; then the caller's
+   * authority is read once more. The receipt is recorded before the pool is
+   * asked, so a restart reads its outcome instead of deleting again. The
+   * worktree goes first and its checkpoints after: a failure before the
+   * worktree is deleted keeps the baseline, so the work stays assessable.
+   */
+  async function removeWorktree(row: WorktreeRow, input: ReferenceWorktreeRemoval, signal?: AbortSignal): Promise<ReferenceWorktreeRemovalOutcome> {
+    const refuse = (reason: string) => ({ status: "refused" as const, reason });
+    const prior = cleanupOf(row.id)?.state ?? null;
+    if (removed(row.id)) return refuse("The worktree was already removed.");
+    if (row.state !== "released" && row.state !== "expired") return refuse("Only a released or expired worktree is removed.");
+    if (row.holder || holderState(row) !== false) return refuse("A worker may still hold this worktree.");
+    const record = await poolRecord(row.id, signal);
+    if (!record || record.purpose !== "worktree" || record.state !== "writable" || record.access !== null || !row.root_uuid || record.root?.uuid !== row.root_uuid)
+      return refuse("The native worktree no longer matches its recorded identity.");
+    const work = await assessWork(row, signal);
+    const current = worktree(row.id)!;
+    if (current.holder || current.accessed_at !== row.accessed_at || current.state !== row.state || (cleanupOf(row.id)?.state ?? null) !== prior)
+      return refuse("The worktree changed while it was assessed.");
+    if (work.work === "unknown") return refuse("The worktree's work cannot be established; it is kept.");
+    const premise = input.expect({ row: current, work });
+    if (premise) return refuse(premise);
+    try { input.authorize?.(); } catch (error) { return refuse(error instanceof Error ? error.message : String(error)); }
+    // Nothing awaits between the checks above and this receipt.
+    db.query(`INSERT INTO reference_worktree_cleanups (worktree_id, trigger, state, premise, started_at) VALUES (?, ?, 'started', ?, ?)
+      ON CONFLICT (worktree_id) DO UPDATE SET trigger = excluded.trigger, state = 'started', premise = excluded.premise, started_at = excluded.started_at, finished_at = NULL, error = NULL`)
+      .run(row.id, input.trigger, input.premise, now());
+    let receipt: NativePoolRecord;
+    try { receipt = await pool.poolRelease(row.id, signal); }
+    catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      // The pool may have committed the deletion before the reply was lost.
+      const after = await poolRecord(row.id).catch(() => undefined);
+      if (after === undefined) { warn("worktree removal outcome unknown; reconciliation reads it", error); return { status: "failed", reason }; }
+      if (!after || after.state === "writable") {
+        db.query("UPDATE reference_worktree_cleanups SET state = 'failed', finished_at = ?, error = ? WHERE worktree_id = ?").run(now(), reason.slice(0, 1000), row.id);
+        return { status: "failed", reason };
+      }
+      receipt = after;
+    }
+    db.query("UPDATE reference_worktree_cleanups SET state = ?, finished_at = ? WHERE worktree_id = ?").run(receipt.state === "reclaimed" ? "reclaimed" : "deleted", now(), row.id);
+    await settle(row.id, signal);
+    return { status: cleanupOf(row.id)!.state as "deleted" | "reclaimed" };
+  }
+  /**
+   * Finish what a removal left: an outcome lost to a restart or a lost reply
+   * is read from the pool and never applied again, a deletion the pool
+   * committed is completed, the removed worktree's checkpoints are released,
+   * and only the pool's observed reclamation credits the removal.
+   */
+  async function settle(id: string, signal?: AbortSignal) {
+    const cleanup = cleanupOf(id);
+    if (!cleanup || !["started", "deleted", "reclaimed"].includes(cleanup.state)) return;
+    let record = await poolRecord(id, signal).catch(() => undefined);
+    if (record === undefined) return;
+    if (cleanup.state === "started") {
+      if (!record || record.state === "writable") {
+        db.query("UPDATE reference_worktree_cleanups SET state = 'interrupted', finished_at = ?, error = ? WHERE worktree_id = ? AND state = 'started'")
+          .run(now(), "The removal was interrupted before the pool deleted the worktree.", id);
+        return;
+      }
+      db.query("UPDATE reference_worktree_cleanups SET state = 'deleted', finished_at = ? WHERE worktree_id = ? AND state = 'started'").run(now(), id);
+    }
+    // The pool committed this deletion; finishing it is the same effect, not a second one.
+    if (record && record.state === "deleting") record = await pool.poolRelease(id, signal).catch(error => { warn("committed worktree deletion not yet finished", error); return record; });
+    const row = worktree(id);
+    if (row) for (const checkpoint of checkpointsOf(row)) {
+      try {
+        await pool.poolRelease(checkpoint, signal);
+        forgetReferenceWorktreeCheckpoint(db, checkpoint);
+        // Released once: a removed worktree never names its baseline again.
+        db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ? AND baseline = ?").run(id, checkpoint);
+      } catch (error) { warn("removed worktree's checkpoint was not released; reconciliation retries it", error); }
+    }
+    // Releasing the checkpoints can complete the worktree's reclamation.
+    const observed = await poolRecord(id, signal).catch(() => record);
+    if (observed?.state === "reclaimed") db.query("UPDATE reference_worktree_cleanups SET state = 'reclaimed' WHERE worktree_id = ? AND state = 'deleted'").run(id);
+  }
+  /** Settle every removal still open: unfinished, awaiting reclamation, or leaving a checkpoint behind. */
+  async function settleAll(signal?: AbortSignal) {
+    const open = db.query(`SELECT c.worktree_id AS id FROM reference_worktree_cleanups c LEFT JOIN reference_worktrees w ON w.id = c.worktree_id
+      WHERE c.state IN ('started', 'deleted') OR (c.state = 'reclaimed' AND (w.baseline IS NOT NULL
+        OR EXISTS (SELECT 1 FROM reference_worktree_checkpoints k WHERE k.worktree_id = c.worktree_id)))`).all() as { id: string }[];
+    for (const { id } of open) await serial(id, () => settle(id, signal));
   }
   /** Return a worktree whose holder is provably gone to the masked roots, then forget the holder. */
   async function recoverHolder(row: WorktreeRow, signal?: AbortSignal): Promise<WorktreeRow> {
@@ -277,7 +420,8 @@ export function createReferenceWorktrees(options: {
         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'creating', ?, ?)`)
         .run(id, input.principalId, lease.domain === "public" ? "public" : `private:${input.principalId}`, lease.repository, lease.revision, lease.commit, lease.rootId, allowance, at, at);
       try {
-        await pool.poolCreate(id, "worktree", lease.rootId, allowance, input.signal);
+        const created = await pool.poolCreate(id, "worktree", lease.rootId, allowance, input.signal);
+        db.query("UPDATE reference_worktrees SET root_uuid = ? WHERE id = ?").run(created.root?.uuid ?? null, id);
         const baseline = randomUUID();
         db.query("UPDATE reference_worktrees SET baseline = ? WHERE id = ?").run(baseline, id);
         await pool.poolCheckpoint(baseline, id, input.signal);
@@ -364,7 +508,8 @@ export function createReferenceWorktrees(options: {
         throw new ReferenceWorktreeError("unavailable", "This worker generation is not running; no worktree can be made available to it.");
       if (target.principal_id !== input.principalId) throw new ReferenceWorktreeError("unauthorized", "This worker generation belongs to another principal.");
       let row = owned(input.worktreeId, input.principalId);
-      if (row.state === "released") throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
+      // Once a removal was admitted the identity is final, whatever its outcome.
+      if (row.state === "released" || cleanupOf(row.id)) throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
       if (!options.coverage) throw new ReferenceWorktreeError("unavailable", "Journal coverage for managed worktrees is unavailable; access is refused.");
       if (row.holder && row.holder !== target.id) {
         const holder = holderState(row);
@@ -427,12 +572,31 @@ export function createReferenceWorktrees(options: {
       if (expiring) { db.query("UPDATE reference_worktrees SET state = 'expired' WHERE id = ? AND state = 'active'").run(id); result.expired.push(id); row = worktree(id)!; }
       await assess(row, row.state === "released" ? "released" : "expired", signal);
     });
+    // A positively clean worktree whose automatic removal did not run (a
+    // refused race, or facts recorded without removal) is removed now.
+    const clean = db.query(`SELECT w.id FROM reference_worktrees w WHERE w.state IN ('released', 'expired') AND w.holder IS NULL
+      AND NOT EXISTS (SELECT 1 FROM reference_worktree_cleanups c WHERE c.worktree_id = w.id)`).all() as { id: string }[];
+    for (const { id } of clean) await serial(id, async () => {
+      const row = worktree(id);
+      if (row && (row.state === "released" || row.state === "expired") && !row.holder && !cleanupOf(id) && row.cleanup && (JSON.parse(row.cleanup) as ReferenceWorktreeCleanup).eligible)
+        await removeClean(row, signal);
+    });
+    await settleAll(signal);
     return result;
   }
 
   /** After a restart: finish unfinished allocations and close generations whose owner is provably gone. */
   async function recover(signal?: AbortSignal): Promise<{ discarded: string[]; closed: string[]; retained: string[] }> {
     const result = { discarded: [] as string[], closed: [] as string[], retained: [] as string[] };
+    // A removal interrupted by a restart: read its outcome from the pool, never apply it again.
+    await settleAll(signal);
+    // A worktree recorded before its native identity was: adopt the identity of
+    // the writable worktree root the pool holds under its ID and source.
+    for (const row of db.query("SELECT * FROM reference_worktrees WHERE root_uuid IS NULL AND state != 'creating'").all() as WorktreeRow[]) {
+      const record = await poolRecord(row.id, signal).catch(() => null);
+      if (record?.purpose === "worktree" && record.state === "writable" && record.from === row.source_root && record.root)
+        db.query("UPDATE reference_worktrees SET root_uuid = ? WHERE id = ? AND root_uuid IS NULL").run(record.root.uuid, row.id);
+    }
     for (const { id } of db.query("SELECT id FROM reference_worktrees WHERE state = 'creating'").all() as { id: string }[]) {
       try { await discard(id); result.discarded.push(id); } catch (error) { warn("unfinished worktree release failed", error); result.retained.push(id); }
     }
@@ -458,6 +622,29 @@ export function createReferenceWorktrees(options: {
   return {
     allocate, access, renew, release, reconcile, recover,
     openGeneration, retireGeneration, closeGeneration,
+    /** Hygiene review's revalidated removal of one released or expired worktree (#2431). */
+    remove(worktreeId: string, input: ReferenceWorktreeRemoval, signal?: AbortSignal): Promise<ReferenceWorktreeRemovalOutcome> {
+      return serial(worktreeId, async () => {
+        const row = worktree(worktreeId);
+        return row && row.state !== "creating" ? removeWorktree(row, input, signal) : { status: "refused" as const, reason: "No managed worktree has this identity." };
+      });
+    },
+    /**
+     * Assess a released or expired worktree again now. Removal follows only
+     * with `remove`, so a preview never deletes anything.
+     */
+    reassess(worktreeId: string, options: { remove: boolean; signal?: AbortSignal }): Promise<void> {
+      return serial(worktreeId, async () => {
+        const row = worktree(worktreeId);
+        if (row && (row.state === "released" || row.state === "expired") && !cleanupOf(row.id)) await assess(row, row.state, options.signal, options.remove);
+      });
+    },
+    /** Every worktree with its removal receipt and holder liveness, read from host state only. */
+    inventory(): { row: ReferenceWorktreeRow; view: ReferenceWorktree; cleanup: ReferenceWorktreeCleanupReceipt | null; holderLive: boolean | null }[] {
+      return (db.query("SELECT * FROM reference_worktrees WHERE state != 'creating' ORDER BY id").all() as WorktreeRow[]).map(row => ({
+        row, view: view(row), cleanup: cleanupOf(row.id), holderLive: holderState(row),
+      }));
+    },
     get(input: { worktreeId: string; principalId: string }): ReferenceWorktree { return view(owned(input.worktreeId, input.principalId)); },
     list(principalId: string): ReferenceWorktree[] {
       return (db.query("SELECT * FROM reference_worktrees WHERE principal_id = ? AND state != 'creating' ORDER BY created_at, id").all(principalId) as WorktreeRow[]).map(view);
@@ -473,6 +660,13 @@ export function createReferenceWorktrees(options: {
 }
 export type ReferenceWorktrees = ReturnType<typeof createReferenceWorktrees>;
 
+/** What an edit of one changed path changes: type, mode, size, modification time and link target; stable across snapshots. */
+function content(path: string): string {
+  try {
+    const info = lstatSync(path, { bigint: true });
+    return `${info.mode}:${info.size}:${info.mtimeNs}:${info.isSymbolicLink() ? readlinkSync(path) : ""}`;
+  } catch { return "absent"; }
+}
 /** Metadata that changes with content, mode, type, links or link target; access time is excluded. */
 function stamp(path: string): string | null | undefined {
   try {

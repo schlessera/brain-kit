@@ -139,7 +139,7 @@ category and ID evidence (`VALIDATION_JOIN`,
 structured detail, so the message is never read (`export interface ValidationDetail`,
 `packages/core/src/lib/validate.ts:43-51`). Candidates are one finding exactly
 when category, path and evidence agree, and the join does not depend on their
-order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:265-314`).
+order (`canonicalFindings`, `packages/core/src/lib/hygiene.ts:270-320`).
 
 | Validation rule | Category | ID evidence | Joins |
 | --- | --- | --- | --- |
@@ -161,13 +161,14 @@ a source states it; otherwise it stays unknown.
 
 **Evidence fingerprints.** A fingerprint is 12 hex digits of SHA-1 over the
 category and a hash of each field below (`FINGERPRINT_FIELDS`,
-`packages/core/src/lib/hygiene.ts:237-241`). Line numbers, messages, other
+`packages/core/src/lib/hygiene.ts:237-246`). Line numbers, messages, other
 document content and age are never in it.
 
 | Category | Fingerprint fields |
 | --- | --- |
 | `broken-link` | target as written; every link token naming that target, as written (`[[target\|label]]`); severity; urgency |
 | `required-field` | field; its raw value (`absent` when missing); the rule it breaks; severity; urgency |
+| `managed-worktree` | ID evidence; the worktree's native identity and owning principal; its source domain, repository, revision and starting commit; its holder and liveness; its work; any removal failure; its state and last explicit activity; severity; urgency. Host-only: see [managed worktrees](managed-worktrees.md#hygiene-and-cleanup) |
 | any other | ID evidence; the validation rules reporting it (empty otherwise); severity; urgency |
 
 Severity is `unknown` when no source gives one, and urgency is `unknown` when
@@ -178,7 +179,7 @@ an invalidation can name the fields that changed.
 entries in `context/hygiene/dismissed.md`, snoozed ones in `snoozed.md`. Each
 records its time and the fingerprint it applied to. `until:` takes an ISO
 date-time or a date; a date is due at the start of that UTC day, as before
-(`function dueAt`, `packages/core/src/lib/hygiene.ts:834-844`). A recorded
+(`function dueAt`, `packages/core/src/lib/hygiene.ts:840-850`). A recorded
 fingerprint that no longer matches reopens the finding at once, with an
 `invalidated:` receipt naming the changed fields and the disposition's date.
 A snooze that comes due reopens it with no receipt.
@@ -188,7 +189,7 @@ identity), the new finding carries the receipt only when the pairing is
 unambiguous. In one run, exactly one disposition in force with that category
 and path stops being detected, and exactly one new finding with them appears
 (`if (prior.length === 1 && siblings.length === 1)`,
-`packages/core/src/lib/hygiene.ts:1357`). Otherwise the new finding opens
+`packages/core/src/lib/hygiene.ts:1363`). Otherwise the new finding opens
 without one. Either way the old disposition does not suppress it. Entries
 moved by hand carry no fingerprint, so they keep their earlier behaviour.
 
@@ -202,7 +203,7 @@ permission, premise revalidation and a real post-apply check before success.
 
 Do not implement dismissal by marking a still-detected finding resolved: existing
 reconciliation reopens such an entry (`const prev = field(entry, "resolved-by")`,
-`packages/core/src/lib/hygiene.ts:1331-1334`). Keep review disposition distinct from
+`packages/core/src/lib/hygiene.ts:1337-1340`). Keep review disposition distinct from
 actual check success and from notification acknowledgement.
 
 Markdown remains authoritative for findings, dispositions and confirmed content
