@@ -16,6 +16,8 @@ import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 export interface GovernedTurnHold {
   readonly sandbox: WorkerSandbox;
   readonly policy: TurnGovernancePolicy;
+  /** The folders each selected type was translated to; host tools name the rule from it (#2690). */
+  readonly typeFolders?: Readonly<Record<string, readonly string[]>>;
   readonly startupView?: WorkerStartupView;
   /**
    * The configured native manager acquired this turn's startup view with its
@@ -144,6 +146,8 @@ export function createGovernedTurns(options: {
             if (again.refused.length) throw new ProviderPolicyRefusedError(again.refused);
             if (JSON.stringify(providerMaskedFolders(policy.policy, again.folders)) !== JSON.stringify(providerMaskedFolders(policy.policy, typeFolders)))
               throw new Error("The brain's document types changed during turn admission; retry once concurrent changes have settled.");
+            // The same folders, but the newer translation names their types (#2690).
+            typeFolders = again.folders;
           }
         }
         if (workerProfile(resolved) === "governed" && folderPaths.length) {
@@ -179,7 +183,7 @@ export function createGovernedTurns(options: {
         signal.throwIfAborted();
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
-        return { sandbox, policy, managedStorage, ...(startupView ? { startupView } : {}), async end() {
+        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), async end() {
           if (ended) return null;
           ended = true;
           try {

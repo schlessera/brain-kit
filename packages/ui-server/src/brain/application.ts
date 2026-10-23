@@ -13,6 +13,7 @@ import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createHostBoundary, MAINTENANCE_ENTRY, type HostBoundary } from "./host-boundary.js";
 import { subprocessEnv } from "../config/env.js";
 import { isProtectedTarget } from "./protected-target.js";
+import { isProviderMasked, ProviderMaskRefusedError, type ProviderMaskGuard } from "./provider-mask-refusal.js";
 
 export const contentHash = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
 export interface BrainApplicationRequest {
@@ -115,6 +116,10 @@ function verifyTarget(target: Target, expected: string | null): void {
     refuse("stale_base", "The document changed since its stated base. Read it again; no merge or overwrite was applied.");
 }
 
+/** Where an archive moves an active project document; anything else stays in place. */
+const archiveDestination = (path: string): string =>
+  path.startsWith("projects/active/") ? path.replace("projects/active/", "projects/archive/") : path;
+
 /** A capture plan: what to write where, and the base it was planned against. */
 export interface CapturePlan {
   path: string;
@@ -132,7 +137,11 @@ export interface CapturePlan {
  * waits for this work, and a running turn never waits on a credentialed one.
  */
 export interface ApplicationPlanner {
-  planAdd(root: string, input: Record<string, unknown>, readDocument: (path: string) => string | null, signal: AbortSignal): Promise<CapturePlan>;
+  /**
+   * `masked` names the turn's provider-masked folders (#2690): planning sees
+   * their documents as absent, wherever it runs, so it never reads them.
+   */
+  planAdd(root: string, input: Record<string, unknown>, readDocument: (path: string) => string | null, signal: AbortSignal, masked?: readonly string[]): Promise<CapturePlan>;
   index(root: string, signal: AbortSignal): Promise<void>;
 }
 
@@ -189,9 +198,9 @@ export function boundaryPlanner(boundary: HostBoundary, options: { afterIndex?: 
     return answer;
   };
   return {
-    async planAdd(root, input, readDocument, signal) {
-      if (!boundary.isolated()) return inProcessPlanner.planAdd(root, input, readDocument, signal);
-      return validatePlan((await run({ op: "plan-add", root, input }, "application plan", signal)).plan);
+    async planAdd(root, input, readDocument, signal, masked) {
+      if (!boundary.isolated()) return inProcessPlanner.planAdd(root, input, readDocument, signal, masked);
+      return validatePlan((await run({ op: "plan-add", root, input, ...(masked?.length ? { masked: [...masked] } : {}) }, "application plan", signal)).plan);
     },
     async index(root, signal) {
       if (!boundary.isolated()) return inProcessPlanner.index(root, signal);
@@ -216,6 +225,8 @@ export function createBrainApplication(options: {
   policy: BrainApplicationPolicy;
   /** Captured host admission facts, never a worker-selected list. */
   protectedPaths?: readonly string[];
+  /** The admitted turn's provider masks (#2690); `tool` names an operation as the agent called it. */
+  providerMasks?: { guard: ProviderMaskGuard; tool(operation: BrainApplicationInput["operation"]): string };
   signal: AbortSignal;
   isAuthorized(): boolean;
   approve(input: BrainApplicationInput, destructive: boolean): Promise<boolean>;
@@ -255,6 +266,13 @@ export function createBrainApplication(options: {
       const parsed = brainApplicationInput.safeParse(request.input);
       if (!parsed.success) refuse("invalid_request", "Unsupported operation or input. Use the exact structured application schema; commands cannot be applied.");
       const input = parsed.data;
+      // Masked targets, including an archive's destination, refuse before
+      // approval, planning or any file effect. A planned capture destination
+      // is checked where it is opened, and planning cannot read a masked one.
+      const assertVisible = (paths: string[]) => options.providerMasks?.guard.assert(options.providerMasks.tool(input.operation), paths);
+      assertVisible(input.operation === "staged" ? input.files.map(file => file.path)
+        : input.operation === "add" ? (input.target === undefined ? [] : [input.target])
+        : input.operation === "archive" ? [input.path, archiveDestination(input.path)] : [input.path]);
       if (!options.policy.available.includes(input.operation)) refuse("membership_denied", "This turn's membership does not permit this operation.");
       const membership = () => {
         if (!options.policy.available.includes(input.operation)) refuse("membership_denied", "This turn's membership no longer permits this operation.");
@@ -279,7 +297,7 @@ export function createBrainApplication(options: {
         let outcome: Record<string, unknown> = {};
         try {
           const targetFor = (path: string, expected: string | null) => {
-            validateTarget(path);
+            validateTarget(path); assertVisible([path]);
             const target = openTarget(root, path, expected === null, created);
             targets.push(target);
             if (target.hash !== expected) refuse("stale_base", "The stated base does not match the current document. Read it again; no change was applied.");
@@ -289,11 +307,14 @@ export function createBrainApplication(options: {
             if (input.target !== undefined) validateTarget(input.target);
             const plan = await planner.planAdd(root, { ...input, path: input.target }, path => {
               validatePath(path); // Protection is read-only; planning may still read it.
+              // A masked document is absent to planning; a destination it
+              // chooses there still refuses by name when it is opened.
+              if (options.providerMasks && isProviderMasked(path, options.providerMasks.guard.folders)) return null;
               let target: Target;
               try { target = openTarget(root, path, false); }
               catch (error) { if (errno(error) === "ENOENT") return null; throw error; }
               try { return target.content; } finally { closeTarget(target); }
-            }, options.signal);
+            }, options.signal, options.providerMasks?.guard.folders);
             authority(request);
             const expected = input.expectedBaseHash === undefined
               ? (plan.baseContent === null ? null : contentHash(plan.baseContent)) : input.expectedBaseHash;
@@ -334,7 +355,7 @@ export function createBrainApplication(options: {
                 content = core.updateDocument(raw, fields, append || undefined);
                 outcome = { path: input.path, updated, changes: [...Object.keys(fields).filter(k => k !== "updated"), ...(append ? ["content"] : [])] };
                 if (input.operation === "archive") {
-                  const destination = input.path.startsWith("projects/active/") ? input.path.replace("projects/active/", "projects/archive/") : input.path;
+                  const destination = archiveDestination(input.path);
                   outcome = { path: destination, status: "archived", moved: destination !== input.path, updated, ...(input.dry_run ? { dryRun: true } : {}) };
                   if (input.dry_run) return { ok: true, message: "Archive preview; no change applied.", changes: [], outcome };
                   if (destination !== input.path) {
@@ -396,15 +417,19 @@ export function createBrainApplication(options: {
           changes: [...committed], indexed, outcome: { ...outcome, ...(input.operation === "add" ? { indexed } : {}), ...(indexError ? { indexError } : {}) } };
       }, { signal: options.signal });
     } catch (error) {
-      result = { ok: false, code: error instanceof Refusal ? error.code : (error instanceof Error && error.name === "AbortError" ? "cancelled" : "application_failed"), message: error instanceof Error ? error.message : "Application failed.", changes: [...committed] };
+      result = { ok: false, code: error instanceof Refusal || error instanceof ProviderMaskRefusedError ? error.code : (error instanceof Error && error.name === "AbortError" ? "cancelled" : "application_failed"), message: error instanceof Error ? error.message : "Application failed.", changes: [...committed] };
     }
     options.record(result);
     return result;
   };
 }
 
-/** A contained read supplies the exact base needed by new hosted tool schemas. */
-export function readBrainApplicationBase(root: string, path: string): { content: string; expectedBaseHash: string } {
+/**
+ * A contained read supplies the exact base needed by new hosted tool schemas.
+ * A turn's provider masks refuse before anything is opened (#2690).
+ */
+export function readBrainApplicationBase(root: string, path: string, masks?: { guard: ProviderMaskGuard; tool: string }): { content: string; expectedBaseHash: string } {
+  masks?.guard.assert(masks.tool, [path]);
   const target = openTarget(realpathSync(root), path, false);
   try {
     if (target.content === null) refuse("missing_document", "Document not found.");

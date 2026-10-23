@@ -137,7 +137,11 @@ is hidden with it (#2718), `.git` is hidden, and `.brain-index/` is a
 turn-private, writable index. It is built before the turn by the brain's own
 CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
 never held a masked document. The real index is refreshed from Markdown after
-the turn as usual. Server-side tools, autonomous turns and the allowed
+the turn as usual. Host bridge tools that run on the server, outside the
+worker's mounts, refuse every path at or below a masked root with the named
+refusal `provider_masked` and one `provider_mask_refusal` governance event per
+call: `brain_read_base`, the application tools, share completion, image masks,
+`inbox_add` and policy proposals (#2690). Autonomous turns and the allowed
 recipient's unmasked view are not covered yet.
 
 **Which selectors hosted turns enforce (additive in 0.44.0, #2694).** A

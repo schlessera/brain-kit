@@ -15,6 +15,7 @@ import { createBrainAccess } from "../../ui-backend-pi/src/brain-access.js";
 import { createTurnContext } from "../../ui-backend-pi/src/turn-context.js";
 import { boundaryPlanner, createBrainApplication, readBrainApplicationBase } from "../src/brain/application.js";
 import { openDatabase } from "@schlessera/brain/internal";
+import { createProviderMaskGuard } from "../src/brain/provider-mask-refusal.js";
 
 let fixtureRoot: string;
 let root: string;
@@ -254,3 +255,24 @@ for (const kind of ["claude", "pi"] as const) {
     expect(a.receipts.flatMap(r => r.changes)).toEqual([]);
   });
 }
+
+test("isolated capture planning treats a provider-masked document as absent, so none of its text can return", async () => {
+  // The real index names the masked project, so classification would append to it.
+  const cli = Bun.spawnSync([process.execPath, resolve("packages/core/src/cli/brain.ts"), "index", "--json"], { cwd: root,
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", BRAIN_ROOT: root, HOME: fixtureRoot, NO_COLOR: "1" }, stdout: "pipe", stderr: "pipe" });
+  expect(cli.exitCode, cli.stderr.toString()).toBe(0);
+  // A malformed masked document whose parse error would quote it.
+  const overview = join(root, "projects/active/raft/overview.md");
+  writeFileSync(overview, readFileSync(overview, "utf8").replace("type: project\n", "type: project\nsecret: Zakynthosmarker\nsecret: again\n"));
+  const boundary = createFixtureHostBoundary({ brainPath: root, dbPath: join(fixtureRoot, "state/ui.db") });
+  const policy = { providers: [{ paths: ["projects/**"], allow: ["anthropic"] }] };
+  const refusals: unknown[] = [];
+  const guard = createProviderMaskGuard({ folders: ["projects"], policy, record: refusal => refusals.push(refusal) });
+  const apply = createBrainApplication({ root, planner: boundaryPlanner(boundary), principalId: "odysseus", turnId: "masked-plan",
+    policy: { available: ["add"], autoAllowed: ["add"], lock: createKeyedLock() }, signal: new AbortController().signal,
+    isAuthorized: () => true, approve: async () => true, record() {}, providerMasks: { guard, tool: () => "brain_add" } });
+  const result = await apply({ principalId: "odysseus", turnId: "masked-plan", input: { operation: "add", content: "# Raft — Overview\n\nOdysseus checks the lashings." } as never });
+  expect(JSON.stringify(result), "MASKED_DOCUMENT_TEXT_NEVER_RETURNS").not.toContain("Zakynthosmarker");
+  expect({ ok: result.ok, code: result.code }, "PLANNED_MASKED_DESTINATION_REFUSED").toEqual({ ok: false, code: "provider_masked" });
+  expect(readFileSync(overview, "utf8")).toContain("secret: again");
+}, 120_000);

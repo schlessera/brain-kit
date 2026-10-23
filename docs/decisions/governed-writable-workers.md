@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:65-192`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:67-194`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:580-584`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:600-605`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -194,7 +194,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:39`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:40`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:38-194`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:40-196`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1839,6 +1839,36 @@ voice turn, and admission applies the masks to all of them:
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
   selector, per the 2026-10-16 ruling. The 2026-10-23 ruling below narrows the
   refusal to selectors that do not map exactly onto folders.
+- **Host bridge tools refuse masked paths (#2690).** These tools run on the
+  server, outside the worker's mounts, against the real brain, so the masks
+  alone do not cover them. The admitted turn's masked roots
+  (`sandbox.providerMasks.folders`, the one matched set below) reach its bridge, and every bridge path
+  that reads or writes brain content checks the named path before opening
+  it: `brain_read_base`; the six application tools, before approval for every
+  named target and an archive's destination (dry run included), while capture
+  planning, in process or in the isolated maintenance worker, sees masked
+  documents as absent and its chosen destination is checked before it is
+  opened; share completion (its filed documents and
+  retained originals, checked before its transaction so the refusal's event
+  is kept); image masks (the image and its mask file), whose scratch prune
+  also keeps a masked folder's files; `inbox_add`, which stages and
+  reconciles under `.brain-ui/inbox/` and refuses when a mask is at, above
+  or inside that directory or the directory resolves into one; and policy proposals (the policy file, when a rule masks
+  its folder). The match is case-sensitive, by whole segments, after
+  `.`/`..` are resolved; aliases need no extra rule, because each route opens
+  its directory chain with `O_NOFOLLOW` and accepts only a regular file with
+  one link. A refusal is the named `provider_masked` error the agent sees and
+  one `provider_mask_refusal` governance event per call, naming the tool, the
+  path and the `providers` rule whose selector maps onto the folder. Search and context need no host change: the
+  in-worker CLI and the `brain` MCP server already read the private index.
+  `inbox_list`, `inbox_get` and `query_activity` read the server's own
+  database, not brain paths; what that record retains is part of the
+  retained-copy audit. Capture planning still classifies against the real
+  index, so a capture it would file under a masked folder refuses by name,
+  which tells the agent such a destination exists. The maintenance worker is
+  not mount-masked: the brain's own code running there could still read a
+  masked file, though nothing the agent supplies makes planning do so.
+
 
 **Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
 A type, glob or single-path selector is translated to whole-folder masks when
@@ -1900,7 +1930,7 @@ Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
 One matched set (`providerMaskedFolders`) then feeds retention, the masks,
-the private index and the server-tool refusals planned in #2690 and #2691.
+the private index and the server-tool refusals (#2690; #2691 for autonomous turns).
 A folder inside another selected folder, such as `me/sub/**` beside `me/**`
 or a type folder below a literal one, is dropped from that set and from the
 literal folders the taxonomy worker masks (2026-10-23,
@@ -1969,8 +1999,7 @@ turn cannot create such a link itself, because it cannot name the masked file.
 Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
 the walk of `me` covers `me/x`.
 
-Still open under #1668: server search, read and context tools do not yet
-refuse masked paths; autonomous (restricted) turns do not apply the masks;
+Still open under #1668: autonomous (restricted) turns do not apply the masks;
 the committed sidecar caches (`.context-cache.jsonl` holds generated chunk
 contexts) and other retained copies have not been audited;
 and the allowed recipient's unmasked turn needs #1665. Each restricted turn

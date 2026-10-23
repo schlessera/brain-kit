@@ -2,8 +2,14 @@ import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schles
 import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import { createProviderMaskGuard, ProviderMaskRefusedError } from "../brain/provider-mask-refusal.js";
+import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
+import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
+import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
 import type { BackendActivityEvent, BrainApplicationPolicy } from "@schlessera/brain-ui-sdk/server";
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { join, relative } from "node:path";
 import { stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import type {
   ActivityQuery,
@@ -51,7 +57,9 @@ export function makeBridge(
   workerProfile?: { origin: "interactive" | "voice"; actualProfile: "governed" | "strict"; draftId?: string; preference?: "governed" | "strict" },
   onUsage?: (usage: import("@schlessera/brain-ui-sdk/protocol").TurnUsage, backstop?: boolean) => import("@schlessera/brain-ui-sdk/protocol").TurnUsage | void,
   pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute },
-  mainModel?: { current(): string | null; bind(model: string): void }
+  mainModel?: { current(): string | null; bind(model: string): void },
+  /** The admitted turn's masked provider folders (`sandbox.providerMasks.folders`) and the policy that named them. */
+  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>> }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -101,6 +109,14 @@ export function makeBridge(
     origin: "interactive", membership: work?.posture === "voice" ? "voice" : "interactive" });
   if (work?.posture !== "voice") host.inboxTools?.shares?.start(principalId, turnId, turn.sessionId ?? undefined, turn.shareId, () => !signal.aborted && isAuthorized());
   const pendingMasks = new Map<string, { base: MaskBase; png: Uint8Array }>();
+  // Host bridge tools run outside the worker's mounts, so they refuse the
+  // folders the worker masks, with one governance event per refused call (#2690).
+  const maskGuard = providerMasks?.folders.length ? createProviderMaskGuard({ folders: providerMasks.folders, policy: providerMasks.policy.policy,
+    ...(providerMasks.typeFolders ? { typeFolders: providerMasks.typeFolders } : {}),
+    record: refusal => catalog.recordGovernanceEvent?.({ kind: "provider_mask_refusal", turnId, sessionId: turn.sessionId,
+      actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null,
+      payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;
+  const toolName = (name: string) => backendId === "claude" ? `mcp__brain-ui__${name}` : name;
   /**
    * A linked turn-temp file the backend promoted, or could not (#1655): kept
    * as a governance event with the session history, never shown in the chat.
@@ -560,18 +576,22 @@ export function makeBridge(
     },
   };
   if (host.policyProposals && work?.posture !== "voice") {
-    bridge.proposePolicyChange = (requestId, input) => host.policyProposals!.propose({
-      principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: principalIsAuthorized,
-      isAvailable: () => work?.posture !== "voice",
-      approve: async review => {
-        const decision = await bridge.requestPermission({ toolUseId: requestId,
-          toolName: backendId === "claude" ? `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}` : PROPOSE_POLICY_CHANGE_TOOL_NAME,
-          input: { ...input, policyReview: review }, kind: "policy", description: review.message });
-        return decision.behavior === "allow" && decision.updatedInput === undefined;
-      },
-      emit: review => host.sendToClients(withTurnScope({ type: "tool_result", toolUseId: requestId,
-        output: JSON.stringify(review), isError: !["pending", "writing", "updated", "declined"].includes(review.state), policyChange: review }, turn, turnId)),
-    }, requestId, input);
+    bridge.proposePolicyChange = async (requestId, input) => {
+      // The policy file is a document too: a policy masking its folder hides it here as well.
+      maskGuard?.assert(toolName(PROPOSE_POLICY_CHANGE_TOOL_NAME), [GOVERNANCE_POLICY_PATH]);
+      return host.policyProposals!.propose({
+        principalId, turnId, sessionId: () => turn.sessionId, signal, isAuthorized: principalIsAuthorized,
+        isAvailable: () => work?.posture !== "voice",
+        approve: async review => {
+          const decision = await bridge.requestPermission({ toolUseId: requestId,
+            toolName: backendId === "claude" ? `mcp__brain-ui__${PROPOSE_POLICY_CHANGE_TOOL_NAME}` : PROPOSE_POLICY_CHANGE_TOOL_NAME,
+            input: { ...input, policyReview: review }, kind: "policy", description: review.message });
+          return decision.behavior === "allow" && decision.updatedInput === undefined;
+        },
+        emit: review => host.sendToClients(withTurnScope({ type: "tool_result", toolUseId: requestId,
+          output: JSON.stringify(review), isError: !["pending", "writing", "updated", "declined"].includes(review.state), policyChange: review }, turn, turnId)),
+      }, requestId, input);
+    };
   }
   if (host.brainPath && applicationPolicy) {
     const operationTools = backendId === "claude"
@@ -580,6 +600,7 @@ export function makeBridge(
     const apply = createBrainApplication({
       root: host.brainPath, principalId, turnId, signal, policy: applicationPolicy,
       protectedPaths,
+      ...(maskGuard ? { providerMasks: { guard: maskGuard, tool: operation => operationTools[operation] } } : {}),
       ...(host.applicationPlanner ? { planner: host.applicationPlanner } : {}),
       isAuthorized,
       approve: async (input, destructive) => {
@@ -594,7 +615,7 @@ export function makeBridge(
     });
     bridge.readBrainBase = async path => {
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
-      return readBrainApplicationBase(host.brainPath!, path);
+      return readBrainApplicationBase(host.brainPath!, path, maskGuard ? { guard: maskGuard, tool: toolName("brain_read_base") } : undefined);
     };
     bridge.applyBrain = async input => {
       await host.journal?.idle();
@@ -604,18 +625,20 @@ export function makeBridge(
     if (host.inboxTools?.shares && work?.posture !== "voice") bridge.completeShare = async input => {
       await host.journal?.idle();
       return host.inboxTools!.shares!.complete(principalId, turnId, turn.sessionId ?? undefined, () => !signal.aborted && isAuthorized(), input, async () => {
-        const decision = await bridge.requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: backendId === "claude" ? "mcp__brain-ui__complete_share" : "complete_share", input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
+        const decision = await bridge.requestPermission({ toolUseId: `share-completion-${crypto.randomUUID()}`, toolName: toolName("complete_share"), input, kind: "command", description: "Complete this share and discard only these exact originals after verified filing." });
         return decision.behavior === "allow" && decision.updatedInput === undefined;
-      }, applicationPolicy!.lock);
+      }, applicationPolicy!.lock, maskGuard ? paths => maskGuard.assert(toolName("complete_share"), paths) : undefined);
     };
     if (backendId === "claude" || backendId === "pi") {
+      // The scratch prune that follows a mask never removes a masked folder's files.
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
-        protectedPaths,
+        protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
         lock: applicationPolicy.lock, isAuthorized, isAvailable: () => work?.posture !== "voice",
         record: result => recorder?.recordApplication?.(result) });
       const requestMask = bridge.requestMask!;
       bridge.requestMask = async (imagePath, instruction) => {
         assertAuthority();
+        maskGuard?.assert(toolName("request_image_mask"), [imagePath]);
         const base = readMaskBase(host.brainPath!, imagePath, backendId);
         const png = await requestMask(imagePath, instruction);
         assertAuthority();
@@ -624,6 +647,12 @@ export function makeBridge(
       };
       bridge.applyImageMask = async input => {
         await host.journal?.idle(); assertAuthority();
+        try { maskGuard?.assert(toolName("request_image_mask"), [input.imagePath, input.maskPath]); }
+        catch (error) {
+          if (!(error instanceof ProviderMaskRefusedError)) throw error;
+          const result = { ok: false, code: error.code, message: error.message, changes: [] };
+          recorder?.recordApplication?.(result); return result;
+        }
         const pending = pendingMasks.get(input.imagePath);
         pendingMasks.delete(input.imagePath);
         if (!pending || !Buffer.from(pending.png).equals(Buffer.from(input.png))) {
@@ -637,6 +666,20 @@ export function makeBridge(
       delete bridge.pruneScratch;
     }
   }
+  // Intake stages the submitted item under the share staging directory and
+  // reconciles what is already staged there, so a mask at, above or inside
+  // that directory, or one it resolves into, refuses the whole addition.
+  const inboxAdd = bridge.inboxAdd;
+  if (maskGuard && inboxAdd) bridge.inboxAdd = async input => {
+    const tool = toolName("inbox_add");
+    maskGuard.assert(tool, [`${SHARE_STAGING_DIR}/new`, ...maskGuard.folders.filter(folder => folder.startsWith(`${SHARE_STAGING_DIR}/`))]);
+    if (host.brainPath) {
+      let resolved: string | undefined;
+      try { resolved = relative(realpathSync(host.brainPath), realpathSync(join(host.brainPath, SHARE_STAGING_DIR))); } catch { /* not staged yet */ }
+      if (resolved !== undefined) maskGuard.assert(tool, [`${resolved}/new`]);
+    }
+    return inboxAdd(input);
+  };
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.
