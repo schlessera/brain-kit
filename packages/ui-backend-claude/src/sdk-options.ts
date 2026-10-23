@@ -1,4 +1,4 @@
-import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR } from "@schlessera/brain-ui-sdk/internal";
+import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, WORKER_EGRESS_DIR, workerProviderCredentials } from "@schlessera/brain-ui-sdk/internal";
 import { promptPrefixFingerprint } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeTitleUsageCollector } from "./title-usage.js";
 import { toolAvailabilityRefusal } from "./tool-availability.js";
@@ -33,7 +33,7 @@ import { SHOW_BLOCK_TOOL_NAME } from "./show-block-tool.js";
 import type { BackendLogFn, ClaudeBackendOptions } from "./options.js";
 import type { InferenceProfile } from "./profiles.js";
 import { createPermissionWiring } from "./permission-hooks.js";
-import { createWorkerSpawn } from "./worker-spawn.js";
+import { CLAUDE_INFERENCE_ENV, createWorkerSpawn } from "./worker-spawn.js";
 import { launchLimits, resolveTurnTempLimits, resolveWorkerStateLimits, workerNoteLimits, type WorkerLimitReport } from "@schlessera/brain-ui-sdk/internal";
 import { createTurnTempPressureHook, createTurnTempTool, TURN_TEMP_TOOL_NAME } from "./turn-temp-tool.js";
 import { workerStateLimit } from "./worker-state.js";
@@ -228,6 +228,12 @@ function assembleClaudeSdkTurn(
     .filter(([name]) => !profile.requiredEnvKeys.includes(name)
       // An operator who admits an agent-only key explicitly keeps it.
       && !(AGENT_INFERENCE_CREDENTIAL_ENV.includes(name) && !operatorAdmittedEnvNames().includes(name)))), ...inferenceEnv } : inheritedEnv;
+  // The provider keys a governed or strict worker keeps (#1666): the Claude
+  // CLI's own inference variables (placeholders on a relayed turn), the
+  // profile's declared credential and what an operator admits. The launcher
+  // withholds every other provider key, and the note names what stays.
+  const credentialEnv = [...CLAUDE_INFERENCE_ENV, ...profile.requiredEnvKeys, ...operatorAdmittedEnvNames()];
+  const providerKeys = workerProviderCredentials(childEnv, credentialEnv).kept.filter(name => !inferenceEnv || !(name in inferenceEnv));
   // One resolution of the worker's writable areas feeds both its mounts and
   // the note the agent reads, so the two cannot disagree (#1626).
   const sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
@@ -240,7 +246,7 @@ function assembleClaudeSdkTurn(
   const stateLimits = resolveWorkerStateLimits(backend.workerState ?? {});
   // And so is turn temp's, next to the tool that frees it (#1703).
   const turnTempLimits = resolveTurnTempLimits(backend.turnTemp ?? {});
-  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
+  const sandboxNote = [workerSandboxNote(sandbox, { ...(options.identity ? { identity: options.identity } : {}), ...(options.hostInference ? { egress: true } : {}), providerKeys, hardTimeoutMs: req.turnBudgetMs, limits: [...workerNoteLimits(limits.status), workerStateLimit(stateLimits),
     turnTempLimit(turnTempLimits.allowanceBytes, turnTempTool ? TURN_TEMP_TOOL_NAME : undefined),
     outputStagingLimit()] }), workerCommandPolicyNote(req.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), req.autonomous ? "" : workerOutwardNote(Boolean(options.hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
   const brief = req.autonomous?.systemPromptAppend ?? buildAppend(
@@ -371,7 +377,7 @@ function assembleClaudeSdkTurn(
         }
       },
       log: (level, message) => log(level, message),
-    }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference);
+    }, { limits: stateLimits, turnTempLimits }, req.workerLock, req.workerStarted, req.workerStartupView, req.persistClaudeMemory, options.hostInference, credentialEnv);
   sdkOptions.spawnClaudeCodeProcess = worker.spawn;
   if (!req.autonomous) sdkOptions.hooks = {
     ...sdkOptions.hooks,

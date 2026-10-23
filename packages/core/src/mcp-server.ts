@@ -118,6 +118,8 @@ interface CoreTools {
   brain: BrainContext;
   db: Database;
   embeddings?: EmbeddingProvider;
+  /** The embedding provider whose key the host withheld from this agent worker (#1666). */
+  withheldEmbeddings?: { provider: string; key: string };
   /** Load the vector extension on first use. */
   ensureVec: () => Promise<void>;
   stale: () => string | null;
@@ -492,7 +494,7 @@ export async function startMcpServer(
 
   // Without a usable embedding provider vector/hybrid degrade to FTS with a
   // warning, as in the CLI; the registry decides availability for both.
-  const { embeddings, warnings } = resolveProviders(brain.config);
+  const { embeddings, warnings, withheld } = resolveProviders(brain.config);
   if (warnings.embeddings) console.error(`brain MCP: ${warnings.embeddings}`);
 
   const db = openDatabase(brain.dbPath, { embeddingDimensions: embeddings?.dimensions ?? EMBEDDING_DIMENSIONS });
@@ -510,6 +512,7 @@ export async function startMcpServer(
     brain,
     db,
     embeddings,
+    ...(withheld?.embeddings ? { withheldEmbeddings: withheld.embeddings } : {}),
     ensureVec,
     stale: stalenessWarning(db, brain),
     configWarning,

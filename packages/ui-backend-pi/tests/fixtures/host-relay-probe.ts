@@ -21,6 +21,7 @@ const SECRETS = {
   codex: jwt("odysseus-account", "odysseus-host-signature"), codexRefreshed: jwt("odysseus-account-refreshed", "odysseus-refreshed-signature"),
   refresh: "odysseus-host-refresh-token", rotated: "odysseus-rotated-refresh-token",
   gateway: "odysseus-configured-gateway-token", router: "odysseus-ambient-router-key", bearer: "odysseus-ambient-anthropic-bearer",
+  gemini: "odysseus-cli-gemini-key", typesafe: "odysseus-cli-typesafe-key", claudeLogin: "odysseus-ambient-claude-login",
 };
 type Request = { path: string; authorization: string | null; apiKey: string | null; account: string | null; encoding: string | null; beta: string | null };
 /** Which fictional secret a header carries, never its value. */
@@ -129,6 +130,9 @@ const scenarios: Record<string, Scenario> = {
   "openai-env-key": { provider: "openai", model: "gpt-4o-mini", env: { OPENAI_API_KEY: SECRETS.openai }, turns: 2 },
   "configured-header-wins": { provider: "openai", model: "gpt-4o-mini", env: { OPENAI_API_KEY: SECRETS.openai, ODYSSEUS_GATEWAY_TOKEN: SECRETS.gateway },
     models: { providers: { openai: { headers: { Authorization: "Bearer $ODYSSEUS_GATEWAY_TOKEN" } } } } },
+  // Keys only the brain CLI's providers read, and another runtime's login, are withheld too (#1666).
+  "cli-keys-withheld": { provider: "openai", model: "gpt-4o-mini",
+    env: { OPENAI_API_KEY: SECRETS.openai, GEMINI_API_KEY: SECRETS.gemini, TYPESAFE_API_KEY: SECRETS.typesafe, CLAUDE_CODE_OAUTH_TOKEN: SECRETS.claudeLogin } },
   "agent-only-keys": { provider: "openai", model: "gpt-4o-mini",
     env: { OPENAI_API_KEY: SECRETS.openai, OPENROUTER_API_KEY: SECRETS.router, ANTHROPIC_AUTH_TOKEN: SECRETS.bearer } },
   "command-model-override-header": { provider: "openai", model: "gpt-4o-mini", marker: true, env: { OPENAI_API_KEY: SECRETS.openai },
@@ -197,7 +201,7 @@ try {
     writeFileSync(join(agent, "visible.txt"), "Odysseus control");
     process.env.PI_CODING_AGENT_DIR = agent;
     for (const name of ["OPENAI_API_KEY", "ODYSSEUS_ANTHROPIC_KEY", "ODYSSEUS_GATEWAY_TOKEN", "OPENROUTER_API_KEY", "ANTHROPIC_AUTH_TOKEN",
-      "BRAIN_UI_PI_CREDENTIAL_ORIGINS"]) delete process.env[name];
+      "GEMINI_API_KEY", "TYPESAFE_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "BRAIN_UI_PI_CREDENTIAL_ORIGINS"]) delete process.env[name];
     Object.assign(process.env, scenario.env ?? {}, scenario.origins ? { BRAIN_UI_PI_CREDENTIAL_ORIGINS: scenario.origins } : {});
     const records: EgressRecord[] = [];
     const backend = createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), loadExtensions: false,
@@ -238,6 +242,7 @@ try {
       workerObserved: observed.length > 0, hostCredentialFilesVisible: viewed, workerViewObserved: controlViewed,
       secretInWorker: Object.values(SECRETS).some(secret => observed.includes(secret)),
       placeholderInWorker: observed.includes("brain-inference-relay-placeholder"),
+      withheldKeys: /BRAIN_WITHHELD_KEYS=([^\0]*)/.exec(observed)?.[1] ?? null,
       commandRan: existsSync(join(scratch, "command-ran")),
       hostRefreshed: hostAuth?.["openai-codex"]?.refresh === SECRETS.rotated && hostAuth?.["openai-codex"]?.access === SECRETS.codexRefreshed,
       relayLinkRemoved,

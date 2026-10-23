@@ -2,6 +2,7 @@ import { compactVectors, EmbeddingRunActiveError, forgetCachedEnrichment, indexA
 import { loadVecSupport, openDatabase, vecTableExists, migrateVecSchema, storedVectorWidth } from "../../lib/db.js";
 import type { CoreCommand } from "../types.js";
 import { emit, embeddingDims, parseArgs, UsageError } from "../io.js";
+import { providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 
 const HELP = `brain index — update the search index (incremental by default)
 
@@ -78,6 +79,12 @@ export const indexCommand: CoreCommand = {
       const embedOnCommit =
         flags["on-commit"] === true && cli.brain.config?.hooks?.embedOnCommit === true && !!cli.embeddings;
       const embeddings = flags.embeddings === true || embedOnCommit;
+      // An agent worker without the provider's key still indexes by keyword,
+      // and says which provider it could not reach (#1666).
+      if (flags.embeddings === true && !cli.embeddings && cli.withheld?.embeddings) {
+        console.error(`Warning: ${providerUnavailableNotice({ ...cli.withheld.embeddings, capability: "embeddings", degradedTo: "keyword_index" },
+          "indexing by keyword only")}`);
+      }
 
       if (!cli.json) {
         console.log(force ? "Rebuilding full index..." : "Running incremental index...");
