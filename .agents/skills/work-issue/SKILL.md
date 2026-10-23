@@ -256,8 +256,10 @@ rewrite or push another worker's branch silently.
 
 Before creating a PR or marking a draft ready, run `bun run check:pr --base
 origin/main` in the issue checkout (the verified immediate parent ref for an
-upper stack layer). This supplies focused local preflight;
-`--plan` is inspection only. Record behavioral failing-first/restored mutation
+upper stack layer). Default preflight runs lint/leakage, environment
+documentation, changeset checks and affected fast invariants. Import-graph
+feedback is opt-in with `--import-graph`; `--plan` is inspection only, listing
+selected commands and the feedback skip/enabling flag. Record behavioral failing-first/restored mutation
 receipts and visual review where relevant. Complete repeatable proof runs in
 hosted CI on ready PRs under #1326: types, packaging, full affected discovery,
 pinned browser/layout/offline/endurance/editorial and native runtime categories.
