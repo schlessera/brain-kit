@@ -196,6 +196,12 @@ export const NATIVE_DATA_CHUNK_BYTES = 64 * 1024;
 /** Transport work bounds, configurable; neither is a history/object/change quota. */
 export const NATIVE_MANAGER_OPERATION_TIMEOUT_MS = 30_000;
 export const NATIVE_MANAGER_MAX_DELTA_BYTES = 64 * 1024 * 1024;
+/**
+ * Kernel allowance of one worktree checkpoint (#2430). A read-only snapshot
+ * owns only the tree blocks it allocates at creation; later copy-on-write by
+ * the worktree is charged to the worktree.
+ */
+export const REFERENCE_POOL_CHECKPOINT_BYTES = 1024 * 1024;
 /** Five-byte header: type (data=1, completion=2), unsigned big-endian payload length. */
 export function nativeManagerFrame(type: 1 | 2, bytes: Uint8Array): Uint8Array {
   const frame = new Uint8Array(5 + bytes.byteLength);

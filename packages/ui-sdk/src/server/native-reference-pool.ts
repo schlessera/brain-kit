@@ -19,7 +19,7 @@ import { constants, closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdi
   rmdirSync, statSync, symlinkSync, unlinkSync, writeFileSync, ftruncateSync, chownSync, chmodSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
-import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, type NativePoolAccess, type NativePoolCheckpoint, type NativePoolRecord,
+import { NativeBrainManagerError, nativeCheckpointId, nativePoolName, NATIVE_CONTROL_BYTES, REFERENCE_POOL_CHECKPOINT_BYTES, type NativePoolAccess, type NativePoolCheckpoint, type NativePoolRecord,
   type NativePoolSpace, type NativePoolState, type NativePoolStatus } from "./native-brain-manager-protocol.js";
 import { NativeRecoveryIndex } from "./native-recovery-index.js";
 import { POOL_HELPER } from "./native-reference-pool-helper.js";
@@ -37,12 +37,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const RECLAIM_WAKE_MS = 1_000;
 const STATES: readonly NativePoolState[] = ["reserved", "writable", "sealed", "deleting", "deleted", "reclaimed"];
 const PURPOSES = ["source", "worktree", "staging", "checkpoint"] as const;
-/**
- * Kernel allowance of one worktree checkpoint (#2430). A read-only snapshot
- * owns only the tree blocks it allocates at creation; later copy-on-write by
- * the worktree is charged to the worktree.
- */
-export const REFERENCE_POOL_CHECKPOINT_BYTES = 1024 * 1024;
 /** Recently forgotten checkpoint identities kept across restarts; each still reads as reclaimed and is never recreated. */
 const REFERENCE_POOL_FORGOTTEN = 512;
 
