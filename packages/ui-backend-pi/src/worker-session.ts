@@ -18,6 +18,7 @@ import { sessionReplay, NativeFileVersions, workerOutwardNote, workerCommandPoli
 
 import { decidePiToolPermission } from "./permission-gate.js";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
+import { preparePiHostInference, type PiHostInference } from "./host-inference.js";
 import type { CreatePiBackendOptions, PiSessionLike, SessionEnv } from "./backend-options.js";
 import { configuredProfiles, resolveModelSpec, toModel } from "./profiles.js";
 import { createTurnContext } from "./turn-context.js";
@@ -28,6 +29,15 @@ import { savePiSession, readPiSession, piSessionDirectory, syncPiAuth } from "./
 import { checkSessionSize, PI_WORKER_STATE, SessionTooLargeError, pipeMessages, sendPipe, piWorkerMessage, type PiWorkerMessage } from "./worker-protocol.js";
 
 type Rpc = Extract<PiWorkerMessage, { type: "rpc" }>;
+/** The model a saved session last used: its latest model change, else its latest answer. */
+function savedModel(entries: import("@earendil-works/pi-coding-agent").FileEntry[]): { provider: string; id: string } | undefined {
+  for (const entry of [...entries].reverse() as Array<Record<string, any>>) {
+    if (entry.type === "model_change" && typeof entry.provider === "string" && typeof entry.modelId === "string") return { provider: entry.provider, id: entry.modelId };
+    const message = entry.type === "message" ? entry.message : undefined;
+    if (message?.role === "assistant" && typeof message.provider === "string" && typeof message.model === "string") return { provider: message.provider, id: message.model };
+  }
+  return undefined;
+}
 /** The path a granted brain_read_base input names; undefined unless it is a valid input. */
 function grantedReadBasePath(granted: string): string | undefined {
   try { const parsed = brainReadBaseInput.safeParse(JSON.parse(granted)); return parsed.success ? parsed.data.path : undefined; }
@@ -102,7 +112,15 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // A restricted autonomous turn copies no native state into the worker: no
   // stored login, provider override or settings (#676). The relay holds the key.
   const envelope = restricted ? piAutonomousEnvelope(declared, agentDir) : undefined;
-  if (!envelope) for (const name of ["auth.json", "models.json", "settings.json"]) {
+  // A governed or strict turn on the turn proxy: the host holds the credential
+  // and the worker's pi reaches inference only through the relay (#1665).
+  const egress = !env.autonomous ? env.workerSandbox?.egress : undefined;
+  const relayedModel = egress ? declared ?? (entries ? savedModel(entries) : undefined) : undefined;
+  if (egress && !relayedModel) throw new BackendRequestError("A pi turn on the host inference relay needs a declared vendor/model profile.");
+  // Acquired inside the admission scope below, so every later failure releases it.
+  let hostInference: PiHostInference | undefined;
+  // A relayed worker gets only settings: the host keeps credentials and endpoints.
+  if (!envelope) for (const name of egress ? ["settings.json"] : ["auth.json", "models.json", "settings.json"]) {
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
@@ -129,13 +147,18 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let admissionObservation: StateRoomObservation;
   let identity: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
   try {
+    if (egress && relayedModel) {
+      hostInference = await preparePiHostInference({ provider: relayedModel.provider, modelId: relayedModel.id, agentDir,
+        brainPath: backend.brainPath, egress, environment: subprocessEnv(), ...(env.workerSignal ? { signal: env.workerSignal } : {}) });
+      Object.assign(init, { relayed: hostInference.worker });
+    }
     admissionObservation = checkSessionSize(init);
     const workerHost = requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
     if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) identity = { kind: "separate_uid", workerUid: workerHost.workerUid };
     // Admitted against the same per-process ledger as Claude workers; a busy
     // budget refuses as worker_state_busy before anything launches.
     reservation = processStateLedger().reserve(undefined, turnTempLimits);
-  } catch (error) { envelope?.relay.stop(); throw error; }
+  } catch (error) { envelope?.relay.stop(); hostInference?.stop(); throw error; }
   const entry = Bun.resolveSync("./worker-entry", import.meta.dir);
   const workerEnv: Record<string, string> = envelope
     // The restricted envelope: minimum runtime variables only, the installed
@@ -143,6 +166,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     ? { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", HOME: WORKER_SCRATCH, BRAIN_ROOT: backend.brainPath }
     : { ...Object.fromEntries(Object.entries(subprocessEnv()).filter((pair): pair is [string, string] => pair[1] !== undefined)), BRAIN_ROOT: backend.brainPath };
   if (!envelope) workerEnv.PATH = brainWorkerPath(backend.brainPath, workerEnv.PATH);
+  for (const name of hostInference?.credentialEnv ?? []) delete workerEnv[name];
   workerEnv.PI_CODING_AGENT_DIR = PI_WORKER_STATE;
   // SDK offline mode silently skips missing sources. Validate prepared packages
   // explicitly in the child; the parent's environment remains unchanged.
@@ -161,6 +185,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // and one its resource limits and the note's limits section (#1660).
     sandbox = envelope ? prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance })
       : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
+    if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {
       if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return actual === cachedNpmModules || actual.startsWith(cachedNpmModules + "/"); } catch { return false; } })) {
         throw new BackendRequestError("Pi prepared npm resources cannot contain a private worker mask.");
@@ -170,9 +195,9 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // Worker-local tools run the host's helpers: each file alone, never its parent.
     if (execHelpers.length && !envelope) sandbox = { ...sandbox, readPaths: [...(sandbox.readPaths ?? restrictedReadPaths([process.execPath, entry])), ...execHelpers] };
     const limits = launchLimits({});
-    sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
+    sandboxNote = [workerSandboxNote(sandbox, { ...(identity ? { identity } : {}), ...(hostInference ? { egress: true } : {}), hardTimeoutMs: env.turnBudgetMs, limits: [...workerNoteLimits(limits.status),
       turnTempLimit(reservation.turnTempBytes, env.caps.turnTemp === true ? "turn_temp" : undefined),
-      outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote(false, sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
+      outputStagingLimit()] }), workerCommandPolicyNote(env.autonomous ? undefined : sandbox.commandPolicy, confirmPatterns), env.autonomous ? "" : workerOutwardNote(Boolean(hostInference), sandbox.commandPolicy?.taint?.())].filter(Boolean).join("\n\n");
     if (resumeId && !restricted && stateRoomWarning(admissionObservation)) {
       sandboxNote += `\n\n${stateRoomCopy(admissionObservation)} Continue in a new conversation before it is full. This one stays available.`;
     }
@@ -187,6 +212,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: [...restrictedReadPaths([entry]), ...execHelpers], inferenceDir: envelope.relay.dir } } : {}),
+      ...(hostInference && egress ? { egress: { proxyDir: egress.dir, directLoopback: true } } : {}),
     });
     launchedChild = child;
     backend.log?.("debug", "Pi startup phase", { phase: "spawn", durationMs: performance.now() - spawning, elapsedMs: performance.now() - startupStarted });
@@ -206,6 +232,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     }
     if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());
     await attempt(() => envelope?.relay.stop());
+    await attempt(() => hostInference?.stop());
     if (workerStorageReleased) await attempt(() => reservation.release());
     if (cleanupErrors.length) {
       try { backend.log?.("warn", `Pi startup cleanup retained failures after its original refusal: ${cleanupErrors.map(String).join("; ")}`); } catch { /* Reporting cannot replace the startup error. */ }
@@ -229,6 +256,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   }
   // The relay lives exactly as long as the worker it serves.
   if (envelope) void child.exited.finally(() => envelope.relay.stop()).catch(() => {});
+  if (hostInference) void child.exited.finally(() => hostInference.stop()).catch(() => {});
   const releases = new Map<string, () => void>();
   void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); }).catch(() => {});
   // A worker that never ran a turn has nothing to promote; one that did is
@@ -402,6 +430,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       return { ok: true };
     }
     if (msg.method === "syncAuth") {
+      // A relayed worker's auth.json is a placeholder; the host refreshes its own store.
+      if (hostInference) throw new Error("A relayed pi worker cannot write the host's credential state");
       if (Object.keys(msg.input).length !== 1 || typeof msg.input.content !== "string") throw new Error("Malformed native pi state request");
       syncPiAuth(agentDir, agentFiles["auth.json"], msg.input.content);
       agentFiles["auth.json"] = msg.input.content;

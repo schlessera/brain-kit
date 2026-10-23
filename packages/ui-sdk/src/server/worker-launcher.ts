@@ -55,7 +55,7 @@ const STATE_GATE_OPEN = "go\n";
 const STATE_SETUP_MS = 5_000;
 /** Include the trusted transport wrapper in every start-gate boundary calculation. */
 const payloadCommand = (input: WorkerLaunch): readonly string[] => input.egress
-  ? [process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir), ...input.command] : input.command;
+  ? [process.execPath, Bun.resolveSync("./egress-worker-entry", import.meta.dir), ...input.egress.directLoopback ? ["--direct-loopback"] : [], ...input.command] : input.command;
 export const WORKER_HOST_ROUTE = "Use a verified Linux or qualifying WSL2 host with bubblewrap and unprivileged user namespaces.";
 
 export interface WorkerLaunch {
@@ -91,7 +91,7 @@ export interface WorkerLaunch {
    */
   restricted?: RestrictedEnvelope;
   /** Explicit measured interactive transport; default activation remains gated by #1665. */
-  egress?: { proxyDir: string };
+  egress?: { proxyDir: string; /** The worker serves its own loopback relay forwarder (#1665). */ directLoopback?: boolean };
   /**
    * The writable areas resolved by `prepareWorkerSandbox` for this worker
    * (#1626). The same object renders the agent's sandbox note, so the mounts

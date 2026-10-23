@@ -8,6 +8,9 @@ import { join } from "node:path";
 
 export const WORKER_EGRESS_DIR = "/run/brain-egress";
 export const WORKER_EGRESS_SOCKET = `${WORKER_EGRESS_DIR}/proxy.sock`;
+/** What the worker bootstrap sets so a tool's network reaches the turn proxy; a tool spawn must keep them. */
+export const WORKER_EGRESS_TRANSPORT_ENV = Object.freeze(["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+  "http_proxy", "https_proxy", "all_proxy", "no_proxy", "GIT_SSH_COMMAND"]);
 export interface EgressRecord {
   /** Only the server's concrete inference-relay admission supplies this tag. */
   inference?: true;
@@ -30,6 +33,8 @@ export interface EgressProxyOptions {
   deny: readonly string[];
   maxBytes: number;
   outwardHosts: readonly string[];
+  /** Destination ports that are outward on any host, such as mail submission. */
+  outwardPorts?: readonly number[];
   /** Host authority for this connection. An observation of a tool is not a grant. */
   approveOutward?(destination: { host: string; port: number; method: string }, signal: AbortSignal): Promise<boolean>;
   observe(record: EgressRecord): void;
@@ -61,6 +66,9 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) throw new Error("Egress maxBytes must be a finite nonnegative integer");
   for (const pattern of [...options.allow, ...options.deny, ...options.outwardHosts, ...options.taint?.allow ?? []]) {
     if (!/^(?:\*\.)?[a-zA-Z0-9.-]+$/.test(pattern) || pattern.includes("..")) throw new Error("Invalid egress host pattern");
+  }
+  for (const port of options.outwardPorts ?? []) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid outward port");
   }
   const separateIdentity = Boolean(workerIdentityHelper());
   const dir = mkdtempSync(join(tmpdir(), "brain-egress-"));
@@ -107,7 +115,7 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       const narrowed = () => !inference && options.taint?.tainted() && !matches(host, options.taint.allow) && !options.taint.contacted(host);
       if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       if (usedBytes >= options.maxBytes) { finish("denied", "max_bytes_per_turn"); return false; }
-      if (matches(host, options.outwardHosts)) {
+      if (matches(host, options.outwardHosts) || options.outwardPorts?.includes(port)) {
         let approved = false;
         let cancelled: (() => void) | undefined;
         try {
