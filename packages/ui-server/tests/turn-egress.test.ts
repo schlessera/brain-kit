@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { observeOutwardPlan, prepareOutwardPlan } from "@schlessera/brain-ui-sdk/internal";
@@ -9,7 +10,7 @@ import { launchFixtureAgentWorker } from "../../ui-sdk/tests/helpers/worker-star
 import { resolveGovernancePolicy, type GovernancePolicyInput } from "@schlessera/brain-common/internal/governance-policy";
 import type { BackendBridge, PermissionDecision } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client.js";
-import { queryGovernanceEvents, recordGovernanceEvent } from "../src/governance/events.js";
+import { queryGovernanceEvents, recordGovernanceEvent, type GovernanceEventInput } from "../src/governance/events.js";
 import { createOutwardCalls, prepareTurnEgress } from "../src/brain/turn-egress.js";
 
 function get(socketPath: string, target: string): Promise<number> {
@@ -19,6 +20,15 @@ function get(socketPath: string, target: string): Promise<number> {
       response.once("error", reject);
     });
     child.once("error", reject); child.end();
+  });
+}
+function connectStatus(socketPath: string, target: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(socketPath); let text = "";
+    socket.on("connect", () => socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`));
+    socket.on("data", data => { text += data; const status = /^HTTP\/1\.1 (\d{3})/.exec(text); if (status) { socket.destroy(); resolve(Number(status[1])); } });
+    // A tunnel closed without a status line reports 0.
+    socket.on("close", () => resolve(0)); socket.on("error", reject);
   });
 }
 const bridge = (requestPermission: BackendBridge["requestPermission"]): BackendBridge => ({ requestPermission, emit() {} }) as unknown as BackendBridge;
@@ -126,6 +136,29 @@ test("voice without a grant surface refuses the outward connection", async () =>
   } finally { proxy.stop(); origin.stop(true); }
 });
 
+test("mail submission is outward by default: any host on a submission port and the built-in mail-send APIs ask first", async () => {
+  const asked: unknown[] = [], records: GovernanceEventInput[] = [];
+  let calls = 0;
+  const origin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { calls++; return new Response("Ithaca"); } });
+  const proxy = await prepareTurnEgress({ ...inputs(new AbortController()),
+    bridge: bridge(async request => { asked.push(request.input); return { behavior: "deny", message: "Penelope declines" }; }),
+    record: event => { records.push(event); } });
+  try {
+    for (const target of ["mail.ithaca.invalid:587", "mail.ithaca.invalid:465", "mail.ithaca.invalid:25", "api.sendgrid.com:443", "gmail.googleapis.com:443"]) {
+      expect(await connectStatus(proxy.socketPath, target), `TURN_EGRESS_MAIL_DEFAULT_${target}`).toBe(403);
+    }
+    expect(asked, "TURN_EGRESS_MAIL_DEFAULT_ASKS").toEqual([
+      { host: "mail.ithaca.invalid", port: 587, method: "CONNECT" }, { host: "mail.ithaca.invalid", port: 465, method: "CONNECT" },
+      { host: "mail.ithaca.invalid", port: 25, method: "CONNECT" }, { host: "api.sendgrid.com", port: 443, method: "CONNECT" },
+      { host: "gmail.googleapis.com", port: 443, method: "CONNECT" }]);
+    expect(records.filter(event => event.kind === "egress_connection").map(event => (event.payload as { reason?: string }).reason))
+      .toEqual(Array(5).fill("outward_not_approved"));
+    // An ordinary destination on another port is recorded without a card.
+    expect(await get(proxy.socketPath, origin.url.href)).toBe(200);
+    expect(asked).toHaveLength(5); expect(calls).toBe(1);
+  } finally { proxy.stop(); origin.stop(true); }
+});
+
 const classified = (bridge: BackendBridge, toolUseId: string, command: string, behavior: "allow" | "deny" = "allow") =>
   observeOutwardPlan(prepareOutwardPlan({ toolName: "Bash", shellToolName: "Bash", input: { command } }),
     { bridge, toolName: "Bash", toolUseId, input: { command }, decision: behavior === "allow" ? { behavior } : { behavior, message: "Declined" } });
@@ -137,6 +170,10 @@ test("an approved outward action covers only the hosts it names, and only while 
   classified(bridge, "comment", "gh issue comment 7 --repo odysseus/voyage --body Homeward");
   expect(calls.covers("api.github.com"), "OUTWARD_EXCEPTION_APPROVED_GH_WRITE").toBe(true);
   expect(calls.covers("smtp.ithaca.invalid")).toBe(false);
+  classified(bridge, "push", "git push https://harbour.ithaca.invalid/odysseus/voyage.git main");
+  expect(calls.covers("harbour.ithaca.invalid"), "OUTWARD_EXCEPTION_PUSH_NAMES_ITS_HOST").toBe(false);
+  expect(calls.covers("api.github.com"), "OUTWARD_EXCEPTION_EVERY_CALL_MUST_NAME_THE_HOST").toBe(false);
+  bridge.emit({ type: "tool_result", sessionId: "ithaca", toolUseId: "push", output: "", isError: false });
   classified(bridge, "script", "sh send.sh");
   expect(calls.covers("api.github.com"), "OUTWARD_EXCEPTION_WITHHELD_BESIDE_OPAQUE").toBe(false);
   bridge.emit({ type: "tool_result", sessionId: "ithaca", toolUseId: "script", output: "", isError: false });
