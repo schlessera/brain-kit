@@ -1914,7 +1914,7 @@ which the private index is built from and a strict worker runs on, plus the
 live brain for a governed worker. It refuses through
 `ProviderPolicyRefusedError`, naming up to three outside names with the masked
 file each aliases and counting the rest (`providerHardlinks`,
-`packages/ui-server/src/brain/provider-hardlinks.ts:33-82`). It uses the same
+`packages/ui-server/src/brain/provider-hardlinks.ts:33-85`). It uses the same
 `providerMaskedFolders` set as the masks. In practice the leak is on the
 checkpoint: a governed turn already falls back to strict when a retained
 folder holds any multiply linked file (`checkTree`), and a Btrfs checkpoint
