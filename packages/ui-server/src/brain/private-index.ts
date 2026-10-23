@@ -43,13 +43,58 @@ export function removePrivateIndexDirectory(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }
 
-async function bounded(stream: unknown): Promise<string> {
-  if (!stream) return "";
-  let text = "";
+/** Up to `bytes` of a stream as text; `whole` is false when more arrived. */
+async function bounded(stream: unknown, bytes: number): Promise<{ text: string; whole: boolean }> {
+  if (!stream) return { text: "", whole: true };
+  const kept: Uint8Array[] = [];
+  let length = 0, whole = true;
   for await (const chunk of stream as AsyncIterable<Uint8Array>) {
-    if (text.length < OUTPUT_BYTES) text += new TextDecoder().decode(chunk).slice(0, OUTPUT_BYTES - text.length);
+    if (length + chunk.length > bytes) whole = false;
+    if (length < bytes) { kept.push(chunk.subarray(0, bytes - length)); length += Math.min(chunk.length, bytes - length); }
   }
-  return text;
+  return { text: new TextDecoder().decode(Buffer.concat(kept)), whole };
+}
+
+/**
+ * Run the brain's own CLI in a credential-free strict worker on the immutable
+ * startup view, with `folders` masked, `.git` hidden and only the private
+ * index directory writable. Repository code never runs on the host.
+ */
+export async function runMaskedBrainCli(options: {
+  brainPath: string; startupView: WorkerStartupView; folders: readonly string[]; index: string;
+  maskPaths: readonly string[]; signal: AbortSignal; timeoutMs: number; command: readonly string[];
+  /** Names the run in failure details, such as `brain index`. */
+  label: string; outputBytes?: number;
+}): Promise<{ ok: true; stdout: string } | { ok: false; detail: string }> {
+  options.signal.throwIfAborted();
+  const sandbox = { ...prepareWorkerSandbox(options.brainPath, { profile: "strict", areas: [], maskPaths: options.maskPaths }),
+    providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index }) };
+  const view = retainWorkerStartupView(options.startupView);
+  let worker: ReturnType<typeof launchAgentWorker>;
+  try {
+    worker = launchAgentWorker({ brainPath: options.brainPath, startupView: view, sandbox,
+      env: { PATH: [dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(":"), BRAIN_ROOT: options.brainPath, HOME: "/tmp", NO_COLOR: "1" },
+      command: [...options.command] });
+  } catch (error) {
+    await view.cleanup();
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+  let timedOut = false;
+  const stop = () => worker.kill("SIGKILL");
+  const timer = setTimeout(() => { timedOut = true; stop(); }, options.timeoutMs);
+  options.signal.addEventListener("abort", stop, { once: true });
+  try {
+    const [stdout, stderr, exit] = await Promise.all([bounded(worker.stdout, options.outputBytes ?? OUTPUT_BYTES), bounded(worker.stderr, OUTPUT_BYTES), worker.exited]);
+    options.signal.throwIfAborted();
+    if (timedOut) return { ok: false, detail: `${options.label} did not finish within ${options.timeoutMs / 1000} s` };
+    if (exit !== 0) return { ok: false, detail: `${options.label} exited ${exit}: ${stderr.text.trim().split("\n").at(-1) ?? ""}` };
+    // Output is read only when it is wanted, and then only whole.
+    return options.outputBytes === undefined || stdout.whole ? { ok: true, stdout: stdout.text }
+      : { ok: false, detail: `${options.label} wrote more than ${options.outputBytes} bytes` };
+  } finally {
+    clearTimeout(timer);
+    options.signal.removeEventListener("abort", stop);
+  }
 }
 
 /**
@@ -63,30 +108,7 @@ export async function buildPrivateIndex(options: {
   /** The CLI argv before `index --json`; default: the brain's own packaged CLI. */
   command?: readonly string[];
 }): Promise<{ ok: true } | { ok: false; detail: string }> {
-  options.signal.throwIfAborted();
-  const sandbox = { ...prepareWorkerSandbox(options.brainPath, { profile: "strict", areas: [], maskPaths: options.maskPaths }),
-    providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index }) };
-  const view = retainWorkerStartupView(options.startupView);
-  let worker: ReturnType<typeof launchAgentWorker>;
-  try {
-    worker = launchAgentWorker({ brainPath: options.brainPath, startupView: view, sandbox,
-      env: { PATH: [dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(":"), BRAIN_ROOT: options.brainPath, HOME: "/tmp", NO_COLOR: "1" },
-      command: privateIndexArgv(options.brainPath, options.command) });
-  } catch (error) {
-    await view.cleanup();
-    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
-  }
-  let timedOut = false;
-  const stop = () => worker.kill("SIGKILL");
-  const timer = setTimeout(() => { timedOut = true; stop(); }, options.timeoutMs ?? PRIVATE_INDEX_BUILD_MS);
-  options.signal.addEventListener("abort", stop, { once: true });
-  try {
-    const [, stderr, exit] = await Promise.all([bounded(worker.stdout), bounded(worker.stderr), worker.exited]);
-    options.signal.throwIfAborted();
-    if (timedOut) return { ok: false, detail: `the build did not finish within ${(options.timeoutMs ?? PRIVATE_INDEX_BUILD_MS) / 1000} s` };
-    return exit === 0 ? { ok: true } : { ok: false, detail: `brain index exited ${exit}: ${stderr.trim().split("\n").at(-1) ?? ""}` };
-  } finally {
-    clearTimeout(timer);
-    options.signal.removeEventListener("abort", stop);
-  }
+  const built = await runMaskedBrainCli({ ...options, timeoutMs: options.timeoutMs ?? PRIVATE_INDEX_BUILD_MS,
+    command: privateIndexArgv(options.brainPath, options.command), label: "brain index" });
+  return built.ok ? { ok: true } : built;
 }

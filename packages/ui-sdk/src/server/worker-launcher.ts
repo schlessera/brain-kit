@@ -15,7 +15,7 @@ import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerSta
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMount, resolveWorkspacesMount, WORKER_AREAS, WORKER_AREA_ROOT,
+import { resolveScratchMount, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 import { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
@@ -523,7 +523,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
@@ -750,6 +750,18 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
   if (sandbox.home?.mode === "xdg") {
     out.binds.push(...Object.values(WORKER_XDG_DIRS).flatMap(dir => ["--dir", dir]));
     out.env.push(...Object.entries(WORKER_XDG_DIRS).flatMap(([key, dir]) => ["--setenv", key, dir]));
+  }
+  // Managed worktrees (#2430): the whole access generation, so a grant appears
+  // and a parked worktree disappears without a mount in the running namespace.
+  // The generation is root-owned: the worker cannot add entries beside a grant.
+  if (sandbox.worktrees) {
+    const source = sandbox.worktrees.source, info = lstatSync(source, { throwIfNoEntry: false });
+    if (sandbox.restricted || input.restricted || input.maintenance || input.transport || workerProfile(sandbox) === "restricted")
+      throw new WorkerHostError("only an interactive governed or strict worker binds a managed worktree generation");
+    if (!isAbsolute(source) || !info?.isDirectory() || realpathSync(source) !== normalize(source) || info.uid !== 0 || (info.mode & 0o7777) !== 0o755
+      || within(brain, source) || within(source, brain))
+      throw new WorkerHostError("a managed worktree generation must be its pool's root-owned directory outside the brain");
+    out.binds.push("--bind", source, WORKER_WORKTREE_ROOT);
   }
   return out;
 }
@@ -1208,7 +1220,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       identityBroker = prepareWorkerIdentity(helper, payload.argv, [
         ...(input.stateBytes === undefined ? [] : [{ name: "state" as const, path: WORKER_STATE, bytes: input.stateBytes }]),
         ...(input.turnTempBytes === undefined ? [] : [{ name: "temp" as const, path: TURN_TEMP_ROOT, bytes: input.turnTempBytes }]),
-      ], cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage);
+      ], cgroup?.path, input.areaOutput?.storage ?? input.maintenance?.output?.storage,
+      input.sandbox?.profile === "governed" && input.sandbox.retainedFolders?.length ? brain : undefined);
       payload.argv = identityBroker.command;
       // The helper enrolls only the payload launch. Coordination stays outside its cgroup.
       delete payload.cgroup;
@@ -1259,7 +1272,8 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
       if (identityBroker) tempFd = undefined;
     }
     if (input.sandbox?.profile === "governed")
-      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks);
+      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
+        identityBroker?.brainView());
     // Release the gate: the worker's command starts only now.
     if (identityBroker) identityBroker.request("release"); else status!.release();
     stateFd = tempFd = undefined;

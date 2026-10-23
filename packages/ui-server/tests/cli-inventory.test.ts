@@ -13,6 +13,9 @@ const available: Record<string, string> = {
   search: "0.33.0", briefing: "0.33.0", stats: "0.33.0", list: "0.33.0",
   read: "0.33.0", sync: "0.33.0", add: "0.33.0", index: "0.33.0", validate: "0.33.0",
   "storage pack": "0.44.0", // #2011: separately probed optional maintenance capability.
+  // #2694: a type-restricted turn reads the taxonomy; `config check --json`
+  // reports `taxonomy.types[*].prefixes` and `inbox` in the 0.33.0 core tag.
+  "config check": "0.33.0",
   "skills sync": "0.33.0", "scratch prune": "0.38.0", "module list": "0.33.0",
   "module enable": "0.40.0", "module disable": "0.40.0", "module settings": "0.40.0",
   "hygiene list": "0.39.0", "hygiene next": "0.41.0", "hygiene resolve": "0.41.0",
@@ -88,7 +91,7 @@ function inventory() {
       const first = elements[0];
       if (!first || !ts.isExpression(first)) throw new Error("Missing CLI command");
       const commands = strings(first).flatMap(command => {
-        if (["module", "skills", "scratch", "storage"].includes(command)) {
+        if (["module", "skills", "scratch", "storage", "config"].includes(command)) {
           const sub = elements[1];
           if (!sub || !ts.isExpression(sub)) throw new Error(`Missing ${command} subcommand`);
           return strings(sub).map(value => `${command} ${value}`);
@@ -163,6 +166,12 @@ function inventory() {
         probes++;
       }
       if (call === "brainCliCommand" || (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "cliCommand")) {
+        // The restricted-turn argv helpers default their command to the
+        // selected CLI and append fixed argv; record that argv too.
+        const helper = scope(node);
+        if (helper && ts.isFunctionDeclaration(helper) && ["privateIndexArgv", "taxonomyArgv"].includes(helper.name?.text ?? "")) walk(helper.body!, value => {
+          if (ts.isArrayLiteralExpression(value) && value.elements[0]?.getText() === "...command") inspect(ts.factory.updateArrayLiteralExpression(value, value.elements.slice(1)));
+        });
         selections++;
         expect(["brain/client.ts", "routes/brain.ts"].some(suffix => path.endsWith(suffix))).toBe(true);
       }
@@ -179,8 +188,9 @@ function inventory() {
     }
   });
   expect(streams).toBe(1);
-  // client.ts also selects the CLI for a restricted turn's private `index --json` pass (#1668).
-  expect(selections).toBe(5);
+  // client.ts also selects the CLI for a restricted turn's private `index --json`
+  // pass (#1668) and its taxonomy read, `config check --json` (#2694).
+  expect(selections).toBe(6);
   expect(probes).toBe(1);
   expect([...sites].sort()).toEqual(["packages/ui-server/src/brain/client.ts", "packages/ui-server/src/inbox/hygiene-review.ts"]);
   // hygiene's forwarding wrapper adds --json to every subcommand.

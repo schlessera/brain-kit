@@ -1,11 +1,11 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, existsSync, linkSync, symlinkSync } from "node:fs";
+import { constants, mkdtempSync, mkdirSync, openSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync, existsSync, linkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { prepareWorkerSandbox, workerCommand, launchAgentWorker } from "../src/server/worker-launcher.js";
 import { createFixtureWorkerStartupView as createWorkerStartupView, launchFixtureAgentWorker } from "./helpers/worker-startup-view-fixture.js";
 import { workerSandboxNote } from "../src/server/worker-sandbox.js";
-import { resolveWorkerProtection } from "../src/server/worker-protection.js";
+import { resolveWorkerProtection, verifyWorkerFolderMounts } from "../src/server/worker-protection.js";
 import { protectedPaths } from "../src/server/protected-paths.js";
 
 async function collectLaunched(stream: NodeJS.ReadableStream): Promise<string> {
@@ -331,4 +331,41 @@ test("strict snapshot consumers keep folder publication plans without claiming l
   const [exit, out, err] = await Promise.all([worker.exited, collectLaunched(worker.stdout), collectLaunched(worker.stderr)]);
   expect(exit, err).toBe(0);
   expect(out).toBe("Athena");
+});
+
+
+test("a broker brain view qualifies mounts only as the worker's own brain mount", async () => {
+  const brain = fixture(); mkdirSync(join(brain, "group/private"), { recursive: true });
+  const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
+  expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
+  const child = Bun.spawn(workerCommand({ brainPath: brain, sandbox, env: {}, command: ["/bin/sh", "-c", "printf READY; read go"] }),
+    { env: {}, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const stream = child.stdout.getReader();
+  try {
+    let output = "";
+    while (!output.includes("READY")) { const next = await stream.read(); if (next.done) throw Error("Brain view worker exited before readiness"); output += new TextDecoder().decode(next.value); }
+    // The sandbox's own process: the first descendant whose namespace holds the folder pin.
+    const descendants = (pid: number): number[] => readdirSync(`/proc/${pid}/task`).flatMap(task =>
+      readFileSync(`/proc/${pid}/task/${task}/children`, "utf8").trim().split(" ").filter(Boolean).map(Number)).flatMap(next => [next, ...descendants(next)]);
+    const pid = descendants(child.pid).find(candidate => readFileSync(`/proc/${candidate}/mountinfo`, "utf8").includes(` ${join(brain, "group/private")} `))!;
+    expect(pid, "BRAIN_VIEW_FIXTURE_SANDBOX_PID").toBeGreaterThan(0);
+    const qualify = (path: string) => {
+      let closed = 0;
+      const run = () => verifyWorkerFolderMounts(brain, sandbox.protection, sandbox.retainedFolders, pid, Date.now() + 5_000, undefined,
+        { open: () => openSync(path, constants.O_RDONLY | constants.O_DIRECTORY), close: () => { closed++; } });
+      return { run, closed: () => closed };
+    };
+    const own = qualify(`/proc/${pid}/root${brain}`);
+    own.run();
+    expect(own.closed(), "BRAIN_VIEW_RETURNED_AFTER_QUALIFICATION").toBe(1);
+    // A host handle shows the same self-bound inodes; only its mount identity differs.
+    const host = qualify(brain);
+    expect(host.run, "BRAIN_VIEW_MUST_BE_THE_WORKER_BRAIN_MOUNT").toThrow("the brain view is not the worker's own brain mount");
+    expect(host.closed(), "REFUSED_BRAIN_VIEW_IS_STILL_RETURNED").toBe(1);
+    const nested = qualify(`/proc/${pid}/root${join(brain, "group")}`);
+    expect(nested.run, "BRAIN_VIEW_CANNOT_BE_ANOTHER_WORKER_MOUNT").toThrow("the brain view is not the worker's own brain mount");
+    const failed = qualify(join(brain, "missing"));
+    expect(failed.run, "UNOPENED_BRAIN_VIEW_REFUSES").toThrow("provider folder topology could not be qualified");
+    expect(failed.closed(), "UNOPENED_BRAIN_VIEW_IS_STILL_RETURNED").toBe(1);
+  } finally { child.kill(); await child.exited; stream.releaseLock(); }
 });

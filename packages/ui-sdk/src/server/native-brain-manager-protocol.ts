@@ -38,6 +38,21 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName }).strict(),
   z.object({ operation: z.literal("poolUnpublish"), view: nativeCheckpointId, name: nativePoolName }).strict(),
   z.object({ operation: z.literal("poolWithdraw"), id: nativeCheckpointId }).strict(),
+  // Managed worktrees (#2430). A checkpoint is a read-only snapshot of one
+  // writable worktree; deltas and fixed worker-UID reads stay inside one
+  // worktree's checkpoints. An access directory is one caller-generated worker
+  // generation; the manager alone moves a worktree root into or out of it.
+  z.object({ operation: z.literal("poolCheckpoint"), id: nativeCheckpointId, from: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolDelta"), from: nativeCheckpointId, to: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolReadCheckpoint"), id: nativeCheckpointId,
+    action: z.enum(["file", "stat", "list"]), path: z.string().max(4096).refine(path => !path.startsWith("/") && !path.includes("\0") &&
+      (!path || path.split("/").length <= 256 && path.split("/").every(part => part && part !== "." && part !== ".."))),
+    maximum: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({ operation: z.literal("poolAccessOpen"), access: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolAccess"), id: nativeCheckpointId, access: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolPark"), id: nativeCheckpointId }).strict(),
+  z.object({ operation: z.literal("poolAccessClose"), access: nativeCheckpointId }).strict(),
 ]);
 export type NativeManagerRequest = z.infer<typeof nativeManagerRequest>;
 export type NativeManagerErrorCode = "unsupported" | "capacity" | "unavailable" | "unknown" | "released" | "invalid";
@@ -104,8 +119,9 @@ export interface NativePoolRootIdentity {
 }
 export interface NativePoolRecord {
   id: string;
-  purpose: "source" | "worktree" | "staging";
-  /** Sealed pool root this one was snapshotted from, or null for an empty root. */
+  /** `checkpoint` (#2430): a read-only snapshot of one writable worktree, created only by `poolCheckpoint`. */
+  purpose: "source" | "worktree" | "staging" | "checkpoint";
+  /** Pool root this one was snapshotted from (sealed, or the writable worktree of a checkpoint), or null for an empty root. */
   from: string | null;
   allowanceBytes: number;
   state: NativePoolState;
@@ -118,7 +134,21 @@ export interface NativePoolRecord {
   reason: string | null;
   /** Reference view (#2429) whose directory holds this sealed root once published, else null. */
   view: string | null;
+  /** Access directory (#2430) whose worker generation currently holds this writable worktree, else null. */
+  access: string | null;
 }
+/** Purposes a caller may admit with `poolCreate`; checkpoints come only from `poolCheckpoint`. */
+export type NativePoolCreatePurpose = Exclude<NativePoolRecord["purpose"], "checkpoint">;
+/** A sealed worktree checkpoint (#2430) with the native send identity its deltas are verified against. */
+export interface NativePoolCheckpoint extends NativePoolRecord {
+  purpose: "checkpoint";
+  state: "sealed";
+  /** Actual BTRFS_IOC_GET_SUBVOL_INFO ctransid of the read-only snapshot. */
+  transaction: string;
+  readOnly: true;
+}
+/** One open access directory (#2430): bound into its worker generation, never named by a requester as a path. */
+export interface NativePoolAccess { access: string; path: string; roots: string[] }
 export interface NativePoolSpace { profile: "single" | "dup"; diskUsed: number; diskTotal: number; bytesUsed: number; bytesReserved: number; bytesMayUse: number; bytesPinned: number }
 export interface NativePoolStatus {
   qualified: boolean;

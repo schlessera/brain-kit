@@ -25,6 +25,14 @@ export class NativeRecoveryIndex {
     } catch (error) { this.failed = true; throw error; }
   }
 
+  /** Called only after the JSON intent was removed and its directory synced. */
+  forget(id: string): void {
+    try {
+      if (this.failed) throw Error("Native recovery index is unavailable; restart the manager to rebuild it.");
+      this.db.query("DELETE FROM identities WHERE id = ?").run(id);
+    } catch (error) { this.failed = true; throw error; }
+  }
+
   /** 64 response candidates and one lookahead; no complete-history scan. */
   page(after: string | null): string[] {
     if (this.failed) throw Error("Native recovery index is unavailable; restart the manager to rebuild it.");
