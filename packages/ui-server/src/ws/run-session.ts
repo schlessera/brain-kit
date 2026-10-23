@@ -493,6 +493,7 @@ async function runRetainedSession(
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       let turnEgress: Awaited<ReturnType<typeof prepareTurnEgress>> | undefined;
+      let worktreeGeneration: import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration | undefined;
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
       let scopeStopReason: string | undefined;
@@ -540,6 +541,19 @@ async function runRetainedSession(
           lifecycle?.mark("journalBeganAt");
         }
         abortController.signal.throwIfAborted();
+        // Managed worktrees (#2430): a journaled turn's workers bind one empty generation.
+        // A worktree reaches it only through an access that first covers it in this journal.
+        if (governedHold && host.journal && host.referenceWorktreeAccess && host.referenceWorktrees && host.journal.summary(turn.turnId).state === "recording") {
+          try {
+            worktreeGeneration = await host.referenceWorktrees.openGeneration({ principalId: turn.principalId, turnId: turn.turnId,
+              profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", signal: abortController.signal });
+            host.referenceWorktreeGenerations.set(turn.turnId, worktreeGeneration);
+          } catch (error) {
+            // The turn runs without worktree access; nothing was granted.
+            if (abortController.signal.aborted) throw error;
+            host.log.emit({ severityText: "WARN", body: `managed worktree generation unavailable for this turn: ${String(error)}` });
+          }
+        }
         const scopeTurnId = turn.turnId;
         if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
           origin, model: () => mainModel, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
@@ -676,7 +690,8 @@ async function runRetainedSession(
           ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
-          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(commandPolicy ? { commandPolicy } : {}), ...(turnEgress ? { egress: turnEgress } : {}), noteFacts: {
+          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(commandPolicy ? { commandPolicy } : {}), ...(turnEgress ? { egress: turnEgress } : {}),
+            ...(worktreeGeneration ? { worktrees: { source: worktreeGeneration.path } } : {}), noteFacts: {
             ...governedHold.sandbox.noteFacts,
             ...(workerIdentity ? { identity: workerIdentity } : {}),
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
@@ -778,6 +793,12 @@ async function runRetainedSession(
           // Observe after backend writers stop, before quarantine and gate release.
           await host.journal?.finish(turn.turnId);
         } catch (error) { host.log.emit({ severityText: "ERROR", body: `journal final observation failed: ${String(error)}` }); }
+        if (worktreeGeneration) {
+          // Its workers exited and the final observation is recorded: park what it held.
+          host.referenceWorktreeGenerations.delete(turn.turnId);
+          try { await host.referenceWorktrees!.closeGeneration(worktreeGeneration.id); await host.referenceWorktrees!.reconcile(); }
+          catch (error) { host.log.emit({ severityText: "ERROR", body: `managed worktree generation close failed; startup recovery retries it: ${String(error)}` }); }
+        }
         host.scope?.finish(turn.turnId);
         try {
           const reconciled = await governedHold?.end();

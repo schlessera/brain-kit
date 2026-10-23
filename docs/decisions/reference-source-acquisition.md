@@ -78,11 +78,11 @@ the previous root, so a refresh fetches only new objects. Then
 2. The **network transport** fetches one ref into it. It is the only worker
    that may hold a credential: the granted host variable, delivered through a
    fixed credential helper, with one allowed protocol and no redirects
-   (`fetch({ repository, ref, token, root, signal })`, `packages/ui-server/src/brain/reference-transport.ts:128-143`).
+   (`fetch({ repository, ref, token, root, signal })`, `packages/ui-server/src/brain/reference-transport.ts:133-148`).
 3. A separate **checkout worker** has no credential and no network. It checks
    out the commit and evaluates the repository's attributes. No filter or
    hook is configured, so none runs
-   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:144-154`).
+   (`async checkout({ root, commit, signal })`, `packages/ui-server/src/brain/reference-transport.ts:149-159`).
 4. The live grant is read again, the root is sealed, the grant is read
    again, and only then is the root published.
 

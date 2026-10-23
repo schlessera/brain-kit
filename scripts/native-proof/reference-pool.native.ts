@@ -572,6 +572,90 @@ const shapes = await create("staging", 32 * MIB);
   for (const id of [tree.id, other.id, base.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_RELEASED").toContain((await release(id)).state);
 }
 
+// 18. Managed worktree lifecycle and journal (#2430): the real services
+// allocate a worktree from acquired source, cover it in the turn journal and
+// grant it to a running non-root sandbox. Its edits are journaled from the
+// worktree's own checkpoints and counted by scope; reads are not work.
+{
+  const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
+  const { createPrincipal } = await import("../../packages/ui-server/src/db/principals.js");
+  const { createReferenceGrant } = await import("../../packages/ui-server/src/db/reference-grants.js");
+  const { createReferenceSources } = await import("../../packages/ui-server/src/brain/reference-source.js");
+  const { createReferenceTransport } = await import("../../packages/ui-server/src/brain/reference-transport.js");
+  const { createReferenceWorktrees, referenceWorktreeDependents } = await import("../../packages/ui-server/src/brain/reference-worktrees.js");
+  const { createTurnJournal } = await import("../../packages/ui-server/src/brain/turn-journal.js");
+  const { referenceWorktreeJournalPath } = await import("../../packages/ui-server/src/brain/reference-worktree-journal.js");
+  const srv = "/native-runtime/srv", state = "/native-runtime/case-18";
+  mkdirSync(state, { recursive: true });
+  await manager.close();
+  const served = await serveNativeBrainManager(config);
+  const client = createNativeBrainManagerClient({ socketPath: config.socketPath, timeoutMs: 20_000 });
+  const db = createUiDb(join(state, "ui.db"));
+  try {
+    const penelope = createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 86_400 });
+    createReferenceGrant(db, { brain: "ithaca", principalId: penelope.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: penelope.id, now: Date.now() });
+    const sources = createReferenceSources({ db, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca", credentials: {},
+      dependents: rootId => referenceWorktreeDependents(db, rootId) });
+    const journal = createTurnJournal(db, { nativeManager: client, brainPath: "/brain-fixture/brain", dbPath: join(state, "ui.db"), objectsRoot: join(state, "objects"), referencePool: client });
+    const facts = new Map<string, { changedPaths: number; partial: boolean }>();
+    journal.onObservation((turnId, value) => facts.set(turnId, value));
+    const worktrees = createReferenceWorktrees({ db, pool: client, sources, coverage: (input, signal) => journal.attachWorktree(input.turnId, input.worktreeId, signal) });
+    const repository = `file://${srv}/ithaca.git`, commit = command(["git", "--git-dir", join(srv, "ithaca.git"), "rev-parse", "main"]).trim();
+    const sandbox = (generation: string, script: string) => command(["bwrap", "--ro-bind", "/", "/", "--tmpfs", POOL, "--tmpfs", "/tmp", "--bind", generation, "/tmp/brain-worktrees",
+      "--proc", "/proc", "--dev", "/dev", "--unshare-pid", "--die-with-parent", "--", "/usr/bin/setpriv", "--reuid=1001", "--regid=1000", "--groups=0", "/bin/sh", "-c", script]);
+    const turn = async (turnId: string) => {
+      await journal.begin(turnId, { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, error => { throw error; });
+      return worktrees.openGeneration({ principalId: penelope.id, turnId, profile: "governed" });
+    };
+    const edited = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+    expect(edited, "REFERENCE_WORKTREE_NATIVE_FIXED_COMMIT").toMatchObject({ domain: "private", commit, state: "active" });
+    const first = await turn("turn-18-edit");
+    await worktrees.access({ worktreeId: edited.id, principalId: penelope.id, generation: first.id });
+    expect(journal.worktrees("turn-18-edit"), "REFERENCE_WORKTREE_NATIVE_COVERED_BEFORE_GRANT").toEqual([edited.id]);
+    // The checkout is group-writable, so a worker identity in the app group edits files it did not create.
+    const output = sandbox(first.path, `cd /tmp/brain-worktrees/${edited.id} && cat odyssey/book-1/line-1.md && { printf 'Ithaca chart, corrected.\\n' > odyssey/book-0/line-0.md && printf 'Argos waits.\\n' > odyssey/argos.md && echo EDITED || echo REFUSED; } 2>/dev/null`);
+    expect(output, "REFERENCE_WORKTREE_WORKER_EDITS_CHECKOUT").toBe("Ithaca chart: book 1, line 1.\nEDITED\n");
+    await journal.observe();
+    const rows = (turnId: string) => (db.query("SELECT path,scope,after_json FROM turn_journal_changes WHERE turn_id=? ORDER BY path").all(turnId) as { path: string; scope: string; after_json: string | null }[]);
+    note("worktree-journal", { rows: rows("turn-18-edit"), facts: facts.get("turn-18-edit") });
+    expect(rows("turn-18-edit").map(row => row.path), "REFERENCE_WORKTREE_NATIVE_EDITS_JOURNALED")
+      .toEqual([referenceWorktreeJournalPath(edited.id, "odyssey/argos.md"), referenceWorktreeJournalPath(edited.id, "odyssey/book-0/line-0.md")]);
+    expect(rows("turn-18-edit").every(row => row.scope === "reference_worktree" && JSON.parse(row.after_json!).hash), "REFERENCE_WORKTREE_NATIVE_VERSIONS_RETAINED").toBe(true);
+    expect(facts.get("turn-18-edit"), "REFERENCE_WORKTREE_NATIVE_SCOPE_COUNTS").toMatchObject({ changedPaths: 2, partial: false });
+    await journal.finish("turn-18-edit");
+    await worktrees.closeGeneration(first.id);
+    const records = async () => {
+      const all: NativePoolRecord[] = [];
+      for (let after: string | null = null; ;) { const page = await client.listPoolRecovery(after); all.push(...page.records); if (!page.next) return all; after = page.next; }
+    };
+    expect((await records()).find(record => record.id === edited.id)?.access, "REFERENCE_WORKTREE_NATIVE_PARKED_AFTER_TURN").toBeNull();
+    expect((await records()).filter(record => record.purpose === "checkpoint" && record.state === "sealed" && record.from === edited.id).length,
+      "REFERENCE_WORKTREE_NATIVE_JOURNAL_CHECKPOINTS_RELEASED").toBe(1);
+    const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id });
+    note("worktree-released", { cleanup: released.cleanup });
+    expect(released.cleanup, "REFERENCE_WORKTREE_NATIVE_UNPRESERVED").toMatchObject({ owner: "none", work: "unpreserved", changedPaths: 2, eligible: false });
+    // Reading is not work: access-time updates never make a worktree ineligible.
+    const read = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
+    const second = await turn("turn-18-read");
+    await worktrees.access({ worktreeId: read.id, principalId: penelope.id, generation: second.id });
+    expect(sandbox(second.path, `cat /tmp/brain-worktrees/${read.id}/odyssey/*/line-*.md | wc -l`).trim(), "REFERENCE_WORKTREE_NATIVE_READS").toBe("1200");
+    await journal.finish("turn-18-read");
+    expect(rows("turn-18-read"), "REFERENCE_WORKTREE_NATIVE_READS_NOT_JOURNALED").toEqual([]);
+    await worktrees.closeGeneration(second.id);
+    expect((await worktrees.release({ worktreeId: read.id, principalId: penelope.id })).cleanup, "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK")
+      .toMatchObject({ owner: "none", work: "none", changedPaths: 0, eligible: true });
+    // Nothing above deleted a worktree; the proof releases its own roots.
+    for (const record of await records()) if (record.purpose === "checkpoint" && (record.state === "sealed")) await client.poolRelease(record.id);
+    for (const id of [edited.id, read.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
+    db.query("DELETE FROM reference_worktrees").run();
+    await worktrees.close(); await journal.close();
+    db.query("UPDATE reference_grants SET revoked_at = 1").run();
+    await sources.revoke({ grantIds: [], principalIds: [penelope.id] });
+    await sources.close();
+  } finally { db.close(); await served.close(); }
+  manager = await createNativeBrainManager(config);
+}
+
 // 14. Restart reconstruction and the deterministic host projection.
 {
   const kept = await create("source", 4 * MIB);

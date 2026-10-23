@@ -90,6 +90,68 @@ After three days without explicit activity, a worktree expires:
 Closing a generation parks everything it holds after the turn's final journal
 observation. Nothing in this layer deletes a worktree.
 
+## Worker access
+
+Each governed or strict turn whose journal is recording opens one worker
+generation, and every worker of that turn binds the generation's root-owned
+directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:544-556`;
+`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:752-763`).
+A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
+worker's next path lookup; the worker cannot create entries beside it, and a
+restricted worker never binds a generation. Nothing returns a host path to the
+agent. After the turn's workers exit and its final journal observation is
+recorded, the generation closes and parks what it held. A turn whose
+generation cannot be opened runs without worktree access.
+
+Generations open only when the host enables worktree access
+(`WsHost.referenceWorktreeAccess`), which the supported worktree tools of
+#2432 do. Until then no turn binds a generation, so this layer adds no
+reachable write path.
+
+Acquisition checks out source group-writable (umask 002, Git metadata
+directories 0775). Sealed source stays read-only whatever its modes say, and a
+worker identity in the app group can edit the files its worktree inherited.
+
+## Journal and scope
+
+A managed worktree is not inside the brain, so the brain's checkpoints never
+cover it. The turn journal observes each covered worktree as its own root,
+through that worktree's read-only checkpoints and deltas and the same observer
+and capture as the brain
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:367-379`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:213-226`).
+Coverage starts with a baseline checkpoint and inventory before the grant, and
+every journal observation, periodic, at a scope cap or at the turn's end, then
+observes the worktree too.
+
+- **Identity.** A change is recorded under the logical path
+  `reference-worktree://<worktree id>/<path>` with scope `reference_worktree`.
+  It is never a host or worker path, and history revert never writes it into
+  the brain.
+- **Classification.** Worktree changes are `content` of the one turn that holds
+  the worktree, never steering of the brain. The worktree's own `.gitignore`
+  marks ignored versions, and Git internals are excluded except the raw
+  `HEAD`/refs coverage, as for workspaces.
+- **Scope.** Changed paths and observed bytes count toward the turn's scope
+  caps like workspace edits; they are not an exemption.
+- **Failure.** An unreadable entry is recorded as missing and makes the turn
+  partial. A worktree observation that fails stops its holding turn and leaves
+  it partial; other turns continue.
+
+Ordinary brain and workspace journaling is unchanged.
+
+## Guidance
+
+Workers with a bound generation receive fixed guidance in the existing sandbox
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:456-462`):
+shared source is read-only and moves, a worktree starts at a reported commit
+that never moves, where to work, that edits are journaled and scope-counted,
+that only explicit access or renewal resets the three-day clock, that expiry
+and release keep unfinished work, and that release is final. The text names no
+identity, commit or host path, so it is the same for every turn; live facts
+arrive only in the results that grant access.
+
 ## Cleanup eligibility facts
 
 Release and expiry record durable facts for hygiene review
@@ -107,8 +169,8 @@ process before it is created, released even when its creation reply was lost,
 and forgotten once released.
 
 A worktree is `eligible` only with no holder and no work. Any change, including
-a commit, an index refresh or an untracked file, is unpreserved work, because
-nothing can be pushed from a worktree. A release while a worker holds the
+a commit, an index refresh or an untracked file, is unpreserved work: no host
+operation preserves worktree content elsewhere. A release while a worker holds the
 worktree is assessed when that generation closes. The facts are evidence for
 review, not approval: #2431 revalidates identity, ownership and work before it
 acts.
@@ -125,3 +187,16 @@ became public after its grant was revoked, a grant in flight while its
 generation closes, a second service instance in the same process and the
 assessment checkpoint ledger. The native pool proof covers source isolation and the access
 generation itself.
+
+`reference-worktree-journal.test.ts` runs the turn journal over a copied
+fixture brain and a worktree in the pool double. Named mutations cover a
+journal that ignores separate roots, scope facts without worktree changes and
+a swallowed worktree capture failure. `worker-sandbox.test.ts` mutates the
+generation's ownership check. Native case 18 runs the real services against the
+simple-quota pool: a worktree allocated from acquired source is covered and
+granted, a non-root sandbox edits two inherited and new files through its
+generation, and the journal records exactly those paths from the worktree's own
+checkpoints with two changed paths counted by scope. Release reports the work as
+unpreserved; a second worktree whose worker only read 1,200 files is eligible.
+Native mutations cover a checkout without group write and an access-time
+comparison that turned a read into work.

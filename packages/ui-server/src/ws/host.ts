@@ -89,6 +89,13 @@ export interface WsHostOptions {
   /** @internal Hosted worker admission/reconciliation, supplied by createApp. */
   policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
+  /**
+   * @internal Managed reference worktrees (#2430). Each governed or strict turn
+   * gets its own worker generation only when `referenceWorktreeAccess` is set,
+   * which the supported worktree tools (#2432) enable.
+   */
+  referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
+  referenceWorktreeAccess?: boolean;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -248,6 +255,10 @@ export class WsHost {
   /** @internal Hosted worker admission/reconciliation. */
   readonly policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
+  /** @internal Managed worktree lifecycle and the open worker generation of each running turn (#2430). */
+  readonly referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
+  readonly referenceWorktreeAccess: boolean;
+  readonly referenceWorktreeGenerations = new Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration>();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Host-owned confirmed preferences; no replaceable policy authority. */
   readonly sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -336,6 +347,8 @@ export class WsHost {
     this.identitySentinelDirectory = options.identitySentinelDirectory;
     this.applicationPlanner = options.applicationPlanner;
     this.governedTurns = options.governedTurns;
+    this.referenceWorktrees = options.referenceWorktrees;
+    this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;

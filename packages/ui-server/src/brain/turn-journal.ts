@@ -7,6 +7,7 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
+import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeJournalPool } from "./reference-worktree-journal.js";
 import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -27,6 +28,8 @@ const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(ent
 export function createTurnJournal(db: Database, options: {
   brainPath: string; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
   nativeManager: NativeJournalManager;
+  /** Managed worktrees (#2430): each is its own separately checkpointed root. */
+  referencePool?: ReferenceWorktreeJournalPool;
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
 }) {
   const now = options.now ?? Date.now;
@@ -37,14 +40,15 @@ export function createTurnJournal(db: Database, options: {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
   const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number }>();
-  const capture = createNativeJournalCapture(options.nativeManager, async (source, bytes, signal) => {
+  const retainVersion = async (source: number, bytes: number, signal?: AbortSignal) => {
     const hash = await retainAsync(() => objects.putFileAsync(source, bytes, signal));
     // Pin the shared observation before another admission can collect objects.
     retain(() => accounting.write(() => {
       for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
     }));
     return hash;
-  }, {}, { brainPath: options.brainPath, async createTemporary(maximum) {
+  };
+  const readIdentity = { brainPath: options.brainPath, async createTemporary(maximum: number) {
     const reservation = await retainAsync(async () => accounting.reserveTemporary(maximum));
     const path = join(options.objectsRoot, `pending-${reservation.id}`);
     let file: Awaited<ReturnType<typeof open>> | undefined;
@@ -64,7 +68,17 @@ export function createTurnJournal(db: Database, options: {
       }
       reservation.release(); throw error;
     }
-  } });
+  } };
+  const capture = createNativeJournalCapture(options.nativeManager, retainVersion, {}, readIdentity);
+  /** Managed worktrees a running turn's workers can reach, each observed as its own root. */
+  const worktrees = new Map<string, { turnId: string; capture: ReturnType<typeof createNativeJournalCapture>; policy: NativeJournalPolicy }>();
+  async function dropWorktrees(turnId?: string) {
+    for (const [id, root] of [...worktrees]) if (turnId === undefined || root.turnId === turnId) {
+      worktrees.delete(id);
+      // A checkpoint this cannot release stays a held lease; startup recovery releases it.
+      await root.capture.close().catch(() => {});
+    }
+  }
   let tail: Promise<unknown> = Promise.resolve();
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const work = tail.then(operation);
@@ -196,6 +210,20 @@ export function createTurnJournal(db: Database, options: {
     let observation: Awaited<ReturnType<typeof capture.observe>>;
     try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy]))); }
     catch (error) { observationFailures++; const failure = storageError(error); stopActive(failure); throw failure; }
+    // Each managed worktree is observed through its own checkpoints, for the one turn that holds it.
+    const separate: { worktreeId: string; turnId: string; observation: Awaited<ReturnType<typeof capture.observe>> }[] = [];
+    for (const [worktreeId, root] of [...worktrees]) {
+      const holder = active.get(root.turnId);
+      if (!holder) continue;
+      try { separate.push({ worktreeId, turnId: root.turnId, observation: await root.capture.observe(new Map([[root.turnId, root.policy]])) }); }
+      catch (error) {
+        // Only the holding turn depends on this root: it stops, and its record stays partial.
+        worktrees.delete(worktreeId); void root.capture.close().catch(() => {});
+        const failure = storageError(error);
+        try { fail(root.turnId, failure); } catch { /* The partial slot remains authoritative. */ }
+        try { holder.stop(failure); } catch { /* Continue with the other participants. */ }
+      }
+    }
     try {
       for (const changes of observation.changes.values()) for (const item of changes) {
         if (identity(item.before) === identity(item.after)) continue;
@@ -232,10 +260,21 @@ export function createTurnJournal(db: Database, options: {
             if (conflicting.size) db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
               .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
           }
+          // Intentional worktree edits are editable workspace content of their holding turn only.
+          for (const root of separate) if (root.turnId === turnId) for (const change of root.observation.changes.get(turnId) ?? []) {
+            if (identity(change.before) === identity(change.after)) continue;
+            const before = version(change.before), after = version(change.after), sequence = ++turn.sequence;
+            db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
+              .run(turnId, sequence, referenceWorktreeJournalPath(root.worktreeId, change.path), REFERENCE_WORKTREE_JOURNAL_SCOPE, before ? JSON.stringify(before) : null,
+                after ? JSON.stringify(after) : null, "content", metadata.kind === "revert" ? "user" : "agent", "[]", null);
+            pin(turnId, before); pin(turnId, after);
+          }
           db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
-          if (observation.unreadable.length) {
+          const unreadable = [...observation.unreadable, ...separate.filter(root => root.turnId === turnId).flatMap(root => root.observation.unreadable
+            .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
+          if (unreadable.length) {
             const missing = new Map<string, object>((JSON.parse(metadata.missing) as { path: string; reason: string }[]).map(item => [item.path, item]));
-            for (const item of observation.unreadable) {
+            for (const item of unreadable) {
               const { ms, ...known } = item;
               missing.set(item.path, known);
               const signature = `journal_reader:${item.kind ?? "unknown"}:${item.bytes ?? "unknown"}:${item.path}`.slice(0, 1000);
@@ -262,11 +301,13 @@ export function createTurnJournal(db: Database, options: {
         for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
       }
       await observation.commit();
+      for (const root of separate) await root.observation.commit();
     } catch (error) {
       observationFailures++;
       const failure = storageError(error);
       stopActive(failure);
       await observation.abort().catch(() => {});
+      for (const root of separate) await root.observation.abort().catch(() => {});
       throw failure;
     }
   }
@@ -319,6 +360,25 @@ export function createTurnJournal(db: Database, options: {
       publish(turnId); return true;
     },
     observe(): Promise<void> { return held(() => observe()); },
+    /**
+     * Cover one managed worktree (#2430) for an active turn before any of its
+     * workers can reach it: a baseline checkpoint and inventory of that root.
+     */
+    attachWorktree(turnId: string, worktreeId: string, signal?: AbortSignal): Promise<void> { return serialize(async () => {
+      if (!options.referencePool) throw new JournalStorageUnavailable("managed worktree coverage requires the reference pool");
+      if (!active.has(turnId) || failures.has(turnId)) throw new JournalStorageUnavailable("worktree coverage requires an active complete observation window");
+      const existing = worktrees.get(worktreeId);
+      if (existing) { if (existing.turnId === turnId) return; throw new JournalStorageUnavailable("another turn already observes this worktree"); }
+      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId), retainVersion, {}, readIdentity, { steering: false });
+      try {
+        await root.initialize(signal);
+        const policy = await root.policy();
+        signal?.throwIfAborted();
+        worktrees.set(worktreeId, { turnId, capture: root, policy });
+      } catch (error) { await root.close().catch(() => {}); throw signal?.aborted ? error : storageError(error); }
+    }); },
+    /** Worktrees an active turn's journal observes. */
+    worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
     async idle(): Promise<void> { let waiting: Promise<unknown>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     /** @internal Only the authenticated history service selects generated sibling coverage. */
@@ -338,6 +398,7 @@ export function createTurnJournal(db: Database, options: {
       try { await observe(); }
       finally {
         active.delete(turnId);
+        await dropWorktrees(turnId);
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
         accounting.write(() => {
           if (failures.has(turnId)) db.query("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?").run(failures.get(turnId)!.padEnd(64), turnId);
@@ -487,7 +548,7 @@ export function createTurnJournal(db: Database, options: {
         try { return objects.stream(selected.hash!, release); } catch (error) { release(); throw error; }
       } };
     },
-    async close() { clearInterval(scopeTimer); try { await tail; await capture.close(); } finally { objects.close(); } },
+    async close() { clearInterval(scopeTimer); try { await tail; await dropWorktrees(); await capture.close(); } finally { objects.close(); } },
   };
 }
 

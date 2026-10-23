@@ -582,6 +582,12 @@ authenticated recovery routes with an explicit logical scope, described in
 The host-only copy-out callback is described in
 [the package API](integration-contract/package-api.md#native-persisted-claude-memory-observation-additive-1658).
 
+## Managed reference worktree history (additive, #2430)
+
+Intentional edits to managed reference worktrees join the existing retained
+journal with an explicit logical scope and path, described in
+[the HTTP contract](integration-contract/http.md#managed-reference-worktree-history-additive-2430).
+
 ## Reference pool storage (additive, #2428)
 
 The host-only `brain-native-store` configuration gains an optional separate

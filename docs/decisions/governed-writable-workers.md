@@ -736,6 +736,12 @@ no execution tree because the parser imports or executes no repository code.
 > cleanup retains unfinished or unknown-state work for hygiene disposition.
 > These are selected requirements, not implementation or runtime evidence.
 
+> **2026-10-23 — Managed worktree journaling (#2430).** A managed worktree is
+> journaled as its own root, from its own checkpoints, under scope
+> `reference_worktree`, and counts toward the holding turn's scope caps
+> ([managed-worktree decision](managed-worktrees.md#journal-and-scope)).
+> Workspaces keep their existing journaling.
+
 Ruling 6 adopts the maintainer's model. Each area has a lifecycle contract, and
 the capabilities note states all three and says which one to link:
 
@@ -2413,7 +2419,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:199-267`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -2436,7 +2442,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:374-409`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:435-470`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
