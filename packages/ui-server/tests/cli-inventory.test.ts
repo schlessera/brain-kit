@@ -179,7 +179,8 @@ function inventory() {
     }
   });
   expect(streams).toBe(1);
-  expect(selections).toBe(4);
+  // client.ts also selects the CLI for a restricted turn's private `index --json` pass (#1668).
+  expect(selections).toBe(5);
   expect(probes).toBe(1);
   expect([...sites].sort()).toEqual(["packages/ui-server/src/brain/client.ts", "packages/ui-server/src/inbox/hygiene-review.ts"]);
   // hygiene's forwarding wrapper adds --json to every subcommand.

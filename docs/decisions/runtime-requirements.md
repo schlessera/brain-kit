@@ -275,7 +275,7 @@ reciprocal host-version negotiation is involved.
 
 | Existing boundary | How this design uses it |
 | --- | --- |
-| `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:133-200`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
+| `probeBrainCliVersion` / `brainCliCommand` (`export async function probeBrainCliVersion`, `packages/ui-server/src/brain/client.ts:138-205`) | Reuse executable selection, wrapper, deadline and cleanup; add host floor composition, strict comparison and invocation verification without duplicating the 0.33.0 constant. |
 | `installedAgentSdkVersion` (`export function installedAgentSdkVersion`, `packages/ui-backend-claude/src/runtime-probe.ts:55-61`) | Retain importer-relative resolution; validate package name/version and the owner's manifest range. |
 | `selectedSpawn` / `probeClaudeRuntime` (`export function selectedSpawn`, `packages/ui-backend-claude/src/runtime-probe.ts:69-96`; `export async function probeClaudeRuntime`, `packages/ui-backend-claude/src/runtime-probe.ts:127-147`) | Keep SDK-selected command capture, native/JS override argv, environment, timeout and group cleanup; add strict identity validation and composed runtime floors. |
 | `probeBackendRuntimes` (`export async function probeBackendRuntimes`, `packages/ui-server/src/agent/backend.ts:394-444`) | Forward validated host requirements; retain active-backend selection and separate unmeasured-pair logging. |

@@ -60,6 +60,19 @@ export interface WorkerArea {
   readonly mount: WorkerMount;
 }
 
+/**
+ * What a provider-restricted turn cannot reach (#1668, G2). Each folder is an
+ * empty read-only tmpfs, the brain's `.git` is hidden, and `.brain-index/` is
+ * the host-prepared private directory: a filtered, writable index built from
+ * the masked view, so it never held the masked documents.
+ */
+export interface WorkerProviderMasks {
+  /** Literal repo-relative provider folder roots, masked when present in the worker's view. */
+  readonly folders: readonly string[];
+  /** Absolute host directory mounted read-write over `.brain-index/`. */
+  readonly index: string;
+}
+
 export interface WorkerSandbox {
   /** Frozen host scope policy; absent for autonomous turns. */
   readonly scopePolicy?: { max_files_changed: number; max_minutes: number; max_tool_calls: number; max_bytes_written: number };
@@ -80,6 +93,8 @@ export interface WorkerSandbox {
   readonly protection?: WorkerProtection;
   /** Frozen topology plan for host publication; does not grant access to provider-restricted data. */
   readonly retainedFolders?: readonly string[];
+  /** @internal Host-prepared provider data masks for a turn whose recipient no provider folder rule allows (#1668). */
+  readonly providerMasks?: WorkerProviderMasks;
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -507,6 +522,10 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
     );
+  }
+  if (profile !== "restricted" && sandbox.providerMasks) {
+    const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
+    lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }
   if (profile !== "restricted" && sandbox.retainedFolders?.length) {
     lines.push("", `Keep these folders and their ancestors in place: ${sandbox.retainedFolders.map(path => `\`${path}\``).join(", ")}. Their contents keep the usual write permissions; do not remove or replace the folders themselves.`);

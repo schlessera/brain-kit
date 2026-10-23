@@ -31,7 +31,7 @@ Use maintenance workers for repository code, the CLI and Git. Host routes may
 perform narrowly validated descriptor operations, as the journal/revert do;
 they must not evaluate brain configuration, hooks, filters or executables.
 The existing brain client supplies boundary execution
-(`async function execBrain`, `packages/ui-server/src/brain/client.ts:251-305`).
+(`async function execBrain`, `packages/ui-server/src/brain/client.ts:256-310`).
 Do not turn the new surface into a host command runner or an extension seam.
 
 Reuse existing authorization. A requested reversible, fully journaled edit

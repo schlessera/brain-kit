@@ -61,3 +61,30 @@ export function retainedFolderRoots(policy: Pick<EffectiveGovernancePolicy, "pro
   const roots = providerFolderRoots(policy);
   return roots.length ? [...new Set([...roots, INDEX_DIR])].sort() : [];
 }
+
+/**
+ * Provider selectors a hosted turn cannot enforce yet: document types,
+ * non-literal globs and single paths. Only literal whole-folder `folder/**`
+ * selectors are masked (2026-10-16 ruling, #1668); a policy naming anything
+ * else refuses turn admission rather than leaving it silently unenforced.
+ */
+export function unsupportedProviderSelectors(policy: Pick<EffectiveGovernancePolicy, "providers">): string[] {
+  const unsupported = new Set<string>();
+  for (const rule of policy.providers) {
+    for (const type of rule.types ?? []) unsupported.add(`type ${type}`);
+    for (const pattern of rule.paths) {
+      const root = pattern.endsWith("/**") ? pattern.slice(0, -3) : "";
+      if (!root || /[*?[\]{}()!]/u.test(root)) unsupported.add(pattern);
+    }
+  }
+  return [...unsupported].sort();
+}
+
+/** Turn admission refused because the provider policy selects what hosted turns cannot mask yet. */
+export class ProviderPolicyRefusedError extends Error {
+  constructor(readonly selectors: readonly string[]) {
+    super(`This turn cannot start: the governance policy's provider rules select ${selectors.join(", ")}, which hosted turns cannot hide yet. `
+      + "Only whole-folder selectors such as `me/**` are enforced. Change those rules to whole folders, or remove them, then retry; `brain policy check` shows the policy.");
+    this.name = "ProviderPolicyRefusedError";
+  }
+}

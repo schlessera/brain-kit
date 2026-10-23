@@ -6,7 +6,8 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { createGovernancePolicyReader, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
+import { createGovernancePolicyReader, ProviderPolicyRefusedError, providerFolderRoots, retainedFolderRoots, unsupportedProviderSelectors, type TurnGovernancePolicy } from "./governance-policy.js";
+import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
@@ -38,6 +39,8 @@ export function createGovernedTurns(options: {
   maskPaths: readonly string[]; index: (lock: KeyedLock) => Promise<unknown>;
   report: (message: string) => void;
   recordPolicy?: (turnId: string, origin: "interactive" | "voice", profile: "governed" | "strict", policy: TurnGovernancePolicy) => void;
+  /** The CLI argv that builds a restricted turn's private index; default: the brain's packaged CLI. */
+  privateIndexCommand?: readonly string[];
 }): GovernedTurns {
   const policyReader = createGovernancePolicyReader(options.brainPath);
   let current: Promise<unknown> | undefined;
@@ -62,7 +65,8 @@ export function createGovernedTurns(options: {
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
       const hold = await gate.acquire("shared", `turn:${turnId}`, { signal, turn: true });
-      let startupView: WorkerStartupView | undefined;
+      let startupView: WorkerStartupView | undefined, privateIndex: string | undefined;
+      const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
       try {
         startupView = await prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal);
         signal.throwIfAborted();
@@ -101,7 +105,20 @@ export function createGovernedTurns(options: {
           deny: Object.freeze(policy.policy.commands.deny.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.deny[index]! }))),
           confirm: Object.freeze(policy.policy.commands.confirm.map((rule, index) => Object.freeze({ ...rule, index: policy.commandRuleIndices.confirm[index]! }))),
         });
+        // No recipient is proven yet (#1665), so a provider folder rule denies
+        // every turn: each folder is masked, and the turn indexes into its
+        // own directory from the masked view (#1668).
+        const unsupported = unsupportedProviderSelectors(policy.policy);
+        if (unsupported.length) throw new ProviderPolicyRefusedError(unsupported);
+        const maskedFolders = providerFolderRoots(policy.policy);
+        if (maskedFolders.length) {
+          privateIndex = createPrivateIndexDirectory();
+          const built = await buildPrivateIndex({ brainPath: options.brainPath, startupView: startupView!, folders: maskedFolders, index: privateIndex,
+            maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
+          if (!built.ok) options.report(`turn ${turnId} starts with an incomplete private search index: ${built.detail}`);
+        }
         const sandbox = { ...resolved, commandPolicy, scopePolicy: policy.policy.scope,
+          ...(privateIndex ? { providerMasks: Object.freeze({ folders: Object.freeze(maskedFolders), index: privateIndex }) } : {}),
           ...(!availability.available && requested === "governed" ? { fallbackReason: availability.detail } : {}) };
         const governed = workerProfile(sandbox) === "governed";
         options.recordPolicy?.(turnId, origin, governed ? "governed" : "strict", policy);
@@ -119,9 +136,9 @@ export function createGovernedTurns(options: {
             const result = governed ? manifests.end(turnId) : null;
             if (result) assertReconciled([result]);
             return result;
-          } finally { try { await startupView?.cleanup(); } finally { hold.release(); } }
+          } finally { try { await startupView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { hold.release(); } } }
         } };
-      } catch (error) { try { await startupView?.cleanup(); } finally { hold.release(); } throw error; }
+      } catch (error) { try { await startupView?.cleanup(); } finally { try { discardPrivateIndex(); } finally { hold.release(); } } throw error; }
     },
   };
 }

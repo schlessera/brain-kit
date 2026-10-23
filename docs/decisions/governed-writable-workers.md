@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:60-125`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:63-142`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:35-127`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:36-144`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -789,7 +789,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:981-1009`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:983-1011`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1448,7 +1448,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1628`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1630`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1548,9 +1548,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:643-649`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:650-689`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:690-708`).
+`packages/ui-sdk/src/server/worker-launcher.ts:645-651`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:652-691`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:692-710`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -1746,6 +1746,38 @@ restricted turns on the strict checkpoint view (C), which reverses the
 2026-10-16 live-model sequencing, and over refusing such turns outright (D).
 The contract change is recorded in the
 [integration contract](../integration-contract.md#index-directory-breaking-0440-1668).
+
+**Denied turns, before recipients are proven (2026-10-22, #1668).** No
+ordinary turn has a proven recipient until #1665 delivers per-credential
+exact-origin authority, so a provider rule denies every hosted interactive and
+voice turn, and admission applies the masks to all of them:
+
+- Each literal `folder/**` root present in the turn's view is an empty
+  read-only tmpfs, laid after the retention pins (`providerMaskMounts`). The
+  launcher's pre-payload check accepts a masked root only if it shows an empty
+  mount rather than the retained directory, and `.brain-index` only if it is
+  the private index's own inode.
+- `.git` is hidden as in restricted turns.
+- The private index is not a filtered copy of the real one. Rows deleted from
+  a copy survive in SQLite free pages, FTS5 segments and vector shadow tables,
+  so it is built from nothing. Before the payload, the brain's own CLI runs
+  `brain index` in a credential-free worker on the strict immutable view with
+  the same masks and only the private directory writable. The masked documents
+  never enter it. It is keyword-only, and a build that fails or times out
+  leaves an index that can only hold what the masked view showed. The CLI's
+  read-only pre-check treats a plain index pass as a write to `.brain-index/`,
+  so the agent can rebuild or extend its private index in the turn. After the
+  turn, the shared refresh rebuilds the real index from Markdown.
+- A policy whose provider rules name a document type, a non-literal glob or a
+  single path refuses admission with `ProviderPolicyRefusedError`, naming each
+  selector, per the 2026-10-16 ruling.
+
+Still open under #1668: server search, read and context tools do not yet
+refuse masked paths; autonomous (restricted) turns do not apply the masks;
+the committed sidecar caches (`.context-cache.jsonl` holds generated chunk
+contexts) and other retained copies have not been audited;
+and the allowed recipient's unmasked turn needs #1665. Each restricted turn
+also pays one keyword index build at admission.
 
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
 a path that may not reach the configured embeddings provider keeps keyword
@@ -1978,11 +2010,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:948-976`;
+`packages/ui-sdk/src/server/worker-launcher.ts:950-978`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:981-1007`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:983-1009`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1140-1213`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1142-1215`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2472,7 +2504,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:474-524`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:489-552`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

@@ -68,6 +68,17 @@ floor above: an older CLI would keep writing the root-level index the server no
 longer reads. The template ignores `.brain-index/`; its existing unanchored
 `brain.db*` line already matches the new files.
 
+## Provider folder turns (additive, 0.44.0, #1668)
+
+A governance policy's `providers` rules now take effect in hosted interactive
+and voice turns, as specified under
+[supported inputs](supported-inputs.md#governance-policy). Every literal
+`folder/**` root is masked, `.git` is hidden, and the turn gets a private
+filtered `.brain-index/`. A rule that also selects a document type, a
+non-literal glob or a single path refuses turn admission by name. No schema,
+CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
+`--embeddings` now runs where only `.brain-index/` is writable.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).
