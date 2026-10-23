@@ -414,9 +414,14 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   separate from hosted category checks; container-backed proof uses its pinned
   runtime and does not acquire a host bubblewrap prerequisite. Linux focused checks now require
   `bwrap` and permitted user/network namespaces; `--plan` stays inspection only.
-  This is local preflight and affected fast feedback, including working-tree
-  inputs. Default preflight also runs `bun run test --changed=<merge-base-sha>`
-  through the offline wrapper as import-graph affected feedback. Bun includes
+  Default preflight includes working-tree inputs and runs lint/leakage,
+  environment documentation, pending changeset package validation, contribution
+  changeset validation and affected fast invariants. Import-graph affected
+  feedback is skipped by default under the maintainer's 2026-10-23 ruling
+  ([#2707](https://github.com/schlessera/brain-kit/issues/2707)). Add
+  `--import-graph` to run `bun run test --changed=<merge-base-sha>` through the
+  offline wrapper. `--plan` lists the selected commands and arguments and
+  explains when feedback is skipped and how to enable it. Bun includes
   committed, staged, unstaged and untracked changes; no affected test files
   prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
   remain `./packages ./tests`, and the optional changed value uses `=`. This
