@@ -162,9 +162,10 @@ print(json.dumps(dict(uid=os.getuid(),value=value)))`, {sandbox:{brain,profile:"
     const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
     expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
     const qualified = join(brain, "qualified-folder-payload");
-    const launched = launch(`open('${qualified}','w').write('Odysseus')`, { sandbox });
-    try { expect(await launched.worker.exited, `SECOND_UID_FOLDER_VIEW_QUALIFIES: ${launched.errors()}`).toBe(0); }
-    finally { await close(launched.worker); }
+    let launched: ReturnType<typeof launch> | undefined;
+    expect(() => { launched = launch(`open('${qualified}','w').write('Odysseus')`, { sandbox }); }, "SECOND_UID_FOLDER_VIEW_QUALIFIES").not.toThrow();
+    try { expect(await launched!.worker.exited, `SECOND_UID_FOLDER_PAYLOAD_EXITS: ${launched!.errors()}`).toBe(0); }
+    finally { await close(launched!.worker); }
     expect(readFileSync(qualified, "utf8"), "SECOND_UID_QUALIFIED_FOLDER_PAYLOAD_RUNS").toBe("Odysseus");
     rmSync(qualified);
     const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
