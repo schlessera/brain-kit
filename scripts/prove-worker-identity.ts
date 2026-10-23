@@ -161,6 +161,8 @@ if (import.meta.main) {
       "wrong-allowance": ['        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)', '        result["roots"][0]["bytes"] += 4096\n        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)'],
       "wrong-type": ['        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)', '        os.close(fds[0]); fds[0] = os.open("/dev/null", os.O_RDONLY)\n        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)'],
       "extra-fd": ['        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)', '        fds.append(os.dup(fds[0]))\n        send(connection, {"workerUid": WORKER_UID, "roots": result["roots"]}, fds)'],
+      "no-view": ['        elif operation == "view":\n            view(connection, request, token, record)', '        elif operation == "view":\n            refuse("operation")'],
+      "host-view": ['            fd = os.open("/proc/%s/root%s" % (value["pid"], record["view"]), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)', '            fd = os.open(record["view"], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)'],
       "foreign-mount": ['        info = os.stat(source)', '        foreign = source + "/foreign"\n        os.mkdir(foreign, 0o755)\n        foreign_options = ("size=4096,mode=2770,uid=%s,gid=%s" % (SERVER_UID, SHARED_GID)).encode()\n        if libc.mount(b"tmpfs", foreign.encode(), b"tmpfs", 2 | 4, foreign_options): refuse("foreign_fixture_mount")\n        info = os.stat(source)'],
     };
     const faultHashes: Record<string, { script: string; binary: string }> = {};

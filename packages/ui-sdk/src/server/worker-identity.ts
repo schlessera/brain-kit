@@ -37,7 +37,7 @@ function processIdentity(pid: number): { pid: number; start: string } {
 
 /** Construct the coordinator argv after the unchanged worker-entry descriptor filter. */
 export function prepareWorkerIdentity(helper: string, argv: string[], roots: IdentityRoot[], cgroup?: string,
-  stage?: { identityTicketFd?: number; namespacePid: number; namespaceStart?: string }) {
+  stage?: { identityTicketFd?: number; namespacePid: number; namespaceStart?: string }, view?: string) {
   const python = ["/usr/bin/python3", "/bin/python3"].find(path => {
     try { return lstatSync(realpathSync(path)).isFile(); } catch { return false; }
   });
@@ -114,7 +114,7 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
   };
   return {
     command: [python, "-I", "-S", "-c", WORKER_IDENTITY_SUPERVISOR, JSON.stringify({
-      helper, argv, roots, cgroup, socket, ready: readyPath, secret,
+      helper, argv, roots, cgroup, socket, ready: readyPath, secret, ...(view ? { view } : {}),
       ...(stage ? { stage: { ...(stage.identityTicketFd === undefined ? {} : { ticketSource: `/proc/${process.pid}/fd/${stage.identityTicketFd}` }),
         keeper: { pid: stage.namespacePid, start: stage.namespaceStart } } } : {}),
       bwrap: Bun.which("bwrap"), server, launch,
@@ -152,6 +152,24 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     },
     request,
     requestAsync,
+    /** The gated worker's own view of the launch's authorized path (#2696); close it before release. */
+    brainView() {
+      let held = false;
+      return {
+        open: () => {
+          if (!supervisorIdentity) throw new Error("worker_identity_supervisor_identity_lost");
+          const receipt = request<{ fd: number; dev: number; ino: number }>("view");
+          held = true;
+          if (!Number.isSafeInteger(receipt.fd) || receipt.fd < 3) throw new Error("worker_identity_missing_view_handle");
+          // This alias belongs to our same-uid coordinator, not the cross-UID payload.
+          const descriptor = openSync(`/proc/${supervisorIdentity.pid}/fd/${receipt.fd}`, constants.O_RDONLY | constants.O_DIRECTORY);
+          const info = fstatSync(descriptor);
+          if (info.dev !== receipt.dev || info.ino !== receipt.ino) { closeSync(descriptor); throw new Error("worker_identity_substituted_view"); }
+          return descriptor;
+        },
+        close: () => { if (held) { held = false; request("unview"); } },
+      };
+    },
     terminate() {
       try { request("signal", { signal: "KILL" }); }
       catch { fallback(["signal"]); }

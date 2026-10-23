@@ -16,6 +16,7 @@ if identity(server['pid'])['start'] != server['start']:
 supervisor = identity(os.getpid())
 base = {'version': 1, 'launch': cfg['launch'], 'server': server, 'supervisor': supervisor}
 held = {}
+view_fd = None
 pending = []
 worker = None
 failed = None
@@ -124,7 +125,8 @@ try:
         stage_ticket = os.open(source, os.O_RDONLY | os.O_CLOEXEC)
         authority = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [stage_ticket]))]
     launch_local.sendmsg([json.dumps(dict(base, argv=argv, statusFd=status_write, gateFd=gate_read,
-        roots=cfg['roots'], keeper=cfg.get('stage', {}).get('keeper'), cgroup=cfg.get('cgroup'))).encode()], authority)
+        roots=cfg['roots'], keeper=cfg.get('stage', {}).get('keeper'), cgroup=cfg.get('cgroup'),
+        **({'view': cfg['view']} if cfg.get('view') else {}))).encode()], authority)
     ack, fds = packet(launch_local)
     for fd in fds: os.close(fd)
     if fds: raise RuntimeError('worker_identity_unexpected_launch_handles')
@@ -186,7 +188,25 @@ try:
                 result = {'ok': True}
                 if operation == 'release':
                     if released or finished: raise RuntimeError('worker_identity_start_gate_closed')
+                    # No handle on the worker's view survives into its payload.
+                    if view_fd is not None: raise RuntimeError('worker_identity_view_held')
                     os.write(gate_write, b'g'); os.close(gate_write); gate_write = -1; released = True
+                elif operation == 'view':
+                    if released or finished or not cfg.get('view'): raise RuntimeError('worker_identity_view_unavailable')
+                    if view_fd is not None: raise RuntimeError('worker_identity_view_held')
+                    answer, fds = helper('view', {'worker': worker})
+                    if len(fds) != 1:
+                        for fd in fds: os.close(fd)
+                        raise RuntimeError('worker_identity_unexpected_view_handles')
+                    info = os.fstat(fds[0])
+                    if not stat.S_ISDIR(info.st_mode) or info.st_dev != answer.get('dev') or info.st_ino != answer.get('ino'):
+                        os.close(fds[0])
+                        raise RuntimeError('worker_identity_substituted_view')
+                    view_fd = fds[0]
+                    result.update(fd=view_fd, dev=info.st_dev, ino=info.st_ino)
+                elif operation == 'unview':
+                    if view_fd is None: raise RuntimeError('worker_identity_view_not_held')
+                    os.close(view_fd); view_fd = None
                 elif operation == 'status':
                     result.update(exited=finished, code=child.poll(), failure=failed)
                 elif operation == 'signal':
@@ -225,6 +245,7 @@ except BaseException as error:
     sys.stderr.write('Worker identity supervision failed: ' + failed + '\n')
 finally:
     if stage_ticket is not None: os.close(stage_ticket)
+    if view_fd is not None: os.close(view_fd)
     try:
         if finished: cleanup_owned()
     except BaseException as cleanup:

@@ -199,9 +199,37 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
   return argv;
 }
 
+/**
+ * A one-shot directory handle on the gated worker's own view of the brain,
+ * from the host identity broker (#2696). Across UIDs, `/proc/<pid>/root`
+ * refuses the server; the handle replaces it. `close` returns it to the
+ * broker, which refuses to release the start gate while it is held.
+ */
+export interface WorkerBrainView { open(): number; close(): void }
+
+interface MountRecord { readonly id: string; readonly parent: string; readonly point: string }
+function mountRecords(pid: number): MountRecord[] {
+  return readFileSync(`/proc/${pid}/mountinfo`, "utf8").trim().split("\n").map(line => {
+    const [id, parent, , , field] = line.split(" ");
+    if (!id || !parent || !field) throw new Error("invalid worker mount record");
+    return { id, parent, point: field.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8))) };
+  });
+}
+
+/** The handle must be the top mount at the brain path in this worker's own namespace. */
+function requireWorkerBrainMount(fd: number, pid: number, brain: string): void {
+  const id = /^mnt_id:\s*(\d+)$/m.exec(readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"))?.[1];
+  // Mount IDs are unique system-wide, so a listed ID is a mount of this namespace.
+  const records = mountRecords(pid);
+  if (!id || !records.some(record => record.id === id && record.point === brain)
+    || records.some(record => record.parent === id && record.point === brain))
+    throw new Error("the brain view is not the worker's own brain mount");
+}
+
 /** Qualify this concrete launch's mounts while its trusted start gate is closed. */
 export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtection | undefined,
-  retainedFolders: readonly string[] | undefined, pid: number, deadline: number, masks?: WorkerProviderMasks): void {
+  retainedFolders: readonly string[] | undefined, pid: number, deadline: number, masks?: WorkerProviderMasks,
+  view?: WorkerBrainView): void {
   if (!retainedFolders?.length) return;
   const qualified = protection && qualifiedFolders.get(protection);
   if (!qualified || retainedFolders.some(root => !qualified.roots.includes(root)))
@@ -215,11 +243,7 @@ export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtec
   try {
     const started = identity();
     for (;;) {
-      const mounts = new Set(readFileSync(`/proc/${pid}/mountinfo`, "utf8").trim().split("\n").map(line => {
-        const field = line.split(" ")[4];
-        if (!field) throw new Error("invalid worker mount record");
-        return field.replace(/\\([0-7]{3})/g, (_match, octal: string) => String.fromCharCode(parseInt(octal, 8)));
-      }));
+      const mounts = new Set(mountRecords(pid).map(record => record.point));
       // The authenticated PID can be reported before bubblewrap finishes its
       // mount sequence. No payload runs while this bounded observation waits.
       if (qualified.pins.every(pin => mounts.has(join(brain, pin.rel)))) break;
@@ -229,26 +253,38 @@ export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtec
     }
     // Check the still-live brain paths as well as the actual namespace view.
     protectedWorkerMounts(brain, protection!, retainedFolders);
-    const root = statSync(`/proc/${pid}/root${brain}`, { bigint: true });
-    if (!root.isDirectory() || String(root.dev) !== qualified.device || String(root.ino) !== qualified.inode)
-      throw new Error("mounted brain identity changed");
-    // A masked root shows its mask, not the retained directory beneath it:
-    // the private index for `.brain-index`, an empty tmpfs for a folder.
-    const privateIndex = masks && statSync(masks.index, { bigint: true });
-    for (const pin of qualified.pins) {
-      // A retained root inside a masked folder is hidden by that mask.
-      if (masks?.folders.some(folder => pin.rel.startsWith(`${folder}/`))) continue;
-      const mounted = statSync(`/proc/${pid}/root${join(brain, pin.rel)}`, { bigint: true });
-      if (!mounted.isDirectory()) throw new Error(`mounted folder identity changed: ${pin.rel}`);
-      if (privateIndex && pin.rel === INDEX_DIR) {
-        if (mounted.dev !== privateIndex.dev || mounted.ino !== privateIndex.ino) throw new Error("the private index is not mounted over the index directory");
-      } else if (masks?.folders.includes(pin.rel)) {
-        if (String(mounted.dev) === pin.device || readdirSync(`/proc/${pid}/root${join(brain, pin.rel)}`).length) throw new Error(`provider folder mask is not in place: ${pin.rel}`);
-      } else if (String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
-        throw new Error(`mounted folder identity changed: ${pin.rel}`);
+    let handle: number | undefined;
+    try {
+      handle = view?.open();
+      if (handle !== undefined) requireWorkerBrainMount(handle, pid, brain);
+      verifyMountedFolders(handle === undefined ? `/proc/${pid}/root${brain}` : `/proc/self/fd/${handle}`, qualified, masks);
+    } finally {
+      try { if (handle !== undefined) closeSync(handle); } finally { view?.close(); }
     }
     if (identity() !== started) throw new Error("worker identity changed");
   } catch (error) {
     throw new Error(`provider folder topology could not be qualified before payload start: ${error instanceof Error ? error.message : code(error)}`);
+  }
+}
+
+/** Compare the worker's mounted view, rooted at its brain, with the resolver's qualification. */
+function verifyMountedFolders(view: string, qualified: NonNullable<ReturnType<typeof qualifiedFolders.get>>, masks?: WorkerProviderMasks): void {
+  const root = statSync(view, { bigint: true });
+  if (!root.isDirectory() || String(root.dev) !== qualified.device || String(root.ino) !== qualified.inode)
+    throw new Error("mounted brain identity changed");
+  // A masked root shows its mask, not the retained directory beneath it:
+  // the private index for `.brain-index`, an empty tmpfs for a folder.
+  const privateIndex = masks && statSync(masks.index, { bigint: true });
+  for (const pin of qualified.pins) {
+    // A retained root inside a masked folder is hidden by that mask.
+    if (masks?.folders.some(folder => pin.rel.startsWith(`${folder}/`))) continue;
+    const mounted = statSync(join(view, pin.rel), { bigint: true });
+    if (!mounted.isDirectory()) throw new Error(`mounted folder identity changed: ${pin.rel}`);
+    if (privateIndex && pin.rel === INDEX_DIR) {
+      if (mounted.dev !== privateIndex.dev || mounted.ino !== privateIndex.ino) throw new Error("the private index is not mounted over the index directory");
+    } else if (masks?.folders.includes(pin.rel)) {
+      if (String(mounted.dev) === pin.device || readdirSync(join(view, pin.rel)).length) throw new Error(`provider folder mask is not in place: ${pin.rel}`);
+    } else if (String(mounted.dev) !== pin.device || String(mounted.ino) !== pin.inode)
+      throw new Error(`mounted folder identity changed: ${pin.rel}`);
   }
 }
