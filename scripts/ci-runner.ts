@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import type { CheckPlan } from "./ci-plan";
 import { balanceTests } from "./test-shards";
 
-export interface Command { name: string; argv: string[]; env?: Record<string, string>; }
+export interface Command { name: string; argv: string[]; env?: Record<string, string>; completed?: (elapsedMs: number) => void; }
 
 export function verificationCommands(plan: CheckPlan, root: string): Command[] {
   const commands: Command[] = [];
@@ -20,8 +20,9 @@ export function verificationCommands(plan: CheckPlan, root: string): Command[] {
   return commands;
 }
 
-export async function runCommands(commands: readonly Command[], cwd: string, concurrency = 2): Promise<void> {
+export async function runCommands(commands: readonly Command[], cwd: string, concurrency = 2, cleanupGraceMs = 1000): Promise<void> {
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new Error("Check concurrency must be a positive integer");
+  if (!Number.isSafeInteger(cleanupGraceMs) || cleanupGraceMs < 1 || cleanupGraceMs > 60_000) throw new Error("Invalid coordinator cleanup grace");
   const children: ReturnType<typeof Bun.spawn>[] = [];
   let interrupted = false;
   let failed = false;
@@ -43,11 +44,13 @@ export async function runCommands(commands: readonly Command[], cwd: string, con
         const command = commands[next++]!;
         try {
           console.log(`Checking ${command.name}`);
+          const started = performance.now();
           const child = Bun.spawn(command.argv, { cwd, detached: process.platform !== "win32", stdio: ["ignore", "inherit", "inherit"],
             env: { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
               GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", TYPESAFE_API_KEY: "", ...command.env } });
           children.push(child);
           const code = await child.exited;
+          command.completed?.(performance.now() - started);
           if (code !== 0 || child.signalCode) throw new Error(`${command.name} failed (${child.signalCode ?? code})`);
         } catch (error) { failed = true; throw error; }
       }
@@ -63,7 +66,7 @@ export async function runCommands(commands: readonly Command[], cwd: string, con
           else process.kill(-child.pid, "SIGKILL");
         } catch { /* A group that already exited needs no cleanup. */ }
       }
-    }, 1000);
+    }, cleanupGraceMs);
     try { await Promise.allSettled(children.map(child => child.exited)); }
     finally { clearTimeout(force); }
     throw error;

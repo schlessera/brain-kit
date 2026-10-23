@@ -419,15 +419,45 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   changeset validation and affected fast invariants. Import-graph affected
   feedback is skipped by default under the maintainer's 2026-10-23 ruling
   ([#2707](https://github.com/schlessera/brain-kit/issues/2707)). Add
-  `--import-graph` to run `bun run test --changed=<merge-base-sha>` through the
-  offline wrapper. `--plan` lists the selected commands and arguments and
+  `--import-graph` to run isolated local unit workers. Each worker runs the
+  offline wrapper with `--changed=<merge-base-sha> --shard=i/N`; Bun applies
+  changed selection before weighted sharding. The queue seeds Bun's timing
+  format from `scripts/test-shard-costs.json`, converting seconds to
+  milliseconds, rather than reconstructing the import graph.
+  `--import-graph-workers=N` overrides the CPU/memory-derived local worker
+  count. `--plan` lists the selected commands and arguments and
   explains when feedback is skipped and how to enable it. Bun includes
   committed, staged, unstaged and untracked changes; no affected test files
   prints its reason and succeeds with `--pass-with-no-tests`. Directory roots
   remain `./packages ./tests`, and the optional changed value uses `=`. This
   feedback misses spawned commands and inputs read from disk or named as
   strings; complete hosted discovery remains the required proof. Full/all
-  modes retain their existing suites without this extra step.
+  modes retain their existing suites without this extra step. Every worker
+  receives the same committed tree plus separately captured index, worktree
+  and untracked inputs. Source changes during capture refuse the run; workers
+  may not change their captured inputs. Each worker reports Bun's pre-shard
+  selection count and its shard count. JUnit and timing paths must agree,
+  shard counts must reconcile, and the union must match the selected count
+  without duplicate files. Empty selections and empty shards retain explicit
+  zero-file receipts. The CLI prints its private report destination outside
+  the source tree; reports, build receipts, output logs and existing failure
+  diagnostics survive worker removal. The queue requires Linux mount/user
+  namespaces, the frozen install and real Chrome, like hosted unit workers.
+  Changed-mode queues prepare one tree by default; `--private-tree` selects
+  ordinary private builds for comparison. The default budgets four CPUs and
+  two GiB per worker while reserving 30% RAM (eight on the measured host),
+  with `--import-graph-workers=N` as the override. It builds one clean
+  snapshot, then mounts an overlay view for each worker with a private upper/work directory
+  and Git index. The lower tree is read-only. Each view still owns its write
+  lease, nonce, output generation and maintenance ledger; explicit nested
+  builds revoke its copied authority. A local Unix socket lets the live
+  builder validate its descriptor and lease across user namespaces. The
+  offline client verifies the kernel peer PID, receipt digest and owner
+  lifetime. This mode additionally requires unprivileged overlayfs with
+  `userxattr` and Python 3; it never shares writable builds or dependencies.
+  Reports separate the common checkout/copy/build from each worker's setup
+  and test time. The [measurement decision](../decisions/ci-utility.md#isolated-local-import-graph-feedback)
+  records the sweep and the 900-second gate for default feedback.
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
