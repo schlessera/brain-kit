@@ -153,6 +153,7 @@ Run from the contribution checkout using the relevant base:
 ```sh
 bun run check:pr --base origin/main --plan  # inspect selection only
 bun run check:pr --base origin/main         # local preflight and affected fast tests
+bun run check:pr --base origin/main --import-graph  # also run import-graph feedback
 bun run check:pr --base origin/main --full  # optional complete affected local fallback
 bun run check:pr --all                      # complete local release/diagnostic inventory
 ```
@@ -161,7 +162,13 @@ None of these runs the `experiments/` tier; release preparation does.
 
 Preflight includes committed, staged, unstaged and untracked changes. It runs
 lint/leakage, environment documentation, changeset checks and affected fast
-invariants. Ordinary contributions do not need Docker, Chrome or namespaces
+invariants. Import-graph feedback is skipped by default; add `--import-graph`
+to run offline-wrapped `bun run test --changed=<merge-base-sha>` as well.
+`--plan` lists selected commands and arguments, including the contribution
+changeset check, and explains the feedback skip and enabling flag. This feedback
+misses spawned commands and file-read/string-named inputs; complete hosted
+discovery remains required. `--full` and `--all` keep their existing suites.
+Ordinary contributions do not need Docker, Chrome or namespaces
 for preflight or repeated local type/pack/browser proof. Keep focused debugging,
 behavioral failing-first/restored mutations and visual review local.
 

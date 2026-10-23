@@ -145,8 +145,11 @@ test("focused and full local CLI refuse setup before downstream proof while plan
   git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture");
   const base = git("rev-parse", "HEAD");
   writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, workspaces: ["packages/*"], description: "Odysseus plans the return." }));
-  for (const mode of [[], ["--full"], ["--plan"]]) {
-    const trace = join(dir, "tmp", `${mode[0] ?? "default"}.jsonl`), started = performance.now();
+  for (const mode of [[], ["--import-graph"], ["--full"], ["--all"], ["--plan"], ["--plan", "--import-graph"],
+    ["--plan", "--full", "--import-graph"], ["--plan", "--all", "--import-graph"]]) {
+    const full = mode.includes("--full") || mode.includes("--all");
+    const feedback = mode.includes("--import-graph") && !full;
+    const trace = join(dir, "tmp", `${mode.join("-") || "default"}.jsonl`), started = performance.now();
     const child = Bun.spawn([process.execPath, "--preload", preload, entry, "--base", base, ...mode],
       { cwd: dir, env: { ...process.env, LOCAL_CLI_TRACE: trace }, stdout: "pipe", stderr: "pipe" });
     const drained = Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -155,10 +158,10 @@ test("focused and full local CLI refuse setup before downstream proof while plan
     finally { if (child.exitCode === null) child.kill(); await drained; }
     const [code, out, error] = result;
     const calls: string[][] = existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
-    console.info(JSON.stringify({ mode: mode[0] ?? "default", code, elapsedMs: performance.now() - started, calls }));
+    console.info(JSON.stringify({ mode: mode.join(" ") || "default", code, elapsedMs: performance.now() - started, calls }));
     expect(error, "EXPECTED_FIXTURE_ROOT_BEFORE_SCAN").not.toContain("EXPECTED_FIXTURE_ROOT_BEFORE_SCAN");
     expect(error).not.toContain("UNEXPECTED_FIXTURE_DISCOVERY_COMMAND");
-    if (mode[0] === "--plan") {
+    if (mode.includes("--plan")) {
       expect(code, error).toBe(0); expect(out).toContain("hostedProofRequired");
       expect(calls.some(command => command[0] === "bwrap")).toBe(false);
     } else {
@@ -173,9 +176,29 @@ test("focused and full local CLI refuse setup before downstream proof while plan
     expect(plan.global).toBe(true);
     expect(plan.typecheck).toBe(true); expect(plan.pack).toBe(true);
     expect(plan.hostedProofRequired).toEqual({ fullTests: true, browser: false, layout: false, captures: false, runtime: true, endurance: false });
-    expect(plan.packedConsumerChecks).toBe(mode[0] === "--full");
+    expect(plan.packedConsumerChecks).toBe(full);
     expect(plan.commands).toContain("all lint and leakage gates");
+    expect(plan.commands).toContain("contribution changeset");
+    expect(plan.commandDetails.map((command: { name: string }) => command.name)).toEqual(plan.commands);
+    expect(plan.commandDetails.find((command: { name: string }) => command.name === "contribution changeset").argv.slice(1))
+      .toEqual(["scripts/check-changeset.ts", base]);
+    const importCommands = plan.commandDetails.filter((command: { name: string }) => command.name.startsWith("import-graph affected tests"));
+    expect(importCommands).toHaveLength(feedback ? 1 : 0);
+    if (feedback) {
+      expect(importCommands[0].argv.slice(1)).toEqual(["run", "test", `--changed=${base}`, "--pass-with-no-tests"]);
+      expect(plan.importGraphFeedback).toBe("enabled with --import-graph");
+    } else {
+      expect(plan.importGraphFeedback).toContain("skipped");
+      expect(plan.importGraphFeedback).toContain(full ? "--full/--all" : "enable with --import-graph");
+    }
+    expect(calls.filter(command => command[0] === "git" && command[1] === "merge-base" && command[3] === "HEAD"))
+      .toHaveLength(feedback ? 1 : 0);
   }
+  const invalid = Bun.spawn([process.execPath, entry, "--unknown"], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+  const [code, error] = await Promise.all([invalid.exited, new Response(invalid.stderr).text()]);
+  expect(code).toBe(1);
+  expect(error).toContain("usage: bun run check:pr");
+  expect(error).toContain("[--import-graph]");
 });
 
 test("container-backed hosted categories do not require host sandbox setup", () => {
@@ -298,13 +321,22 @@ test("ordinary preflight leaves repeatable environment-heavy proof to CI", () =>
 });
 
 
-test("default local feedback uses the exact merge-base SHA and full proof does not duplicate it", () => {
+test("default local feedback excludes import-graph tests even with a merge-base SHA", () => {
+  const plan = planChecks(["packages/common/src/index.ts"], workspaces(join(import.meta.dir, "..")));
+  const commands = localChecks(plan, false, "a".repeat(40));
+  expect(commands.some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
+  expect(commands.some(command => command.argv.some(arg => arg.startsWith("--changed=")))).toBe(false);
+  expect(commands.some(command => command.name === "affected fast invariants")).toBe(true);
+});
+
+test("opt-in local feedback uses the exact merge-base SHA and full proof does not duplicate it", () => {
   const plan = planChecks(["packages/common/src/index.ts"], workspaces(join(import.meta.dir, "..")));
   const sha = "a".repeat(40);
-  const feedback = localChecks(plan, false, sha).filter(command => command.name.startsWith("import-graph affected tests"));
+  const feedback = localChecks(plan, false, sha, true).filter(command => command.name.startsWith("import-graph affected tests"));
   expect(feedback).toHaveLength(1);
   expect(feedback[0]!.argv.slice(1)).toEqual(["run", "test", `--changed=${sha}`, "--pass-with-no-tests"]);
-  expect(localChecks(plan, true, sha).some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
+  expect(localChecks(plan, true, sha, true)).toEqual(localChecks(plan, true, sha));
+  expect(localChecks(plan, true, sha, true).some(command => command.name.startsWith("import-graph affected tests"))).toBe(false);
 });
 
 
@@ -334,7 +366,7 @@ function importFixture() {
   git("-c", "user.name=Odysseus", "-c", "user.email=odysseus@example.invalid", "commit", "-qm", "fixture");
   const sha = git("rev-parse", "HEAD");
   async function run() {
-    const command = localChecks(planChecks([], []), false, sha).find(command => command.name.startsWith("import-graph affected tests"))!;
+    const command = localChecks(planChecks([], []), false, sha, true).find(command => command.name.startsWith("import-graph affected tests"))!;
     // The outer test guard deliberately does not recognize this alias. The
     // copied wrapper must install its own preload, as in an ordinary shell.
     const runtime = join(dir, "probe-runtime");
