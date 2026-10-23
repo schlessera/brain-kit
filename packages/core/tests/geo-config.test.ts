@@ -22,7 +22,7 @@ describe("canonical core geo configuration", () => {
     expect(geo.routing.demo.enabled).toBe(false);
     expect(geo.routing.endpoints).toEqual({});
     expect(geo.overpass.enabled).toBe(false);
-    expect(existsSync(join(root, "brain.db"))).toBe(false);
+    expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
   });
 
   test("typed partial authoring loads into the actual shared client, resolves its cache and preserves the config file", async () => {
@@ -47,7 +47,7 @@ describe("canonical core geo configuration", () => {
     expect(repeated.value).toHaveLength(1); expect(repeated.source!.fromCache).toBe(true);
     expect(requests).toBe(1);
     expect(await readFile(file, "utf8")).toBe(original);
-    expect(existsSync(join(root, "brain.db"))).toBe(false);
+    expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
   });
 
   test("response-cache authoring rejects lexical escapes and canonical validation rejects provider registries/implicit flags", () => {

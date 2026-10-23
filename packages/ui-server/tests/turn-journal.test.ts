@@ -440,7 +440,7 @@ test("native capture journals consumed nested configuration and ordinary exclude
   } finally { await f.close(); }
 });
 test("native journal excludes the resolved index and sidecars while preserving input-role events", async () => {
-  const index = "brain.db", f = fixture();
+  const index = ".brain-index/brain.db", f = fixture();
   try {
     // A copied checkpoint is not native inode lineage. Keep a probe link to an
     // initial input inode and simulate allocator reuse only if releasing its
@@ -458,7 +458,7 @@ test("native journal excludes the resolved index and sidecars while preserving i
     f.native.manager.checkpoint = async (id, signal) => {
       const result = await checkpoint(id, signal);
       const nested = join(result.path, "resources/brain.db");
-      const indexCopy = join(result.path, "brain.db");
+      const indexCopy = join(result.path, ".brain-index", "brain.db");
       if (!pinnedId && existsSync(nested)) { linkSync(nested, pin); pinnedId = id; }
       if (released && !reused && statSync(pin).nlink === 1 && existsSync(indexCopy) && readFileSync(indexCopy, "utf8") === "index changed") {
         unlinkSync(indexCopy); linkSync(pin, indexCopy); writeFileSync(indexCopy, "index changed"); reused = true;
@@ -466,7 +466,7 @@ test("native journal excludes the resolved index and sidecars while preserving i
       return result;
     };
 
-    mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude"));
+    mkdirSync(join(f.brain, "cache"), { recursive: true }); mkdirSync(join(f.brain,"resources")); mkdirSync(join(f.brain,".claude")); mkdirSync(join(f.brain,".brain-index"));
     const ignored = [index, ...["-wal","-shm","-journal"].map(suffix=>`${index}${suffix}`)];
     writeFileSync(join(f.brain,".gitignore"), ignored.join("\n"));
     writeFileSync(join(f.brain,"brain.config.ts"), `export default { db: "${index}", output: "./ordinary" };`);

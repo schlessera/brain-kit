@@ -21,7 +21,7 @@ test("provider policy removes forbidden vectors without losing keyword content o
   writeFileSync(join(root, "me/image.png"), Buffer.from([0x89,0x50,0x4e,0x47]));
   writeFileSync(join(root, "notes/voyage.md"), "---\ntype: note\ntitle: Voyage\n---\nAthena charts a public crossingmarker.\n");
   const taxonomy = buildTaxonomy({ user: { taxonomy: { types: { note: { dir: "notes" } } } } });
-  const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: 16 });
+  const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: 16 });
   cleanup.push(() => db.close());
   expect(await migrateVecSchema(db, 16)).toBe(true);
   const provider = fakeEmbeddingProvider();
@@ -47,7 +47,7 @@ test("provider policy removes forbidden vectors without losing keyword content o
   writeFileSync(join(root, "notes/new.md"), "---\ntype: note\ntitle: New crossing\n---\nAthena records a crossingmarker with a new route.\n");
   await indexAll(db, { ...options, enrichment, embeddings: true, force: true });
   expect(descriptions, "EMBEDDING_ROUTE_DOES_NOT_AUTHORIZE_VISION_COMPLETION").toEqual([]);
-  const stats = await collectStats(db, { root, dbPath: join(root,"brain.db"), taxonomy, config: {embeddings:{provider}}, embeddingsConfigured: true });
+  const stats = await collectStats(db, { root, dbPath: join(root, ".brain-index", "brain.db"), taxonomy, config: {embeddings:{provider}}, embeddingsConfigured: true });
   expect(stats.health.embeddingCoverage, "COVERAGE_EXCLUDES_FORBIDDEN_CHUNKS").toBe(1);
   expect(recorded.some(text => text.includes("harbourmarker")), "UNKNOWN_RECIPIENT_CANNOT_AUTHORIZE_PROTECTED_DATA").toBe(false);
   expect(recorded.some(text => text.includes("crossingmarker"))).toBe(true);
@@ -82,7 +82,7 @@ test("the actual Gemini SDK recipient is resolved from its fixed transport and c
     globalThis.fetch=async (url,init)=>{calls.push(String(url)); const body=JSON.parse(init.body); return new Response(JSON.stringify({embeddings:(body.requests ?? body.contents ?? []).map(()=>({values:Array(16).fill(0.1)}))}),{headers:{"Content-Type":"application/json"}});};
     const provider=geminiEmbeddings({dimensions:16});
     if(await geminiEmbeddingRecipient(provider)!=="google")throw Error("actual native Google endpoint unknown");
-    const db=openDatabase(root+"/brain.db",{embeddingDimensions:16}); await migrateVecSchema(db,16);
+    const db=openDatabase(root+"/.brain-index/brain.db",{embeddingDimensions:16}); await migrateVecSchema(db,16);
     let completions=0;
     const enrichment=createEnrichment({id:"fixture:unknown-completion",capabilities:{vision:false},complete:async()=>{completions++;return "Unknown completion context";}});
     const options={root,taxonomy:buildTaxonomy({}),provider,enrichment,embeddings:true,quiet:true,graph:false};

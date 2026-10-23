@@ -57,7 +57,7 @@ describe("actual brain geo command contracts", () => {
     const cached = await runCli(root, ["geo", "geocode", "Harbour"]);
     expect(JSON.parse(cached.stdout).source.fromCache).toBe(true); expect(requests).toHaveLength(1);
     expect(requests[0]!.userAgent).toBe("brain-geo-cli-fixture/1.0");
-    expect(existsSync(join(root, "brain.db"))).toBe(false);
+    expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
   });
 
   test("reverse geocoding retains explicit coordinates, unknown accuracy and actual coordinate transfer", async () => {

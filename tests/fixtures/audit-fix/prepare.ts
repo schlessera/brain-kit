@@ -66,7 +66,7 @@ export async function prepareBenchmark(f: BenchmarkCase) {
     const modules = modulesFor(f, root);
     const taxonomy = buildTaxonomy({ user: parsed, modules });
     write(root, f.files);
-    const dbPath = join(root, "brain.db"); const db = openDatabase(dbPath);
+    const dbPath = join(root, ".brain-index", "brain.db"); const db = openDatabase(dbPath);
     try { await indexAll(db, { root, taxonomy, force: true, quiet: true }); } finally { db.close(); }
     const brain = { root, config: parsed, modules, taxonomy, dbPath, configPath: null };
     return { brain, root, close: () => rmSync(root, { recursive: true, force: true }) };
@@ -137,7 +137,7 @@ type SourceEntry = { kind: "file" | "directory" | "symlink" | "other"; mode: num
 /** Every source member's kind, mode, timestamp and bytes; the disposable SQLite cache is skipped. */
 export function sourceSnapshot(root: string): Record<string, SourceEntry> {
   const result: Record<string, SourceEntry> = {};
-  const disposable = new Set(["brain.db", "brain.db-wal", "brain.db-shm"]);
+  const disposable = new Set([".brain-index/brain.db", ".brain-index/brain.db-wal", ".brain-index/brain.db-shm"]);
   function walk(path: string) {
     const full = path ? join(root, path) : root;
     const stat = lstatSync(full, { bigint: true });

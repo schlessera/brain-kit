@@ -49,6 +49,8 @@ beforeAll(async () => {
 
   await writeFile(join(root, "brain.db"), "x");
   await writeFile(join(root, "brain.db-wal"), "x");
+  await mkdir(join(root, ".brain-index"));
+  await writeFile(join(root, ".brain-index", "brain.db"), "x");
 
   // Symlink escaping the root
   const outside = join(tmpdir(), `brain-ui-outside-${process.pid}-${Date.now()}`);
@@ -215,6 +217,7 @@ describe("listDirectory", () => {
     expect(names).not.toContain("node_modules");
     expect(names).not.toContain("brain.db");
     expect(names).not.toContain("brain.db-wal");
+    expect(names).not.toContain(".brain-index");
     expect(names).not.toContain("escape-link");
   });
 

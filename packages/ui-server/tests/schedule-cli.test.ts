@@ -108,7 +108,7 @@ test("the operator reviews and approves on a terminal; the host record and file 
   expect(listed.exit).toBe(0);
   expect(listed.body).toEqual({ ok: true, tasks: [replay.body.task], nextCursor: null });
   expect(startedTurns).toBe(0);
-  expect(existsSync(join(fixture.brainPath, "brain.db"))).toBe(false);
+  expect(existsSync(join(fixture.brainPath, ".brain-index", "brain.db"))).toBe(false);
 });
 
 test("no TTY or no affirmative answer means no grant", async () => {

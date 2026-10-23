@@ -1,4 +1,5 @@
 /** Process-local last-valid policy. Every admission reads data anew; no repository code runs. */
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernancePolicy, type GovernanceCommandRuleIndices } from "@schlessera/brain-common/internal/governance-policy";
 
 export interface TurnGovernancePolicy {
@@ -48,4 +49,15 @@ export function providerFolderRoots(policy: Pick<EffectiveGovernancePolicy, "pro
     if (root && !/[*?[\]{}()!]/u.test(root)) roots.add(root);
   }
   return [...roots].sort();
+}
+
+/**
+ * The folders every governed writer retains while provider folders exist: the
+ * literal provider roots and the disposable index directory. A restricted
+ * turn's private filtered index is mounted over `.brain-index/`, so no peer or
+ * publication may remove or replace it either (#1668, option B).
+ */
+export function retainedFolderRoots(policy: Pick<EffectiveGovernancePolicy, "providers">): string[] {
+  const roots = providerFolderRoots(policy);
+  return roots.length ? [...new Set([...roots, INDEX_DIR])].sort() : [];
 }

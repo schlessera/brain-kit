@@ -285,13 +285,13 @@ export async function captureWarmMaintenanceDatabase(brain: string) {
   const view = await prepareNativeWorkerStartupView(brain, manager);
   let output: Awaited<ReturnType<typeof prepareNativeWorkerOutput>> | undefined;
   try {
-    const host = lstatSync(`${brain}/brain.db`);
+    const host = lstatSync(`${brain}/.brain-index/brain.db`);
     output = await prepareNativeWorkerOutput(brain, { startupView: view });
     const result = await runMaintenanceWorker({ brainPath: brain, startupView: output.view,
       output: { ...output.output, target: "/tmp/brain-maintenance-output" }, credentials: false, env: { PATH: "/usr/bin:/bin" },
       command: ["/usr/bin/python3", "-I", "-S", "-c", String.raw`
 import json,os,sqlite3,stat
-path=os.environ["BRAIN_ROOT"]+"/brain.db"; s=os.stat(path)
+path=os.environ["BRAIN_ROOT"]+"/.brain-index/brain.db"; s=os.stat(path)
 r={"uid":os.getuid(),"gid":os.getgid(),"groups":os.getgroups(),"database":{"uid":s.st_uid,"gid":s.st_gid,"mode":oct(stat.S_IMODE(s.st_mode)),"writable":os.access(path,os.W_OK)}}
 db=sqlite3.connect(path)
 try:

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { isAbsolute, join, resolve, sep } from "path";
 
@@ -33,12 +33,13 @@ import { WriteRefusedError } from "../../lib/safe-path.js";
 import { builtFtsTokenizer, ftsTokenizer } from "../../lib/search-language.js";
 import { cachesWithoutPortableUnionMerge, cachesWithoutUnionMerge, unionMergeCaches } from "../../lib/cache-attributes.js";
 import { isGitWorkTree, looseObjects, originalRefs } from "../../lib/git-storage.js";
+import { INDEX_DB_PATH, LEGACY_INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 
 const HELP = `brain doctor — health check battery
 
   --fix                   Apply the auto-fixable checks (hooks, symlinks, index,
-                          deps, mcp, scratch, cache-merge), then re-run and
-                          report.
+                          legacy index files, deps, mcp, scratch, cache-merge),
+                          then re-run and report.
 
 --json: { "checks": [{ "id", "status": "pass"|"warn"|"fail", "detail", "fix"? }] }`;
 
@@ -318,7 +319,12 @@ function checkConfig(cli: CliContext): Check {
 }
 
 function checkDb(cli: CliContext): Check {
-  if (!existsSync(cli.brain.dbPath)) return { id: "db", status: "fail", detail: "brain.db is missing", fix: "run `brain index`" };
+  if (!existsSync(cli.brain.dbPath)) {
+    const detail = legacyIndexFiles(cli.brain.root).length > 0
+      ? `${INDEX_DB_PATH} is missing: the index moved there from the brain root and is rebuilt, not moved`
+      : `${INDEX_DB_PATH} is missing`;
+    return { id: "db", status: "fail", detail, fix: "run `brain index`" };
+  }
   const db = openDatabase(cli.brain.dbPath, { readonly: true });
   try {
     const schema = parseInt(getMeta(db, "schema_version") ?? "0", 10);
@@ -741,6 +747,39 @@ function checkTrackedMedia(cli: CliContext): Check {
   };
 }
 
+/**
+ * Root-level `brain.db` files from releases before 0.44.0. The index lives in
+ * `.brain-index/` now and nothing reads these, but they still hold document
+ * bodies, and a hosted turn whose provider policy hides a folder must not be
+ * able to read an old copy of it. Disposable, so `--fix` deletes them.
+ */
+function legacyIndexFiles(root: string): string[] {
+  return LEGACY_INDEX_FAMILY.filter((name) => lstatSync(join(root, name), { throwIfNoEntry: false }));
+}
+
+function checkLegacyIndex(root: string): Check {
+  const found = legacyIndexFiles(root);
+  if (found.length === 0) return { id: "legacy-index", status: "pass", detail: "no index files left in the brain root" };
+  return {
+    id: "legacy-index",
+    status: "warn",
+    detail: `${found.join(", ")} in the brain root ${found.length === 1 ? "is an index" : "are index files"} from an earlier release; the index now lives in .brain-index/`,
+    fix: "run `brain doctor --fix`, which deletes them (the index is rebuilt from Markdown, never moved)",
+  };
+}
+
+/** Delete the legacy root-level index family; a directory under one of the names is left alone. */
+function removeLegacyIndex(root: string): boolean {
+  let removed = false;
+  for (const name of legacyIndexFiles(root)) {
+    const path = join(root, name);
+    if (lstatSync(path).isDirectory()) throw new Error(`${name} in the brain root is a directory; remove it by hand`);
+    unlinkSync(path);
+    removed = true;
+  }
+  return removed;
+}
+
 function checkScratch(root: string): Check {
   if (!gitInstalled()) {
     return { id: "scratch", status: "warn", detail: `${GIT_MISSING}, so whether ${SCRATCH_DIR}/ is gitignored was not checked` };
@@ -824,6 +863,7 @@ async function runChecks(cli: CliContext): Promise<Check[]> {
     ["instructions-weight", () => checkInstructionsWeight(cli)],
     ["config", () => checkConfig(cli)],
     ["db", () => checkDb(cli)],
+    ["legacy-index", () => checkLegacyIndex(root)],
     ["embeddings", () => checkEmbeddings(cli)],
     ["reranker", () => checkReranker(cli)],
     ["mcp", () => checkMcp(root)],
@@ -912,6 +952,14 @@ async function applyFixes(cli: CliContext, checks: Check[]): Promise<string[]> {
     db.close();
     if (failing.has("db")) applied.push("db");
     if (failing.has("embeddings") && wantEmbeddings) applied.push("embeddings");
+  }
+  // After the db fix, so the rebuilt index exists before the old copy goes.
+  if (failing.has("legacy-index")) {
+    try {
+      if (removeLegacyIndex(root)) applied.push("legacy-index");
+    } catch (e) {
+      console.error(`doctor --fix: legacy-index fix failed: ${e instanceof Error ? e.message : e}`);
+    }
   }
   if (failing.has("mcp") && which("claude")) {
     const brainBin = resolve(root, "node_modules/.bin/brain");

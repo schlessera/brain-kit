@@ -235,7 +235,7 @@ test("populated image restores all logical tables, staging, principals and settl
   for (const file of snapshot.files) expect(hash(readFileSync(join(target, SHARE_STAGING_DIR, file.path)))).toBe(file.sha256);
   expect(readFileSync(join(f.root, "content.md"), "utf8")).toBe("Odysseus's content stays in git.");
   expect(readFileSync(join(target, "content.md"), "utf8")).toBe("Odysseus's separately recovered Git content.");
-  expect(existsSync(join(target, "brain.db"))).toBe(false);
+  expect(existsSync(join(target, ".brain-index", "brain.db"))).toBe(false);
   expect(restored.query("SELECT * FROM inbox_budget_reservations WHERE status = 'settled' ORDER BY id").all())
     .toEqual(f.db.query("SELECT * FROM inbox_budget_reservations WHERE status = 'settled' ORDER BY id").all());
 });

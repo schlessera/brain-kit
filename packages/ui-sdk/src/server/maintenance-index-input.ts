@@ -1,13 +1,21 @@
 /** Fixed disposable SQLite family copy-up inside an already attested stage. */
 import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeSync, fchmodSync } from "node:fs";
+import { INDEX_DIR, INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 import { maintenanceOutputRoot } from "../config/env.js";
 import { randomUUID } from "node:crypto";
-const names = ["brain.db", "brain.db-wal", "brain.db-shm", "brain.db-journal"] as const;
+const names = INDEX_FAMILY;
 const stamp = (s: ReturnType<typeof fstatSync>) => [s.dev, s.ino, s.mode, s.nlink, s.size, s.mtimeMs, s.ctimeMs].join(":");
 /** No caller-selected paths; the executable's root is the existing maintenance output. */
 export function prepareMaintenanceIndex(root: string, maximum: number): void {
   if (!Number.isSafeInteger(maximum) || maximum < 4096) throw Error("Invalid disposable index bound");
-  const directory = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  // The family lives in its own directory below the stage root. A stage with
+  // no index directory has nothing to copy up: the writer creates it.
+  const stage = openSync(root, DIRECTORY);
+  let directory: number;
+  try { directory = openSync(`/proc/self/fd/${stage}/${INDEX_DIR}`, DIRECTORY); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  finally { closeSync(stage); }
   const at = (name: string) => `/proc/self/fd/${directory}/${name}`;
   const inputs: { name: typeof names[number]; fd: number; identity: string; mode: number; size: number; owned: boolean }[] = [];
   let temporary: string | undefined;
@@ -34,8 +42,11 @@ export function prepareMaintenanceIndex(root: string, maximum: number): void {
     }
     if (inputs.length && inputs[0]!.name !== "brain.db") throw Error("Orphan disposable index sidecar");
     if (!inputs.some(input => !input.owned)) return;
-    temporary = `.brain-maintenance-index-${randomUUID()}`;
-    mkdirSync(at(temporary), { mode: 0o700 });
+    // Name the directory for cleanup only once it exists, so a refused mkdir
+    // (an index directory this identity cannot write) keeps its own error.
+    const name = `.brain-maintenance-index-${randomUUID()}`;
+    mkdirSync(at(name), { mode: 0o700 });
+    temporary = name;
     const buffer = Buffer.alloc(64 * 1024);
     // Finish every copy and check the entire source family before replacement.
     for (const input of inputs.filter(input => !input.owned)) {

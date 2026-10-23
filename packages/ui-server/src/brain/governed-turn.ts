@@ -6,7 +6,9 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { createGovernancePolicyReader, providerFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
+import { createGovernancePolicyReader, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
+import { ensureIndexDirectory } from "./index-directory.js";
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
 export interface GovernedTurnHold {
   readonly sandbox: WorkerSandbox;
@@ -66,8 +68,12 @@ export function createGovernedTurns(options: {
         signal.throwIfAborted();
         const availability = await options.execution.boundary.prepare(signal, startupView);
         const policy = policyReader.load();
-        const folderPaths = hold.retainFolders?.(providerFolderRoots(policy.policy))
-          ?? [...new Set([...(hold.folderPaths ?? []), ...providerFolderRoots(policy.policy)])];
+        const folderPaths = hold.retainFolders?.(retainedFolderRoots(policy.policy))
+          ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy)])];
+        // Retention needs the directory to exist; the host creates the index
+        // directory (never a provider folder) before the layout is resolved.
+        // An alias or file under the name stays for the resolver to refuse.
+        if (folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(options.brainPath); } catch { /* resolver refuses */ } }
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
         const resolveSandbox = () => prepareWorkerSandbox(options.brainPath, { profile: selected,

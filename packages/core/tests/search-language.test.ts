@@ -42,7 +42,7 @@ function setLanguage(root: string, language: "english" | "none"): void {
 }
 
 function tokenizer(root: string): string {
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   const { sql } = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'documents_fts'").get() as { sql: string };
   db.close();
   return sql.match(/tokenize='([^']*)'/)![1];
@@ -50,7 +50,7 @@ function tokenizer(root: string): string {
 
 /** What a switch must leave alone or complete: the table's tokenizer, its metadata, and its row count against the documents. */
 async function state(root: string): Promise<{ tokenizer: string; meta: string | null; docs: number; fts: number }> {
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   try {
     const meta = db.prepare("SELECT value FROM index_metadata WHERE key = 'fts_tokenizer'").get() as { value: string } | null;
     const counts = db
@@ -64,7 +64,7 @@ async function state(root: string): Promise<{ tokenizer: string; meta: string | 
 
 /** Make every document write fail, as a crash in the middle of the persist phase would. */
 function failWrites(root: string, fail: boolean): void {
-  const db = new Database(join(root, "brain.db"));
+  const db = new Database(join(root, ".brain-index", "brain.db"));
   db.run(
     fail
       ? "CREATE TRIGGER fail_writes BEFORE UPDATE ON documents BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
@@ -99,7 +99,7 @@ describe("search.language", () => {
     await runCli(root, ["index", "--json"]);
     expect(tokenizer(root)).toBe("porter unicode61");
     const chunkIds = () => {
-      const db = new Database(join(root, "brain.db"), { readonly: true });
+      const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
       const ids = db.prepare("SELECT id FROM chunks ORDER BY id").all();
       const counts = db.prepare("SELECT (SELECT COUNT(*) FROM documents) AS docs, (SELECT COUNT(*) FROM documents_fts) AS fts").get() as { docs: number; fts: number };
       db.close();
@@ -140,7 +140,7 @@ describe("search.language", () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
     const chunkTable = () => {
-      const db = new Database(join(root, "brain.db"), { readonly: true });
+      const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
       const { sql } = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'chunks_fts'").get() as { sql: string };
       db.close();
       return sql.match(/tokenize='([^']*)'/)![1];
@@ -155,7 +155,7 @@ describe("search.language", () => {
     // Without a stemmer, no table matches the plural any more.
     expect(await paths(root, "orientations")).toEqual([]);
     expect((await paths(root, "orientation")).length).toBeGreaterThan(0);
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     db.run("INSERT INTO chunks_fts(chunks_fts, rank) VALUES ('integrity-check', 1)");
     db.close();
   }, 180_000);
@@ -238,11 +238,11 @@ describe("search.language", () => {
   test.skipIf(!vecAvailable)("a switch keeps every vector and chunk context", async () => {
     const root = brain();
     expect(await embedTempBrain(root)).toBeGreaterThan(0);
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     db.run("UPDATE chunks SET context = 'context ' || id");
     db.close();
     const kept = async () => {
-      const db = new Database(join(root, "brain.db"), { readonly: true });
+      const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
       await loadVec(db);
       const vectors = (db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number }).n;
       const contexts = db.prepare("SELECT id, context FROM chunks ORDER BY id").all();

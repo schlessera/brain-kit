@@ -9,8 +9,9 @@ all make sense.
 This is the property everything else hangs on.
 
 Your knowledge lives in **markdown files under git**. The search index
-(`brain.db`, a SQLite database) is a *derived cache*. It is built from the
-markdown and can be thrown away and rebuilt at any time:
+(`brain.db`, a SQLite database in the gitignored `.brain-index/` directory) is
+a *derived cache*. It is built from the markdown and can be thrown away and
+rebuilt at any time:
 
 ```sh
 brain index --force   # rebuilds the derived index from the markdown
@@ -23,6 +24,9 @@ Practical consequences:
   `brain add` / the MCP write tools) and let the indexer sync.
 - **Upgrades are re-indexes.** A new `@schlessera/brain` with a new schema does
   not need a data migration — `brain index --force` regenerates everything.
+  The same goes for the index's location: 0.44.0 moved it from a root-level
+  `brain.db` into `.brain-index/`, and a brain upgrading rebuilds it there.
+  `brain doctor --fix` deletes the old root-level files.
 - **Your data outlives the tool.** The files are plain markdown; they are
   readable, greppable, and portable with or without brain-kit.
 - **What git ignores, the index ignores, for assets only.** An image or PDF

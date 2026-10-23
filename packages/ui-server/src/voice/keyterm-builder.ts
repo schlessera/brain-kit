@@ -1,6 +1,7 @@
 import type { Logger } from "@opentelemetry/api-logs";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 import type { PronunciationOverride } from "@schlessera/brain-ui-sdk/protocol";
 import { defaultCoreQueryAccess, CORE_PACKAGE, type CoreQueryAccess } from "../core-queries.js";
 
@@ -125,7 +126,7 @@ export function buildKeyterms(settings: KeytermSettings): KeytermsCache {
   const { code } = result.error;
   if (code === "missing_index") {
     // Preserved behavior: no brain.db is a hard error the caller reports.
-    throw new Error(`brain.db not found at ${join(brainPath, "brain.db")}`);
+    throw new Error(`brain.db not found at ${indexDbPath(brainPath)}`);
   }
   if (code === "incompatible_index") {
     // An index core cannot read: degrade to no custom vocabulary rather than

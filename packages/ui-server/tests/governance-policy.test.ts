@@ -276,7 +276,7 @@ test("admitted literal provider folders reach real governed mounts without claim
   const hold = await f.turns.begin("provider-folder-topology", new AbortController().signal);
   try {
     expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe("governed");
-    expect(hold.sandbox.retainedFolders).toEqual(["group/private"]);
+    expect(hold.sandbox.retainedFolders).toEqual([".brain-index", "group/private"]);
     const child = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH: "/usr/bin:/bin" }, command: ["/bin/sh", "-c", `
       if mv group/private group/moved 2>/dev/null; then echo ROOT_RENAMED; exit 41; fi
       if mv group group-moved 2>/dev/null; then echo ANCESTOR_RENAMED; exit 42; fi
