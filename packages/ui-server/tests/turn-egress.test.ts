@@ -198,3 +198,34 @@ test("without a governance recorder the turn proxy still enforces its policy", a
     expect(calls).toBe(0); expect(proxy.recordingFailure()).toBeUndefined();
   } finally { proxy.stop(); origin.stop(true); }
 });
+
+test("the first admitted connection taints the session before its bytes; later turns keep contacted and taint-allowed hosts only", async () => {
+  const db = createUiDb(":memory:");
+  db.query("INSERT INTO sessions (id,title,created_at,last_active_at) VALUES ('ithaca','Ithaca',0,0)").run();
+  const harbour = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("Ithaca") });
+  const island = Bun.serve({ hostname: "127.0.0.2", port: 0, fetch: () => new Response("Aeaea") });
+  const turn = async (turnId: string, policy: GovernancePolicyInput = { schema_version: 1 }) => prepareTurnEgress({ ...inputs(new AbortController(), policy),
+    turnId, sessionId: () => "ithaca", record: event => recordGovernanceEvent(db, event), governanceDb: db });
+  const events = (kind: "taint" | "egress_connection" | "egress_denial") => queryGovernanceEvents(db, { sessionId: "ithaca", kinds: [kind], limit: 20 });
+  try {
+    const first = await turn("turn-harbour");
+    expect(await get(first.socketPath, harbour.url.href), "TURN_EGRESS_CLEAN_SESSION_CONNECTS").toBe(200);
+    first.stop();
+    const [taint] = events("taint");
+    expect(taint, "TURN_EGRESS_CONNECTION_TAINTS").toMatchObject({ turnId: "turn-harbour", payload: { source: "egress_connection", tool: null, detail: `GET 127.0.0.1:${harbour.port}` } });
+    // Admission records taint; the connection record follows when it ends.
+    expect(taint!.id, "TURN_EGRESS_TAINT_PRECEDES_CONNECTION_RECORD").toBeLessThan(events("egress_connection")[0]!.id);
+    // An attempt that never passed admission is not a contacted host.
+    recordGovernanceEvent(db, { kind: "egress_connection", turnId: "turn-harbour", sessionId: "ithaca", actor: "interactive", model: null, profile: "governed",
+      payload: { method: "CONNECT", host: "127.0.0.2", port: island.port!, bytes: 0, accounting: "opaque_bytes", durationMs: 1, outcome: "cancelled", reason: "turn_cancelled" } });
+    const second = await turn("turn-island");
+    expect(await get(second.socketPath, harbour.url.href), "TURN_EGRESS_CONTACTED_HOST_STAYS").toBe(200);
+    expect(await get(second.socketPath, island.url.href), "TURN_EGRESS_TAINTED_NEW_HOST_REFUSED").toBe(403);
+    second.stop();
+    expect(events("egress_denial").map(event => event.payload)).toEqual([{ host: "127.0.0.2", port: island.port, method: "GET", reason: "taint_allowlist", bytes: 0 }]);
+    const third = await turn("turn-allowed", { schema_version: 1, taint: { egress: { allow: ["127.0.0.2"] } } });
+    expect(await get(third.socketPath, island.url.href), "TURN_EGRESS_TAINT_ALLOW_LIST").toBe(200);
+    third.stop();
+    expect(events("taint"), "TURN_EGRESS_FIRST_SOURCE_ONLY").toHaveLength(1);
+  } finally { harbour.stop(true); island.stop(true); db.close(); }
+});

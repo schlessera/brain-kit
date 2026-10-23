@@ -1,4 +1,5 @@
 import { prepareTurnEgress } from "../brain/turn-egress.js";
+import { sessionTaint } from "../governance/session-taint.js";
 import { createTurnLifecycle } from "../activity/turn-lifecycle.js";
 import { BudgetExceeded, BudgetUnavailable, inferenceBudgetLimits, inferenceBudgetContext } from "../brain/turn-budgets.js";
 import { withTrackFiles } from "../tracks/read.js";
@@ -435,6 +436,8 @@ async function runRetainedSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
               ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
+              ...(host.brainPath ? { brainPath: host.brainPath } : {}),
+              abort: error => abortController.abort(error),
             },
             {
               turnId: turn.turnId,
@@ -658,8 +661,13 @@ async function runRetainedSession(
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", origin,
             ...(governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
+            ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           });
         }
+        // The session's recorded untrusted input, read live by outward admission and the note (G6).
+        const governanceDb = host.activity?.governanceDb;
+        const commandPolicy = governedHold?.sandbox.commandPolicy && governanceDb ? { ...governedHold.sandbox.commandPolicy,
+          taint: () => sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
         enteredBackend = true;
         turn.backendStarted = true;
         lifecycle?.mark("backendInvokedAt");
@@ -668,7 +676,7 @@ async function runRetainedSession(
           ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
-          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(turnEgress ? { egress: turnEgress } : {}), noteFacts: {
+          ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(commandPolicy ? { commandPolicy } : {}), ...(turnEgress ? { egress: turnEgress } : {}), noteFacts: {
             ...governedHold.sandbox.noteFacts,
             ...(workerIdentity ? { identity: workerIdentity } : {}),
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),

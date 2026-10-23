@@ -1,6 +1,3 @@
-import type { Database } from "bun:sqlite";
-import type { GovernanceEventInput } from "../governance/events.js";
-
 /** Conservative pre-proxy ingestion detection; this grants no command authority. */
 export function commandTaintSource(tool: string, input: unknown): "fetching_command" | "unclassified_command" | null {
   if (tool !== "Bash" && tool !== "bash") return null;
@@ -27,14 +24,4 @@ export function commandTaintSource(tool: string, input: unknown): "fetching_comm
   // arbitrary network code; outward/read classification is not this proof.
   if (staticWords && (words[0] === "ls" || words[0] === "brain" && words[1] === "search")) return null;
   return "unclassified_command";
-}
-
-/** Same SQLite transaction owns the first-source check and durable write. */
-export function recordFirstCommandTaint(db: Database, event: GovernanceEventInput<"taint">,
-  record: (event: GovernanceEventInput<"taint">) => void): void {
-  db.transaction(() => {
-    const existing = db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1")
-      .get(event.turnId ?? null, event.sessionId ?? null, event.sessionId ?? null);
-    if (!existing) record(event);
-  })();
 }
