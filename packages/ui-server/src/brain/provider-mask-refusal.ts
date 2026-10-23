@@ -5,6 +5,7 @@
  * mounts, against the real brain.
  */
 import type { EffectiveGovernancePolicy } from "@schlessera/brain-common/internal/governance-policy";
+import { providerFolderRoots } from "./governance-policy.js";
 
 /** The named refusal code an application result, or a thrown read, carries. */
 export const PROVIDER_MASKED = "provider_masked";
@@ -13,7 +14,7 @@ export interface ProviderMaskRefusal {
   /** The agent-facing tool name, as the governance event records it. */
   tool: string;
   path: string;
-  /** The `providers` rule whose literal `folder/**` selector masks the path. */
+  /** The `providers` rule whose selector (a folder path, or `type <name>`) maps onto the masked folder. */
   rule: { list: "providers"; index: number; pattern: string };
 }
 
@@ -67,14 +68,26 @@ export function isProviderMasked(path: string, folders: readonly string[]): bool
 export function createProviderMaskGuard(options: {
   folders: readonly string[];
   policy: Pick<EffectiveGovernancePolicy, "providers">;
+  /** The folders admission translated each selected type to (#2694). */
+  typeFolders?: Readonly<Record<string, readonly string[]>>;
   record(refusal: ProviderMaskRefusal): void;
 }): ProviderMaskGuard {
   const folders = Object.freeze([...options.folders]);
-  const rules = folders.map(root => {
-    const pattern = `${root}/**`;
-    const index = options.policy.providers.findIndex(rule => rule.paths.includes(pattern));
-    return { root, rule: Object.freeze({ list: "providers" as const, index: Math.max(index, 0), pattern }) };
-  });
+  const providers = options.policy.providers;
+  // The first rule that maps onto the folder: a path selector naming it whole,
+  // else a type admission translated onto it.
+  const ruleFor = (root: string) => {
+    for (const [index, rule] of providers.entries()) {
+      const pattern = rule.paths.find(path => providerFolderRoots({ providers: [{ paths: [path], allow: [] }] }).includes(root));
+      if (pattern) return { index, pattern };
+    }
+    for (const [index, rule] of providers.entries()) {
+      const type = (rule.types ?? []).find(name => options.typeFolders?.[name]?.includes(root));
+      if (type) return { index, pattern: `type ${type}` };
+    }
+    return { index: 0, pattern: `${root}/**` };
+  };
+  const rules = folders.map(root => ({ root, rule: Object.freeze({ list: "providers" as const, ...ruleFor(root) }) }));
   const match = (path: string) => rules.find(({ root }) => isProviderMasked(path, [root]));
   return {
     folders,
