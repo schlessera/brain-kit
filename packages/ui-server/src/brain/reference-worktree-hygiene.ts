@@ -12,10 +12,36 @@ import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { ReferenceWorktreeCleanup, ReferenceWorktreeRow, ReferenceWorktrees } from "./reference-worktrees.js";
 
-type Core = Pick<typeof import("@schlessera/brain/internal"), "canonicalFindings" | "selectHygieneNext" | "REVIEW_SEVERITY" | "REVIEW_URGENCY" | "reviewUrgency">;
-type Candidate = import("@schlessera/brain/internal").HygieneCandidate;
-type Finding = import("@schlessera/brain/internal").HygieneFinding;
-type Entry = import("@schlessera/brain/internal").HygieneLogEntry;
+/*
+ * Core is an optional peer of this package, so its types never reach these
+ * declarations: the shapes below are the parts of core's hygiene identity,
+ * fingerprint and selection functions this module uses, and the host passes
+ * the loaded module in.
+ */
+interface Candidate {
+  category: string; path: string; evidence: string; message: string;
+  source: { source: "hygiene"; name: string; severity: "warning" }; facts: Record<string, string>;
+}
+interface Finding {
+  id: string; category: string; path: string; evidence: string; message: string; severity: string | null; urgency: string | null;
+  fingerprint: string; fingerprintFields: Record<string, string>;
+}
+interface Entry {
+  id: string; state: "open" | "dismissed" | "snoozed" | "resolved"; path: string | null; issue: string | null; firstSeen: string | null; lastSeen: string | null;
+  until: string | null; dueAt: string | null; resolvedBy: string | null; resolvedOn: string | null;
+  sources: { source: "hygiene"; name: string; severity: "warning" }[]; severity: "warning" | null; fingerprint: string | null;
+  disposition: { kind: "dismissed" | "snoozed"; on: string | null; reason: string | null; fingerprint: string | null } | null;
+  invalidation: { on: string; disposition: "dismissed" | "snoozed"; dispositionOn: string | null; changed: string[]; previousId: string | null } | null;
+}
+/** The loaded `@schlessera/brain/internal` module, as far as this module reads it. */
+export interface ReferenceWorktreeHygieneCore {
+  canonicalFindings(candidates: Candidate[]): Map<string, Finding>;
+  selectHygieneNext(root: string, findings: Map<string, Finding>, entries: Entry[], now: Date, findingId?: string): { finding: Finding | null; counts: Next["counts"] };
+  REVIEW_SEVERITY: Record<string, number>;
+  REVIEW_URGENCY: Record<string, number>;
+  reviewUrgency(value: string | null): string;
+}
+type Core = ReferenceWorktreeHygieneCore;
 /** The CLI's `next` projection, as the review reads it. */
 type NextFinding = Record<string, unknown> & { id: string; severity?: string | null; urgency?: string | null; firstSeen?: string | null };
 type Next = { finding: NextFinding | null;
@@ -214,8 +240,8 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
       nextSnoozeDueAt: [cli.counts.nextSnoozeDueAt, host.counts.nextSnoozeDueAt].filter((at): at is string => at !== null).sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null,
       informationalNotShown: cli.counts.informationalNotShown + host.counts.informationalNotShown,
     };
-    const rank = (f: NextFinding) => [core.REVIEW_SEVERITY[(f.severity ?? "unknown") as keyof typeof core.REVIEW_SEVERITY] ?? core.REVIEW_SEVERITY.unknown,
-      core.REVIEW_URGENCY[core.reviewUrgency(f.urgency ?? null)], f.firstSeen ? Date.parse(`${f.firstSeen}T00:00:00Z`) : Infinity] as const;
+    const rank = (f: NextFinding) => [core.REVIEW_SEVERITY[f.severity ?? "unknown"] ?? core.REVIEW_SEVERITY.unknown!,
+      core.REVIEW_URGENCY[core.reviewUrgency(f.urgency ?? null)]!, f.firstSeen ? Date.parse(`${f.firstSeen}T00:00:00Z`) : Infinity] as const;
     const order = (a: NextFinding, b: NextFinding) => {
       const [x, y] = [rank(a), rank(b)];
       return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
