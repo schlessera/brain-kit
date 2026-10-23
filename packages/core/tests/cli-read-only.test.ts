@@ -56,7 +56,7 @@ test("a real agent worker indexes a brain in its writable tmpfs over the readonl
     const result=Bun.spawnSync([process.execPath,${JSON.stringify(cli)},"index","--force","--json"],
       {cwd:brain,env:{...process.env,BRAIN_ROOT:brain},stdout:"pipe",stderr:"pipe"});
     console.log(JSON.stringify({witness:fs.readFileSync(brain+"/witness.md","utf8"),
-      exit:result.exitCode,stdout:result.stdout.toString(),stderr:result.stderr.toString(),database:fs.existsSync(brain+"/brain.db"),
+      exit:result.exitCode,stdout:result.stdout.toString(),stderr:result.stderr.toString(),database:fs.existsSync(brain+"/.brain-index/brain.db"),
       mounts:fs.readFileSync("/proc/self/mountinfo","utf8").split("\\n").filter(line=>line.split(" ")[4]==="/tmp")}));`;
   const launch = `const {launchFixtureAgentWorker:launchAgentWorker}=await import(${JSON.stringify(resolve("packages/ui-sdk/tests/helpers/worker-startup-view-fixture.ts"))});
     const worker=launchAgentWorker({brainPath:${JSON.stringify(root)},env:{},command:${JSON.stringify([process.execPath, "--config=/dev/null", "--no-env-file", "-e", program])}});
@@ -92,7 +92,7 @@ test("read-only bind refuses capture visibly and leaves search usable", async ()
   // parent suite's module/context caches or globals.
   const indexed = await run(false, "index", "--force", "--json");
   expect(indexed.exit, indexed.stderr).toBe(0);
-  const db = openDatabase(join(root, "brain.db"));
+  const db = openDatabase(join(root, ".brain-index", "brain.db"));
   try {
     expect((db.query("SELECT count(*) AS n FROM documents_fts WHERE documents_fts MATCH 'raft'").get() as { n: number }).n).toBeGreaterThan(0);
   } finally { db.close(); }

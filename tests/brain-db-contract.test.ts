@@ -112,7 +112,7 @@ afterAll(() => {
 });
 
 function openDb(): Database {
-  return new Database(join(brainPath, "brain.db"), { readonly: true });
+  return new Database(join(brainPath, ".brain-index", "brain.db"), { readonly: true });
 }
 
 describe("brain.db schema version has one source", () => {

@@ -18,7 +18,7 @@ test("policy check validates actual frontmatter without evaluating brain configu
   expect(output).toMatchObject({ schema_version: 1, ok: true, status: "valid", errors: [], effective: { profiles: { interactive: "strict", voice: "governed" } } });
   expect(output.content_hash).toMatch(/^[a-f0-9]{64}$/);
   expect(result.stderr).not.toContain("POLICY_CHECK_MUST_NOT_EVALUATE_CONFIG");
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 });
 
 test("policy check has explicit invalid and missing envelopes and never writes files", async () => {
@@ -35,7 +35,7 @@ test("policy check has explicit invalid and missing envelopes and never writes f
   expect(envelope.content_hash).toMatch(/^[a-f0-9]{64}$/);
   expect(envelope.errors.join(" ")).toContain("tier B");
   expect(readFileSync(join(root, "context/policies/governance.md"), "utf8")).toContain("release: [.git/config]");
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 });
 
 test("actual brain index excludes governance policy while retaining the fixture corpus", async () => {
@@ -44,7 +44,7 @@ test("actual brain index excludes governance policy while retaining the fixture 
   writeFileSync(join(root, "context/policies/governance.md"), "---\ntitle: Athena policy\ntype: note\ncreated: 2026-07-12\nupdated: 2026-07-12\nschema_version: 1\n---\nA policy is host input, not searchable knowledge.\n");
   const indexed = await runCli(root, ["index", "--json"]);
   expect(indexed.code, indexed.stderr).toBe(0);
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   try {
     expect(db.query("SELECT path FROM documents WHERE path = ?").get("context/policies/governance.md"), "POLICY_INPUT_NOT_INDEXED").toBeNull();
     expect(db.query("SELECT count(*) AS n FROM documents").get()).not.toEqual({ n: 0 });

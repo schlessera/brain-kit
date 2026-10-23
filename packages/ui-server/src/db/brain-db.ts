@@ -1,5 +1,6 @@
 /**
- * The one place ui-server opens the BRAIN database (`$BRAIN_PATH/brain.db`).
+ * The one place ui-server opens the BRAIN database
+ * (`$BRAIN_PATH/.brain-index/brain.db`).
  *
  * core owns that schema and versions it independently, so every reader on this
  * side of the package boundary must check `schema_version` before trusting the
@@ -13,7 +14,7 @@
 
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
-import { join } from "path";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 
 /**
  * The oldest brain.db schema the SQL in this package is written against:
@@ -76,7 +77,7 @@ export function openBrainDb(
   options: OpenBrainDbOptions = {}
 ): BrainDbHandle {
   const min = options.minSchemaVersion ?? MIN_BRAIN_SCHEMA_VERSION;
-  const dbPath = join(brainPath, "brain.db");
+  const dbPath = indexDbPath(brainPath);
   if (!existsSync(dbPath)) {
     throw new BrainDbUnavailableError("missing", 0);
   }

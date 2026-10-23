@@ -54,7 +54,7 @@ async function paths(root: string, ...args: string[]): Promise<string[]> {
 
 /** The indexed brain with a controlled vector lane: `nearest`'s chunks on the query vector, the other's off it. */
 async function withVectors(root: string, nearest: string): Promise<{ db: Database; provider: EmbeddingProvider }> {
-  const db = openDatabase(join(root, "brain.db"));
+  const db = openDatabase(join(root, ".brain-index", "brain.db"));
   // The keyless index made a vector table of the default width; this one is 2-wide.
   await loadVec(db);
   db.run("DROP TABLE IF EXISTS vec_chunks");
@@ -116,7 +116,7 @@ describe("aliases leave tags alone", () => {
     // An alias still finds its document, through its own column.
     expect((await paths(root, "bearingbook", "--mode", "fts"))[0]).toBe(GUIDE);
 
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const row = db
       .prepare("SELECT fts.tags AS tags, fts.aliases AS aliases FROM documents_fts fts JOIN documents d ON d.id = fts.rowid WHERE d.path = ?")
       .get(GUIDE) as { tags: string; aliases: string };
@@ -130,7 +130,7 @@ describe("schema 14", () => {
   test("an index from before it gets the aliases column on its next writable open, searchable at once", async () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
-    const path = join(root, "brain.db");
+    const path = join(root, ".brain-index", "brain.db");
     // Put back the four-column table a schema-13 index had, with its rows.
     const old = new Database(path);
     old.run("DROP TABLE documents_fts");
@@ -172,7 +172,7 @@ describe("a search.language switch", () => {
     writeFileSync(config, readFileSync(config, "utf8").replace(/\n\}\);\s*$/, '\n  search: { language: "none" },\n});\n'));
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
 
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'documents_fts'").get() as { sql: string }).sql;
     db.close();
     expect(sql).toContain("aliases");

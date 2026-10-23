@@ -299,7 +299,7 @@ print(json.dumps(result))`;
         expect(finalEvents.filter(row => row.kind === "fake_provider_enter").length, "FINAL_CANCELLED_ADMISSION_NEVER_ENTERED_PROVIDER").toBe(expectedProviderAttempts ?? -1);
         expect(finalEvents.filter(row => row.kind === "whole_brain_alias_scan"), "FINAL_NO_WHOLE_BRAIN_ADMISSION_WALK").toHaveLength(0);
         // The closed app has drained refresh work; no live reader can mutate SQLite sidecars.
-        const index = new Database(join(brain, "brain.db"), { readonly: true });
+        const index = new Database(join(brain, ".brain-index", "brain.db"), { readonly: true });
         try {
           for (const attempt of [1,2]) {
             const row = index.query("SELECT path, content FROM documents WHERE path = ?").get(`notes/worker-${attempt}.md`) as { path: string; content: string } | null;

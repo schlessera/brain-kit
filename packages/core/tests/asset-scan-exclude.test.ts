@@ -87,7 +87,7 @@ describe("exclude entries match an asset's path as it is", () => {
 describe("an asset already in the index under a case-distinct directory", () => {
   test("is not removed by the next index when a lower-case entry names a differently cased directory", async () => {
     const root = brainWithDrafts();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const assetRows = (db: Database) =>
       (
         db.prepare("SELECT path FROM documents WHERE asset_type != 'markdown' ORDER BY path").all() as {

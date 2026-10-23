@@ -1,6 +1,7 @@
 /** Data-only inventory of known steering surfaces and retained local references. */
 import { steeringReferences, type SteeringReference } from "./journal-reference-roles.js";
 import { posix } from "node:path";
+import { INDEX_DB_PATH } from "@schlessera/brain-common/internal/index-location";
 import type { JournalSnapshot, JournalSnapshotEntry } from "./journal-snapshot.js";
 
 const instructions = /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI|SYSTEM|APPEND_SYSTEM)\.md$/;
@@ -27,10 +28,11 @@ function* steeringInventory(snapshots: readonly JournalSnapshot[], lookup?: (pat
       paths.add(entry.path); pending.push({entry, configuration: true, instructionDepth: /(?:^|\/)(?:CLAUDE|AGENTS)(?:\.local)?\.md$/.test(entry.path) ? 0 : undefined});
     }
   }
-  // Core initContext fixes its index at <root>/brain.db. Explicit identities
-  // support callers that already resolved a different index; this is no new
-  // repository configuration format. Sidecars derive from that exact identity.
-  const indexes = options.resolvedIndexPaths ?? [...new Set([...entries.values()].map(entry => posix.join(entry.scope, "brain.db")))];
+  // Core initContext fixes its index at <root>/.brain-index/brain.db. Explicit
+  // identities support callers that already resolved a different index; this
+  // is no new repository configuration format. Sidecars derive from that
+  // exact identity.
+  const indexes = options.resolvedIndexPaths ?? [...new Set([...entries.values()].map(entry => posix.join(entry.scope, INDEX_DB_PATH)))];
   const disposable = new Set(indexes.flatMap(path => ["", "-wal", "-shm", "-journal"].map(suffix => `${posix.normalize(path)}${suffix}`)));
   for (const path of disposable) paths.delete(path);
   const visited = new Set<string>();

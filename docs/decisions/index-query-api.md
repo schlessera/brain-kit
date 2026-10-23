@@ -28,7 +28,7 @@ alone does not excuse changing the documented results or error behavior.
 ## Why SQL cannot remain the supported interface
 
 Two packages currently own graph SQL. UI-server opens a short-lived read-only
-connection (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:74-96`), interprets graph availability ([pre-migration `getGraphMeta`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437-L471)) and walks raw links for
+connection (`openBrainDb`, `packages/ui-server/src/db/brain-db.ts:75-97`), interprets graph availability ([pre-migration `getGraphMeta`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L437-L471)) and walks raw links for
 interactive neighborhoods ([pre-migration `getNeighborhood`](https://github.com/schlessera/brain-kit/blob/33af7e2972873286144dbcc93c232c904e3ced47/packages/ui-server/src/graph/reader.ts#L525-L540)). Core has its own cluster query (`getClusterGraph`, `packages/core/src/lib/graph/queries.ts:181-204`).
 Their defaults and responses differ. A wrapper around one existing helper is
 not automatically a behavior-preserving replacement for the other.

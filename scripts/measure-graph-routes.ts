@@ -16,7 +16,7 @@
  * one process. Keyless and offline; no network, no paid model.
  */
 import { Database } from "bun:sqlite";
-import { cpSync, mkdtempSync, rmSync, symlinkSync } from "fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "fs";
 import { cpus, tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -80,13 +80,13 @@ const pct = (values: number[], p: number) => {
 async function cliIndex(source: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "measure-graph-routes-"));
   cpSync(source, dir, { recursive: true });
-  for (const suffix of ["", "-wal", "-shm"]) rmSync(join(dir, `brain.db${suffix}`), { force: true });
+  for (const suffix of ["", "-wal", "-shm"]) rmSync(join(dir, ".brain-index", `brain.db${suffix}`), { force: true });
   symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"));
   const env: Record<string, string | undefined> = { ...process.env, BRAIN_ROOT: dir };
   for (const name of ["GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "TYPESAFE_API_KEY", "BRAIN_RERANK_MODE"]) delete env[name];
   const child = Bun.spawn([process.execPath, join(ROOT, "packages/core/src/cli/brain.ts"), "index", "--force", "--json"], { env, stdout: "pipe", stderr: "pipe" });
   if (await child.exited !== 0) throw new Error(await new Response(child.stderr).text());
-  const db = new Database(join(dir, "brain.db"));
+  const db = new Database(join(dir, ".brain-index", "brain.db"));
   db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   db.close(true);
   return dir;
@@ -95,8 +95,9 @@ async function cliIndex(source: string): Promise<string> {
 /** The fixture index, rewritten to a graph that hits every cap. */
 function capSized(fixture: string): string {
   const dir = mkdtempSync(join(tmpdir(), "measure-graph-routes-cap-"));
-  cpSync(join(fixture, "brain.db"), join(dir, "brain.db"));
-  const db = new Database(join(dir, "brain.db"));
+  mkdirSync(join(dir, ".brain-index"));
+  cpSync(join(fixture, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
+  const db = new Database(join(dir, ".brain-index", "brain.db"));
   db.exec("DELETE FROM links; DELETE FROM graph_metrics; DELETE FROM graph_layouts; DELETE FROM graph_communities; DELETE FROM graph_root_distances; DELETE FROM documents");
   const doc = db.query("INSERT INTO documents (id,path,title,type,status,created,updated,content,indexed_at,asset_type) VALUES (?,?,?,'note','active','2026-01-01','2026-01-01',?,'2026-01-01T00:00:00Z','markdown')");
   const metric = db.query("INSERT INTO graph_metrics (document_id,in_degree,out_degree,component,pagerank,community) VALUES (?,5,5,1,?,?)");
@@ -129,7 +130,7 @@ const corpora = [
 ];
 console.log(`Bun ${Bun.version}, ${process.platform}/${process.arch}, ${cpus()[0]?.model ?? "unknown CPU"} x${cpus().length}`);
 for (const corpus of corpora) {
-  const db = new Database(join(corpus.dir, "brain.db"), { readonly: true });
+  const db = new Database(join(corpus.dir, ".brain-index", "brain.db"), { readonly: true });
   const counts = db.query<{ d: number; l: number }, []>("SELECT (SELECT COUNT(*) FROM documents) AS d, (SELECT COUNT(*) FROM links) AS l").get()!;
   db.close();
   console.log(`\n## ${corpus.name}: ${counts.d} documents, ${counts.l} links; cold n=${coldRuns}, warm n=${warmRuns} (ms)\n`);

@@ -129,6 +129,19 @@ reader. A future privacy admission must qualify all those boundaries and refuse
 unsupported unsafe selectors. Arbitrary type/glob requirements remain open;
 folder retention cannot authorize protected data for an unknown recipient.
 
+**Hosted turns (additive in 0.44.0, #1668).** No hosted turn has a proven
+inference recipient yet, so a provider rule denies every interactive and voice
+turn. Each literal `folder/**` root present in the turn's view reads as an
+empty read-only directory, `.git` is hidden, and `.brain-index/` is a
+turn-private, writable index. It is built before the turn by the brain's own
+CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
+never held a masked document. The real index is refreshed from Markdown after
+the turn as usual. A policy whose provider rules also name a document type, a
+non-literal glob or a single path refuses turn admission with
+`ProviderPolicyRefusedError`, naming each such selector; nothing it selects is
+left silently readable. Server-side tools, autonomous turns and the allowed
+recipient's unmasked view are not covered yet.
+
 Core indexing applies these selectors to embedding eligibility without removing
 keyword documents, chunks or links. A changed restriction reconciles existing
 vectors even without `--embeddings`; force rebuilds, cache reuse and asynchronous

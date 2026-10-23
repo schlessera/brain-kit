@@ -17,8 +17,10 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
     assert.equal(result.exitCode, 0, result.stderr.toString());
     return result.stdout.toString();
   };
-  for (const target of ["group/private", "group"] as const) {
-    const name = target === "group" ? "ancestor" : "root";
+  // `.brain-index` is retained beside provider roots (#1668): an active peer's
+  // private index is mounted over it, so publication must not replace it either.
+  for (const target of ["group/private", "group", ".brain-index"] as const) {
+    const name = target === "group" ? "ancestor" : target === ".brain-index" ? "index" : "root";
     // The existing fixture owns this top-level Btrfs mount and its brain.
     const store = "/brain-fixture", brain = join(store, "brain");
     const outputDirectory = join(artifacts, `schedule-${name}`);
@@ -67,24 +69,25 @@ export async function proveScheduleFolderAdmission(artifacts: string): Promise<v
         if (Date.now() > deadline) throw Error("Native schedule peer readiness deadline");
         await Bun.sleep(5);
       }
-      const before = [statSync(join(brain, "group")).ino, statSync(join(brain, "group/private")).ino];
+      const retained = ["group", "group/private", ".brain-index"];
+      const before = retained.map(path => statSync(join(brain, path)).ino);
       // Retired policy roots still belong to an active peer and its publishers.
       writeFileSync(policy, "---\nschema_version: 1\nproviders: []\n---\nAthena retires the restriction.\n");
       let refusal: unknown;
       try { await gitCheckIgnored(brain, boundary)("notes/odysseus.md"); }
       catch (error) { refusal = error; }
-      const after = ["group", "group/private"].map(path => existsSync(join(brain, path)) ? statSync(join(brain, path)).ino : null);
+      const after = retained.map(path => existsSync(join(brain, path)) ? statSync(join(brain, path)).ino : null);
       assert.deepEqual(after, before, "UNGATED_SCHEDULE_GIT_CANNOT_REPLACE_ACTIVE_PROVIDER_FOLDER");
       assert.match(String(refusal), /retained provider folder topology/, "NATIVE_PUBLICATION_REFUSES_REMOVAL");
       assert.equal(existsSync(join(brain, "notes/allowed.md")), false, "REFUSED_PUBLICATION_HAS_NO_SIBLING_EFFECT");
-      assert.deepEqual(admissions, [{ mode: "shared", folders: ["group/private"], holders: 2 }], "SCHEDULE_INHERITS_ACTIVE_PEER_ROOTS_AFTER_POLICY_REMOVAL");
+      assert.deepEqual(admissions, [{ mode: "shared", folders: [".brain-index", "group/private"], holders: 2 }], "SCHEDULE_INHERITS_ACTIVE_PEER_ROOTS_AFTER_POLICY_REMOVAL");
       assert.equal(gate.holders().length, 1, "SCHEDULE_RELEASES_ONLY_OWN_ADMISSION");
       writeFileSync(join(brain, "node_modules/.bin/git"), '#!/bin/sh\nprintf Athena > "$BRAIN_ROOT/notes/allowed.md"\n');
       const ignored = await gitCheckIgnored(brain, boundary)("notes/odysseus.md");
       assert.equal(ignored, true, "ORDINARY_IGNORE_SUCCESS_PRESERVED");
       assert.deepEqual(admissions, [
-        { mode: "shared", folders: ["group/private"], holders: 2 },
-        { mode: "shared", folders: ["group/private"], holders: 2 },
+        { mode: "shared", folders: [".brain-index", "group/private"], holders: 2 },
+        { mode: "shared", folders: [".brain-index", "group/private"], holders: 2 },
       ]);
       assert.equal(gate.holders().length, 1);
       assert.equal(existsSync(join(brain, "notes/allowed.md")), true, "PERMITTED_SIBLING_PUBLICATION_CONTINUES");

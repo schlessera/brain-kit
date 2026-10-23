@@ -1,4 +1,4 @@
-import { join } from "path";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 
 import type { BrainConfig, LoadedConfig } from "./config.js";
 import { loadUserConfig, resolveRoot } from "./config.js";
@@ -41,7 +41,7 @@ export async function initContext(opts: InitContextOptions = {}): Promise<BrainC
 
   current = {
     root,
-    dbPath: join(root, "brain.db"),
+    dbPath: indexDbPath(root),
     config: loaded.config,
     configPath: loaded.path,
     configSource: loaded.content,

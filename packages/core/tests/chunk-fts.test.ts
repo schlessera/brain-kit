@@ -70,7 +70,7 @@ async function fts(root: string, query: string): Promise<Array<{ path: string; s
 
 /** How many chunks the chunk index finds for `word`: its postings, not the rows behind them. */
 function postings(root: string, word: string): number {
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   try {
     return (db.prepare("SELECT COUNT(*) AS n FROM chunks_fts WHERE chunks_fts MATCH ?").get(word) as { n: number }).n;
   } finally {
@@ -80,7 +80,7 @@ function postings(root: string, word: string): number {
 
 /** FTS5's own check that the chunk index matches the `chunks` rows; throws when it does not. */
 function integrity(root: string): void {
-  const db = new Database(join(root, "brain.db"));
+  const db = new Database(join(root, ".brain-index", "brain.db"));
   try {
     db.run("INSERT INTO chunks_fts(chunks_fts, rank) VALUES ('integrity-check', 1)");
   } finally {
@@ -173,7 +173,7 @@ describe("a full-text search reads one snapshot", () => {
   test("a rebuild committing between its queries leaves the result whole", async () => {
     const dir = mkdtempSync(join(tmpdir(), "brain-chunk-snapshot-"));
     roots.push(dir);
-    const path = join(dir, "brain.db");
+    const path = join(dir, ".brain-index", "brain.db");
     const writer = openDatabase(path);
     writer.run("INSERT INTO documents(id,path,title,type,status,created,updated,content,indexed_at) VALUES (1,'notes/coast.md','Coast','note','active','2026-01-01','2026-06-01','x','2026-01-01')");
     writer.run("INSERT INTO documents_fts(rowid,title,summary,content,tags) VALUES (1,'Coast','','x','')");
@@ -319,7 +319,7 @@ describe("full-text search over chunks", () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
     // Lose the derived postings; the markdown and the chunk rows stay.
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     db.run("INSERT INTO chunks_fts(chunks_fts) VALUES ('delete-all')");
     db.close();
     expect(postings(root, "aluminium")).toBe(0); // the precondition
@@ -332,7 +332,7 @@ describe("full-text search over chunks", () => {
   test("an index from before schema 13 gains the chunk index on its next writable open, without a reindex", async () => {
     const root = brain();
     await runCli(root, ["index", "--json"]);
-    const path = join(root, "brain.db");
+    const path = join(root, ".brain-index", "brain.db");
     const old = new Database(path);
     for (const trigger of ["chunks_fts_insert", "chunks_fts_delete", "chunks_fts_update"]) old.run(`DROP TRIGGER ${trigger}`);
     old.run("DROP TABLE chunks_fts");

@@ -82,7 +82,7 @@ function write(root: string, doc: string): void {
 
 /** Index and detect, as `brain hygiene reconcile` does, with the given clock. */
 async function detect(root: string, now = NOW) {
-  const db = openDatabase(join(root, "brain.db"));
+  const db = openDatabase(join(root, ".brain-index", "brain.db"));
   try {
     await indexAll(db, { root, taxonomy, force: false, quiet: true });
     const detection = await detectCandidates(db, { taxonomy, root, modules: [] }, now);

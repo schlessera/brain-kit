@@ -605,7 +605,7 @@ describe("brain tags --apply, round 2 of review", () => {
   test("an index that cannot be opened stops the run before any file is rewritten", async () => {
     const root = makeBrain({ aliases: { routes: "route" } }, { "notes/a.md": doc("[routes]") });
     // A directory where the database file should be: SQLite cannot open it.
-    mkdirSync(join(root, "brain.db"));
+    mkdirSync(join(root, ".brain-index", "brain.db"), { recursive: true });
     const { stdout, code } = await runCli(root, ["tags", "--apply", "--json"]);
     expect(code).toBe(2);
     const out = JSON.parse(stdout);
@@ -614,7 +614,7 @@ describe("brain tags --apply, round 2 of review", () => {
     expect(out.warnings[0]).toStartWith("cannot open the index");
     expect(read(root, "notes/a.md")).toBe(doc("[routes]"));
     // Once the index opens again, the retry does the whole migration.
-    rmSync(join(root, "brain.db"), { recursive: true });
+    rmSync(join(root, ".brain-index", "brain.db"), { recursive: true });
     const retry = await runCli(root, ["tags", "--apply", "--json"]);
     expect(retry.code).toBe(0);
     expect(JSON.parse(retry.stdout).files).toEqual([{ path: "notes/a.md", from: ["routes"], to: ["route"] }]);

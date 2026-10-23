@@ -96,7 +96,7 @@ async function cliIndex(root: string): Promise<void> {
 
 /** Rows the indexer may not produce (`.MD` names, a null status) but another writer could. */
 function addRows(root: string, rows: { path: string; status: string | null }[]): void {
-  const db = new Database(join(root, "brain.db"));
+  const db = new Database(join(root, ".brain-index", "brain.db"));
   // A statement left unfinalized makes close(true) fail as "database is locked".
   const insert = db.prepare(
     "INSERT INTO documents (path,title,type,status,relevance,created,updated,content,indexed_at) VALUES (?, 'Odysseus', 'opportunity', ?, 'primary', '2026-07-01', ?, 'Ithaca', '2026-07-12T00:00:00Z') ON CONFLICT(path) DO UPDATE SET status = excluded.status"
@@ -112,7 +112,7 @@ function addRows(root: string, rows: { path: string; status: string | null }[]):
 type Probe = Record<string, unknown> & { results: Record<string, boolean> };
 async function runAudit(brain: BrainContext, root = brain.root, failed: string[] = []): Promise<{ issues: AuditIssue[]; probes: Probe[] }> {
   (globalThis as { __hygieneProbe?: Probe[] }).__hygieneProbe = [];
-  const db = new Database(join(brain.root, "brain.db"), { readonly: true });
+  const db = new Database(join(brain.root, ".brain-index", "brain.db"), { readonly: true });
   try {
     const issues = await auditWithModules(db, { ...brain, root }, { onCheckFailed: (name) => failed.push(name) });
     return { issues, probes: (globalThis as { __hygieneProbe?: Probe[] }).__hygieneProbe ?? [] };
@@ -151,7 +151,7 @@ describe("module hygiene through root-bound queries", () => {
     const flagged = stagePaths(issues);
     // Root exact, nested ASCII-case-insensitive; near-names, notes, archived and null status excluded.
     expect(flagged).toEqual(["career/aeolus/status.md", "career/calypso/Status.md", "career/circe/STATUS.md", UPPER_NESTED, "status.md"]);
-    const db = new Database(join(brain.root, "brain.db"), { readonly: true });
+    const db = new Database(join(brain.root, ".brain-index", "brain.db"), { readonly: true });
     const statement = db.prepare(
       `SELECT path FROM documents WHERE type = 'opportunity' AND status != 'archived' AND (path = 'status.md' OR path LIKE '%/status.md') ORDER BY path`
     );
@@ -201,8 +201,8 @@ describe("module hygiene through root-bound queries", () => {
   test.each([
     ["a missing", (dir: string) => dir, "missing_index", "run `brain index`"],
     ["an incompatible", (dir: string) => {
-      cpSync(join(brain.root, "brain.db"), join(dir, "brain.db"));
-      const db = new Database(join(dir, "brain.db"));
+      cpSync(join(brain.root, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
+      const db = new Database(join(dir, ".brain-index", "brain.db"));
       try { db.run("UPDATE index_metadata SET value = '999' WHERE key = 'schema_version'"); } finally { db.close(true); }
       return dir;
     }, "incompatible_index", "run `brain index --force`"],

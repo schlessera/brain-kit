@@ -129,7 +129,7 @@ interface IndexRun {
 
 /** Open a writable db (loading sqlite-vec when available), index, close. */
 async function runIndex(root: string, run: IndexRun = {}): Promise<IndexStats> {
-  const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+  const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
   if (vecAvailable) await migrateVecSchema(db, DIM);
   const stats = await indexAll(db, {
     root,
@@ -146,7 +146,7 @@ async function runIndex(root: string, run: IndexRun = {}): Promise<IndexStats> {
 
 /** Open a read handle with sqlite-vec loaded for vec_chunks queries. */
 async function openRead(root: string): Promise<Database> {
-  const db = new Database(join(root, "brain.db"));
+  const db = new Database(join(root, ".brain-index", "brain.db"));
   if (vecAvailable) {
     const { load } = await import("sqlite-vec");
     load(db);
@@ -738,7 +738,7 @@ describe("asset cache non-poisoning", () => {
 
     // Wipe the db and re-index with no provider/enrichment, so nothing can be
     // re-described — the description must come from the sidecar cache.
-    unlinkSync(join(root, "brain.db"));
+    unlinkSync(join(root, ".brain-index", "brain.db"));
     await runIndex(root, { embeddings: true });
 
     const db = await openRead(root);
@@ -1288,7 +1288,7 @@ describe("brain index --forget-cache (#408)", () => {
     await runIndex(root, withEnrichment());
     expect(readContextCache(root).map((e) => e.v).sort()).toEqual(["Context for About blimp", "Context for About zeppelin"]);
 
-    const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
     const withContext = db
       .prepare("SELECT d.path FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.context IS NOT NULL ORDER BY d.path")
       .all();
@@ -1328,7 +1328,7 @@ describe("brain index --forget-cache (#408)", () => {
     const contexts = sidecarLines(root, ".context-cache.jsonl");
     expect(readAssetCache(root).length).toBe(2);
 
-    const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
     const forgotten = await forgetCachedEnrichment(db, root, "assets/logo.png");
     const rows = db
       .prepare("SELECT path, content FROM documents WHERE asset_type != 'markdown' ORDER BY path")
@@ -1361,13 +1361,13 @@ describe("the WAL after an index run (#423)", () => {
   }
 
   function walBytes(root: string): number {
-    const wal = join(root, "brain.db-wal");
+    const wal = join(root, ".brain-index", "brain.db-wal");
     return existsSync(wal) ? statSync(wal).size : 0;
   }
 
   test("a writable connection caps the journal at JOURNAL_SIZE_LIMIT_BYTES", () => {
     const root = makeCorpus({});
-    const db = openDatabase(join(root, "brain.db"));
+    const db = openDatabase(join(root, ".brain-index", "brain.db"));
     const { journal_size_limit } = db.prepare("PRAGMA journal_size_limit").get() as { journal_size_limit: number };
     db.close();
     expect(journal_size_limit).toBe(JOURNAL_SIZE_LIMIT_BYTES);
@@ -1375,13 +1375,13 @@ describe("the WAL after an index run (#423)", () => {
 
   test("with another connection open and idle, the run leaves an empty WAL", async () => {
     const root = bulkyCorpus();
-    const idle = openDatabase(join(root, "brain.db"));
+    const idle = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       const stats = await runIndex(root);
       expect(stats.added).toBe(120);
       // The idle connection keeps the WAL file from being removed on close,
       // so its size is what the checkpoint left behind.
-      expect(existsSync(join(root, "brain.db-wal"))).toBe(true);
+      expect(existsSync(join(root, ".brain-index", "brain.db-wal"))).toBe(true);
       expect(walBytes(root)).toBe(0);
     } finally {
       idle.close();
@@ -1390,7 +1390,7 @@ describe("the WAL after an index run (#423)", () => {
 
   test.if(vecAvailable)("a run that fails after committing markdown still truncates the WAL, and rethrows its own error", async () => {
     const root = bulkyCorpus();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     const idle = openDatabase(dbPath);
     const db = openDatabase(dbPath, { embeddingDimensions: DIM });
     try {
@@ -1427,7 +1427,7 @@ describe("the WAL after an index run (#423)", () => {
     await runIndex(root);
     writeFileSync(join(root, "notes/bulk-0.md"), md("Bulk 0", "rewritten so the run writes"));
 
-    const reader = openDatabase(join(root, "brain.db"));
+    const reader = openDatabase(join(root, ".brain-index", "brain.db"));
     const logged: string[] = [];
     const log = console.log;
     console.log = (...args: unknown[]) => logged.push(args.join(" "));
@@ -1553,7 +1553,7 @@ describe("an unchanged chunk keeps its vector (#417)", () => {
       join(root, "notes/airships.md"),
       doc.replace("type: note", "type: context\nstatus: archived")
     );
-    const bare = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+    const bare = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
     const stats = await indexAll(bare, { root, taxonomy, quiet: true });
     bare.close();
     expect(stats.updated).toBe(1);
@@ -1576,7 +1576,7 @@ describe("an unchanged chunk keeps its vector (#417)", () => {
   test.if(vecAvailable)("a brain with the extension loaded and no vector table indexes an edit", async () => {
     const root = makeCorpus({ "notes/airships.md": doc });
     const index = async () => {
-      const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: DIM });
+      const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: DIM });
       try {
         const { load } = await import("sqlite-vec");
         load(db);
@@ -1588,7 +1588,7 @@ describe("an unchanged chunk keeps its vector (#417)", () => {
     expect((await index()).added).toBe(1);
     writeFileSync(join(root, "notes/airships.md"), edited.replace("type: note", "type: note\nstatus: archived"));
     expect((await index()).updated).toBe(1);
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const table = db.prepare("SELECT name FROM sqlite_master WHERE name = 'vec_chunks'").get();
     db.close();
     expect(table).toBeNull();
@@ -1724,9 +1724,9 @@ describe("assets git ignores are not indexed (#433)", () => {
     const root = gitCorpus(FILES, "hidden/\n");
     await runIndex(root);
     const corpus = async () => {
-      const db = openDatabase(join(root, "brain.db"));
+      const db = openDatabase(join(root, ".brain-index", "brain.db"));
       try {
-        return (await collectStats(db, { root, dbPath: join(root, "brain.db"), taxonomy, config: null })).size.corpus;
+        return (await collectStats(db, { root, dbPath: join(root, ".brain-index", "brain.db"), taxonomy, config: null })).size.corpus;
       } finally {
         db.close();
       }
@@ -1803,7 +1803,7 @@ describe("each document remembers its chunker version (#426)", () => {
     ].join("\n");
 
   function rows(root: string, path: string): { version: number | null; chunks: Array<{ id: number; heading: string }> } {
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const doc = db.prepare("SELECT id, chunker_version FROM documents WHERE path = ?").get(path) as {
       id: number;
       chunker_version: number | null;
@@ -1817,7 +1817,7 @@ describe("each document remembers its chunker version (#426)", () => {
 
   /** Put a document back the way the previous chunker left it: version 1, the stub as its own chunk. */
   function downgrade(root: string, path: string): void {
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     const { id } = db.prepare("SELECT id FROM documents WHERE path = ?").get(path) as { id: number };
     db.run("UPDATE documents SET chunker_version = 1 WHERE id = ?", [id]);
     db.run("DELETE FROM chunks WHERE document_id = ?", [id]);
@@ -1851,7 +1851,7 @@ describe("each document remembers its chunker version (#426)", () => {
     const root = makeCorpus({ "notes/alpha.md": withStub("Alpha") });
     await runIndex(root);
     downgrade(root, "notes/alpha.md");
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     db.run("UPDATE documents SET chunker_version = ? WHERE path = 'notes/alpha.md'", [CHUNKER_VERSION + 1]);
     db.close();
 

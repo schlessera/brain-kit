@@ -15,6 +15,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 
 import { readEnvVar } from "./config/env.js";
+import { indexDbPath } from "@schlessera/brain-common/internal/index-location";
 
 // Native-handle search/context and writes remain first-party internals (#534).
 import {
@@ -194,7 +195,7 @@ export function createBrainAccess(brainPath: string): BrainAccess {
       return brainPath;
     },
     get dbPath() {
-      return ctx?.dbPath ?? `${brainPath}/brain.db`;
+      return ctx?.dbPath ?? indexDbPath(brainPath);
     },
 
     resolveInRepo(relPath: string): string | null {
