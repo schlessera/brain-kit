@@ -163,7 +163,7 @@ describe("hygiene next real CLI", () => {
     writeFileSync(join(r, path), text);
   }
   function context(r: string): BrainContext {
-    return { root: r, dbPath: join(r, "brain.db"), config: null, configPath: join(r, "brain.config.json"), modules: [],
+    return { root: r, dbPath: join(r, ".brain-index", "brain.db"), config: null, configPath: join(r, "brain.config.json"), modules: [],
       taxonomy: buildTaxonomy({ user: brainConfigSchema.parse(JSON.parse(readFileSync(join(r, "brain.config.json"), "utf8"))) }) };
   }
 
@@ -221,7 +221,7 @@ describe("hygiene next real CLI", () => {
     // Index and last-run refresh are existing next behavior. Content, finding
     // dispositions and repair receipts must not be written by discovery.
     const durable = (files: Record<string, string>) => Object.fromEntries(Object.entries(files)
-      .filter(([path]) => !path.startsWith("brain.db") && path !== "context/hygiene/last-run.md"));
+      .filter(([path]) => !path.startsWith(".brain-index/") && path !== "context/hygiene/last-run.md"));
     expect(durable(snapshot(r))).toEqual(durable(before));
     expect(readFileSync(join(r, "context/hygiene/open.md"), "utf8"))
       .toContain("**First seen**: 2026-07-12 · **Last seen**: 2026-07-12");
@@ -280,7 +280,8 @@ describe("hygiene next real CLI", () => {
   test("invalid config returns a structured blocker and preserves existing hygiene and database bytes", async () => {
     const r = root();
     writeFileSync(join(r, "brain.config.json"), JSON.stringify({ schemaa: 1 }));
-    writeFileSync(join(r, "brain.db"), "disposable fixture database");
+    mkdirSync(join(r, ".brain-index"), { recursive: true });
+    writeFileSync(join(r, ".brain-index", "brain.db"), "disposable fixture database");
     mkdirSync(join(r, "context/hygiene"), { recursive: true });
     writeFileSync(join(r, "context/hygiene/open.md"), "existing log bytes\n");
     const before = snapshot(r);
@@ -304,7 +305,7 @@ describe("hygiene next real CLI", () => {
     expect(result.code).toBe(1);
     expect(JSON.parse(result.stdout).blocker.kind).toBe("configuration");
     expect(existsSync(join(r, "context/hygiene"))).toBe(false);
-    expect(existsSync(join(r, "brain.db"))).toBe(false);
+    expect(existsSync(join(r, ".brain-index", "brain.db"))).toBe(false);
   });
 
   test("configuration syntax blocker preserves the loader's actual config position", async () => {
@@ -314,7 +315,7 @@ describe("hygiene next real CLI", () => {
     expect(result.code).toBe(1);
     expect(JSON.parse(result.stdout)).toEqual({ blocker: { kind: "configuration", message: "Unexpected ]",
       path: join(r, "brain.config.ts"), line: 1, column: 28 } });
-    expect(existsSync(join(r, "brain.db"))).toBe(false);
+    expect(existsSync(join(r, ".brain-index", "brain.db"))).toBe(false);
     expect(existsSync(join(r, "context/hygiene"))).toBe(false);
   });
 
@@ -371,7 +372,7 @@ describe("hygiene next real CLI", () => {
       const result = await runCli(r, args);
       expect(result.code).toBe(1);
       expect(result.stderr).toContain("No brain.config");
-      expect(existsSync(join(r, "brain.db"))).toBe(false);
+      expect(existsSync(join(r, ".brain-index", "brain.db"))).toBe(false);
     }
   });
 });

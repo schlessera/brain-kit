@@ -14,7 +14,7 @@ import { openDatabase } from "../packages/core/src/lib/db";
 test("actual process command returns proposals without applying, reading full targets, or validating operation paths", async () => {
   const f = { id: "letter-as-is", group: "letter", source: "harbor sentinel note", target: `harbor sentinel target\n${"An unrelated voyage detail. ".repeat(200)}TARGET-END-BEYOND-SNIPPET` };
   const p = prepare(f);
-  const dbPath = join(p.env.root, "brain.db");
+  const dbPath = join(p.env.root, ".brain-index", "brain.db");
   const db = openDatabase(dbPath);
   await indexAll(db, { root: p.env.root, taxonomy: p.env.taxonomy, force: true, quiet: true });
   db.close();

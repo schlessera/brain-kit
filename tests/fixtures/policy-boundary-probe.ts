@@ -53,7 +53,7 @@ function manifest(dir: string, base = dir, out: Record<string, string> = {}): Re
   for (const name of readdirSync(dir).sort()) {
     const path = join(dir, name), rel = path.slice(base.length + 1);
     // brain.db is the disposable index (AGENTS.md); its rows are not authority.
-    if (/^brain\.db(-wal|-shm|-journal)?$/.test(rel)) continue;
+    if (rel === ".brain-index" || /^(?:\.brain-index\/)?brain\.db(-wal|-shm|-journal)?$/.test(rel)) continue;
     const info = lstatSync(path);
     if (info.isSymbolicLink()) out[rel] = `link:${readlinkSync(path)}`;
     else if (info.isDirectory()) { out[rel] = "dir"; manifest(path, base, out); }

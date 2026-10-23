@@ -46,10 +46,10 @@ async function cliIndex(notes: Record<string, string>): Promise<string> {
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(code, err).toBe(0);
   expect(JSON.parse(out).total).toBeGreaterThan(0);
-  const db = new Database(join(dir, "brain.db"));
+  const db = new Database(join(dir, ".brain-index", "brain.db"));
   db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   db.close(true);
-  return join(dir, "brain.db");
+  return join(dir, ".brain-index", "brain.db");
 }
 
 const note = (title: string, tags: string, body: string, updated = "2026-07-12") =>
@@ -80,7 +80,7 @@ interface Booted extends HttpContractApp {
 
 async function boot(options: { index?: string | null; speechProvider?: SpeechProvider; env?: Record<string, string> } = {}): Promise<Booted> {
   const t = await httpContractApp({ env: { ...AUTH_ENV, ...options.env }, ...(options.speechProvider ? { speechProvider: options.speechProvider } : {}) });
-  if (options.index !== null) copyFileSync(options.index ?? indexA, join(t.brainPath, "brain.db"));
+  if (options.index !== null) { mkdirSync(join(t.brainPath, ".brain-index"), { recursive: true }); copyFileSync(options.index ?? indexA, join(t.brainPath, ".brain-index", "brain.db")); }
   writeFileSync(join(t.brainPath, ".voice-overrides.md"), OVERRIDES);
   const owner = createPrincipal(t.app.db, { authMethod: "password", label: "Odysseus device", ttlSeconds: 3600 });
   const cookie = (await generateSignedCookie("brain_ui_session", owner.id, SECRET)).split(";")[0]!;
@@ -208,9 +208,9 @@ describe("usable core and a CLI-produced index", () => {
       const before = await (await t.get("/api/graph/meta")).json();
       expect((await t.get("/api/graph/neighborhood?center=notes/ithaca.md")).status).toBe(200);
       // A valid, checkpointed replacement, swapped in between requests.
-      const staging = join(t.brainPath, "brain.db.next");
+      const staging = join(t.brainPath, ".brain-index", "brain.db.next");
       copyFileSync(indexB, staging);
-      renameSync(staging, join(t.brainPath, "brain.db"));
+      renameSync(staging, join(t.brainPath, ".brain-index", "brain.db"));
       const after = await (await t.get("/api/graph/meta")).json();
       expect(after.nodeCount).toBe(2);
       expect(after.nodeCount).not.toBe(before.nodeCount);
@@ -244,7 +244,7 @@ describe("index states reported by a usable core", () => {
   test("an incompatible index degrades the vocabulary to overrides without caching it", async () => {
     const t = await boot();
     try {
-      const db = new Database(join(t.brainPath, "brain.db"));
+      const db = new Database(join(t.brainPath, ".brain-index", "brain.db"));
       db.run("UPDATE index_metadata SET value = '99' WHERE key = 'schema_version'");
       db.close(true);
       const meta = await (await t.get("/api/graph/meta")).json();
@@ -262,7 +262,7 @@ describe("index states reported by a usable core", () => {
   test("an uncomputed graph: meta says so, raw neighborhoods still work, derived modes refuse", async () => {
     const t = await boot();
     try {
-      const db = new Database(join(t.brainPath, "brain.db"));
+      const db = new Database(join(t.brainPath, ".brain-index", "brain.db"));
       db.run("DELETE FROM index_metadata WHERE key = 'graph_computed_at'");
       db.close(true);
       expect(await (await t.get("/api/graph/meta")).json()).toMatchObject({ available: false, reason: "not_computed" });

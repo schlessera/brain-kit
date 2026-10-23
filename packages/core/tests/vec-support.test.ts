@@ -34,7 +34,7 @@ afterEach(() => {
 async function stage(pending: string[] = []): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "brain-vec-support-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-  const dbPath = join(dir, "brain.db");
+  const dbPath = join(dir, ".brain-index", "brain.db");
 
   const db = openDatabase(dbPath, { embeddingDimensions: DIM });
   expect(await migrateVecSchema(db, DIM)).toBe(true);
@@ -204,7 +204,7 @@ describe.skipIf(!vecAvailable)("readVectorSlots (#420)", () => {
   test("compacting a pre-v2 table keeps its definition and its vectors, and migrates nothing", async () => {
     const dir = mkdtempSync(join(tmpdir(), "brain-vec-legacy-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const dbPath = join(dir, "brain.db");
+    const dbPath = join(dir, ".brain-index", "brain.db");
     const db = openDatabase(dbPath, { embeddingDimensions: DIM });
     try {
       await loadVec(db);

@@ -22,7 +22,7 @@ async function corpus(body = "Original content.", vectors = true) {
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const path = join(root, "example.md");
   writeFileSync(path, markdown(body));
-  const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: 16 });
+  const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: 16 });
   cleanups.push(() => db.close());
   if (vectors && !await migrateVecSchema(db, 16)) throw new Error("sqlite-vec required for indexer runtime regressions");
   return { root, path, db, options: { root, taxonomy, quiet: true, graph: false } };
@@ -77,7 +77,7 @@ describe.skipIf(!vecAvailable)("embedding index reliability", () => {
     p.embed = async (texts) => { gate.enter(); await gate.pending; return embed(texts); };
     const running = indexAll(db, { ...options, embeddings: true, provider: p });
     await gate.entered;
-    const writer = openDatabase(join(root, "brain.db"));
+    const writer = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       await migrateVecSchema(writer, 16);
       writeFileSync(path, markdown("Changed while provider was running."));
@@ -96,7 +96,7 @@ describe.skipIf(!vecAvailable)("embedding index reliability", () => {
     p.embed = async (texts) => { gate.enter(); await gate.pending; return embed(texts); };
     const running = indexAll(db, { ...options, embeddings: true, provider: p });
     await gate.entered;
-    const second = openDatabase(join(root, "brain.db"));
+    const second = openDatabase(join(root, ".brain-index", "brain.db"));
     try {
       await migrateVecSchema(second, 16);
       await expect(indexAll(second, { ...options, embeddings: true, force: true, provider: provider(8) })).rejects.toThrow("already active");
@@ -194,7 +194,7 @@ test("embedding lock excludes another process and recovers after its owner dies"
     acquireEmbeddingLock(db);
     console.log("ready");
     setInterval(() => {}, 1000);
-  `, join(root, "brain.db")], { stdout: "pipe", stderr: "pipe" });
+  `, join(root, ".brain-index", "brain.db")], { stdout: "pipe", stderr: "pipe" });
   try {
     const reader = child.stdout.getReader();
     const ready = await reader.read();

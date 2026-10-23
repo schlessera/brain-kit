@@ -61,7 +61,7 @@ describe("brain eval --context", () => {
     const previous = setContext(null);
     const brain = await initContext({ root });
     setContext(previous);
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       const output = await assembleContext(db, brain, { query: KNEE.q, maxTokens: 4000, now: new Date(NOW) });
       expect(output.length).toBeGreaterThan(0);
@@ -201,7 +201,7 @@ describe("what counts as the answer", () => {
     const previous = setContext(null);
     const brain = await initContext({ root });
     setContext(previous);
-    const db = new Database(join(root, "brain.db"), { readonly: true });
+    const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
     const report = emptyAssembleReport();
     try {
       await assembleContext(db, brain, { query: KNEE.q, maxTokens: 4000, now: new Date(NOW), report });

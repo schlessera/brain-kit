@@ -1,4 +1,5 @@
 import { subprocessEnv } from "../config/env.js";
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 /** Human-authorized attachment edits with charged retained originals and durable per-item intent. */
 import type { Database } from "bun:sqlite";
 import { realpathSync } from "node:fs";
@@ -226,7 +227,7 @@ export function createStorageRemoval(db: Database, options: {
       if (effects && !closed && options.authorized(row.principal_id)) {
         const after = new AbortController(), deadline = setTimeout(() => after.abort(), 36_000);
         try {
-          const refreshed = await options.boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", MAINTENANCE_ENTRY], env: subprocessEnv("brainCli", { NO_COLOR: "1" }), credentials: false, gate: "shared", purpose: "storage-index-refresh", outputAreas: ["brain.db", "brain.db-wal", "brain.db-shm", "brain.db-journal"], stdin: JSON.stringify({ op: "index", root: brain }), timeoutMs: 30_000, outputBytes: 262144, signal: after.signal, assertAuthorized: () => authorize(row.principal_id) });
+          const refreshed = await options.boundary.run({ argv: [process.execPath, "--config=/dev/null", "--no-env-file", MAINTENANCE_ENTRY], env: subprocessEnv("brainCli", { NO_COLOR: "1" }), credentials: false, gate: "shared", purpose: "storage-index-refresh", outputAreas: [INDEX_DIR], stdin: JSON.stringify({ op: "index", root: brain }), timeoutMs: 30_000, outputBytes: 262144, signal: after.signal, assertAuthorized: () => authorize(row.principal_id) });
           result.index = refreshed.exitCode === 0 && !refreshed.timedOut && JSON.parse(refreshed.stdout).ok === true ? "complete" : "unavailable";
         } catch { result.index = "unavailable"; } finally { clearTimeout(deadline); }
       }

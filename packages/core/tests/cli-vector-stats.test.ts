@@ -67,7 +67,7 @@ async function stats(root: string): Promise<Stats> {
 
 /** Vectors in `vec_chunks`, counted properly, or -1 when there is no table. */
 async function countVectors(root: string): Promise<number> {
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   try {
     await loadVec(db);
     // A missing table is -1, never 0: the two are the states this file exists
@@ -84,7 +84,7 @@ async function countVectors(root: string): Promise<number> {
 
 /** Drop the vec0 table, which needs the extension on this connection too. */
 async function dropVecTable(root: string): Promise<void> {
-  const db = new Database(join(root, "brain.db"), { readwrite: true, create: false });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readwrite: true, create: false });
   try {
     await loadVec(db);
     db.run("DROP TABLE IF EXISTS vec_chunks");
@@ -95,7 +95,7 @@ async function dropVecTable(root: string): Promise<void> {
 }
 
 function meta(root: string, key: string): string | null {
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   try {
     const row = db.prepare("SELECT value FROM index_metadata WHERE key = ?").get(key) as
       | { value: string }
@@ -157,7 +157,7 @@ describe("the count is a count, not a swallowed failure", () => {
   // reported `embeddings: 0`. This is the assertion that would have failed
   // then and passes now.
   test("counting vec_chunks without the extension does not produce the reported figure", async () => {
-    const dbPath = join(embedded, "brain.db");
+    const dbPath = join(embedded, ".brain-index", "brain.db");
 
     const db = new Database(dbPath, { readonly: true });
     try {
@@ -198,7 +198,7 @@ function swallowedCount(dbPath: string): number {
 async function churnedBrain(): Promise<string> {
   const root = makeTempBrain();
   await embedTempBrain(root);
-  const db = openDatabase(join(root, "brain.db"), { embeddingDimensions: VEC_DIMENSIONS });
+  const db = openDatabase(join(root, ".brain-index", "brain.db"), { embeddingDimensions: VEC_DIMENSIONS });
   try {
     await loadVec(db);
     const { id: docId } = db
@@ -255,7 +255,7 @@ async function slotStats(root: string): Promise<SlotStats["size"]["db"]> {
 
 /** The ten nearest vectors to a fixed query, by id, in rank order. */
 async function nearest(root: string): Promise<number[]> {
-  const db = new Database(join(root, "brain.db"), { readonly: true });
+  const db = new Database(join(root, ".brain-index", "brain.db"), { readonly: true });
   try {
     await loadVec(db);
     const query = new Float32Array(VEC_DIMENSIONS).map((_, i) => (i % 3) / 3);

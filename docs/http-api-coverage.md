@@ -212,10 +212,10 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **B — Corpus transport and CLI errors.**
 
-- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:122-146`)
-- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:208-222`)
-- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:65-91`)
-- “stats history runs `brain stats --history` and the route passes its nulls through” ([source](../packages/ui-server/tests/brain-client.test.ts)), (`stats history runs`, `packages/ui-server/tests/brain-client.test.ts:93-120`)
+- `places flags before -- and a --prefixed search query after it` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`places flags before -- and a --prefixed search query after it`, `packages/ui-server/tests/brain-client.test.ts:123-147`)
+- `HTTP search deadlines return 504 and reap the stalled process` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`HTTP search deadlines return 504 and reap the stalled process`, `packages/ui-server/tests/brain-client.test.ts:209-223`)
+- `a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0` ([source](../packages/ui-server/tests/brain-client.test.ts)), (`a stats embeddings count the CLI could not take reaches the HTTP body as null, not 0`, `packages/ui-server/tests/brain-client.test.ts:66-92`)
+- “stats history runs `brain stats --history` and the route passes its nulls through” ([source](../packages/ui-server/tests/brain-client.test.ts)), (`stats history runs`, `packages/ui-server/tests/brain-client.test.ts:94-121`)
 - `mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame` ([source](../packages/ui-server/tests/http-cli-errors.test.ts)), (`mounted corpus handlers preserve CLI failures and sync terminates with an unsuccessful SSE frame`, `packages/ui-server/tests/http-cli-errors.test.ts:7-37`)
 
 **C — Capture and index recovery.**
@@ -234,10 +234,10 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **F — Content and byte ranges.**
 
-- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:296-302`)
-- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:321-326`)
-- `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:100-102`)
-- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:332-345`)
+- `an uncompressed, all-ASCII PDF is served as binary, not as its source` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`an uncompressed, all-ASCII PDF is served as binary, not as its source`, `packages/ui-server/tests/files-walker.test.ts:299-305`)
+- `rejects file_too_large` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects file_too_large`, `packages/ui-server/tests/files-walker.test.ts:324-329`)
+- `rejects symlink escape` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`rejects symlink escape`, `packages/ui-server/tests/files-walker.test.ts:102-104`)
+- `a child of an existing file is not found without leaking its absolute path` ([source](../packages/ui-server/tests/files-walker.test.ts)), (`a child of an existing file is not found without leaking its absolute path`, `packages/ui-server/tests/files-walker.test.ts:335-348`)
 - `Safari's two-byte probe gets a 206 with its length, and the frame headers` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`Safari's two-byte probe gets a 206 with its length, and the frame headers`, `packages/ui-server/tests/files-raw-range.test.ts:222-231`)
 - `a range that starts past the end is a 416 naming the size` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a range that starts past the end is a 416 naming the size`, `packages/ui-server/tests/files-raw-range.test.ts:87-92`)
 - `a HEAD request ignores Range, which applies to GET only` ([source](../packages/ui-server/tests/files-raw-range.test.ts)), (`a HEAD request ignores Range, which applies to GET only`, `packages/ui-server/tests/files-raw-range.test.ts:102-107`)

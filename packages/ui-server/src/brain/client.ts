@@ -93,6 +93,17 @@ interface ExecResult {
 }
 
 /**
+ * First core release that keeps the index in `.brain-index/` (#1668). The
+ * server reads that index directly and retains the directory for provider
+ * folder turns, so a CLI still writing the old root-level `brain.db` would
+ * leave both reading an index nobody updates. The release that ships it
+ * raises {@link MIN_BRAIN_CLI_VERSION} to it: before then the workspace CLI
+ * still reports the previous version. tests/cli-inventory.test.ts fails a
+ * lockstep version at or past this one while the floor is lower.
+ */
+export const INDEX_DIRECTORY_CLI_VERSION = "0.44.0";
+
+/**
  * First core release with every command/flag this server invokes: hygiene
  * next/resolve/check/undo require 0.41.0; scratch pin input requires 0.42.0.
  * tests/cli-inventory.test.ts guards this floor as invocations change.
@@ -116,6 +127,11 @@ export function brainCliCommand(brainPath: string): string[] {
   const packaged = join(brainPath, "node_modules", ".bin", "brain");
   if (existsSync(packaged)) return [packaged];
   return ["bun", "scripts/brain-cli.ts"];
+}
+
+/** The keyword index pass that builds a provider-restricted turn's private index (#1668). */
+export function privateIndexArgv(brainPath: string, command: readonly string[] = brainCliCommand(brainPath)): string[] {
+  return [...command, "index", "--json"];
 }
 
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */

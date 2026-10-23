@@ -88,7 +88,7 @@ async function stageIndex(pending: string[] = ["vec_distance_metric"]): Promise<
   const indexed = await runCli(root, ["index", "--json"]);
   expect(indexed.code).toBe(0);
 
-  const dbPath = join(root, "brain.db");
+  const dbPath = join(root, ".brain-index", "brain.db");
   await withVec(dbPath, false, (db) => {
     const chunk = db.prepare("SELECT id FROM chunks LIMIT 1").get() as { id: number } | null;
     if (!chunk) throw new Error("fixture corpus produced no chunks");
@@ -140,7 +140,7 @@ async function throughMcpServer(root: string, call: (client: Client) => Promise<
 describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () => {
   test("a vector search through brain mcp leaves the stored vectors alone", async () => {
     const root = await stageIndex();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     await throughMcpServer(root, (client) =>
       client.callTool({ name: "brain_search", arguments: { query: "example", mode: "vector" } })
@@ -155,7 +155,7 @@ describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () 
 
   test("brain search --mode vector leaves the stored vectors alone and names the real cause", async () => {
     const root = await stageIndex();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     const result = await runCli(root, ["search", "example", "--mode", "vector", "--json"]);
     expect(result.code).toBe(0);
@@ -167,7 +167,7 @@ describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () 
 
   test("brain context leaves the stored vectors alone", async () => {
     const root = await stageIndex();
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     const result = await runCli(root, ["context", "example"]);
     expect(result.code).toBe(0);
@@ -182,7 +182,7 @@ describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () 
     const root = makeTempBrain();
     roots.push(root);
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    await withVec(join(root, "brain.db"), false, (db) => {
+    await withVec(join(root, ".brain-index", "brain.db"), false, (db) => {
       db.run("DROP TABLE IF EXISTS vec_chunks");
       db.run("PRAGMA wal_checkpoint(TRUNCATE)");
     });
@@ -200,14 +200,14 @@ describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () 
       path: "notes/loose-idea.md",
       changes: ["content"],
     });
-    expect(await countVectors(join(root, "brain.db"))).toBe(-1); // still absent, still fine
+    expect(await countVectors(join(root, ".brain-index", "brain.db"))).toBe(-1); // still absent, still fine
   });
 
   test("a brain with no vectors at all reports that, not a missing extension", async () => {
     const root = makeTempBrain();
     roots.push(root);
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    await withVec(join(root, "brain.db"), false, (db) => {
+    await withVec(join(root, ".brain-index", "brain.db"), false, (db) => {
       db.run("DROP TABLE IF EXISTS vec_chunks");
       db.run("PRAGMA wal_checkpoint(TRUNCATE)");
     });
@@ -226,7 +226,7 @@ describe.skipIf(!vecAvailable)("read paths never migrate the vector schema", () 
 describe.skipIf(!vecAvailable)("write paths still migrate the vector schema", () => {
   test("brain index brings a pre-cosine index up to cosine and v2-metadata", async () => {
     const root = await stageIndex(["vec_distance_metric", "vec_schema"]);
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
 
@@ -240,7 +240,7 @@ describe.skipIf(!vecAvailable)("write paths still migrate the vector schema", ()
     // declared at (sqlite-vec caps at 8192), which used to drop the table and
     // then fail the CREATE, taking the vectors with it.
     const root = await stageIndex(["vec_schema"]);
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
     await withVec(dbPath, false, (db) => {
       db.run("INSERT OR REPLACE INTO index_metadata(key, value) VALUES ('embedding_dimensions', '99999')");
       db.run("PRAGMA wal_checkpoint(TRUNCATE)");
@@ -255,7 +255,7 @@ describe.skipIf(!vecAvailable)("write paths still migrate the vector schema", ()
 
   test("the migration rebuilds at the stored width, not the configured one", async () => {
     const root = await stageIndex(["vec_distance_metric", "vec_schema"]);
-    const dbPath = join(root, "brain.db");
+    const dbPath = join(root, ".brain-index", "brain.db");
 
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
 

@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { z } from "zod";
 import type { StorageFileEntry, StorageRoot, StorageSnapshot, StorageOwner, StorageBytes } from "@schlessera/brain-ui-sdk/protocol";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
@@ -77,7 +78,11 @@ export async function collectStorage(options: StorageCollectOptions, id: string,
           for (const [prefix, label, category, owner] of [
             [".git", "Git metadata", "git", "brain"], [SHARE_STAGING_DIR, "Upload staging", "staging", "app"], [".brain/scratch", "Scratch", "scratch", "brain"], ["workspaces", "Workspaces", "workspace", "brain"],
           ] as const) if (path === prefix || path.startsWith(`${prefix}/`)) { view = root(prefix, label, category, owner); sources.set(view.id, { root: view, path: resolve(options.brainPath, prefix), recursive: false, optional: true }); path = path.slice(prefix.length).replace(/^\//, ""); break; }
-          if (/^brain\.db(?:-wal|-shm|-journal)?$/.test(path)) { view = root("index", "Content index", "index", "brain"); sources.set(view.id, { root: view, path: options.brainPath, recursive: false }); }
+          if (view.id === brain.id && (path === INDEX_DIR || path.startsWith(`${INDEX_DIR}/`))) {
+            view = root("index", "Content index", "index", "brain");
+            sources.set(view.id, { root: view, path: resolve(options.brainPath, INDEX_DIR), recursive: false, optional: true });
+            path = path.slice(INDEX_DIR.length).replace(/^\//, "");
+          }
         }
       }
       rawEntries.push({ rootId: view.id, path, kind: item.kind, object: item.objectId, version: item.version, device: item.objectId.split(":")[0], logical: item.logicalBytes, allocated: item.allocatedBytes, links: item.links });

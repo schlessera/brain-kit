@@ -22,7 +22,9 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync, realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { createGovernancePolicyReader, providerFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
+import { createGovernancePolicyReader, providerFolderRoots, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
+import { ensureIndexDirectory } from "./index-directory.js";
+import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
 export type GateMode = "shared" | "exclusive";
 
@@ -142,7 +144,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
     if (blocked) return null;
     const id = randomUUID();
     if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
-    const folderPaths = mergeFolderPlans(held, providerFolderRoots(policyReader.load().policy));
+    const folderPaths = mergeFolderPlans(held, retainedFolderRoots(policyReader.load().policy));
     db.query("INSERT INTO writer_gate (id, brain, mode, purpose, pid, pid_start, acquired_at, folder_topology) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(id, brain, mode, purpose, SELF.pid, SELF.start, Date.now(), JSON.stringify(folderPaths));
     return { id, folderPaths };
@@ -157,6 +159,9 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
         const acquired = tryAcquire(mode, purpose, turn, waiter);
         if (acquired) {
           const { id } = acquired;
+          // A plan retaining the index directory needs it to exist; the
+          // protection resolver stays the authority when it cannot.
+          if (acquired.folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(brain); } catch { /* resolver refuses */ } }
           let folderPaths = acquired.folderPaths;
           let released = false, unpinnedHost = false;
           const hold: GateHold = { id, mode, get folderPaths() { return folderPaths; }, retainFolders(paths) {

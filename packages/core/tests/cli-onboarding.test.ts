@@ -147,7 +147,7 @@ test("mutating commands refuse to run without a brain.config", async () => {
     expect(stderr).toContain("refusing to modify an uninitialized directory");
   }
   // No brain.db side effect from the refused index.
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 
   // Read-only and onboarding commands still run.
   const doctor = await runCli(root, ["doctor", "--json"]);
@@ -170,7 +170,7 @@ test("graph compute refuses without a brain.config; its readers behave like othe
   }
 
   // Nothing wrote a database into the uninitialized directory.
-  expect(existsSync(join(root, "brain.db"))).toBe(false);
+  expect(existsSync(join(root, ".brain-index", "brain.db"))).toBe(false);
 });
 
 /**
@@ -618,7 +618,7 @@ test("doctor without git on PATH still prints every check, with git-hooks naming
   expect(checks.filter((c) => c.detail.startsWith("the check itself failed"))).toEqual([]);
   expect(checks.map((c) => c.id)).toEqual([
     "runtime", "git-hooks", "symlinks", "shadowed-commands", "instructions-weight", "config", "db",
-    "embeddings",
+    "legacy-index", "embeddings",
     "reranker", "mcp", "deps", "version", "privacy",
     "eval-baseline", "git-storage", "tracked-leftovers", "tracked-media", "scratch",
     "search-language", "cache-merge", "sqlite-vec-macos",

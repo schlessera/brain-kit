@@ -105,7 +105,7 @@ async function cliIndexed(files: Record<string, string>): Promise<string> {
   const indexed = await runCli(dir, ["index", "--force", "--json"]);
   expect(indexed.code, indexed.stderr).toBe(0);
   expect(JSON.parse(indexed.stdout).total).toBeGreaterThan(0);
-  checkpoint(join(dir, "brain.db"));
+  checkpoint(join(dir, ".brain-index", "brain.db"));
   return dir;
 }
 
@@ -147,10 +147,10 @@ afterAll(() => {
 });
 
 /** A fresh brain repo — sources included — carrying a copy of index A (or none). */
-function repo(index: string | null = join(voyage, "brain.db"), files = VOYAGE): string {
+function repo(index: string | null = join(voyage, ".brain-index", "brain.db"), files = VOYAGE): string {
   const dir = tempDir("index-query-consumers-case-");
   writeBrain(dir, files);
-  if (index) copyFileSync(index, join(dir, "brain.db"));
+  if (index) { mkdirSync(join(dir, ".brain-index"), { recursive: true }); copyFileSync(index, join(dir, ".brain-index", "brain.db")); }
   return dir;
 }
 
@@ -203,7 +203,7 @@ async function hygiene(dir: string): Promise<{ flagged: string[]; failed: string
   const failed: string[] = [];
   // The core audit's own (internal) database read stays on the source repo;
   // only the module's root-bound queries are pointed at the case.
-  const db = new Database(join(voyage, "brain.db"), { readonly: true });
+  const db = new Database(join(voyage, ".brain-index", "brain.db"), { readonly: true });
   let issues: AuditIssue[];
   try {
     issues = await auditWithModules(db, { ...brain, root: dir }, { onCheckFailed: (name) => failed.push(name) });
@@ -338,7 +338,7 @@ interface State {
   hygiene?: string;
 }
 
-const db = (dir: string) => join(dir, "brain.db");
+const db = (dir: string) => join(dir, ".brain-index", "brain.db");
 const failingAll = (code: string): Pick<State, "list" | "graph" | "hygiene"> => ({ list: code, graph: code, hygiene: code });
 const allRefused = (reason: string) => ({ meta: UNAVAILABLE_META, clusters: REFUSED(reason), neighborhood: REFUSED(reason), discovery: REFUSED(reason), maintenance: REFUSED(reason) });
 const DEGRADED_VOICE = { status: 200, body: expect.objectContaining({ keyterms: [], count: 0 }), cached: false };
@@ -501,7 +501,7 @@ describe("every consumer keeps its documented envelope in each index state", () 
 
 const nativeQuery = Database.prototype.query;
 /** A consumer's content-index connection — not the UI's operational DB, nor the core audit's own read of the source repo. */
-const indexConnection = (connection: Database) => connection.filename.endsWith("brain.db") && connection.filename !== join(voyage, "brain.db");
+const indexConnection = (connection: Database) => connection.filename.endsWith("brain.db") && connection.filename !== join(voyage, ".brain-index", "brain.db");
 /** Watch every statement a content-index connection prepares while `run` executes. */
 async function watch<T>(run: () => Promise<T>, hook: (connection: Database, sql: string) => void): Promise<T> {
   const spy = spyOn(Database.prototype, "query").mockImplementation(function (this: Database, sql: string) {
@@ -604,7 +604,7 @@ describe("each response is one snapshot, and the next call reads what is there n
 
   test("a checkpointed replacement index is read by every consumer's next call", async () => {
     // The repo already holds the later voyage's sources; only its index is A.
-    const dir = repo(join(voyage, "brain.db"), { ...VOYAGE, ...LATER });
+    const dir = repo(join(voyage, ".brain-index", "brain.db"), { ...VOYAGE, ...LATER });
     const app = await ui(dir);
     try {
       const before = {
@@ -617,8 +617,8 @@ describe("each response is one snapshot, and the next call reads what is there n
       expect(before.terms).not.toContain("Telemachus Rowing");
       expect(before.list).not.toContain("notes/telemachus.md");
       expect(before.hygiene.flagged).toEqual(FLAGGED);
-      const staging = join(dir, "brain.db.next");
-      copyFileSync(join(later, "brain.db"), staging);
+      const staging = join(dir, ".brain-index", "brain.db.next");
+      copyFileSync(join(later, ".brain-index", "brain.db"), staging);
       renameSync(staging, db(dir));
       const after = (await app.get(GRAPH.meta)).body as queries.GraphMeta;
       expect(after.nodeCount).toBeGreaterThan(before.meta.nodeCount);

@@ -381,7 +381,7 @@ describe("brain hygiene", () => {
 
       const indexed = await runCli(root, ["index", "--force", "--json"]);
       expect(indexed.code).toBe(0);
-      const database = openDatabase(join(root, "brain.db"));
+      const database = openDatabase(join(root, ".brain-index", "brain.db"));
       try {
         const target = database.query(`SELECT target.path AS targetPath FROM links l
           JOIN documents source ON source.id = l.source_id

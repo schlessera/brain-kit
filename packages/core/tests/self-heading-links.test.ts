@@ -53,7 +53,7 @@ The broken-link control is [[${BROKEN}]].
     validation = JSON.parse(validated.stdout).issues;
     stats = JSON.parse(measured.stdout);
 
-    const db = openDatabase(join(root, "brain.db"), { readonly: true });
+    const db = openDatabase(join(root, ".brain-index", "brain.db"), { readonly: true });
     try {
       links = db.prepare(`
         SELECT l.target, target.path AS targetPath

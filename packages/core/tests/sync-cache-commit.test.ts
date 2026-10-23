@@ -499,7 +499,7 @@ describe("two clones that generated different text for one key (#408)", () => {
   /** Index `root`, give the chunk under `key` this clone's context, and bank it the way an embeddings run does. */
   async function generate(root: string, value: string, key?: string): Promise<string> {
     expect((await runCli(root, ["index", "--json"])).code).toBe(0);
-    const db = new Database(join(root, "brain.db"));
+    const db = new Database(join(root, ".brain-index", "brain.db"));
     try {
       const chunks = db
         .prepare(

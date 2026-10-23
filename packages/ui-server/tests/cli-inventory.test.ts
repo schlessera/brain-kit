@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import ts from "typescript";
-import { MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
+import { INDEX_DIRECTORY_CLI_VERSION, MIN_BRAIN_CLI_VERSION, STORAGE_PACK_CLI_VERSION } from "../src/brain/client";
 
 // Release evidence: baseline argv is present in the 0.33.0 core tag (including
 // the -- separator). Newer capabilities are recorded in core/CHANGELOG.md:
@@ -179,7 +179,8 @@ function inventory() {
     }
   });
   expect(streams).toBe(1);
-  expect(selections).toBe(4);
+  // client.ts also selects the CLI for a restricted turn's private `index --json` pass (#1668).
+  expect(selections).toBe(5);
   expect(probes).toBe(1);
   expect([...sites].sort()).toEqual(["packages/ui-server/src/brain/client.ts", "packages/ui-server/src/inbox/hygiene-review.ts"]);
   // hygiene's forwarding wrapper adds --json to every subcommand.
@@ -204,3 +205,9 @@ test("every server CLI command and flag is available at its enforced baseline or
   }
   expect(tooNew, `MIN_BRAIN_CLI_VERSION ${MIN_BRAIN_CLI_VERSION} is below invoked capabilities`).toEqual([]);
 }, 30_000);
+
+test("the release that ships the index directory raises the CLI floor to it", async () => {
+  const { version } = await Bun.file(resolve(root, "packages/ui-server/package.json")).json() as { version: string };
+  if (Bun.semver.order(version, INDEX_DIRECTORY_CLI_VERSION) < 0) return;
+  expect(Bun.semver.order(MIN_BRAIN_CLI_VERSION, INDEX_DIRECTORY_CLI_VERSION), "INDEX_DIRECTORY_CLI_FLOOR_SHIPS_WITH_ITS_RELEASE").toBeGreaterThanOrEqual(0);
+});

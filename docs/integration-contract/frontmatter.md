@@ -139,6 +139,12 @@ changes.
 
 Prefer the CLI/MCP. If reading directly:
 
+- The database is `<brain>/.brain-index/brain.db` (breaking in 0.44.0, #1668;
+  it was `<brain>/brain.db` before). Its SQLite sidecars sit beside it in the
+  same directory, which holds nothing authoritative: `brain index --force`
+  regenerates all of it. A root-level `brain.db` is a stale copy from an
+  earlier release that nothing updates.
+
 - Check `index_metadata` first: `schema_version` (currently **15**),
   `embedding_model`, `embedding_dimensions`, `vec_schema`, and `fts_tokenizer`
   (additive in 0.38.0): the FTS5 tokenizer `documents_fts` was built with,

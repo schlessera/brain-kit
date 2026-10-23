@@ -26,11 +26,11 @@ function success<T>(result: QueryResult<T>): T {
 function clone(): string {
   const dir = mkdtempSync(join(tmpdir(), "brain-query-copy-"));
   temporary.push(dir);
-  cpSync(join(brainPath, "brain.db"), join(dir, "brain.db"));
+  cpSync(join(brainPath, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
   return dir;
 }
 function edit(dir: string, sql: string): void {
-  const db = new Database(join(dir, "brain.db"));
+  const db = new Database(join(dir, ".brain-index", "brain.db"));
   try {
     db.exec(sql);
   }
@@ -58,7 +58,7 @@ beforeAll(async () => {
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   expect(code, err).toBe(0);
   expect(JSON.parse(out).total).toBeGreaterThan(0);
-  const db = new Database(join(brainPath, "brain.db"));
+  const db = new Database(join(brainPath, ".brain-index", "brain.db"));
   db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   db.close(true);
 });
@@ -98,7 +98,7 @@ describe("supported content-index results against a real CLI index", () => {
     expect(maintenance).toEqual(getMaintenance(opts));
   });
   test("link walking keeps unresolved text, cycles, directions and depth clamps", () => {
-    const db = new Database(join(brainPath, "brain.db"), { readonly: true });
+    const db = new Database(join(brainPath, ".brain-index", "brain.db"), { readonly: true });
     try {
       for (const direction of ["incoming", "outgoing", "both"] as const)
         for (const depth of [-1, 1, 2, 4, 9]) {
@@ -122,7 +122,7 @@ describe("supported content-index results against a real CLI index", () => {
     expect(value.extractorVersion).toBe(2);
     expect(value.terms).toEqual(buildKeyterms({ brainPath, cacheDir: brainPath, limit: 200 }).keyterms);
     expect(success(queries.readVoiceVocabulary({ brainPath, limit: 1 })).terms).toEqual(value.terms.slice(0, 1));
-    const db = new Database(join(brainPath, "brain.db"), { readonly: true });
+    const db = new Database(join(brainPath, ".brain-index", "brain.db"), { readonly: true });
     try {
       for (const options of [{}, { type: "note" }, { tag: "Ithaca" }, { status: "archived" }, { relevance: "primary", limit: 5 }]) {
         const actual = success(queries.listIndexDocuments({ brainPath, ...options }));
@@ -173,7 +173,7 @@ describe("supported content-index results against a real CLI index", () => {
   });
   test("complete hygiene selection is uncapped, ordered and matches suffixes literally", () => {
     const dir = clone();
-    const db = new Database(join(dir, "brain.db"));
+    const db = new Database(join(dir, ".brain-index", "brain.db"));
     try {
       const insert = db.prepare("INSERT INTO documents (path,title,type,status,relevance,created,updated,content,indexed_at) VALUES (?, 'Odysseus', 'opportunity', ?, 'primary', '2026-01-01','2026-01-01','Ithaca','2026-01-01T00:00:00Z')");
       db.transaction(() => { for (let i = 0; i < 125; i++)
@@ -199,17 +199,18 @@ describe("index failures and input validation are safe typed results", () => {
     const dir = mkdtempSync(join(tmpdir(), "brain-query-missing-"));
     temporary.push(dir);
     error(queries.readGraphMeta({ brainPath: dir }), "missing_index");
-    expect(existsSync(join(dir, "brain.db"))).toBe(false);
-    writeFileSync(join(dir, "brain.db"), "Odysseus: this is not a SQLite file");
+    expect(existsSync(join(dir, ".brain-index", "brain.db"))).toBe(false);
+    mkdirSync(join(dir, ".brain-index"));
+    writeFileSync(join(dir, ".brain-index", "brain.db"), "Odysseus: this is not a SQLite file");
     error(queries.readGraphMeta({ brainPath: dir }), "corrupt_index");
-    rmSync(join(dir, "brain.db"));
-    mkdirSync(join(dir, "brain.db"));
+    rmSync(join(dir, ".brain-index", "brain.db"));
+    mkdirSync(join(dir, ".brain-index", "brain.db"));
     error(queries.readGraphMeta({ brainPath: dir }), "unavailable_index");
   });
   test("old, unknown newer, malformed and forged versions fail before returning data", () => {
     for (const version of ["2", String(SCHEMA_VERSION + 1), "15junk", "", "3.5"]) {
       const dir = clone();
-      const db = new Database(join(dir, "brain.db"));
+      const db = new Database(join(dir, ".brain-index", "brain.db"));
       db.run("UPDATE index_metadata SET value = ? WHERE key = 'schema_version'", [version]);
       db.close(true);
       error(queries.listIndexDocuments({ brainPath: dir }), "incompatible_index");
@@ -244,7 +245,7 @@ describe("index failures and input validation are safe typed results", () => {
   });
   test("a real exclusive lock exhausts the bounded wait with a retryable result", () => {
     const dir = clone();
-    const db = new Database(join(dir, "brain.db"));
+    const db = new Database(join(dir, ".brain-index", "brain.db"));
     try {
       db.exec("PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE");
       const started = performance.now();
@@ -274,7 +275,7 @@ function observe(run: () => void, hook: (db: Database, sql: string) => void): vo
 describe("native connection lifetime and read snapshot", () => {
   test("read-only opens refuse writes and close immediately after success", () => {
     const dir = clone();
-    const before = readFileSync(join(dir, "brain.db"));
+    const before = readFileSync(join(dir, ".brain-index", "brain.db"));
     let seen: Database | undefined;
     let refused = false;
     let result: QueryResult<queries.ListedDocument[]> | undefined;
@@ -293,7 +294,7 @@ describe("native connection lifetime and read snapshot", () => {
     expect(success(result!).length).toBeGreaterThan(0);
     expect(seen).toBeDefined();
     expect(() => seen!.query("SELECT 1")).toThrow("closed");
-    expect(readFileSync(join(dir, "brain.db"))).toEqual(before);
+    expect(readFileSync(join(dir, ".brain-index", "brain.db"))).toEqual(before);
   });
   test("native handles close on compatibility refusal and a mid-query error", () => {
     for (const failure of ["version", "mid-query"]) {
@@ -312,7 +313,7 @@ describe("native connection lifetime and read snapshot", () => {
   });
   test("compatibility, provenance and documents stay on one WAL snapshot", () => {
     const dir = clone();
-    const writer = new Database(join(dir, "brain.db"));
+    const writer = new Database(join(dir, ".brain-index", "brain.db"));
     writer.exec("PRAGMA journal_mode=WAL");
     let committed = false;
     let before: queries.ListedDocument[] = [];
@@ -341,13 +342,13 @@ describe("native connection lifetime and read snapshot", () => {
     const dir = clone();
     const replacement = clone();
     edit(replacement, "UPDATE documents SET title = 'New Ithaca'");
-    const checkpoint = new Database(join(replacement, "brain.db"));
+    const checkpoint = new Database(join(replacement, ".brain-index", "brain.db"));
     checkpoint.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     checkpoint.close(true);
     const old = success(queries.listIndexDocuments({ brainPath: dir }));
     expect(old.length).toBeGreaterThan(0);
     expect(old.some(d => d.title !== "New Ithaca")).toBe(true);
-    renameSync(join(replacement, "brain.db"), join(dir, "brain.db"));
+    renameSync(join(replacement, ".brain-index", "brain.db"), join(dir, ".brain-index", "brain.db"));
     const next = success(queries.listIndexDocuments({ brainPath: dir }));
     expect(next.length).toBeGreaterThan(0);
     expect(next.every(d => d.title === "New Ithaca")).toBe(true);
@@ -359,7 +360,7 @@ describe("native connection lifetime and read snapshot", () => {
 describe("graph profile edge cases and caps", () => {
   test("default virtual and absent roots preserve counts while explicit direction applies", () => {
     const dir = clone();
-    const db = new Database(join(dir, "brain.db"));
+    const db = new Database(join(dir, ".brain-index", "brain.db"));
     try {
       const ids = db.query<{
         id: number;
@@ -397,7 +398,7 @@ describe("graph profile edge cases and caps", () => {
   });
   test("real indexed layout bounds nodes and edges and preserves ranked scene ordering", () => {
     const dir = clone();
-    const db = new Database(join(dir, "brain.db"));
+    const db = new Database(join(dir, ".brain-index", "brain.db"));
     try {
       db.exec("DELETE FROM links; DELETE FROM graph_metrics; DELETE FROM graph_layouts; DELETE FROM graph_communities; DELETE FROM graph_root_distances; DELETE FROM documents");
       const document = db.query("INSERT INTO documents (id,path,title,type,status,created,updated,content,indexed_at,asset_type) VALUES (?,?, 'Ithaca','note','active','2026-01-01','2026-01-01','Odysseus','2026-01-01T00:00:00Z',?)");
