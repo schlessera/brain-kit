@@ -174,6 +174,9 @@ overlay views. `--import-graph-workers=N` overrides its CPU/memory-derived sizin
 `--private-tree` for the ordinary private-build comparison. Its private report
 destination is printed, and reports and diagnostics survive worker removal. See the
 [measurement and qualification decision](docs/decisions/ci-utility.md#isolated-local-import-graph-feedback).
+The queue's reviewed weights come from complete attributed hosted observations;
+use the [explicit refresh command](docs/process/ci-timings.md#refresh-reviewed-unit-weights)
+to update them. Keep local wall times in comparison receipts.
 `--plan` lists selected commands and arguments, including the contribution
 changeset check, and explains the feedback skip and enabling flag. This feedback
 misses spawned commands and file-read/string-named inputs; complete hosted
