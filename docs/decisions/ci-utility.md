@@ -198,6 +198,45 @@ failure logs may contain machine paths. Complete wall time includes private
 checkout/dependency setup, builds, proof and cleanup; the queue reports checkout,
 dependency-copy and per-worker preparation durations separately.
 
+The first fixed-source comparison on 2026-10-23 uses
+`eb08ee8d396310c4a48fbd191bddccf3ed3f40ad` against
+`f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162`, Bun 1.4.2, 32 logical CPUs and
+47.04 GiB RAM. Both inventories contain the same 439 files and 5,587 cases,
+with four skips. The [sanitized receipts](../process/evidence/local-import-graph-2708.json)
+retain every selected path, its inventory hash, resource observations and
+per-file Chrome timings.
+
+| Workers | Complete wall | Checkout/copy | Longest preparation | Minimum available RAM | Host CPU | Other check:pr at start | Outcome |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Serial | 3296.26 s | None | 52.13 s | 30.52 GiB | 10.62% | 2 | Pass |
+| 4 | 1983.82 s | 17.21 s combined | 75.22 s | 30.75 GiB | 16.44% | 0 | Existing DST fixture failure, #2721 |
+
+N=4's pre-shard selection agrees in every worker; reconciled shard sizes are
+149 / 6 / 6 / 278 with no duplicate or omitted files. Its 278-file server-heavy
+shard determines complete wall time. Some committed weights underpredict the
+current server suites: HTTP mounts measured 112.09 seconds against a 25.14-second
+seed; inbox snapshots measured 81.26 against 10.86. Chrome suites also got slower:
+connection recovery took 400.50 seconds versus 355.48 serially, and parallel
+sessions took 484.22 versus 412.06. More workers therefore require measurement
+of both private setup and per-file contention.
+
+The queue failed the exact calendar-dependent assertion already reproduced on
+main in [#2721](https://github.com/schlessera/brain-kit/issues/2721), rather than
+a timeout. The serial control ran before that start-time window. This is not a
+passing throughput qualification. Feedback stays opt-in; these observations do
+not select a default concurrency or qualify restoration of default execution.
+The implementation's provisional sizing uses half the available CPUs and a
+70% memory budget at two GiB per worker, with a minimum of one. It is a sizing
+heuristic, not a runtime memory limit. Performance qualification is tracked in
+[#2708](https://github.com/schlessera/brain-kit/issues/2708).
+
+Memory is whole-host `MemAvailable` sampled once per second; CPU also covers
+other host work. Start load averages were 5.90 / 5.72 / 5.83 for serial and
+4.40 / 4.65 / 5.41 for N=4. The failed prototype did not retain separate
+checkout/copy phase counters, so their combined value is reconstructed from
+artifact birth times; subsequent invocations retain setup counters even on
+failure. These shared-host observations are not a randomized speedup estimate.
+
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap

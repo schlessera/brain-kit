@@ -46,14 +46,18 @@ if (import.meta.main) {
     let code: number;
     try { [code] = await Promise.all([child.exited, relay(child.stdout, "stdout"), relay(child.stderr, "stderr")]); }
     finally { await log.end(); signals.forEach((signal, index) => process.off(signal, listeners[index]!)); }
-    if (code !== 0 || child.signalCode) process.exit(code || 1);
-    const selection = changedSelection(stderr, shard!);
+    const failed = code !== 0 || Boolean(child.signalCode);
+    let selection: ReturnType<typeof changedSelection> | undefined;
+    try { selection = changedSelection(stderr, shard!); }
+    catch (error) { if (!failed) throw error; }
     const preparation = [...stderr.matchAll(/^\{"kind":"test-invocation",.*$/gm)].map(([line]) => JSON.parse(line))
-      .find(event => event.event === "build-attested" || event.event === "build-unattested");
-    await Bun.write(join(root, "tmp/unit-selection.json"), JSON.stringify({ ...selection, shard, elapsedMs: performance.now() - start, preparationMs: preparation?.elapsedMs ?? 0 }, null, 2));
+      .find(event => ["build-attested", "build-unattested", "preparation-failed"].includes(event.event));
+    await Bun.write(join(root, "tmp/unit-selection.json"), JSON.stringify({ ...selection, shard, exitCode: failed ? code || 1 : 0,
+      elapsedMs: performance.now() - start, preparationMs: preparation?.elapsedMs ?? null }, null, 2));
+    if (failed) process.exit(code || 1);
     // Bun writes no JUnit for a genuinely empty shard. Its timing report must
     // still be empty; the parent validates this explicit zero-file receipt.
-    if (selection.assigned === 0 && !await Bun.file(join(root, "tmp/unit-report.xml")).exists()) {
+    if (selection!.assigned === 0 && !await Bun.file(join(root, "tmp/unit-report.xml")).exists()) {
       await Bun.write(join(root, "tmp/unit-report.xml"), '<testsuites tests="0" failures="0" skipped="0" assertions="0" time="0"></testsuites>\n');
     }
   } catch (error) { console.error(error); process.exit(1); }

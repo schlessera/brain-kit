@@ -129,6 +129,12 @@ test("a deliberately failing selected test fails the changed queue with its file
     expect(out + err).toContain("SELECTED_QUEUE_MUTATION");
     expect(existsSync(join(reports, "unit-worker-1-output.log"))).toBe(true);
     expect(existsSync(join(reports, "unit-worker-2-output.log"))).toBe(true);
+    const measurement = JSON.parse(readFileSync(join(reports, "unit-worker-summary.json"), "utf8"));
+    expect(measurement.proofPassed, "FAILED_QUEUE_CANNOT_HAVE_PASSING_MEASUREMENT").toBe(false);
+    expect(measurement.checkoutMs).toBeGreaterThan(0);
+    expect(measurement.dependencyCopyMs).toBeGreaterThan(0);
+    expect(measurement.preparationMs, "FAILED_QUEUE_RETAINS_PREPARATION_MEASUREMENT").toBeGreaterThan(0);
+    expect(measurement.selections.some((value: { exitCode?: number } | null) => value?.exitCode === 1)).toBe(true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

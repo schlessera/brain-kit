@@ -139,6 +139,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
   const workers: { root: string; files: string[]; checkout: string; device: number; inode: number; copiedInputs?: boolean }[] = [];
   let inputs: ReturnType<typeof captureUnitInputs> | undefined;
   let checkoutMs = 0, dependencyCopyMs = 0;
+  let selectedFiles: number | undefined = options.changed ? undefined : files.length;
   const references = new Map<string, string>();
   let objectFormat = "sha1";
   let diagnosticDirectory: string | undefined;
@@ -161,6 +162,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     // runCommands waits for stopped children. Preserve every partial report
     // before removing only this invocation's clean, inactive worktrees.
     const cleanupFailures: unknown[] = [];
+    const selectionReports: Array<{ selected?: number; preparationMs?: number | null; exitCode?: number } | null> = [];
     for (const [index, worker] of workers.entries()) {
       try {
         for (const suffix of ["report.xml", "timings.json", "selection.json", "output.log"]) {
@@ -178,6 +180,10 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
           }
         }
       } catch (error) { cleanupFailures.push(error); }
+      if (options.changed) try {
+        const path = join(worker.root, "tmp/unit-selection.json");
+        selectionReports[index] = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+      } catch (error) { cleanupFailures.push(error); }
       try { preserveDiagnostics(worker, () => diagnosticDestination(index), references, objectFormat); }
       catch (error) { cleanupFailures.push(error); }
       try {
@@ -187,6 +193,18 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     }
     if (options.changed) try { rmSync(join(container, "inputs"), { recursive: true, force: true }); } catch (error) { cleanupFailures.push(error); }
     try { rmdirSync(container); } catch (error) { cleanupFailures.push(error); }
+    try {
+      const selections = workers.map((_, index) => selectionReports[index] ?? null);
+      const observed = selections.map(value => value?.selected)
+        .filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+      const agreed = observed.length === workers.length && new Set(observed).size === 1 ? observed[0] : undefined;
+      const preparation = selections.map(value => value?.preparationMs)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+      await Bun.write(join(reportDir, "unit-worker-summary.json"), JSON.stringify({ workers: workers.length, head,
+        selectedFiles: selectedFiles ?? agreed, proofPassed: primaryFailure === undefined && cleanupFailures.length === 0,
+        elapsedMs: performance.now() - started, checkoutMs, dependencyCopyMs,
+        preparationMs: preparation.length ? Math.max(...preparation) : null, selections: options.changed ? selections : undefined }, null, 2));
+    } catch (error) { cleanupFailures.push(error); }
     if (cleanupFailures.length) throw new AggregateError(primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
       "Unit worker report/diagnostic preservation or cleanup failed");
   }
@@ -278,10 +296,7 @@ export async function runUnitWorkers(root: string, files: readonly string[], chr
     validateUnitReports(expected, xml, timings, Boolean(base));
     await Bun.write(join(reportDir, "unit-report.xml"), xml);
     await Bun.write(join(reportDir, "unit-timings.json"), JSON.stringify(timings, null, 2));
-    await Bun.write(join(reportDir, "unit-worker-summary.json"), JSON.stringify({ workers: workers.length, selectedFiles: expected.length,
-      elapsedMs: performance.now() - started, checkoutMs, dependencyCopyMs,
-      preparationMs: Math.max(0, ...reports.map(report => report.selection?.preparationMs ?? 0)),
-      selections: reports.map(report => report.selection) }, null, 2));
+    selectedFiles = expected.length;
     console.log(`Unit queue reconciled ${expected.length} files exactly once across ${workers.length} workers`);
   } catch (error) { primaryFailure = error; throw error; } finally {
     await preserveReportsAndRemoveWorkers();
