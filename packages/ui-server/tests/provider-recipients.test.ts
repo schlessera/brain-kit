@@ -57,8 +57,9 @@ test("a recipient is masked the folders of every rule that does not allow it", (
   const types = { health: ["health"] };
   expect(providerDeniedFolders(policy, types, undefined), "UNPROVEN_RECIPIENT_DENIED_EVERYTHING").toEqual(["finance", "health", "me"]);
   expect(providerMaskedFolders(policy, types)).toEqual(["finance", "health", "me"]);
-  // Matching rules intersect: an allowed folder keeps a denied folder inside it masked.
-  expect(providerDeniedFolders(policy, types, "anthropic"), "ANTHROPIC_DENIED").toEqual(["finance", "health", "me/letters"]);
+  // Matching rules intersect, and only outermost folders are retained (#2718):
+  // a denied folder inside an allowed one masks the outer folder whole.
+  expect(providerDeniedFolders(policy, types, "anthropic"), "ANTHROPIC_DENIED").toEqual(["finance", "health", "me"]);
   expect(providerDeniedFolders(policy, types, "google"), "GOOGLE_DENIED").toEqual(["me"]);
   expect(providerDeniedFolders(policy, types, "mistral"), "OTHER_RECIPIENT_DENIED_EVERYTHING").toEqual(["finance", "health", "me"]);
   expect(providerDeniedFolders({ providers: [{ paths: ["me/**"], allow: ["anthropic", "google"] }] }, {}, "google")).toEqual([]);

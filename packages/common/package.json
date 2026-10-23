@@ -55,6 +55,11 @@
       "bun": "./src/index-location.ts",
       "types": "./dist/index-location.d.ts",
       "default": "./dist/index-location.js"
+    },
+    "./internal/provider-unavailable": {
+      "bun": "./src/provider-unavailable.ts",
+      "types": "./dist/provider-unavailable.d.ts",
+      "default": "./dist/provider-unavailable.js"
     }
   },
   "files": [

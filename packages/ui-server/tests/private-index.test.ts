@@ -328,3 +328,33 @@ test("a checkpoint refreshed during admission is judged again before the turn ru
   expect((refusal as Error)?.name, `REFRESHED_CHECKPOINT_JUDGED_AGAIN: ${String(refusal)}`).toBe("ProviderPolicyRefusedError");
   expect(String((refusal as Error).message)).toContain("type identity (notes/retyped.md declares it outside me)");
 });
+
+test.each(["governed", "strict"] as const)("a denied %s turn reads the committed generated-text caches as empty", async profile => {
+  const f = fixture(undefined, profile);
+  // Cached generated text of a masked document, as an `--embeddings` run commits it (#2692).
+  writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
+  writeFileSync(join(f.brain, ".asset-cache.jsonl"), `${JSON.stringify({ key: "avatar", description: `${SENTINEL} description of me/avatar.png` })}\n`);
+  const hold = await f.turns.begin(`caches-${profile}`, new AbortController().signal);
+  try {
+    expect(hold.sandbox.profile, hold.sandbox.fallbackReason).toBe(profile);
+    const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, startupView: hold.startupView, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c",
+      `for cache in .context-cache.jsonl .asset-cache.jsonl; do test -c "$cache" && printf '%s=masked\\n' "$cache"; printf '%s\\n' "$(cat "$cache" | grep -c ${SENTINEL})"; done`] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    expect(shell.exitCode, shell.stderr.toString()).toBe(0);
+    expect(shell.stdout.toString(), "BASH_CANNOT_READ_CACHED_MASKED_TEXT").toBe(".context-cache.jsonl=masked\n0\n.asset-cache.jsonl=masked\n0\n");
+  } finally { await hold.end(); }
+  expect(readFileSync(join(f.brain, ".context-cache.jsonl"), "utf8"), "REAL_CACHE_UNCHANGED").toContain(SENTINEL);
+});
+
+test("a live governed launch qualifies the cache masks before its payload starts", async () => {
+  const f = fixture();
+  writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
+  const hold = await f.turns.begin("caches-live", new AbortController().signal);
+  try {
+    const worker = launchAgentWorker({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH },
+      command: ["/bin/sh", "-c", `printf '%s\\n' "$(cat .context-cache.jsonl | grep -c ${SENTINEL})"`] });
+    let text = ""; for await (const chunk of worker.stdout as unknown as AsyncIterable<Uint8Array>) text += new TextDecoder().decode(chunk);
+    let stderr = ""; for await (const chunk of worker.stderr as unknown as AsyncIterable<Uint8Array>) stderr += new TextDecoder().decode(chunk);
+    expect(await worker.exited, stderr).toBe(0);
+    expect(text, "LIVE_CACHE_MASK_QUALIFIED").toBe("0\n");
+  } finally { await hold.end(); }
+});

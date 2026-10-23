@@ -52,6 +52,9 @@ export const SUBPROCESS_ENV = Object.freeze({
   BRAIN_RERANK_MODE: ALL,
   BRAIN_CHROME_NO_SANDBOX: AGENT_AND_BRAIN_CLI,
   BRAIN_UI_CHROME_NO_SANDBOX: AGENT_AND_BRAIN_CLI,
+  // Names (never values) of the provider keys a turn worker's launcher held
+  // back (#1666). Set by the launcher; tools inside the worker keep it.
+  BRAIN_WITHHELD_KEYS: AGENT,
 
   // Credentials and capability keys used by subprocesses.
   // `brain sync` runs the configured agent runner below the brain CLI too.
@@ -191,12 +194,32 @@ export function filterSubprocessEnv(
 
 /**
  * Inference credentials only agent runtimes read. A worker whose inference
- * the host relays drops them (#1665). Keys the brain CLI's own providers read
- * stay until those providers are relayed (#1673).
+ * the host relays drops them (#1665).
  */
 export const AGENT_INFERENCE_CREDENTIAL_ENV: readonly string[] = Object.freeze(
   Object.entries(SUBPROCESS_ENV).filter(([name, audience]) => audience.length === 1 && audience[0] === "agent"
     && /(?:_API_KEY|_AUTH_TOKEN|_OAUTH_TOKEN)$/.test(name)).map(([name]) => name));
+/**
+ * Every provider credential an agent subprocess could be handed: the agent
+ * runtimes' inference keys and the keys the `brain` CLI's own providers read.
+ * A governed or strict turn worker receives none of them except its own
+ * unrelayed inference credentials and the names an operator admits (#1666);
+ * the CLI's providers come back through metered relays (#1673).
+ */
+export const WORKER_PROVIDER_CREDENTIAL_ENV: readonly string[] = Object.freeze(
+  Object.entries(SUBPROCESS_ENV).filter(([name, audience]) => audience.includes("agent")
+    && /(?:_API_KEY|_AUTH_TOKEN|_OAUTH_TOKEN)$/.test(name)).map(([name]) => name));
+/**
+ * The provider credentials a governed or strict turn worker launched with
+ * `env` keeps (`keep`, as the backend declares them) and withholds (every
+ * other set one). Empty values count as unset. The launcher applies this
+ * plan, and the agent's note states it, from the same call.
+ */
+export function workerProviderCredentials(env: Readonly<Record<string, string | undefined>>,
+  keep: readonly string[]): { kept: string[]; withheld: string[] } {
+  const set = WORKER_PROVIDER_CREDENTIAL_ENV.filter(name => Boolean(env[name])).sort();
+  return { kept: set.filter(name => keep.includes(name)), withheld: set.filter(name => !keep.includes(name)) };
+}
 /** Host Git credentials belong to fixed transports/installers, never repository-evaluating workers. */
 export const HOST_GIT_CREDENTIAL_ENV: readonly string[] = Object.freeze([
   "GITHUB_TOKEN",

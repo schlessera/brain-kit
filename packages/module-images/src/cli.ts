@@ -18,7 +18,8 @@ import type { CommandContext, CommandModule } from "@schlessera/brain";
 
 import { readEnvVar } from "./config/env.js";
 import type { ImagesConfig } from "./module.js";
-import { availableModels, providerFor } from "./providers/index.js";
+import { availableModels, providerFor, PROVIDERS } from "./providers/index.js";
+import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
 import { estimateOpenAiOutputCost, openAiRequestSize } from "./providers/openai.js";
 import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
@@ -241,7 +242,13 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     });
 
     if (decision.kind === "impossible") {
-      console.error(decision.reason);
+      // In an agent worker the host may hold the keys back (#1666): name each provider it withheld.
+      const pinned = (parsed.flags.provider as string | undefined)
+        ?? PROVIDERS.find((p) => p.models.some((m) => m.id === parsed.flags.model))?.id;
+      const withheld = PROVIDERS.filter((p) => isWithheldKey(p.apiKeyEnv) && (pinned ? p.id === pinned : models.length === 0));
+      console.error(withheld.length
+        ? withheld.map((p) => providerUnavailableNotice({ provider: p.id, capability: "image", key: p.apiKeyEnv, degradedTo: null })).join("\n")
+        : decision.reason);
       return 1;
     }
     if (decision.kind === "ambiguous") {
@@ -329,7 +336,9 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     const provider = providerFor(model.provider);
     const apiKey = readEnvVar(provider.apiKeyEnv);
     if (!apiKey) {
-      console.error(`${provider.apiKeyEnv} is not set.`);
+      console.error(isWithheldKey(provider.apiKeyEnv)
+        ? providerUnavailableNotice({ provider: provider.id, capability: "image", key: provider.apiKeyEnv, degradedTo: null })
+        : `${provider.apiKeyEnv} is not set.`);
       return 1;
     }
 

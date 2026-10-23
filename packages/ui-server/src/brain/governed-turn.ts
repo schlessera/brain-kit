@@ -6,11 +6,11 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { createGovernancePolicyReader, exposedAnything, exposureConflicts, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
+import { exposedAnything, exposureConflicts, governancePolicyReaderFor, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
-import { readProviderTaxonomy, strayTypedDocuments } from "./provider-types.js";
+import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
@@ -18,6 +18,8 @@ import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 export interface GovernedTurnHold {
   readonly sandbox: WorkerSandbox;
   readonly policy: TurnGovernancePolicy;
+  /** The folders each selected type was translated to; host tools name the rule from it (#2690). */
+  readonly typeFolders?: Readonly<Record<string, readonly string[]>>;
   readonly startupView?: WorkerStartupView;
   /**
    * The configured native manager acquired this turn's startup view with its
@@ -70,7 +72,7 @@ export function createGovernedTurns(options: {
   /** Operator-named gateway origins (`BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`). */
   recipientOrigins?: ReadonlyMap<string, string>;
 }): GovernedTurns {
-  const policyReader = createGovernancePolicyReader(options.brainPath);
+  const policyReader = governancePolicyReaderFor(options.brainPath);
   let current: Promise<unknown> | undefined;
   let again = false;
   let closing = false;
@@ -112,30 +114,8 @@ export function createGovernedTurns(options: {
           ? providerRecipient(route.inferenceOrigin, options.recipientOrigins) : undefined;
         const refused = unsupportedProviderSelectors(policy.policy);
         const types = providerTypeSelectors(policy.policy);
-        const translate = async (view: WorkerStartupView) => {
-          // The taxonomy worker sees only the literal folders masked, so it
-          // writes into a throwaway directory, never the turn's private index.
-          const scratch = createPrivateIndexDirectory();
-          let read: Awaited<ReturnType<typeof readProviderTaxonomy>>;
-          try {
-            read = await readProviderTaxonomy({ brainPath: options.brainPath, startupView: view, folders: providerFolderRoots(policy.policy), index: scratch,
-              maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
-          } finally { removePrivateIndexDirectory(scratch); }
-          signal.throwIfAborted();
-          if (!read.ok) return { folders: {}, refused: types.map(type => `type ${type} (the brain's taxonomy could not be read: ${read.detail})`) };
-          const translated = translateProviderTypes(types, read.taxonomy);
-          // A document declares its type in frontmatter, so the folders hold
-          // the type only if no document of it lies outside them.
-          const strays = strayTypedDocuments(view.root, Object.keys(translated.folders), providerMaskedFolders(policy.policy, translated.folders), options.brainPath);
-          const listed = (paths: string[]) => `${paths.slice(0, 3).join(", ")}${paths.length > 3 ? ` and ${paths.length - 3} more` : ""}`;
-          const unverified = strays.filter(stray => stray.type === undefined).map(stray => stray.path);
-          for (const [type, folders] of Object.entries(translated.folders)) {
-            const paths = strays.filter(stray => stray.type === type).map(stray => stray.path);
-            if (paths.length) translated.refused.push(`type ${type} (${listed(paths)} ${paths.length === 1 ? "declares" : "declare"} it outside ${folders.join(", ")})`);
-            if (unverified.length) translated.refused.push(`type ${type} (${listed(unverified)} ${unverified.length === 1 ? "links" : "link"} to a folder outside the brain, which cannot be checked)`);
-          }
-          return translated;
-        };
+        const translate = (view: WorkerStartupView) => translateProviderTypesInView({ brainPath: options.brainPath, policy: policy.policy, view,
+          maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
         let typeFolders: Record<string, string[]> = {};
         if (types.length && !refused.length) {
           const translated = await translate(startupView);
@@ -183,6 +163,8 @@ export function createGovernedTurns(options: {
             if (again.refused.length) throw new ProviderPolicyRefusedError(again.refused);
             if (JSON.stringify(providerMaskedFolders(policy.policy, again.folders)) !== JSON.stringify(providerMaskedFolders(policy.policy, typeFolders)))
               throw new Error("The brain's document types changed during turn admission; retry once concurrent changes have settled.");
+            // The same folders, but the newer translation names their types (#2690).
+            typeFolders = again.folders;
           }
         }
         if (workerProfile(resolved) === "governed" && folderPaths.length) {
@@ -227,7 +209,7 @@ export function createGovernedTurns(options: {
         for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
-        return { sandbox, policy, managedStorage, ...(startupView ? { startupView } : {}), async end() {
+        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), async end() {
           if (ended) return null;
           ended = true;
           try {

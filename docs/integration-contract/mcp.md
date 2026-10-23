@@ -149,7 +149,7 @@ Application results are `{ ok: boolean, message: string, changes:
 indexed?: boolean, outcome?: object }`. A null result hash denotes a removed
 source. `changes` names only committed effects. A refused result is visible to
 the agent and recorded as a server-authored `brain_application` activity event;
-policy denial, alias denial, topology change, stale base, revoked authority,
+policy denial, provider-mask refusal (`provider_masked`, #2690), alias denial, topology change, stale base, revoked authority,
 membership, permission, invalid request, unsupported kind/host, payload and
 cancellation errors never silently merge or replay. Error codes are additive;
 consumers tolerate unknown codes. Claude wraps the result in MCP text with

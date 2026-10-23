@@ -11,6 +11,7 @@ import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { withVideoFiles } from "./video.js";
 import { GEMINI_FLASH_MODEL } from "../../lib/llm-defaults.js";
+import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
 
 export interface GeminiCompletionConfig {
   /** Generation model (default: gemini-3-flash-preview). */
@@ -62,7 +63,7 @@ export function geminiCompletions(config: GeminiCompletionConfig = {}): Completi
     if (!client || signal) {
       const apiKey = readEnvVar(apiKeyEnv);
       if (!apiKey) {
-        throw new Error(`${apiKeyEnv} environment variable is required for Gemini completions`);
+        throw new Error(missingKeyMessage(apiKeyEnv, "gemini", "completions", `${apiKeyEnv} environment variable is required for Gemini completions`));
       }
       const { GoogleGenAI } = await import("@google/genai").catch(() => {
         throw new Error(

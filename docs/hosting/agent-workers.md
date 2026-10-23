@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:496-511`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:507-522`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -1184,6 +1184,80 @@ Governed peers may see one another's configuration immediately; snapshot
 consumers retain their startup inputs until the next launch. See the
 [governed-worker decision](../decisions/governed-writable-workers.md).
 
+### Secrets and provider keys in turn workers (#1666)
+
+**The brain's `.env*` files.** Bun loads `.env`, `.env.local`,
+`.env.<NODE_ENV>` and `.env.<NODE_ENV>.local` from its working directory into
+every process it starts, and a `brain` command in a turn runs with the brain as
+its working directory. No first-party code reads `.env` any other way. The
+launcher binds `/dev/null` over every present `.env*` name at the brain root,
+and over the file an `.env*` link leads to, after every other mount, so no
+later bind can restore it (`maintenanceEnvMasks`,
+`packages/ui-sdk/src/server/maintenance-env-masks.ts:66-70`). The worker cannot
+open them: a read fails with `EACCES`, so Bun loads nothing and `cat .env`
+prints nothing. A new `.env*` name is a protected tier A path, so a turn
+cannot create one in the brain either.
+
+**Provider keys in the environment.** A governed or strict turn worker gets
+none of the provider credentials in the subprocess descriptor
+(`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `TYPESAFE_API_KEY`).
+The exceptions are the credentials its backend declares for its own inference
+and the names an operator admits through `BRAIN_UI_SUBPROCESS_ENV_EXTRA`. Names
+outside the descriptor never reached a worker. The launcher applies this last,
+for every governed and strict worker, so a backend cannot hand over a key by
+leaving it in the environment. The worker learns which keys it lacks from
+`BRAIN_WITHHELD_KEYS`, which holds names and never values: every descriptor
+credential the server has, or the launch carried, that the worker does not
+keep.
+
+| Turn | Keeps |
+| --- | --- |
+| Claude through the host inference relay | Only placeholders under the Claude CLI's own variables |
+| Claude without the relay (no managed native storage) | The Claude CLI's inference credential: `CLAUDE_CODE_OAUTH_TOKEN`, or the profile's `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` and the variable it declares |
+| pi through the relay | Nothing |
+| pi without the relay | Every credential above. pi resolves its own credentials in the worker there and may read any of them, also through a `models.json` `$NAME`. Hosts without managed native storage keep today's inference credentials until [#2654](https://github.com/schlessera/brain-kit/issues/2654). |
+| Restricted (autonomous) | Unchanged: its envelope's minimum environment |
+| Maintenance workers | Unchanged: credentialed maintenance keeps the `brainCli` and `cron` audiences until [#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the CLI's providers |
+
+**Which commands need a key.** The audit of the first-party commands an agent
+runs in its worker:
+
+| Command | Key it reads (default variable) | In a worker that lacks it |
+| --- | --- | --- |
+| `brain search` (hybrid or vector), and `brain_search` from the brain's own `brain mcp` server | The embeddings provider's `apiKeyEnv` (`GEMINI_API_KEY`) for the query embedding | Keyword results. The warning names the provider, with `degraded_to=keyword_search` (`none` for `--mode vector`) |
+| `brain search` with an enabled `jev` reranker or `--rerank jev` | The reranker's `apiKeyEnv` (`TYPESAFE_API_KEY`) | Lifecycle order, `degraded_to=lifecycle_order` |
+| `brain index --embeddings` | The embeddings key | A keyword index, `degraded_to=keyword_index` on stderr |
+| `brain process` | The completions provider's `apiKeyEnv` (`GEMINI_API_KEY` for `gemini-flash`, `ANTHROPIC_API_KEY` for `anthropic-haiku`) | Refused, naming the provider |
+| `brain image` | `OPENAI_API_KEY`, `GEMINI_API_KEY` | Refused, naming each withheld provider (the pinned one with `--provider` or `--model`) |
+| `brain video watch` | The completions provider's key (`GEMINI_API_KEY` for the built-in Gemini model) | Refused, naming the provider: the built-in providers' own missing-key errors carry the notice when the key was withheld |
+| `brain context`, `brain eval`, `brain doctor`, keyword `brain index` | The embeddings or completions key, when configured | The same degraded behaviour a keyless brain has, without a notice |
+
+The server's own `brain_search` and `brain_add` tools are not on this list:
+they run in a maintenance worker, not the turn's.
+
+**The record.** A command that needs a withheld key prints a sentence that ends
+in a fixed token, for example
+`[provider_unavailable provider=gemini capability=embeddings key=GEMINI_API_KEY degraded_to=keyword_search]`
+(`providerUnavailableNotice`,
+`packages/common/src/provider-unavailable.ts:56-64`). The turn recorder reads
+each tool result for the token and writes one `provider_unavailable`
+governance event per distinct token, with the call's command, at most 20 per
+turn (`providerUnavailablePayloads`,
+`packages/ui-server/src/governance/provider-unavailable.ts:31-36`). As with the
+roadblock classifier, the source is the tool output the host already relays:
+output that hides it (`2>/dev/null`) leaves no record, and text the agent
+prints or fetches can produce one. The record is a diagnostic and grants
+nothing. A key that was never set is not withheld, so a keyless brain outside a
+worker keeps its ordinary messages. The token's grammar is part of the
+[CLI contract](../integration-contract/cli.md#withheld-provider-keys-additive-0440-1666).
+
+**What #1673 changes.** The metered relays give the CLI's providers back to
+turn workers without keys, and remove the keys from maintenance workers too.
+Until then, a relayed Claude API-key turn holds a placeholder under
+`ANTHROPIC_API_KEY`, so the CLI's `anthropic-haiku` completions call fails
+authentication instead of naming the provider.
+
 ### Worker startup status
 
 The live launcher reads bubblewrap's `--json-status-fd` through a dedicated,
@@ -1386,10 +1460,10 @@ or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
 | Reranked search / JeV (unqualified by this audit) | Configured `apiKeyEnv`, default `TYPESAFE_API_KEY` | Configured `baseUrl`, default `https://api.typesafe.ai/v1/systemone`; POST JSON | Separate usage-bearing direct request; no CLI relay coverage inferred |
 
 The factories and concrete recipient provenance are implemented at
-(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:58-221`),
-(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:55-133`),
-(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:62-146`)
-and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:226-346`).
+(`geminiEmbeddings`, `packages/core/src/providers/embeddings/gemini.ts:59-221`),
+(`geminiCompletions`, `packages/core/src/providers/completions/gemini.ts:56-134`),
+(`anthropicCompletions`, `packages/core/src/providers/completions/anthropic.ts:63-147`)
+and (`jevReranker`, `packages/core/src/providers/rerankers/jev.ts:227-347`).
 Configured model labels, endpoint overrides and key-variable names select native
 routing; none grants permission to release a host-held credential.
 

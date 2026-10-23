@@ -1,5 +1,6 @@
 /** Process-local last-valid policy. Every admission reads data anew; no repository code runs. */
 import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { checkGovernancePolicy, resolveGovernancePolicy, type EffectiveGovernancePolicy, type GovernanceCommandRuleIndices } from "@schlessera/brain-common/internal/governance-policy";
 
@@ -40,6 +41,21 @@ export function createGovernancePolicyReader(brainPath: string) {
   } };
 }
 
+const readers = new Map<string, ReturnType<typeof createGovernancePolicyReader>>();
+/**
+ * The process-local reader for a brain, shared by every admission path:
+ * hosted and autonomous turns keep one last-valid policy, so an invalid edit
+ * cannot drop an autonomous turn's provider masks (#2691).
+ */
+export function governancePolicyReaderFor(brainPath: string): ReturnType<typeof createGovernancePolicyReader> {
+  // One brain has one history, however its path is spelled.
+  let key = resolve(brainPath);
+  try { key = realpathSync(key); } catch { /* a missing brain keeps its resolved spelling */ }
+  let reader = readers.get(key);
+  // The reader reads the canonical path too, so no later alias change moves it.
+  if (!reader) { reader = createGovernancePolicyReader(key); readers.set(key, reader); }
+  return reader;
+}
 
 /**
  * The literal folder a path selector names in full, or undefined. `F/**` and
@@ -163,21 +179,25 @@ export function providerMaskedFolders(policy: Pick<EffectiveGovernancePolicy, "p
 
 /**
  * The folders a hosted turn masks for its proven recipient (#2695): those of
- * every provider rule that does not allow it, each nested folder dropped for
- * its ancestor. Matching rules intersect their allowlists, so a folder that a
- * denying rule selects stays masked even where another rule allows the
- * recipient, and an allowed folder keeps a denied folder inside it masked.
- * An unproven recipient (`undefined`) is allowed nothing, so every provider
- * folder is masked, as `providerMaskedFolders`. The same set feeds the masks,
- * the private index, the hardlink scan and every server-side refusal.
+ * every provider rule that does not allow it. Matching rules intersect their
+ * allowlists, so a folder that a denying rule selects stays masked even where
+ * another rule allows the recipient. Only outermost provider folders are
+ * retained against peers (#2718), so a mask nested inside a visible folder
+ * would not survive a peer replacing it: a denied folder inside another
+ * provider folder masks that outer folder whole. An unproven recipient
+ * (`undefined`) is allowed nothing, so every provider folder is masked, as
+ * `providerMaskedFolders`. The same set feeds the masks, the private index,
+ * the hardlink scan and every server-side refusal.
  */
 export function providerDeniedFolders(policy: Pick<EffectiveGovernancePolicy, "providers">, typeFolders: Readonly<Record<string, readonly string[]>>,
   recipient: string | undefined): string[] {
-  if (recipient === undefined) return providerMaskedFolders(policy, typeFolders);
-  return outermostFolders(policy.providers.filter(rule => !rule.allow.includes(recipient)).flatMap(rule => [
+  const all = providerMaskedFolders(policy, typeFolders);
+  if (recipient === undefined) return all;
+  const denied = policy.providers.filter(rule => !rule.allow.includes(recipient)).flatMap(rule => [
     ...rule.paths.map(selectorFolder).filter((root): root is string => root !== undefined),
     ...(rule.types ?? []).flatMap(type => typeFolders[type] ?? []),
-  ]));
+  ]);
+  return outermostFolders(denied.map(folder => all.find(outer => folder === outer || folder.startsWith(`${outer}/`)) ?? folder));
 }
 
 /** What an admitted turn's recipient saw of the provider folders (#2695). */

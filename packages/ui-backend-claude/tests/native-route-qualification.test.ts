@@ -82,6 +82,10 @@ for (const [mode, header] of [["api-key", "apiKey"], ["api-token", "authorizatio
     : { apiKey: null, authorization: "Bearer odysseus-api-secret-for-ithaca" }]);
   expect(proof.nativeEnvironmentCount, "API_PROFILE_NATIVE_ENVIRONMENT_OBSERVED").toBe(1);
   expect(proof.secretInWorker, "API_PROFILE_WORKER_HOLDS_NO_CREDENTIAL").toBe(false);
+  // The brain CLI's keys are withheld by name, so its commands can say which provider is missing (#1666).
+  expect(proof.withheldKeys, "API_PROFILE_WORKER_NAMES_WITHHELD_KEYS").toEqual([header === "apiKey"
+    ? "ANTHROPIC_AUTH_TOKEN,CLAUDE_CODE_OAUTH_TOKEN,GEMINI_API_KEY,OPENROUTER_API_KEY,TYPESAFE_API_KEY"
+    : "CLAUDE_CODE_OAUTH_TOKEN,GEMINI_API_KEY,OPENROUTER_API_KEY,TYPESAFE_API_KEY"]);
   expect(proof.workerPlaceholders, "API_PROFILE_WORKER_PLACEHOLDERS").toEqual([header === "apiKey"
     ? ["brain-inference-relay-placeholder", "", "", null] : ["", "brain-inference-relay-placeholder", "", null]]);
   expect(proof.observations.map((event: any) => [event.payload.host, event.payload.path, event.payload.inference, event.payload.outcome]),

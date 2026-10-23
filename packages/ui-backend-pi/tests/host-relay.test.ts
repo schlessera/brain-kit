@@ -7,7 +7,7 @@ import { canonicalOrigin, literalValue, piCredentialOrigins, sanitized } from ".
 
 type Result = { hostFetches: string[]; outcomes: Array<string | null>; origins: Array<string | null>; thrown: string | null; refreshes: number; toolFetches: number; toolOutputSeen: boolean; requests: Array<Record<string, string | null>>;
   inference: Array<{ inference: boolean; host: string; path: string | null; outcome: string }>; workerObserved: boolean;
-  secretInWorker: boolean; hostCredentialFilesVisible: number; workerViewObserved: boolean; placeholderInWorker: boolean; commandRan: boolean; hostRefreshed: boolean; relayLinkRemoved: boolean };
+  secretInWorker: boolean; withheldKeys: string | null; hostCredentialFilesVisible: number; workerViewObserved: boolean; placeholderInWorker: boolean; commandRan: boolean; hostRefreshed: boolean; relayLinkRemoved: boolean };
 let results: Record<string, Result>;
 beforeAll(async () => {
   const root = resolve(import.meta.dir, "../../..");
@@ -41,6 +41,11 @@ const relayed = (name: string, request: Record<string, string | null>, host: str
 
 test("an API key from the server environment stays on the host, also on a resumed turn", () => {
   relayed("openai-env-key", { path: "/v1/responses", authorization: "openai", apiKey: null }, "api.openai.com");
+});
+test("keys only the brain CLI reads, and another runtime's login, never reach a relayed worker (#1666)", () => {
+  relayed("cli-keys-withheld", { path: "/v1/responses", authorization: "openai", apiKey: null }, "api.openai.com");
+  expect(results["cli-keys-withheld"]!.withheldKeys, "PI_RELAY_WORKER_NAMES_WITHHELD_KEYS")
+    .toBe("CLAUDE_CODE_OAUTH_TOKEN,GEMINI_API_KEY,OPENAI_API_KEY,TYPESAFE_API_KEY");
 });
 test("a bash tool keeps its network through the turn proxy, recorded apart from inference", () => {
   const result = results["tool-network"]!;

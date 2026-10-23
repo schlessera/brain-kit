@@ -130,15 +130,27 @@ unsupported unsafe selectors. Arbitrary type/glob requirements remain open;
 folder retention cannot authorize protected data for an unknown recipient.
 
 **Hosted turns (additive in 0.44.0, #1668).** A provider rule denies every
-interactive and voice turn whose recipient it does not allow, and every turn
-without a proven recipient. Each literal `folder/**` root of a denying rule
-present in the turn's view reads as an empty read-only directory, a selected
-folder inside another selected folder is hidden with it (#2718), `.git` is
-hidden, and `.brain-index/` is a turn-private, writable index. It is built
-before the turn by the brain's own CLI (`brain index`, keyword-only) in a
-worker that sees the same masks, so it never held a masked document. The real
-index is refreshed from Markdown after the turn as usual. Server-side tools and
-autonomous turns are not covered yet.
+interactive and voice turn whose recipient it does not allow, every turn
+without a proven recipient, and every autonomous turn. Each literal
+`folder/**` root of a denying rule present in the turn's view reads as an
+empty read-only directory, a selected folder inside another selected folder
+is hidden with it (#2718), `.git` is hidden, and `.brain-index/` is a
+turn-private, writable index. It is built before the turn by the brain's own
+CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
+never held a masked document. The real index is refreshed from Markdown after
+the turn as usual. Host bridge tools that run on the server, outside the
+worker's mounts, refuse every path at or below a masked root with the named
+refusal `provider_masked` and one `provider_mask_refusal` governance event per
+call: `brain_read_base`, the application tools, share completion, image masks,
+`inbox_add` and policy proposals (#2690). An autonomous (restricted) turn applies the same
+masks and private index to its envelope and reads the same last-valid policy.
+It translates selectors as below and refuses the rest the same way: an
+unsupported path selector before any worker starts, an untranslatable type
+once the brain's taxonomy has been read, a hardlink out of a masked folder as
+for hosted turns. Its bridge refuses masked paths the same way (#2691). In
+every denied turn the committed generated-text caches (`.context-cache.jsonl`,
+`.asset-cache.jsonl`) read as empty (#2692), and so they do in every turn
+allowed some or all provider folders (below).
 
 **Allowed recipients (additive in 0.44.0, #2695).** A turn's recipient is the
 provider that receives its inference, named only from the exact origin its
@@ -178,8 +190,10 @@ Matching rules intersect their allowlists. A turn allowed every provider
 folder sees them all, `.git` and the real `.brain-index/`. A turn allowed some
 of them sees those, and the rest are masked as above; its private index is
 built from that partial view, so it lacks only the masked folders' documents.
-A folder that a denying rule selects stays masked inside a folder another rule
-allows. The turn's relay then refuses to reach any origin but the one its
+A folder that a denying rule selects inside a folder the recipient may see
+masks that outer folder whole: only outermost provider folders are kept in
+place against other writers (#2718), so a mask nested inside a visible folder
+would not survive a peer replacing it. The turn's relay then refuses to reach any origin but the one its
 recipient was named from.
 
 A conversation keeps what its turns read: provider history is never redacted.

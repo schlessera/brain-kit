@@ -597,6 +597,7 @@ signatures (every public export and the types it is made of)
     export interface GovernedTurnHold {
         readonly sandbox: WorkerSandbox;
         readonly policy: TurnGovernancePolicy;
+        readonly typeFolders?: Readonly<Record<string, readonly string[]>>;
         readonly startupView?: WorkerStartupView;
         readonly managedStorage: boolean;
         end(): Promise<Reconciliation | null>;
@@ -1414,7 +1415,7 @@ signatures (every public export and the types it is made of)
         shares: undefined | {
             apply(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, input: import("@schlessera/brain-ui-sdk/server").BrainApplicationInput, apply: () => Promise<import("@schlessera/brain-ui-sdk/server").BrainApplicationResult>): Promise<import("@schlessera/brain-ui-sdk/server").BrainApplicationResult>;
             bind(runId: string, sessionId: string): void;
-            complete(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, raw: import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareInput, approve: () => Promise<boolean>, lock: import("@schlessera/brain-ui-sdk/server").BrainApplicationPolicy["lock"]): Promise<import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareResult>;
+            complete(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, raw: import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareInput, approve: () => Promise<boolean>, lock: import("@schlessera/brain-ui-sdk/server").BrainApplicationPolicy["lock"], assertVisible?: (paths: string[]) => void): Promise<import("@schlessera/brain-ui-sdk/tool-contracts").CompleteShareResult>;
             end(runId: string): void;
             resolveSession(principalId: string, stagingId: string, requested: string | undefined, current: () => boolean): string | undefined;
             start: (principalId: string, runId: string, sessionId: string | undefined, stagingId: string | undefined, current: () => boolean) => void;

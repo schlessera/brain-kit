@@ -44,9 +44,12 @@ const inferenceRecipient = mode === "recipient-admitted" ? { name: "anthropic", 
 const apiBilled = mode.startsWith("api-");
 const apiSecret = "odysseus-api-secret-for-ithaca", hostLogin = "odysseus-ambient-host-login";
 const ambientBearer = "odysseus-ambient-bearer", ambientRouter = "odysseus-ambient-router-key";
-// Ambient credentials the profile does not declare: neither may reach the worker or the profile's route.
+// Keys only the brain CLI's own providers read (#1666).
+const cliGemini = "odysseus-ambient-cli-gemini-key", cliTypesafe = "odysseus-ambient-cli-typesafe-key";
+// Ambient credentials the profile does not declare: none may reach the worker or the profile's route.
 if (apiBilled) Object.assign(process.env, { ODYSSEUS_ANTHROPIC_KEY: apiSecret, CLAUDE_CODE_OAUTH_TOKEN: hostLogin,
-  OPENROUTER_API_KEY: ambientRouter, ...(mode === "api-token" ? {} : { ANTHROPIC_AUTH_TOKEN: ambientBearer }) });
+  OPENROUTER_API_KEY: ambientRouter, GEMINI_API_KEY: cliGemini, TYPESAFE_API_KEY: cliTypesafe,
+  ...(mode === "api-token" ? {} : { ANTHROPIC_AUTH_TOKEN: ambientBearer }) });
 // The server's own route: a custom gateway with a base path, selected by trusted host configuration.
 const gateway = mode.startsWith("server-custom-") ? "https://gateway.ithaca.invalid/anthropic" : undefined;
 if (["server-custom-listed", "server-custom-project-same", "server-custom-project-other"].includes(mode)) process.env.BRAIN_UI_CLAUDE_OAUTH_ORIGINS = "https://other.ithaca.invalid, https://gateway.ithaca.invalid";
@@ -219,7 +222,8 @@ try {
   }
   const observed = JSON.stringify({ nativeEnvironments, stateFiles });
   console.log(JSON.stringify({ requests, refreshes, apiRequests, nativeEnvironmentCount: nativeEnvironments.length, hostLoginVisible, controlVisible,
-    secretInWorker: [apiSecret, hostLogin, ambientBearer, ambientRouter].some(secret => observed.includes(secret)),
+    secretInWorker: [apiSecret, hostLogin, ambientBearer, ambientRouter, cliGemini, cliTypesafe].some(secret => observed.includes(secret)),
+    withheldKeys: nativeEnvironments.map(value => /(?:^|\0)BRAIN_WITHHELD_KEYS=([^\0]*)/.exec(value)?.[1] ?? null),
     workerPlaceholders: nativeEnvironments.map(value => ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ODYSSEUS_ANTHROPIC_KEY"]
       .map(name => new RegExp(`(?:^|\0)${name}=([^\0]*)`).exec(value)?.[1] ?? null)), sessionId, projectedCredentials, recordingFailure, cleanupFailures, releaseFailures,
     results: frames.filter(frame => frame.type === "result" || frame.type === "error"),

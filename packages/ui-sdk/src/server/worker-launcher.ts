@@ -28,7 +28,9 @@ import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { workerFilesystemFilter, workerFilesystemFilterRefusal } from "./worker-filesystem-filter.js";
-import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
+import { HOST_GIT_CREDENTIAL_ENV, WORKER_PROVIDER_CREDENTIAL_ENV, workerProviderCredentials } from "./subprocess-env.js";
+import { WITHHELD_KEYS_ENV } from "@schlessera/brain-common/internal/provider-unavailable";
+import { hostProviderCredentialNames } from "../config/env.js";
 
 /** Concrete first-party worker boundary; not an optional exec wrapper. */
 export const WORKER_SCRATCH = "/tmp/brain-worker-scratch";
@@ -84,6 +86,15 @@ export interface WorkerLaunch {
   command: readonly string[];
   /** The complete worker environment; nothing is inherited by default. */
   env: Readonly<Record<string, string>>;
+  /**
+   * The provider credentials a governed or strict turn worker keeps from
+   * `env` (#1666): its own unrelayed inference credentials and the names an
+   * operator admits. Every other provider credential is withheld, and the
+   * withheld names (never their values) reach the worker as
+   * `BRAIN_WITHHELD_KEYS`. Absent: it keeps none. Maintenance, transport and
+   * restricted workers ignore it.
+   */
+  credentialEnv?: readonly string[];
   /**
    * The restricted envelope for untrusted (autonomous) execution (#676): a
    * private network namespace with only loopback, and an explicit read
@@ -580,7 +591,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     ] : []),
     ...(sized ? ["--dir", scratch] : ["--tmpfs", scratch]), ...writable.binds,
     ...(input.sandbox?.profile === "governed" && input.sandbox.protection ? protectedWorkerMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders) : []),
-    ...(input.sandbox?.providerMasks && !input.restricted && !maintenance && !transport
+    ...(input.sandbox?.providerMasks && !maintenance && !transport
       ? providerMaskMounts(brain, input.startupView?.root ?? brain, input.sandbox.providerMasks) : []),
     "--clearenv"];
   // Last: neither a complete view nor a protected-path bind may restore a
@@ -596,9 +607,19 @@ export function workerCommand(input: WorkerLaunch): string[] {
   // and no other worker's namespace can see it (#1625). It lands on top of
   // the turn-temp /tmp and is not part of it.
   if (input.stateBytes !== undefined) argv.push("--size", String(input.stateBytes), "--tmpfs", WORKER_STATE);
+  // A governed or strict turn worker holds no provider credential its own
+  // inference does not need (#1666); the CLI's providers name what is missing.
+  const turnProfile = !maintenance && !transport && !input.restricted
+    && (input.sandbox?.profile === "governed" || input.sandbox?.profile === "strict");
+  const credentials = turnProfile ? workerProviderCredentials(input.env, input.credentialEnv ?? []) : undefined;
   for (const [key, value] of Object.entries(input.env)) {
+    if (credentials && (key === WITHHELD_KEYS_ENV || WORKER_PROVIDER_CREDENTIAL_ENV.includes(key) && !(input.credentialEnv ?? []).includes(key))) continue;
     if (transport || !HOST_GIT_CREDENTIAL_ENV.includes(key)) argv.push("--setenv", key, value);
   }
+  // Names only: what the host or this launch had that the worker does not.
+  const withheld = credentials && [...new Set([...credentials.withheld,
+    ...hostProviderCredentialNames(WORKER_PROVIDER_CREDENTIAL_ENV).filter(name => !credentials.kept.includes(name))])].sort();
+  if (withheld?.length) argv.push("--setenv", WITHHELD_KEYS_ENV, withheld.join(","));
   argv.push(...writable.env, "--setenv", "BRAIN_WORKER_SCRATCH", scratch,
     "--chdir", transport ? transport.mirror : brain, "--", ...rlimitPrefix(launchLimits(input)), ...(gated(input) ? [...STATE_GATE] : []),
     ...payloadCommand(input));

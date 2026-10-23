@@ -171,14 +171,24 @@ export function createInteractiveShares(db: Database, root: string) {
       return receipt;
     },
     async complete(principalId: string, runId: string, sessionId: string | undefined, current: () => boolean, raw: CompleteShareInput,
-      approve: () => Promise<boolean>, lock: BrainApplicationPolicy["lock"]): Promise<CompleteShareResult> {
+      approve: () => Promise<boolean>, lock: BrainApplicationPolicy["lock"],
+      /** The turn's provider-mask refusal (#2690): throws before a masked path is read. */
+      assertVisible?: (paths: string[]) => void): Promise<CompleteShareResult> {
       const input = COMPLETE_SHARE_INPUT_SCHEMA.parse(raw);
+      assertVisible?.(input.files.flatMap(file => file.disposition === "retained" ? [file.sourcePath, file.path] : [file.sourcePath]));
       if (!sessionId) throw new Error("Share completion requires a named bound session");
       const initial = bound(principalId, runId, sessionId, current);
       const json = JSON.stringify(input);
       if (initial.completion_json) {
         if (initial.completion_json !== json) throw new Error("Completion replay differs from the committed disposition");
         return { itemId: initial.item_id, status: "done", replay: true };
+      }
+      // Filed documents too, before the transaction: a refusal recorded inside
+      // it would roll back with it. The check inside remains authoritative.
+      if (assertVisible) for (const id of input.receiptIds) {
+        const row = db.query("SELECT result_json FROM inbox_share_applications WHERE id = ? AND item_id = ?").get(id, initial.item_id) as { result_json: string | null } | null;
+        const receipt = row?.result_json ? JSON.parse(row.result_json) as BrainApplicationResult : null;
+        assertVisible(receipt?.changes.map(change => change.path) ?? []);
       }
       if (input.files.some(f => f.disposition === "discarded") && !await approve()) throw new Error("The exact binary discard was not approved; originals remain recoverable");
       return lock.withLock(BRAIN_LOCK_KEY, () => db.transaction(() => {
@@ -195,6 +205,7 @@ export function createInteractiveShares(db: Database, root: string) {
           if (!receipt?.ok || receipt.shareReceiptId !== id || !receipt.changes.length) throw new Error("Unsupported, forged or unrelated filing receipt");
           for (const change of receipt.changes) {
             if (!change.contentHash) throw new Error("Destructive effects do not prove share filing");
+            assertVisible?.([change.path]);
             const document = readBrainApplicationBase(root, change.path);
             if (document.expectedBaseHash !== change.contentHash) throw new Error("Filed content no longer matches its authoritative receipt");
             documents.push(document.content);
