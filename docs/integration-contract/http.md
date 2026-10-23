@@ -208,6 +208,11 @@ CONNECT records opaque bytes without a path or content claim; the inference
 tag comes only from the actual relay. Existing `egress_denial` remains named
 and versioned as before. Header values, query strings and bodies are excluded.
 
+The additive `provider_mask_refusal` kind (#2690) records a host bridge tool
+that refused a path the turn's provider folder masks hide: the tool as the
+agent called it, the brain-relative path, the `providers` rule and the policy
+hash. One event is written per refused call.
+
 The kinds and each kind's payload are versioned separately. A payload change
 that is not purely additive bumps that kind's `schemaVersion`, and stored
 events keep the version they were written with, so a new version or a new

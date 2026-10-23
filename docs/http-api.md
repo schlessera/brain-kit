@@ -1143,7 +1143,7 @@ telemetry. Use `hoursBack=168` for a week of retained turns.
 **GET /api/governance/events** is protected and read-only. It returns the
 machine-readable records the host keeps of every sandbox or governance
 intervention in a turn: promotions, policy blocks and confirmations, read-only
-refusals, quarantines, budget and scope limits, egress denials, `strict`
+refusals, provider-mask refusals, quarantines, budget and scope limits, egress denials, `strict`
 fallbacks, revert conflicts, outward actions, taint, unavailable providers,
 worker resource limits and
 classified roadblocks ([decision](decisions/governed-writable-workers.md#roadblocks-and-governance-events-tracked-not-noise)).
@@ -1213,6 +1213,7 @@ read by any authenticated principal.
 | `policy_block` | 1 | `tool`, `input`, `inputTruncated`, `rule`, `policyHash` | A tool call refused by a `commands.deny` rule. |
 | `policy_confirm` | 1 | `tool`, `input`, `inputTruncated`, `rule`, `decision`, `policyHash` | A tool call that matched a `commands.confirm` rule. `decision` is `approved`, `declined`, `timed_out` or `cancelled`. |
 | `read_only_refusal` | 1 | `path`, `protection`, `code`, `tool`, `alternative` | A write refused because the path is protected or the profile is read-only. `protection` is `tier_a`, `tier_b`, `policy_protect`, `strict_profile` or `restricted_profile`; `code` is `EROFS`, `EACCES`, `EBUSY` or `null`; `alternative` is the allowed route the refusal named. |
+| `provider_mask_refusal` | 1 | `tool`, `path`, `rule`, `policyHash` | A host bridge tool refused a path that the turn's provider folder masks hide: a document read (`brain_read_base`), an application or share completion, an image mask, an inbox addition or a policy proposal. `tool` is the tool as the agent called it, `path` the brain-relative path it named, and `rule` the `providers` entry whose selector maps onto the masked folder (`list` is `providers`; `pattern` is the folder path selector, or `type <name>` for a type translated onto the folder). One event per refused call; nothing was read or written ([decision](decisions/governed-writable-workers.md#data-to-provider-routing-g2)). |
 | `quarantine` | 1 | `path`, `tier`, `entry`, `bytes`, `trigger`, `objectId` | A protected file that appeared during a turn was moved into the journal quarantine. `tier` is `A` or `B`; `entry` is `file`, `directory`, `symlink` or `other`; `trigger` is `turn_end` or `boot_recovery`; `objectId` names the quarantined copy. |
 | `quarantine_reconciliation` | 1 | `trigger`, `reconciledTurnIds`, `quarantined`, `masked` | One reconciliation pass. `trigger` is `boot_recovery` or `launch`; `masked` lists the paths a launching worker saw masked. |
 | `budget_warning` | 1 | `scope`, `unit`, `limit`, `observed`, `source` | A warn limit was crossed. `scope` is `turn`, `session` or `day`; `unit` is `usd` or `tokens`. |

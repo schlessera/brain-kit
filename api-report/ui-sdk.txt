@@ -1067,6 +1067,7 @@ export "./internal" (./src/internal.ts)
   type WorkerOutputStorage
   type WorkerOutwardRule
   type WorkerProfile
+  type WorkerProviderMasks
   WorkerResourceLimitError
   type WorkerSandbox
   type WorkerStartupView
