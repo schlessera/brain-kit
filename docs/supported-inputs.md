@@ -132,7 +132,8 @@ folder retention cannot authorize protected data for an unknown recipient.
 **Hosted turns (additive in 0.44.0, #1668).** No hosted turn has a proven
 inference recipient yet, so a provider rule denies every interactive, voice
 and autonomous turn. Each literal `folder/**` root present in the turn's view reads as an
-empty read-only directory, `.git` is hidden, and `.brain-index/` is a
+empty read-only directory, a selected folder inside another selected folder
+is hidden with it (#2718), `.git` is hidden, and `.brain-index/` is a
 turn-private, writable index. It is built before the turn by the brain's own
 CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
 never held a masked document. The real index is refreshed from Markdown after
