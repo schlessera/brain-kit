@@ -79,6 +79,16 @@ non-literal glob or a single path refuses turn admission by name. No schema,
 CLI `--json` shape, MCP tool or HTTP route changes; `brain index` without
 `--embeddings` now runs where only `.brain-index/` is writable.
 
+## Separate-UID provider folder turns (additive, 0.44.0, #2696)
+
+The host identity helper protocol (`--brain-worker-identity-v1`) gains a
+`view` operation and an optional `view` launch field, specified with the
+[host protocol](hosting/agent-workers.md#separate-worker-identity). The
+server uses them to qualify a separate-UID governed worker's mounted provider
+folders and private index before its payload starts. Other launches do not
+send the field. A helper without the operation refuses provider-folder turns
+before payload start, as before; nothing else changes.
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).

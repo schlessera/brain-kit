@@ -157,15 +157,28 @@ print(json.dumps(dict(uid=os.getuid(),value=value)))`, {sandbox:{brain,profile:"
   await check("real host probes qualify separate UID, sentinel and positive controls in governed and strict",async()=>{
     for(const profile of ["governed","strict"] as const)expect(probeWorkerHost(brain,{profile,stateBytes:MIB,turnTempBytes:MIB})).toMatchObject({ok:true,identity:"separate_uid",workerUid:21002});
   });
-  await check("unobservable separate-UID folder mounts keep the payload gate closed", async () => {
+  await check("separate-UID folder mounts qualify only through the worker's own brain view", async () => {
     mkdirSync(join(brain, "group/private"), { recursive: true, mode: 0o2775 });
     const sandbox = prepareWorkerSandbox(brain, { profile: "governed", areas: [], folderPaths: ["group/private"] });
     expect(sandbox.profile, sandbox.fallbackReason).toBe("governed");
-    const marker = join(brain, "unqualified-folder-payload");
-    expect(() => launch(`open('${marker}','w').write('unexpected')`, { sandbox }),
-      "UNOBSERVABLE_SECOND_UID_FOLDERS_KEEP_GATE_CLOSED").toThrow("provider folder topology could not be qualified before payload start");
-    expect(existsSync(marker)).toBe(false);
-    await until(() => workerPids().length === 0, "UNQUALIFIED_FOLDER_LEFT_WORKER");
+    const qualified = join(brain, "qualified-folder-payload");
+    const launched = launch(`open('${qualified}','w').write('Odysseus')`, { sandbox });
+    try { expect(await launched.worker.exited, `SECOND_UID_FOLDER_VIEW_QUALIFIES: ${launched.errors()}`).toBe(0); }
+    finally { await close(launched.worker); }
+    expect(readFileSync(qualified, "utf8"), "SECOND_UID_QUALIFIED_FOLDER_PAYLOAD_RUNS").toBe("Odysseus");
+    rmSync(qualified);
+    const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
+    try {
+      // A helper without the view operation, and one returning the host's identical inodes.
+      for (const [fault, reason] of [["no-view", "worker_identity_operation_failed"], ["host-view", "the brain view is not the worker's own brain mount"]]) {
+        process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = `/usr/local/bin/identity-helper-fault-${fault}`;
+        const marker = join(brain, `unqualified-folder-payload-${fault}`);
+        expect(() => launch(`open('${marker}','w').write('unexpected')`, { sandbox }),
+          `UNOBSERVABLE_SECOND_UID_FOLDERS_KEEP_GATE_CLOSED_${fault}`).toThrow(`provider folder topology could not be qualified before payload start: ${reason}`);
+        expect(existsSync(marker)).toBe(false);
+        await until(() => workerPids().length === 0, `UNQUALIFIED_FOLDER_LEFT_WORKER_${fault}`);
+      }
+    } finally { if (configured !== undefined) process.env.BRAIN_UI_WORKER_IDENTITY_HELPER = configured; }
   });
   await check("a non-dropping helper cannot start a same-UID payload", async () => {
     const configured = process.env.BRAIN_UI_WORKER_IDENTITY_HELPER;
