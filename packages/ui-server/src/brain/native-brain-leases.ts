@@ -3,11 +3,11 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { constants, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { NativeBrainManagerError, type createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { NativeBrainManagerError, REFERENCE_POOL_CHECKPOINT_BYTES, type createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
-type PoolLease = { id: string; purpose: "source" | "worktree" | "staging"; from_id: string | null; allowance: number; state: "creating" | "held" | "releasing" };
+type PoolLease = { id: string; purpose: "source" | "worktree" | "staging" | "checkpoint"; from_id: string | null; allowance: number; state: "creating" | "held" | "releasing" };
 type Lease = { id: string; kind: "checkpoint" | "stage"; checkpoint_uuid: string | null; stage_lower_id: string | null; stage_allowance: number | null; owner_pid: number; owner_start: string; owner_generation: string; owner_boot: string; owner_pid_namespace: string; state: "creating" | "sealed" | "deleting" };
 
 export async function createNativeBrainLeaseManager(raw: Client, options: {
@@ -50,8 +50,14 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       || (db.query("PRAGMA synchronous").get() as { synchronous: number }).synchronous !== 2)
       throw Error("Native lease state requires durable SQLite WAL/FULL mode before any manager request.");
     db.exec(`CREATE TABLE IF NOT EXISTS native_lease_store (id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,brain TEXT NOT NULL,fsid TEXT NOT NULL,brain_uuid TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS native_pool_leases (id TEXT PRIMARY KEY,purpose TEXT NOT NULL CHECK(purpose IN ('source','worktree','staging')),from_id TEXT,allowance INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','held','releasing')));
+      CREATE TABLE IF NOT EXISTS native_pool_leases (id TEXT PRIMARY KEY,purpose TEXT NOT NULL CHECK(purpose IN ('source','worktree','staging','checkpoint')),from_id TEXT,allowance INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','held','releasing')));
       CREATE TABLE IF NOT EXISTS native_root_leases (id TEXT PRIMARY KEY,owner_pid INTEGER NOT NULL,owner_start TEXT NOT NULL,owner_generation TEXT NOT NULL,owner_boot TEXT NOT NULL,owner_pid_namespace TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','sealed','deleting')),kind TEXT NOT NULL DEFAULT 'checkpoint' CHECK(kind IN ('checkpoint','stage')),checkpoint_uuid TEXT,stage_lower_id TEXT,stage_allowance INTEGER);`);
+    // Pool leases recorded before worktree checkpoints (#2430) keep every row; only the purpose check widens.
+    if (!(db.query("SELECT sql FROM sqlite_master WHERE type='table' AND name='native_pool_leases'").get() as { sql: string }).sql.includes("'checkpoint'"))
+      db.transaction(() => db.exec(`ALTER TABLE native_pool_leases RENAME TO native_pool_leases_v1;
+        CREATE TABLE native_pool_leases (id TEXT PRIMARY KEY,purpose TEXT NOT NULL CHECK(purpose IN ('source','worktree','staging','checkpoint')),from_id TEXT,allowance INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('creating','held','releasing')));
+        INSERT INTO native_pool_leases SELECT id,purpose,from_id,allowance,state FROM native_pool_leases_v1;
+        DROP TABLE native_pool_leases_v1;`)).immediate();
     // Earlier records in this same new feature are checkpoint leases.
     if (!(db.query("PRAGMA table_info(native_root_leases)").all() as { name: string }[]).some(column => column.name === "kind"))
       db.exec("ALTER TABLE native_root_leases ADD COLUMN kind TEXT NOT NULL DEFAULT 'checkpoint' CHECK(kind IN ('checkpoint','stage'))");
@@ -83,6 +89,10 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
   }
   const row = (id: string) => db.query("SELECT * FROM native_root_leases WHERE id=?").get(id) as Lease | null;
   const poolRow = (id: string) => db.query("SELECT * FROM native_pool_leases WHERE id=?").get(id) as PoolLease | null;
+  const heldCheckpoint = (id: string) => {
+    const lease = poolRow(id);
+    if (lease?.purpose !== "checkpoint" || lease.state !== "held") throw new NativeBrainManagerError("unknown", "Worktree checkpoint reads require this app's held checkpoint.");
+  };
   const live = (lease: Lease): boolean | null => lease.owner_boot !== boot ? false
     : lease.owner_pid_namespace !== pidNamespace ? null : processAlive(lease.owner_pid, lease.owner_start);
   const mine = (lease: Lease) => lease.owner_pid === SELF.pid && lease.owner_start === SELF.start && lease.owner_generation === generation && lease.owner_boot === boot && lease.owner_pid_namespace === pidNamespace;
@@ -166,6 +176,39 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       return record;
     }); },
     poolUnpublish(view, name, signal) { return operation(() => raw.poolUnpublish(view, name, signal)); },
+    poolCheckpoint(id, from, signal) { return operation(async () => {
+      signal?.throwIfAborted();
+      db.transaction(() => {
+        const lease = poolRow(id), worktree = poolRow(from);
+        if (row(id)) throw new NativeBrainManagerError("unknown", "This identity already belongs to a checkpoint or stage lease.");
+        if (lease && (lease.state === "releasing" || lease.purpose !== "checkpoint" || lease.from_id !== from))
+          throw new NativeBrainManagerError("unknown", "Reference pool identity is recorded with another purpose, source or release.");
+        if (worktree?.purpose !== "worktree" || worktree.state !== "held") throw new NativeBrainManagerError("unknown", "A worktree checkpoint needs this app's held worktree.");
+        if (!lease) db.query("INSERT INTO native_pool_leases(id,purpose,from_id,allowance,state) VALUES (?,'checkpoint',?,?,'creating')").run(id, from, REFERENCE_POOL_CHECKPOINT_BYTES);
+      }).immediate();
+      const record = await raw.poolCheckpoint(id, from, signal);
+      if (record.id !== id || record.purpose !== "checkpoint" || record.from !== from || record.state !== "sealed" || record.readOnly !== true)
+        throw new NativeBrainManagerError("unknown", "Reference pool checkpoint reply does not match its durable lease identity.");
+      db.query("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'").run(id);
+      return record;
+    }); },
+    poolDelta(from, to, signal) { return operation(async () => {
+      for (const id of [from, to]) { const lease = poolRow(id); if (lease?.purpose !== "checkpoint" || lease.state !== "held") throw new NativeBrainManagerError("unknown", "A worktree delta requires this app's held checkpoints."); }
+      return raw.poolDelta(from, to, signal);
+    }); },
+    poolReadCheckpoint(id, path, maximum, workerUid, signal) { return operation(async () => { heldCheckpoint(id); return raw.poolReadCheckpoint(id, path, maximum, workerUid, signal); }); },
+    poolStatCheckpoint(id, path, workerUid, signal) { return operation(async () => { heldCheckpoint(id); return raw.poolStatCheckpoint(id, path, workerUid, signal); }); },
+    poolListCheckpoint(id, path, workerUid, signal) { return operation(async () => { heldCheckpoint(id); return raw.poolListCheckpoint(id, path, workerUid, signal); }); },
+    poolAccess(id, access, signal) { return operation(async () => {
+      if (poolRow(id)?.purpose !== "worktree" || poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held worktree can be made accessible.");
+      return raw.poolAccess(id, access, signal);
+    }); },
+    poolPark(id, signal) { return operation(async () => {
+      if (poolRow(id)?.purpose !== "worktree" || poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held worktree can be parked.");
+      return raw.poolPark(id, signal);
+    }); },
+    poolAccessOpen(access, signal) { return operation(() => raw.poolAccessOpen(access, signal)); },
+    poolAccessClose(access, signal) { return operation(() => raw.poolAccessClose(access, signal)); },
     poolWithdraw(id, signal) { return operation(async () => {
       if (poolRow(id)?.state !== "held") throw new NativeBrainManagerError("unknown", "Only this app's held reference pool root can be withdrawn.");
       return raw.poolWithdraw(id, signal);

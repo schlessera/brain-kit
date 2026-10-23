@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:63-142`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:64-185`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:36-144`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:37-187`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -736,6 +736,12 @@ no execution tree because the parser imports or executes no repository code.
 > cleanup retains unfinished or unknown-state work for hygiene disposition.
 > These are selected requirements, not implementation or runtime evidence.
 
+> **2026-10-23 — Managed worktree journaling (#2430).** A managed worktree is
+> journaled as its own root, from its own checkpoints, under scope
+> `reference_worktree`, and counts toward the holding turn's scope caps
+> ([managed-worktree decision](managed-worktrees.md#journal-and-scope)).
+> Workspaces keep their existing journaling.
+
 Ruling 6 adopts the maintainer's model. Each area has a lifecycle contract, and
 the capabilities note states all three and says which one to link:
 
@@ -789,7 +795,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:983-1011`).
+(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:995-1023`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1449,7 +1455,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1630`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1644`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1659,10 +1665,42 @@ identity; public layout facts or copied layouts cannot mint folder mounts.
 The governed live launcher verifies the actual retained mount points and inode
 identities through its authenticated, still-gated worker view. A host-path check
 before spawning does not prove what bubblewrap subsequently mounted. Unknown
-views refuse before payload start; the existing separate-UID broker does not
-attest these folder mounts, and its state/temp authority is not repurposed into
-generic process inspection. This closes a launch-time check/mount gap without
-claiming complete active-peer or protected-reader admission.
+views refuse before payload start. Across UIDs the kernel refuses the server
+the worker's `/proc/<pid>/root`, so the separate-UID broker supplies one
+gated brain view instead (below); its state/temp authority is not repurposed
+into generic process inspection. This closes a launch-time check/mount gap
+without claiming complete active-peer or protected-reader admission.
+
+**Separate-UID brain view — 2026-10-23.** The maintainer selected a one-shot
+broker view on [#2696](https://github.com/schlessera/brain-kit/issues/2696).
+The launch request names one view path, and the helper accepts it only as
+that launch's own `--bind <brain> <brain>`. Before release, a new `view`
+operation runs as the worker UID, like mount acquisition. It opens that path
+inside the authenticated worker's root, after the same PID/start, UID,
+ancestry and PID-namespace checks, and hands the directory to the same-UID
+coordinator. The server checks the handle's mount ID against the worker's own
+mount table: it must be the top mount at the brain path. It then runs the
+unchanged comparison of brain, pins, empty masks and the private index
+relative to the handle (`function requireWorkerBrainMount`,
+`packages/ui-sdk/src/server/worker-protection.ts:220-227`;
+`export function verifyWorkerFolderMounts`,
+`packages/ui-sdk/src/server/worker-protection.ts:230-268`).
+The server returns the handle before release, and the coordinator refuses to
+release the start gate, or open a second view, while one is held
+(`if operation == 'release':`,
+`packages/ui-sdk/src/server/worker-identity-program.ts:189-209`).
+
+The view grants observation of exactly what the gated worker sees at its own
+brain path, and nothing the server cannot already read: the live brain, the
+server-owned private index and empty masks. The helper supplies no identity
+numbers for the server to trust. A handle from the host shows the same
+self-bound inodes, so the mount-ID check is what refuses it. Before release,
+only trusted bubblewrap runs in the worker's namespace, so the payload cannot
+shape the view. A helper without the operation refuses the launch before
+payload start. Every governed worker on a host shares the one worker UID. A
+running payload of another turn cannot reach this gated worker: that payload
+sees only its own PID namespace and `/proc`. A shared worker UID is therefore
+not a boundary between concurrent turns, and this view does not claim one.
 
 Known-unsafe active peers refuse new governed folder admission: legacy or
 missing-root plans cannot retain the requested topology. A retained descendant
@@ -1775,7 +1813,90 @@ voice turn, and admission applies the masks to all of them:
   turn, the shared refresh rebuilds the real index from Markdown.
 - A policy whose provider rules name a document type, a non-literal glob or a
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
-  selector, per the 2026-10-16 ruling.
+  selector, per the 2026-10-16 ruling. The 2026-10-23 ruling below narrows the
+  refusal to selectors that do not map exactly onto folders.
+
+**Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
+A type, glob or single-path selector is translated to whole-folder masks when
+it maps exactly onto folders, and every selector that does not is still
+refused by name. This keeps the live model: a folder mask is retained like a
+literal `folder/**` root, so no peer can detach it. Per-file masks on the
+strict checkpoint view (option B) and refusing every such selector (option A)
+were rejected.
+
+"Maps exactly" is defined as follows (`translateProviderTypes`,
+`packages/ui-server/src/brain/governance-policy.ts:124-139`):
+
+- **Paths.** `F/**` and `F/**/*` with a literal `F` map onto `F`; under
+  Bun.Glob both match every file at any depth below `F`, hidden files
+  included, and nothing else. Every other pattern selects part of a folder or
+  files across folders, and a single path is a file, never a folder. They
+  refuse, as does a `.git` or `.brain-index` folder, which a denied turn
+  already sees hidden or private and the launcher cannot mask.
+- **Types.** A type maps onto its effective `match` prefixes (default `[dir]`)
+  when it is defined and is not the inbox type, has at least one prefix, each
+  prefix is a literal folder outside `.git` and `.brain-index`, and no other
+  type's prefix equals or lies inside one of them. Inside those folders, longest-prefix inference then gives no
+  other type. The inbox type also covers every path outside all prefixes, and
+  a nested type's territory would be hidden with it, so both refuse. A type
+  that only an ancestor folder shares (`me/` for one type, `me/identity/` for
+  the selected one) still maps, because the longer prefix wins there.
+- **Frontmatter.** A Markdown document declares its own type, and the indexer
+  stores that value whatever its path. The taxonomy alone therefore does not
+  bound a type. Admission also reads the turn's immutable view, data only, for
+  `.md` files outside the masked folders whose frontmatter declares the type
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:59-97`).
+  It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
+  and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
+  the file it resolves to, as the indexer reads it, unless that file is in a
+  masked folder of the view or the live brain; a link to a folder outside both
+  is not followed and refuses as unverifiable. Any such document refuses the
+  type, naming the files. Each file is read through one nonblocking
+  descriptor checked to be a regular file, so a target swapped for a FIFO
+  cannot block the host. A document of another type inside the
+  folders is hidden with them, which loses data but leaks nothing.
+
+The taxonomy is code in `brain.config.ts` and its modules, so the host does
+not load it. The brain's own CLI reports it (`brain config check --json`)
+from a credential-free strict worker on the startup view with the literal
+folders masked (`readProviderTaxonomy`,
+`packages/ui-server/src/brain/provider-types.ts:34-45`). That worker sees
+selected documents outside the literal folders, so it writes into a throwaway
+directory that is deleted before the private index is created. Its answer is
+parsed as untrusted data: a malformed or oversized answer refuses every type
+selector, and whatever it claims, a Markdown document of the type outside the
+resulting folders refuses the turn. Assets are the exception. An asset's type
+is its path's type under the same configuration, so the reported folders
+decide which assets are hidden. That trusts the code the configuration runs.
+`brain.config.ts` and `node_modules` are protected (tier B), but local
+modules, helper files the configuration imports and the `scripts/brain-cli.ts`
+fallback are not: a turn that rewrites them can make a later admission's
+taxonomy misreport, and so leave that type's assets outside the masks.
+Markdown documents of the type stay covered by the frontmatter check. Closing
+the asset gap needs the configuration's whole load set protected, which
+[#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
+One matched set (`providerMaskedFolders`) then feeds retention, the masks,
+the private index and the server-tool refusals planned in #2690 and #2691.
+
+The writer gate plans retention when a writer is admitted, before any
+taxonomy is read. It reuses the folders the last admission translated for the
+same policy hash, so a writer admitted between turns, such as the post-turn
+index refresh, retains them and the next turn's peer check passes. A stale
+entry only retains an extra folder. Admission still refuses a peer lacking
+what it actually masks.
+
+When admission refreshes the startup view before the turn starts (a strict
+turn whose writable roots appeared after the first checkpoint), it reads the
+taxonomy and checks frontmatter again on the newer view. It refuses if a type
+no longer maps, or the folder set changed from the one retention planned.
+
+**Limitation.** The frontmatter check covers the brain as admission sees it.
+A document created or retyped to a selected type outside its folders during a
+turn, by that turn or a peer, stays readable to the running turn. The next
+admission refuses until it is moved or retyped. Hardlinks are not followed
+either: a hardlink to a masked document under a name other than `.md` is not
+found by the check, as for literal folder masks
+([#2700](https://github.com/schlessera/brain-kit/issues/2700)).
 
 Still open under #1668: server search, read and context tools do not yet
 refuse masked paths; autonomous (restricted) turns do not apply the masks;
@@ -2015,11 +2136,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:950-978`;
+`packages/ui-sdk/src/server/worker-launcher.ts:962-990`;
 `function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:983-1009`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:995-1021`) before population and
 start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1142-1215`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1154-1227`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2428,7 +2549,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:185-253`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:202-270`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -2451,7 +2572,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:374-409`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:438-473`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
@@ -2523,7 +2644,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:489-552`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:509-572`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

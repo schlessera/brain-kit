@@ -61,6 +61,22 @@ Journal cap, active pins, retention and voice/agent/autonomous exclusions stay
 unchanged. The initial in-brain steering delivery remains 0.42.0; external
 persisted memory is additive in 0.44.0.
 
+### Managed reference worktree history (additive, #2430)
+
+The existing journal routes also return intentional edits to managed reference
+worktrees, observed from each worktree's own checkpoints. Such a change has
+`class: "content"`, `scope: "reference_worktree"` and a logical
+`path: "reference-worktree://<worktree id>/<path>"`. That identity is distinct
+from a brain-relative path; no host or worker path is returned. Versions,
+ignored state, overlap and taint fields keep their existing meaning, and a
+worktree change is attributed only to the turn whose worker held the worktree.
+An unreadable worktree entry appears in `missing` under the same logical path
+and makes the turn `partial`. These changes count toward the turn's scope
+summary like workspace edits. History revert and Undo exclude them as
+`non_reversible_metadata`; nothing is written into the brain or the worktree.
+The behaviour is recorded in the
+[managed-worktree decision](../decisions/managed-worktrees.md#journal-and-scope).
+
 ### User history restoration (additive, #1653)
 
 The four authenticated human `/revert` operations are specified in
@@ -169,6 +185,9 @@ root-owned executable path, never a shell prefix. Its versioned descriptor
 protocol, required group access and best-effort recovery limitations are
 documented with the host boundary. Production helper installation belongs to
 the public hosting template; the packages ship no production setuid binary.
+Version 1 gains an additive `view` operation and launch field in 0.44.0
+(#2696). A governed launch that retains provider folders requires it, and a
+helper without it refuses those launches before payload start.
 
 <a id="governance-events-additive-1651"></a>
 

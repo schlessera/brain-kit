@@ -134,6 +134,11 @@ export function privateIndexArgv(brainPath: string, command: readonly string[] =
   return [...command, "index", "--json"];
 }
 
+/** The argv that reports a provider-restricted turn's effective taxonomy, run in a masked worker (#2694). */
+export function taxonomyArgv(brainPath: string, command: readonly string[] = brainCliCommand(brainPath)): string[] {
+  return [...command, "config", "check", "--json"];
+}
+
 /** Probe the selected content CLI, keeping unknown versions warning-only by default. */
 export async function probeBrainCliVersion(brainPath: string, log: Logger, options: { exec: ExecWrapperConfig; minimumVersion?: string; phase?: string; command?: readonly string[]; signal?: AbortSignal;
   /** @internal Where the CLI runs: in a maintenance worker while the host execution boundary holds (#1648). */
