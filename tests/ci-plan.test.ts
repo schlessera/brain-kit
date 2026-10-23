@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { changedFiles, FAST_TESTS, planChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
+import { changedFiles, FAST_TESTS, FILE_INPUT_TESTS, planChecks, planUnitChecks, planFromEnvironment, workspaces, proofSelections, rootConsumers, ROOT_CONSUMERS, unitShards, selectBrowserClosures, proofCadence } from "../scripts/ci-plan";
+
+const documentGuards = ["tests/docs-paths.test.ts", "tests/decision-citations.test.ts", "tests/public-docs.test.ts"];
 
 const scratch: string[] = [];
 afterEach(() => { for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -30,14 +32,27 @@ function fixture() {
 }
 
 describe("affected CI checks", () => {
-  test("LEAF_ONLY selects changed package tests and only their fast group", () => {
+  test.each([
+    "docs/supported-inputs.md", "docs/decisions/provider-history.md", "docs/plans/example.md",
+    "docs/guides/nested/example.md", "README.md", "ROADMAP.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md",
+  ])("FILE_INPUT_DOCS selects documentation gates for %s", (path) => {
+    const plan = planChecks([path], []);
+    expect(plan.tests, "DOCS_PATHS_SELECTED").toContain("tests/docs-paths.test.ts");
+    expect(plan.tests, "DECISION_CITATIONS_SELECTED").toContain("tests/decision-citations.test.ts");
+    expect(plan.typecheck).toBe(false); expect(plan.pack).toBe(false);
+    expect(Object.values(plan.local).every(value => !value)).toBe(true);
+    expect(proofSelections(plan).verify, "HOSTED_DOC_GATES_SELECTED").toBe(true);
+  });
+
+  test("LEAF_ONLY selects changed package tests, their fast group and file invariants", () => {
     const f = fixture(); const file = "packages/ui-sdk/tests/independent.test.ts";
     f.write(file, 'import {test} from "bun:test"; test("leaf", () => {});\n');
     f.git("add", "."); f.git("commit", "-qm", "leaf test");
     const plan = planFromEnvironment(f.dir, {GITHUB_EVENT_NAME: "pull_request", BASE_SHA: f.base, HEAD_SHA: "HEAD"});
     expect(plan.affected, "LEAF_ONLY_OWNERS").toEqual(["ui-sdk"]);
-    expect(plan.unitTests, "LEAF_ONLY_EXACT_FILES").toEqual([...new Set([file, ...FAST_TESTS["ui-sdk"]!])].sort());
-    expect(plan.tests).toEqual([...FAST_TESTS["ui-sdk"]!].sort());
+    const tests = [...new Set([...FAST_TESTS["ui-sdk"]!, ...documentGuards, "tests/release-manifest.test.ts"])].sort();
+    expect(plan.unitTests, "LEAF_ONLY_EXACT_FILES").toEqual([...new Set([file, ...tests])].sort());
+    expect(plan.tests).toEqual(tests);
     expect(plan.local.fullTests).toBe(true);
     expect(plan.local.browser).toBe(false); expect(plan.local.layout).toBe(false);
     expect(plan.local.endurance).toBe(false); expect(plan.local.captures).toBe(false);
@@ -144,7 +159,8 @@ describe("affected CI checks", () => {
   test("ordinary docs and changeset entries do not buy heavy automatic checks", () => {
     const f = fixture();
     const plan = planChecks(["README.md", "docs/cli.md", ".changeset/odysseus.md"], workspaces(f.dir));
-    expect(plan.tests).toEqual([]); expect(plan.typecheck).toBe(false); expect(plan.pack).toBe(false);
+    expect(plan.tests).toEqual([...documentGuards, "tests/changeset-gate.test.ts", "tests/release-manifest.test.ts"].sort());
+    expect(plan.typecheck).toBe(false); expect(plan.pack).toBe(false);
     expect(Object.values(plan.local)).toEqual([false, false, false, false, false, false]);
   });
 
@@ -208,7 +224,7 @@ describe("affected CI checks", () => {
   });
 
   test("every curated test exists and no browser/endurance filename joins implicitly", () => {
-    const root = resolve(import.meta.dir, ".."); const files = Object.values(FAST_TESTS).flat();
+    const root = resolve(import.meta.dir, ".."); const files = [...Object.values(FAST_TESTS).flat(), ...Object.keys(FILE_INPUT_TESTS)];
     expect(files.length).toBeGreaterThan(20);
     for (const file of files) {
       expect(Bun.file(join(root, file)).size, file).toBeGreaterThan(0);
@@ -219,6 +235,106 @@ describe("affected CI checks", () => {
   });
 });
 
+
+describe("file-reading invariant inputs", () => {
+  test.each([
+    ["docs/extending/README.md", ["tests/seam-list.test.ts"]],
+    ["docs/integration-contract/package-api.md", ["tests/seam-list.test.ts", "packages/ui-sdk/tests/share-target.test.ts"]],
+    ["docs/integration-contract/frontmatter.md", ["tests/brain-db-contract.test.ts"]],
+    ["docs/integration-contract/diagram-spec-v1.schema.json", ["packages/module-diagrams/tests/spec.test.ts"]],
+    ["docs/decisions/voice-permission.md", ["packages/ui-backend-claude/tests/voice-posture.test.ts"]],
+    ["docs/plans/module-renderers.md", ["packages/module-diagrams/tests/module.test.ts"]],
+    ["docs/process/feature-captures.md", ["tests/feature-capture-catalogue.test.ts"]],
+    ["docs/process/evidence/test-wait-review-partition.json", ["tests/test-wait-review-partition.test.ts"]],
+    ["README.md", ["tests/release-manifest.test.ts"]],
+    ["ROADMAP.md", ["tests/release-manifest.test.ts"]],
+    ["CONTRIBUTING.md", ["tests/release-manifest.test.ts"]],
+    [".agents/skills/release/SKILL.md", ["tests/release-manifest.test.ts", "tests/public-docs.test.ts"]],
+    [".changeset/raft-repair.md", ["tests/release-manifest.test.ts", "tests/changeset-gate.test.ts", "tests/public-docs.test.ts"]],
+    ["packages/ui-server/README.md", ["tests/env-parity.test.ts", "tests/public-docs.test.ts"]],
+    ["packages/core/CONTRACT.md", ["packages/core/tests/skills-index-emitters.test.ts"]],
+    ["packages/core/skills/audit/SKILL.md", ["tests/shipped-skills-lint.test.ts", "tests/manual-only-skills.test.ts", "packages/core/tests/skills-shipped-lint.test.ts", "packages/core/tests/skills-installation.test.ts"]],
+    ["packages/core/skills/audit/agents/openai.yaml", ["tests/shipped-skills-lint.test.ts", "tests/manual-only-skills.test.ts", "packages/core/tests/skills-shipped-lint.test.ts"]],
+    ["packages/core/skills/brain-init/SKILL.md", ["packages/core/tests/cli-onboarding.test.ts"]],
+    ["packages/core/skills/content-hygiene/SKILL.md", ["packages/core/tests/hygiene.test.ts"]],
+    ["packages/core/skills/share/SKILL.md", ["packages/module-video/tests/module.test.ts"]],
+    ["packages/module-jobs/skills/research-opportunity/SKILL.md", ["packages/module-jobs/tests/module.test.ts", "packages/module-jobs/tests/skill-paths.test.ts", "packages/module-jobs/tests/pipeline.test.ts"]],
+    ["packages/module-speaking/skills/new-submission/agents/openai.yaml", ["packages/module-speaking/tests/module.test.ts", "tests/manual-only-skills.test.ts"]],
+    ["packages/module-images/skills/image-gen/SKILL.md", ["packages/module-images/tests/module.test.ts"]],
+    ["packages/module-video/skills/watch/SKILL.md", ["packages/module-video/tests/module.test.ts"]],
+    ["packages/module-diagrams/skills/diagram/references/type-tree.md", ["packages/module-diagrams/tests/skill.test.ts"]],
+    ["packages/module-diagrams/UPSTREAM.md", ["packages/module-diagrams/tests/module.test.ts"]],
+    ["packages/module-diagrams/upstream.json", ["packages/module-diagrams/tests/module.test.ts"]],
+    ["packages/ui-sdk/src/types.ts", ["tests/seam-list.test.ts", "tests/env-parity.test.ts", "tests/public-docs.test.ts"]],
+    ["api-report/ui-server.txt", ["tests/env-parity.test.ts"]],
+    [".github/workflows/ci.yml", ["tests/ci-workflows.test.ts", "tests/lockfile.test.ts", "tests/candidate-admission.test.ts", "tests/generated-build-inputs.test.ts", "tests/generated-theme-inputs.test.ts"]],
+    [".github/workflows/project-sync.yml", ["tests/project-sync-main.test.ts"]],
+    [".github/workflows/ci-timings.yml", ["tests/ci-timings.test.ts"]],
+  ] as const)("selects file consumers of %s", (path, tests) => {
+    const plan = planChecks([path], []);
+    for (const test of tests) expect(plan.tests, `${path} → ${test}`).toContain(test);
+    expect(plan.tests).toEqual([...new Set(plan.tests)].sort());
+  });
+
+  test("new, renamed and deleted arbitrary citation targets keep both documentation guards", () => {
+    const f = fixture();
+    f.write("packages/core/assets/old.svg", "<svg/>\n"); f.git("add", "."); f.git("commit", "-qm", "cited target");
+    const base = f.git("rev-parse", "HEAD");
+    f.git("mv", "packages/core/assets/old.svg", "packages/core/assets/new.svg");
+    f.git("commit", "-qm", "move cited target");
+    const paths = changedFiles(f.dir, base);
+    expect(paths).toEqual(["packages/core/assets/new.svg", "packages/core/assets/old.svg"]);
+    for (const path of paths) {
+      const plan = planChecks([path], workspaces(f.dir));
+      expect(plan.tests).toContain("tests/docs-paths.test.ts");
+      expect(plan.tests).toContain("tests/decision-citations.test.ts");
+    }
+  });
+
+  test("independent test plus docs preserves the leaf and adds cross-package file consumers", () => {
+    const f = fixture(), leaf = "packages/ui-sdk/tests/independent.test.ts";
+    f.write(leaf, 'test("leaf", () => {});\n');
+    f.write("docs/plans/module-renderers.md", "# Module renderers\n");
+    f.git("add", "."); f.git("commit", "-qm", "leaf and docs");
+    const plan = planFromEnvironment(f.dir, {GITHUB_EVENT_NAME: "pull_request", BASE_SHA: f.base, HEAD_SHA: "HEAD"});
+    expect(plan.affected).toEqual(["ui-sdk"]);
+    expect(plan.unitTests).toContain(leaf);
+    expect(plan.unitTests).toContain("packages/module-diagrams/tests/module.test.ts");
+    for (const test of FAST_TESTS["ui-sdk"]!) expect(plan.unitTests).toContain(test);
+    for (const test of documentGuards) expect(plan.unitTests).toContain(test);
+    expect(plan.local).toEqual({fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false});
+    expect(plan.pack).toBe(false);
+  });
+
+  test("hosted unit mapping preserves manifest/root discovery and adds outside-package file readers", () => {
+    const f = fixture(), source = "packages/core/src/note.ts", doc = "docs/plans/module-renderers.md";
+    f.write(doc, "# Module renderers\n");
+    f.write("packages/module-diagrams/package.json", JSON.stringify({name: "@fixture/module-diagrams", files: ["src"]}));
+    for (const file of ["tests/root.test.ts", "packages/core/tests/owner.test.ts", "packages/ui-sdk/tests/owner.test.ts", "packages/module-diagrams/tests/module.test.ts"]) f.write(file, 'test("owner", () => {});\n');
+    f.git("add", ".");
+    const packages = workspaces(f.dir), before = planUnitChecks([source], packages, f.dir);
+    const after = planUnitChecks([source, doc], packages, f.dir);
+    expect(after.unitTests).toContain("packages/module-diagrams/tests/module.test.ts");
+    const floor = before.unitTests ?? ["tests/root.test.ts", "packages/core/tests/owner.test.ts", "packages/ui-sdk/tests/owner.test.ts"];
+    for (const file of floor) expect(after.unitTests, "HOSTED_UNIT_FLOOR_PRESERVED").toContain(file);
+    expect(after.unitTests).toContain("tests/root.test.ts");
+    expect(after.unitTests).toContain("packages/ui-sdk/tests/owner.test.ts");
+    expect(after.affected).toEqual(before.affected); expect(after.local).toEqual(before.local);
+    expect(after.pack).toBe(before.pack); expect(after.global).toBe(before.global);
+  });
+
+  test("workflows and changeset configuration retain global exhaustive hosted categories", () => {
+    const f = fixture(), packages = workspaces(f.dir);
+    for (const path of [".github/workflows/ci.yml", ".github/workflows/project-sync.yml", ".github/workflows/new.yml", ".changeset/config.json"]) {
+      const plan = planUnitChecks([path], packages, f.dir);
+      expect(plan.global, path).toBe(true); expect(plan.unitTests, path).toBeUndefined();
+      expect(plan.affected).toEqual(packages.map(pkg => pkg.dir).sort());
+      expect(Object.values(plan.local).every(Boolean), path).toBe(true);
+      expect(Object.values(proofSelections(plan)).every(Boolean), path).toBe(true);
+      expect(plan.pack).toBe(true); expect(plan.typecheck).toBe(true);
+    }
+  });
+});
 
 describe("root consumer proof selection", () => {
   const emptyLocal = { fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false };
@@ -243,7 +359,8 @@ describe("root consumer proof selection", () => {
     expect(plan.global, "ROOT_CONSUMER_NOT_GLOBAL").toBe(false);
     expect(plan.affected).toEqual([]);
     const consumers = path.startsWith("tests/") ? [path] : ["tests/consumer.test.ts"];
-    expect(plan.unitTests, "ROOT_CONSUMER_EXACT_FILES").toEqual([...new Set([...FAST_TESTS.tooling!, ...consumers])].sort());
+    const fileGuards = ["tests/docs-paths.test.ts", ...(path.endsWith(".ts") ? ["tests/public-docs.test.ts"] : [])];
+    expect(plan.unitTests, "ROOT_CONSUMER_EXACT_FILES").toEqual([...new Set([...FAST_TESTS.tooling!, ...consumers, ...fileGuards])].sort());
     expect(plan.local, "ROOT_CONSUMER_EXACT_CATEGORIES").toEqual({ ...emptyLocal, ...Object.fromEntries(categories.map(category => [category, true])) });
     expect(plan.pack).toBe(false);
   });

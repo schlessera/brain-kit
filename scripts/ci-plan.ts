@@ -70,6 +70,64 @@ export const FAST_TESTS: Readonly<Record<string, readonly string[]>> = {
   "module-travel": ["packages/module-travel/tests/foundation.test.ts"],
 };
 
+/** File reads and directory inventories that imports cannot express. Additive
+ * to fast groups and consumer discovery; never a replacement for hosted proof.
+ * Keep the input scopes beside their invariant, including non-Markdown inputs.
+ */
+export const FILE_INPUT_TESTS: Readonly<Record<string, readonly RegExp[]>> = {
+  // Links, path kinds and short citations can resolve to arbitrary repo targets.
+  // New/deleted targets anywhere can break a doc without changing its Markdown.
+  "tests/docs-paths.test.ts": [/.+/],
+  "tests/decision-citations.test.ts": [/.+/],
+  "tests/public-docs.test.ts": [/\.(?:md|ya?ml|tsx?)$/],
+  "tests/seam-list.test.ts": [
+    /^docs\/(?:extending\/README\.md|integration-contract\/package-api\.md)$/,
+    /^packages\/[^/]+\/(?:src\/|package\.json$)/, /^tsconfig.*\.json$/,
+  ],
+  "tests/env-parity.test.ts": [
+    /^packages\/[^/]+\/(?:README\.md$|package\.json$|src\/)/, /^api-report\//,
+    /^scripts\/(?:env-docs|check-env-access)\.ts$/,
+  ],
+  "tests/release-manifest.test.ts": [
+    /^(?:README|ROADMAP|CONTRIBUTING)\.md$/, /^\.agents\/skills\/release\//,
+    /^\.changeset\//, /^packages\//, /^template\//, /^scripts\//,
+    /^\.github\/workflows\//, /^package\.json$/,
+  ],
+  "tests/changeset-gate.test.ts": [/^\.changeset\//],
+  "tests/test-wait-review-partition.test.ts": [/^docs\/process\/evidence\//],
+  "tests/feature-capture-catalogue.test.ts": [/^docs\/process\/feature-captures\.md$/],
+  "tests/brain-db-contract.test.ts": [/^docs\/integration-contract\/frontmatter\.md$/],
+  "tests/shipped-skills-lint.test.ts": [/^packages\/[^/]+\/skills\//],
+  "tests/manual-only-skills.test.ts": [/^packages\/[^/]+\/skills\//],
+  "packages/core/tests/skills-shipped-lint.test.ts": [/^packages\/core\/skills\//],
+  "packages/core/tests/skills-installation.test.ts": [/^packages\/core\/skills\//],
+  "packages/core/tests/skills-index-emitters.test.ts": [/^packages\/core\/CONTRACT\.md$/],
+  "packages/core/tests/cli-onboarding.test.ts": [/^packages\/core\/skills\/brain-init\//],
+  "packages/core/tests/hygiene.test.ts": [/^packages\/core\/skills\/content-hygiene\//],
+  "packages/module-jobs/tests/module.test.ts": [/^packages\/module-jobs\/skills\//],
+  "packages/module-jobs/tests/skill-paths.test.ts": [/^packages\/module-jobs\/skills\//],
+  "packages/module-jobs/tests/pipeline.test.ts": [/^packages\/module-jobs\/skills\//],
+  "packages/module-speaking/tests/module.test.ts": [/^packages\/module-speaking\/skills\//],
+  "packages/module-images/tests/module.test.ts": [/^packages\/module-images\/skills\//],
+  "packages/module-video/tests/module.test.ts": [/^packages\/(?:module-video\/skills\/|core\/skills\/share\/)/],
+  "packages/module-diagrams/tests/module.test.ts": [
+    /^docs\/plans\/module-renderers\.md$/, /^packages\/module-diagrams\/(?:UPSTREAM\.md|upstream\.json)$/,
+  ],
+  "packages/module-diagrams/tests/skill.test.ts": [/^packages\/module-diagrams\/skills\//],
+  "packages/module-diagrams/tests/spec.test.ts": [/^docs\/integration-contract\/diagram-spec-v1\.schema\.json$/],
+  "packages/ui-sdk/tests/share-target.test.ts": [/^docs\/integration-contract\/package-api\.md$/],
+  "packages/ui-backend-claude/tests/voice-posture.test.ts": [/^docs\/decisions\/voice-permission\.md$/],
+  // Workflows still trigger global proof; these additional local invariants
+  // record their actual file reads rather than narrowing workflow ownership.
+  "tests/ci-workflows.test.ts": [/^\.github\/workflows\//],
+  "tests/lockfile.test.ts": [/^\.github\/workflows\/ci\.yml$/, /^bun\.lock$/, /^packages\/[^/]+\/package\.json$/],
+  "tests/candidate-admission.test.ts": [/^\.github\/workflows\/ci\.yml$/],
+  "tests/project-sync-main.test.ts": [/^\.github\/workflows\/project-sync\.yml$/],
+  "tests/ci-timings.test.ts": [/^\.github\/workflows\/ci-timings\.yml$/],
+  "tests/generated-build-inputs.test.ts": [/^\.github\/workflows\/ci\.yml$/],
+  "tests/generated-theme-inputs.test.ts": [/^\.github\/workflows\/ci\.yml$/],
+};
+
 export interface CheckPlan {
   changed: string[];
   affected: string[];
@@ -254,12 +312,15 @@ export function planUnitChecks(changed: readonly string[], packages: readonly Wo
 }
 
 function planBeforeBrowserClosures(changed: readonly string[], packages: readonly Workspace[], root: string, enableConsumerSelection: boolean, explicitRoot: boolean): CheckPlan {
+  const fileTests = Object.entries(FILE_INPUT_TESTS)
+    .filter(([, inputs]) => changed.some(path => inputs.some(input => input.test(path))))
+    .map(([test]) => test);
   const leaves = root && enableConsumerSelection ? independentTests(root, changed) : undefined;
   if (leaves) {
     const affected = [...new Set(leaves.filter(file => file.startsWith("packages/")).map(file => file.split("/")[1]!))].sort();
     if (affected.every(dir => packages.some(pkg => pkg.dir === dir))) {
       const groups = [...affected, ...(leaves.some(file => file.startsWith("tests/")) ? ["tooling"] : [])];
-      const tests = [...new Set(groups.flatMap(dir => FAST_TESTS[dir] ?? []))].sort();
+      const tests = [...new Set([...groups.flatMap(dir => FAST_TESTS[dir] ?? []), ...fileTests])].sort();
       return { changed: [...changed].sort(), affected, global: false, typecheck: true,
         tests, unitTests: [...new Set([...leaves, ...tests])].sort(), pack: false,
         local: {fullTests: true, browser: false, layout: false, captures: false, runtime: false, endurance: false} };
@@ -268,8 +329,8 @@ function planBeforeBrowserClosures(changed: readonly string[], packages: readonl
   const dirs = new Set(packages.map(p => p.dir));
   const packagePaths = changed.filter(path => path.startsWith("packages/"));
   const direct = packagePaths.map(path => path.split("/")[1]!);
-  // Unknown roots fail open to checking, not to skipping. Ordinary prose,
-  // examples and changeset entries need metadata/lint checks only.
+  // Unknown roots fail open to checking, not to skipping. Prose and changeset
+  // entries retain their file-reading invariants without buying heavy proof.
   const prose = (path: string) => /\.(md|mdx|txt)$/.test(path) ||
     path.startsWith(".changeset/") || path.startsWith("docs/") ||
     path.startsWith(".github/ISSUE_TEMPLATE/") || path === "LICENSE";
@@ -289,7 +350,7 @@ function planBeforeBrowserClosures(changed: readonly string[], packages: readonl
   const contract = global || packagePaths.some(path => /^packages\/[^/]+\/(src\/|package\.json$)/.test(path)) ||
     changed.some(path => path.startsWith("api-report/"));
   const groups = [...(tooling ? ["tooling"] : []), ...(contract ? ["contract"] : []), ...(packageCode || global ? affected : [])];
-  const tests = [...new Set([...groups.flatMap(group => FAST_TESTS[group] ?? []), ...consumers.tests])].sort();
+  const tests = [...new Set([...groups.flatMap(group => FAST_TESTS[group] ?? []), ...consumers.tests, ...fileTests])].sort();
   const ships = packagePaths.some(path => {
     const [, dir, ...rest] = path.split("/");
     const relative = rest.join("/");
