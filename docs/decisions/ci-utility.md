@@ -44,6 +44,17 @@ speedup claim or an inferred narrower harness.
 
 `bun run check:pr --base origin/main` runs local lint/leakage, metadata,
 contribution changeset and affected fast invariants, including uncommitted work.
+Import-graph feedback is opt-in with `--import-graph` under the maintainer's
+2026-10-23 ruling in [#2707](https://github.com/schlessera/brain-kit/issues/2707).
+On a #1665 layer, the serial feedback command ran 308 of 1170 files in 2873 s,
+versus 84 s for affected fast invariants, accounting for approximately 95% of
+local preflight time. Default preflight skips that command; `--plan` reports
+the skip and enabling flag and lists the selected commands and arguments,
+including contribution changeset validation. Opt-in feedback retains the exact
+merge-base SHA, offline wrapper and `--pass-with-no-tests`; its import graph
+misses spawned and file-read/string-named inputs. Restoring default execution
+requires the separately qualified follow-up through `scripts/unit-workers.ts`.
+Full/all modes and required hosted proof retain their existing suites.
 It does not require Docker or Chrome and does not duplicate complete packaging,
 strict types or full browser/runtime proof. Under the revised #2370 scope, Linux
 preflight requires permitted user/network namespaces and times three real
