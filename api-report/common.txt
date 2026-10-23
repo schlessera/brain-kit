@@ -44,6 +44,15 @@ export "./internal/protected-paths" (./src/protected-paths.ts)
   isEnvName
   protectedPaths
 
+export "./internal/provider-unavailable" (./src/provider-unavailable.ts)
+  type ProviderUnavailable
+  WITHHELD_KEYS_ENV
+  isWithheldKey
+  missingKeyMessage
+  parseProviderUnavailable
+  providerUnavailableNotice
+  withheldKeys
+
 export "./internal/worker-areas" (./src/worker-areas.ts)
   BRAIN_SCRATCH_DIR
   BRAIN_WORKSPACES_DIR
