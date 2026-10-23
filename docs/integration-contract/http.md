@@ -169,6 +169,9 @@ root-owned executable path, never a shell prefix. Its versioned descriptor
 protocol, required group access and best-effort recovery limitations are
 documented with the host boundary. Production helper installation belongs to
 the public hosting template; the packages ship no production setuid binary.
+Version 1 gains an additive `view` operation and launch field in 0.44.0
+(#2696). A governed launch that retains provider folders requires it, and a
+helper without it refuses those launches before payload start.
 
 <a id="governance-events-additive-1651"></a>
 
