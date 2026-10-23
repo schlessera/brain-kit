@@ -145,8 +145,9 @@ masks and private index to its envelope and reads the same last-valid policy.
 It translates selectors as below and refuses the rest the same way: an
 unsupported path selector before any worker starts, an untranslatable type
 once the brain's taxonomy has been read, a hardlink out of a masked folder as
-for hosted turns. Its bridge refuses masked paths the
-same way (#2691). The allowed recipient's unmasked
+for hosted turns. Its bridge refuses masked paths the same way (#2691). In
+every denied turn the committed generated-text caches (`.context-cache.jsonl`,
+`.asset-cache.jsonl`) read as empty (#2692). The allowed recipient's unmasked
 view is not covered yet.
 
 **Which selectors hosted turns enforce (additive in 0.44.0, #2694).** A

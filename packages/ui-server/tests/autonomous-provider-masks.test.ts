@@ -222,3 +222,14 @@ test("an autonomous turn refuses a hardlink out of a masked folder before its wo
   expect(String((refusal as Error).message)).toContain("notes/oath-copy.txt is a hardlink to me/oath.md");
   expect(started).toBe(0);
 }, 120_000);
+
+test("a restricted autonomous worker reads the committed generated-text caches as empty", async () => {
+  const f = fixture();
+  writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
+  writeFileSync(join(f.brain, ".asset-cache.jsonl"), `${JSON.stringify({ key: "avatar", description: `${SENTINEL} description of me/avatar.png` })}\n`);
+  let shell = "";
+  await runAutonomousTurn({ ...f.deps, backend: restrictedBackend(f.brain, async (_request, run) => {
+    shell = await run(`for cache in .context-cache.jsonl .asset-cache.jsonl; do test -c "$cache" && printf '%s=masked\\n' "$cache"; printf '%s\\n' "$(cat "$cache" | grep -c ${SENTINEL})"; done`);
+  }) }, f.input);
+  expect(shell, "RESTRICTED_BASH_CANNOT_READ_CACHED_MASKED_TEXT").toBe(".context-cache.jsonl=masked\n0\n.asset-cache.jsonl=masked\n0\n");
+}, 120_000);
