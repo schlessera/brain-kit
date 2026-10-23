@@ -506,6 +506,8 @@ const shapes = await create("staging", 32 * MIB);
   const ACCESS = randomUUID(), SECOND_ACCESS = randomUUID();
   const opened = await call<{ access: string; path: string; roots: string[] }>({ operation: "poolAccessOpen", access: ACCESS });
   expect(opened, "REFERENCE_ACCESS_OPENED_EMPTY").toEqual({ access: ACCESS, path: join(POOL, "access", ACCESS), roots: [] });
+  // Production masks hide every generation from every worker; each worker binds only its own.
+  expect((await call<{ privatePaths: string[] }>({ operation: "ready" })).privatePaths, "REFERENCE_ACCESS_GENERATIONS_MASKED_FOR_WORKERS").toContain(join(POOL, "access"));
   await call({ operation: "poolAccessOpen", access: SECOND_ACCESS });
   const script = "while read cmd; do case \"$cmd\" in\n"
     + "list) ls -A /tmp/brain-worktrees | sort | tr '\\n' ' '; echo;;\n"
@@ -559,6 +561,8 @@ const shapes = await create("staging", 32 * MIB);
   sync(); await status();
   const remaining = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.map(item => item.id);
   expect(remaining.filter(id => [first.id, second.id, foreign.id].includes(id)), "REFERENCE_CHECKPOINT_IDENTITY_FORGOTTEN").toEqual([]);
+  expect((await release(first.id)).state, "REFERENCE_CHECKPOINT_RELEASE_RETRY_RECLAIMED").toBe("reclaimed");
+  expect((await refusal({ operation: "poolCheckpoint", id: first.id, from: tree.id })).code, "REFERENCE_CHECKPOINT_NEVER_RECREATED").toBe("released");
   for (const id of [tree.id, other.id, base.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_RELEASED").toContain((await release(id)).state);
 }
 

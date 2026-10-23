@@ -512,17 +512,25 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
           await commit({ ...current, state: "reclaimed", ownerBytes: 0, reason: null }, true);
         // Keep the qgroup census bounded; the kernel refuses this while any usage or root item remains.
         if (intents.get(intent.id)!.state === "reclaimed" && qgroup) await helper(["qgroup-remove", pool.storePath, current.root!.rootId], signal, true);
-        // A worktree takes a checkpoint at every journal observation (#2430):
-        // reclaimed checkpoint identities are forgotten, so they never exhaust
-        // the identity bound. Only the server's own lease names a checkpoint.
-        if (intents.get(intent.id)!.state === "reclaimed" && intent.purpose === "checkpoint") forget(intent.id);
         else if (current.state === "deleted" && qgroup && ownerCharge(qgroup) !== current.ownerBytes)
           await commit({ ...current, ownerBytes: ownerCharge(qgroup), reason: "Shared extents still referenced by other roots retain this allocation." }, true);
       }
+      // Rootless refusals and checkpoints reclaimed before a restart are forgotten too.
+      const settled = intents.get(intent.id);
+      if (settled?.purpose === "checkpoint" && settled.state === "reclaimed" && !(settled.root && observation.qgroups[level0(settled.root.rootId)])) forget(intent.id);
     }
   }
   async function commit(intent: PoolIntent, recovery: boolean) { await writeIntent(intent, recovery); intents.set(intent.id, intent); }
+  /**
+   * A worktree takes a checkpoint at every journal observation (#2430):
+   * reclaimed checkpoint identities are forgotten, whatever led there, so they
+   * never exhaust the identity bound. This manager remembers them for the rest
+   * of its life: a retried release still reads as reclaimed, and the identity
+   * is never created again.
+   */
+  const forgotten = new Set<string>();
   function forget(id: string) {
+    forgotten.add(id);
     unlinkSync(join(state, `${id}.json`)); fsyncSync(stateFd);
     intents.delete(id); index.forget(id);
   }
@@ -656,6 +664,9 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   }
   async function release(id: string, signal?: AbortSignal): Promise<NativePoolRecord> {
     let intent = intents.get(id);
+    // A retry after its reply was lost: the checkpoint was reclaimed and forgotten.
+    if (!intent && forgotten.has(id)) return { id, purpose: "checkpoint", from: null, allowanceBytes: REFERENCE_POOL_CHECKPOINT_BYTES, state: "reclaimed", root: null, path: null,
+      ownerBytes: 0, reason: null, view: null, access: null };
     if (!intent) {
       // Fence a lost or never-arrived create with its generated identity.
       if (existsSync(rootPath(id))) throw new NativeBrainManagerError("unknown", "Unrecorded reference pool storage cannot be released.");
@@ -764,7 +775,8 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     const existing = intents.get(request.id);
     if (existing && (existing.purpose !== "checkpoint" || existing.from !== request.from))
       throw new NativeBrainManagerError("invalid", "An existing reference pool identity cannot change its purpose or source.");
-    if (existing && ["deleting", "deleted", "reclaimed"].includes(existing.state)) throw new NativeBrainManagerError("released", "This reference pool identity was released; it cannot be recreated.");
+    if ((existing && ["deleting", "deleted", "reclaimed"].includes(existing.state)) || forgotten.has(request.id))
+      throw new NativeBrainManagerError("released", "This reference pool identity was released; it cannot be recreated.");
     if (existing?.state === "sealed") return checkpointRecord(existing, signal);
     const worktree = intents.get(request.from);
     if (!worktree || worktree.purpose !== "worktree" || worktree.state !== "writable")

@@ -8,7 +8,7 @@ actual allocated disk. That decision left the mechanism to implementation.
 This record names the mechanism, the primary sources it relies on and the
 native observations that qualified it. The pool is managed by the existing
 host-only native manager
-(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:274-926`).
+(`createNativeReferencePool`, `packages/ui-sdk/src/server/native-reference-pool.ts:274-938`).
 No consumer uses it yet.
 
 ## A separate volume, not another subvolume of the brain store
@@ -241,10 +241,12 @@ metadata-only `btrfs send` between two checkpoints of the same worktree, framed
 like brain deltas; any other pair refuses. `poolReadCheckpoint` reads a
 checkpoint through the same fixed worker-UID reader as brain checkpoints. A
 worktree takes a checkpoint at every journal observation, so a checkpoint's
-intent is removed once its reclamation is proved, and checkpoints never exhaust
-`maxIdentities`. Such an identity is then no longer fenced; only the server's
-own lease names checkpoints, and it generates a new one each time. A worktree
-is never created from a checkpoint.
+intent is removed once its reclamation is proved, including a creation that
+was refused, and checkpoints never exhaust `maxIdentities`. The manager
+remembers forgotten identities for its lifetime: a retried release still reads
+as reclaimed, and the identity is never created again. After a restart only the
+server's own lease names checkpoints, and it generates a new identity each
+time. A worktree is never created from a checkpoint.
 
 **Access generations.** A worker reaches a worktree only through an access
 generation: one manager-owned directory `access/<generation>`, root-owned and
@@ -336,7 +338,8 @@ following:
   worktree, and a cross-generation grant refused. Parking removed the worktree
   from its next lookup. A grant interrupted after its rename was adopted on
   restart and stayed visible; closing the generation parked it and removed the
-  directory. Released checkpoints were forgotten once reclaimed.
+  directory. Released checkpoints were forgotten once reclaimed; a retried
+  release still read as reclaimed and the identity could not be recreated.
 
 The baseline was 4,521,984 aggregate bytes: the 4 MiB emergency file plus
 311,296 bytes of global metadata on an empty volume.
