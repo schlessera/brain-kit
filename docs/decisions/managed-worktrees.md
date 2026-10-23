@@ -7,7 +7,7 @@ commit. It builds on the [acquisition service](reference-source-acquisition.md)
 and the pool's [checkpoints and access generations](reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
-(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:144-660`),
+(`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:144-674`),
 created with the acquisition service. Agent tools that call it arrive with
 [#2432](https://github.com/schlessera/brain-kit/issues/2432). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
@@ -19,7 +19,7 @@ A request names the principal, a repository and a branch or tag, like a source
 request. The service asks the acquisition service for that source, so its
 authority, freshness and private boundary all apply, and then snapshots the
 sealed source root it was given
-(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:407-437`).
+(`async function allocate`, `packages/ui-server/src/brain/reference-worktrees.ts:414-444`).
 The worktree's starting commit is the commit that source reported, and it never
 moves with the source. A read-only baseline checkpoint is taken at once. Each
 worktree gets the pool's per-operation allowance. A worktree belongs to one
@@ -39,7 +39,7 @@ restricted (autonomous) turn holds no worktree. The generation records the
 owning process (PID, start time, boot and PID namespace).
 
 Access makes a worktree available to one open generation
-(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:491-501`):
+(`function access(input`, `packages/ui-server/src/brain/reference-worktrees.ts:498-508`):
 
 1. The generation must be open in this process for a running turn, and belong
    to the requesting principal.
@@ -80,7 +80,7 @@ such as an owner in another PID namespace, is **unknown**
 (`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:197-203`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:559-586`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:572-599`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;
@@ -165,7 +165,7 @@ arrive only in the results that grant access.
 ## Cleanup eligibility facts
 
 Release and expiry record durable facts for hygiene review
-(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:233-272`):
+(`async function assessWork`, `packages/ui-server/src/brain/reference-worktrees.ts:233-276`):
 the reason, the holder (`none`, `live` or `unknown`) and whether work remains
 (`none`, `unpreserved` or `unknown`). Work is read from a fresh read-only
 checkpoint and a metadata delta against the baseline. Nothing of the worktree
@@ -206,17 +206,20 @@ ownership records; no brain content is lost.
 (`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:51-57`):
 
 - `retained`: released or expired, held by no generation, with unpreserved work;
-- `unknown`: its holder's liveness, its owner or its work cannot be established;
+- `unknown`: its holder's liveness, its owner or its work cannot be established,
+  even for a single changed path;
 - `cleanup-failed`: a removal failed or was interrupted.
 
 A live holder, a positively clean worktree or a removal under way is no
-finding. The finding's category is `managed-worktree`, its path
-`reference-worktree://<worktree id>` and its evidence the kind, so repeated scans
-yield the same ID. Its fingerprint covers the native identity and owning
-principal, the source domain, repository, revision and starting commit, the
-holder and its liveness, the work (state, counts and a digest of every changed
-path's metadata), any removal failure, and the state and last explicit activity
-(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:66-81`).
+finding. The finding's category is `managed-worktree` and its path
+`reference-worktree://<worktree id>`; its ID names only the worktree, so repeated
+scans yield the same ID and a worktree is one finding whatever its kind. Its
+fingerprint covers the kind, the native identity and owning principal, the
+source domain, repository, revision and starting commit, the holder and its
+liveness, the work (state, counts and a digest of every changed path's type,
+mode, size, link target and file bytes; times are left out because a worker can
+set them), any removal failure, and the state and last explicit activity
+(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:67-83`).
 The time of an assessment is not in it, so a fresh assessment of unchanged work
 is the same evidence.
 
@@ -230,7 +233,7 @@ consent to remove anything, and nothing reads it as such.
 **Privacy and authority.** Inbox Actions replicate to every usable principal,
 so the card of a private worktree carries only its opaque identity, state and
 counts: no repository, revision, commit, changed path or principal
-(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:150-168`).
+(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:152-170`).
 A public worktree's card names its source and up to 16 changed paths. The owner
 principal is an authorized reader and reviewer of a delegated agent's worktree
 findings, as of any other finding; review authority stays with owner and ambient
@@ -244,42 +247,53 @@ the host, never to the CLI
 (`async function cli(args`, `packages/ui-server/src/inbox/hygiene-review.ts:49-67`).
 A retained or failed worktree offers one repair, `delete-worktree`; an unknown
 one offers none and stays kept and charged, and "check again" assesses it
-afresh. A preview takes a fresh assessment and never removes anything.
+afresh, after a failed removal too. A preview takes a fresh assessment and never
+removes anything. Because the ID does not carry the kind, a removal that fails
+changes the finding's fingerprint: an approval or a recovered review attempt for
+the earlier evidence reads as stale, never as fixed. A failure reaches the
+replicated card as a fixed reason; the pool's own error, which can name host
+paths, stays in the host receipt.
 
 **Removal.** The worktree service is the only executor, through one effect
-(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:321-358`).
+(`async function removeWorktree`, `packages/ui-server/src/brain/reference-worktrees.ts:325-364`).
 Immediately before it, with no await between the last check and the receipt:
 
 1. the worktree is released or expired, and no removal of it was already
    admitted;
-2. no generation holds it, live or of unknown liveness, and the pool shows it
-   writable, outside every access generation and with the native root UUID
-   recorded at allocation, so a root replaced under the same identity is
-   refused;
-3. a fresh assessment establishes its work, and nothing about it changed while
-   that ran (holder, explicit activity, state, receipt);
-4. the caller's premise holds against that assessment: automatic removal needs
+2. no generation holds it, live or of unknown liveness;
+3. a fresh assessment establishes all of its work, with no path left
+   uncompared;
+4. after that assessment, the pool shows it writable, outside every access
+   generation and with the native root UUID recorded at allocation, so a grant
+   that landed meanwhile or a root replaced under the same identity is refused,
+   and nothing in its host record changed (holder, explicit activity, state,
+   receipt);
+5. the caller's premise holds against that assessment: automatic removal needs
    no work at all, and a reviewed removal needs the reviewed fingerprint and
    preview, so an edit, a resumption, a renewal, a worker start or a change in
    preservation since the preview refuses;
-5. the reviewer's authority is read once more.
+6. the reviewer's authority is read once more.
 
 The receipt (`reference_worktree_cleanups`) is recorded before the pool sees the
 release. The worktree is released first and its checkpoints after it, so a
 failure before the deletion leaves the baseline in place and the work still
 assessable. Once a removal was admitted, the identity is final: it is never
-accessed or resumed again, whatever the outcome. A failed or interrupted
+accessed, renewed or resumed again, whatever the outcome, and a grant whose
+removal was admitted while it awaited the pool is withdrawn rather than
+recorded. A failed or interrupted
 removal keeps identity and charge and appears as a `cleanup-failed` finding,
 once; only review retries it. A lost reply or a restart reads the pool's record
 and never releases again; a deletion the pool already committed is completed,
-which is the same effect
-(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:365-392`).
+which is the same effect. A checkpoint the pool no longer records was reclaimed
+and forgotten, so it leaves the ledger without another release, which would
+leave a tombstone identity
+(`async function settle(`, `packages/ui-server/src/brain/reference-worktrees.ts:371-399`).
 Capacity is credited only when the pool reports the worktree `reclaimed`:
 until then its source root stays protected from eviction.
 
 **Automatic removal.** Release, expiry and the close of a holding generation
 remove a worktree only when its fresh assessment shows no holder and no work
-(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:290-293`).
+(`function removeClean`, `packages/ui-server/src/brain/reference-worktrees.ts:294-297`).
 Reconciliation retries a clean worktree whose removal could not run. Nothing is
 archived or purged speculatively, and a worktree whose work or owner is
 unknown is never removed automatically. Arbitrary repositories and shared
@@ -327,10 +341,15 @@ removal over the pool double, with the real hygiene review and core's hygiene
 functions. Named mutations cover the issue's targets: repeated-scan
 duplication, a private finding's details, dismissal read as removal consent, a
 stale approval after an edit, a resumption or a replaced native root, removal
-under a live or unknown holder, removal of unknown work, a replayed removal after
-a lost reply, capacity credited before reclamation and the reviewer's authority
-not read again. Further mutations cover checkpoints released before the
-worktree, access after a failed removal, a lost reply read as a failure, the
+under a live or unknown holder, removal of unknown or partly unknown work, a
+replayed removal after a lost reply, capacity credited before reclamation and
+the reviewer's authority not read again. An independent review added an edit
+that keeps size and restores the modification time, a grant that lands while a
+removal assesses, a grant withdrawn after a removal was admitted, a pool error
+reaching the card, evidence frozen after a failed removal, review recovery
+reporting a failed removal as fixed and a forgotten checkpoint released into a
+tombstone. Further mutations cover checkpoints released before the worktree,
+access after a failed removal, a lost reply read as a failure, the
 reconciliation retry and automatic removal itself. Native case 18 removes a clean
 worktree automatically and a private worktree's retained work through the real
 review against the simple-quota pool, and keeps the third worktree and its

@@ -3083,7 +3083,7 @@ They are never written to `context/hygiene/` and never appear in
 live in the host's operational database
 ([decision](../decisions/managed-worktrees.md#hygiene-and-cleanup)).
 
-- A worktree finding has `category: "managed-worktree"`, `path:
+- A worktree is at most one finding, with `category: "managed-worktree"`, `path:
   "reference-worktree://<worktree id>"`, an ID and fingerprint from core's
   `canonicalFindings`, and an additive `worktree` object (`id`, `domain`,
   `state`, `changedPaths`, `removal`; a public worktree adds `repository`,
@@ -3102,7 +3102,8 @@ live in the host's operational database
   it deletes: the reviewer's authority, the exact native identity, no live or
   unknown holder, the reviewed fingerprint and preview against a fresh
   assessment. Any change returns `stale`. A removal that fails returns
-  `check_failed` with `code: "cleanup-failed"` and reappears as its own finding.
+  `check_failed` with `code: "cleanup-failed"` and a fixed `reason`; the same
+  finding then reappears with a new fingerprint.
 
 ## Governed hosted workers (additive, 0.42.0, #1649)
 

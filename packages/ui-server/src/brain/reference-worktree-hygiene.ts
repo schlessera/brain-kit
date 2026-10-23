@@ -52,24 +52,26 @@ function kindOf({ row, cleanup, holderLive }: Inventory): Kind | null {
   if (cleanup) return cleanup.state === "failed" || cleanup.state === "interrupted" ? "cleanup-failed" : null;
   if ((row.state !== "released" && row.state !== "expired") || holderLive === true) return null;
   const facts = factsOf(row);
-  if (!facts || holderLive === null || facts.owner !== "none" || facts.work === "unknown") return "unknown";
+  if (!facts || holderLive === null || facts.owner !== "none" || facts.work === "unknown" || facts.unverifiedPaths !== 0) return "unknown";
   return facts.work === "unpreserved" ? "retained" : null;
 }
 
 /**
- * The candidate for one worktree. Its ID names the worktree and the kind of
- * problem; its facts carry the exact native identity and base, the owner and
- * work last established, any removal failure and the last explicit activity,
- * so any of them changing invalidates a disposition or a reviewed removal.
+ * The candidate for one worktree. Its ID names only the worktree, so a
+ * worktree is one finding whatever is wrong with it; its facts carry the kind
+ * of problem, the exact native identity and base, the owner and work last
+ * established, any removal failure and the last explicit activity, so any of
+ * them changing invalidates a disposition or a reviewed removal.
  * `fresh` replaces the recorded owner and work with a just-made assessment.
  */
 export function referenceWorktreeCandidate(item: Inventory, kind: Kind, fresh?: Work): Candidate {
   const { row, cleanup, holderLive } = item, facts = factsOf(row);
   const owner = fresh ? "none" : facts?.owner ?? "unassessed", work = fresh ?? facts;
   return {
-    category: REFERENCE_WORKTREE_HYGIENE_CATEGORY, path: `${PATH_PREFIX}${row.id}`, evidence: kind, message: TITLES[kind],
+    category: REFERENCE_WORKTREE_HYGIENE_CATEGORY, path: `${PATH_PREFIX}${row.id}`, evidence: "", message: TITLES[kind],
     source: { source: "hygiene", name: REFERENCE_WORKTREE_HYGIENE_CATEGORY, severity: "warning" },
     facts: {
+      kind,
       identity: `${row.id}:${row.root_uuid ?? ""}:${row.source_root}:${row.principal_id}`,
       base: `${row.domain}:${row.repository}:${row.revision}:${row.base_commit ?? ""}`,
       owner: `${owner}:${row.holder ?? ""}:${holderLive === null ? "unknown" : holderLive ? "live" : "none"}`,
@@ -122,9 +124,9 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
           state = "open";
         } else if (state === "snoozed" && prior.due_at !== null && prior.due_at <= at) state = "open";
         else if (state === "resolved") { state = "open"; invalidation = null; }
-        db.query(`UPDATE reference_worktree_findings SET state = ?, fingerprint = ?, fields_json = ?, last_seen = ?, invalidation_json = ?,
+        db.query(`UPDATE reference_worktree_findings SET kind = ?, state = ?, fingerprint = ?, fields_json = ?, last_seen = ?, invalidation_json = ?,
           disposition_fingerprint = CASE WHEN ? = 'open' THEN NULL ELSE disposition_fingerprint END, due_at = CASE WHEN ? = 'open' THEN NULL ELSE due_at END WHERE id = ?`)
-          .run(state, finding.fingerprint, fields, at, invalidation, state, state, id);
+          .run(kind, state, finding.fingerprint, fields, at, invalidation, state, state, id);
       }
       for (const row of db.query("SELECT id FROM reference_worktree_findings WHERE state != 'resolved'").all() as { id: string }[])
         if (!detected.has(row.id)) db.query("UPDATE reference_worktree_findings SET state = 'resolved', resolved_by = 'detection', resolved_at = ? WHERE id = ?").run(at, row.id);
@@ -254,7 +256,8 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
       return previewToken(finding!.fingerprint, item.row, fresh.work) === token ? null : "The preview no longer matches the worktree.";
     } });
     if (outcome.status === "refused") { await reconcile(); return { status: "stale", id, reason: outcome.reason }; }
-    if (outcome.status === "failed") { await reconcile(); return { status: "check_failed", id, reason: outcome.reason, code: "cleanup-failed" }; }
+    // The pool's own error can name host paths; the replicated card gets a fixed reason, the receipt keeps the detail.
+    if (outcome.status === "failed") { await reconcile(); return { status: "check_failed", id, reason: "The worktree could not be removed; it is kept for review.", code: "cleanup-failed" }; }
     if ((await reconcile()).has(id)) return { status: "check_failed", id, reason: "The finding is still detected after removal." };
     db.query("UPDATE reference_worktree_findings SET resolved_by = ? WHERE id = ? AND state = 'resolved'").run(REFERENCE_WORKTREE_REMOVAL_HANDLER, id);
     return { status: "fixed", id };

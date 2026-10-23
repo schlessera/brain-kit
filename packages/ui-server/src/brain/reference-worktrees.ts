@@ -21,7 +21,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import { parseNativeBrainDelta, type createNativeBrainManagerClient, type NativePoolCheckpoint, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
@@ -63,7 +63,7 @@ export interface ReferenceWorktreeCleanup {
   /** Changed candidates whose metadata could not be compared. */
   unverifiedPaths: number | null;
   sample: string[];
-  /** SHA-1 over every changed path, sorted; null when work was not established. */
+  /** SHA-1 over every changed path and what it holds, sorted; null when work was not established. */
   digest?: string | null;
   error: string | null;
   eligible: boolean;
@@ -258,7 +258,11 @@ export function createReferenceWorktrees(options: {
       for (const path of [...candidates].sort()) {
         const before = stamp(join(baseline.path!, path)), after = stamp(join(current.path!, path));
         if (before === undefined || after === undefined) unverified++;
-        else if (before !== after) { changed.push(path); stamps.push(`${path}\t${content(join(current.path!, path))}`); }
+        else if (before !== after) {
+          const held = content(join(current.path!, path));
+          changed.push(path); stamps.push(`${path}\t${held}`);
+          if (held === "unreadable") unverified++;
+        }
       }
       return { work: changed.length ? "unpreserved" : unverified ? "unknown" : "none", changedPaths: changed.length, unverifiedPaths: unverified,
         // The digest moves with every edit to a changed path, not only with which paths changed.
@@ -324,14 +328,16 @@ export function createReferenceWorktrees(options: {
     if (removed(row.id)) return refuse("The worktree was already removed.");
     if (row.state !== "released" && row.state !== "expired") return refuse("Only a released or expired worktree is removed.");
     if (row.holder || holderState(row) !== false) return refuse("A worker may still hold this worktree.");
+    const work = await assessWork(row, signal);
+    // The pool's view last, after the assessment: no access generation holds the root, and it is still the one recorded.
     const record = await poolRecord(row.id, signal);
     if (!record || record.purpose !== "worktree" || record.state !== "writable" || record.access !== null || !row.root_uuid || record.root?.uuid !== row.root_uuid)
       return refuse("The native worktree no longer matches its recorded identity.");
-    const work = await assessWork(row, signal);
     const current = worktree(row.id)!;
     if (current.holder || current.accessed_at !== row.accessed_at || current.state !== row.state || (cleanupOf(row.id)?.state ?? null) !== prior)
       return refuse("The worktree changed while it was assessed.");
-    if (work.work === "unknown") return refuse("The worktree's work cannot be established; it is kept.");
+    // Partly unknown is unknown: a path that could not be compared is never removed unseen.
+    if (work.work === "unknown" || work.unverifiedPaths !== 0) return refuse("The worktree's work cannot be established; it is kept.");
     const premise = input.expect({ row: current, work });
     if (premise) return refuse(premise);
     try { input.authorize?.(); } catch (error) { return refuse(error instanceof Error ? error.message : String(error)); }
@@ -380,7 +386,8 @@ export function createReferenceWorktrees(options: {
     const row = worktree(id);
     if (row) for (const checkpoint of checkpointsOf(row)) {
       try {
-        await pool.poolRelease(checkpoint, signal);
+        // An identity the pool no longer records was reclaimed and forgotten; releasing it again would leave a tombstone.
+        if (await poolRecord(checkpoint, signal) !== null) await pool.poolRelease(checkpoint, signal);
         forgetReferenceWorktreeCheckpoint(db, checkpoint);
         // Released once: a removed worktree never names its baseline again.
         db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ? AND baseline = ?").run(id, checkpoint);
@@ -523,6 +530,11 @@ export function createReferenceWorktrees(options: {
         // Authority may have ended while revalidation or coverage awaited.
         covered(row);
         await pool.poolAccess(row.id, target.id, input.signal);
+        // A removal admitted elsewhere while the grant awaited wins: the grant is withdrawn, never recorded.
+        if (cleanupOf(row.id)) {
+          await pool.poolPark(row.id).catch(error => warn("withdrawn worktree grant was not parked", error));
+          throw new ReferenceWorktreeError("released", "This worktree was released; request a new one.");
+        }
       }
       // Explicit access or resumption: the only events, with renewal, that move the clock.
       db.query("UPDATE reference_worktrees SET holder = ?, accessed_at = ?, state = 'active', cleanup = NULL WHERE id = ?").run(target.id, now(), row.id);
@@ -532,6 +544,7 @@ export function createReferenceWorktrees(options: {
   function renew(input: { worktreeId: string; principalId: string }): Promise<ReferenceWorktree> {
     return serial(input.worktreeId, async () => {
       const row = owned(input.worktreeId, input.principalId);
+      if (cleanupOf(row.id)) throw new ReferenceWorktreeError("released", "This worktree was released.");
       if (row.state !== "active") throw new ReferenceWorktreeError(row.state === "released" ? "released" : "unavailable",
         row.state === "released" ? "This worktree was released." : "This worktree expired; access it again to resume it.");
       db.query("UPDATE reference_worktrees SET accessed_at = ? WHERE id = ?").run(now(), row.id);
@@ -636,7 +649,8 @@ export function createReferenceWorktrees(options: {
     reassess(worktreeId: string, options: { remove: boolean; signal?: AbortSignal }): Promise<void> {
       return serial(worktreeId, async () => {
         const row = worktree(worktreeId);
-        if (row && (row.state === "released" || row.state === "expired") && !cleanupOf(row.id)) await assess(row, row.state, options.signal, options.remove);
+        // After a failed or interrupted removal the evidence may still be refreshed, never acted on.
+        if (row && (row.state === "released" || row.state === "expired") && !removed(row.id)) await assess(row, row.state, options.signal, options.remove && !cleanupOf(row.id));
       });
     },
     /** Every worktree with its removal receipt and holder liveness, read from host state only. */
@@ -660,12 +674,21 @@ export function createReferenceWorktrees(options: {
 }
 export type ReferenceWorktrees = ReturnType<typeof createReferenceWorktrees>;
 
-/** What an edit of one changed path changes: type, mode, size, modification time and link target; stable across snapshots. */
+/**
+ * What one changed path holds: type, mode, size, link target and, for a
+ * regular file, a hash of its bytes. Times are excluded, since a worker can set
+ * them; the result is the same in any two snapshots of unchanged work.
+ */
 function content(path: string): string {
   try {
     const info = lstatSync(path, { bigint: true });
-    return `${info.mode}:${info.size}:${info.mtimeNs}:${info.isSymbolicLink() ? readlinkSync(path) : ""}`;
-  } catch { return "absent"; }
+    const meta = `${info.mode}:${info.size}:${info.isSymbolicLink() ? readlinkSync(path) : ""}`;
+    if (!info.isFile()) return meta;
+    const hash = createHash("sha1"), chunk = Buffer.allocUnsafe(1 << 20), fd = openSync(path, "r");
+    try { for (let read; (read = readSync(fd, chunk, 0, chunk.length, null)) > 0;) hash.update(chunk.subarray(0, read)); }
+    finally { closeSync(fd); }
+    return `${meta}:${hash.digest("hex")}`;
+  } catch { return "unreadable"; }
 }
 /** Metadata that changes with content, mode, type, links or link target; access time is excluded. */
 function stamp(path: string): string | null | undefined {

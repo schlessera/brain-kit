@@ -168,7 +168,7 @@ document content and age are never in it.
 | --- | --- |
 | `broken-link` | target as written; every link token naming that target, as written (`[[target\|label]]`); severity; urgency |
 | `required-field` | field; its raw value (`absent` when missing); the rule it breaks; severity; urgency |
-| `managed-worktree` | ID evidence; the worktree's native identity and owning principal; its source domain, repository, revision and starting commit; its holder and liveness; its work; any removal failure; its state and last explicit activity; severity; urgency. Host-only: see [managed worktrees](managed-worktrees.md#hygiene-and-cleanup) |
+| `managed-worktree` | the kind of problem (retained, unknown, cleanup-failed); the worktree's native identity and owning principal; its source domain, repository, revision and starting commit; its holder and liveness; its work; any removal failure; its state and last explicit activity; severity; urgency. Host-only: see [managed worktrees](managed-worktrees.md#hygiene-and-cleanup) |
 | any other | ID evidence; the validation rules reporting it (empty otherwise); severity; urgency |
 
 Severity is `unknown` when no source gives one, and urgency is `unknown` when
