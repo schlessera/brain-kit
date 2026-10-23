@@ -538,7 +538,7 @@ makes in the brain.
   It lives in `.brain-index/` with its sidecars. While provider folders exist,
   writers retain that directory as a whole (see "The index directory" under
   G2), but its contents stay writable. SQLite coordinates writers across processes
-  (`PRAGMA busy_timeout`, `packages/core/src/lib/db.ts:57`). The host never
+  (`PRAGMA busy_timeout`, `packages/core/src/lib/db.ts:63`). The host never
   takes authority from it.
 - **`CLAUDE.md`, `AGENTS.md`, `.claude/skills/`, `.agents/`.** Changing them as
   you go is exactly the flexibility ruling 1 restores. The journal records
