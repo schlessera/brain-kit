@@ -156,13 +156,20 @@ test("an autonomous turn under a selector that cannot map onto folders refuses b
 test("an autonomous turn translates a type selector as hosted turns do: a mapping type masks its folder, the inbox type refuses", async () => {
   // `identity` (dir: me) maps exactly onto me/ in the Odysseus corpus (#2694).
   const mapped = fixture("[{ types: [identity], allow: [anthropic] }]");
-  let shell = "", folders: readonly string[] | undefined;
+  let shell = "", folders: readonly string[] | undefined, results: string[] = [], read: unknown;
   await runAutonomousTurn({ ...mapped.deps, backend: restrictedBackend(mapped.brain, async (request, run) => {
     folders = request.workerProviderMasks?.folders;
-    shell = await run(`printf 'me=%s\\n' "$(ls -A me | wc -l)"`);
+    shell = await run(`printf 'me=%s\\n' "$(ls -A me | wc -l)"; grep -c ${SENTINEL} .brain-index/brain.db 2>/dev/null || true`);
+    const parsed = JSON.parse(await run(`exec "$@" search ${SENTINEL} --json --limit 50`)) as { results?: { path: string }[] } | { path: string }[];
+    results = (Array.isArray(parsed) ? parsed : parsed.results ?? []).map(result => result.path);
+    try { await request.bridge.readBrainBase!("me/identity.md"); } catch (error) { read = error; }
   }) }, mapped.input);
   expect(folders, "AUTONOMOUS_TYPE_TRANSLATED_TO_ITS_FOLDER").toEqual(["me"]);
-  expect(shell, "AUTONOMOUS_TYPE_FOLDER_READS_EMPTY").toBe("me=0\n");
+  expect(shell, "AUTONOMOUS_TYPE_FOLDER_READS_EMPTY").toBe("me=0\n0\n");
+  expect(results.filter(path => path.startsWith("me/")), "AUTONOMOUS_TYPE_PRIVATE_INDEX_LACKS_ITS_FOLDER").toEqual([]);
+  expect(String((read as Error | undefined)?.message), "AUTONOMOUS_TYPE_BRIDGE_READ_REFUSED").toContain("provider_masked: me/identity.md");
+  expect(queryGovernanceEvents(mapped.db, { kinds: ["provider_mask_refusal"], limit: 10 }).map(event => event.payload.rule), "AUTONOMOUS_REFUSAL_NAMES_THE_TYPE")
+    .toEqual([{ list: "providers", index: 0, pattern: "type identity" }]);
   // `note` is the inbox type, which covers every path outside the others.
   const inbox = fixture("[{ types: [note], allow: [anthropic] }]");
   let started = 0, refusal: unknown;
