@@ -49,8 +49,19 @@ test("a failed check stops its running sibling and remains a failure", async () 
 });
 
 test("empty selections do not invoke bun test with its full-suite defaults", () => {
-  const plan = planChecks(["README.md"], []);
+  const plan = planChecks([], []);
+  expect(plan.tests).toEqual([]);
   expect(verificationCommands(plan, "/fixture")).toEqual([]);
+});
+
+test("docs-only selections execute their explicit file-reading guards", () => {
+  const root = join(import.meta.dir, "..");
+  const commands = verificationCommands(planChecks(["docs/supported-inputs.md"], []), root);
+  expect(commands).toHaveLength(2);
+  for (const command of commands) expect(command.argv.slice(1, 3)).toEqual(["run", "test"]);
+  expect(commands.flatMap(command => command.argv.slice(3)).sort()).toEqual([
+    "tests/decision-citations.test.ts", "tests/docs-paths.test.ts", "tests/public-docs.test.ts",
+  ].map(file => join(root, file)));
 });
 
 test("selected tests retain the root command and are explicit absolute files", () => {
