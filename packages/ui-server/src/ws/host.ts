@@ -95,6 +95,7 @@ export interface WsHostOptions {
    * which the supported worktree tools (#2432) enable.
    */
   referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
+  /** @internal */
   referenceWorktreeAccess?: boolean;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
@@ -257,7 +258,9 @@ export class WsHost {
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
   /** @internal Managed worktree lifecycle and the open worker generation of each running turn (#2430). */
   readonly referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
+  /** @internal Whether governed and strict turns open worker generations (#2432 enables it). */
   readonly referenceWorktreeAccess: boolean;
+  /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Host-owned confirmed preferences; no replaceable policy authority. */
