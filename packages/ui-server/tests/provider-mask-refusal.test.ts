@@ -26,3 +26,12 @@ test("a masked root matches whole segments, case-sensitively, after dot segments
   expect(isProviderMasked("group/private/x.md", ["group/private"])).toBe(true);
   expect(isProviderMasked("group/x.md", ["group/private"])).toBe(false);
 });
+
+test("overlapping rules name the first path selector, ahead of a type that maps onto the same folder", () => {
+  const refusals: ProviderMaskRefusal[] = [];
+  const guard = createProviderMaskGuard({ folders: ["me"],
+    policy: { providers: [{ paths: [], types: ["identity"], allow: ["anthropic"] }, { paths: ["me/**"], allow: ["anthropic"] }, { paths: ["me/**/*"], allow: ["anthropic"] }] },
+    typeFolders: { identity: ["me"] }, record: refusal => refusals.push(refusal) });
+  expect(() => guard.assert("brain_read_base", ["me/identity.md"])).toThrow("provider_masked");
+  expect(refusals.map(refusal => refusal.rule), "FIRST_PATH_RULE_WINS").toEqual([{ list: "providers", index: 1, pattern: "me/**" }]);
+});

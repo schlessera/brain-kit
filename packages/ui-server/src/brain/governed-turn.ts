@@ -145,6 +145,8 @@ export function createGovernedTurns(options: {
             if (again.refused.length) throw new ProviderPolicyRefusedError(again.refused);
             if (JSON.stringify(providerMaskedFolders(policy.policy, again.folders)) !== JSON.stringify(providerMaskedFolders(policy.policy, typeFolders)))
               throw new Error("The brain's document types changed during turn admission; retry once concurrent changes have settled.");
+            // The same folders, but the newer translation names their types (#2690).
+            typeFolders = again.folders;
           }
         }
         if (workerProfile(resolved) === "governed" && folderPaths.length) {
