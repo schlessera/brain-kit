@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
-import type { StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
+import { createKeyedLock, type StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns } from "../src/brain/governed-turn";
@@ -40,13 +40,17 @@ test("a turn's recipient comes from its backend's relay origin and a conversatio
   let origin = "https://api.anthropic.com";
   const asked: Array<{ profileId?: string; sessionId?: string }> = [];
   const started: Array<Pick<StartTurnRequest, "sessionId"> & { recipient?: unknown; masks?: unknown }> = [];
+  const based: string[] = [];
   let named = 0;
   const backend = { ...makeFakeBackend({ id: "claude", startTurn: async request => {
     started.push({ sessionId: request.sessionId, recipient: request.workerSandbox?.inferenceRecipient, masks: request.workerSandbox?.providerMasks });
+    // The host bridge tool reads the real brain; its refusals follow the turn's masked set (#2690).
+    based.push(await request.bridge.readBrainBase!("me/identity.md").then(base => base.content, error => `refused: ${String(error)}`));
     const sessionId = request.sessionId ?? `voyage-${++named}`;
     request.bridge.emit({ type: "session_info", sessionId, isNew: !request.sessionId });
     request.bridge.emit({ type: "result", sessionId, durationMs: 1, numTurns: 1, isError: false });
-  } }), async inferenceOrigin(req: { profileId?: string; sessionId?: string }) { asked.push(req); return origin; } };
+  } }), brainApplicationPolicy: () => ({ autoAllowed: [], available: [], lock: createKeyedLock() }),
+    async inferenceOrigin(req: { profileId?: string; sessionId?: string }) { asked.push(req); return origin; } };
   const host = new WsHost({ brainPath: brain, governedTurns: turns, registry: createStaticBackendRegistry([backend], "claude"), catalog: createSessionCatalog(() => db),
     isPrincipalAuthorized: id => { const found = resolvePrincipal(db, id); return found !== null && isUsablePrincipal(found, Date.now()); } });
   const frames: ServerMessage[] = [];
@@ -56,6 +60,7 @@ test("a turn's recipient comes from its backend's relay origin and a conversatio
     await runSession(host, { authorization: testAuthorization(principal.id), text: "Odysseus reads his own notes.", attachments: [] });
     expect(started[0], "BACKEND_RECEIVES_THE_ADMITTED_RECIPIENT").toEqual({ sessionId: undefined,
       recipient: { name: "anthropic", origin: "https://api.anthropic.com" }, masks: { folders: [] } });
+    expect(based[0], "ALLOWED_ROUTE_READS_THROUGH_BRAIN_READ_BASE").toBe("# Odysseus\n");
     expect(turns.exposures(["voyage-1"]), "NEW_CONVERSATION_BOUND_WHEN_NAMED").toEqual([{ recipient: "anthropic", visible: ["me"], hidden: [] }]);
 
     await runSession(host, { authorization: testAuthorization(principal.id), text: "And again.", attachments: [], sessionId: "voyage-1" });
