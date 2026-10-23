@@ -182,7 +182,7 @@ literal-folder masks, and anything that worker writes is discarded. Assets
 the reported folders decide which assets are hidden. That trusts the code the
 configuration runs: `brain.config.ts` and `node_modules` are protected paths a
 governed turn cannot change, but local modules, files the configuration
-imports and `scripts/brain-cli.ts` are not, and a turn that rewrites them can
+imports and the brain's own CLI fallback script are not, and a turn that rewrites them can
 change which assets a later turn's type rules hide. Markdown documents stay
 covered by the frontmatter check whatever the taxonomy reports. Admission
 therefore runs that worker and reads every Markdown file outside the masked
