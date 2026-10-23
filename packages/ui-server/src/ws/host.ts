@@ -258,7 +258,7 @@ export class WsHost {
   /** @internal Managed worktree lifecycle and the open worker generation of each running turn (#2430). */
   readonly referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
   readonly referenceWorktreeAccess: boolean;
-  readonly referenceWorktreeGenerations = new Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration>();
+  readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Host-owned confirmed preferences; no replaceable policy authority. */
   readonly sessionProfiles?: import("./session-profiles.js").SessionProfiles;
