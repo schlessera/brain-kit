@@ -3,7 +3,7 @@ import { beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { canonicalOrigin, piCredentialOrigins } from "../src/host-inference.js";
+import { canonicalOrigin, literalValue, piCredentialOrigins, sanitized } from "../src/host-inference.js";
 
 type Result = { hostFetches: string[]; outcomes: Array<string | null>; thrown: string | null; refreshes: number; toolFetches: number; toolOutputSeen: boolean; requests: Array<Record<string, string | null>>;
   inference: Array<{ inference: boolean; host: string; path: string | null; outcome: string }>; workerObserved: boolean;
@@ -54,6 +54,23 @@ test("a bash tool keeps its network through the turn proxy, recorded apart from 
   ]);
   expect(result.secretInWorker).toBe(false);
 });
+test("request data that starts with ! is not a credential command", () => {
+  relayed("bang-in-sampling-data", { path: "/v1/responses", authorization: "openai" }, "api.openai.com");
+});
+test("only pi's environment references count as non-literal, as pi resolves them", () => {
+  for (const value of ["$ODYSSEUS_KEY", "${ODYSSEUS_KEY}", "Bearer $ODYSSEUS_KEY", " "]) expect(literalValue(value), value).toBe(false);
+  for (const value of ["odysseus-key", "odysseus$$literal", "odysseus$!literal", "odysseus${NOT-A-VARIABLE}", "Bearer odysseus-key"]) {
+    expect(literalValue(value), `PI_RELAY_LITERAL_${value}`).toBe(true);
+  }
+});
+test("the worker copy drops only credential and routing fields, never nested model data", () => {
+  expect(sanitized({ apiKey: "$K", headers: { a: "b" }, baseUrl: "https://x.invalid", authHeader: true, oauth: "radius",
+    compat: { chatTemplateKwargs: { headers: "kept", oauth: "kept" } },
+    models: [{ id: "m", baseUrl: "https://x.invalid", headers: { a: "b" }, samplingParams: { stop: ["!END"] } }],
+    modelOverrides: { m: { headers: { a: "b" }, name: "Ithaca" } } }), "PI_RELAY_SANITIZE_SCOPE").toEqual({
+    compat: { chatTemplateKwargs: { headers: "kept", oauth: "kept" } },
+    models: [{ id: "m", samplingParams: { stop: ["!END"] } }], modelOverrides: { m: { name: "Ithaca" } } });
+});
 test("a configured authorization header wins over the key's own, as in native pi", () => {
   relayed("configured-header-wins", { path: "/v1/responses", authorization: "gateway" }, "api.openai.com");
 });
@@ -94,6 +111,8 @@ for (const [name, reason] of [
   ["command-model-override-header", "models.json runs a command"],
   ["radius-overlay", "its own login implementation"],
   ["brain-models-literal-key", "linked into the brain and holds a credential"],
+  ["brain-models-other-provider", "linked into the brain and holds a credential"],
+  ["brain-models-escaped-literal", "linked into the brain and holds a credential"],
   ["copilot-oauth", "uses an OAuth login on the anthropic-messages API, which the relay does not carry"],
   ["auth-in-brain", "auth.json is linked into the brain"],
 ] as const) test(`${name} is refused before launch, with nothing sent and no command run`, () => {

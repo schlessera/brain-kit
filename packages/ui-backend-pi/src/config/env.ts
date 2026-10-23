@@ -244,6 +244,11 @@ export function resolveEnabledWebSearchEnvNames(): string[] {
   }
 }
 
+/** Names an operator explicitly admits to tool subprocesses (BRAIN_UI_SUBPROCESS_ENV_EXTRA). */
+export function operatorAdmittedEnvNames(): string[] {
+  return parseSubprocessEnvExtra(process.env.BRAIN_UI_SUBPROCESS_ENV_EXTRA);
+}
+
 /** Allowlisted ambient environment handed to each pi tool subprocess. */
 export function subprocessEnv(
   extraNames: readonly string[] = []

@@ -20,13 +20,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { findEnvKeys } from "@earendil-works/pi-ai/compat";
-import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
+import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { ModelRuntime, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import type { CredentialStore } from "@earendil-works/pi-ai";
-import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, startInferenceRelay, SUBPROCESS_ENV, WORKER_EGRESS_DIR,
+import { AGENT_INFERENCE_CREDENTIAL_ENV, INFERENCE_PLACEHOLDER, startInferenceRelay, WORKER_EGRESS_DIR,
   type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { readEnvVar } from "./config/env.js";
+import { operatorAdmittedEnvNames, readEnvVar } from "./config/env.js";
 
 /** What the worker's trusted entry needs to reach the relay. Never a credential. */
 export interface PiRelayedInference {
@@ -69,26 +69,47 @@ function refuse(reason: string): never {
   throw new BackendRequestError(`This pi turn cannot run on the host inference relay: ${reason}`);
 }
 const isCommand = (value: unknown): boolean => typeof value === "string" && value.trimStart().startsWith("!");
-/** Every string in a configuration value, at any depth. */
-const strings = (value: unknown): string[] => typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(strings)
-  : typeof value === "object" && value !== null ? Object.values(value).flatMap(strings) : [];
-/** Configuration fields that carry a credential or select where it goes: the worker never receives them. */
-const WORKER_DROPPED = new Set(["apiKey", "headers", "baseUrl", "authHeader", "oauth"]);
-const sanitized = (value: unknown): unknown => Array.isArray(value) ? value.map(sanitized)
-  : typeof value === "object" && value !== null ? Object.fromEntries(Object.entries(value)
-    .filter(([name]) => !WORKER_DROPPED.has(name)).map(([name, entry]) => [name, sanitized(entry)])) : value;
-/** A literal key, or a literal credential-like header, anywhere in a provider's configuration. */
-function literalCredential(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(literalCredential);
-  if (typeof value !== "object" || value === null) return false;
-  return Object.entries(value).some(([name, entry]) => name === "apiKey" ? typeof entry === "string" && !entry.includes("$")
-    : name === "headers" && typeof entry === "object" && entry !== null
-      ? Object.entries(entry).some(([header, text]) => /auth|key|token|secret|cookie/i.test(header) && typeof text === "string" && !text.includes("$"))
-      : literalCredential(entry));
+type Entry = Record<string, unknown>;
+const record = (value: unknown): Entry | undefined => typeof value === "object" && value !== null && !Array.isArray(value) ? value as Entry : undefined;
+/** The objects pi reads a key, headers or an endpoint from: the provider, its model definitions and its model overrides. */
+function credentialSites(provider: Entry | undefined): Entry[] {
+  if (!provider) return [];
+  const models = Array.isArray(provider.models) ? provider.models.map(record) : [];
+  const overrides = Object.values(record(provider.modelOverrides) ?? {}).map(record);
+  return [provider, ...models, ...overrides].filter((site): site is Entry => site !== undefined);
 }
+/** The values pi resolves as configuration values, where a command or a credential can live. */
+const credentialValues = (site: Entry): unknown[] => [site.apiKey, ...Object.values(record(site.headers) ?? {})];
+/** Fields that carry a credential or select where it goes; the worker never receives them. */
+const PROVIDER_DROPPED = ["apiKey", "headers", "baseUrl", "authHeader", "oauth"], MODEL_DROPPED = ["headers", "baseUrl"];
+const without = (entry: Entry, names: readonly string[]): Entry => Object.fromEntries(Object.entries(entry).filter(([name]) => !names.includes(name)));
+export function sanitized(provider: Entry | undefined): Entry {
+  if (!provider) return {};
+  const result = without(provider, PROVIDER_DROPPED);
+  if (Array.isArray(provider.models)) result.models = provider.models.map(model => record(model) ? without(model as Entry, MODEL_DROPPED) : model);
+  const overrides = record(provider.modelOverrides);
+  if (overrides) result.modelOverrides = Object.fromEntries(Object.entries(overrides).map(([id, entry]) => [id, record(entry) ? without(entry as Entry, MODEL_DROPPED) : entry]));
+  return result;
+}
+const ENV_REFERENCE = /\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/g;
+/**
+ * Whether a configuration value carries literal secret material. Only pi's
+ * own environment references are safe; an escape (`$$`, `$!`) or an invalid
+ * reference stays literal in pi, so it counts as literal here. An
+ * authorization scheme word alone is not a secret.
+ */
+export function literalValue(value: unknown): boolean {
+  if (typeof value !== "string" || !value.trim()) return false;
+  if (value.includes("$$") || value.includes("$!")) return true;
+  const rest = value.replace(ENV_REFERENCE, "");
+  return rest.includes("$") || !/^\s*(?:Bearer|Basic|Token)?\s*$/i.test(rest);
+}
+/** A literal key, or a literal value in a credential-like header, anywhere a provider's credential can live. */
+const literalCredential = (provider: unknown): boolean => credentialSites(record(provider)).some(site =>
+  literalValue(site.apiKey) || Object.entries(record(site.headers) ?? {}).some(([name, value]) => /auth|key|token|secret|cookie/i.test(name) && literalValue(value)));
 /** Environment variables a `$NAME` or `${NAME}` template reads. */
 const templateNames = (value: unknown): string[] => typeof value === "string"
-  ? [...value.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g)].map(match => match[1]!) : [];
+  ? [...value.matchAll(ENV_REFERENCE)].map(match => match[0].replace(/^\$\{?|\}$/g, "")) : [];
 const inside = (root: string, path: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
 /** Exact canonical origin: scheme, host and port, nothing else. */
@@ -204,13 +225,14 @@ export async function preparePiHostInference(options: {
   catch { refuse("pi's models.json is not valid JSON"); }
   const configured = models.providers?.[provider];
   // Anywhere in the provider's entry: its key, headers, models and model overrides.
-  if (strings(configured).some(isCommand)) {
+  if (credentialSites(configured).flatMap(credentialValues).some(isCommand)) {
     refuse(`pi's models.json runs a command for ${provider}, which the host never runs. Use a literal, an environment variable or a stored key`);
   }
   if (configured?.oauth !== undefined) refuse(`pi's models.json gives ${provider} its own login implementation, which the relay does not carry`);
   const modelsInBrain = existsSync(modelsPath) && inside(brain, realpathSync(modelsPath));
-  if (modelsInBrain && literalCredential(configured)) {
-    refuse(`pi's models.json is linked into the brain and holds a credential for ${provider}; reference it as $NAME or store it with pi instead`);
+  // The whole file is the worker's to read, so every provider's entry counts.
+  if (modelsInBrain && Object.values(models.providers ?? {}).some(literalCredential)) {
+    refuse("pi's models.json is linked into the brain and holds a credential; reference it as $NAME or store it with pi instead");
   }
   const authorized = new Set([...firstPartyOrigins(provider), ...piCredentialOrigins().get(provider) ?? []]);
 
@@ -279,15 +301,15 @@ export async function preparePiHostInference(options: {
       : { type: "api_key", key: placeholder };
     // The worker keeps native model settings but no key, headers, endpoints or
     // login implementation, at any depth (models and model overrides included).
-    const providerConfig = (sanitized(configured ?? {}) ?? {}) as Record<string, unknown>;
+    const providerConfig = sanitized(configured);
     const stoppable = relay;
     // Every variable that names or feeds this provider's credential stays on
     // the host, and so does any agent-only inference key. Keys the brain
     // CLI's own providers read stay until those are relayed (#1673).
     const credentialEnv = new Set([...findEnvKeys(provider, options.environment as Record<string, string>) ?? [],
-      ...strings(configured).flatMap(templateNames), ...templateNames(stored?.key), ...AGENT_INFERENCE_CREDENTIAL_ENV,
-      ...getBuiltinProviders().flatMap(other => findEnvKeys(other, options.environment as Record<string, string>) ?? [])
-        .filter(name => !SUBPROCESS_ENV[name as keyof typeof SUBPROCESS_ENV]?.includes("brainCli"))]);
+      ...credentialSites(configured).flatMap(credentialValues).flatMap(templateNames), ...templateNames(stored?.key),
+      // An operator who admits one of these to tools explicitly keeps it.
+      ...AGENT_INFERENCE_CREDENTIAL_ENV.filter(name => !operatorAdmittedEnvNames().includes(name))]);
     return {
       worker: { provider, basePath, socket: `${WORKER_EGRESS_DIR}/inference.sock`, credential, providerConfig,
         ...(shape === "codex_oauth" ? { transport: "sse" as const } : {}) },
