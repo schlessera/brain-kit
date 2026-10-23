@@ -387,6 +387,7 @@ describe("re-review hardening", () => {
     expect(recovered.closed, "REFERENCE_WORKTREE_CLOSED_SERVICE_GENERATIONS_ENDED").toContain(generation.id);
     expect(first.pool.records.get(tree.id)?.access).toBeNull();
   });
+});
 
 test("recovery releases only checkpoints whose owning process provably ended", async () => {
   const { worktrees, pool } = service();

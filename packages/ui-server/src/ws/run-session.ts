@@ -727,6 +727,8 @@ async function runRetainedSession(
         if (egressFailure) throw egressFailure;
         // Final observation is part of this host outcome, after worker writes
         // stop and before its Activity terminal, quarantine or gate release.
+        // A worktree generation retires first: no grant can follow that observation.
+        if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id);
         await host.journal?.finish(turn.turnId);
         if (budgetFailure) throw budgetFailure;
         if (journalFailure) throw journalFailure;

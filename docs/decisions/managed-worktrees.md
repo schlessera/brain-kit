@@ -214,3 +214,8 @@ worktree and an empty pool, views and access directories. A worker that swaps
 two directories through a temporary name leaves every name in place, and the
 release reports unpreserved work naming both directories. A recovery case
 releases only checkpoints of a provably ended owner.
+`ws-reference-worktrees.test.ts` runs a real host turn with the worktree
+service stubbed: the worker sandbox binds the turn's generation, and the
+generation retires before the turn's first final observation and closes after
+it. A second review round added a grant revoked while revalidation awaits, a
+lost assessment checkpoint reply and a closed service's generations.
