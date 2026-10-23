@@ -1416,7 +1416,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:58-134`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:59-135`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy;
 an API-key Claude profile is not routed yet. Its note still says
 "Egress is unrecorded", as Pi's does until Pi's relay consumer lands. The
@@ -2136,7 +2136,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:35-56`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:35-57`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -2221,7 +2221,7 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:58-134`). Pi turns, API-key
+`packages/ui-server/src/brain/turn-egress.ts:59-135`). Pi turns, API-key
 Claude profiles and hosts without managed native storage have no proxy, so the
 Bash classifier remains their shell rule and nothing narrows their egress.
 

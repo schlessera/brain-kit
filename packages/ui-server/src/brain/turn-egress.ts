@@ -49,8 +49,9 @@ export function createOutwardCalls() {
     },
     covers(host: string): boolean {
       const active = [...calls.values()];
-      return active.length > 0 && active.every(call => call !== null)
-        && active.some(call => call!.read || call!.hosts.includes(host));
+      // Every call in progress must be a read or name this host: another
+      // call's approval to a different destination covers nothing here.
+      return active.length > 0 && active.every(call => call !== null && (call.read || call.hosts.includes(host)));
     },
   };
 }

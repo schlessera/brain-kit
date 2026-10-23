@@ -170,6 +170,10 @@ test("an approved outward action covers only the hosts it names, and only while 
   classified(bridge, "comment", "gh issue comment 7 --repo odysseus/voyage --body Homeward");
   expect(calls.covers("api.github.com"), "OUTWARD_EXCEPTION_APPROVED_GH_WRITE").toBe(true);
   expect(calls.covers("smtp.ithaca.invalid")).toBe(false);
+  classified(bridge, "push", "git push https://harbour.ithaca.invalid/odysseus/voyage.git main");
+  expect(calls.covers("harbour.ithaca.invalid"), "OUTWARD_EXCEPTION_PUSH_NAMES_ITS_HOST").toBe(false);
+  expect(calls.covers("api.github.com"), "OUTWARD_EXCEPTION_EVERY_CALL_MUST_NAME_THE_HOST").toBe(false);
+  bridge.emit({ type: "tool_result", sessionId: "ithaca", toolUseId: "push", output: "", isError: false });
   classified(bridge, "script", "sh send.sh");
   expect(calls.covers("api.github.com"), "OUTWARD_EXCEPTION_WITHHELD_BESIDE_OPAQUE").toBe(false);
   bridge.emit({ type: "tool_result", sessionId: "ithaca", toolUseId: "script", output: "", isError: false });
