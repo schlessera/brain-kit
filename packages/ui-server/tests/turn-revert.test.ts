@@ -65,9 +65,9 @@ test("user restoration recovers observed quarantined bytes without exposing a pr
 test("expired Undo detail and an interrupted applying receipt never repeat or promise recovery",async()=>{
  const f=fixture();try{await f.turn("return");const receipt=f.reverts.start("odysseus","ithaca","return",{id:"odysseus_expiry_001"});await f.reverts.idle(receipt.id);
  expect(f.reverts.receipt(receipt.id,"odysseus","ithaca","return")?.undoAvailable).toBe(true);
- f.db.query("UPDATE turn_journal_turns SET state='expired' WHERE turn_id=?").run(receipt.journalTurnId);
+ f.journal.writeOperation(()=>f.db.query("UPDATE turn_journal_turns SET state='expired' WHERE turn_id=?").run(receipt.journalTurnId));
  expect(f.reverts.receipt(receipt.id,"odysseus","ithaca","return")?.undoAvailable,"REVERT_EXPIRED_UNDO_NOT_OFFERED").toBe(false);
- f.db.query("UPDATE turn_journal_revert_operations SET state='applying',pid=2147483647,pid_start='',error=? WHERE id=?").run("".padEnd(64),receipt.id);
+ f.journal.writeOperation(()=>f.db.query("UPDATE turn_journal_revert_operations SET state='applying',pid=2147483647,pid_start='',error=? WHERE id=?").run("".padEnd(64),receipt.id));
  const recovered=f.reverts.start("odysseus","ithaca","return",{id:receipt.id});expect(recovered).toMatchObject({state:"unknown",undoAvailable:false,error:"interrupted_partial_work"});
  expect(readFileSync(join(f.brain,"fleet.bin")),"REVERT_INTERRUPTED_IDENTITY_NEVER_REPLAYS").toEqual(Buffer.from([0,255,10]));
  }finally{await f.close();}

@@ -76,12 +76,12 @@ function sharedState(domain: MaintenanceTempDomain) {
   const id = createHash("sha256").update(statePath).digest("hex").slice(0, 24);
   return { statePath, parent, authority, mode, file: join(parent, `.brain-maintenance-${id}.db`) };
 }
-function open(directoryPath: string, domain?: MaintenanceTempDomain): Database {
-  let file: string;
+/** Validates (creating if needed) the ledger file; returns it with the inode it names now. */
+function ledgerFile(directoryPath: string, domain?: MaintenanceTempDomain): { file: string; node: { dev: number; ino: number } } {
   if (domain) {
     const shared = sharedState(domain);
     if (resolve(directoryPath) !== shared.parent) throw new Error("maintenance shared ledger directory does not match its state identity");
-    file = shared.file;
+    const file = shared.file;
     let fd: number | undefined;
     try {
       fd = openSync(file, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
@@ -99,18 +99,22 @@ function open(directoryPath: string, domain?: MaintenanceTempDomain): Database {
       || ((node.mode & 0o070) !== 0 && node.gid !== shared.authority.gid)) {
       throw new Error("maintenance shared ledger must preserve existing state access and be an unlinked regular file");
     }
+    return { file, node };
   } else {
     mkdirSync(directoryPath, { mode: 0o700, recursive: true });
     const info = lstatSync(directoryPath);
     if (!info.isDirectory() || info.uid !== (process.getuid?.() ?? 0) || (info.mode & 0o077) !== 0) {
       throw new Error("maintenance admission requires an owned private directory outside the brain");
     }
-    file = join(directoryPath, "reservations.db");
+    const file = join(directoryPath, "reservations.db");
     try { closeSync(openSync(file, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600)); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
     const node = lstatSync(file);
     if (!node.isFile() || node.nlink !== 1 || node.uid !== info.uid || (node.mode & 0o077) !== 0) throw new Error("maintenance admission database must be an owned private regular file");
+    return { file, node };
   }
+}
+function connect(file: string): Database {
   // Node consumers may import the SDK/Claude entry without running Bun-only
   // maintenance. Resolve its database only when that runtime actually runs.
   const { Database } = createRequire(import.meta.url)("bun:sqlite") as typeof import("bun:sqlite");
@@ -119,6 +123,29 @@ function open(directoryPath: string, domain?: MaintenanceTempDomain): Database {
     db.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, bytes INTEGER NOT NULL, owner TEXT NOT NULL, worker TEXT, released INTEGER NOT NULL DEFAULT 0)");
     return db;
   } catch (error) { db.close(); throw error; }
+}
+function open(directoryPath: string, domain?: MaintenanceTempDomain): Database { return connect(ledgerFile(directoryPath, domain).file); }
+/**
+ * The server keeps each validated ledger open, so a reservation or release
+ * is one commit, not an open, commit, checkpoint and close (#2789). Each use
+ * validates the path again and reopens when it names another file.
+ * Reservations bind live processes of this boot only: an OS crash ends every
+ * owner, and the next boot prunes their rows by boot identity. So commits
+ * need not reach the disk before admission returns (NORMAL); a process crash
+ * still loses no committed reservation.
+ */
+const held = new Map<string, { db: Database; dev: number; ino: number }>();
+function ledger(directoryPath: string, domain?: MaintenanceTempDomain): Database {
+  const { file, node } = ledgerFile(directoryPath, domain);
+  // An open handle outlives a revoked mode; reuse it only while a fresh open could succeed.
+  accessSync(file, constants.R_OK | constants.W_OK);
+  const cached = held.get(file);
+  if (cached && cached.dev === node.dev && cached.ino === node.ino) return cached.db;
+  if (cached) { held.delete(file); cached.db.close(); }
+  const db = connect(file);
+  try { db.exec("PRAGMA synchronous=NORMAL"); } catch (error) { db.close(); throw error; }
+  held.set(file, { db, dev: node.dev, ino: node.ino });
+  return db;
 }
 function prune(db: Database): Entry[] {
   const entries = db.query("SELECT * FROM reservations").all() as Entry[];
@@ -138,10 +165,9 @@ export function reserveMaintenanceTemp(configured: WorkerStateLimits, domain?: M
   const shared = domain ? sharedState(domain) : undefined;
   const path = shared?.parent ?? directory();
   const selected = shared ? { statePath: shared.statePath } : undefined;
-  const db = open(path, selected);
+  const db = ledger(path, selected);
   const id = randomUUID();
-  try {
-    db.transaction(() => {
+  db.transaction(() => {
       const entries = prune(db);
       const held = entries.reduce((total, entry) => total + BigInt(entry.bytes), 0n);
       if (held + BigInt(limits.allowanceBytes) > BigInt(limits.budgetBytes)) {
@@ -151,19 +177,16 @@ export function reserveMaintenanceTemp(configured: WorkerStateLimits, domain?: M
           + "Nothing ran. Retry after a maintenance command finishes; no agent runtime state was lost.");
       }
       db.query("INSERT INTO reservations (id, bytes, owner) VALUES (?, ?, ?)").run(id, limits.allowanceBytes, JSON.stringify(identity()));
-    }).immediate();
-  } finally { db.close(); }
+  }).immediate();
   let released = false;
   return { id, directory: path, ...(selected ?? {}), release() {
     if (released) return;
-    const db = open(path, selected);
-    try {
-      db.transaction(() => {
-        db.query("UPDATE reservations SET released = 1 WHERE id = ?").run(id);
-        prune(db);
-      }).immediate();
-      released = true;
-    } finally { db.close(); }
+    const db = ledger(path, selected);
+    db.transaction(() => {
+      db.query("UPDATE reservations SET released = 1 WHERE id = ?").run(id);
+      prune(db);
+    }).immediate();
+    released = true;
   } };
 }
 
