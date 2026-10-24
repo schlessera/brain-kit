@@ -283,7 +283,7 @@ output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marke
 | `ask_user_list` | read | auto-allow | routes to `bridge.askUserList`; refuses a turn declaring `noGrantSurface` |
 | `get_current_location` | read | auto-allow | routes to `bridge.getLocation`; reverse-geocoded server-side |
 | `query_activity` | read | auto-allow | routes to `bridge.queryActivity` (read-only record) |
-| `turn_temp` | turn temp only | auto-allow | usage and scoped purge through the host's held worker descriptor; linked files are kept unless named paths force their removal |
+| `turn_temp` | read (turn temp only) | auto-allow | usage and scoped purge through the host's held worker descriptor; linked files are kept unless named paths force their removal |
 | `show_block` | read | auto-allow | validates and echoes one answer block; no bridge, no side effect |
 | `request_image_mask` | mutate | auto-allow (the mask editor IS the approval) | server PNG application; writes `<image>.mask.png` |
 | `write_file` | mutate | auto-allow | server-validated Markdown application |
@@ -292,6 +292,7 @@ output reads `(no output)`; a nonzero exit retains its trailing `[exit N]` marke
 | `brain_add` | mutate | auto-allow | server-owned capture (Markdown + reindex) |
 | `brain_update` | mutate | auto-allow, **`status: "archived"` asks** | server-owned frontmatter/body update + reindex |
 | `brain_archive` | mutate | **approval** | server-owned archive (visibility change) |
+| `propose_policy_change` | mutate | **approval**, then the host's diff card | host validates the complete policy; only an explicit on-screen approval writes `context/policies/governance.md` |
 
 `get_current_location`, `query_activity` and `request_image_mask` register only
 when the host bridge provides the corresponding seam, and the system-prompt

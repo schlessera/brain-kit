@@ -39,7 +39,7 @@ import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { killWrapped } from "@schlessera/brain-ui-sdk/server";
 import { RTK_WORKER_ENV, NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
 import {
-  BRIDGE_TOOL_POSTURE,
+  ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE,
   bashLockKey,
   BRAIN_LOCK_KEY,
   rtkRewriteCommand,
@@ -253,6 +253,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   brain_add: "mutate",
   brain_update: "mutate",
   brain_archive: "mutate",
+  // turn_temp reaches only the worker's own /tmp; an approved policy proposal writes governance.md (#2801).
+  turn_temp: "read", propose_policy_change: "mutate",
 };
 
 /**
@@ -302,8 +304,8 @@ export const DEFAULT_PI_ALLOWED_TOOLS: readonly string[] = [
  */
 export const PI_BRAIN_UPDATE_TOOL_NAME = "brain_update";
 
-/** Name of pi's tappable-choice tool — also stated in the agent surface brief. */
-export const PI_ASK_USER_TOOL_NAME = BRIDGE_TOOL_POSTURE.names[0];
+/** Name of pi's tappable-choice tool — also stated in the agent surface brief. From its contract, not a roster position (#2800). */
+export const PI_ASK_USER_TOOL_NAME = ASK_USER_TOOL_NAME;
 
 export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   const { brain, turn, capabilities } = deps;
