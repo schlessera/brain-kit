@@ -183,6 +183,36 @@ test("the first type-selector turn after server start waits for a writer started
   } finally { hook.mockRestore(); boot.release(); await hold?.end(); }
 });
 
+test("a writer in another process, such as the cron runner, plans the type folders a turn translated, so the next turn is admitted beside it (#2836)", async () => {
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  await (await f.turns.begin("translating", new AbortController().signal)).end();
+  // The cron runner is its own process: nothing in its module cache knows the translation.
+  const cron = Bun.spawn([process.execPath, join(import.meta.dir, "helpers/gate-process.ts"), join(f.root, "state/ui.db"), f.brain, "acquire"],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined, refusal: unknown;
+  try {
+    const line = await (async () => {
+      const reader = cron.stdout.getReader(), decoder = new TextDecoder();
+      let text = "";
+      while (!text.includes("\n")) { const chunk = await reader.read(); if (chunk.done) break; text += decoder.decode(chunk.value); }
+      reader.releaseLock();
+      return text;
+    })();
+    expect(JSON.parse(line), "CRON_WRITER_PLANS_THE_TRANSLATED_TYPE_FOLDER").toEqual([".brain-index", "me"]);
+    // The production bound: a cron writer lacking the folder would hold this turn for it, then refuse.
+    const started = performance.now();
+    try { hold = await f.turns.begin("beside-cron", new AbortController().signal); } catch (error) { refusal = error; }
+    expect(refusal, `TYPE_RULE_TURN_ADMITTED_BESIDE_THE_CRON_WRITER after ${Math.round(performance.now() - started)} ms`).toBeUndefined();
+    expect(hold!.sandbox.profile, hold!.sandbox.fallbackReason).toBe("governed");
+    expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-index", "me"]);
+  } finally {
+    await hold?.end();
+    cron.stdin.end();
+    const [code, stderr] = await Promise.all([cron.exited, new Response(cron.stderr).text()]);
+    expect(code, `CRON_WRITER_EXITED: ${stderr}`).toBe(0);
+  }
+}, 90_000);
+
 test("a folder nested inside another masked folder launches under the outer mask alone", async () => {
   // Bubblewrap cannot create me/sub inside the empty read-only tmpfs over me,
   // so a second mask for it would fail every launch (#2718).
