@@ -3,6 +3,22 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Event-loop-free worker checks (internal #2416)
+
+The SDK's `/internal` entry adds `probeWorkerHostAsync`,
+`requireWorkerHostAsync`, `prepareWorkerSandboxAsync` and
+`launchAgentWorkerAsync`. Each one drives the same steps as its existing
+synchronous form: the same real-launcher probe, scratch git check and
+bubblewrap setup waits, in the same order, with the same deadlines and
+refusals. The difference is that it awaits each wait instead of blocking the
+caller's event loop. `workerHostBoundary` gains `probeAsync`, which answers
+through a replaced `probe`, so one test double still stands in for both.
+The synchronous exports are unchanged.
+
+This is internal compatibility wiring under the internal-entry classification
+below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
+frontmatter meaning or credential authority, and requires a patch changeset.
+
 ## Native maintenance preparation (internal #2300 / #2343)
 
 The SDK's `/internal` entry adds `prepareMaintenanceWorker` and

@@ -8,7 +8,7 @@
  * re-records the latest outcome on the runtime status, so `/api/status` and
  * the client say what the newest real probe found.
  */
-import { requireWorkerHost, WorkerHostError, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
+import { requireWorkerHost, requireWorkerHostAsync, WorkerHostError, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 
 import type { RuntimeStatus, WorkerHostMode } from "../activity/runtime-status.js";
 import type { WorkerHostCheck } from "@schlessera/brain-ui-sdk/protocol";
@@ -37,16 +37,35 @@ export function probeWorkerHostRecorded(
   state?: WorkerProbeState,
 ): WorkerHostProbe {
   let probe: WorkerHostProbe;
-  try {
-    const directory = workerIdentitySentinelDirectory(brainPath, state);
-    probe = requireWorkerHost(brainPath, { restricted: mode === "restricted", ...(directory ? { identitySentinelDirectory: directory } : {}), ...(stateBytes !== undefined ? { stateBytes } : {}),
-      ...(turnTempBytes !== undefined ? { turnTempBytes } : {}) });
-  } catch (error) {
-    // requireWorkerHost refuses only with WorkerHostError; anything else is
-    // still a refusal, named by its message.
-    probe = { ok: false, requirement: error instanceof WorkerHostError ? error.requirement
-      : error instanceof Error ? error.message : String(error) };
-  }
+  try { probe = requireWorkerHost(brainPath, probeOptions(brainPath, mode, stateBytes, turnTempBytes, state)); }
+  catch (error) { probe = refusal(error); }
+  return recorded(probe, mode, runtime, trigger);
+}
+
+/**
+ * `probeWorkerHostRecorded`, awaiting the probe worker so the server keeps
+ * answering while a loaded host starts it (#2416).
+ */
+export async function probeWorkerHostRecordedAsync(brainPath: string, mode: WorkerHostMode, runtime: Recorder, trigger: WorkerHostCheck["trigger"],
+  stateBytes?: number, turnTempBytes?: number, state?: WorkerProbeState): Promise<WorkerHostProbe> {
+  let probe: WorkerHostProbe;
+  try { probe = await requireWorkerHostAsync(brainPath, probeOptions(brainPath, mode, stateBytes, turnTempBytes, state)); }
+  catch (error) { probe = refusal(error); }
+  return recorded(probe, mode, runtime, trigger);
+}
+
+function probeOptions(brainPath: string, mode: WorkerHostMode, stateBytes?: number, turnTempBytes?: number, state?: WorkerProbeState) {
+  const directory = workerIdentitySentinelDirectory(brainPath, state);
+  return { restricted: mode === "restricted", ...(directory ? { identitySentinelDirectory: directory } : {}), ...(stateBytes !== undefined ? { stateBytes } : {}),
+    ...(turnTempBytes !== undefined ? { turnTempBytes } : {}) };
+}
+
+// requireWorkerHost refuses only with WorkerHostError; anything else is
+// still a refusal, named by its message.
+const refusal = (error: unknown): WorkerHostProbe => ({ ok: false, requirement: error instanceof WorkerHostError ? error.requirement
+  : error instanceof Error ? error.message : String(error) });
+
+function recorded(probe: WorkerHostProbe, mode: WorkerHostMode, runtime: Recorder, trigger: WorkerHostCheck["trigger"]): WorkerHostProbe {
   runtime?.recordWorkerHost?.(mode, probe, trigger);
   runtime?.recordWorkerLimits?.(workerLimitsStatus());
   return probe;
@@ -54,10 +73,11 @@ export function probeWorkerHostRecorded(
 
 /**
  * A turn's own gate: the real probe, recorded, refusing with the same
- * `WorkerHostError` as `requireWorkerHost`.
+ * `WorkerHostError` as `requireWorkerHost`. It awaits the probe worker, so
+ * the server keeps answering while a loaded host starts it (#2416).
  */
-export function requireWorkerHostRecorded(brainPath: string, mode: WorkerHostMode, runtime: Recorder, state?: WorkerProbeState): Extract<WorkerHostProbe, { ok: true }> {
-  const probe = probeWorkerHostRecorded(brainPath, mode, runtime, "turn", undefined, undefined, state);
+export async function requireWorkerHostRecorded(brainPath: string, mode: WorkerHostMode, runtime: Recorder, state?: WorkerProbeState): Promise<Extract<WorkerHostProbe, { ok: true }>> {
+  const probe = await probeWorkerHostRecordedAsync(brainPath, mode, runtime, "turn", undefined, undefined, state);
   if (!probe.ok) throw new WorkerHostError(probe.requirement);
   return probe;
 }

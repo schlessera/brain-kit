@@ -11,10 +11,10 @@ import type { Model } from "@earendil-works/pi-ai";
 import { BackendRequestError, BRAIN_APPLICATION_TOOLS, brainApplicationInput, brainReadBaseInput, type BrainApplicationResult,
   compileConfirmPatterns, DEFAULT_CONFIRM_BASH_PATTERNS, isCompletedAutonomousToolCall } from "@schlessera/brain-ui-sdk/server";
 import { bashLockKey, BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
-import { sessionReplay, NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorker, launchLimits, prepareWorkerSandbox, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
-  outputStagingLimit, requireWorkerHost, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
+import { sessionReplay, NativeFileVersions, workerOutwardNote, workerCommandPolicyNote, createLimitTracker, createTurnTempPromoter, launchAgentWorkerAsync, launchLimits, prepareWorkerSandbox, prepareWorkerSandboxAsync, processStateLedger, retainWorkerStartupView, prepareNativeWorkerOutput, type PreparedWorkerOutput,
+  outputStagingLimit, requireWorkerHostAsync, resolveTurnTempLimits, restrictedReadPaths, turnTempLimit, workerNoteLimits, WorkerResourceLimitError,
   workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_XDG_DIRS, type Reservation, type WorkerSandbox,
-  type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
+  type LaunchedWorker, type WorkerStateHandle } from "@schlessera/brain-ui-sdk/internal";
 
 import { decidePiToolPermission } from "./permission-gate.js";
 import { piAutonomousEnvelope } from "./autonomous-envelope.js";
@@ -177,7 +177,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       Object.assign(init, { relayed: hostInference.worker });
     }
     admissionObservation = checkSessionSize(init);
-    const workerHost = requireWorkerHost(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
+    const workerHost = await requireWorkerHostAsync(backend.brainPath, { restricted, turnTempBytes: turnTempLimits.allowanceBytes });
     if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) identity = { kind: "separate_uid", workerUid: workerHost.workerUid };
     // Admitted against the same per-process ledger as Claude workers; a busy
     // budget refuses as worker_state_busy before anything launches.
@@ -202,8 +202,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   // SDK offline mode silently skips missing sources. Validate prepared packages
   // explicitly in the child; the parent's environment remains unchanged.
   delete workerEnv.PI_OFFLINE;
-  let child: ReturnType<typeof launchAgentWorker>;
-  let launchedChild: ReturnType<typeof launchAgentWorker> | undefined;
+  let child: LaunchedWorker;
+  let launchedChild: LaunchedWorker | undefined;
   let preparedOutput: PreparedWorkerOutput | undefined;
   let sandboxNote: string;
   let sandbox: WorkerSandbox;
@@ -216,7 +216,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // and one its resource limits and the note's limits section (#1660).
     sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
       ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}) }
-      : workerSandbox ?? prepareWorkerSandbox(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
+      : workerSandbox ?? await prepareWorkerSandboxAsync(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {
       if (sandbox.maskPaths?.some(path => { try { const actual = realpathSync(path); return actual === cachedNpmModules || actual.startsWith(cachedNpmModules + "/"); } catch { return false; } })) {
@@ -240,7 +240,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     workerSignal?.throwIfAborted();
     const spawning = performance.now();
     backend.log?.("debug", "Pi startup phase", { phase: "preparation", durationMs: spawning - startupStarted, elapsedMs: spawning - startupStarted });
-    child = launchAgentWorker({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
+    child = await launchAgentWorkerAsync({ brainPath: backend.brainPath, turnTempBytes: reservation.turnTempBytes,
       ...(preparedOutput ? { preparedOutput } : workerStartupView && sandbox.profile !== "governed" ? { startupView: retainWorkerStartupView(workerStartupView) } : {}),
       command: [process.execPath, entry], env: workerEnv, credentialEnv, sandbox, limits, ...(workerLock ? { outputLock: workerLock } : {}),
       ...(envelope ? { restricted: { readPaths: [...restrictedReadPaths([entry]), ...execHelpers], inferenceDir: envelope.relay.dir } } : {}),
