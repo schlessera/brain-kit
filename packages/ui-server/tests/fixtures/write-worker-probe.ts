@@ -14,6 +14,11 @@ export function setup(db: Database, options: { table: string }) {
     },
     lowered(label: string) { db.exec("PRAGMA synchronous = NORMAL"); return db.transaction(() => insert(label)).immediate(); },
     loweredAutocommit(label: string) { db.exec("PRAGMA synchronous = NORMAL"); return insert(label); },
+    /** Counts the log twice across a held gap, outside any transaction. */
+    gap(ms: number) {
+      const count = () => (db.query(`SELECT count(*) AS n FROM ${options.table}`).get() as { n: number }).n;
+      const before = count(); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); return [before, count()];
+    },
     level() { return (db.query("PRAGMA synchronous").get() as { synchronous: number }).synchronous; },
     levelOf(schema: string) { return (db.query(`PRAGMA "${schema}".synchronous`).get() as { synchronous: number }).synchronous; },
     loweredIn(schema: string, label: string) { db.exec(`PRAGMA "${schema}".synchronous = NORMAL`); return db.transaction(() => insert(label)).immediate(); },

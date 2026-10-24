@@ -79,6 +79,21 @@ test("an app-connection transaction that reads, then writes, waits for its turn 
   } finally { await f.close(); }
 });
 
+test("app writes, autocommit or not, never land while a worker procedure runs", async () => {
+  const f = fixture();
+  try {
+    const voyage = f.writer.channel(probe, { table: "odysseus_log" }); await voyage.ready;
+    const gap = voyage.call<[number, number]>("gap", 300);
+    await Bun.sleep(50);
+    f.db.query("INSERT INTO odysseus_log (label) VALUES ('Aeolus')").run();
+    f.db.transaction(() => f.db.query("INSERT INTO odysseus_log (label) VALUES ('Circe')").run())();
+    f.db.run("INSERT INTO odysseus_log (label) VALUES ('Scylla')");
+    const [before, after] = await gap;
+    expect(after, "WRITE_WORKER_APP_WRITES_WAIT_FOR_THEIR_TURN").toBe(before);
+    expect(f.log()).toEqual(["Aeolus", "Circe", "Scylla"]);
+  } finally { await f.close(); }
+});
+
 test("a read-only app snapshot keeps its deferred mode and never holds the write lock", async () => {
   const f = fixture();
   try {

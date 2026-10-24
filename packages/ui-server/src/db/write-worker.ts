@@ -83,38 +83,59 @@ export function openSqliteWriter(db: Database, options: { attach?: readonly Atta
   return workerWriter(path, options.attach ?? [], turn);
 }
 
-/** `turn[0]`: who is inside SQLite now. `turn[1]`: transactions on the app connection waiting for their turn. */
+/** `turn[0]`: who is writing now. `turn[1]`: app writes waiting for their turn. */
 const FREE = 0, APP = 1;
 export const WORKER_TURN = 2;
 
 /**
- * The app connection and the worker never run a transaction at the same time
- * (#2814). Two connections in one process, both writing one WAL file, were
- * measured failing an app `BEGIN IMMEDIATE` with SQLITE_BUSY after about
+ * The app connection and the worker never write at the same time (#2814).
+ * Two connections in one process, both writing one WAL file, were measured failing an app `BEGIN IMMEDIATE` with SQLITE_BUSY after about
  * 37 ms despite a 5 s busy timeout, and a deferred transaction that reads and
  * then writes can lose its snapshot upgrade to a worker commit. So each
  * outermost transaction on `db` waits until the worker is between procedures,
- * then holds the turn until it ends; the worker waits for its turn the same
- * way, and lets a waiting app transaction go first. A transaction keeps its
- * own mode: a read-only deferred snapshot never takes the write lock.
+ * then holds the turn until it ends, and so does every autocommit write; the
+ * worker waits for its turn the same way, and lets a waiting app write go
+ * first. A transaction keeps its own mode: a read-only deferred snapshot never
+ * takes the write lock.
  */
 function takeTurns(db: Database, turn: Int32Array) {
-  const transaction = db.transaction.bind(db);
-  const enter = () => {
+  // The app thread holds its turn once, however deeply its SQLite calls nest.
+  let depth = 0;
+  const taking = <A extends unknown[], R>(work: (...args: A) => R) => (...args: A): R => {
+    if (depth > 0 || db.inTransaction) return work(...args);
     Atomics.add(turn, 1, 1);
     try { while (Atomics.compareExchange(turn, 0, FREE, APP) !== FREE) Atomics.wait(turn, 0, WORKER_TURN, 50); }
     finally { Atomics.sub(turn, 1, 1); }
+    depth++;
+    try { return work(...args); }
+    finally { depth--; Atomics.store(turn, 0, FREE); Atomics.notify(turn, 0); }
   };
-  const leave = () => { Atomics.store(turn, 0, FREE); Atomics.notify(turn, 0); };
+  const transaction = db.transaction.bind(db);
   db.transaction = ((run: (...args: never[]) => unknown) => {
     const modes = transaction(run);
-    const taking = (mode: (...args: never[]) => unknown) => (...args: unknown[]) => {
-      if (db.inTransaction) return Reflect.apply(mode, modes, args);
-      enter();
-      try { return Reflect.apply(mode, modes, args); } finally { leave(); }
-    };
-    return Object.assign(taking(modes), { deferred: taking(modes.deferred), immediate: taking(modes.immediate), exclusive: taking(modes.exclusive) });
+    const mode = (call: (...args: never[]) => unknown) => taking((...args: unknown[]) => Reflect.apply(call, modes, args));
+    return Object.assign(mode(modes), { deferred: mode(modes.deferred), immediate: mode(modes.immediate), exclusive: mode(modes.exclusive) });
   }) as Database["transaction"];
+  // An autocommit write is a transaction of its own: it takes its turn too.
+  for (const name of ["run", "exec"] as const) {
+    const direct = (db[name] as (...args: unknown[]) => unknown).bind(db);
+    Object.defineProperty(db, name, { configurable: true, writable: true, value: taking(direct) });
+  }
+  const statements = new WeakSet<object>();
+  for (const name of ["query", "prepare"] as const) {
+    const make = (db[name] as unknown as (sql: string, ...rest: unknown[]) => Record<string, unknown>).bind(db);
+    Object.defineProperty(db, name, { configurable: true, writable: true, value: (sql: string, ...rest: unknown[]) => {
+      const statement = make(sql, ...rest);
+      if (statements.has(statement)) return statement;
+      statements.add(statement);
+      // Reads need no turn; a RETURNING write runs through the readers too.
+      for (const step of /\bRETURNING\b/i.test(sql) ? ["run", "get", "all", "values"] : ["run"]) {
+        const call = (statement[step] as (...args: unknown[]) => unknown).bind(statement);
+        Object.defineProperty(statement, step, { configurable: true, writable: true, value: taking(call) });
+      }
+      return statement;
+    } });
+  }
 }
 
 function inlineWriter(db: Database): SqliteWriter {
