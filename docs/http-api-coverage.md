@@ -7,7 +7,7 @@ fake backends and injected transports keep the checks keyless.
 
 Each ordinary row runs the named `mounted supported handler: METHOD PATH` test
 in [http-supported-mounts.test.ts](../packages/ui-server/tests/http-supported-mounts.test.ts)
-(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:168-187`).
+(`checkHandler`, `packages/ui-server/tests/http-supported-mounts.test.ts:169-188`).
 The explicit [lifetime audit](../packages/ui-server/tests/helpers/http-mount-lifetimes.ts)
 permits a bounded group of immutable readers to share startup, with a new owner
 per case. Principal enumeration, activity ownership, CLI dispatch, caches,
@@ -96,6 +96,7 @@ row's real mounting check. They do not establish mounting by themselves.
 | `GET /api/health` | `mounted supported handler: GET /api/health` | H |
 | `GET /api/hygiene/review` | `mounted supported handler: GET /api/hygiene/review` | HY |
 | `POST /api/hygiene/review` | `mounted supported handler: POST /api/hygiene/review` | HY |
+| `GET /api/hygiene/review/details/:itemId` | `mounted supported handler: GET /api/hygiene/review/details/:itemId` | HY |
 | `POST /api/hygiene/review/preview` | `mounted supported handler: POST /api/hygiene/review/preview` | HY |
 | `POST /api/internal/inbox/poke` | `mounted supported handler: POST /api/internal/inbox/poke` | I |
 | `GET /api/models` | `mounted supported handler: GET /api/models` | M |
@@ -155,6 +156,7 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 - `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:467-489`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
 - `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:381-389`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
+- `the owner reads the recorded facts; every delegated and ambient principal is refused by direct request` ([source](../packages/ui-server/tests/reference-worktree-hygiene.test.ts)) (`the owner reads the recorded facts; every delegated and ambient principal is refused by direct request`, `packages/ui-server/tests/reference-worktree-hygiene.test.ts:603-620`). The sibling owner-only detail tests prove the per-request access fact, read-only facts, changed and gone replies with no values, and no private byte in any replicated surface.
 
 
 **H — Liveness.**

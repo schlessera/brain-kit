@@ -322,7 +322,7 @@ lost host database loses these dispositions together with the worktrees'
 ownership records; no brain content is lost.
 
 **Detection.** A worktree is one finding at most
-(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:77-84`):
+(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:79-86`):
 
 - `retained`: released or expired, held by no generation, with unpreserved work;
 - `unknown`: its holder's liveness, its owner or its work cannot be established,
@@ -339,7 +339,7 @@ liveness, the work (state, counts and a digest of every changed path's type,
 mode, size, link target and file bytes, or its absence; times are left out
 because a worker can set them), any removal failure, and the state and last
 explicit activity
-(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:94-110`).
+(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:96-112`).
 The time of an assessment is not in it, so a fresh assessment of unchanged work
 is the same evidence. One assessment hashes at most 64 MiB of changed files,
 read without blocking the server; a larger or sparse file is named instead by its
@@ -358,12 +358,26 @@ consent to remove anything, and nothing reads it as such.
 **Privacy and authority.** Inbox Actions replicate to every usable principal,
 so the card of a private worktree carries only its opaque identity, state and
 counts: no repository, revision, commit, changed path or principal
-(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:179-197`).
+(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:181-199`).
 A public worktree's card names its source and up to 16 changed paths. The owner
 principal is an authorized reader and reviewer of a delegated agent's worktree
 findings, as of any other finding; review authority stays with owner and ambient
 principals, so a delegated agent can neither operate the review nor remove a
 worktree through it.
+
+**Owner-only details (#2734).** The owner reads what the opaque card leaves
+out through a separate host read, never through the replicated Action: the
+owning principal, repository, revision, starting commit, changed-path count and
+sample, incomparable paths and when they were assessed. Only a usable owner
+principal is allowed; every delegated agent, the worktree's own included, and
+every ambient principal is refused by the host, whatever a client shows. The
+review read says per request whether this caller may read them. The read shows
+recorded facts only and never assesses or writes, so it changes no fingerprint,
+`last_seen` or state; a finding no longer open reads as gone and one whose
+recorded facts no longer match the card reads as changed, with no values
+either way. A removed, revoked or expired owning principal reads as removed,
+without its former label. The review card offers them inline as Private
+details, fetched on opening and kept in that card's memory only.
 
 **Review.** The review reads one backlog: `next` and `list` merge the CLI's
 Markdown findings and the host's by core's ordinal rules (severity, known

@@ -42,6 +42,7 @@ const checks: Record<string, Check> = {
   "GET /api/health": { body: { status: "healthy" } },
   "GET /api/hygiene/review": { body: { review: { version: 1, status: "idle" }, action: null } },
   "POST /api/hygiene/review": { init: json("POST", { operation: "pause" }), body: { review: { version: 1, status: "paused" }, action: null } },
+  "GET /api/hygiene/review/details/:itemId": { path: "/api/hygiene/review/details/missing", body: { status: "gone" }, verify: async (r) => { expect(r.headers.get("cache-control")).toBe("no-store"); } },
   "POST /api/hygiene/review/preview": { init: json("POST", { itemId: "missing", optionId: "link-note", expectedVersion: 1, input: "notes/arrival.md" }), status: 409, body: { error: "preview_refused" } },
   "GET /api/status": { body: { healthy: true, version: "dev", software: { sourceCommit: "dev" } } },
   "POST /api/status/worker-host": { init: { method: "POST" }, verify: async (r) => { const b = await r.json(); expect(b.ordinary).toMatchObject({ trigger: "check" }); expect(typeof b.ordinary.available).toBe("boolean"); } },

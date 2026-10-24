@@ -1,5 +1,5 @@
 import { POLICY_CHANGE_REVIEW_SCHEMA } from "./tool-contracts/policy.js";
-import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead } from "./protocol.js";
+import type { HygieneAction, HygieneDiff, HygieneEffect, HygieneReviewCommand, HygienePreviewRequest, HygieneReviewState, HygieneReviewRead, HygieneWorktreeDetailsRead } from "./protocol.js";
 import { sharedFileMetaSchema } from "./track-schemas.js";
 export { sharedFileMetaSchema } from "./track-schemas.js";
 // ============================================================
@@ -1589,7 +1589,17 @@ export const inboxActionItemSchema = inboxItemBaseSchema.extend({
   queue: z.literal("actions"), type: z.enum(["approve", "choose", "fyi"]), status: inboxActionStatusSchema,
   payload: z.looseObject({ title: inboxText, detail: z.string().max(MAX_PROMPT_CHARS) }), options: z.array(wireOptionSchema), hygiene: hygieneActionSchema.optional(),
 }).refine((item) => item.type !== "fyi" || item.options.length === 0, "FYIs cannot offer resolution options") satisfies z.ZodType<InboxActionItem>;
-export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable() }) satisfies z.ZodType<HygieneReviewRead>;
+export const hygieneReviewReadSchema = z.strictObject({ review: hygieneReviewStateSchema, action: inboxActionItemSchema.nullable(), privateDetailAccess: z.strictObject({ itemId: id }).optional() }) satisfies z.ZodType<HygieneReviewRead>;
+const detailCount = z.number().int().min(0).nullable();
+export const hygieneWorktreeDetailsReadSchema = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("details"), details: z.strictObject({
+    owner: z.strictObject({ label: z.string(), kind: z.enum(["agent", "device"]) }).nullable(),
+    repository: z.string().nullable(), revision: z.string().nullable(), commit: z.string().nullable(),
+    changedPaths: detailCount, sample: z.array(z.string()), unverifiedPaths: detailCount, assessedAt: z.number().int().nullable(),
+  }) }),
+  z.strictObject({ status: z.literal("changed") }),
+  z.strictObject({ status: z.literal("gone") }),
+]) satisfies z.ZodType<HygieneWorktreeDetailsRead>;
 export const inboxItemSchema = z.discriminatedUnion("queue", [inboxQueueItemSchema, inboxActionItemSchema]) satisfies z.ZodType<InboxItem>;
 const inboxChangeBaseSchema = z.looseObject({ changeId: inboxSeq, threadId: id, seq: z.number().int().min(1) });
 export const inboxChangeSchema = z.discriminatedUnion("kind", [
