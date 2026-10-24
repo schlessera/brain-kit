@@ -3,7 +3,7 @@
  * never reapplied. All Action projections use the shared store/change stream. */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
+import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, HygieneWorktreeDetailsRead, InboxActionItem, InboxItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
 import { hygieneDiffSchema, hygieneEffectSchema, hygieneInputSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainClient } from "../brain/client.js";
 import type { ReferenceWorktreeHygiene } from "../brain/reference-worktree-hygiene.js";
@@ -72,6 +72,32 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
       const review = state();
       return { review, action: review.pendingActionId ? action(review.pendingActionId) : null };
     })();
+  }
+  /**
+   * Only the owner principal reads a private worktree finding's details
+   * (#2734). Delegated agents, including the worktree's own, and ambient
+   * principals are refused, whatever the client shows.
+   */
+  function detailReader(principalId: string) {
+    const p = resolvePrincipal(db, principalId);
+    return !!p && isUsablePrincipal(p, now()) && p.kind === "owner";
+  }
+  function privateWorktree(item: InboxItem | null | undefined): item is InboxActionItem & { hygiene: HygieneAction } {
+    const finding = (item?.queue === "actions" ? item.hygiene?.finding : undefined) as { category?: unknown; worktree?: { domain?: unknown } } | undefined;
+    return !!deps.worktrees && item?.queue === "actions" && item.status === "pending" && finding?.category === "managed-worktree" && finding.worktree?.domain === "private";
+  }
+  /** One caller's review read: the replicated Action unchanged, plus whether this caller may read its private details. */
+  function readFor(principalId: string, value = read()): HygieneReviewRead {
+    return detailReader(principalId) && privateWorktree(value.action) ? { ...value, privateDetailAccess: { itemId: value.action.id } } : value;
+  }
+  /** The recorded facts behind the pending card, for the owner only. Nothing is assessed, written or replicated. */
+  async function details(principalId: string, itemId: string): Promise<HygieneWorktreeDetailsRead> {
+    if (!detailReader(principalId)) throw new HygieneAuthorityError("Owner authority is required");
+    const item = store.getItem(itemId);
+    const result = privateWorktree(item) ? await deps.worktrees!.details(item.hygiene.findingId, item.hygiene.fingerprint) : { status: "gone" as const };
+    // Authority is read again after the await, as for every review operation.
+    if (!detailReader(principalId)) throw new HygieneAuthorityError("Owner authority is required");
+    return result;
   }
   function update(item: InboxActionItem, outcome: HygieneAction["outcome"], options = item.options) {
     store.commit([{ kind: "hygiene_update", itemId: item.id, expectedVersion: item.version, hygiene: { ...item.hygiene!, outcome }, options }]);
@@ -348,6 +374,6 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     }
     if (state().status === "active" && !state().pendingActionId) await ensureNext();
   }
-  return { read, command, preview, resolver, recover };
+  return { read, readFor, details, command, preview, resolver, recover };
 }
 export type HygieneReview = ReturnType<typeof createHygieneReview>;

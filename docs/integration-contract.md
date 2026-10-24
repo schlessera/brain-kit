@@ -723,6 +723,14 @@ The human-started hygiene review (`/api/hygiene/review`) also selects host-only
 worktree service before it removes anything; described in
 [the package API](integration-contract/package-api.md#managed-worktree-findings-in-the-review-additive-0440-2431).
 
+## Owner-only private worktree details (additive, 0.44.0, #2734)
+
+The review read gains a per-request `privateDetailAccess`, and
+`GET /api/hygiene/review/details/:itemId` returns a private worktree finding's
+recorded facts to the owner principal only; `HygieneCard` gains a `details`
+slot. Described in
+[the package API](integration-contract/package-api.md#owner-only-private-worktree-details-additive-0440-2734).
+
 
 ## Reference and worktree tools (additive, 0.44.0, #2432)
 

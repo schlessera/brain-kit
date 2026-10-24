@@ -28,6 +28,7 @@ export const mountLifetimes: Record<string, { shared: boolean; effects: string }
   "GET /api/health": { shared: true, effects: "SQLite liveness read; public, no principal resolution." },
   "GET /api/hygiene/review": { shared: true, effects: "Reads the idle review singleton; no command or hygiene CLI." },
   "POST /api/hygiene/review": { shared: false, effects: "Review command/preview may update DB and dispatch CLI work; fresh review state." },
+  "GET /api/hygiene/review/details/:itemId": { shared: true, effects: "Reads one stored Action and recorded host facts; no assessment, CLI or write." },
   "POST /api/hygiene/review/preview": { shared: false, effects: "Review command/preview may update DB and dispatch CLI work; fresh review state." },
   "GET /api/status": { shared: false, effects: "Reads runtime/subscription/telemetry or reruns native probes; fresh caches and recorded startup." },
   "POST /api/status/worker-host": { shared: false, effects: "Reads runtime/subscription/telemetry or reruns native probes; fresh caches and recorded startup." },

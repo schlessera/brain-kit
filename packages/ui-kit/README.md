@@ -416,7 +416,9 @@ The optional Always allow control names its `write_policy` effect.
 
 `HygieneCard` composes `ActionCard`, `PathRef`, `EffectPreview`, `Callout` and
 `DispositionBar` for finding evidence, repair controls and recovery states.
-The caller supplies the server projection and callbacks. `HygieneEnd` presents
+The caller supplies the server projection and callbacks; the optional `details`
+slot places caller content, such as an owner-only disclosure, between the
+evidence and the fix controls on the full card only. `HygieneEnd` presents
 review counts and deferred findings; `HygieneBlocker` presents configuration
 recovery. Their Odysseus stories and visual baselines cover dark and paper at
 320px and 1280px. The kit performs no selection, validation or effect dispatch.

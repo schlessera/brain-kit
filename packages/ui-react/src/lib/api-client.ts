@@ -3,7 +3,7 @@ import { POLICY_CHANGE_REVIEW_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contr
 import { apiBase } from "./backend.js";
 import { readSyncResult } from "./sync-stream.js";
 import { classifySessionRecoveryResponse } from "@schlessera/brain-ui-sdk/schemas";
-import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
+import type { HygieneReviewRead, HygieneReviewCommand, HygienePreviewRequest, HygieneWorktreeDetailsRead, InboxActionItem, SessionRecoveryResult, WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
 import type { ContentRendererDeclaration, ConfiguredModule, ModuleSettingsSnapshot, ModuleSettingsMigrationPreview } from "@schlessera/brain-ui-sdk";
 
 export class ApiRequestError extends Error {
@@ -352,6 +352,8 @@ export function createBrainApi(
     hygieneReview: () => fetchJson<HygieneReviewRead>("/hygiene/review"),
     hygieneCommand: (operation: HygieneReviewCommand["operation"]) => fetchJson<HygieneReviewRead>("/hygiene/review", { method: "POST", body: JSON.stringify({ operation }) }),
     hygienePreview: (request: HygienePreviewRequest) => fetchJson<InboxActionItem>("/hygiene/review/preview", { method: "POST", body: JSON.stringify(request) }),
+    /** The owner-only recorded facts behind a private managed-worktree card (#2734); never cached. */
+    hygieneDetails: (itemId: string) => fetchJson<HygieneWorktreeDetailsRead>(`/hygiene/review/details/${encodeURIComponent(itemId)}`, { cache: "no-store" }),
 
     health: () =>
       fetchJson<{ status: string; uptime: number; timestamp: string }>("/health"),

@@ -28,6 +28,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { isEditableTarget, singleKey } from "../../lib/single-key.js";
 import { formatWhen } from "./inbox-model.js";
+import { HygienePrivateDetails } from "./hygiene-private-details.js";
 
 // A display projection only; the server owns selection, handlers and validation.
 const findingDisplay = z.object({
@@ -834,6 +835,11 @@ export function HygieneFinding({
         whyOpen={why}
         onWhy={() => setWhy(!why)}
         invalidation={invalidation}
+        details={
+          !compact && c.read.privateDetailAccess?.itemId === item.id && c.read.review.status === "active" && item.status === "pending" ? (
+            <HygienePrivateDetails key={`${item.id}:${item.version}`} item={item} controller={c} />
+          ) : undefined
+        }
         controls={controls}
         state={cardState}
         reason={item.hygiene?.outcome?.reason}

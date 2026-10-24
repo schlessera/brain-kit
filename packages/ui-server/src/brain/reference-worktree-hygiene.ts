@@ -11,6 +11,8 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import type { ReferenceWorktreeCleanup, ReferenceWorktreeRow, ReferenceWorktrees } from "./reference-worktrees.js";
+import type { HygieneWorktreeDetailsRead } from "@schlessera/brain-ui-sdk/protocol";
+import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 
 /*
  * Core is an optional peer of this package, so its types never reach these
@@ -302,10 +304,34 @@ export function createReferenceWorktreeHygiene(options: { db: Database; worktree
     db.query("UPDATE reference_worktree_findings SET resolved_by = ? WHERE id = ? AND state = 'resolved'").run(REFERENCE_WORKTREE_REMOVAL_HANDLER, id);
     return { status: "fixed", id };
   }
+  /**
+   * A finding's recorded facts for the owner's private read (#2734). It never
+   * reconciles, reassesses or writes, so reading changes no fingerprint,
+   * `last_seen` or state. A finding that is no longer open is `gone`; one whose
+   * recorded facts no longer match the card's fingerprint is `changed`; neither
+   * carries any detail. The caller authorizes the reader.
+   */
+  async function details(findingId: string, fingerprint: string): Promise<HygieneWorktreeDetailsRead> {
+    const row = findingRow(findingId);
+    const item = row?.state === "open" ? worktrees.inventory().find(value => value.row.id === row.worktree_id) : undefined;
+    const kind = item ? kindOf(item) : null;
+    if (!row || !item || !kind) return { status: "gone" };
+    const [finding] = (await options.core()).canonicalFindings([referenceWorktreeCandidate(item, kind)]).values();
+    if (finding!.id !== findingId) return { status: "gone" };
+    if (finding!.fingerprint !== fingerprint || row.fingerprint !== fingerprint) return { status: "changed" };
+    const facts = factsOf(item.row), principal = resolvePrincipal(db, item.row.principal_id);
+    return { status: "details", details: {
+      // A revoked or expired principal reads as removed: its label is not shown after its access ended.
+      owner: principal && isUsablePrincipal(principal, now()) ? { label: principal.label, kind: principal.kind === "agent" ? "agent" : "device" } : null,
+      repository: item.row.repository || null, revision: item.row.revision || null, commit: item.row.base_commit || null,
+      changedPaths: !facts || facts.work === "unknown" ? null : facts.changedPaths, sample: facts?.sample ?? [],
+      unverifiedPaths: facts?.unverifiedPaths ?? null, assessedAt: facts?.assessedAt ?? null,
+    } };
+  }
   return {
     /** Whether a review operation names a host-owned finding. */
     owns(id: string): boolean { return id.startsWith(`${REFERENCE_WORKTREE_HYGIENE_CATEGORY}-`) && findingRow(id) !== null; },
-    run, reconcile, merge,
+    run, reconcile, merge, details,
   };
 }
 export type ReferenceWorktreeHygiene = ReturnType<typeof createReferenceWorktreeHygiene>;

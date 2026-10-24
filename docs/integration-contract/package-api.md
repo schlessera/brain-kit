@@ -3180,6 +3180,40 @@ live in the host's operational database
   `check_failed` with `code: "cleanup-failed"` and a fixed `reason`; the same
   finding then reappears with a new fingerprint.
 
+<a id="owner-only-private-worktree-details-additive-0440-2734"></a>
+
+#### Owner-only private worktree details (additive, 0.44.0, #2734)
+
+The owner principal may read what a private worktree's replicated card leaves
+out ([decision](../decisions/managed-worktrees.md#hygiene-and-cleanup)).
+
+- `HygieneReviewRead` gains optional `privateDetailAccess: { itemId }`. The
+  host adds it per request, to `GET /api/hygiene/review` and the `POST`
+  command response, only when the caller is a usable owner principal and the
+  pending Action is a private `managed-worktree` finding. It is never part of
+  the replicated Action; its absence means no access.
+- `GET /api/hygiene/review/details/:itemId` returns
+  `HygieneWorktreeDetailsRead` (`hygieneWorktreeDetailsReadSchema`), with
+  `Cache-Control: no-store`. Every other principal, including the worktree's
+  own delegated agent and any ambient principal, gets 403
+  `{ error: "Unauthorized" }`; authority is read again after the host read.
+- `{ status: "details", details }` carries `owner` (`{ label, kind: "agent" |
+  "device" }`, or `null` for a removed, revoked or expired principal),
+  `repository`, `revision` and `commit` (`null` when not recorded),
+  `changedPaths` (`null` when the work is not established, never `0`), the
+  recorded `sample`, `unverifiedPaths` and `assessedAt` (epoch milliseconds,
+  or `null`).
+- A card whose finding is no longer open, or that is not a pending private
+  worktree card, reads `{ status: "gone" }`; recorded facts that no longer
+  match the card's fingerprint read `{ status: "changed" }`. Neither carries a
+  detail value.
+- The read uses recorded facts only: it never selects, checks, reassesses,
+  previews or writes, so a finding's fingerprint, `last_seen` and state are
+  unchanged. Clients keep the details in memory only.
+- `HygieneCardProps` adds optional `details?: ReactNode`, rendered between the
+  evidence and the fix controls on the full card only. Its content is the
+  caller's; the kit fetches and decides nothing.
+
 ## Governed hosted workers (additive, 0.42.0, #1649)
 
 Ordinary interactive and voice hosted turns default to the governed writable

@@ -1037,6 +1037,7 @@ signatures (every public export and the types it is made of)
             uptime: number;
         }>;
         hygieneCommand: (operation: HygieneReviewCommand["operation"]) => Promise<HygieneReviewRead>;
+        hygieneDetails: (itemId: string) => Promise<HygieneWorktreeDetailsRead>;
         hygienePreview: (request: HygienePreviewRequest) => Promise<InboxActionItem>;
         hygieneReview: () => Promise<HygieneReviewRead>;
         login: (password: string) => Promise<{
@@ -1492,6 +1493,7 @@ signatures (every public export and the types it is made of)
             uptime: number;
         }>;
         hygieneCommand: (operation: import("@schlessera/brain-ui-sdk").HygieneReviewCommand["operation"]) => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
+        hygieneDetails: (itemId: string) => Promise<import("@schlessera/brain-ui-sdk").HygieneWorktreeDetailsRead>;
         hygienePreview: (request: import("@schlessera/brain-ui-sdk").HygienePreviewRequest) => Promise<import("@schlessera/brain-ui-sdk").InboxActionItem>;
         hygieneReview: () => Promise<import("@schlessera/brain-ui-sdk").HygieneReviewRead>;
         login: (password: string) => Promise<{
