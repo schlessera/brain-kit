@@ -467,7 +467,11 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   The [timing refresh](../decisions/ci-utility.md#reviewed-timing-refresh) covers
   1,180 hosted files. Its single wide replay stopped on a fixture failure after
   599.166 seconds, with incomplete reports; that is not a successful sub-900s
-  qualification, so feedback remains opt-in.
+  qualification. The subsequent #2747 readiness repair's one wide preflight
+  reconciles 626 files, including all 464 historical reference files, but fails
+  two unrelated sandbox-note assertions after 1289.718 seconds. Its
+  [receipt and qualification limits](../decisions/ci-utility.md#rollback-writer-readiness-and-the-subsequent-wide-recheck)
+  preserve both failed observations. Feedback remains opt-in.
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.
