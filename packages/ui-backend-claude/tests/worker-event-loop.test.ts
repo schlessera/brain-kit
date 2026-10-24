@@ -111,3 +111,25 @@ test.skipIf(!native)("a started worker's failed lifecycle stays handled until th
     await expect(spawner.finish()).rejects.toThrow("scope freezer refused");
   } finally { process.off("unhandledRejection", record); await spawner.finish().catch(() => {}); f.cleanup(); }
 });
+
+test.skipIf(!native)("a turn abort leaves a running worker to the SDK's own close, as the synchronous spawn did (#2824)", async () => {
+  const f = fixture();
+  const turn = new AbortController();
+  const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
+  const spawner = createWorkerSpawn(f.brain, {}, turn.signal, undefined, sandbox);
+  try {
+    // The SDK's close ends the runtime's input and only later signals it: that grace lets the runtime finish its last request.
+    const child = spawner.spawn({ command: "/bin/sh", args: ["-c", "echo ready; IFS= read -r line; echo closed-$line"],
+      env: { CLAUDE_CONFIG_DIR: f.config, HOME: f.home }, signal: new AbortController().signal } as never);
+    let output = "", exited = false;
+    const ready = new Promise<void>(resolve => child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); if (output.includes("ready")) resolve(); }));
+    const exit = new Promise(done => child.once("exit", (code: number | null) => { exited = true; done(code); }));
+    await ready;
+    turn.abort();
+    await Bun.sleep(300);
+    expect(exited, "TURN_ABORT_LEAVES_WORKER_TO_SDK_CLOSE").toBe(false);
+    child.stdin.end("grace\n");
+    expect(await exit).toBe(0);
+    expect(output.trim().split("\n")).toEqual(["ready", "closed-grace"]);
+  } finally { await spawner.finish().catch(() => {}); f.cleanup(); }
+});
