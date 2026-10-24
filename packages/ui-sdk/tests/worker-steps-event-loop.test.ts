@@ -210,7 +210,7 @@ test("a separate-UID maintenance launch waits for its helper worker with the eve
     const child = spawn("/bin/cat", [], { stdio: ["pipe", "pipe", "pipe"] });
     return { stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, pid: child.pid!,
       exited: new Promise<number>(resolve => child.once("exit", code => resolve(code ?? 1))),
-      kill: (signal?: NodeJS.Signals) => { child.kill(signal); } } as unknown as LaunchedWorker;
+      released: async () => {}, kill: (signal?: NodeJS.Signals) => { child.kill(signal); } } as unknown as LaunchedWorker;
   });
   try {
     const { result: worker, ticks } = await ticksDuring(() => launchMaintenanceWorkerAsync({ brainPath: f.brain, startupView,
@@ -238,7 +238,7 @@ test("an abort accepted while a separate-UID maintenance launch is awaited still
     const started = child = spawn("/bin/sh", ["-c", "exec sleep 30"], { stdio: ["pipe", "pipe", "pipe"] });
     return { stdin: started.stdin, stdout: started.stdout, stderr: started.stderr, pid: started.pid!,
       exited: new Promise<number>(resolve => started.once("exit", (code, signal) => resolve(code ?? (signal ? 137 : 1)))),
-      kill: (signal?: NodeJS.Signals) => { started.kill(signal); } } as unknown as LaunchedWorker;
+      released: async () => {}, kill: (signal?: NodeJS.Signals) => { started.kill(signal); } } as unknown as LaunchedWorker;
   });
   try {
     const startedAt = performance.now();
