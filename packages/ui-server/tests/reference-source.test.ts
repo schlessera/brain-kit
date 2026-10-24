@@ -19,32 +19,37 @@ afterEach(() => { db.close(); rmSync(root, { recursive: true, force: true }); })
 
 const owner = () => createPrincipal(db, { authMethod: "password", label: "Penelope", ttlSeconds: 30 * DAY });
 const agent = (by: string, label = "Telemachus") => createPrincipal(db, { authMethod: "delegated", label, createdBy: by, ttlSeconds: 7 * DAY });
-const grant = (principalId: string, by: string, prefix = "https://github.com/odysseus") =>
-  createReferenceGrant(db, { brain: BRAIN, principalId, repositoryPrefix: prefix, credential: "BRAIN_UI_SYNC_GITHUB_TOKEN", createdBy: by, now: Date.now() });
+const grant = (principalId: string, by: string, prefix = "https://github.com/odysseus", credential = "BRAIN_UI_SYNC_GITHUB_TOKEN") =>
+  createReferenceGrant(db, { brain: BRAIN, principalId, repositoryPrefix: prefix, credential, createdBy: by, now: Date.now() });
 
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
 
-/** Scripted repositories: anonymous access only to public ones; the private one needs the fixture token. */
+/** Scripted repositories: anonymous access only to public ones; the private one needs an accepted fixture token. */
 function scripted() {
   const repos = new Map<string, { private: boolean; tip: string }>([[PUBLIC, { private: false, tip: "1".repeat(40) }], [PRIVATE, { private: true, tip: "2".repeat(40) }],
     ["https://github.com/odysseus/argo", { private: false, tip: "3".repeat(40) }], ["https://github.com/odysseus/scylla", { private: false, tip: "4".repeat(40) }]]);
   const state = { resolves: [] as { repository: string; token: string | null }[], fetches: [] as { repository: string; token: string | null }[], active: 0, maxActive: 0,
     gate: null as null | ReturnType<typeof deferred>, unavailable: false, fetchFailure: null as null | Error, checkoutFailure: null as null | Error, settleDelayMs: 0,
-    events: [] as string[], onResolve: null as null | ((token: string | null) => void) };
+    events: [] as string[], onResolve: null as null | ((token: string | null) => void), tokens: new Set<string | null>([TOKEN]),
+    /** Holds one fetch until the returned promise settles, so concurrent operations can be released one at a time. */
+    hold: null as null | ((call: { repository: string; token: string | null }) => Promise<void> | undefined) };
   const transport: ReferenceTransport = {
     async resolve({ repository, token }) {
       state.resolves.push({ repository: repository.canonical, token });
       state.onResolve?.(token);
       if (state.unavailable) return { ok: false, reason: "unavailable", detail: "fixture network unavailable" };
       const repo = repos.get(repository.canonical);
-      if (!repo || (repo.private && token !== TOKEN)) return { ok: false, reason: "denied", detail: "fatal: repository not found" };
+      if (!repo || (repo.private && !state.tokens.has(token))) return { ok: false, reason: "denied", detail: "fatal: repository not found" };
       return { ok: true, commit: repo.tip, ref: "refs/heads/main" };
     },
     async fetch({ repository, token, root: target, signal }) {
       state.fetches.push({ repository: repository.canonical, token });
       state.active++; state.maxActive = Math.max(state.maxActive, state.active);
       try {
-        if (state.gate) await Promise.race([state.gate.promise, new Promise<void>((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
+        const aborted = () => new Promise<void>((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }));
+        if (state.gate) await Promise.race([state.gate.promise, aborted()]);
+        const held = state.hold?.({ repository: repository.canonical, token });
+        if (held) await Promise.race([held, aborted()]);
         if (state.fetchFailure) throw state.fetchFailure;
         const repo = repos.get(repository.canonical)!;
         writeFileSync(join(target, "README.md"), `${repository.canonical}@${repo.tip}\n`);
@@ -60,12 +65,12 @@ function scripted() {
   return { repos, state, transport };
 }
 
-function service(options: { limits?: Record<string, number>; capacityRoots?: number } = {}) {
+function service(options: { limits?: Record<string, number>; capacityRoots?: number; credentials?: Record<string, string> } = {}) {
   const fixture = scripted();
   const pool = referencePoolDouble(join(root, "pool"), { capacityRoots: options.capacityRoots });
   const originalRelease = pool.poolRelease;
   pool.poolRelease = async (id, signal) => { fixture.state.events.push(`release:${id}`); return originalRelease(id, signal); };
-  const sources = createReferenceSources({ db, pool, transport: fixture.transport, brain: BRAIN, credentials: { BRAIN_UI_SYNC_GITHUB_TOKEN: TOKEN },
+  const sources = createReferenceSources({ db, pool, transport: fixture.transport, brain: BRAIN, credentials: { BRAIN_UI_SYNC_GITHUB_TOKEN: TOKEN, ...options.credentials },
     limits: options.limits, now: () => clock });
   return { ...fixture, pool, sources };
 }
@@ -101,6 +106,45 @@ describe("authority and sharing domains", () => {
     expect(sources.views(eurycleia.id).private).toBe(theirs.viewPath);
     await expect(sources.request({ principalId: penelope.id, repository: PRIVATE, revision: "main" }), "REFERENCE_SOURCE_PRINCIPAL_SUBSTITUTION_REFUSED")
       .rejects.toMatchObject({ code: "unauthorized" });
+  });
+
+  test("concurrent requests for one private repository by two principals run as separate operations in their own domains", async () => {
+    const SECOND = "fixture-reference-token-eurycleia";
+    const { sources, state } = service({ credentials: { BRAIN_UI_SKILLS_GITHUB_TOKEN: SECOND } });
+    state.tokens.add(SECOND);
+    const penelope = owner(), telemachus = agent(penelope.id), eurycleia = agent(penelope.id, "Eurycleia");
+    grant(telemachus.id, penelope.id); grant(eurycleia.id, penelope.id, undefined, "BRAIN_UI_SKILLS_GITHUB_TOKEN");
+    // Each principal's fetch is held by its own gate, keyed by the credential it carries.
+    const gates = new Map([[TOKEN, deferred()], [SECOND, deferred()]]);
+    state.hold = ({ token }) => token === null ? undefined : gates.get(token)?.promise;
+    let theirsSettled = false;
+    const mine = sources.request({ principalId: telemachus.id, repository: PRIVATE, revision: "main" });
+    const theirs = sources.request({ principalId: eurycleia.id, repository: PRIVATE, revision: "main" }).finally(() => { theirsSettled = true; });
+    try {
+      await Bun.sleep(10);
+      // The first fetch is still in flight when the second principal asks: both run, each under its own principal's credential.
+      expect(state.fetches.filter(call => call.repository === PRIVATE).map(call => call.token).sort(), "REFERENCE_SOURCE_PRIVATE_CONCURRENT_NOT_JOINED")
+        .toEqual([SECOND, TOKEN].sort());
+      expect(sources.activity()).toEqual({ active: 2, waiting: 0 });
+      gates.get(TOKEN)!.resolve();
+      const first = await mine;
+      await Bun.sleep(10);
+      expect(theirsSettled, "REFERENCE_SOURCE_PRIVATE_NOT_SETTLED_BY_OTHER_DOMAIN").toBe(false);
+      gates.get(SECOND)!.resolve();
+      const second = await theirs;
+      expect([first.domain, second.domain]).toEqual(["private", "private"]);
+      expect(second.view, "REFERENCE_SOURCE_PRIVATE_CONCURRENT_DOMAINS_ISOLATED").not.toBe(first.view);
+      expect(second.rootId).not.toBe(first.rootId);
+      expect(first.viewPath, "REFERENCE_SOURCE_PRIVATE_LEASE_IN_OWN_VIEW").toBe(sources.views(telemachus.id).private!);
+      expect(second.viewPath, "REFERENCE_SOURCE_PRIVATE_LEASE_IN_OWN_VIEW").toBe(sources.views(eurycleia.id).private!);
+      expect(read(first)).toBe(`${PRIVATE}@${"2".repeat(40)}`);
+      expect(read(second)).toBe(`${PRIVATE}@${"2".repeat(40)}`);
+      expect((db.query("SELECT domain FROM reference_sources ORDER BY domain").all() as { domain: string }[]).map(source => source.domain).filter(domain => domain !== "public"))
+        .toEqual([`private:${telemachus.id}`, `private:${eurycleia.id}`].sort());
+    } finally {
+      for (const gate of gates.values()) gate.resolve();
+      await Promise.allSettled([mine, theirs]);
+    }
   });
 
   test("a configured host credential alone never authorizes private access", async () => {
@@ -221,6 +265,36 @@ describe("admission, cancellation and eviction", () => {
     const resolves = state.resolves.length;
     await Promise.all(Array.from({ length: 12 }, () => sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" })));
     expect(state.resolves.length, "REFERENCE_SOURCE_READERS_UNCAPPED").toBe(resolves);
+  });
+
+  test("an admitted acquisition completes and publishes while an older one is still stalled", async () => {
+    const { sources, state } = service();
+    const penelope = owner();
+    const ARGO = "https://github.com/odysseus/argo";
+    const gates = new Map([[PUBLIC, deferred()], [ARGO, deferred()]]);
+    state.hold = ({ repository }) => gates.get(repository)?.promise;
+    let stalledSettled = false;
+    const stalled = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" }).finally(() => { stalledSettled = true; });
+    // The stalled acquisition is admitted first, so it is the oldest active operation.
+    await Bun.sleep(5);
+    const moving = sources.request({ principalId: penelope.id, repository: ARGO, revision: "main" });
+    try {
+      await Bun.sleep(10);
+      expect(sources.activity()).toEqual({ active: 2, waiting: 0 });
+      gates.get(ARGO)!.resolve();
+      const lease = await Promise.race([moving, Bun.sleep(1_000).then(() => null)]);
+      expect(lease, "REFERENCE_SOURCE_INDEPENDENT_PROGRESS").not.toBeNull();
+      expect(read(lease!), "REFERENCE_SOURCE_INDEPENDENT_PROGRESS_PUBLISHED").toBe(`${ARGO}@${"3".repeat(40)}`);
+      expect(stalledSettled, "REFERENCE_SOURCE_STALLED_STILL_RUNNING").toBe(false);
+      expect(state.active).toBe(1);
+      expect(sources.activity()).toEqual({ active: 1, waiting: 0 });
+      gates.get(PUBLIC)!.resolve();
+      expect(read(await stalled)).toBe(`${PUBLIC}@${"1".repeat(40)}`);
+      expect(sources.activity()).toEqual({ active: 0, waiting: 0 });
+    } finally {
+      for (const gate of gates.values()) gate.resolve();
+      await Promise.allSettled([stalled, moving]);
+    }
   });
 
   test("a full admission queue refuses instead of growing", async () => {

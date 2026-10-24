@@ -105,6 +105,10 @@ refreshes run across the host
 (`admit`, `packages/ui-server/src/brain/reference-source.ts:227-242`). Requests
 for the same source in the same domain join one operation
 (`function join`, `packages/ui-server/src/brain/reference-source.ts:245-270`).
+Each principal's private source is its own domain, so two principals requesting
+the same private repository at once run two operations, each with its own
+credential and view. Admitted operations finish independently: a stalled one
+holds only its own slot.
 At most 64 distinct operations wait; beyond that a request is refused as busy.
 A requester that cancels leaves its operation, and the operation is cancelled
 when its last requester leaves. Readers are never admitted operations: a request
