@@ -23,11 +23,11 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:196-197`).
   The runtime ticks every minute (`INBOX_TICK_MS`, `packages/ui-server/src/inbox/runtime.ts:11-13`).
 - Production app wiring supplies recovery and budgets, without a dispatcher
-  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:483-499`).
+  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:485-501`).
   A scripted nonempty ready-item test still reports no claim, attempt or
   Activity root. That proves disabled wiring, not safe execution of a schedule.
 - Headless plumbing checks backend support, a usable principal, lifetime and
-  reservation ownership (`runAutonomousTurn`, `packages/ui-server/src/inbox/autonomous-turn.ts:105-142`).
+  reservation ownership (`runAutonomousTurn`, `packages/ui-server/src/inbox/autonomous-turn.ts:108-145`).
   Capability flags and these checks do not prove credential/configuration,
   filesystem or egress containment at the actual backend boundary.
 - The generic core runner has a different interface
@@ -127,7 +127,7 @@ is not overwritten or reclassified silently: validate ownership before creating 
 The reserved directory is excluded from ordinary content taxonomy/index scans
 by the implementing core path, while schedule parsing remains explicit.
 It does not add a compile-time document-type union. Today the Markdown scanner
-only applies taxonomy exclusions (`getMarkdownFiles`, `packages/core/src/lib/indexer/scan.ts:21-30`);
+only applies taxonomy exclusions (`getMarkdownFiles`, `packages/core/src/lib/indexer/scan.ts:22-31`);
 this record does not claim it already excludes the new namespace. Rebuilding
 `brain.db` cannot erase definitions or recreate approvals/occurrences.
 
