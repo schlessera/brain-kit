@@ -65,6 +65,10 @@ try {
         ...(scenario === "posture" && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" as const }; },
           async proposePolicyChange() { throw new Error("Unused fixture capability"); },
+          // The local CLI replays turn 0's MCP roster on resume, so the assembled roster is held as well.
+          ...(scenario === "reference" ? { activity(event: { kind: string; prefix?: { tools: string | null } }) {
+            if (event.kind === "prompt_prefix") (capture.rosters ??= []).push(event.prefix!.tools);
+          } } : {}),
           // The second turn has no host handler: the tool refuses, and the roster must not change.
           ...(scenario === "reference" && turnIndex !== 1 ? { async referenceAccess(call: ReferenceToolCall) {
             (capture.calls ??= []).push(call);

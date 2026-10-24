@@ -746,12 +746,14 @@ describe("bridge-capability tool registration", () => {
         brain: createBrainAccess(brain.root),
         turn,
         lock: toolLockFromKeyed(createKeyedLock()),
-        capabilities: { location: true, activity: true, mask: true },
+        capabilities: { location: true, activity: true, mask: true, inbox: true, reference: true },
       });
       expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {
-        expect(TOOL_RISK[t.name]).toBeDefined();
+        expect(TOOL_RISK[t.name], `TOOL_RISK_CLASSIFIES ${t.name}`).toBeDefined();
       }
+      // Shared source only reads; a worktree action changes host state (#2432).
+      expect({ source: TOOL_RISK.reference_source, worktree: TOOL_RISK.reference_worktree }, "TOOL_RISK_REFERENCE").toEqual({ source: "read", worktree: "mutate" });
       expect(TOOL_RISK.read_file).toBe("read");
       expect(TOOL_RISK.write_file).toBe("mutate");
       expect(TOOL_RISK.bash).toBe("mutate");

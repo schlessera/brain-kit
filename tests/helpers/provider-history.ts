@@ -18,6 +18,8 @@ export interface HistoryCapture {
   voiceRefusal?: { message: string; before: number; after: number };
   /** Host calls a backend's reference tools made, as the host received them (#2432). */
   calls?: unknown[];
+  /** Digests of the tool roster a backend assembled for each turn, where the client may replay an earlier one. */
+  rosters?: (string | null)[];
 }
 export type Captures = Record<string, HistoryCapture>;
 

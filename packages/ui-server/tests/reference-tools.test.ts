@@ -144,6 +144,11 @@ describe("managed worktrees", () => {
     expect(Date.parse(renewed.worktree.lastActivityAt), "REFERENCE_TOOLS_RENEW_MOVES_CLOCK").toBe(clock);
     const listed = ok<Extract<ReferenceToolResult, { worktrees: unknown }>>(await current.call(worktree({ action: "list" })));
     expect(listed.worktrees.map(item => item.id)).toEqual([id]);
+    // Another turn of the same principal sees the worktree, but its workers cannot reach it.
+    const elsewhere = await turn(penelope.id);
+    expect(ok<Extract<ReferenceToolResult, { worktrees: unknown }>>(await elsewhere.call(worktree({ action: "list" }))).worktrees[0]!.path,
+      "REFERENCE_TOOLS_PATH_NEEDS_THIS_GENERATION").toBeNull();
+    expect(await elsewhere.call(worktree({ action: "access", worktreeId: id })), "REFERENCE_TOOLS_HELD_ELSEWHERE_BUSY").toMatchObject({ ok: false, code: "busy" });
     const released = ok<Extract<ReferenceToolResult, { worktree: unknown }>>(await current.call(worktree({ action: "release", worktreeId: id })));
     expect(released.worktree, "REFERENCE_TOOLS_RELEASED_HAS_NO_PATH").toMatchObject({ state: "released", path: null });
     expect(await current.call(worktree({ action: "access", worktreeId: id })), "REFERENCE_TOOLS_RELEASE_IS_FINAL").toMatchObject({ ok: false, code: "released" });

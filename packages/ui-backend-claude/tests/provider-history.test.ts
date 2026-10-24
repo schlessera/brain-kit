@@ -80,6 +80,14 @@ test("title traffic is suppressed only by the explicit disable-nonessential flag
 // every turn, while the host's lifecycle answer and the sandbox views change.
 test("Claude reference tools dispatch to the host and keep tools, system and history stable across the worktree lifecycle", () => {
   const capture = captures.reference!;
+  // Against a local endpoint the CLI replays turn 0's MCP roster on resume, as it
+  // does the system prompt, so the roster brain-kit assembles is held as well.
+  expect(capture.rosters, "REFERENCE_TOOLS_CLAUDE_ASSEMBLED_ROSTER_STABLE").toEqual([capture.rosters![0], capture.rosters![0], capture.rosters![0]]);
+  expect(capture.rosters![0]).toMatch(/^[a-f0-9]{64}$/);
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "REFERENCE_TOOLS_CLAUDE_TOOLS_STABLE");
+    identical(system(a), system(b), "REFERENCE_TOOLS_CLAUDE_SYSTEM_STABLE");
+  }
   expect(capture.sessions).toHaveLength(3);
   expect(new Set(capture.sessions).size).toBe(1);
   expect(main(capture).map(e => e.turn), "REFERENCE_TOOLS_CLAUDE_EVERY_TURN_CALLS").toEqual([0, 0, 1, 1, 2, 2]);
@@ -91,7 +99,7 @@ test("Claude reference tools dispatch to the host and keep tools, system and his
   // The newest message of each request carries that turn's tool result.
   const latest = results.map(exchange => JSON.stringify(messages(exchange).at(-1)));
   expect(latest.map(text => text.includes('"is_error":true')), "REFERENCE_TOOLS_CLAUDE_NO_HANDLER_REFUSES").toEqual([false, true, false]);
-  expect(latest[1]).toContain("no available host handler");
+  expect(latest[1], "REFERENCE_TOOLS_CLAUDE_NO_HANDLER_REASON").toContain("no available host handler");
   expect(main(capture)[5]!.raw).toContain('\\"state\\":\\"released\\"');
   for (const [a, b] of pairs(capture)) {
     identical(body(a).tools, body(b).tools, "REFERENCE_TOOLS_CLAUDE_TOOLS_STABLE");

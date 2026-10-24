@@ -56,6 +56,10 @@ test("Pi voice is refused before inference (#2048)", () => {
 // route on every turn, while the host's lifecycle answer changes.
 test("Pi reference tools dispatch to the host and keep tools, system and history stable across the worktree lifecycle", () => {
   const capture = captures.reference!;
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "REFERENCE_TOOLS_PI_TOOLS_STABLE");
+    identical(system(a), system(b), "REFERENCE_TOOLS_PI_SYSTEM_STABLE");
+  }
   expect(capture.sessions).toHaveLength(3);
   expect(new Set(capture.sessions).size).toBe(1);
   expect(main(capture).map(e => e.turn), "REFERENCE_TOOLS_PI_EVERY_TURN_CALLS").toEqual([0, 0, 1, 1, 2, 2]);

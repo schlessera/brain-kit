@@ -21,7 +21,9 @@ export function registerReferenceTools(server: ReturnType<typeof createSdkMcpSer
   observe?: (name: string, description: string, schema: z.ZodObject) => void) {
   const tools = createReferenceTools(bridge);
   REFERENCE_TOOL_CONTRACTS.forEach((contract, index) => {
-    observe?.(contract.name, contract.description, contract.input);
-    server.registerTool(contract.name, { description: contract.description, inputSchema: contract.input, _meta: { "anthropic/alwaysLoad": true } }, tools[index]!.handler);
+    // One definition feeds both the observed roster and the registration.
+    const definition = { description: contract.description, inputSchema: contract.input, _meta: { "anthropic/alwaysLoad": true } };
+    observe?.(contract.name, definition.description, definition.inputSchema);
+    server.registerTool(contract.name, definition, tools[index]!.handler);
   });
 }
