@@ -1,13 +1,14 @@
 /** Complete operational backup. Content Markdown and brain.db are never opened. */
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { brainApplicationInput } from "@schlessera/brain-ui-sdk/server";
 import { COMPLETE_SHARE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
+import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
 import { pauseRestoredSchedules, validateScheduleRelations } from "../schedules/recovery.js";
 import { invalidateRestoredStorage, parseStoredHistory } from "../storage/history-store.js";
@@ -43,23 +44,57 @@ function encode(bytes: Uint8Array): z.infer<typeof bytesSchema> {
   return { data: Buffer.from(bytes).toString("base64"), sha256: hash(bytes) };
 }
 function image(db: Database): Buffer {
-  const bytes = db.transaction(() => db.serialize())();
   // sqlite3_deserialize cannot open WAL images. Normalize only this copy, as
   // documented by https://www.sqlite.org/c3ref/deserialize.html; live WAL stays intact.
-  bytes[18] = bytes[19] = 1;
-  return bytes;
+  const normalized = (bytes: Buffer) => { bytes[18] = bytes[19] = 1; return bytes; };
+  return db.transaction(() => {
+    const bytes = normalized(db.serialize());
+    const journal = journalAttached(db) ? db.query(`SELECT type, name, sql FROM ${JOURNAL_SCHEMA}.sqlite_schema WHERE name GLOB 'turn_journal_*' AND sql IS NOT NULL ORDER BY rowid`).all() as { type: string; name: string; sql: string }[] : [];
+    if (!journal.length) return bytes;
+    // The whole UI database includes the journal's own file (#2789). It
+    // travels in the image's UI database, where releases before the split
+    // kept it; a restored database moves it out again on its first start.
+    const copy = Database.deserialize(bytes);
+    try {
+      copy.exec("PRAGMA foreign_keys = OFF");
+      copy.transaction(() => {
+        for (const row of journal) if (row.type === "table") {
+          copy.exec(row.sql);
+          const columns = (db.query(`SELECT name FROM pragma_table_info(?, '${JOURNAL_SCHEMA}')`).all(row.name) as { name: string }[]).length;
+          const insert = copy.prepare(`INSERT INTO "${row.name}" VALUES (${Array(columns).fill("?").join(",")})`);
+          for (const values of db.query(`SELECT * FROM ${JOURNAL_SCHEMA}."${row.name}" ORDER BY rowid`).values()) insert.run(...values as never[]);
+        }
+        for (const row of journal) if (row.type !== "table") copy.exec(row.sql);
+      })();
+      return normalized(copy.serialize());
+    } finally { copy.close(); }
+  })();
 }
-function schema(db: Database): unknown[] {
-  return db.query("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all();
+type SchemaRow = { type: string; name: string; tbl_name: string; sql: string | null };
+const journalAttached = (db: Database) => (db.query("PRAGMA database_list").all() as { name: string }[]).some(row => row.name === JOURNAL_SCHEMA);
+/** Recovery commands open the UI file directly; its journal file, once it exists, belongs to it. */
+function attachJournalFile(db: Database): void {
+  if (journalAttached(db) || !db.filename || db.filename === ":memory:") return;
+  const path = journalDatabasePath(db.filename);
+  if (existsSync(path)) db.query(`ATTACH DATABASE ? AS ${JOURNAL_SCHEMA}`).run(path);
+}
+/** The live layout keeps the journal in its own file; an image keeps it with the UI database. */
+function schema(db: Database, journal = false): unknown[] {
+  const rows = db.query("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all() as SchemaRow[];
+  if (journal && journalAttached(db)) rows.push(...db.query(`SELECT type, name, tbl_name, sql FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE name GLOB 'turn_journal_*'`).all() as SchemaRow[]);
+  return rows.sort((a, b) => a.type === b.type ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) : a.type < b.type ? -1 : 1);
 }
 function logicalState(db: Database): unknown[] {
-  const tables = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'inbox_recovery_state' ORDER BY name").all() as { name: string }[];
-  return tables.map(({ name }) => [name, db.query(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all()]);
+  const tables = db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'inbox_recovery_state'").all() as { name: string }[];
+  // Either layout: the journal's tables in the UI database, or moved into its own file.
+  if (journalAttached(db)) tables.push(...db.query(`SELECT name FROM ${JOURNAL_SCHEMA}.sqlite_master WHERE type = 'table' AND name GLOB 'turn_journal_*'`).all() as { name: string }[]);
+  return tables.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    .map(({ name }) => [name, db.query(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all()]);
 }
 function validateDatabase(db: Database): void {
   const expected = createUiDb(":memory:");
   try {
-    if (JSON.stringify(schema(db)) !== JSON.stringify(schema(expected)) ||
+    if (JSON.stringify(schema(db, true)) !== JSON.stringify(schema(expected, true)) ||
         JSON.stringify(db.query("SELECT filename FROM _migrations ORDER BY filename").all()) !==
         JSON.stringify(expected.query("SELECT filename FROM _migrations ORDER BY filename").all()))
       throw new Error("inbox_snapshot_schema");
@@ -252,6 +287,7 @@ function checkStaging(db: Database, staging: Pick<InboxBackup, "directories" | "
   }
 }
 export async function exportInboxSnapshot(db: Database, brainRoot: string, at = Date.now()): Promise<InboxBackup> {
+  attachJournalFile(db);
   assertInboxRecoveryReady(db);
   const database = image(db), copy = Database.deserialize(database);
   try {
@@ -298,7 +334,10 @@ export async function writeInboxSnapshot(db: Database, brainRoot: string, path: 
   const requested = resolve(path), sourcePath = resolve(db.filename), staging = await stagingRoot(brainRoot);
   const target = join(await realpath(dirname(requested)), basename(requested));
   const sources = [join(await realpath(dirname(sourcePath)), basename(sourcePath)), await realpath(sourcePath)];
-  if (sources.flatMap(source => [source, `${source}-wal`, `${source}-shm`, `${source}-journal`]).includes(target) ||
+  // The journal file and whatever it links to are live state too.
+  const journals = [...new Set(sources.flatMap(source => [`${source}.journal.db`, journalDatabasePath(source)]))];
+  const physicalJournals = await Promise.all(journals.map(path => realpath(path).catch(() => path)));
+  if ([...sources, ...journals, ...physicalJournals].flatMap(source => [source, `${source}-wal`, `${source}-shm`, `${source}-journal`]).includes(target) ||
       target === staging || target.startsWith(staging + sep))
     throw new Error("inbox_snapshot_destination");
   const snapshot = await exportInboxSnapshot(db, brainRoot);
@@ -315,6 +354,7 @@ export async function restoreInboxSnapshot(input: unknown, dbPath: string, brain
       if (!(await lstat(target)).isFile()) throw new Error("inbox_restore_nonempty");
       const existing = new Database(target, { readwrite: true });
       try {
+        attachJournalFile(existing);
         const state = existing.query("SELECT * FROM inbox_recovery_state WHERE id = 1").get() as { status: string; snapshot_checksum: string; brain_root: string } | null;
         if (state?.status !== "pending" || state.snapshot_checksum !== snapshot.checksum || state.brain_root !== brain)
           throw new Error("inbox_restore_nonempty");
@@ -325,7 +365,8 @@ export async function restoreInboxSnapshot(input: unknown, dbPath: string, brain
       db.close(); db = existing; resumed = true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      for (const suffix of ["-wal", "-shm", "-journal"]) {
+      // A journal file left beside the target would pair another installation's history with this one.
+      for (const suffix of ["-wal", "-shm", "-journal", ".journal.db", ".journal.db-wal", ".journal.db-shm"]) {
         try { await lstat(target + suffix); throw new Error("inbox_restore_nonempty"); }
         catch (sidecarError) { if ((sidecarError as NodeJS.ErrnoException).code !== "ENOENT") throw sidecarError; }
       }

@@ -20,7 +20,7 @@ to this one v1. A smaller non-autonomous release does not meet this outcome.
 Markdown owns brain content, including the existing hygiene finding log.
 `brain.db` remains disposable. Claims, leases, checkpoints, reservations,
 resolution records and stream cursors belong to the UI server's operational
-store (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`). They are not
+store (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`). They are not
 an alternate authoritative content index. A checkpoint is append-only history;
 `state_md` is a bounded projection for prompting. Server-owned columns retain
 trust and provenance even when a model compacts that projection.

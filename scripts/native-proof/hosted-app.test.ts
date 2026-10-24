@@ -324,6 +324,8 @@ print(json.dumps(result))`;
         writeFileSync(join(ARTIFACTS, "worker-authority.json"), JSON.stringify({maintenance: maintenanceAuthority, agents: [1,2,3].map(attempt => JSON.parse(readFileSync(join(brain, `.brain/worker-authority-${attempt}.json`), "utf8")))}, null, 2));
         const db = new Database(join(dir, "ui.db"), { readonly: true });
         try {
+          // The turn journal has its own file beside the UI database (#2789).
+          db.query("ATTACH DATABASE ? AS journal").run(join(dir, "ui.db.journal.db"));
           expect(db.query("SELECT count(*) AS count FROM writer_gate").get(), "NORMAL_CLOSE_RELEASED_WRITER_GATE").toEqual({ count: 0 });
           expect(db.query("SELECT count(*) AS count FROM turn_journal_reservations").get(), "NORMAL_CLOSE_RELEASED_CAS_RESERVATIONS").toEqual({ count: 0 });
         } finally { db.close(); }
