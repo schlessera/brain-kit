@@ -3,7 +3,7 @@
  * proof is `tests/autonomous-containment.test.ts`; this pins the assembly the
  * proof exercises, including the refusals that never reach a worker.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,10 +12,30 @@ import { createClaudeSdkTurn } from "../src/sdk-options.js";
 
 const brains: string[] = [];
 const finishers: Array<() => Promise<void>> = [];
-afterEach(async () => {
-  for (const finish of finishers.splice(0)) await finish();
-  for (const brain of brains.splice(0)) rmSync(brain, { recursive: true, force: true });
+const credentialKeys = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
+const previousCredentials = new Map<string, string | undefined>();
+beforeEach(() => {
+  for (const key of credentialKeys) previousCredentials.set(key, process.env[key]);
 });
+afterEach(async () => {
+  try {
+    for (const finish of finishers.splice(0)) await finish();
+  } finally {
+    try {
+      for (const brain of brains.splice(0)) rmSync(brain, { recursive: true, force: true });
+    } finally {
+      for (const [key, value] of previousCredentials) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+      previousCredentials.clear();
+    }
+  }
+});
+
+function ambientCredential(key: string) {
+  for (const name of credentialKeys) delete process.env[name];
+  if (key !== "none") process.env[key] = "sk-odysseus-fixture";
+}
 
 function turn(profile: { billing?: "api" | "subscription"; env: Record<string, string> }, allowedTools = ["Bash", "mcp__brain-ui__show_block"],
   containment: "restricted" | "none" = "restricted", workerProviderMasks?: { folders: string[]; index: string }) {
@@ -27,7 +47,9 @@ function turn(profile: { billing?: "api" | "subscription"; env: Record<string, s
       bridge: { emit: () => {}, checkpointPermission: () => {}, requestPermission: async () => ({ behavior: "deny", message: "no" }) },
       autonomous: { origin: "autonomous", persistence: "none", ...(containment === "restricted" ? { containment } : {}), allowedTools, systemPromptAppend: "Server snapshot." },
       ...(workerProviderMasks ? { workerProviderMasks } : {}) } as never,
-    profile: { id: "fixture", label: "Fixture", requiredEnvKeys: [], billing: profile.billing, buildEnv: () => profile.env } as never,
+    profile: { id: "fixture", label: "Fixture", requiredEnvKeys: [], billing: profile.billing,
+      // Override admitted host credentials before applying this fixture's own.
+      buildEnv: () => ({ ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: "", CLAUDE_CODE_OAUTH_TOKEN: "", ...profile.env }) } as never,
     abortController: new AbortController(),
     allowedTools,
     confirmPatterns: [],
@@ -68,6 +90,7 @@ describe("autonomous Claude envelope", () => {
   });
 
   test("the worker environment holds a placeholder and the relay route, never the credential or host variables", () => {
+    const previous = process.env.ODYSSEUS_HOST_ONLY;
     process.env.ODYSSEUS_HOST_ONLY = "host-only";
     try {
       const { options, pinnedSettingsEnv } = turn({ billing: "api", env: { ANTHROPIC_API_KEY: "sk-odysseus-real", ANTHROPIC_BASE_URL: "https://api.example" } });
@@ -81,7 +104,9 @@ describe("autonomous Claude envelope", () => {
       expect(env.HOME).toBeUndefined();
       // Flag settings pin the same route, so no settings tier can reroute it.
       expect(options.settings).toMatchObject({ apiKeyHelper: "", env: pinnedSettingsEnv });
-    } finally { delete process.env.ODYSSEUS_HOST_ONLY; }
+    } finally {
+      if (previous === undefined) delete process.env.ODYSSEUS_HOST_ONLY; else process.env.ODYSSEUS_HOST_ONLY = previous;
+    }
   });
 
   test("a subscription turn crosses only with an explicit OAuth token, held by the relay", () => {
@@ -89,14 +114,21 @@ describe("autonomous Claude envelope", () => {
     const env = options.env as Record<string, string>;
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(INFERENCE_PLACEHOLDER);
     expect(env.ANTHROPIC_API_KEY).toBe("");
-    expect(() => turn({ env: {} })).toThrow("need CLAUDE_CODE_OAUTH_TOKEN");
   });
 
   const relayDirs = () => new Set(readdirSync(tmpdir()).filter(name => name.startsWith("brain-inference-")));
 
-  test("an API profile without a credential refuses before a relay or worker exists", () => {
+  test.each(["none", ...credentialKeys])("an API profile without a credential refuses before a relay or worker exists (ambient %s)", key => {
+    ambientCredential(key);
     const before = relayDirs();
     expect(() => turn({ billing: "api", env: {} })).toThrow("has no inference credential");
+    expect([...relayDirs()].filter(name => !before.has(name))).toEqual([]);
+  });
+
+  test.each(["none", ...credentialKeys])("a subscription profile without a token refuses before a relay or worker exists (ambient %s)", key => {
+    ambientCredential(key);
+    const before = relayDirs();
+    expect(() => turn({ env: {} })).toThrow("need CLAUDE_CODE_OAUTH_TOKEN");
     expect([...relayDirs()].filter(name => !before.has(name))).toEqual([]);
   });
 
