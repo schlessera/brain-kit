@@ -140,7 +140,7 @@ starts `This turn cannot start: the governance policy's provider rules
 hide` and ends with `Start a new conversation; the saved one is kept
 unchanged.` A `handoff_prepare` for such a chat fails in the existing
 `handoff_draft` envelope, as it does whenever the policy has a type selector. Saved memory and transcripts stay byte-identical.
-The lineage is host-internal (migration 063); no schema, CLI `--json` shape,
+The lineage is host-internal (migration 064); no schema, CLI `--json` shape,
 MCP tool, wire frame or HTTP route changes. This is a maintainer-ruled
 availability reduction for provider-denied turns, recorded in the
 [G2 decision](decisions/governed-writable-workers.md#data-to-provider-routing-g2).

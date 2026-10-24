@@ -1999,7 +1999,7 @@ every turn without a proven recipient:
     contributing turn (`lineages`,
     `packages/ui-server/src/brain/governed-turn.ts:158-167`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
-    migration 063, `narrowMasked`,
+    migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
     only for a genuinely fresh conversation whose first turn masked folders,
     or for a handoff from a conversation that has one, which starts from what
