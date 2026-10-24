@@ -230,9 +230,10 @@ export function providerMaskMounts(brain: string, view: string, masks: WorkerPro
  * A one-shot directory handle on the gated worker's own view of the brain,
  * from the host identity broker (#2696). Across UIDs, `/proc/<pid>/root`
  * refuses the server; the handle replaces it. `close` returns it to the
- * broker, which refuses to release the start gate while it is held.
+ * broker, which refuses to release the start gate while it is held. Both
+ * broker requests are steps, so an asynchronous launch awaits them (#2844).
  */
-export interface WorkerBrainView { open(): number; close(): void }
+export interface WorkerBrainView { open(): WorkerSteps<number>; close(): WorkerSteps<void> }
 
 interface MountRecord { readonly id: string; readonly parent: string; readonly point: string }
 function mountRecords(pid: number): MountRecord[] {
@@ -289,11 +290,11 @@ export function* verifyWorkerFolderMountsSteps(brain: string, protection: Worker
     protectedWorkerMounts(brain, protection!, retainedFolders);
     let handle: number | undefined;
     try {
-      handle = view?.open();
+      handle = view ? yield* view.open() : undefined;
       if (handle !== undefined) requireWorkerBrainMount(handle, pid, brain);
       verifyMountedFolders(handle === undefined ? `/proc/${pid}/root${brain}` : `/proc/self/fd/${handle}`, qualified, masks);
     } finally {
-      try { if (handle !== undefined) closeSync(handle); } finally { view?.close(); }
+      try { if (handle !== undefined) closeSync(handle); } finally { if (view) yield* view.close(); }
     }
     if (identity() !== started) throw new Error("worker identity changed");
   } catch (error) {

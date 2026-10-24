@@ -39,13 +39,24 @@ export function workerStepSpawn(command: string[], options: WorkerStepSpawnOptio
   });
 }
 
-/** Run a short command to its end, keeping what it wrote to stderr; its stdout is discarded. */
-export function workerStepRun(command: string[]): WorkerSteps<{ exitCode: number | null; stderr: string }> {
+/** What a short command may be given besides its argv; both spawn forms accept it. */
+export interface WorkerStepRunOptions {
+  readonly env?: Record<string, string>;
+  readonly stdin?: "ignore";
+  readonly timeout?: number;
+}
+
+/**
+ * Run a short command to its end, keeping what it wrote to stderr; its stdout
+ * is discarded. `exitCode` is null when a signal ended it, including the
+ * deadline's SIGTERM.
+ */
+export function workerStepRun(command: string[], options: WorkerStepRunOptions = {}): WorkerSteps<{ exitCode: number | null; stderr: string }> {
   return workerStep(() => {
-    const ran = Bun.spawnSync(command, { stdout: "ignore", stderr: "pipe" });
+    const ran = Bun.spawnSync(command, { ...options, stdout: "ignore", stderr: "pipe" });
     return { exitCode: ran.exitCode, stderr: ran.stderr.toString() };
   }, async () => {
-    const ran = Bun.spawn(command, { stdout: "ignore", stderr: "pipe" });
+    const ran = Bun.spawn(command, { ...options, stdout: "ignore", stderr: "pipe" });
     const [stderr] = await Promise.all([new Response(ran.stderr).text(), ran.exited]);
     return { exitCode: ran.exitCode, stderr };
   });
