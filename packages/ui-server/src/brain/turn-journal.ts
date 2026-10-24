@@ -9,6 +9,7 @@ import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
 import { referenceWorktreeJournalManager, referenceWorktreeJournalPath, REFERENCE_WORKTREE_JOURNAL_SCOPE, type ReferenceWorktreeCheckpointLedger,
   type ReferenceWorktreeJournalPool } from "./reference-worktree-journal.js";
+import { INDEX_DIR, INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
 import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,6 +17,23 @@ import { join } from "node:path";
 import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * The brain root's index database and its sidecars. Every host index refresh
+ * rewrites them whole, so summing each observed version would charge a turn
+ * the index's full size per refresh (#2831).
+ */
+const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY.map(name => `${INDEX_DIR}/${name}`));
+/**
+ * Maintenance publication stages each changed file as `.maintenance-<uuid>`
+ * beside its target, then renames it over the target (`const handle = { fd: preparationDirectory(brain, rel), name:`,
+ * `packages/ui-sdk/src/server/worker-native-output.ts:397`; `const temporary = at(handle.fd,`,
+ * `packages/ui-sdk/src/server/worker-output.ts:180`). Inside the index
+ * directory such a copy is the index refresh itself, already counted at its
+ * target. Only a copy a later observation saw removed is excluded: one that
+ * stays, whoever wrote it, counts like any other file.
+ */
+const hex = (count: number) => "[0-9a-f]".repeat(count);
+const INDEX_PUBLICATION_COPY = `${INDEX_DIR}/.maintenance-${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`;
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
@@ -293,14 +311,18 @@ export function createTurnJournal(db: Database, options: {
         publish(turnId);
         // Ignored versions have metadata but no content hash: count their largest
         // observed size once per path, independently of hashed changed versions.
+        // The disposable index is counted the same way, ignored or not. A host
+        // publication copy of it is no turn write once it is gone (#2831).
         const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes FROM (
-          SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1
+          SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1 AND NOT disposable
             AND json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash')
             THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS hashedBytes,
-          max(CASE WHEN json_extract(after_json,'$.kind')='file' AND json_extract(after_json,'$.ignored')=1
+          max(CASE WHEN json_extract(after_json,'$.kind')='file' AND (json_extract(after_json,'$.ignored')=1 OR disposable)
             THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS ignoredBytes
-          FROM turn_journal_changes WHERE turn_id=? GROUP BY path
-        )`).get(turnId) as { changedPaths: number; observedBytes: number };
+          FROM (SELECT *,path IN (SELECT value FROM json_each(?)) AS disposable FROM turn_journal_changes AS change
+            WHERE turn_id=? AND NOT (path GLOB ? AND (SELECT after_json FROM turn_journal_changes WHERE turn_id=change.turn_id
+              AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
+        )`).get(DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number };
         for (const observer of observers) observer(turnId, { ...facts, partial: summary(turnId).state === "partial" });
       }
       await observation.commit();
