@@ -13,6 +13,8 @@ export function deferredWorkerSpawn(start: (signal: AbortSignal) => Promise<{ pr
   const stdout = new PassThrough({ highWaterMark: 64 * 1024 });
   const events = new EventEmitter();
   let child: SpawnedProcess | undefined;
+  /** Whether the started child already reported its failure through its own error event. */
+  let childFailed = false;
   let killed = false, ended = false, exitCode: number | null = null, signalCode: NodeJS.Signals | null = null;
   const finish = (code: number | null, reason: NodeJS.Signals | null) => {
     if (ended) return;
@@ -37,7 +39,8 @@ export function deferredWorkerSpawn(start: (signal: AbortSignal) => Promise<{ pr
     signal.throwIfAborted();
     const started = await start(signal);
     child = started.process;
-    child.on("error", fail);
+    const childFail = (error: unknown) => { childFailed = true; fail(error); };
+    child.on("error", childFail);
     child.on("exit", finish);
     if (signal.aborted) abort();
     // Even a cancelled late result is owned until its native resources settle.
@@ -45,11 +48,12 @@ export function deferredWorkerSpawn(start: (signal: AbortSignal) => Promise<{ pr
     stdin.pipe(child.stdin); child.stdout.pipe(stdout);
     try { await started.settled; }
     finally {
-      child.off("error", fail); child.off("exit", finish);
+      child.off("error", childFail); child.off("exit", finish);
       finish(child.exitCode, child.signalCode ?? signalCode);
     }
   }).catch(error => {
-    if (!signal.aborted) fail(error);
+    // A failure the started child already reported is not reported twice.
+    if (!signal.aborted && !childFailed) fail(error);
     finish(signal.aborted ? null : 1, signal.aborted ? signalCode ?? "SIGKILL" : null);
     throw error;
   }).finally(() => {

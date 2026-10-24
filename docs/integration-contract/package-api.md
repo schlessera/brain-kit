@@ -15,6 +15,11 @@ caller's event loop. `workerHostBoundary` gains `probeAsync`, which answers
 through a replaced `probe`, so one test double still stands in for both.
 The synchronous exports are unchanged.
 
+Its `launchMaintenanceWorkerAsync` (#2790) likewise drives
+`launchMaintenanceWorker`'s steps: a separate-UID helper worker's setup is
+awaited instead of blocking. Everything before that first wait, the
+maintenance admission included, still runs when it is called.
+
 This is internal compatibility wiring under the internal-entry classification
 below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset.

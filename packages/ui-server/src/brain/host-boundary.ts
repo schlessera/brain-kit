@@ -26,7 +26,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { Logger } from "@opentelemetry/api-logs";
 import {
-  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorker, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
+  WorkerStateError, workerIdentityHelper, CREDENTIAL_FREE_ENV, HOST_GIT_CREDENTIAL_ENV, execWrapperSpawnOptions, prepareMaintenanceWorker, launchMaintenanceWorkerAsync, probeNativeMaintenanceWorker, restrictedReadPaths, runMaintenanceWorker, workerHostBoundary,
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
@@ -686,7 +686,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             kill(signal: NodeJS.Signals = "SIGTERM") { signalCode = signal; abort.abort(new Error(`sync killed by ${signal}`)); } };
         } catch (error) { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } throw error; }
       }
-      let worker: ReturnType<typeof launchMaintenanceWorker>;
+      let worker: Awaited<ReturnType<typeof launchMaintenanceWorkerAsync>>;
       let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
       let view: WorkerStartupView | undefined;
       let relay: ProviderRelay | undefined;
@@ -702,7 +702,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
         await prepareMaintenanceWorker(maintenance, execution.signal);
         execution.signal?.throwIfAborted();
-        worker = launchMaintenanceWorker(maintenance);
+        worker = await launchMaintenanceWorkerAsync(maintenance);
       }
       catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
@@ -717,6 +717,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
+      // An abort accepted while the launch was awaited still stops the worker.
+      if (execution.signal?.aborted) kill("SIGKILL");
       return retainExecutionAdmission({ stdout: worker.stdout, stderr: worker.stderr, exited, get signalCode() { return signalCode; }, kill }, credential);
     },
     runSync(execution) {

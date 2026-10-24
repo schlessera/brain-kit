@@ -29,7 +29,7 @@ test("Claude factory/module turns carry host exec to runtime probe and SDK worke
   process.env.CLAUDE_CONFIG_DIR = home;
   const commands: string[][] = [];
   const stop = new Error("controlled worker launch boundary");
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(input => {
+  const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async input => {
     commands.push([...input.command]);
     throw stop;
   });
@@ -88,7 +88,7 @@ test("an ordinary Claude worker refuses a nonregular host wrapper before any wor
   const root = mkdtempSync(join(tmpdir(), "odysseus-host-exec-dir-"));
   const helpers = join(root, "helpers"), linked = join(root, "linked");
   mkdirSync(helpers); symlinkSync(helpers, linked);
-  const launch = spyOn(worker, "launchAgentWorker");
+  const launch = spyOn(worker, "launchAgentWorkerAsync");
   try {
     for (const wrapper of [helpers, linked]) {
       expect(() => createWorkerSpawn(root, { wrapper }, new AbortController().signal), "CLAUDE_WORKER_WRAPPER_REGULAR")
