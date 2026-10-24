@@ -1,5 +1,5 @@
 /** Hosted turn admission and reconciliation; no repository code runs here. */
-import { lstatSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
@@ -9,7 +9,9 @@ import { protectedPaths } from "@schlessera/brain-common/internal/protected-path
 import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedInBoth, ProviderContinuationRefusedError, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, uncoveredFolders, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
-import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
+import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory, updatePrivateIndex } from "./private-index.js";
+import { createPrivateIndexCache, type PrivateIndexDiffer, type PrivateIndexOutcome } from "./private-index-cache.js";
+import { privateIndexArgv } from "./client.js";
 import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
 import { ensureIndexDirectory } from "./index-directory.js";
@@ -26,6 +28,8 @@ export interface GovernedTurnHold {
    * stage operations. Only such a turn runs on the turn egress proxy (#1665).
    */
   readonly managedStorage: boolean;
+  /** How the turn's private index was made: a clean build, or a reused or updated base (#2833). */
+  readonly privateIndex?: PrivateIndexOutcome;
   /** Call only once every worker has exited. Quarantine precedes gate release. */
   end(): Promise<Reconciliation | null>;
 }
@@ -79,8 +83,12 @@ export function createGovernedTurns(options: {
   recipientOrigins?: ReadonlyMap<string, string>;
   /** How long provider folder admission waits for an earlier writer to finish; default `PEER_FOLDER_PLAN_WAIT_MS`. */
   peerFolderPlanWaitMs?: number;
+  /** How two startup views are compared for private index reuse; default the native send delta. */
+  privateIndexDiffer?: PrivateIndexDiffer;
 }): GovernedTurns {
   const policyReader = governancePolicyReaderFor(options.brainPath);
+  const canonicalBrain = (() => { try { return realpathSync(options.brainPath); } catch { return options.brainPath; } })();
+  const privateIndexes = createPrivateIndexCache({ report: options.report, ...(options.privateIndexDiffer ? { differ: options.privateIndexDiffer } : {}) });
   let current: Promise<unknown> | undefined;
   let again = false;
   let closing = false;
@@ -97,7 +105,7 @@ export function createGovernedTurns(options: {
       const policy = policyReader.load();
       return { policyProfile: options.profile === "strict" ? "strict" : policy.policy.profiles[origin], policy };
     },
-    async close() { closing = true; again = false; await current; },
+    async close() { closing = true; again = false; await current; await privateIndexes.close(); },
     bindSession(turnId, sessionId) { options.exposures?.bind(turnId, sessionId); },
     exposures(sessionIds) { return options.exposures?.forSessions(sessionIds) ?? []; },
     unprovenHistory(sessionId) {
@@ -116,7 +124,7 @@ export function createGovernedTurns(options: {
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
       const hold = await gate.acquire("shared", `turn:${turnId}`, { signal, turn: true });
-      let startupView: WorkerStartupView | undefined, privateIndex: string | undefined;
+      let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, indexOutcome: PrivateIndexOutcome | undefined;
       const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
       try {
         startupView = await prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal);
@@ -222,9 +230,15 @@ export function createGovernedTurns(options: {
           const hardlinks = [...new Map(roots.flatMap(root => providerHardlinks(root, maskedFolders)).map(link => [link.path, link])).values()];
           if (hardlinks.length) throw ProviderPolicyRefusedError.hardlinks(hardlinks);
           privateIndex = createPrivateIndexDirectory();
-          const built = await buildPrivateIndex({ brainPath: options.brainPath, startupView: startupView!, folders: maskedFolders, index: privateIndex,
-            maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
-          if (!built.ok) options.report(`turn ${turnId} starts with an incomplete private search index: ${built.detail}`);
+          // Reused only when the base provably indexes to what a clean build
+          // of this final view would (#2833); otherwise built from nothing.
+          const run = { brainPath: options.brainPath, startupView: startupView!, folders: maskedFolders, index: privateIndex,
+            maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) };
+          indexOutcome = await privateIndexes.prepare({ startupView: startupView!, index: privateIndex, signal,
+            identity: { brain: canonicalBrain, policyHash: policy.hash, folders: maskedFolders, ...(recipient ? { recipient } : {}),
+              maskPaths: options.maskPaths, command: privateIndexArgv(options.brainPath, options.privateIndexCommand) },
+            build: () => buildPrivateIndex(run), update: () => updatePrivateIndex(run) });
+          if (indexOutcome.kind === "partial") options.report(`turn ${turnId} starts with an incomplete private search index: ${indexOutcome.detail}`);
         }
         // A turn allowed every provider folder keeps empty masks, so whatever
         // every provider-rule turn hides regardless of recipient still applies.
@@ -250,7 +264,7 @@ export function createGovernedTurns(options: {
         else if (lineage) options.exposures?.startMasked(turnId, lineage);
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
-        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), async end() {
+        return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), ...(indexOutcome ? { privateIndex: indexOutcome } : {}), async end() {
           if (ended) return null;
           ended = true;
           try {
