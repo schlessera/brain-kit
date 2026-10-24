@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
-import { connect } from "node:net";
+import { isIP, Socket } from "node:net";
 import { createUiDb } from "../src/db/client.js";
 import { createInboxStore, InboxStore } from "../src/inbox/store.js";
 import { createActivityStore } from "../src/activity/store.js";
@@ -228,25 +228,127 @@ async function boot(mode: string, tokenFile: string | null = join(dir, "poke.tok
       COOKIE_SECRET: "fixture-cookie-secret-for-inbox-only", BRAIN_UI_INBOX_POKE_TOKEN_FILE: tokenFile ?? undefined,
     }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability(),
   });
-  apps.push(app); const server = Bun.serve({ hostname: "0.0.0.0", port: 0, fetch: app.fetch, websocket: app.websocket });
-  servers.push(server); return { app, server, url: `http://127.0.0.1:${server.port}/api/internal/inbox/poke` };
+  let peer: string | undefined;
+  apps.push(app); const server = Bun.serve({ hostname: "0.0.0.0", port: 0,
+    fetch(request, listener) { peer = listener.requestIP(request)?.address; return app.fetch(request, listener); }, websocket: app.websocket });
+  servers.push(server); return { app, server, peer: () => peer, url: `http://127.0.0.1:${server.port}/api/internal/inbox/poke` };
 }
 function token(file = join(dir, "poke.token")) { return readFileSync(file, "utf8").trim(); }
-async function externalSocket(port: number, authorization: string): Promise<string> {
-  const address = Object.values(networkInterfaces()).flat().find((i) => i?.family === "IPv4" && !i.internal)?.address;
-  if (!address) throw new Error("non-loopback local fixture interface required");
+async function externalSocket(port: number, authorization: string,
+  addresses = [...new Set(Object.values(networkInterfaces()).flat()
+    .filter((i) => i?.family === "IPv4" && !i.internal).map((i) => i!.address))],
+): Promise<string> {
+  if (!addresses.length) throw new Error("InboxPokeSocketSetupError: non-loopback local fixture interface required");
   return await new Promise<string>((resolve, reject) => {
-    let response = "";
-    // Only the destination is loopback. Binding the owned non-loopback source
-    // preserves the real peer-address refusal without opening an external route.
-    const socket = connect({ host: "127.0.0.1", port, localAddress: address });
-    socket.once("connect", () => socket.write(`POST /api/internal/inbox/poke HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer ${authorization}\r\nX-Forwarded-For: 127.0.0.1\r\nX-Real-IP: ::1\r\nContent-Length: 0\r\n\r\n`));
-    socket.on("data", bytes => { response += bytes.toString(); });
-    socket.once("close", () => resolve(response)); socket.once("error", reject);
+    const sockets = addresses.map(() => new Socket());
+    const failures: string[] = [];
+    let selected: Socket | undefined, response = "", settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true; clearTimeout(deadline);
+      for (const socket of sockets) socket.destroy();
+      if (error) reject(error); else resolve(response);
+    };
+    // One absolute cap covers both blackholed SYNs and a listener that never
+    // closes its response, without depending on any socket event for progress.
+    const deadline = setTimeout(() => finish(new Error(
+      `InboxPokeSocketTimeout: ${selected ? "response" : "connect"} exceeded 2000ms; sources: ${addresses.join(", ")}`,
+    )), 2000);
+    for (const [index, socket] of sockets.entries()) {
+      const address = addresses[index]!;
+      let failed = false;
+      const fail = (error: Error) => {
+        if (settled || failed) return;
+        failed = true;
+        if (socket === selected) { finish(error); return; }
+        failures.push(`${address}: ${error.message}`);
+        socket.destroy();
+        if (!selected && failures.length === sockets.length) {
+          finish(new Error(`InboxPokeSocketSetupError: no source connected to the loopback listener; ${failures.join("; ")}`));
+        }
+      };
+      socket.once("error", fail);
+      socket.once("connect", () => {
+        if (settled || failed || selected) { socket.destroy(); return; }
+        selected = socket;
+        for (const other of sockets) if (other !== socket) other.destroy();
+        socket.write(`POST /api/internal/inbox/poke HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer ${authorization}\r\nX-Forwarded-For: 127.0.0.1\r\nX-Real-IP: ::1\r\nContent-Length: 0\r\n\r\n`);
+      });
+      socket.on("data", bytes => { if (socket === selected) response += bytes.toString(); });
+      socket.once("close", () => {
+        if (socket === selected) finish();
+        else if (!selected) fail(new Error("closed before connecting"));
+      });
+      // Only the destination is loopback. Some hosts cannot route from their
+      // first interface, so race owned sources, then send exactly one request.
+      try { socket.connect({ host: "127.0.0.1", port, localAddress: address }); }
+      catch (error) { fail(error as Error); }
+    }
   });
 }
 
 describe("mounted internal poke", () => {
+  test("socket fixture uses a later routable source and closes the stalled candidate", async () => {
+    const nativeConnect = Socket.prototype.connect, sockets: Socket[] = [];
+    const attempt = spyOn(Socket.prototype, "connect").mockImplementation(function(this: Socket, ...args: unknown[]) {
+      sockets.push(this);
+      if (sockets.length === 1) return this; // A SYN that never completes.
+      return Reflect.apply(nativeConnect, this, args);
+    });
+    let requests = 0;
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => {
+      requests++; return new Response("Odysseus fixture response");
+    } });
+    servers.push(server);
+    try {
+      expect(await externalSocket(server.port!, "fixture", ["192.0.2.1", "127.0.0.1", "127.0.0.2"])).toContain("Odysseus fixture response");
+      expect(requests).toBe(1); expect(sockets).toHaveLength(3);
+      expect(sockets.every(socket => socket.destroyed)).toBe(true);
+    } finally { attempt.mockRestore(); }
+  });
+
+  test("socket fixture fails immediately when all source binds fail", async () => {
+    for (const asynchronous of [false, true]) {
+      const sockets: Socket[] = [];
+      const attempt = spyOn(Socket.prototype, "connect").mockImplementation(function(this: Socket) {
+        sockets.push(this);
+        if (!asynchronous) throw new Error("fixture bind refused");
+        queueMicrotask(() => this.emit("error", new Error("fixture bind refused")));
+        return this;
+      });
+      try {
+        await expect(externalSocket(1, "fixture", ["192.0.2.1", "192.0.2.2"]))
+          .rejects.toThrow("InboxPokeSocketSetupError: no source connected");
+        expect(sockets).toHaveLength(2);
+        expect(sockets.every(socket => socket.destroyed)).toBe(true);
+      } finally { attempt.mockRestore(); }
+    }
+  });
+
+  test("socket fixture bounds stalled connects and destroys every candidate", async () => {
+    const sockets: Socket[] = [];
+    const attempt = spyOn(Socket.prototype, "connect").mockImplementation(function(this: Socket) {
+      sockets.push(this); return this;
+    });
+    try {
+      await expect(externalSocket(1, "fixture", ["192.0.2.1", "192.0.2.2"]))
+        .rejects.toThrow("InboxPokeSocketTimeout: connect exceeded 2000ms");
+      expect(sockets).toHaveLength(2);
+      expect(sockets.every(socket => socket.destroyed)).toBe(true);
+    } finally { attempt.mockRestore(); }
+  });
+
+  test("socket fixture bounds a listener that never responds", async () => {
+    let release!: (response: Response) => void;
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => pending });
+    servers.push(server);
+    try {
+      await expect(externalSocket(server.port!, "fixture", ["127.0.0.1"]))
+        .rejects.toThrow("InboxPokeSocketTimeout: response exceeded 2000ms");
+    } finally { release(new Response("Odysseus fixture response")); }
+  });
+
   test("separate server processes rotate boot authorization and recover the persisted lease", async () => {
     now = Date.now() - 10_000; seed(); const s = store();
     s.commit([{ kind: "transition", itemId: "item-odysseus", expectedVersion: 1, to: "claimed", leaseUntil: Date.now() + 60_000 }]);
@@ -280,7 +382,7 @@ describe("mounted internal poke", () => {
   });
   for (const mode of ["none", "password", "tailscale", "proxy"]) {
     test(`${mode}: actual listener success without cookie; token and actual socket guard refusals`, async () => {
-      const { app, server, url } = await boot(mode); const current = token();
+      const { app, server, peer, url } = await boot(mode); const current = token();
       createInboxStore(app.db).ingest({ threadId: "odysseus", itemId: "odysseus", dedupKey: "odysseus",
         stagingId: "odysseus", source: "share", stakes: 2, expiresAt: Date.now() + 86_400_000 });
       const success = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${current}`,
@@ -293,6 +395,7 @@ describe("mounted internal poke", () => {
         expect(refused.status).toBe(403); expect(await refused.json()).toEqual({ error: "inbox_poke_forbidden" });
       }
       const external = await externalSocket(server.port!, current);
+      expect(isIP(peer() ?? "")).toBe(4); expect(peer()).not.toMatch(/^127\./);
       expect(external).toContain("403 Forbidden"); expect(external).toContain('"inbox_poke_forbidden"');
       const unavailable = await app.fetch(new Request(url, { method: "POST", headers: { authorization: `Bearer ${current}` } }));
       expect(unavailable.status).toBe(403); // no socket information fails closed
