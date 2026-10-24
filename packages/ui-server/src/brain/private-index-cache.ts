@@ -9,7 +9,9 @@
  * view against that checkpoint through the native send delta, which the
  * kernel derives from both sealed roots, and classifies every changed path:
  *
- * - nothing the masked build reads changed: the turn gets a copy of the base;
+ * - nothing the masked build reads changed (only the masked folders, the
+ *   index directory, `.git` or top-level hidden directories, which it never
+ *   sees): the turn gets a copy of the base;
  * - only new Markdown or asset files appeared outside the masks: the turn's
  *   copy is updated in place by the brain's own incremental `brain index`,
  *   which must report nothing updated or deleted, and becomes the next base;
@@ -89,12 +91,40 @@ export type PrivateIndexChanges = { kind: "unchanged" } | { kind: "additions"; p
 const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 /**
- * Paths whose changes cannot change the masked build: the masked folders it
- * sees as empty, the index directory it replaces, and `.git`, which it never
- * sees. Prefix-closed, so a descendant of an inert path is inert.
+ * The folders a masked build of the view at `root` sees as empty: the turn's
+ * provider masks and every top-level hidden directory but `.git` (always
+ * hidden) and the index directory, outermost only. The index never reads a
+ * hidden directory (its scans skip hidden names), so hiding them changes no
+ * clean build, and changes under them, such as `.brain/scratch`, cannot reach
+ * one.
  */
-export function privateIndexInert(folders: readonly string[]): (path: string) => boolean {
-  return path => within(path, ".git") || within(path, INDEX_DIR) || folders.some(folder => within(path, folder));
+export function privateIndexBuildFolders(masked: readonly string[], root: string): string[] {
+  const hidden = readdirSync(root).filter(name => name.startsWith(".") && name !== ".git" && name !== INDEX_DIR
+    && lstatSync(join(root, name)).isDirectory());
+  return [...new Set([...masked.filter(folder => !hidden.some(top => within(folder, top))), ...hidden])].sort();
+}
+
+/**
+ * Paths whose changes cannot change the masked build: the masked folders it
+ * sees as empty, the index directory it replaces, `.git`, which it never
+ * sees, and, given both roots, what is under a top-level hidden directory
+ * that is a directory in both (`privateIndexBuildFolders`). Prefix-closed, so
+ * a descendant of an inert path is inert.
+ */
+export function privateIndexInert(folders: readonly string[], roots?: { before: string; after: string }): (path: string) => boolean {
+  const hidden = new Map<string, boolean>();
+  const directoryInBoth = (top: string) => {
+    let answer = hidden.get(top);
+    if (answer === undefined) {
+      answer = Boolean(roots) && [roots!.before, roots!.after].every(root => {
+        try { return lstatSync(join(root, top)).isDirectory(); } catch { return false; }
+      });
+      hidden.set(top, answer);
+    }
+    return answer;
+  };
+  return path => within(path, ".git") || within(path, INDEX_DIR) || folders.some(folder => within(path, folder))
+    || (path.startsWith(".") && directoryInBoth(path.split("/")[0]!));
 }
 
 /** A new file the incremental index adds without touching an existing row. */
@@ -279,7 +309,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
       const delta = await differ(base.view, input.startupView, input.signal);
       if (!delta) return clean("the views cannot be compared");
       const classified = classifyPrivateIndexChanges({ before: base.view.root, after: input.startupView.root, candidates: delta.candidates,
-        inert: privateIndexInert(input.identity.folders) });
+        inert: privateIndexInert(input.identity.folders, { before: base.view.root, after: input.startupView.root }) });
       // Both must finish: the parser proves END and EOF, the helper its exit.
       [changes] = await Promise.all([classified, delta.completed]);
     } catch (error) {

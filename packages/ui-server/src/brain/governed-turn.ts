@@ -10,7 +10,7 @@ import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedIn
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory, updatePrivateIndex } from "./private-index.js";
-import { createPrivateIndexCache, type PrivateIndexDiffer, type PrivateIndexOutcome } from "./private-index-cache.js";
+import { createPrivateIndexCache, privateIndexBuildFolders, type PrivateIndexDiffer, type PrivateIndexOutcome } from "./private-index-cache.js";
 import { privateIndexArgv } from "./client.js";
 import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
@@ -232,7 +232,7 @@ export function createGovernedTurns(options: {
           privateIndex = createPrivateIndexDirectory();
           // Reused only when the base provably indexes to what a clean build
           // of this final view would (#2833); otherwise built from nothing.
-          const run = { brainPath: options.brainPath, startupView: startupView!, folders: maskedFolders, index: privateIndex,
+          const run = { brainPath: options.brainPath, startupView: startupView!, folders: privateIndexBuildFolders(maskedFolders, startupView!.root), index: privateIndex,
             maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) };
           indexOutcome = await privateIndexes.prepare({ startupView: startupView!, index: privateIndex, signal,
             identity: { brain: canonicalBrain, policyHash: policy.hash, folders: maskedFolders, ...(recipient ? { recipient } : {}),

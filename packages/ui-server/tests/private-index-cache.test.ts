@@ -9,7 +9,7 @@ import { installFixtureNativeStartupViews } from "./helpers/fixture-native-start
 installFixtureNativeStartupViews();
 import { Database } from "bun:sqlite";
 import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
-import { appendFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseNativeBrainDelta } from "../../ui-sdk/src/server/native-brain-delta";
@@ -182,16 +182,18 @@ test.each([
   });
   change(f.brain);
   const after = await turn(f.begin("after"), hold => {
-    expect(hold.privateIndex?.kind, `A_DOCUMENT_${what.toUpperCase().replaceAll(" ", "_")}_REBUILDS`).toBe("built");
     expect(bytesHolding(indexOf(hold), DOOMED), "NO_FILE_OF_THE_INDEX_HOLDS_THE_OLD_TEXT").toEqual([]);
+    expect(hold.privateIndex?.kind, `A_DOCUMENT_${what.toUpperCase().replaceAll(" ", "_")}_REBUILDS`).toBe("built");
     return snapshot(indexOf(hold));
   });
   expect(after, "REBUILT_INDEX_EQUALS_A_CLEAN_BUILD").toEqual(await f.oracle());
 });
 
-test("changes inside a masked folder reuse the base and never reach it", async () => {
+test("changes inside a masked folder or a hidden folder reuse the base and never reach it", async () => {
   const f = fixture();
+  mkdirSync(join(f.brain, ".brain/scratch"), { recursive: true });
   await turn(f.begin("first"), hold => expect(hold.privateIndex?.kind).toBe("built"));
+  writeFileSync(join(f.brain, ".brain/scratch/plan.md"), NOTE("Plan", `${SENTINEL} in the scratch plan.`));
   writeFileSync(join(f.brain, "me/oath.md"), NOTE("Odysseus's private oath", `${SENTINEL} and ${KNEE} are both his now.`));
   writeFileSync(join(f.brain, "me/ithaca.md"), NOTE("Home", `${SENTINEL} waits in Ithaca.`));
   await turn(f.begin("masked-change"), hold => {
@@ -215,11 +217,11 @@ test.each([
   await turn(f.begin("same", first), hold => expect(hold.privateIndex?.kind, "SAME_IDENTITY_REUSES").toBe("reused"));
   change(f);
   await turn(f.begin("changed"), hold => {
-    expect(hold.privateIndex?.kind, `A_CHANGE_OF_${what.toUpperCase().replaceAll(" ", "_")}_REBUILDS`).toBe("built");
     if (what === "the masks") {
       expect(hold.sandbox.providerMasks?.folders).toEqual(["health", "me"]);
       expect(bytesHolding(indexOf(hold), KNEE), "NEWLY_MASKED_TEXT_HAS_NO_BYTES").toEqual([]);
     }
+    expect(hold.privateIndex?.kind, `A_CHANGE_OF_${what.toUpperCase().replaceAll(" ", "_")}_REBUILDS`).toBe("built");
   });
 });
 
@@ -231,8 +233,8 @@ test("a worker's writes stay in its own copy, and a base changed outside the ser
     expect(shell.exitCode, `THE_TURN_INDEX_IS_WRITABLE: ${shell.stderr.toString()}`).toBe(0);
   });
   await turn(f.begin("next"), hold => {
-    expect(hold.privateIndex?.kind, "THE_BASE_SURVIVES_A_WORKER_WRITE").toBe("reused");
     expect(bytesHolding(indexOf(hold), "Polyphemusmarker"), "NO_WORKER_WRITE_REACHES_THE_NEXT_TURN").toEqual([]);
+    expect(hold.privateIndex?.kind, "THE_BASE_SURVIVES_A_WORKER_WRITE").toBe("reused");
     expect(existsSync(join(indexOf(hold), "extra"))).toBe(false);
   });
   const bases = readdirSync(tmpdir()).filter(name => name.startsWith(`brain-private-index-base-${process.pid}-`));
@@ -241,8 +243,8 @@ test("a worker's writes stay in its own copy, and a base changed outside the ser
   const base = join(tmpdir(), bases[0]!), file = join(base, "brain.db");
   Bun.spawnSync(["chmod", "u+w", file]); appendFileSync(file, "Polyphemusmarker");
   await turn(f.begin("tampered"), hold => {
+    expect(bytesHolding(indexOf(hold), "Polyphemusmarker"), "NO_TAMPERED_BYTES_REACH_A_TURN").toEqual([]);
     expect(hold.privateIndex, "A_CHANGED_BASE_IS_DISCARDED").toEqual({ kind: "built", reason: "the base changed outside the server" });
-    expect(bytesHolding(indexOf(hold), "Polyphemusmarker")).toEqual([]);
   });
 });
 
@@ -278,11 +280,12 @@ function views(prepare: (brain: string) => void, change: (brain: string) => void
   sealed?.(after.root);
   return { before, after };
 }
-async function classify(prepare: (brain: string) => void, change: (brain: string) => void, extra: NativeBrainDeltaCandidate[] = [], sealed?: (root: string) => void) {
+/** Classify the fixture delta, or, given `stream`, exactly those candidates, as a send stream would name them. */
+async function classify(prepare: (brain: string) => void, change: (brain: string) => void, stream?: NativeBrainDeltaCandidate[], sealed?: (root: string) => void) {
   const { before, after } = views(prepare, change, sealed);
-  const delta = await fixtureDiffer(before, after, new AbortController().signal);
-  async function* candidates() { yield* delta!.candidates; yield* extra; }
-  return classifyPrivateIndexChanges({ before: before.root, after: after.root, candidates: candidates(), inert: privateIndexInert(["me"]) });
+  const delta = stream ? undefined : await fixtureDiffer(before, after, new AbortController().signal);
+  async function* candidates() { if (delta) yield* delta.candidates; else yield* stream!; }
+  return classifyPrivateIndexChanges({ before: before.root, after: after.root, candidates: candidates(), inert: privateIndexInert(["me"], { before: before.root, after: after.root }) });
 }
 const none = () => {};
 
@@ -298,32 +301,41 @@ test.each([
   ["a removed note", (brain: string) => rmSync(join(brain, "notes/eagle.md")), { kind: "rebuild", reason: "notes/eagle.md was removed" }],
   ["a note moved into the masked folder", (brain: string) => renameSync(join(brain, "notes/eagle.md"), join(brain, "me/eagle.md")), { kind: "rebuild", reason: "notes/eagle.md was removed" }],
   ["a new configuration file", (brain: string) => writeFileSync(join(brain, "brain.config.ts"), "export default {};"), { kind: "rebuild", reason: "brain.config.ts is not a document the index can add" }],
-  ["a new hidden note", (brain: string) => { mkdirSync(join(brain, ".brain")); writeFileSync(join(brain, ".brain/x.md"), "x"); }, { kind: "rebuild", reason: ".brain/x.md is not a document the index can add" }],
+  ["a new hidden folder", (brain: string) => { mkdirSync(join(brain, ".brain")); writeFileSync(join(brain, ".brain/x.md"), "x"); }, { kind: "rebuild", reason: ".brain/x.md is not a document the index can add" }],
+  ["a hidden file at the root", (brain: string) => writeFileSync(join(brain, ".gitignore"), "x"), { kind: "rebuild", reason: ".gitignore is not a document the index can add" }],
 ] as const)("a delta classifies %s", async (_what, change, expected) => {
   expect(await classify(none, change), "DELTA_CLASSIFIED").toEqual(expected as PrivateIndexChanges);
 });
 
+test("changes under a hidden folder present in both views are inert, since the build hides it", async () => {
+  const scratch = (brain: string) => mkdirSync(join(brain, ".brain/scratch"), { recursive: true });
+  expect(await classify(scratch, brain => { writeFileSync(join(brain, ".brain/scratch/plan.md"), "x"); writeFileSync(join(brain, ".brain/state.json"), "x"); }),
+    "HIDDEN_FOLDER_CHANGES_INERT").toEqual({ kind: "unchanged" });
+  // Replaced by a link, it would no longer be hidden: the build could follow it.
+  expect(await classify(scratch, brain => { rmSync(join(brain, ".brain"), { recursive: true }); mkdirSync(join(brain, "notes/x")); symlinkSync("notes/x", join(brain, ".brain")); }),
+    "HIDDEN_FOLDER_REPLACED_BY_A_LINK_REBUILDS").toEqual({ kind: "rebuild", reason: ".brain changed" });
+});
+
 test("a delta naming one name of a file with two takes a clean build", async () => {
   // The stream names an inode once; its other name may be anywhere, masked folders included.
-  const linked = await classify(none, brain => writeFileSync(join(brain, "notes/eagle-2.md"), "x"), [], root => {
+  const linked = await classify(none, brain => writeFileSync(join(brain, "notes/eagle-2.md"), "x"), undefined, root => {
     rmSync(join(root, "notes/eagle-2.md")); linkSync(join(root, "me/oath.md"), join(root, "notes/eagle-2.md"));
   });
   expect(linked, "SECOND_NAME_REBUILDS").toEqual({ kind: "rebuild", reason: "notes/eagle-2.md has another name" });
 });
 
 test("a renamed directory is expanded in both roots, so text that leaves the view rebuilds", async () => {
-  // The send stream names only the directory: its contents move with it.
-  const moved = await classify(brain => { mkdirSync(join(brain, "notes/trip")); writeFileSync(join(brain, "notes/trip/a.md"), "x"); },
-    brain => renameSync(join(brain, "notes/trip"), join(brain, "me/trip")));
-  expect(moved.kind, "DIRECTORY_MOVED_INTO_MASKS_REBUILDS").toBe("rebuild");
+  // A send stream names only the directory; its contents move with it unnamed.
+  const trip = (folder: string) => (brain: string) => { mkdirSync(join(brain, `${folder}/trip`)); writeFileSync(join(brain, `${folder}/trip/a.md`), "x"); };
+  const rename = (from: string, to: string): NativeBrainDeltaCandidate[] => [{ paths: [from, to], rename: { from, to } }];
+  const moved = await classify(trip("notes"), brain => renameSync(join(brain, "notes/trip"), join(brain, "me/trip")), rename("notes/trip", "me/trip"));
+  expect(moved, "DIRECTORY_MOVED_INTO_MASKS_REBUILDS").toEqual({ kind: "rebuild", reason: "notes/trip was removed" });
   // Out of the masks: its contents are new to the view, and nothing leaves it.
-  const revealed = await classify(brain => { mkdirSync(join(brain, "me/trip")); writeFileSync(join(brain, "me/trip/a.md"), "x"); },
-    brain => renameSync(join(brain, "me/trip"), join(brain, "notes/trip")));
+  const revealed = await classify(trip("me"), brain => renameSync(join(brain, "me/trip"), join(brain, "notes/trip")), rename("me/trip", "notes/trip"));
   expect(revealed, "DIRECTORY_MOVED_OUT_OF_MASKS_ADDS").toEqual({ kind: "additions", paths: ["notes/trip/a.md"] });
-  // A rename the stream reports under a temporary name expands the old tree.
-  const swapped = await classify(brain => { mkdirSync(join(brain, "notes/trip")); writeFileSync(join(brain, "notes/trip/a.md"), "x"); },
-    brain => { rmSync(join(brain, "notes/trip"), { recursive: true }); mkdirSync(join(brain, "notes/trip")); },
-    [{ paths: ["notes/trip", "o257-1-0"], rename: { from: "notes/trip", to: "o257-1-0" } }]);
+  // Replaced under the same name, reported as a move to a temporary name.
+  const swapped = await classify(trip("notes"), brain => { rmSync(join(brain, "notes/trip"), { recursive: true }); mkdirSync(join(brain, "notes/trip")); },
+    rename("notes/trip", "o257-1-0"));
   expect(swapped, "REPLACED_DIRECTORY_REBUILDS").toEqual({ kind: "rebuild", reason: "notes/trip/a.md was removed" });
 });
 
