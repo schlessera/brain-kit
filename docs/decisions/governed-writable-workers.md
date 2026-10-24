@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:112-257`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:114-263`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-259`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-265`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1775,6 +1775,11 @@ missing-root plans cannot retain the requested topology. A retained descendant
 also pins its ancestors, while an ancestor alone does not pin arbitrary children.
 Unknown checking capability refuses. Existing peers continue, nested shared
 maintenance stays admissible, and strict consumers keep their existing path.
+A peer whose plan only lacks a root is waited for, up to
+`PEER_FOLDER_PLAN_WAIT_MS`, before it refuses (#2832): a type selector's folders
+are planned only once a turn has translated it, so writers admitted with the
+server predate them, and every later writer inherits them from the held plan
+(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:235-246`).
 Successful plan checks remain nonattestation and cannot authorize a protected
 reader; complete active-writer provenance remains required.
 
@@ -1997,7 +2002,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:158-167`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:160-169`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2315,7 +2320,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:130-131`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:132-133`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that

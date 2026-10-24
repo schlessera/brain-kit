@@ -60,6 +60,12 @@ export interface GateHold {
   retainFolders?(paths: readonly string[]): readonly string[];
   /** Refuse known missing/unaccounted peer plans. Success is not mounted-worker attestation. */
   assertPeerFolderPlans?(paths: readonly string[]): void;
+  /**
+   * `assertPeerFolderPlans`, but wait up to `timeoutMs` for peers admitted
+   * before this hold retained `paths` to finish (#2832); every other refusal,
+   * and a peer still active at the bound, refuses as before.
+   */
+  waitForPeerFolderPlans?(paths: readonly string[], options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
   release(): void;
 }
 
@@ -74,6 +80,25 @@ export interface WriterGate {
 
 /** How often a waiting acquisition looks again. */
 export const GATE_POLL_MS = 200;
+
+/**
+ * How long provider folder admission waits for a peer whose plan predates the
+ * folders it retains (#2832). A type selector's folders are known only once a
+ * turn has translated it, so writers admitted at server start, before the first
+ * provider-policy turn, plan without them. The boot-time scratch prune is one;
+ * on the native fixture it finishes within a second of the turn reaching it.
+ */
+export const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
+
+const UNRETAINED_PEER = "An active peer did not retain the requested provider folders; finish that peer and retry admission";
+
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, ms);
+    const stop = () => { clearTimeout(timer); reject(signal!.reason); };
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+}
 
 /**
  * The legacy host fallback refused because a provider folder policy is active
@@ -165,6 +190,33 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
           if (acquired.folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(brain); } catch { /* resolver refuses */ } }
           let folderPaths = acquired.folderPaths;
           let released = false, unpinnedHost = false;
+          // Throws for a peer that is unsafe whatever it does next; returns
+          // whether some peer's plan lacks a requested root.
+          const checkPeerFolderPlans = (paths: readonly string[]): boolean => {
+            if (released) throw new Error("Writer folder plan was already released");
+            const requested = mergeFolderPlans([], paths);
+            if (!requested.length) return false;
+            if (unpinnedHost) throw new Error("An unpinned host writer cannot qualify provider folder admission");
+            if (requested.some(root => !folderPaths.includes(root))) throw new Error("Requested writer folder plan is not held");
+            return db.transaction(() => {
+              prune();
+              const own = db.query("SELECT id FROM writer_gate WHERE id = ? AND brain = ? AND pid = ? AND pid_start = ?").get(id, brain, SELF.pid, SELF.start);
+              if (!own) throw new Error("Writer folder plan no longer has its admitted owner");
+              const peers = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ? AND id <> ?").all(brain, id) as { folder_topology: string | null }[];
+              let unretained = false;
+              for (const peer of peers) {
+                if (peer.folder_topology === null) throw new Error("An active peer has an unaccounted provider folder plan; finish that peer and retry admission");
+                let plan: ReturnType<typeof folderPlan>;
+                try { plan = folderPlan(peer.folder_topology); }
+                catch { throw new Error("An active peer has an unverified provider folder plan; finish that peer and retry admission"); }
+                if (plan.unpinnedHost) throw new Error("An active peer is an unpinned host writer; finish that peer and retry admission");
+                // A descendant root also pins each ancestor. An ancestor root
+                // alone does not retain an arbitrary child inside its subtree.
+                if (requested.some(path => !plan.roots.some(root => root === path || root.startsWith(`${path}/`)))) unretained = true;
+              }
+              return unretained;
+            }).immediate();
+          };
           const hold: GateHold = { id, mode, get folderPaths() { return folderPaths; }, retainFolders(paths) {
             if (released) throw new Error("Writer folder plan was already released");
             if (unpinnedHost) throw new Error("An unpinned host writer cannot upgrade its folder plan");
@@ -179,28 +231,18 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
             }).immediate();
             return folderPaths;
           }, assertPeerFolderPlans(paths) {
-            if (released) throw new Error("Writer folder plan was already released");
-            const requested = mergeFolderPlans([], paths);
-            if (!requested.length) return;
-            if (unpinnedHost) throw new Error("An unpinned host writer cannot qualify provider folder admission");
-            if (requested.some(root => !folderPaths.includes(root))) throw new Error("Requested writer folder plan is not held");
-            db.transaction(() => {
-              prune();
-              const own = db.query("SELECT id FROM writer_gate WHERE id = ? AND brain = ? AND pid = ? AND pid_start = ?").get(id, brain, SELF.pid, SELF.start);
-              if (!own) throw new Error("Writer folder plan no longer has its admitted owner");
-              const peers = db.query("SELECT folder_topology FROM writer_gate WHERE brain = ? AND id <> ?").all(brain, id) as { folder_topology: string | null }[];
-              for (const peer of peers) {
-                if (peer.folder_topology === null) throw new Error("An active peer has an unaccounted provider folder plan; finish that peer and retry admission");
-                let plan: ReturnType<typeof folderPlan>;
-                try { plan = folderPlan(peer.folder_topology); }
-                catch { throw new Error("An active peer has an unverified provider folder plan; finish that peer and retry admission"); }
-                if (plan.unpinnedHost) throw new Error("An active peer is an unpinned host writer; finish that peer and retry admission");
-                // A descendant root also pins each ancestor. An ancestor root
-                // alone does not retain an arbitrary child inside its subtree.
-                if (requested.some(path => !plan.roots.some(root => root === path || root.startsWith(`${path}/`))))
-                  throw new Error("An active peer did not retain the requested provider folders; finish that peer and retry admission");
-              }
-            }).immediate();
+            if (checkPeerFolderPlans(paths)) throw new Error(UNRETAINED_PEER);
+          }, async waitForPeerFolderPlans(paths, { signal, timeoutMs = PEER_FOLDER_PLAN_WAIT_MS } = {}) {
+            // Every writer admitted after this hold retained `paths` merges
+            // them into its own plan, so only earlier ones can lack them, and
+            // their number only falls while this hold is held.
+            const deadline = Date.now() + timeoutMs;
+            for (;;) {
+              signal?.throwIfAborted();
+              if (!checkPeerFolderPlans(paths)) return;
+              if (Date.now() >= deadline) throw new Error(UNRETAINED_PEER);
+              await pause(Math.min(pollMs, Math.max(0, deadline - Date.now())), signal);
+            }
           }, release() {
             if (released) return;
             released = true;
@@ -232,11 +274,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
           });
           return hold;
         }
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, pollMs);
-          const stop = () => { clearTimeout(timer); reject(signal!.reason); };
-          signal?.addEventListener("abort", stop, { once: true });
-        });
+        await pause(pollMs, signal);
       } } finally {
         if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
       }

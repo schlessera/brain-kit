@@ -36,7 +36,9 @@ function fixture() {
   const db = createUiDb(dbPath); cleanup.push(() => db.close());
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const notices: string[] = [];
+  // Peers here stay active until the test releases them; refuse at a short bound.
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed", maskPaths: [], index: async () => {}, report: message => notices.push(message),
+    peerFolderPlanWaitMs: 300,
     recordPolicy: (turnId, origin, profile, policy) => db.query("INSERT INTO turn_governance_policy (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), 1) });
   return { brain, path, write, db, execution, notices, turns };
