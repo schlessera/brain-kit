@@ -411,6 +411,10 @@ async function executeAutonomousTurn(
       // Flushed after the backend returns, before the terminal record. A failed
       // update is on each application's record; its paths stay queued.
       if (turnIndex?.pending()) await turnIndex.barrier().catch(() => {});
+      // The run's earlier Activity writes, the flush's index outcome included,
+      // commit off the event loop (#2814); with none pending, the terminal
+      // below commits inside this transaction.
+      await recorder.settled();
       // The backend has returned. Release its kernel lock under the operational
       // write lock, then settle before another connection can claim cleanup.
       deps.db.transaction(() => {

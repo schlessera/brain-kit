@@ -918,6 +918,9 @@ async function runRetainedSession(
         turn.work = undefined;
         releaseActiveAuthorization();
         releaseActiveAuthorization = undefined;
+        // The recorder's writes, terminal included, commit off the event loop
+        // (#2814); the slot waits for them before the next turn or its end.
+        await recorder?.settled();
       }
 
       // Subsequent (queued) turns resume the now-known session and keep its

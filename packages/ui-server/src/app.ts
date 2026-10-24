@@ -91,7 +91,8 @@ import {
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
-import { journalDatabasePath } from "./db/journal-database.js";
+import { openSqliteWriter } from "./db/write-worker.js";
+import { JOURNAL_SCHEMA, journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
@@ -448,6 +449,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const dbLog = observability.logger("db");
   const db = createUiDb(config.dbPath, { log: dbLog });
   bootCleanup.push(() => db.close());
+  // Journal and Activity commits run on this worker's connection, off the event loop (#2814).
+  // It owns the journal's own file too (#2789), attached as it is here.
+  const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
+  bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
   const referencePoolConfigured = await nativeManager.poolStatus().then(() => true, () => false);
@@ -540,6 +545,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const activity = createActivityRuntime(db, {
     log: observability.logger("activity"),
     pricing,
+    writer,
+    pricingConfig: { brainPath: config.brainPath, enabled: config.pricing.enabled, ttlMs: config.pricing.ttlMs },
   });
   bootCleanup.push(() => activity.close());
   activity.runtime.setBoot(runtimeProbes);
@@ -605,13 +612,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const budgets = createTurnBudgets(db, pricing);
   relayBudgets = budgets;
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
-  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
+  const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
       const owner = referenceWorktreeOwner();
       return { record: (id: string, worktreeId: string) => recordReferenceWorktreeCheckpoint(db, owner, id, worktreeId), forget: (id: string) => forgetReferenceWorktreeCheckpoint(db, id) };
     })() } : {}),
     changed(turnId, sessionId, summary) { host.clients.broadcast({ type: "turn_journal", sessionId, turnId, journal: { ...summary, ...(host.budgets?.saved(turnId) ? { budget: host.budgets.saved(turnId) } : {}) } }); } });
   bootCleanup.push(() => journal.close());
+  // Startup recovery commits, or refuses boot, before any turn can run.
+  await journal.ready;
   const policyProposals = createPolicyProposals({ root: config.brainPath, db,
     lock: { withLock: (key, fn, admission) => host.workerLock.withLock(key, fn, admission) },
     observeUserPolicy: (turnId, write) => journal.observeUserPolicy(turnId, write),

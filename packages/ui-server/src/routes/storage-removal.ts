@@ -40,8 +40,8 @@ export function createStorageRemovalRoutes(removal: StorageRemoval): Hono<AppEnv
     let body: unknown; try { body = await readJsonBody(c, 4096); } catch { return c.json({ error: "Invalid attachment JSON." }, 400); }
     if (body instanceof Response) return body; const parsed = start.safeParse(body);
     if (!parsed.success) return c.json({ error: "Confirm the exact current review identity." }, 400);
-    return c.json(removal.start(c.get("principal")!.id, parsed.data.id, parsed.data.fingerprint), 202);
+    return c.json(await removal.start(c.get("principal")!.id, parsed.data.id, parsed.data.fingerprint), 202);
   });
-  routes.delete("/storage/removals/:id", c => c.json(removal.cancel(c.get("principal")!.id, c.req.param("id")), 202));
+  routes.delete("/storage/removals/:id", async c => c.json(await removal.cancel(c.get("principal")!.id, c.req.param("id")), 202));
   return routes;
 }

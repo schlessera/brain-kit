@@ -34,13 +34,13 @@ export function createJournalRoutes({ journal }: { journal: TurnJournal }): Hono
         return c.json({ inline: true, before, after });
       } catch { return c.json({ inline: false, reason: "binary_or_unavailable" }); }
     })
-    .get("/sessions/:sessionId/turns/:turnId/journal/:sequence/:side", c => {
+    .get("/sessions/:sessionId/turns/:turnId/journal/:sequence/:side", async c => {
       const sequence = Number(c.req.param("sequence")), side = c.req.param("side");
       if (!Number.isSafeInteger(sequence) || sequence < 1 || !["before", "after"].includes(side)) return c.json({ error: "Invalid retained version." }, 400);
       const version = journal.version(c.req.param("sessionId"), c.req.param("turnId"), sequence, side as "before" | "after");
       if (!version) return c.json({ error: "Journal detail expired or unavailable." }, 404);
       try {
-        const stream = version.stream();
+        const stream = await version.stream();
         return new Response(stream.body, { headers: { "Content-Type": "application/octet-stream", "Content-Length": String(stream.bytes), "Content-Disposition": `attachment; filename="journal-${sequence}-${side}"`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
       } catch { return c.json({ error: "Retained version is temporarily unavailable." }, 503); }
     });

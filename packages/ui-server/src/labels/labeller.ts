@@ -26,7 +26,8 @@ import type { BillingMode } from "@schlessera/brain-ui-sdk/protocol";
 import type { Logger } from "@opentelemetry/api-logs";
 import { createHash } from "node:crypto";
 
-import type { ActivityStore, SpanOutcome, SpanUsage } from "../activity/store.js";
+import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "../activity/store.js";
+import { orderedWrites } from "../activity/store-writes.js";
 import { normaliseLabel } from "./normalise.js";
 
 /** What the labeller sends for one label. */
@@ -124,7 +125,7 @@ export interface CreateLabellerDeps {
   meter?: Meter;
   /** Where each provider call is recorded as a `pill label` run. Absent records none. */
   activity?: {
-    store: Pick<ActivityStore, "startSpan" | "endSpan" | "rollupRun">;
+    store: Pick<AwaitableActivityStore, "startSpan" | "endSpan" | "rollupRun">;
     /** Called after each write so the live Activity stream can pump. */
     onWrite?: () => void;
   };
@@ -194,26 +195,32 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
 
   type CallResult = { outcome: LabelOutcome; label: string | null; err?: unknown };
 
-  const guardActivity = (write: () => void) => {
-    if (!deps.activity) return;
+  // Recording never costs the pill its label.
+  const notRecorded = (err: unknown) => {
+    deps.log?.emit({
+      severityText: "WARN",
+      body: "pill label run not recorded",
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    });
+  };
+  // Runs commit in call order, off the event loop for the hosted store (#2814).
+  const writes = deps.activity ? orderedWrites(deps.activity.store, notRecorded) : undefined;
+  const guardActivity = (write: (store: Pick<AwaitableActivityStore, "startSpan" | "endSpan" | "rollupRun">) => void) => {
+    if (!deps.activity || !writes) return;
     try {
-      write();
-      deps.activity.onWrite?.();
+      write(writes.store);
+      const wrote = deps.activity.onWrite;
+      if (wrote) writes.after(wrote);
     } catch (err) {
-      // Recording never costs the pill its label.
-      deps.log?.emit({
-        severityText: "WARN",
-        body: "pill label run not recorded",
-        attributes: { error: err instanceof Error ? err.message : String(err) },
-      });
+      notRecorded(err);
     }
   };
 
   /** Open the call's run as it reaches the provider. */
   const startRun = (sessionId: string | undefined): string => {
     const runId = `label-${crypto.randomUUID()}`;
-    guardActivity(() => {
-      deps.activity!.store.startSpan({
+    guardActivity(store => {
+      store.startSpan({
         spanId: `${runId}:root`,
         runId,
         name: LABEL_RUN_NAME,
@@ -233,11 +240,10 @@ export function createLabeller(deps: CreateLabellerDeps): Labeller {
    * read as free rather than unknown.
    */
   const endRun = (runId: string, outcome: SpanOutcome, completion?: Omit<LabelCompletion, "text">) => {
-    guardActivity(() => {
+    guardActivity(store => {
       const usage = reportedUsage(completion?.usage);
       const model = typeof completion?.model === "string" && completion.model ? completion.model : undefined;
       const spanUsage: SpanUsage | undefined = usage ? { ...usage, ...(model ? { model } : {}) } : undefined;
-      const { store } = deps.activity!;
       store.endSpan(`${runId}:root`, {
         outcome,
         ...(spanUsage ? { usage: spanUsage } : {}),

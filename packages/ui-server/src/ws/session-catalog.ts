@@ -1,4 +1,4 @@
-import { createActivityStore, priceUsage, type ActivityStore, type RollupPricing } from "../activity/store.js";
+import { createActivityStore, priceUsage, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { resolveStandalonePricingConfig } from "../config/env.js";
 import { allocateClaudeTitleUsage, reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
@@ -162,7 +162,7 @@ const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_ac
 
 /** SQLite-backed catalog over the app's own database (injected by createApp). */
 export function createSessionCatalog(db: () => Database, log?: Logger, scratchPins?: { record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void },
-  accounting?: { pricing: RollupPricing; store: ActivityStore }): SessionCatalog {
+  accounting?: { pricing: RollupPricing; store: AwaitableActivityStore }): SessionCatalog {
   let accountingDeps = accounting;
   const getAccounting = () => accountingDeps ??= (() => {
     const pricing = createModelPricing(resolveStandalonePricingConfig());

@@ -2,12 +2,14 @@ import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js"
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { closeSync, fstatSync, mkdtempSync, mkdirSync, openSync, rmSync, writeFileSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { createNativeJournalCapture } from "../src/brain/native-journal-capture.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
+import { journalStatement } from "../src/brain/journal-store.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
 import { createJournalRoutes } from "../src/routes/journal.js";
 
@@ -78,8 +80,8 @@ test("configuration coverage summary follows retained inventory, independently o
     await f.journal.finish("coverage");
     for (const state of ["complete", "recording", "partial", "expired"] as const) {
       for (const incomplete of [false, true]) {
-        f.journal.writeOperation(() => f.db.query("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'")
-          .run(state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }])));
+        await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'",
+          state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }]))]);
         expect(f.journal.summary("coverage"), "COVERAGE_COMES_FROM_CONFIGURATION_INVENTORY")
           .toHaveProperty("configurationCoverage", incomplete ? "incomplete" : state === "complete" ? "complete" : "unknown");
         expect(f.journal.summary("coverage").changedFiles, "COVERAGE_NEVER_CHANGES_PATH_ACCOUNTING").toBe(state === "partial" ? null : 0);
@@ -180,13 +182,13 @@ test("native admission refuses unavailable storage and changed-version capacity 
   try {
     writeFileSync(join(f.brain, "too-large.txt"), Buffer.alloc(2 * 1024 * 1024, 65));
     f.native.failNextCheckpoint(Error("native capacity fixture"));
-    await expect(f.begin("refused")).rejects.toThrow("native capacity fixture");
+    await expectRejection(f.begin("refused"), "native capacity fixture");
     expect(f.journal.summary("refused").state).toBe("unknown");
     const stopped: Error[] = [];
     await f.journal.begin("running", { sessionId: "ithaca", actor: "voice", model: null, profile: "governed", policyHash: null }, error => stopped.push(error));
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_objects").get(), "NATIVE_BASELINE_RETAINS_NO_UNCHANGED_CONTENT").toEqual({ n: 0 });
     writeFileSync(join(f.brain, "too-large.txt"), Buffer.alloc(2 * 1024 * 1024, 66));
-    await expect(f.journal.finish("running")).rejects.toThrow();
+    await expectRejection(f.journal.finish("running"));
     expect(stopped.length, "JOURNAL_OVERFLOW_STOPS_TURN").toBeGreaterThan(0);
     expect(f.journal.details("ithaca", "running")).toMatchObject({ summary: { state: "partial", actor: "voice" }, missing: [{ path: ".", reason: "journal_capacity" }] });
     expect(Bun.file(join(f.brain, "too-large.txt")).size, "JOURNAL_PARTIAL_WORK_REMAINS").toBe(2 * 1024 * 1024);
@@ -198,7 +200,7 @@ test("failed policy admission ends its journal row and leaves no raw baseline pi
   try {
     // Concrete disk input failure after durable admission row: ignore policy is a directory.
     rmSync(join(f.brain, ".gitignore")); mkdirSync(join(f.brain, ".gitignore"));
-    await expect(f.begin("refused-manifest")).rejects.toThrow("native journal admission could not be prepared");
+    await expectRejection(f.begin("refused-manifest"), "native journal admission could not be prepared");
     await f.journal.finish("refused-manifest");
     expect(f.db.query("SELECT ended_at FROM turn_journal_turns WHERE turn_id='refused-manifest'").get(), "JOURNAL_REFUSED_ADMISSION_ENDED").toMatchObject({ ended_at: expect.any(Number) });
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_object_refs WHERE turn_id='refused-manifest'").get(), "JOURNAL_REFUSED_BASELINE_PINS_RELEASED").toEqual({ n: 0 });
@@ -238,7 +240,7 @@ test("cancellation while native admission awaits cannot create an active late tu
     const pending = f.journal.begin("cancelled", { sessionId: "ithaca", actor: "interactive", model: null, profile: "governed", policyHash: null }, () => {}, cancellation.signal);
     void pending.catch(() => {});
     await started; cancellation.abort(Error("Odysseus cancelled admission")); resume();
-    await expect(pending).rejects.toThrow("Odysseus cancelled admission");
+    await expectRejection(pending, "Odysseus cancelled admission");
     expect(f.journal.summary("cancelled").state, "JOURNAL_CANCELLED_ADMISSION_NEVER_RECORDING").toBe("unknown");
     expect(f.journal.isHeld()).toBe(false);
     f.native.manager.checkpoint = checkpoint;
@@ -261,7 +263,7 @@ test("cancelling an overlapping admission resumes a healthy peer after its share
     void pending.catch(() => {});
     await started; expect(paused).toBe(true);
     cancellation.abort(Error("Odysseus cancelled overlapping admission")); resume();
-    await expect(pending).rejects.toThrow("cancelled overlapping admission");
+    await expectRejection(pending, "cancelled overlapping admission");
     expect(completed, "CANCELLED_ADMISSION_PRESERVES_HEALTHY_PEER_HOLD").toEqual([true]);
     expect(paused).toBe(false);
     expect(f.journal.summary("cancelled-peer").state).toBe("unknown");
@@ -277,7 +279,7 @@ test("a retained raw stream pins its object until the reader ends", async () => 
   try {
     await f.begin("odysseus"); writeFileSync(join(f.brain, "notes", "odysseus.md"), "Athena\n"); await f.journal.finish("odysseus");
     const change = f.journal.details("ithaca", "odysseus")!.changes[0]!;
-    const stream = f.journal.version("ithaca", "odysseus", change.sequence, "before")!.stream();
+    const stream = await f.journal.version("ithaca", "odysseus", change.sequence, "before")!.stream();
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_reservations WHERE kind='read'").get()).toEqual({ n: 1 });
     expect(await new Response(stream.body).text()).toBe("# Ithaca\r\n");
     expect(f.db.query("SELECT count(*) AS n FROM turn_journal_reservations WHERE kind='read'").get()).toEqual({ n: 0 });
@@ -330,7 +332,7 @@ test("approved policy writes retain user attribution in the original active wind
     }
     await f.journal.finish("odysseus"); await f.journal.finish("athena");
     let executed = false;
-    await expect(f.journal.observeUserPolicy("odysseus", () => { executed = true; })).rejects.toThrow("active complete observation window");
+    await expectRejection(f.journal.observeUserPolicy("odysseus", () => { executed = true; }), "active complete observation window");
     expect(executed, "JOURNAL_COMPLETED_TURN_NEVER_REVIVED").toBe(false);
   } finally { await f.close(); }
 });
@@ -403,11 +405,11 @@ test("runtime main-model binding only updates the correlated active journal", as
     await f.journal.begin("athena", { sessionId: "troy", actor: "voice", model: null, profile: "governed", policyHash: null }, error => { throw error; });
     expect(f.journal.bindModel("odysseus", "troy", "main-model"), "MODEL_WRONG_SESSION_REJECTED").toBe(false);
     expect(f.journal.bindModel("odysseus", "ithaca", "main-model"), "MODEL_ACTIVE_BINDING").toBe(true);
-    expect(f.journal.summary("odysseus").model, "MODEL_ACTIVE_SUMMARY").toBe("main-model");
+    await f.journal.idle(); expect(f.journal.summary("odysseus").model, "MODEL_ACTIVE_SUMMARY").toBe("main-model");
     expect(f.journal.summary("athena").model, "MODEL_CONCURRENT_ISOLATION").toBeNull();
     expect(f.journal.bindModel("athena", "ithaca", "wrong-model"), "MODEL_TWO_SESSIONS_CROSS_BIND_REJECTED").toBe(false);
     expect(f.journal.bindModel("athena", "troy", "voice-model")).toBe(true);
-    expect(f.journal.summary("athena").model).toBe("voice-model");
+    await f.journal.idle(); expect(f.journal.summary("athena").model).toBe("voice-model");
     await f.journal.finish("odysseus");
     expect(f.journal.bindModel("odysseus", "ithaca", "late-model"), "MODEL_FINISHED_REJECTED").toBe(false);
     expect(f.journal.summary("odysseus").model).toBe("main-model");

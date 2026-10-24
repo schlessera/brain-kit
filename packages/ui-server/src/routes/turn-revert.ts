@@ -36,7 +36,7 @@ export function createTurnRevertRoutes(reverts: TurnReverts): Hono<AppEnv> {
     if(Object.keys(request).some(key=>!["id","path","action","version","otherVersion","expected"].includes(key))||typeof request.id!=="string"||request.path!==undefined&&typeof request.path!=="string"||request.action!==undefined&&!["revert","restore","keep_version","keep_both"].includes(request.action)
       ||resolving&&(!request.path||!reference(request.version)||!reference(request.expected)||request.action==="keep_both"&&!reference(request.otherVersion))
       ||request.otherVersion!==undefined&&!reference(request.otherVersion))return c.json({error:"Invalid history action."},400);
-    try { return c.json(reverts.start(c.get("principal")!.id,c.req.param("sessionId"),c.req.param("turnId"),request),202); }
+    try { return c.json(await reverts.start(c.get("principal")!.id,c.req.param("sessionId"),c.req.param("turnId"),request),202); }
     catch (error) { return c.json({error:error instanceof RevertUnavailable ? error.message : "History storage is temporarily unavailable; reconcile the original operation identity before considering another effect."},error instanceof RevertUnavailable ? 409 : 503); }
   });
   return routes;

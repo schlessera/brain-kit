@@ -19,7 +19,7 @@ test("the charged journal retains and verifies selected original bytes before re
     expect(readFileSync(join(brain, "attachments/chart.pdf"))).toEqual(original);
     expect(journal.hasRetainedVersion("storage-odysseus", before!)).toBe(true);
     const fd = openSync(join(root, "independent-copy"), "wx");
-    try { journal.withRetainedVersion(before, copy => copy(fd)); } finally { closeSync(fd); }
+    try { await journal.withRetainedVersion(before, copy => copy(fd)); } finally { closeSync(fd); }
     expect(readFileSync(join(root, "independent-copy")), "STORAGE_RETAINED_ORIGINAL_CONTROL").toEqual(original);
     expect(await journal.retainBefore("storage-odysseus", "attachments/ignored.pdf"), "STORAGE_NO_IGNORE_EXPANSION").toBeNull();
     rmSync(join(brain, "attachments/chart.pdf")); await journal.finish("storage-odysseus");

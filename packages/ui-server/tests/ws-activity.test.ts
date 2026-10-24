@@ -9,7 +9,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentBackend, BackendBridge } from "@schlessera/brain-ui-sdk/server";
 
 import { createStaticBackendRegistry } from "../src/agent/backend";
-import { createActivityStore, type ActivityStore } from "../src/activity/store";
+import { createActivityStore, type ActivityStore, type AwaitableActivityStore } from "../src/activity/store";
+import { ACTIVITY_WRITE_METHODS } from "../src/activity/store-writes";
 import { createActivityStream, type ActivityStream } from "../src/activity/stream";
 import { createUiDb } from "../src/db/client";
 import { createRecordingObservability } from "../src/observability/index";
@@ -62,7 +63,7 @@ function setup(
     capabilities?: Partial<AgentBackend["capabilities"]>;
     followUp?: AgentBackend["followUp"];
   } = {},
-  hostOptions: { toolPermissions?: ToolPermissions } = {}
+  hostOptions: { toolPermissions?: ToolPermissions; writes?: (store: ActivityStore) => AwaitableActivityStore } = {}
 ): Setup {
   const db = createUiDb(":memory:");
   const observability = createRecordingObservability();
@@ -77,7 +78,7 @@ function setup(
     registry: createStaticBackendRegistry([backend], backend.id),
     catalog: createSessionCatalog(() => db),
     observability,
-    activity: { store, stream },
+    activity: { store: hostOptions.writes?.(store) ?? store, stream },
     ...(hostOptions.toolPermissions
       ? { toolPermissions: hostOptions.toolPermissions }
       : {}),
@@ -107,6 +108,28 @@ function scriptedTurn(sessionId = "sess-1") {
       isError: false,
       usage: { inputTokens: 100, outputTokens: 20 },
     });
+  };
+}
+
+/**
+ * The store's writes as the write worker serves them: each resolves after it
+ * commits. While held, writes queue in order and commit on release.
+ */
+function heldWrites(store: ActivityStore) {
+  let holding = false;
+  const queued: (() => void)[] = [];
+  const view = Object.create(store) as AwaitableActivityStore;
+  for (const name of ACTIVITY_WRITE_METHODS) {
+    Object.defineProperty(view, name, { value: (...args: unknown[]) => new Promise((resolve, reject) => {
+      const commit = () => { try { resolve(Reflect.apply(store[name] as (...values: unknown[]) => unknown, store, args)); } catch (error) { reject(error); } };
+      if (holding || queued.length) queued.push(commit); else commit();
+    }) });
+  }
+  return {
+    view,
+    hold() { holding = true; },
+    release() { holding = false; for (const commit of queued.splice(0)) commit(); },
+    pending: () => queued.length,
   };
 }
 
@@ -967,5 +990,42 @@ describe("activity stream over the ws path", () => {
     await until(() =>
       ws.frames().some((f) => f.type === "activity_delta" && f.span?.spanId === "sub-t1" && f.span?.outcome === "cancelled")
     );
+  });
+
+  test("a session's next turn waits until the previous turn's Activity writes commit (#2814)", async () => {
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const prompts: string[] = [];
+    let pendingAtSecond = -1;
+    let writes!: ReturnType<typeof heldWrites>;
+    const s = setup(async (request) => {
+      prompts.push(request.prompt);
+      if (request.prompt === "second") pendingAtSecond = writes.pending();
+      request.bridge.emit({ type: "session_info", sessionId: "sess-settle", isNew: prompts.length === 1 });
+      if (request.prompt === "first") { await firstHeld; writes.hold(); }
+      request.bridge.emit({ type: "result", sessionId: "sess-settle", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+    }, {}, { writes: (store) => (writes = heldWrites(store)).view });
+    cleanup = () => {
+      s.stream.close();
+      s.db.close();
+    };
+    const ws = fakeSocket();
+    await s.handlers.onOpen(undefined as never, ws);
+    s.handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "first" }) } as MessageEvent, ws);
+    await until(() => s.host.coordinator.bySession.has("sess-settle"));
+    s.handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "second", sessionId: "sess-settle" }) } as MessageEvent, ws);
+    await until(() => ws.frames().some((f) => f.type === "status" && f.status === "queued"));
+    releaseFirst();
+    await until(() => ws.frames().some((f) => f.type === "result"));
+    await until(() => writes.pending() > 0);
+    // The first turn has finished, but its terminal writes have not committed.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(prompts, "ACTIVITY_SLOT_WAITS_FOR_RECORDER_WRITES").toEqual(["first"]);
+    writes.release();
+    await until(() => ws.frames().filter((f) => f.type === "result").length === 2);
+    expect(prompts).toEqual(["first", "second"]);
+    expect(pendingAtSecond, "ACTIVITY_NEXT_TURN_AFTER_COMMITTED_WRITES").toBe(0);
+    const first = ws.frames().find((f) => f.type === "result")!;
+    expect(s.store.getSpan(`${first.turnId}:turn`)!.outcome).toBe("success");
   });
 });

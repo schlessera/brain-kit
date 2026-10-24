@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,8 +28,8 @@ test("native UUID ownership is durable before RPC and a second live generation c
   try {
     await f.owner.client.checkpoint(ID);
     expect(beforeRpc, "NATIVE_LEASE_DURABLE_BEFORE_CREATION_RPC").toBe(true);
-    await expect(second.client.release(ID)).rejects.toThrow("another live");
-    await expect(second.client.checkpoint(ID)).rejects.toThrow("another live");
+    await expectRejection(second.client.release(ID), "another live");
+    await expectRejection(second.client.checkpoint(ID), "another live");
     expect(await second.recoverDeadOwners()).toMatchObject({ released: [], retainedLive: 1 });
     await second.close();
     expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 1 });
@@ -61,12 +62,12 @@ test("lost creation and deletion replies retain ownership; durable deleting can 
   f.native.client.checkpoint = async (...args) => { const value = await checkpoint(...args); if (loseCreate) { loseCreate = false; throw Error("Lost creation receipt"); } return value; };
   f.native.client.release = async (...args) => { const value = await release(...args); if (loseDelete) { loseDelete = false; throw Error("Lost deletion receipt"); } return value; };
   try {
-    await expect(f.owner.client.checkpoint(ID)).rejects.toThrow("Lost creation receipt");
+    await expectRejection(f.owner.client.checkpoint(ID), "Lost creation receipt");
     expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "creating" });
     const second = await createNativeBrainLeaseManager(f.native.client, f.options);
     try {
       expect(await second.recoverDeadOwners()).toMatchObject({ retainedLive: 1, released: [] });
-      await expect(f.owner.client.release(ID)).rejects.toThrow("Lost deletion receipt");
+      await expectRejection(f.owner.client.release(ID), "Lost deletion receipt");
       expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(ID)).toEqual({ state: "deleting" });
       expect(await second.recoverDeadOwners()).toMatchObject({ released: [ID], unknown: [] });
       expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
@@ -78,8 +79,8 @@ test("lease state never opens the UI database and mismatched store identity cann
   const f = await fixture();
   try {
     expect(f.state.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()).toEqual([{ name: "native_lease_store" }, { name: "native_pool_leases" }, { name: "native_root_leases" }]);
-    await expect(createNativeBrainLeaseManager(f.native.client, { ...f.options, fsid: "another-store" })).rejects.toThrow("another managed brain");
-    await expect(f.owner.client.release(ID)).rejects.toThrow("no recorded checkpoint lease");
+    await expectRejection(createNativeBrainLeaseManager(f.native.client, { ...f.options, fsid: "another-store" }), "another managed brain");
+    await expectRejection(f.owner.client.release(ID), "no recorded checkpoint lease");
   } finally { await f.close(); }
 });
 
@@ -96,11 +97,11 @@ test("output stages record ownership before creation and close releases stages b
       path: join(f.root, "test-stage"), namespacePid: process.pid, namespaceStart: "fixture", appUid: process.geteuid!(), appGid: process.getegid!(), rootDevice: "1", rootInode: "2" };
   };
   try {
-    await expect(f.owner.client.prepareStage(OTHER, ID, 4096)).rejects.toThrow("retained sealed");
+    await expectRejection(f.owner.client.prepareStage(OTHER, ID, 4096), "retained sealed");
     await f.owner.client.checkpoint(ID); await f.owner.client.prepareStage(OTHER, ID, 4096);
-    await expect(f.owner.client.prepareStage(OTHER, ID, 8192)).rejects.toThrow("another owner or deletion");
-    await expect(f.owner.client.release(OTHER)).rejects.toThrow("no recorded checkpoint lease");
-    await expect(f.owner.client.release(ID)).rejects.toThrow("stage still depends");
+    await expectRejection(f.owner.client.prepareStage(OTHER, ID, 8192), "another owner or deletion");
+    await expectRejection(f.owner.client.release(OTHER), "no recorded checkpoint lease");
+    await expectRejection(f.owner.client.release(ID), "stage still depends");
     expect(releases, "NATIVE_PENDING_STAGE_PINS_LOWER_CHECKPOINT").toEqual([]);
     await f.owner.close();
     expect(releases, "NATIVE_STAGE_CLOSE_RELEASES_LOWER_LAST").toEqual([`stage:${OTHER}`, `checkpoint:${ID}`]);
@@ -112,7 +113,7 @@ test("checkpoint source changes refuse admission while retaining the same durabl
   const f = await fixture(), checkpoint = f.native.client.checkpoint;
   f.native.client.checkpoint = async (...args) => ({ ...await checkpoint(...args), sourceUuid: "22".repeat(16) });
   try {
-    await expect(f.owner.client.checkpoint(ID)).rejects.toThrow("durable lease identity");
+    await expectRejection(f.owner.client.checkpoint(ID), "durable lease identity");
     expect(f.state.query("SELECT id,state FROM native_root_leases").all()).toEqual([{ id: ID, state: "creating" }]);
     await f.owner.client.release(ID);
     expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
@@ -148,7 +149,7 @@ test("close drains cancelled pending creation before releasing its recorded UUID
     await closing;
     expect(events, "NATIVE_LATE_CREATION_RELEASED_ONLY_AFTER_SETTLEMENT").toEqual(["creating", "created", "released"]);
     expect(f.state.query("SELECT count(*) AS n FROM native_root_leases").get()).toEqual({ n: 0 });
-    await expect(f.owner.client.checkpoint(OTHER)).rejects.toThrow("closed");
+    await expectRejection(f.owner.client.checkpoint(OTHER), "closed");
   } finally { finish(); await f.close(); }
 });
 
@@ -161,12 +162,12 @@ test("unknown stage creation pins its lower root until confirmed stage deletion 
   const second = await createNativeBrainLeaseManager(f.native.client, f.options);
   try {
     await f.owner.client.checkpoint(ID);
-    await expect(f.owner.client.prepareStage(OTHER, ID, 4096)).rejects.toThrow("Lost stage creation receipt");
+    await expectRejection(f.owner.client.prepareStage(OTHER, ID, 4096), "Lost stage creation receipt");
     expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(OTHER)).toEqual({ state: "creating" });
     expect(await second.recoverDeadOwners()).toMatchObject({ retainedLive: 2, released: [] });
-    await expect(f.owner.client.release(ID)).rejects.toThrow("stage still depends");
+    await expectRejection(f.owner.client.release(ID), "stage still depends");
     expect(releases, "NATIVE_UNKNOWN_STAGE_CREATION_PINS_LOWER").toEqual([]);
-    await expect(f.owner.client.releaseStage(OTHER)).rejects.toThrow("Lost stage deletion receipt");
+    await expectRejection(f.owner.client.releaseStage(OTHER), "Lost stage deletion receipt");
     expect(f.state.query("SELECT state FROM native_root_leases WHERE id=?").get(OTHER)).toEqual({ state: "deleting" });
     expect(await second.recoverDeadOwners()).toMatchObject({ released: [OTHER, ID], unknown: [] });
     expect(releases, "NATIVE_RECOVERY_DELETES_UNKNOWN_STAGE_BEFORE_LOWER").toEqual([`stage:${OTHER}`, `stage:${OTHER}`, `checkpoint:${ID}`]);
@@ -192,14 +193,14 @@ test("reference pool roots are durable app leases that dead-owner recovery and c
   const second = await createNativeBrainLeaseManager(f.native.client, f.options);
   try {
     await f.owner.client.poolCreate(ID, "source", null, 4096);
-    await expect(f.owner.client.poolCreate(OTHER, "worktree", "33333333-3333-4333-8333-333333332428", 4096), "REFERENCE_POOL_SNAPSHOT_NEEDS_HELD_SOURCE").rejects.toThrow("held source");
-    await expect(f.owner.client.poolCreate(ID, "source", null, 8192), "REFERENCE_POOL_LEASE_IMMUTABLE").rejects.toThrow("another purpose");
+    await expectRejection(f.owner.client.poolCreate(OTHER, "worktree", "33333333-3333-4333-8333-333333332428", 4096), "held source", "REFERENCE_POOL_SNAPSHOT_NEEDS_HELD_SOURCE");
+    await expectRejection(f.owner.client.poolCreate(ID, "source", null, 8192), "another purpose", "REFERENCE_POOL_LEASE_IMMUTABLE");
     expect(await second.recoverDeadOwners(), "REFERENCE_POOL_NOT_AUTOMATICALLY_DELETED").toMatchObject({ released: [], retainedPool: 1 });
     await f.owner.close();
     expect(calls.filter(call => call.startsWith("release")), "REFERENCE_POOL_CLOSE_RETAINS_ROOTS").toEqual([]);
     // Pool ownership is app state, not one process generation: a later owner can seal and release it.
     await second.client.poolSeal(ID);
-    await expect(second.client.poolRelease(OTHER), "REFERENCE_POOL_UNRECORDED_NOT_DELETED").rejects.toThrow("no recorded app lease");
+    await expectRejection(second.client.poolRelease(OTHER), "no recorded app lease", "REFERENCE_POOL_UNRECORDED_NOT_DELETED");
     expect((await second.client.poolRelease(ID)).state).toBe("reclaimed");
     expect(f.state.query("SELECT COUNT(*) AS count FROM native_pool_leases").get(), "REFERENCE_POOL_LEASE_REMOVED_AFTER_RECEIPT").toEqual({ count: 0 });
     expect(calls).toEqual([`create:${ID}`, `seal:${ID}`, `release:${ID}`]);
@@ -225,11 +226,11 @@ test("worktree checkpoints, deltas, reads and access moves need this app's held 
   f.native.client.poolPark = async id => { calls.push(`park:${id}`); return record(id, "worktree", SOURCE, "writable"); };
   try {
     await f.owner.client.poolCreate(SOURCE, "source", null, 4096);
-    await expect(f.owner.client.poolCheckpoint(CHECKPOINT, SOURCE), "REFERENCE_CHECKPOINT_ONLY_OF_A_HELD_WORKTREE").rejects.toThrow("held worktree");
-    await expect(f.owner.client.poolAccess(SOURCE, ACCESS), "REFERENCE_ACCESS_ONLY_FOR_A_WORKTREE").rejects.toThrow("held worktree");
+    await expectRejection(f.owner.client.poolCheckpoint(CHECKPOINT, SOURCE), "held worktree", "REFERENCE_CHECKPOINT_ONLY_OF_A_HELD_WORKTREE");
+    await expectRejection(f.owner.client.poolAccess(SOURCE, ACCESS), "held worktree", "REFERENCE_ACCESS_ONLY_FOR_A_WORKTREE");
     await f.owner.client.poolCreate(WORKTREE, "worktree", SOURCE, 4096);
-    await expect(f.owner.client.poolDelta(CHECKPOINT, CHECKPOINT), "REFERENCE_DELTA_NEEDS_HELD_CHECKPOINTS").rejects.toThrow("held checkpoints");
-    await expect(f.owner.client.poolStatCheckpoint(CHECKPOINT, "", 1000), "REFERENCE_CHECKPOINT_READ_NEEDS_HELD_LEASE").rejects.toThrow("held checkpoint");
+    await expectRejection(f.owner.client.poolDelta(CHECKPOINT, CHECKPOINT), "held checkpoints", "REFERENCE_DELTA_NEEDS_HELD_CHECKPOINTS");
+    await expectRejection(f.owner.client.poolStatCheckpoint(CHECKPOINT, "", 1000), "held checkpoint", "REFERENCE_CHECKPOINT_READ_NEEDS_HELD_LEASE");
     await f.owner.client.poolCheckpoint(CHECKPOINT, WORKTREE);
     await f.owner.client.poolDelta(CHECKPOINT, CHECKPOINT);
     await f.owner.client.poolStatCheckpoint(CHECKPOINT, "", 1000);
@@ -265,11 +266,11 @@ test("a release the pool never committed holds its lease again (#2431)", async (
     await f.owner.client.poolCreate(WORKTREE, "worktree", SOURCE, 4096);
     await f.owner.client.poolCheckpoint(CHECKPOINT, WORKTREE);
     // The worktree's release fails before the pool committed anything: it is held, and assessable, again.
-    await expect(f.owner.client.poolRelease(WORKTREE)).rejects.toThrow("dropped");
+    await expectRejection(f.owner.client.poolRelease(WORKTREE), "dropped");
     expect(lease(WORKTREE), "REFERENCE_POOL_UNCOMMITTED_RELEASE_HELD_AGAIN").toEqual({ state: "held" });
     // A release intent a restart left behind settles the same way at the next checkpoint.
     f.state.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(WORKTREE);
-    await expect(f.owner.client.poolCheckpoint(NEXT, WORKTREE), "REFERENCE_POOL_INTERRUPTED_RELEASE_ASSESSABLE").resolves.toMatchObject({ id: NEXT });
+    expect(await f.owner.client.poolCheckpoint(NEXT, WORKTREE), "REFERENCE_POOL_INTERRUPTED_RELEASE_ASSESSABLE").toMatchObject({ id: NEXT });
     expect(lease(WORKTREE)).toEqual({ state: "held" });
   } finally { await f.close(); }
 });

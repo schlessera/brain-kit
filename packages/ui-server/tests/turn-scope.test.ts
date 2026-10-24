@@ -363,6 +363,7 @@ test("real host restart kills its paused namespace, records interruption and nev
     expect(packet.state).toBe("paused"); process.kill(packet.serverPid, "SIGKILL"); await host.exited;
     await wait(() => { try { return readFileSync(`/proc/${packet.workerPid}/stat`, "utf8").replace(/^.*\) /s, "").startsWith("Z"); } catch { return true; } });
     const path = join(root, "ui.db"), db = createUiDb(path), native = createNativeJournalFixture(packet.brain, root), journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: packet.brain, dbPath: path, objectsRoot: join(root, "objects") });
+    await journal.ready;
     const recovered = createTurnScope(db, { brainPath: packet.brain, journal, connected: () => true, changed: () => {} });
     try {
       const receipt = journal.summary("voyage").scope!.receipts[0]!;

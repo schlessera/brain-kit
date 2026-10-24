@@ -9,7 +9,7 @@ import {
   type ActivityRunSummary,
 } from "@schlessera/brain-ui-sdk/protocol";
 
-import { rowToRunRollup, type ActivityStore } from "../activity/store.js";
+import { rowToRunRollup, type AwaitableActivityStore } from "../activity/store.js";
 import { toWireEvent, toWireRollup, toWireSpan } from "../activity/stream.js";
 import type { ActivityNotifier } from "../activity/notify.js";
 import { noticeClientId, type ActionNotifier } from "../inbox/notify.js";
@@ -39,7 +39,7 @@ import {
  */
 export function createActivityRoutes(deps: {
   db: Database;
-  store: ActivityStore;
+  store: AwaitableActivityStore;
   notifier?: ActivityNotifier;
   /** Durable Action notices; their digest contribution is per client context. */
   actionNotices?: ActionNotifier;

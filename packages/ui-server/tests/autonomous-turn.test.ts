@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentBackend, BackendBridge, StartTurnRequest } from "@schlessera/brain-ui-sdk/server";
-import { assertTurnPosture, BackendRequestError, requestToolPermission } from "@schlessera/brain-ui-sdk/server";
+import { assertTurnPosture, BackendRequestError, createKeyedLock, requestToolPermission } from "@schlessera/brain-ui-sdk/server";
 import { createUiDb } from "../src/db/client.js";
 import { createPrincipal, revokePrincipal } from "../src/db/principals.js";
 import { createActivityStore } from "../src/activity/store.js";
@@ -17,6 +17,9 @@ import { createActivityRoutes } from "../src/routes/activity.js";
 import { createInboxBudget } from "../src/inbox/budget.js";
 import { createInboxStore, InboxStore } from "../src/inbox/store.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
+import { ACTIVITY_WRITE_METHODS } from "../src/activity/store-writes.js";
+import { boundaryPlanner, type ApplicationPlanner } from "../src/brain/application.js";
+import { createFixtureHostBoundary } from "./helpers/native-host-fixture.js";
 import { WsHost } from "../src/ws/host.js";
 import { createStaticBackendRegistry } from "../src/agent/backend.js";
 import { createSessionCatalog } from "../src/ws/session-catalog.js";
@@ -504,5 +507,45 @@ for (const adapter of ["claude", "pi"] as const) test(`${adapter} autonomous inb
     const allowedTools = ["inbox_list", "inbox_get"].map(name => adapter === "claude" ? `mcp__brain-ui__${name}` : name);
     await runAutonomousTurn({ ...f, checkpoint() {} }, { ...f.input, allowedTools });
     expect(reached).toBe(true);
+  } finally { f.db.close(); }
+});
+
+test("an autonomous turn's index outcome commits before the transaction that writes its terminal (#2814, #2835)", async () => {
+  const proposal = { operation: "write" as const, path: "notes/ithaca.md", content: "---\ntitle: Ithaca\ntype: note\n---\nOdysseus reaches Ithaca.\n", expectedBaseHash: null };
+  let applied: unknown;
+  const f = setup(async req => {
+    applied = await req.bridge.applyBrain!(proposal);
+    req.bridge.emit({ type: "result", sessionId: "runtime", outcome: "success", isError: false, durationMs: 1, numTurns: 1 });
+  });
+  // Activity writes resolve only once committed, as the write worker's do;
+  // the index flush holds them, as a commit waiting on fsync would.
+  let holding = false;
+  const queued: (() => void)[] = [];
+  const writes = Object.create(f.store) as typeof f.store;
+  for (const name of ACTIVITY_WRITE_METHODS) Object.defineProperty(writes, name, { value: (...args: unknown[]) => {
+    const commit = () => Reflect.apply(f.store[name] as (...values: unknown[]) => unknown, f.store, args);
+    if (!holding && !queued.length) return Promise.resolve(commit());
+    return new Promise(resolve => queued.push(() => resolve(commit())));
+  } });
+  const real = boundaryPlanner(createFixtureHostBoundary({ brainPath: f.brainPath }));
+  const applicationPlanner: ApplicationPlanner = { ...real, async index() { holding = true; throw new Error("maintenance worker timed out"); } };
+  f.backend.id = "pi";
+  f.backend.brainApplicationPolicy = () => ({ autoAllowed: [], available: ["write"], lock: createKeyedLock() });
+  try {
+    let done = false;
+    const running = runAutonomousTurn({ ...f, store: writes, applicationPlanner, checkpoint() {} },
+      { ...f.input, allowedTools: ["write_file"], application: { approved: { toolName: "write_file", input: proposal, targetPath: proposal.path } } }).finally(() => { done = true; });
+    for (let tries = 0; tries < 400 && !holding; tries++) await Bun.sleep(5);
+    expect(holding).toBe(true);
+    await Bun.sleep(100);
+    expect(done, "AUTONOMOUS_TERMINAL_WAITS_FOR_INDEX_OUTCOME").toBe(false);
+    expect(f.store.getSpan("run:turn")?.outcome ?? null).toBeNull();
+    holding = false;
+    for (const commit of queued.splice(0)) commit();
+    await running;
+    expect(applied).toMatchObject({ ok: true, indexStatus: "pending" });
+    const events = f.store.snapshotRun("run")!.events.map(event => event.eventType);
+    expect(events.indexOf("brain_application_index")).toBeGreaterThan(events.indexOf("brain_application"));
+    expect(f.store.getSpan("run:turn")!.outcome).not.toBeNull();
   } finally { f.db.close(); }
 });

@@ -33,7 +33,7 @@ import type { WSContext } from "../ws/clients.js";
 import { sendTo } from "../ws/clients.js";
 import type {
   ActivityChange,
-  ActivityStore,
+  AwaitableActivityStore,
   RunRollupRow,
   SpanEventRow,
   SpanRow,
@@ -155,7 +155,7 @@ export interface ActivityStream {
   close(): void;
 }
 
-export function createActivityStream(store: ActivityStore, log?: Logger): ActivityStream {
+export function createActivityStream(store: AwaitableActivityStore, log?: Logger): ActivityStream {
   const subscriptions = new Map<
     unknown,
     { ws: WSContext; principalId: string; subscriptions: Subscription[] }
@@ -199,7 +199,7 @@ export function createActivityStream(store: ActivityStore, log?: Logger): Activi
     }
   }
 
-  type StreamChange = ActivityChange | ReturnType<ActivityStore["lifecycleChangesSince"]>[number];
+  type StreamChange = ActivityChange | ReturnType<AwaitableActivityStore["lifecycleChangesSince"]>[number];
   function deltaFrame(change: StreamChange): ServerActivityDelta {
     if (change.kind === "lifecycle") return {type:"activity_delta",runId:change.runId,seq:change.seq,lifecycle:change.lifecycle};
     return change.kind === "span"

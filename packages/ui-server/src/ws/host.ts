@@ -9,7 +9,7 @@ import type { SessionCatalog } from "./session-catalog.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import { createSilentObservability, type Observability } from "../observability/index.js";
 import { FrameRateLimiter } from "./rate-limit.js";
-import type { ActivityStore } from "../activity/store.js";
+import type { AwaitableActivityStore } from "../activity/store.js";
 import type { ActivityStream } from "../activity/stream.js";
 import type { PushSender } from "../activity/push-sender.js";
 import type { RuntimeStatus } from "../activity/runtime-status.js";
@@ -31,7 +31,7 @@ import type { ApplicationPlanner } from "../brain/application.js";
 
 /** The activity record and its live stream, when the host records activity. */
 export interface ActivityRuntime {
-  store: ActivityStore;
+  store: AwaitableActivityStore;
   stream: ActivityStream;
   /** Push bindings invalidated through the same principal-revocation boundary. */
   pushSender?: Pick<PushSender, "unbindPrincipal">;

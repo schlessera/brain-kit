@@ -266,15 +266,16 @@ export function makeBridge(
           }
         }
       }
-      // Persist-then-emit: the span write commits before the frame goes out,
-      // so a subscriber's snapshot can never be behind what it just saw live.
-      // Late frames through a previous turn's bridge stay un-recorded — the
-      // recorder belongs to ONE turn identity.
+      // The span write is submitted before the frame goes out, in frame order;
+      // it commits off the event loop (#2814), and the live Activity stream
+      // pumps it once committed. Late frames through a previous turn's bridge
+      // stay un-recorded — the recorder belongs to ONE turn identity.
       if (turn.turnId === turnId) recorder?.observeFrame(msg);
       const scoped = withTurnScope(msg, turn, turnId);
       host.sendToClients(scoped);
       // Identity must reach the client before its first scoped journal receipt.
-      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); host.journal?.bindSession(turnId, msg.sessionId); host.scope?.bindSession(turnId, msg.sessionId); }
+      // The journal publishes its receipt once the binding commits, after this frame.
+      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late

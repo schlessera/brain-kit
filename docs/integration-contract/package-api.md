@@ -3854,6 +3854,35 @@ change only after the save succeeds. Failed or interrupted finalization remains
 partial/unconfirmed. Other backends need not implement Claude native-memory
 persistence; this adds no agent history authority or new public request route.
 
+The callback may return a promise (additive, #2814): the first-party server
+commits its journal records on a write worker, off its event loop, and invokes
+the save closure only after they commit. A backend awaits the returned value
+before it persists the next note or ends the turn; a callback that returns
+nothing behaves exactly as before.
+
+### Journal and Activity writes commit off the event loop (#2814)
+
+Ruling 1 on [#2789](https://github.com/schlessera/brain-kit/issues/2789)
+moves the hosted server's journal, Activity and native-lease commits to a
+write-worker thread at `synchronous=FULL`, and makes their callers
+asynchronous. On the `TurnJournal` reachable through `WsHost.journal`:
+
+- `writeOperation` takes statements (`JournalStatement[]`) instead of a
+  callback, and resolves with each statement's change count once they commit
+  as one accounted write.
+- `bindSession`, `persistClaudeMemory`, `recordClaudeMemory`, `reserveRevert`,
+  `finishReserved`, `withRetainedRemoval`, `withRetainedVersion` and
+  `version().stream()` return promises that settle after their commits.
+  `bindModel` still answers synchronously, from the active turn's binding.
+- `ready` settles once startup recovery has committed. It rejects with the
+  refusal that `createTurnJournal` used to throw.
+
+`AwaitableActivityStore` is the Activity store as the hosted server holds it.
+Its reads are the `ActivityStore` reads. Its writes may return promises that
+settle after their commit. An `ActivityStore`, whose writes all commit before
+they return, satisfies it. Refusal classes and transaction order are
+unchanged. These shapes change at a pre-1.0 minor under that ruling.
+
 ### Late Activity session association
 
 `ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed

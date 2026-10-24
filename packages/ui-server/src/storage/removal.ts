@@ -11,6 +11,7 @@ import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server"
 import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
 import { MAINTENANCE_ENTRY, type HostBoundary } from "../brain/host-boundary.js";
 import type { TurnJournal } from "../brain/turn-journal.js";
+import { journalCheck, journalStatement, JournalStatementRefused } from "../brain/journal-store.js";
 import { SELF, processAlive, type WriterGate } from "../brain/writer-gate.js";
 import { StorageUnavailable, type StorageCoordinator } from "./coordinator.js";
 import { readRemovalFacts } from "./removal-facts.js";
@@ -71,17 +72,20 @@ export function createStorageRemoval(db: Database, options: {
     if ([...options.protectedPaths, ...status.protectedPaths.map(value => value.path)].some(root => prefix(path, root))) return "protected_owner_path";
     return null;
   }
-  const save = (row: Row, result: StorageRemovalReceipt, versions?: PrivateFile[]) => journal.writeOperation(() => {
-    db.query("UPDATE turn_journal_storage_operations SET state=?,receipt=?,private_versions=? WHERE id=? AND brain=?")
-      .run(result.state, encode(result), versions ? encode(versions) : row.private_versions, row.id, brain);
-    row.state = result.state; row.receipt = encode(result); if (versions) row.private_versions = encode(versions);
-  });
+  /** Resolves once the receipt has committed. */
+  const save = async (row: Row, result: StorageRemovalReceipt, versions?: PrivateFile[]) => {
+    const receipt = encode(result), privateVersions = versions ? encode(versions) : row.private_versions;
+    await journal.writeOperation([journalStatement("UPDATE turn_journal_storage_operations SET state=?,receipt=?,private_versions=? WHERE id=? AND brain=?",
+      result.state, receipt, privateVersions, row.id, brain)]);
+    row.state = result.state; row.receipt = receipt; row.private_versions = privateVersions;
+  };
   function recover(row: Row): StorageRemovalReceipt {
     const result = JSON.parse(row.receipt) as StorageRemovalReceipt;
     if (["waiting", "running"].includes(row.state) && (!processAlive(row.pid, row.pid_start) || row.pid === SELF.pid && row.pid_start === SELF.start && !runningHere.has(key(row.id)))) {
       result.state = row.state === "waiting" ? "refused" : "unknown"; result.reason = row.state === "waiting" ? "interrupted_before_effect" : "interrupted_outcome_unknown"; result.completedAt = Date.now();
       for (const item of result.items) if (item.state === "applying") { item.state = "unknown"; item.reason = "interrupted_outcome_unknown"; }
-      try { save(row, result); } catch { /* Durable pending intent still prevents replay. */ }
+      // Durable pending intent still prevents replay if this repair cannot commit.
+      void save(row, result).catch(() => {});
     }
     const versions = JSON.parse(row.private_versions) as PrivateFile[];
     for (const item of result.items) {
@@ -150,11 +154,11 @@ export function createStorageRemoval(db: Database, options: {
       const result: StorageRemovalReceipt = { review: reviewed, state: "review", requestedAt: now, startedAt: null, completedAt: null, reason: null,
         items: files.map(file => ({ path: file.path, state: file.eligible ? "not-started" : "protected", reason: file.reason, undoAvailable: false, undoReason: "no_confirmed_removal" })),
         before: null, after: null, index: "not-requested", commit: "not-requested", sync: "not-requested", retained: { journal: "subject-to-retention", git: "unchanged-by-operation", backups: "not-measured" } };
-      if (persist) journal.writeOperation(() => {
-        if ((db.query("SELECT count(*) AS total FROM turn_journal_storage_operations WHERE brain=?").get(brain) as {total: number}).total >= STORAGE_REMOVAL_LIMITS.receipts) throw new StorageUnavailable(503, "Attachment receipt capacity reached; existing receipts remain readable.");
-        db.query("INSERT INTO turn_journal_storage_operations (id,brain,principal_id,action,source_id,selection,fingerprint,journal_turn_id,state,pid,pid_start,requested_at,receipt,private_versions) VALUES (?,?,?,?,?,?,?,?,'review',?,?,?,?,?)")
-          .run(id, brain, principal, action, sourceId, selection, reviewed.fingerprint, `storage_${id}`, SELF.pid, SELF.start, now, encode(result), encode(versions));
-      });
+      if (persist) await journal.writeOperation([
+        journalCheck("SELECT 1 WHERE (SELECT count(*) FROM turn_journal_storage_operations WHERE brain=?) < ?", "Attachment receipt capacity reached; existing receipts remain readable.", brain, STORAGE_REMOVAL_LIMITS.receipts),
+        journalStatement("INSERT INTO turn_journal_storage_operations (id,brain,principal_id,action,source_id,selection,fingerprint,journal_turn_id,state,pid,pid_start,requested_at,receipt,private_versions) VALUES (?,?,?,?,?,?,?,?,'review',?,?,?,?,?)",
+          id, brain, principal, action, sourceId, selection, reviewed.fingerprint, `storage_${id}`, SELF.pid, SELF.start, now, encode(result), encode(versions)),
+      ]).catch(error => { throw error instanceof JournalStatementRefused ? new StorageUnavailable(503, error.message) : error; });
       return result;
     }); } finally { clearTimeout(timeout); reviews.delete(controller); pendingReviews.delete(done); finish(); }
   }
@@ -175,13 +179,13 @@ export function createStorageRemoval(db: Database, options: {
         const covered = await journal.removalCoverage(eligible, controller.signal, row.action === "undo");
         check();
         await journal.begin(row.journal_turn_id, { sessionId: null, actor: "user", model: null, profile: "strict", policyHash: null }, () => controller.abort(), controller.signal); journalStarted = true;
-        result.state = "running"; result.startedAt = Date.now(); save(row, result);
+        result.state = "running"; result.startedAt = Date.now(); await save(row, result);
         for (const item of result.items) {
           if (item.state !== "not-started") continue;
           check(); const privateFile = versions.find(file => file.path === item.path)!;
           const reason = protectedReason(item.path);
-          if (reason) { item.state = "protected"; item.reason = reason; save(row, result); continue; }
-          if (privateFile.consequences !== factIdentity(facts, item.path)) { item.state = "changed"; item.reason = "consequences_changed"; save(row, result); continue; }
+          if (reason) { item.state = "protected"; item.reason = reason; await save(row, result); continue; }
+          if (privateFile.consequences !== factIdentity(facts, item.path)) { item.state = "changed"; item.reason = "consequences_changed"; await save(row, result); continue; }
           try {
             if (!covered[eligible.indexOf(item.path)]) throw new StorageAttachmentRefusal("protected");
             if (row.action === "remove") {
@@ -198,20 +202,20 @@ export function createStorageRemoval(db: Database, options: {
               if (!storageAttachmentVacant(brain, item.path, privateFile.version!)) throw new StorageAttachmentRefusal("occupied");
             }
             check(); if (protectedReason(item.path)) throw new StorageAttachmentRefusal("protected");
-            item.state = "applying"; save(row, result, versions); // Durable retained identity and item intent precede the first file effect.
+            item.state = "applying"; await save(row, result, versions); // Durable retained identity and item intent precede the first file effect.
             if (row.action === "remove") await removeStorageAttachment(brain, item.path, privateFile.version!, controller.signal, check);
             else {
-              try { journal.withRetainedRemoval(select(row.source_id!)!.journal_turn_id, privateFile.retained!, copy => restoreStorageAttachment(brain, item.path, privateFile.version!, copy, check)); record("brain", item.path, "success"); }
+              try { await journal.withRetainedRemoval(select(row.source_id!)!.journal_turn_id, privateFile.retained!, copy => restoreStorageAttachment(brain, item.path, privateFile.version!, copy, check)); record("brain", item.path, "success"); }
               catch (error) { record("brain", item.path, "no-space", error); throw error; }
             }
             effects = true; item.state = row.action === "remove" ? "removed" : "restored"; item.reason = null;
-            save(row, result, versions); // An acknowledgement failure cannot authorize another file.
+            await save(row, result, versions); // An acknowledgement failure cannot authorize another file.
             await journal.observe();
           } catch (error) {
             if (item.state === "applying" || item.state === "removed" || item.state === "restored") { unresolved = true; throw error; }
             item.state = error instanceof StorageAttachmentRefusal && ["changed", "occupied"].includes(error.reason) ? "changed" : error instanceof StorageAttachmentRefusal && error.reason === "protected" ? "protected" : "failed";
             item.reason = error instanceof StorageAttachmentRefusal ? error.reason : (error as {reason?: string}).reason === "journal_capacity" ? "journal_capacity" : ["ENOSPC", "EDQUOT"].includes((error as {code?: string}).code ?? "") ? "recovery_no_space" : "recovery_or_file_unavailable";
-            save(row, result, versions);
+            await save(row, result, versions);
           }
         }
         await journal.finish(row.journal_turn_id); journalStarted = false;
@@ -237,7 +241,7 @@ export function createStorageRemoval(db: Database, options: {
       }
       for (const item of result.items) if (item.state === "applying") { item.state = "unknown"; item.reason = "outcome_requires_reconciliation"; }
       result.completedAt = Date.now();
-      try { save(row, result, versions); } catch { /* Original per-item intent survives; a later read returns unknown without replay. */ }
+      try { await save(row, result, versions); } catch { /* Original per-item intent survives; a later read returns unknown without replay. */ }
     }
   }
   return {
@@ -250,25 +254,26 @@ export function createStorageRemoval(db: Database, options: {
       encode(result); // Same response ceiling; never persist or expose a confirmable identity.
       return result;
     },
-    start(principal: string, id: string, fingerprint: string) {
+    async start(principal: string, id: string, fingerprint: string): Promise<StorageRemovalReceipt> {
       authorize(principal); const row = select(id);
       if (!row || row.principal_id !== principal) throw new StorageUnavailable(404, "Attachment review unavailable.");
       if (fingerprint !== row.fingerprint) throw new StorageUnavailable(409, "Review identity changed.");
       const result = recover(row);
       if (row.state !== "review") return result;
       if (!capability(principal).available || Date.now() >= result.review.expiresAt || !result.review.files.some(file => file.eligible)) throw new StorageUnavailable(409, "Refresh the attachment review before removal.");
-      journal.writeOperation(() => {
-        if (db.query("SELECT 1 FROM turn_journal_storage_operations WHERE brain=? AND state IN ('waiting','running')").get(brain)) throw new StorageUnavailable(409, "Another attachment operation is active.");
-        result.state = "waiting";
-        const changed = db.query("UPDATE turn_journal_storage_operations SET state='waiting',pid=?,pid_start=?,receipt=? WHERE id=? AND state='review'").run(SELF.pid, SELF.start, encode(result), id);
-        if (changed.changes !== 1) throw new StorageUnavailable(409, "Attachment operation already admitted.");
-      });
+      const waiting = { ...result, state: "waiting" as const };
+      const [, changed] = await journal.writeOperation([
+        journalCheck("SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM turn_journal_storage_operations WHERE brain=? AND state IN ('waiting','running'))", "Another attachment operation is active.", brain),
+        journalStatement("UPDATE turn_journal_storage_operations SET state='waiting',pid=?,pid_start=?,receipt=? WHERE id=? AND state='review'", SELF.pid, SELF.start, encode(waiting), id),
+      ]).catch(error => { throw error instanceof JournalStatementRefused ? new StorageUnavailable(409, error.message) : error; });
+      if (changed !== 1) throw new StorageUnavailable(409, "Attachment operation already admitted.");
+      result.state = "waiting";
       const controller = new AbortController(); runningHere.add(key(id));
       const pending = Promise.resolve().then(() => execute(select(id)!, controller)).finally(() => { active.delete(id); runningHere.delete(key(id)); });
       active.set(id, { controller, promise: pending });
       return result;
     },
-    cancel(principal: string, id: string) { const result = receipt(principal, id); if (["waiting", "running"].includes(result.state)) journal.writeOperation(() => db.query("UPDATE turn_journal_storage_operations SET cancel_requested=1 WHERE id=?").run(id)); active.get(id)?.controller.abort(); return result; },
+    async cancel(principal: string, id: string): Promise<StorageRemovalReceipt> { const result = receipt(principal, id); if (["waiting", "running"].includes(result.state)) await journal.writeOperation([journalStatement("UPDATE turn_journal_storage_operations SET cancel_requested=1 WHERE id=?", id)]); active.get(id)?.controller.abort(); return result; },
     async idle() { await Promise.allSettled([...active.values()].map(value => value.promise)); },
     async close() { closed = true; for (const controller of reviews) controller.abort(); for (const value of active.values()) value.controller.abort(); await Promise.allSettled([...pendingReviews, ...[...active.values()].map(value => value.promise)]); },
   };

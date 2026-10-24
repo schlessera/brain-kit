@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:613-618`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:614-619`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1412,7 +1412,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:301`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:313`).
 
 **What changes:**
 
@@ -2078,7 +2078,7 @@ every turn without a proven recipient:
   - **Auto-memory.** A denied Claude worker gets no saved project
     `memory/`, and no note it writes is saved, neither a new name nor a
     replacement of an existing one (`omitMemory`,
-    `packages/ui-backend-claude/src/worker-state.ts:284-284`). Its notes stay
+    `packages/ui-backend-claude/src/worker-state.ts:285-285`). Its notes stay
     in its tmpfs and are discarded with it, so no note can collide with a
     saved one and refuse the turn's transcript. The decision is taken from
     the host's actual masks (`sandbox.providerMasks.folders`), never from a
@@ -3110,7 +3110,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:222-285`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:249-312`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3134,7 +3134,7 @@ providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
 `packages/ui-server/src/brain/turn-journal.ts:462-497`; destination-bound recovery
-is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:108-118`.
 
 ### Concurrent edits
 
@@ -3167,7 +3167,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:49-72`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:50-73`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name

@@ -1,9 +1,10 @@
 import type { ActivityTurnLifecycle, ActivitySpanOutcome } from "@schlessera/brain-ui-sdk/protocol";
-import type { ActivityStore } from "./store.js";
+import type { AwaitableActivityStore } from "./store.js";
+import { orderedWrites } from "./store-writes.js";
 
 export type LifecycleMilestone = "dequeuedAt" | "governedStartedAt" | "governedAcquiredAt" | "budgetStartedAt" | "budgetAdmittedAt" | "journalStartedAt" | "journalBeganAt" | "backendInvokedAt" | "firstFrameAt" | "failureObservedAt";
 
-export function createTurnLifecycle(store: ActivityStore, turnId: string, sessionId: string | null,
+export function createTurnLifecycle(store: AwaitableActivityStore, turnId: string, sessionId: string | null,
   acceptedAt: number, onWrite: () => void, clock: () => number = Date.now) {
   const record: ActivityTurnLifecycle = {
     hostEvents: [], skippedPhases: [], lifecycleId: `lifecycle:${turnId}`, turnId, sessionId, backendRunId: null, acceptedAt, dequeuedAt: null,
@@ -12,8 +13,10 @@ export function createTurnLifecycle(store: ActivityStore, turnId: string, sessio
     endedAt: null, outcome: null, reason: null, totalElapsedMs: null, timeToFirstFrameMs: null,
     queueWaitMs: null, governedAdmissionMs: null, budgetAdmissionMs: null, journalBeginMs: null, backendStartupMs: null,
   };
-  // Observability, including fanout, must never fail the observed turn.
-  const persist = () => { try { store.writeLifecycle(record); onWrite(); } catch { /* best effort */ } };
+  // Observability, including fanout, must never fail the observed turn. Each
+  // write carries the record as it is now and fans out once committed (#2814).
+  const writes = orderedWrites(store, () => { /* best effort */ });
+  const persist = () => { writes.store.writeLifecycle(structuredClone(record)); writes.after(onWrite); };
   persist();
   const recordHostEvent = (kind: ActivityTurnLifecycle["hostEvents"][number]["kind"], principalId: string) => {
     if (record.endedAt !== null) return;
