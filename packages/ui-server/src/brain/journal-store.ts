@@ -9,7 +9,7 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { JournalObservationReference, JournalVersion } from "@schlessera/brain-ui-sdk/protocol";
 
 import type { WireError, WriteProcedures } from "../db/write-worker.js";
-import { recordGovernanceEvent, type GovernanceEventInput } from "../governance/events.js";
+import { recordGovernanceEvent } from "../governance/events.js";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError, type JournalObjectReservation } from "./journal-objects.js";
 
@@ -18,12 +18,10 @@ export const url = import.meta.url;
 export interface JournalStoreOptions { dbPath: string; objectsRoot: string; capBytes?: number }
 
 /**
- * One statement of an accounted write. A `governance` entry records that
- * event in the same transaction; a `check` entry refuses the whole write with
- * `refusal` unless its query returns a row.
+ * One statement of an accounted write. A `check` entry refuses the whole
+ * write with `refusal` unless its query returns a row.
  */
-export type JournalStatement = { sql: string; params?: SQLQueryBindings[] } | { governance: GovernanceEventInput }
-  | { check: string; params?: SQLQueryBindings[]; refusal: string };
+export type JournalStatement = { sql: string; params?: SQLQueryBindings[] } | { check: string; params?: SQLQueryBindings[]; refusal: string };
 
 /** A `check` statement found no row: the write rolled back. */
 export class JournalStatementRefused extends Error {}
@@ -80,7 +78,6 @@ export function setup(db: Database, options: JournalStoreOptions): WriteProcedur
     /** Statements in order, as one accounted transaction; the changes each made. */
     statements(list: JournalStatement[]): number[] {
       return accounting.write(() => list.map(statement => {
-        if ("governance" in statement) { recordGovernanceEvent(db, statement.governance); return 0; }
         if ("check" in statement) {
           if (!db.query(statement.check).get(...(statement.params ?? []))) throw new JournalStatementRefused(statement.refusal);
           return 0;

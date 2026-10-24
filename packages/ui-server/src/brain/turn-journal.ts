@@ -30,7 +30,7 @@ const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null
 } : null;
 const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(entry ? { ...version(entry), ...(entry.ignored ? { stamp: entry.stamp } : {}) } : null);
 
-export function createTurnJournal(db: Database, options: {
+export interface TurnJournalOptions {
   brainPath: string; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
   nativeManager: NativeJournalManager;
   /** Managed worktrees (#2430): each is its own separately checkpointed root. */
@@ -38,9 +38,11 @@ export function createTurnJournal(db: Database, options: {
   /** Owner records for worktree observation checkpoints, so startup recovery releases only an ended process's. */
   referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
-  /** The app's write worker; absent, the journal opens its own for `db`'s file. */
+  /** @internal The app's write worker; absent, the journal opens its own for `db`'s file. */
   writer?: SqliteWriter;
-}) {
+}
+
+export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   const now = options.now ?? Date.now;
   // Every journal write is an accounted transaction on the write worker's
   // connection, committed at synchronous=FULL off the event loop and in

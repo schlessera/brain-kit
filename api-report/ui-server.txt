@@ -162,6 +162,8 @@ signatures (every public export and the types it is made of)
         subscriptionCount(): number;
         close(): void;
     }
+  ActivityWriteMethod (packages/ui-server/src/activity/store.ts)
+    export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat" | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
   AgentConfig (packages/ui-server/src/config/env.ts)
     export interface AgentConfig {
         backend: string | null;
@@ -214,6 +216,12 @@ signatures (every public export and the types it is made of)
         retain(): () => void;
         release(): void;
     }
+  Awaitable (packages/ui-server/src/activity/store.ts)
+    type Awaitable<T> = T | Promise<T>;
+  AwaitableActivityStore (packages/ui-server/src/activity/store.ts)
+    export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
+        [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+    };
   BackendRegistry (packages/ui-server/src/agent/backend.ts)
     export interface BackendRegistry {
         getBackends(): Promise<AgentBackend[]>;
@@ -455,7 +463,7 @@ signatures (every public export and the types it is made of)
         log?: Logger;
         meter?: Meter;
         activity?: {
-            store: Pick<ActivityStore, "startSpan" | "endSpan" | "rollupRun">;
+            store: Pick<AwaitableActivityStore, "startSpan" | "endSpan" | "rollupRun">;
             onWrite?: () => void;
         };
     }
@@ -660,6 +668,15 @@ signatures (every public export and the types it is made of)
     }
   InboxIntake (packages/ui-server/src/inbox/intake.ts)
     export type InboxIntake = ReturnType<typeof createInboxIntake>;
+  JournalStatement (packages/ui-server/src/brain/journal-store.ts)
+    export type JournalStatement = {
+        sql: string;
+        params?: SQLQueryBindings[];
+    } | {
+        check: string;
+        params?: SQLQueryBindings[];
+        refusal: string;
+    };
   LABEL_MAX_CHARS (packages/ui-server/src/labels/normalise.ts)
     const LABEL_MAX_CHARS: 32;
   LABEL_RUN_NAME (packages/ui-server/src/labels/labeller.ts)
@@ -1244,6 +1261,18 @@ signatures (every public export and the types it is made of)
     }
   TurnJournal (packages/ui-server/src/brain/turn-journal.ts)
     export type TurnJournal = ReturnType<typeof createTurnJournal>;
+  TurnJournalOptions (packages/ui-server/src/brain/turn-journal.ts)
+    export interface TurnJournalOptions {
+        brainPath: string;
+        dbPath: string;
+        objectsRoot: string;
+        capBytes?: number;
+        now?: () => number;
+        nativeManager: NativeJournalManager;
+        referencePool?: ReferenceWorktreeJournalPool;
+        referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
+        changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
+    }
   VoiceConfig (packages/ui-server/src/config/env.ts)
     export interface VoiceConfig {
         provider: string | null;
@@ -1627,17 +1656,7 @@ signatures (every public export and the types it is made of)
         log?: Logger;
     }): BackendRegistry;
   createTurnJournal (packages/ui-server/src/brain/turn-journal.ts)
-    export function createTurnJournal(db: Database, options: {
-        brainPath: string;
-        dbPath: string;
-        objectsRoot: string;
-        capBytes?: number;
-        now?: () => number;
-        nativeManager: NativeJournalManager;
-        referencePool?: ReferenceWorktreeJournalPool;
-        referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
-        changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
-    }): {
+    export function createTurnJournal(db: Database, options: TurnJournalOptions): {
         attachWorktree(turnId: string, worktreeId: string, signal?: AbortSignal): Promise<void>;
         begin(turnId: string, metadata: {
             actor: "interactive" | "user" | "voice";
@@ -1648,7 +1667,7 @@ signatures (every public export and the types it is made of)
             sessionId: null | string;
         }, stop: (error: Error) => void, signal?: AbortSignal): Promise<void>;
         bindModel(turnId: string, sessionId: null | string, model: string): boolean;
-        bindSession(turnId: string, sessionId: string): void;
+        bindSession(turnId: string, sessionId: string): Promise<void>;
         claudeMemoryTarget(turnId: string, path: string): null | {
             device: string;
             directory: string;
@@ -1659,12 +1678,12 @@ signatures (every public export and the types it is made of)
         coverPaths(turnId: string, paths: readonly string[]): void;
         details(sessionId: string, turnId: string): TurnJournalDetails | null;
         finish(turnId: string): Promise<void>;
-        finishReserved(turnId: string): void;
+        finishReserved(turnId: string): Promise<void>;
         hasRetainedVersion(turnId: string, selected: JournalVersion): boolean;
         idle(): Promise<void>;
         isHeld(): boolean;
         observe(): Promise<void>;
-        observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void>;
+        observeUserPolicy(turnId: string, approvedWrite: () => Promise<void> | void): Promise<void>;
         onObservation(observer: (turnId: string, facts: {
             changedPaths: number;
             observedBytes: number;
@@ -1679,29 +1698,30 @@ signatures (every public export and the types it is made of)
             beforeMode: number;
             directory: string;
             note: string;
-        }, save: () => void): void;
+        }, save: () => void): Promise<void>;
+        ready: Promise<void>;
         recordClaudeMemory(turnId: string, path: string, target: {
             device: string;
             directory: string;
             inode: string;
             note: string;
-        }, before: JournalVersion | null, after: JournalVersion | null): void;
+        }, before: JournalVersion | null, after: JournalVersion | null): Promise<void>;
         removalCoverage(paths: readonly string[], signal?: AbortSignal, absent?: boolean): Promise<boolean[]>;
-        reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): void;
+        reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
         summary: (turnId: string) => TurnJournalSummary;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {
             bytes: (maxBytes: number) => Buffer<ArrayBufferLike>;
             selected: JournalVersion;
-            stream(): {
+            stream(): Promise<{
                 body: ReadableStream<Uint8Array>;
                 bytes: number;
-            };
+            }>;
         };
-        withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): T;
-        withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T;
+        withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): Promise<T>;
+        withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): Promise<T>;
         worktrees(turnId: string): string[];
-        writeOperation<T>(write: () => T): T;
+        writeOperation(statements: readonly JournalStatement[]): Promise<number[]>;
     };
   inspect (packages/ui-server/src/inbox/resolve.ts)
     function inspect(principalId: string, msg: ClientInboxResolve): {
