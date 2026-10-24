@@ -2099,14 +2099,23 @@ every turn without a proven recipient:
   `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
-  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:78-97`).
+  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
-  digest of the staged bytes intake read (`const evidence = person`,
-  `packages/ui-server/src/inbox/intake.ts:107`); text the server composed
+  digest of the staged bytes intake read (`const evidence = author`,
+  `packages/ui-server/src/inbox/intake.ts:110`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
-  lifecycle notices); and text an autonomous run wrote (escalations, yields)
-  whose admitted masks hid every folder now masked. Triage results count as
+  lifecycle notices); text an autonomous run wrote (escalations, yields)
+  whose admitted masks hid every folder now masked; and, since #2816, an
+  item a hosted conversation added through `inbox_add`, bound to its staged
+  bytes the same way, whose born-masked lineage hid every folder now masked.
+  That record takes the lineage's folders from the host's own row for the
+  adding turn (`function turnLineage`,
+  `packages/ui-server/src/inbox/provenance.ts:80-85`), which exists only
+  while that turn was the last to start or narrow it, so it covers every
+  turn of the conversation up to and including the one that wrote the text.
+  The bridge names the turn it was built for; the model supplies only the
+  text. Triage results count as
   server text: the server composes them from closed route and reason
   vocabularies. A copy (follow-ups, a retired decision's notice) carries its
   source's record. Intake digests the bytes it is about to publish, never a
@@ -2115,11 +2124,13 @@ every turn without a proven recipient:
   run's budget reservation (`provider_admission`), which is where the run's
   own records take their hidden folders from
   (`export async function admitOriginThread`,
-  `packages/ui-server/src/inbox/provenance.ts:138-168`).
+  `packages/ui-server/src/inbox/provenance.ts:160-191`).
 
   Everything else is refused, never assumed compatible: a legacy item or
   checkpoint with no record, an arrival a conversation added through
-  `inbox_add` (that conversation's earlier history is #2726's scope), text
+  `inbox_add` without a qualifying lineage (pre-policy, legacy, narrowed by
+  an unmasked or allowed-route turn so it no longer covers the folders, or
+  whose record is lost), text
   from a run that saw a folder now masked (including every run before the
   rule), a record whose digest no longer matches, rewritten staging bytes,
   and any read after the policy hash changed. A timestamp, the latest policy

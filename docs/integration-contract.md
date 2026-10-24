@@ -110,12 +110,21 @@ built or any provider is reached, with an error whose message starts
 the run's activity record keeps that reason as its failure reason. Its
 `inbox_list` and `inbox_get` revalidate the same evidence and the policy hash
 in the read's transaction and refuse with the same message otherwise. Legacy
-threads, items a conversation added through `inbox_add`, and any thread
-changed incompatibly or under a changed policy are refused, not assumed
-compatible. Refused work stays stored and queued (retried with backoff, then
+threads, items a conversation added through `inbox_add` without a
+qualifying lineage (below), and any thread changed incompatibly or under a
+changed policy are refused, not assumed compatible. Refused work stays stored and queued (retried with backoff, then
 dead-lettered as any failed attempt), never completed, rewritten or moved to
 another provider. Tool names, schemas and refusal codes are unchanged; turns
 without masked folders are unaffected.
+
+Additive (#2816): an item a hosted conversation adds through `inbox_add`
+qualifies when that conversation's born-masked lineage (#2726) hid every
+folder the autonomous turn masks, from every one of its turns up to the one
+that added it, as the host recorded it. Items from a pre-policy, legacy,
+record-less conversation, or one whose lineage an unmasked or allowed-route
+turn narrowed so it no longer covers those folders, are still refused with
+the same message. Tool names, schemas,
+refusal codes and the `inbox_add` result are unchanged.
 
 ## Separate-UID provider folder turns (additive, 0.44.0, #2696)
 

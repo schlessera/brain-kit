@@ -153,9 +153,10 @@ once the brain's taxonomy has been read, a hardlink out of a masked folder as
 for hosted turns. Its bridge refuses masked paths the same way (#2691).
 It also starts only when host provenance shows its origin inbox thread was
 written without the masked folders, and its `inbox_list` and `inbox_get`
-revalidate that; a legacy thread, an item a conversation added, or a thread
-changed under a new policy is refused with `provider_masked` and the queued
-work stays stored (#2741). In
+revalidate that; a legacy thread, an item a conversation added without a
+born-masked lineage that hid those folders (#2816), or a thread changed
+under a new policy is refused with `provider_masked` and the queued work
+stays stored (#2741). In
 every denied turn the committed generated-text caches (`.context-cache.jsonl`,
 `.asset-cache.jsonl`) read as empty (#2692), and so they do in every turn
 allowed some or all provider folders (below).
