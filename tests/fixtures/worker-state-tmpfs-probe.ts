@@ -42,6 +42,9 @@ function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?
   const view = createFixtureWorkerStartupView(brain);
   const worker = createWorkerSpawn(brain, {}, new AbortController().signal, undefined, undefined, undefined, undefined,
     { limits, ...(turnTempLimits ? { turnTempLimits } : {}) }, undefined, undefined, view);
+  // A refusal before launch reaches the SDK as the process's error event: the
+  // probe and launch run behind the deferred spawn (#2790), so a turn is
+  // refused only once its outcome has settled.
   let child: SpawnedProcess | undefined, refused: string | undefined;
   try {
     child = worker.spawn({ command: "/bin/sh", args: ["-c", script, "sh", ...(resume ? [`--resume=${resume}`] : [])],
@@ -52,7 +55,7 @@ function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?
     if (!child) return done({ code: null, signal: null });
     child.on("exit", (code: number | null, signal: string | null) => done({ code, signal }));
     // Launcher failures report an error; copy-out refusals retain the exit and name a failure.
-    child.on("error", () => done({ code: null, signal: "worker error" }));
+    child.on("error", (error: Error) => { refused ??= error.message; done({ code: null, signal: "worker error" }); });
   });
   let held!: () => void;
   const holding = new Promise<void>(resolve => { held = resolve; });
@@ -64,7 +67,7 @@ function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?
     });
     child.stdout.on("end", done); child.stdout.on("close", done);
   });
-  return { worker, refused,
+  return { worker, get refused() { return refused; },
     ready: () => Promise.race([holding, exited.then(() => { throw new Error(`Worker exited before its release gate: ${out}`); })]),
     release: () => child?.stdin.end("release\n"),
     async settle() { const exit = await exited; await drained; await worker.finish().catch(() => {}); await view.cleanup(); return { exit, out: out.replaceAll("waiting-for-release\n", "").trim(), failure: failureOf(worker) }; } };
@@ -83,13 +86,14 @@ if (scenario === "contend") {
   const first = turn(`${append(TROY, "{\"text\":\"The horse is inside the walls\"}")}; ${hold}`, TROY, one);
   await first.ready();
   const second = turn(append(ITHACA, "{\"text\":\"Home at last\"}"), ITHACA, one);
-  receipt.secondRefused = second.refused; receipt.secondClass = failureOf(second.worker)?.errorClass;
+  const secondSettled = await second.settle();
+  receipt.secondRefused = second.refused; receipt.secondClass = secondSettled.failure?.errorClass;
   receipt.heldDuringFirst = processStateLedger().held;
   first.release();
   receipt.first = await first.settle();
   const again = turn(append(ITHACA, "{\"text\":\"Home at last\"}"), ITHACA, one);
-  receipt.againRefused = again.refused ?? null;
   receipt.again = await again.settle();
+  receipt.againRefused = again.refused ?? null;
   receipt.tails = [tail(TROY), tail(ITHACA)];
 } else if (scenario === "fit") {
   // Two 30 MiB conversations at once: impossible on a shared 64 MiB /dev/shm.
@@ -119,8 +123,9 @@ if (scenario === "contend") {
   const small: WorkerStateLimits = { allowanceBytes: 8 * MiB, budgetBytes: 16 * MiB };
   session(TROY, 10); session(ITHACA, 4);
   const tooLarge = turn(append(TROY, "{\"text\":\"never\"}"), TROY, small);
+  const tooLargeSettled = await tooLarge.settle();
   receipt.tooLargeRefused = tooLarge.refused;
-  receipt.tooLargeClass = failureOf(tooLarge.worker)?.errorClass ?? null;
+  receipt.tooLargeClass = tooLargeSettled.failure?.errorClass ?? null;
   const fits = turn(`${mount}; head -c ${8 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/flood" 2>/dev/null; echo flood=$?`, ITHACA, small);
   receipt.fits = await fits.settle();
 } else if (scenario === "planted") {
@@ -163,14 +168,15 @@ if (scenario === "contend") {
   receipt.turnTempHeldDuringFirst = processStateLedger().turnTempHeld;
   receipt.stateHeldDuringFirst = processStateLedger().held;
   const second = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
-  receipt.secondRefused = second.refused ?? null; receipt.secondClass = failureOf(second.worker)?.errorClass ?? null;
+  const secondSettled = await second.settle();
+  receipt.secondRefused = second.refused ?? null; receipt.secondClass = secondSettled.failure?.errorClass ?? null;
   // A refusal holds nothing, runtime state included.
   receipt.heldAfterRefusal = { state: processStateLedger().held, turnTemp: processStateLedger().turnTempHeld };
   first.release();
   receipt.first = await first.settle();
   const again = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
-  receipt.againRefused = again.refused ?? null;
   receipt.again = await again.settle();
+  receipt.againRefused = again.refused ?? null;
   receipt.tails = [tail(TROY), tail(ITHACA)];
 } else if (scenario === "crash") {
   // The test kills this server process mid-turn; the worker must not outlive it.
