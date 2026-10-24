@@ -458,7 +458,7 @@ stage (`createScratchIgnoreQuery`,
 directory is not ignored. Launch failure, another exit or timeout means the
 rule could not be verified; the mask remains refused without forwarding worker
 stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
-`packages/ui-sdk/src/server/bridge-tools/mask.ts:217-228`).
+`packages/ui-sdk/src/server/bridge-tools/mask.ts:224-235`).
 
 **Credentials never reach a process that evaluates repository inputs.** A
 read-only host does not stop sandboxed code from stealing a credential it was
@@ -1137,9 +1137,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:334`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:336`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:545`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1523,7 +1523,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1792`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1824`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1582,7 +1582,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:239-303`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:239-316`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -2591,7 +2591,7 @@ current launcher opens mounts directly (`function openPrivateState`,
 `function* openPrivateTurnTempSteps`,
 `packages/ui-sdk/src/server/worker-launcher.ts:1098-1124`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1271-1344`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1272-1345`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2908,7 +2908,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:301-318`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:303-320`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.

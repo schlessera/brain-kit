@@ -50,7 +50,13 @@ export function invocationChild(command: string[], options: { cwd?: string; env?
         const stat = readFileSync(`/proc/${name}/stat`, "utf8");
         const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
         return !["Z", "X"].includes(fields[0]!) && Number(fields[2]) === anchor.pid && Number(fields[3]) === anchor.pid;
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; return false; }
+      } catch (error) {
+        // A process can disappear before open(2) (ENOENT) or after the
+        // procfs inode was opened but before read(2) (ESRCH).
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT" && code !== "ESRCH") throw error;
+        return false;
+      }
     });
     const end = Date.now() + 1_000;
     while (liveMembers() && Date.now() < end) await Bun.sleep(10);

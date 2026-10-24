@@ -6,7 +6,7 @@ import { deferredWorkerSpawn } from "./deferred-worker-spawn.js";
 import type { SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter, launchAgentWorker, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHost, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
+import { prepareRecoveredWorkerFiles, workerExecHelpers, createTurnTempPromoter, launchAgentWorkerAsync, prepareNativeWorkerOutput, type PreparedWorkerOutput, mergeLimitReports, mib, requireWorkerHostAsync, resolveTurnTempLimits, resolveWorkerStateLimits, retainWorkerStartupView,
   WORKER_SCRATCH, WORKER_STATE, type LaunchedWorker, type TurnTempPromotionRecord, type WorkerLimitReport,
   type WorkerLimitsPlan, type WorkerSandbox, type WorkerStateHandle, type WorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { FIRST_PARTY_FAILURE_CLASSES, type StateRoomObservation } from "@schlessera/brain-ui-sdk/protocol";
@@ -119,6 +119,13 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
    * failed spawn or a write error, so the turn reports this instead.
    */
   let failure: TurnFailure | undefined;
+  /**
+   * Why an ordinary worker did not start (#2790). Its probe and launch are
+   * awaited behind the deferred facade, so the SDK sees the failure as a
+   * process error; the turn reports this original error instead, as it did
+   * when the spawn threw it synchronously.
+   */
+  let startFailure: unknown;
   const record = (error: unknown) => {
     // By class, not constructor: the process ledger may come from another copy of this module.
     const errorClass = workerStateClass(error);
@@ -126,13 +133,16 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
   };
   /** Live workers' exhaustion checks, so asking for the failure also checks now. */
   const checks = new Set<() => void>();
-  function spawnNow({ command, args, env, signal }: SpawnOptions, preparedOutput?: PreparedWorkerOutput) {
+  /** `preparation` also stops a facade the SDK killed before the worker existed. */
+  async function spawnNow({ command, args, env, signal }: SpawnOptions, preparation: AbortSignal, preparedOutput?: PreparedWorkerOutput) {
       // The real launcher, with this worker's allowance, before anything is
-      // restored, admitted or copied.
-      requireWorkerHost(brainPath, { restricted: Boolean(restricted), stateBytes: stateLimits.allowanceBytes,
+      // restored, admitted or copied. Awaited, so the event loop keeps
+      // answering while a loaded host starts the probe worker (#2790).
+      await requireWorkerHostAsync(brainPath, { restricted: Boolean(restricted), stateBytes: stateLimits.allowanceBytes,
         turnTempBytes: turnTempLimits.allowanceBytes,
         ...(sandbox?.profile && sandbox.profile !== "restricted" ? { profile: sandbox.profile } : {}) });
       immediateSignal.throwIfAborted();
+      preparation.throwIfAborted();
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
         state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, limits: stateLimits, turnTempLimits,
@@ -153,13 +163,13 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           // The executable and any script it is handed, and nothing else of the
           // host. No operator exec wrapper: it is ambient host configuration.
           const readPaths = [command, ...args.filter(arg => isAbsolute(arg) && existsSync(arg) && statSync(arg).isFile())];
-          worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
+          worker = await launchAgentWorkerAsync({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView ? { startupView: retainWorkerStartupView(startupView) } : {}),
             command: [command, ...args], env: childEnv, ...(outputLock ? { outputLock } : {}),
             restricted: { readPaths, inferenceDir: restricted.inferenceDir }, ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
         } else {
-          worker = launchAgentWorker({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
+          worker = await launchAgentWorkerAsync({ brainPath, stateBytes: state.bytes, turnTempBytes: state.turnTempBytes, populateState,
             ...(preparedOutput ? { preparedOutput } : startupView && sandbox?.profile !== "governed" ? { startupView: retainWorkerStartupView(startupView) } : {}),
             command: wrapCommand([command, ...args], config.wrapper), env: childEnv, credentialEnv, ...(egress ? { egress } : {}), ...(outputLock ? { outputLock } : {}), ...(sandbox ? { sandbox } : {}),
             ...(limitsPlan ? { limits: limitsPlan } : {}) });
@@ -278,9 +288,24 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
     spawn(options: SpawnOptions): SpawnedProcess {
       const areas = sandbox?.areas.filter(area => area.mount.writable).map(area => area.rel) ?? [];
       if (sandbox?.profile === "governed" || !areas.length) {
-        const started = spawnNow(options);
-        completions.push(started.settled);
-        return started.process;
+        // The probe and launch are awaited behind the facade (#2790). The
+        // worker keeps the SDK's own signal, and the facade passes the SDK's
+        // kill to it, as when it was spawned synchronously.
+        let launched = false;
+        const deferred = deferredWorkerSpawn(async preparation => {
+          try {
+            const started = await spawnNow(options, preparation);
+            launched = true;
+            return started;
+          } catch (error) { if (!preparation.aborted) startFailure ??= error; throw error; }
+        }, [immediateSignal, options.signal]);
+        // Only a started worker's lifecycle is owned, as before: a refusal
+        // reaches the turn through the SDK and `startFailure`.
+        const completion = deferred.settled.catch(error => { if (launched) throw error; });
+        // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
+        void completion.catch(() => {});
+        completions.push(completion);
+        return deferred.process;
       }
       const deferred = deferredWorkerSpawn(async signal => {
         if (!startupView) throw new Error("Strict writable workers require a prepared native startup view.");
@@ -289,7 +314,7 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         catch (error) { record(error); throw error; }
         try {
           signal.throwIfAborted();
-          return spawnNow({ ...options, signal }, output);
+          return await spawnNow({ ...options, signal }, signal, output);
         } catch (error) { await output.cleanup(); throw error; }
       }, [immediateSignal, options.signal]);
       // Register preparation immediately: finish must own it even before a
@@ -298,6 +323,8 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       return deferred.process;
     },
     async finish() { await Promise.all(completions); },
+    /** Why an ordinary worker did not start, if it did not (#2790). */
+    startFailure: (): unknown => startFailure,
     /** Why the worker's runtime state refused or stopped the turn, if it did (#1625). */
     failure(): TurnFailure | undefined { for (const check of checks) check(); return failure; },
   };

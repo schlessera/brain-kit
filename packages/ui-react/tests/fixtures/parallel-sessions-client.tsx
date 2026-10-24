@@ -55,10 +55,24 @@ new MutationObserver((records) => {
   }
 }).observe(document.body, { childList: true, subtree: true, characterData: true });
 
+// A view's `settled` flag survives a reconnect. Observe the real store read
+// boundaries separately, including which native socket caused each read.
+const recoveryReads: Record<string, { socket: number; complete: boolean }> = {};
+root.stores.trackers.subscribe((state, previous) => {
+  for (const id of Object.keys(state.reading)) if (!previous.reading[id]) {
+    recoveryReads[id] = { socket: root.stores.connection.getState().socketOpens, complete: false };
+  }
+  for (const id of Object.keys(previous.reading)) if (!state.reading[id] && recoveryReads[id]) {
+    recoveryReads[id] = { ...recoveryReads[id]!, complete: true };
+  }
+});
+
 Object.assign(window, {
   __parallel: {
     approvalTools: (sessionId: string) => root.stores.chat.getState().buffers[sessionId]?.messages.flatMap((m) => m.toolCalls) ?? [],
     connected: () => root.stores.connection.getState().wsStatus === "connected",
+    socketOpens: () => root.stores.connection.getState().socketOpens,
+    recoveryReads: () => structuredClone(recoveryReads),
     draftsSupported: () => root.stores.drafts.getState().supported,
     activeSessionId: () => root.stores.chat.getState().activeSessionId,
     view: () => root.stores.ui.getState().activeView,

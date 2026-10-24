@@ -29,7 +29,8 @@ async function run(mode: Mode, cancel = false) {
   let workerExit: Promise<number | null> | undefined, backendError: unknown;
   const queryFn = ((params: { options?: Options }) => {
     const stream = (async function* () {
-      const script = `printf 'Ithaca\\n' >> "$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl"; `
+      // Waits for the double's go-ahead once running, so the host copy is altered after the snapshot.
+      const script = `printf ready; read -r go; printf 'Ithaca\\n' >> "$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl"; `
         + (mode === "hardlink" ? `ln "$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl" "$CLAUDE_CONFIG_DIR/$PROJECT/alias"; ` : "")
         + (mode === "memory" ? `printf 'Penelope\\n' > "$CLAUDE_CONFIG_DIR/$PROJECT/memory/MEMORY.md"; ` : "")
         + (mode === "exceeded" ? `head -c ${4 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/flood" 2>/dev/null; ` : "")
@@ -39,10 +40,14 @@ async function run(mode: Mode, cancel = false) {
         env: { PATH: "/usr/bin:/bin", CLAUDE_CONFIG_DIR: config, PROJECT: project, SESSION },
         signal: new AbortController().signal } as never);
       workerExit = new Promise(resolve => child.once("exit", (code: number | null) => resolve(code)));
+      // The worker starts behind the deferred spawn (#2790): once it runs,
+      // the real snapshot has been populated; alter only the saved host copy.
+      const running = new Promise(resolve => (child.stdout as NodeJS.ReadableStream).once("data", resolve));
       (child.stdout as NodeJS.ReadableStream).resume();
-      // The real snapshot has been populated; alter only the saved host copy.
+      await running;
       if (mode === "concurrent" || mode === "exceeded") writeFileSync(saved, "Telemachus\n");
       if (mode === "memory") writeFileSync(memory, "Telemachus\n");
+      (child.stdin as NodeJS.WritableStream).end("go\n");
       yield { type: "system", subtype: "init", session_id: SESSION, apiKeySource: "none" };
       yield* usageEvents(SESSION, "claude-sonnet-4-6", 17, 9);
       yield { type: "result", subtype: "success", session_id: SESSION, total_cost_usd: 0.25,
