@@ -3,6 +3,7 @@ import { mock, test } from "bun:test";
 import * as fs from "fs";
 import { basename, dirname, join, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { workerStep } from "../src/server/worker-steps.ts";
 
 const real = { ...fs };
 const root = real.mkdtempSync(join(tmpdir(), "odysseus-mask-race-"));
@@ -97,7 +98,7 @@ mock.module("fs", () => ({ ...real,
 // The mask uses a server-owned maintenance worker to ask git about ignore
 // policy. This control isolates filesystem races, so it supplies the fixture's
 // known directory-ignore answer and never starts a runtime or network client.
-mock.module(new URL("../src/server/maintenance-worker.ts", import.meta.url).pathname, () => ({ brainGitSteps: () => ({ next: () => ({ done: true, value: 0 }) }) }));
+mock.module(new URL("../src/server/maintenance-worker.ts", import.meta.url).pathname, () => ({ brainGitSteps: () => workerStep(() => 0, async () => 0) }));
 test("isolated mask filesystem race control", async () => {
 try {
   const masks = await import("../src/server/bridge-tools/mask.ts");
