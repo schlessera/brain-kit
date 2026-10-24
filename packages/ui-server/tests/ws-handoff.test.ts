@@ -185,6 +185,8 @@ interface RigOptions {
   rosterHold?: () => Promise<void> | undefined;
   /** What earlier turns of each session showed provider recipients (#2695); no other admission runs. */
   exposures?: (sessionIds: readonly string[]) => ProviderExposure[];
+  /** Whether a session's history may hold a folder hidden from a run with no proven recipient (#2726). */
+  unprovenHistory?: (sessionId: string) => boolean;
   /** Replace the catalog's handoff write. */
   recordHandoff?: (fallback: NonNullable<ReturnType<typeof createSessionCatalog>["recordHandoff"]>) => ReturnType<typeof createSessionCatalog>["recordHandoff"];
 }
@@ -216,7 +218,7 @@ function rig(options: RigOptions = {}): Rig {
     catalog,
     activity: { store, stream },
     maxConcurrentSessions: () => options.cap ?? 4,
-    ...(options.exposures ? { governedTurns: { exposures: options.exposures, bindSession() {}, refresh() {}, async close() {},
+    ...(options.exposures || options.unprovenHistory ? { governedTurns: { exposures: options.exposures ?? (() => []), unprovenHistory: options.unprovenHistory ?? (() => false), bindSession() {}, refresh() {}, async close() {},
       async begin(): Promise<never> { throw new Error("No turn is admitted in this rig"); },
       facts(): never { throw new Error("No turn is admitted in this rig"); } } } : {}),
   });
@@ -464,6 +466,19 @@ describe("handoff preparation", () => {
     expect(ws.frames.find((f) => f.type === "handoff_draft"), "EXPOSED_SOURCE_SUMMARY_REFUSED").toMatchObject({ handoffId: "h-exposed-0001", state: "failed",
       message: expect.stringContaining("reserves for anthropic") });
     expect(r.starts.claude, "EXPOSED_SOURCE_SUMMARY_NEVER_RUNS").toHaveLength(0);
+  });
+
+  test("a chat whose history the server cannot prove kept provider folders hidden gets no drafted summary (#2726)", async () => {
+    const asked: string[] = [];
+    const r = rig({ unprovenHistory: id => { asked.push(id); return true; } });
+    const source = seedSource(r, "claude");
+    const ws = r.open();
+    r.send(ws, { type: "handoff_prepare", handoffId: "h-unproven-0001", sourceSessionId: source, turns: 1 });
+    await until(() => ws.frames.some((f) => f.type === "handoff_draft"));
+    expect(ws.frames.find((f) => f.type === "handoff_draft"), "UNPROVEN_SOURCE_SUMMARY_REFUSED").toMatchObject({ handoffId: "h-unproven-0001", state: "failed",
+      message: expect.stringContaining("Start a new conversation instead") });
+    expect(r.starts.claude, "UNPROVEN_SOURCE_SUMMARY_NEVER_RUNS").toHaveLength(0);
+    expect(asked, "SUMMARY_ASKS_FOR_THE_SOURCE_LINEAGE").toEqual([source]);
   });
 
   test.each(["throw", "empty", "result", "error frame"] as const)("a failed %s handoff records the message sent to its client", async (mode) => {

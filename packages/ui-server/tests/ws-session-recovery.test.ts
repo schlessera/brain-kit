@@ -697,7 +697,7 @@ test("cancelling native admission settles both clients without starting a backen
       throw new Error("unreachable admission");
     },
     facts() { throw new Error("No policy facts are needed before admission completes"); },
-    refresh() {}, async close() {}, bindSession() {}, exposures: () => [],
+    refresh() {}, async close() {}, bindSession() {}, exposures: () => [], unprovenHistory: () => false,
   } });
   const other: ServerMessage[] = [];
   w.host.clients.add({ send: data => other.push(JSON.parse(data)) }, w.principal.id);

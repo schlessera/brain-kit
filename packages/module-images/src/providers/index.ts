@@ -1,4 +1,4 @@
-import { readEnvVar } from "../config/env.js";
+import { providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import type { ImagesConfig } from "../module.js";
 import type { ModelCapabilities, Provider, ProviderId } from "../types.js";
 import { geminiProvider } from "./gemini.js";
@@ -22,7 +22,8 @@ export function providerFor(id: ProviderId): Provider {
  */
 export function availableModels(cfg: ImagesConfig, env?: NodeJS.ProcessEnv): ModelCapabilities[] {
   const disabled = new Set(cfg.disabledModels ?? []);
-  return PROVIDERS.filter((p) => !!readEnvVar(p.apiKeyEnv, env)?.trim())
+  // A key the host withheld but relays counts as present (#1673).
+  return PROVIDERS.filter((p) => !!providerCredential(p.apiKeyEnv, env)?.trim() || relayedKey(p.apiKeyEnv, env))
     .flatMap((p) => p.models)
     .filter((m) => !disabled.has(m.id));
 }

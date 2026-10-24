@@ -30,7 +30,7 @@ import {
   geoConfigSchema,
   type GeoConfigInput,
 } from "@schlessera/brain-ui-sdk/server";
-import { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, hostOutputStagingLimits, hostMaintenanceTempLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
+import { NATIVE_MANAGER_OPERATION_TIMEOUT_MS, NATIVE_MANAGER_MAX_DELTA_BYTES, hostOutputStagingLimits, parseCliProviderOrigins, hostMaintenanceTempLimits, DEFAULT_TURN_TEMP_BYTES, WEB_SEARCH_PROVIDERS, parseWorkerStateBytes, resolveTurnTempLimits, resolveWorkerStateLimits } from "@schlessera/brain-ui-sdk/internal";
 import { validateExecWrapper } from "@schlessera/brain-ui-sdk/server";
 import {
   filterSubprocessEnv,
@@ -227,6 +227,16 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
       "Operators review this audience with every schedule; unset refuses schedule proposals " +
       "(unsupported_capability). Does not enable dispatch.",
     default: "(unset; schedule proposals refused)",
+    required: false,
+  },
+  {
+    name: "BRAIN_UI_CLI_PROVIDER_ORIGINS",
+    description:
+      "Extra recipients for the brain CLI's relayed provider keys: KEY=origin[,origin], separated by semicolons. " +
+      "Each origin is an exact https origin (http only for a loopback host). By default the relay sends GEMINI_API_KEY, " +
+      "ANTHROPIC_API_KEY and OPENAI_API_KEY only to their own first-party origins; a custom endpoint or a custom key " +
+      "variable is refused unless listed here. A malformed value stops the server.",
+    default: "(unset; first-party origins only)",
     required: false,
   },
   {
@@ -805,6 +815,11 @@ export interface ServerConfig {
    * audience. Null or absent refuses schedule proposals.
    */
   schedules?: { inferenceOrigins: string[] | null };
+  /**
+   * BRAIN_UI_CLI_PROVIDER_ORIGINS: exact recipients the operator adds for the
+   * CLI provider relay's keys (#1673), by key variable. Empty: first-party only.
+   */
+  cliProviderOrigins?: ReadonlyMap<string, readonly string[]>;
   /** Bind host, for the loopback check in auth validation. Empty when unset. */
   host: string;
   sourceCommit: string;
@@ -882,6 +897,8 @@ export interface CronConfig {
   controlEnv: EnvRecord;
   /** The exec wrapper resolved from `controlEnv`'s source, once, at the bin's edge. */
   exec: ExecWrapperConfig;
+  /** BRAIN_UI_CLI_PROVIDER_ORIGINS, for the provider relay of a credentialed job (#1673). */
+  cliProviderOrigins: ReadonlyMap<string, readonly string[]>;
 }
 
 function scheduleInferenceOrigins(raw: string | undefined): string[] | null {
@@ -1078,6 +1095,7 @@ export function resolveServerConfig(env: EnvRecord = process.env): ServerConfig 
       yieldAfterMs: autonomousPositiveInteger(env, "BRAIN_UI_AUTONOMOUS_YIELD_AFTER_MS", 20_000, 30_000),
     },
     schedules: { inferenceOrigins: scheduleInferenceOrigins(env.BRAIN_UI_SCHEDULE_INFERENCE_ORIGINS) },
+    cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
     host: env.HOST ?? "",
     sourceCommit: env.SOURCE_COMMIT ?? "dev",
     allowedOrigins: list(env.ALLOWED_ORIGINS),
@@ -1212,6 +1230,7 @@ export function resolveCronConfig(
       CRON_CONTROL_ENV_NAMES.filter((name) => env[name]).map((name) => [name, env[name]])
     ),
     exec: execConfig(env),
+    cliProviderOrigins: parseCliProviderOrigins(env.BRAIN_UI_CLI_PROVIDER_ORIGINS),
   };
 }
 

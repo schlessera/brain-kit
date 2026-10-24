@@ -11,6 +11,7 @@ import type { BrainConfig } from "./config.js";
 import type { AgentRunner, CompletionProvider, EmbeddingProvider, Reranker } from "./seams.js";
 import { readEnvVar } from "../config/env.js";
 import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
+import { providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import { buildPathMatcher, envRerankMode, isRerankMode, RERANK_MODES } from "./reranker.js";
 import { jevReranker, JEV_API_KEY_ENV, type JevRerankerConfig } from "../providers/rerankers/jev.js";
 
@@ -167,8 +168,8 @@ export function resolveAgentRunner(config?: AgentRunnerConfig): AgentRunner {
 
 /**
  * The unset env var that keeps a configured entry off, or undefined when it
- * may be resolved: a custom value, a built-in whose key is set, or an unknown
- * name, which the resolver reports.
+ * may be resolved: a custom value, a built-in whose key is set or reaches the
+ * host's provider relay (#1673), or an unknown name, which the resolver reports.
  */
 function unsetKey(
   registry: Record<string, KeyedBuiltin<never, unknown>>,
@@ -177,7 +178,7 @@ function unsetKey(
 ): string | undefined {
   if (typeof entry !== "string") return undefined;
   const env = apiKeyEnv ?? (Object.hasOwn(registry, entry) ? registry[entry].keyEnv : undefined);
-  return env !== undefined && !readEnvVar(env) ? env : undefined;
+  return env !== undefined && !providerCredential(env) && !relayedKey(env) ? env : undefined;
 }
 
 /**

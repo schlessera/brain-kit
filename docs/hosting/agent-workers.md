@@ -91,7 +91,7 @@ owner-only `0700`/`0600` modes. Before mounting the proxy, the launcher checks
 canonical paths, server ownership, the expected helper group, exact modes and
 socket type. Missing entries, symlinks and widened permissions refuse before
 the payload starts (`if (input.egress)`,
-`packages/ui-sdk/src/server/worker-launcher.ts:508-523`). This does not select
+`packages/ui-sdk/src/server/worker-launcher.ts:550-565`). This does not select
 the ordinary inference route or enable the proxy by default.
 
 Native output stages use the existing manager's active stage identity. The
@@ -227,7 +227,9 @@ memory folder. Other saved sessions are untouched. Copy-out refuses links,
 hardlinks, special files and anything past the allowance; a memory note another
 conversation changed during the turn is not overwritten and is named in the
 error, the other notes still persist, and nothing is deleted. An autonomous
-turn copies nothing in and writes nothing back. If the server process dies, its
+turn copies nothing in and writes nothing back. A turn whose provider rules
+mask a folder (#2726) copies no `memory/` notes in and saves none back, new or
+replacing; its transcript still saves, and the saved notes stay as they were. If the server process dies, its
 workers and their tmpfs mounts go with it; nothing is left to clean up.
 
 The allowance does not cover the worker's other writable places (`/tmp` and
@@ -750,7 +752,7 @@ the host root, `/home`, `/etc`, `/run`, `/var`, `/tmp` or an ancestor of the
 brain. No host home, stored login or `/run` socket is visible.
 
 The worker's only route out is the server-owned inference relay
-(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:70-252`).
+(`export function startInferenceRelay(`, `packages/ui-sdk/src/server/inference-relay.ts:71-253`).
 It is a Unix socket in a private `0700` directory, bind-mounted read-only at
 `/run/brain-inference`. It forwards only `POST` to the provider's inference
 routes, such as `/v1/messages` and `/v1/messages/count_tokens` for Anthropic,
@@ -1218,7 +1220,7 @@ keep.
 | pi through the relay | Nothing |
 | pi without the relay | Every credential above. pi resolves its own credentials in the worker there and may read any of them, also through a `models.json` `$NAME`. Hosts without managed native storage keep today's inference credentials until [#2654](https://github.com/schlessera/brain-kit/issues/2654). |
 | Restricted (autonomous) | Unchanged: its envelope's minimum environment |
-| Maintenance workers | Unchanged: credentialed maintenance keeps the `brainCli` and `cron` audiences until [#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the CLI's providers |
+| Maintenance workers | With managed native storage: no relayed key (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and keys listed in `BRAIN_UI_CLI_PROVIDER_ORIGINS`) and no `.env*`; the CLI reaches those providers through the [metered relay](#metered-provider-relay-1673). Keys the relay does not carry (`TYPESAFE_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` for a `brain sync` agent runner) stay. Without managed native storage: unchanged, every key in the `brainCli` and `cron` audiences |
 
 **Which commands need a key.** The audit of the first-party commands an agent
 runs in its worker:
@@ -1240,7 +1242,7 @@ they run in a maintenance worker, not the turn's.
 in a fixed token, for example
 `[provider_unavailable provider=gemini capability=embeddings key=GEMINI_API_KEY degraded_to=keyword_search]`
 (`providerUnavailableNotice`,
-`packages/common/src/provider-unavailable.ts:56-64`). The turn recorder reads
+`packages/common/src/provider-unavailable.ts:64-72`). The turn recorder reads
 each tool result for the token and writes one `provider_unavailable`
 governance event per distinct token, with the call's command, at most 20 per
 turn (`providerUnavailablePayloads`,
@@ -1252,11 +1254,80 @@ nothing. A key that was never set is not withheld, so a keyless brain outside a
 worker keeps its ordinary messages. The token's grammar is part of the
 [CLI contract](../integration-contract/cli.md#withheld-provider-keys-additive-0440-1666).
 
-**What #1673 changes.** The metered relays give the CLI's providers back to
-turn workers without keys, and remove the keys from maintenance workers too.
-Until then, a relayed Claude API-key turn holds a placeholder under
-`ANTHROPIC_API_KEY`, so the CLI's `anthropic-haiku` completions call fails
-authentication instead of naming the provider.
+**What #1673 changes.** On a turn with a turn proxy, the commands above that
+use a Gemini, Anthropic or OpenAI image provider work again, through the
+[metered relay](#metered-provider-relay-1673), with no key in the worker. The
+`jev` reranker and `brain video watch` still report `provider_unavailable`.
+A relayed Claude API-key turn holds the inference placeholder under
+`ANTHROPIC_API_KEY`; the launcher names that key in `BRAIN_WITHHELD_KEYS`, and
+the CLI's `anthropic-haiku` reaches the host's key through the relay instead of
+sending the placeholder.
+
+### Metered provider relay (#1673)
+
+**What it is.** A host-owned Unix socket for the `brain` CLI's own paid
+providers. A governed or strict turn that runs on the turn egress proxy gets
+one, linked beside the proxy at `/run/brain-egress/providers.sock`. A
+credentialed maintenance run on a host with managed native storage gets its
+own at `/run/brain-providers/relay.sock`. The launcher names it in
+`BRAIN_PROVIDER_RELAY_SOCKET`. A built-in provider whose key is withheld sends
+its native request there (the routes are in the
+[CLI contract](../integration-contract/cli.md#provider-relay-additive-0440-1673)):
+Gemini embeddings and non-video completions, Anthropic completions, and OpenAI
+and Gemini images. Video uploads and the `jev` reranker are not relayed.
+
+**Who may receive a key.** The relay sends `GEMINI_API_KEY` only to
+`https://generativelanguage.googleapis.com`, `ANTHROPIC_API_KEY` only to
+`https://api.anthropic.com` and `OPENAI_API_KEY` only to
+`https://api.openai.com`, in the header that provider expects. A custom
+endpoint (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_BASE_URL`, `OPENAI_BASE_URL`) or a
+custom `apiKeyEnv` is refused, before any contact, unless the operator lists
+that key and exact origin in `BRAIN_UI_CLI_PROVIDER_ORIGINS`:
+`BRAIN_UI_CLI_PROVIDER_ORIGINS="GEMINI_API_KEY=https://gateway.ithaca.invalid;ITHACA_KEY=https://api.anthropic.com"`.
+Origins are exact `https` origins, or `http` for a loopback host. The relay
+strips every credential the worker sent, takes the key from the server's own
+environment, never follows a redirect and never forwards a query string. A
+maintenance run gets only the keys its own audience held: a cron job, which
+never had `ANTHROPIC_API_KEY`, cannot reach it through the relay either. A key
+kept only in the brain's `.env` is not available to it. The launcher names a
+listed custom key in `BRAIN_WITHHELD_KEYS` from a list of names the server
+writes beside the socket, so the CLI's custom `apiKeyEnv` uses the relay too.
+
+**Limits.** A relay refuses streamed requests (their usage arrives in events
+it does not read), serves at most 8 requests at once, holds at most 64 MiB of
+request bodies across them, and needs each body within two minutes; a busy
+relay answers `503`. It replaces any copy of the key in a response, header or
+body, with `[redacted]`, so a gateway that echoes its credential cannot hand it
+to the worker. A hosted `brain sync` gets no relay: its local phase is
+credential-free, as before.
+
+**Metering.** Each upstream attempt is one row, written as unknown spend just
+before the request leaves and completed with the provider's reported units,
+read from the raw response before any SDK drops them. An attempt a crash
+interrupts therefore stays disclosed. When a turn ends, its relay waits for
+in-flight attempts to report before the turn's accounting closes. Gemini embeddings
+are priced at Google's published list price per modality; completions use
+the same Activity price table as the agent's own inference; image units stay
+unpriced. Reported tokens without a price count toward the unpriced-token
+stops; a request whose provider reported no usage is unknown spend and never
+blocks by itself. A turn's requests count toward its turn, conversation and
+UTC-day budgets and appear in its budget receipt, whose coverage now names
+the relayed providers. A maintenance run started from a turn's tool is
+charged to that turn; any other (a search from the UI, a cron job, a module
+action) counts toward its UTC day only. Once a scope is blocked, each further
+request is refused with `budget_exceeded` before anything is sent; the check
+runs on arrival and again just before dispatch. Nothing is reserved in advance, so requests already in flight when a scope becomes
+blocked complete and are counted: a busy turn can end slightly above its
+stop.
+
+**Egress.** A turn's relayed request is ordinary turn egress (G5): it passes
+the turn's deny, allowlist and taint rules and byte ceiling, and appears as an
+`egress_connection` with the provider's host and path. An `allowlist` policy
+therefore has to allow the provider's host for the CLI to reach it.
+
+**Hosts without managed native storage** keep their current behaviour: turn
+workers report the CLI's providers unavailable, and maintenance workers keep
+the keys, unmetered. Worker-host status says which applies.
 
 ### Worker startup status
 
@@ -1415,6 +1486,17 @@ storage no relay runs, so no recipient is proven and every provider folder
 stays masked. The table and the rules are in
 [supported inputs](../supported-inputs.md#governance-policy).
 
+**Continuing a conversation under provider rules (#2726).** A turn whose
+provider rules mask a folder continues an existing conversation only if the
+server recorded that the conversation was born with that folder masked and
+kept it masked on every turn since. A conversation started before the rule,
+on a route that could see the folder, or on a server that kept no such record
+is refused with a request to start a new conversation, before any of its
+history is copied to a worker or sent; the saved transcript is not changed.
+The same holds for a handoff from such a conversation, and drafting its
+handoff summary is refused. Expect existing conversations to need a fresh start
+the first time you add a provider rule.
+
 ### Untrusted input (#1667)
 
 For interactive and voice turns, the host recorder marks the session tainted
@@ -1447,8 +1529,10 @@ user marks untrusted are not a source yet. The rules are in
 ## Paid CLI provider qualification
 
 The offline transport audit for [#2277](https://github.com/schlessera/brain-kit/issues/2277)
-qualifies existing first-party request shapes. It does not activate CLI relaying
-or complete [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+qualifies existing first-party request shapes. The
+[metered provider relay](#metered-provider-relay-1673) built on it in
+[#1673](https://github.com/schlessera/brain-kit/issues/1673) relays the rows
+below except video and JeV.
 
 | CLI consumer / provider | Credential selection | Native destination and request family | Accounting at the consumer |
 | --- | --- | --- | --- |

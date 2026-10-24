@@ -60,6 +60,11 @@
       "bun": "./src/provider-unavailable.ts",
       "types": "./dist/provider-unavailable.d.ts",
       "default": "./dist/provider-unavailable.js"
+    },
+    "./internal/provider-relay": {
+      "bun": "./src/provider-relay.ts",
+      "types": "./dist/provider-relay.d.ts",
+      "default": "./dist/provider-relay.js"
     }
   },
   "files": [
