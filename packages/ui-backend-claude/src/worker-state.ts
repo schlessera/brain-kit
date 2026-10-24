@@ -137,6 +137,11 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
   options: { ephemeral?: boolean; resume?: string;
     /** Host-held inference never projects the native credential store into its worker. */
     hostInference?: boolean;
+    /**
+     * A provider-denied turn (#2726): the project's saved auto-memory is not
+     * copied in, and no note the worker writes is saved to it.
+     */
+    omitMemory?: boolean;
     /** The resolved allowance and budget; defaults to 64 MiB and three workers. */
     limits?: WorkerStateLimits;
     /** Defaults to the server process's one ledger. */
@@ -153,7 +158,7 @@ export function createClaudeWorkerState(brainPath: string, env: Record<string, s
 }
 
 function plan(brainPath: string, env: Record<string, string | undefined>,
-  options: { ephemeral?: boolean; resume?: string; hostInference?: boolean }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
+  options: { ephemeral?: boolean; resume?: string; hostInference?: boolean; omitMemory?: boolean }, limits: WorkerStateLimits, held: Reservation): ClaudeWorkerState {
   if (!options.ephemeral && options.resume !== undefined) validateSessionId(options.resume);
   const allowance = held.bytes;
   const brain = realpathSync(brainPath);
@@ -179,8 +184,10 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
   // a session but must never export files into an unrelated existing one.
   const existing = new Set(existsSync(projectRoot) ? readdirSync(projectRoot).map(name => name.replace(/\.jsonl$/, "")) : []);
   const settings = ["settings.json", ...(options.hostInference ? [] : [".credentials.json"]), ".claude.json"].filter(name => existsSync(join(saved, name)));
-  // Every session of the brain reads the project's auto-memory, so every turn copies it (#1626).
-  settings.push(...files(join(projectRoot, MEMORY)).map(name => `${project}/${MEMORY}/${name}`));
+  // Every session of the brain reads the project's auto-memory, so every turn
+  // copies it (#1626), except a provider-denied one: a note may quote a folder
+  // its policy hides, written before the policy existed (#2726).
+  if (!options.omitMemory) settings.push(...files(join(projectRoot, MEMORY)).map(name => `${project}/${MEMORY}/${name}`));
   const transcripts: string[] = [];
   if (options.resume) {
     if (existsSync(join(projectRoot, `${options.resume}.jsonl`))) transcripts.push(`${project}/${options.resume}.jsonl`);
@@ -271,8 +278,10 @@ function plan(brainPath: string, env: Record<string, string | undefined>,
       for (const file of files(join(root, project), "", { resolved: false })) {
         if (file.startsWith(`${MEMORY}/`)) {
           // Agent memory (#1626): only a `.md` note directly in the folder.
+          // A provider-denied worker saves none, new or replacing (#2726):
+          // its notes stay in its tmpfs and are discarded with it.
           const note = file.slice(MEMORY.length + 1);
-          if (note.includes("/") || !note.endsWith(".md")) continue;
+          if (options.omitMemory || note.includes("/") || !note.endsWith(".md")) continue;
           const name = `${project}/${file}`, bytes = regular(join(root, name), allowance); total += bytes.length;
           if (total > allowance) throw new WorkerHostError("runtime transcripts and memory exceed their byte bound");
           if (initial.get(name) !== hash(bytes)) notes.push([name, bytes]);

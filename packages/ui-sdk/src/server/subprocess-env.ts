@@ -55,6 +55,9 @@ export const SUBPROCESS_ENV = Object.freeze({
   // Names (never values) of the provider keys a turn worker's launcher held
   // back (#1666). Set by the launcher; tools inside the worker keep it.
   BRAIN_WITHHELD_KEYS: AGENT,
+  // The CLI provider relay's socket (#1673). Set by the launcher, which
+  // drops any host value; tools inside the worker keep it.
+  BRAIN_PROVIDER_RELAY_SOCKET: AGENT,
 
   // Credentials and capability keys used by subprocesses.
   // `brain sync` runs the configured agent runner below the brain CLI too.

@@ -448,13 +448,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1219-1455`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1284-1520`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:1009-1033`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:1074-1098`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -464,17 +464,17 @@ host (`function* launchAgentWorkerSteps`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:54`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:56`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in
    through the held descriptor (`populate(root) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:223-245`), then opens the
+   `packages/ui-backend-claude/src/worker-state.ts:230-252`), then opens the
    gate. A failed copy kills the worker unstarted and releases everything.
 3. After the worker exits, its PID namespace is gone, and with it every process
    that could write the tmpfs. The held descriptor still reaches the detached
    mount, so the server walks it then (`persist(root, rewrite, memory) {`,
-   `packages/ui-backend-claude/src/worker-state.ts:263-315`) with the existing
+   `packages/ui-backend-claude/src/worker-state.ts:270-324`) with the existing
    rules: only this brain's native transcripts and `memory/*.md` notes, every
    directory checked with `lstat` before it is entered, every file opened with
    `O_NOFOLLOW` and refused on the descriptor when it is not a regular file,

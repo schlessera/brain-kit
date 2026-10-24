@@ -218,3 +218,22 @@ opt-outs are preserved; without local receipts attribution stays unknown.
 #2050 owns first-main-request cache diagnostics, and #2053 owns the broader
 provider-history record. The additive server-only evidence event is recorded
 in the package API contract; no WebSocket field or total meaning changes.
+
+## Relayed CLI provider requests (#1673)
+
+The `brain` CLI's paid providers in a governed or strict worker go through a
+host relay, which records one row per upstream attempt in
+`provider_relay_usage`, keyed by the relay's own attempt identity. These rows
+feed the inference budgets, not Activity rollups: they never change a run's
+recorded or effective cost. Units are what the provider reported in the raw
+response, before an SDK converts it. Completion tokens are priced through the
+same `RollupPricing` as the agent's own inference, on the direct route
+(`priceProviderAttempt`, `packages/ui-server/src/pricing/provider-pricing.ts:34-68`).
+Embeddings are in neither remote catalog, so the built-in model has one dated
+row per input modality, from Google's published list price, and it counts as
+an estimate (`GEMINI_EMBEDDING_PRICES`, `packages/ui-server/src/pricing/provider-pricing.ts:21-23`).
+A modality without a row, inline media without a modality split, and every
+image request stay unpriced. The CLI's own per-image estimate is not a provider
+receipt and is never booked. Unknown is never zero here either: an attempt
+without reported usage is unknown spend, and reported tokens without a price
+count toward the unpriced-token stops.

@@ -6,11 +6,11 @@
  * with multimodal content blocks and configurable max_tokens.
  */
 
-import { readEnvVar } from "../../config/env.js";
 import type { CompletionProvider, ContentPart } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { CLAUDE_FAST_MODEL } from "../../lib/llm-defaults.js";
 import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
+import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -75,7 +75,11 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
     if (req.parts?.some((part) => part.kind === "video")) {
       throw new Error("Anthropic completions do not support video");
     }
-    const apiKey = readEnvVar(apiKeyEnv);
+    // A worker without the key sends the native request through the host's
+    // metered relay, which adds the key on the host (#1673). A relayed Claude
+    // turn's placeholder under ANTHROPIC_API_KEY is never sent anywhere.
+    const relay = providerRelayFetch("anthropic", apiKeyEnv);
+    const apiKey = relay ? PROVIDER_RELAY_PLACEHOLDER : providerCredential(apiKeyEnv);
     if (!apiKey) {
       throw new Error(missingKeyMessage(apiKeyEnv, "anthropic", "completions", `${apiKeyEnv} environment variable is required for Anthropic completions`));
     }
@@ -94,7 +98,7 @@ export function anthropicCompletions(config: AnthropicCompletionConfig = {}): Co
     if (req.system) body.system = req.system;
 
     const data = await withRetry(async () => {
-      const res = await fetch(API_URL, {
+      const res = await (relay ?? fetch)(API_URL, {
         method: "POST",
         signal: req.signal,
         headers: {

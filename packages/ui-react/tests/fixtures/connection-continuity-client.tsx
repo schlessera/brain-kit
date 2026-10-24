@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { AppShell, BrainUiProvider, ChatPage, ConnectionGate, createBrainUiRoot } from "../../src/index.ts";
 import { trackerViews } from "../../src/stores/tracker-state.ts";
 import { restorationOf } from "../../src/stores/chat-state.ts";
+import { reconnectClock } from "./reconnect-clock";
 
 // Connection drops in the whole app (#1013): ChatPage in AppShell behind the
 // ConnectionGate, the way a hosting shell composes them, on one root with a
@@ -15,6 +16,8 @@ const received = new Map<string, number>();
 const queueReceipts = new Map<string, number>();
 let queueReceiptOverflow = false;
 const NativeSocket = WebSocket;
+const backoff = reconnectClock();
+let connectionAttempts = 0;
 const observePreparation = (window as unknown as { __observeContinuityPreparation?: boolean }).__observeContinuityPreparation === true;
 type PreparationFrame = { socket: number; direction: "sent" | "received"; type: string; sessionId?: string; turnId?: string; detail?: string; append?: boolean };
 const preparationFrames: PreparationFrame[] = [];
@@ -29,6 +32,8 @@ function recordPreparation(socket: number, direction: PreparationFrame["directio
 class ObservedSocket extends NativeSocket {
   constructor(url: string | URL, protocols?: string | string[]) {
     super(url, protocols);
+    connectionAttempts++;
+    backoff.observe(this);
     const socket = recording ? ++currentSocket : 0;
     if (recording) socketIds.set(this, socket);
     this.addEventListener("message", event => {
@@ -106,6 +111,9 @@ try {
 
   Object.assign(window, {
     __continuity: {
+      backoff,
+      connectionAttempts: () => connectionAttempts,
+      handshakeFailures: () => root.stores.connection.getState().handshakeFailures,
       diagnostic: () => {
         const chat = root.stores.chat.getState();
         return { activeSessionId: chat.activeSessionId, queueNotes: chat.queueNotes, frames,
@@ -186,10 +194,14 @@ try {
       },
     },
   });
-  window.addEventListener("pagehide", () => { try { disposePreparation(); } finally { root.dispose(); } }, { once: true });
+  window.addEventListener("pagehide", () => {
+    try { disposePreparation(); }
+    finally { try { root.dispose(); } finally { backoff.dispose(); } }
+  }, { once: true });
 } catch (error) {
   // Initialization can fail before pagehide is installed. Restore the fixture's
   // own send descriptor even then; test teardown reads it back before closing.
-  try { disposePreparation(); } finally { disposeRoot?.(); }
+  try { disposePreparation(); }
+  finally { try { disposeRoot?.(); } finally { backoff.dispose(); } }
   throw error;
 }

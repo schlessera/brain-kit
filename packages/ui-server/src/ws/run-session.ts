@@ -14,9 +14,11 @@ import type {
   ThinkingLevel,
 } from "@schlessera/brain-ui-sdk/protocol";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
-import { lstatSync } from "node:fs";
+import { linkSync, lstatSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { isEnvName, PROTECTED_TIER_A } from "@schlessera/brain-ui-sdk/internal";
+import { isEnvName, PROTECTED_TIER_A, PROVIDER_RELAY_KEYS_NAME, PROVIDER_RELAY_SOCKET_NAME, heldCustomProviderKeys, startProviderRelay, type ProviderRelay } from "@schlessera/brain-ui-sdk/internal";
+import type { BudgetObservation } from "@schlessera/brain-ui-sdk/protocol";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
@@ -498,6 +500,7 @@ async function runRetainedSession(
       let workReason: string | undefined;
       let governedHold: import("../brain/governed-turn.js").GovernedTurnHold | undefined;
       let turnEgress: Awaited<ReturnType<typeof prepareTurnEgress>> | undefined;
+      let providerRelay: ProviderRelay | undefined;
       let worktreeGeneration: import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration | undefined;
       let referenceViews: { public: string; private: string } | null = null, referenceTurn = false;
       let journalFailure: Error | undefined;
@@ -607,6 +610,32 @@ async function runRetainedSession(
           ...(resumeId ? (host.catalog.takePendingLocalExchanges?.(resumeId) ?? []) : []),
         ]);
         turn.retryPrompt = prompt;
+        // One budget observation's warnings and block: the agent's own
+        // inference or a relayed CLI provider request (#1673).
+        const budgetAttribution = () => ({turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:mainModel,
+          profile:governedHold!.sandbox.profile ?? "strict"} as const);
+        const budgetWarnings = (warnings: readonly BudgetObservation[]) => {
+          for (const item of warnings) host.activity?.governance?.({kind:"budget_warning",...budgetAttribution(),
+            payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
+              limit:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.warnUsd:item.warnTokens!,
+              observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,
+              source:governedHold!.policy.hash ? "policy":"default"}});
+        };
+        const budgetBlocked = (item: BudgetObservation, backstop: boolean) => {
+          host.activity?.governance?.({kind:"budget_block",...budgetAttribution(),payload:{scope:item.scope,
+            unit:backstop || item.costUsd !== null && item.costUsd >= item.blockUsd ? "usd":"tokens",
+            limit:backstop || item.costUsd !== null && item.costUsd >= item.blockUsd ? item.blockUsd:item.blockTokens,
+            observed:backstop ? item.costUsd ?? 0 : item.costUsd !== null && item.costUsd >= item.blockUsd ? item.costUsd:item.tokens!,
+            source:governedHold!.policy.hash ? "policy":"default",stage:backstop ? "sdk_backstop":"mid_turn"}});
+          budgetFailure=new BudgetExceeded(item,backstop ? "sdk_backstop":"mid_turn");
+          recorder?.recordBudgetStop(budgetFailure.message);
+          abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,budgetFailure.message);
+        };
+        const budgetUnavailable = () => {
+          budgetFailure = new BudgetUnavailable();
+          recorder?.recordBudgetStop(budgetFailure.message,"budget_unavailable");
+          abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
+        };
         const bridge = makeBridge(
           host,
           turn,
@@ -642,13 +671,7 @@ async function runRetainedSession(
               const saved = backstop ? host.budgets!.backstop(turn.turnId) : undefined;
               const result = saved ? {receipt:saved,warnings:[],blocked:{...saved.scopes[0]!,blocked:true}} : host.budgets!.observe(turn.turnId,usage);
               if (!result) return;
-              const attribution = {turnId:turn.turnId,sessionId:turn.sessionId,actor:origin,model:mainModel,
-                profile:governedHold!.sandbox.profile ?? "strict"} as const;
-              for (const item of result.warnings) host.activity?.governance?.({kind:"budget_warning",...attribution,
-                payload:{scope:item.scope,unit:item.costUsd !== null && item.costUsd >= item.warnUsd ? "usd":"tokens",
-                  limit:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.warnUsd:item.warnTokens!,
-                  observed:item.costUsd !== null && item.costUsd >= item.warnUsd ? item.costUsd:item.tokens!,
-                  source:governedHold!.policy.hash ? "policy":"default"}});
+              budgetWarnings(result.warnings);
               if (!backstop) {
                 const {costUsd:reportedCost,...counts}=usage;
                 void reportedCost;
@@ -656,23 +679,9 @@ async function runRetainedSession(
                   ...(result.receipt.listPriceCostUsd !== null ? {costUsd:result.receipt.listPriceCostUsd} : {})},
                   observedAt:result.receipt.observedAt,budget:result.receipt},turn));
               }
-              if (result.blocked) {
-                const item=result.blocked;
-                host.activity?.governance?.({kind:"budget_block",...attribution,payload:{scope:item.scope,
-                  unit:backstop || item.costUsd !== null && item.costUsd >= item.blockUsd ? "usd":"tokens",
-                  limit:backstop || item.costUsd !== null && item.costUsd >= item.blockUsd ? item.blockUsd:item.blockTokens,
-                  observed:backstop ? item.costUsd ?? 0 : item.costUsd !== null && item.costUsd >= item.blockUsd ? item.costUsd:item.tokens!,
-                  source:governedHold!.policy.hash ? "policy":"default",stage:backstop ? "sdk_backstop":"mid_turn"}});
-                budgetFailure=new BudgetExceeded(item,backstop ? "sdk_backstop":"mid_turn");
-                recorder?.recordBudgetStop(budgetFailure.message);
-                abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,budgetFailure.message);
-              }
+              if (result.blocked) budgetBlocked(result.blocked, backstop);
               return {...usage,...(result.receipt.listPriceCostUsd !== null ? {costUsd:result.receipt.listPriceCostUsd} : {})};
-            } catch {
-              budgetFailure = new BudgetUnavailable();
-              recorder?.recordBudgetStop(budgetFailure.message,"budget_unavailable");
-              abortController.abort(budgetFailure);coordinator.drainPendingForTurn(turn,"Inference budget accounting became unavailable.");
-            }
+            } catch { budgetUnavailable(); }
           } : undefined,
           billing,
           { current: () => mainModel, bind: model => {
@@ -704,6 +713,35 @@ async function runRetainedSession(
             ...(governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
             ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           });
+          // The CLI's paid providers reach the network only through this relay,
+          // which holds their keys, shares the turn's egress admission and
+          // meters each request on the turn (#1673).
+          // The turn this relay meters, fixed now: a late report never lands on a later turn.
+          const egress = turnEgress, hold = governedHold, relayTurnId = turn.turnId;
+          providerRelay = startProviderRelay({ egress, ...(host.cliProviderOrigins ? { origins: host.cliProviderOrigins } : {}),
+            admit: () => {
+              if (budgetFailure) return { allowed: false, message: budgetFailure.message };
+              if (!host.budgets) return { allowed: true };
+              try {
+                const blocked = host.budgets.providerAdmission(relayTurnId, hold.policy.policy);
+                return blocked ? { allowed: false, message: new BudgetExceeded(blocked, "mid_turn").message } : { allowed: true };
+              } catch { return { allowed: false, message: new BudgetUnavailable().message }; }
+            },
+            observe: attempt => {
+              if (!host.budgets) return;
+              try {
+                const result = host.budgets.observeProvider(relayTurnId, attempt);
+                if (!result || budgetFailure || abortController.signal.aborted || turn.cancelled) return;
+                // A crossed block refuses each further relayed request (ruling D3 on
+                // #1673); the agent's next completed response, which sees the same
+                // scopes, stops the turn as any usage over a block does.
+                budgetWarnings(result.warnings);
+              } catch { if (!budgetFailure) budgetUnavailable(); }
+            },
+          });
+          linkSync(providerRelay.socketPath, join(egress.dir, PROVIDER_RELAY_SOCKET_NAME));
+          const customKeys = heldCustomProviderKeys(host.cliProviderOrigins);
+          if (customKeys.length) writeFileSync(join(egress.dir, PROVIDER_RELAY_KEYS_NAME), `${customKeys.join("\n")}\n`, { mode: 0o640 });
         }
         // The session's recorded untrusted input, read live by outward admission and the note (G6).
         const governanceDb = host.activity?.governanceDb;
@@ -749,6 +787,8 @@ async function runRetainedSession(
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
         turn.backendStarted = false;
+        // Every relayed attempt reports before the turn's accounting closes.
+        await providerRelay?.stop();
         turnEgress?.stop();
         const egressFailure = turnEgress?.recordingFailure();
         if (egressFailure) throw egressFailure;
@@ -817,6 +857,7 @@ async function runRetainedSession(
           ? "Turn timed out"
           : terminal instanceof Error ? terminal.message : String(terminal);
       } finally {
+        await providerRelay?.stop();
         turnEgress?.stop();
         if (referenceTurn) host.referenceTools?.end(turn.turnId);
         // No grant after this point: the final observation covers everything granted.

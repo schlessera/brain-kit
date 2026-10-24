@@ -17,6 +17,7 @@ import {
   type Resolution,
 } from "../shape.js";
 import { resolveEnv } from "../config/env.js";
+import { providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 import { isRetiredModel, retiredModelMessage } from "../retired.js";
 import {
   ImageProviderError,
@@ -253,6 +254,8 @@ export const openaiProvider: Provider = {
     const isEdit = (req.references?.length ?? 0) > 0 || !!req.mask;
     const size = openAiRequestSize(req, model);
     const headers = { Authorization: `Bearer ${apiKey}` };
+    // Without the key, the host's metered relay adds it (#1673).
+    const send = providerRelayFetch("openai", "OPENAI_API_KEY") ?? fetch;
 
     if (!isEdit) {
       const payload: Record<string, unknown> = { model, prompt: req.prompt };
@@ -266,7 +269,7 @@ export const openaiProvider: Provider = {
       // `transparent` is only legal on models that support it; routing guarantees that.
       if (req.transparent) payload.background = "transparent";
 
-      const res = await fetch(`${resolveEnv().openaiBaseUrl}/images/generations`, {
+      const res = await send(`${resolveEnv().openaiBaseUrl}/images/generations`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -293,7 +296,7 @@ export const openaiProvider: Provider = {
       form.append("mask", new Blob([req.mask.data as BlobPart], { type: "image/png" }), "mask.png");
     }
 
-    const res = await fetch(`${resolveEnv().openaiBaseUrl}/images/edits`, { method: "POST", headers, body: form });
+    const res = await send(`${resolveEnv().openaiBaseUrl}/images/edits`, { method: "POST", headers, body: form });
     if (!res.ok) await readError(res);
     return decode((await res.json()) as OpenAiImageResponse, model, req);
   },

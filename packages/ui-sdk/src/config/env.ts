@@ -29,8 +29,18 @@ export function workerEgressEnvironment(): NodeJS.ProcessEnv { return { ...proce
 export function hostProviderCredentialNames(names: readonly string[]): string[] {
   return names.filter(name => Boolean(readEnvVar(name)));
 }
+/**
+ * One provider key the server holds, read by the CLI provider relay at
+ * dispatch (#1673). The value is placed on the upstream request only; it never
+ * enters a worker, a log or a record.
+ */
+export function hostProviderCredential(name: string): string | undefined {
+  return readEnvVar(name);
+}
 export const DYNAMIC_ENV_READS = [{ source: "provider credential presence",
   description: "Whether each provider credential in the subprocess descriptor is set on the server, so a governed or strict turn worker's BRAIN_WITHHELD_KEYS names the keys the host withheld. Names only; no value leaves the server." },
+{ source: "provider relay credential",
+  description: "The value of the provider key a relayed CLI request names, read when the CLI provider relay dispatches it: a built-in provider's own key variable, or one BRAIN_UI_CLI_PROVIDER_ORIGINS lists. Placed on the upstream request only, never returned to a worker." },
 { source: "maintenance Git subprocess environment",
   description: "Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential." },
 { source: "egress worker subprocess environment", description: "The trusted loopback bootstrap preserves only the worker environment already cleared and selected by the launcher, replacing proxy routing before its child starts. It admits no host environment or new operator setting." }] as const;

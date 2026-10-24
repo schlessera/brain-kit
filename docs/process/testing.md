@@ -476,7 +476,13 @@ in the [CI and merge reference](../../.agents/skills/work-issue/references/ci-an
   reconciles 626 files, including all 464 historical reference files, but fails
   two unrelated sandbox-note assertions after 1289.718 seconds. Its
   [receipt and qualification limits](../decisions/ci-utility.md#rollback-writer-readiness-and-the-subsequent-wide-recheck)
-  preserve both failed observations. Feedback remains opt-in.
+  preserve both failed observations. The subsequent runtime-cost profile's
+  eight-worker attempt stops after 857.654 seconds on an unchanged
+  parallel-session assertion and cancels three workers. Only 324 of 626
+  selected files have completed reports; this is time to failure, not a
+  successful sub-900s qualification. Its
+  [measurements and partial coverage](../decisions/ci-utility.md#runtime-test-costs-and-the-incomplete-eight-worker-replay)
+  retain all observed failures and mutation controls. Feedback remains opt-in.
   Agents retain targeted debugging, failing-first/restored mutation
   receipts and visual judgment; ordinary PRs do not duplicate complete types,
   packaging or browser/runtime suites locally.

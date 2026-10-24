@@ -44,7 +44,20 @@ export "./internal/protected-paths" (./src/protected-paths.ts)
   isEnvName
   protectedPaths
 
+export "./internal/provider-relay" (./src/provider-relay.ts)
+  PROVIDER_RELAY_FAMILY_HEADER
+  PROVIDER_RELAY_KEY_HEADER
+  PROVIDER_RELAY_ORIGIN_HEADER
+  PROVIDER_RELAY_PLACEHOLDER
+  PROVIDER_RELAY_SOCKET_ENV
+  type ProviderRelayFamily
+  providerCredential
+  providerRelayFetch
+  providerRelaySocket
+  relayedKey
+
 export "./internal/provider-unavailable" (./src/provider-unavailable.ts)
+  INFERENCE_RELAY_PLACEHOLDER
   type ProviderUnavailable
   WITHHELD_KEYS_ENV
   isWithheldKey
