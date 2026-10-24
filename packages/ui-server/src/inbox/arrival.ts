@@ -33,11 +33,13 @@ async function stagedText(root: string, directory: string, path: string, cap: nu
   } finally { await file.close(); }
 }
 
-/** Bounded staged evidence of one arrival. */
-export async function stagedArrival(root: string, stagingId: string): Promise<StagedArrival> {
+/** A bounded prefix of one staging file, by its brain-relative path. */
+type ArrivalReader = (path: string, cap: number) => Promise<{ text: string; truncated: boolean }>;
+
+async function readArrival(stagingId: string, read: ArrivalReader): Promise<StagedArrival> {
   if (!/^[a-zA-Z0-9-]+$/.test(stagingId)) throw Error("Invalid staging identity");
   const directory = `${SHARE_STAGING_DIR}/${stagingId}`;
-  const meta = await stagedText(root, directory, `${directory}/meta.json`, SHARE_MAX_TEXT_BYTES + 64_000);
+  const meta = await read(`${directory}/meta.json`, SHARE_MAX_TEXT_BYTES + 64_000);
   if (meta.truncated) throw Error("Oversized staging manifest");
   const manifest: unknown = JSON.parse(meta.text);
   if (!record(manifest) || manifest.id !== stagingId || manifest.dir !== directory || !Array.isArray(manifest.files)) throw Error("Invalid staging manifest");
@@ -50,11 +52,30 @@ export async function stagedArrival(root: string, stagingId: string): Promise<St
     // has the same final bound as text. No unaccounted vision/OCR invocation.
     if (record(entry.summary)) { parts.push(JSON.stringify(entry.summary)); binary = true; }
     else if (/^(text\/|application\/(json|xml)(;|$))/.test(entry.mediaType)) {
-      const content = await stagedText(root, directory, entry.path, TRIAGE_ITEM_BYTES + 4);
+      const content = await read(entry.path, TRIAGE_ITEM_BYTES + 4);
       parts.push(content.text); incomplete ||= content.truncated;
     } else { binary = true; parts.push("A binary attachment needs extraction by the agent tier."); }
   }
   return { title, body: parts.join("\n"), incomplete, binary };
+}
+
+/** Bounded staged evidence of one arrival, read from its staging directory. */
+export function stagedArrival(root: string, stagingId: string): Promise<StagedArrival> {
+  const directory = `${SHARE_STAGING_DIR}/${stagingId}`;
+  return readArrival(stagingId, (path, cap) => stagedText(root, directory, path, cap));
+}
+
+/**
+ * The same evidence from the bytes staging is about to publish, keyed by
+ * brain-relative path: what intake records, before anything else can write
+ * the published directory (#2741).
+ */
+export function publishedArrival(stagingId: string, files: ReadonlyMap<string, Uint8Array>): Promise<StagedArrival> {
+  return readArrival(stagingId, async (path, cap) => {
+    const bytes = files.get(path);
+    if (!bytes) throw Error("Unpublished staging child");
+    return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, cap)), truncated: bytes.byteLength > cap };
+  });
 }
 
 /** The identity of an arrival read: equal digests mean equal evidence. */

@@ -118,8 +118,9 @@ export function createInboxTriage(db: Database, deps: {
       store.commit([{ kind: "checkpoint", id: resultId(item.id), threadId: item.threadId, itemId: item.id,
         stateMd: `Triage ${result.tier}: ${result.route} (${result.reason}). Routing data only; no authority granted.`,
         facts: { decisions: [JSON.stringify(result)], operations: [], capabilities: [], paths: [], questions: [] } }]);
-      // The route and reason judge the arrival alone, so they carry its provenance (#2741).
-      recordInboxProvenance(db, { checkpoint: resultId(item.id) }, { derivedFrom: { item: item.id } }, now());
+      // The server composes this from closed route and reason vocabularies, never
+      // the classifier's or an arrival's free text (#2741).
+      recordInboxProvenance(db, { checkpoint: resultId(item.id) }, { origin: "server" }, now());
       if (result.route === "needs_user") {
         const id = `triage-action:${item.id}`;
         const action = { id, dedupKey: id, threadId: item.threadId, queue: "actions" as const, type: "choose" as const, status: "pending" as const, version: 1,
@@ -127,7 +128,7 @@ export function createInboxTriage(db: Database, deps: {
           payload: { title: "A queued arrival needs your review", detail: `Triage stopped at ${result.reason}. Review the staged arrival before choosing further work.` },
           options: [{ id: "cancel", label: "Cancel queued work", effect: { kind: "cancel_blocked" as const } }] };
         insertInboxAction(db, action, [], { ...inboxActionContext(action), sourceItemId: item.id }, now());
-        recordInboxProvenance(db, { item: id }, { derivedFrom: { item: item.id } }, now());
+        recordInboxProvenance(db, { item: id }, { origin: "server" }, now());
         // T0 errors must acquire a deterministic lease before blocking, without
         // creating a model reservation or an Activity run.
         let claimed = current;
@@ -260,7 +261,7 @@ export function createInboxTriage(db: Database, deps: {
         store.commit([{ kind: "checkpoint", id: `triage-contradiction:${itemId}:${actual}`, threadId: item.threadId, itemId,
           stateMd: `Later route ${actual}; T1 proposed ${prior.proposedRoute ?? prior.route}.`,
           facts: { decisions: [JSON.stringify({ itemId, proposedRoute: prior.proposedRoute, actual })], operations: [], capabilities: [], paths: [], questions: [] } }]);
-        recordInboxProvenance(db, { checkpoint: `triage-contradiction:${itemId}:${actual}` }, { derivedFrom: { item: itemId } }, now());
+        recordInboxProvenance(db, { checkpoint: `triage-contradiction:${itemId}:${actual}` }, { origin: "server" }, now());
       }).immediate();
     },
     summary() {

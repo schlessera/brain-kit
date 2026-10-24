@@ -5,7 +5,7 @@ import type { InboxActionItem, InboxOperation, InboxQueueItem } from "@schlesser
 import { hygieneReviewStateSchema, inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
 import { createInboxStore } from "./store.js";
 import { inboxThreadAwaitingSettlement } from "./lifetime.js";
-import { recordInboxProvenance } from "./provenance.js";
+import { recordInboxProvenance, type InboxProvenance } from "./provenance.js";
 
 const DAY = 86_400_000;
 export const INBOX_ACTION_CAP = 60;
@@ -127,11 +127,13 @@ export function enforceInboxActionCap(db: Database, cap = INBOX_ACTION_CAP, now 
     retireInboxAction(db, item as InboxActionItem, "dropped", now);
 }
 
-export function createInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], options: { now?: number; cap?: number; context?: InboxActionContext; hygiene?: boolean } = {}): boolean {
+export function createInboxAction(db: Database, action: InboxActionItem, allowed: readonly InboxOperation[], options: { now?: number; cap?: number; context?: InboxActionContext; hygiene?: boolean; provenance?: InboxProvenance } = {}): boolean {
   const now = options.now ?? Date.now(), context = options.context ?? inboxActionContext(action);
   return db.transaction(() => {
     if (inboxActionSuppressed(db, context, now)) return false;
     insertInboxAction(db, action, allowed, context, now, options.hygiene);
+    // Recorded before the cap can retire it into a notice that copies it (#2741).
+    if (options.provenance) recordInboxProvenance(db, { item: action.id }, options.provenance, now);
     enforceInboxActionCap(db, options.cap, now);
     return true;
   }).immediate();

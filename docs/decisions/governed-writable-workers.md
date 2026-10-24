@@ -1982,20 +1982,23 @@ every turn without a proven recipient:
   `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
-  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:77-96`).
+  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:78-97`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
   digest of the staged bytes intake read (`const evidence = person`,
-  `packages/ui-server/src/inbox/intake.ts:105`); text the server composed
+  `packages/ui-server/src/inbox/intake.ts:107`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
   lifecycle notices); and text an autonomous run wrote (escalations, yields)
-  whose admitted masks hid every folder now masked. A copy (triage results,
-  follow-ups, a retired decision's notice) carries its source's record.
+  whose admitted masks hid every folder now masked. Triage results count as
+  server text: the server composes them from closed route and reason
+  vocabularies. A copy (follow-ups, a retired decision's notice) carries its
+  source's record. Intake digests the bytes it is about to publish, never a
+  re-read of the published directory, which a governed worker could rewrite.
   Admission records the masks, policy hash and qualifying evidence on the
   run's budget reservation (`provider_admission`), which is where the run's
   own records take their hidden folders from
   (`export async function admitOriginThread`,
-  `packages/ui-server/src/inbox/provenance.ts:137-167`).
+  `packages/ui-server/src/inbox/provenance.ts:138-168`).
 
   Everything else is refused, never assumed compatible: a legacy item or
   checkpoint with no record, an arrival a conversation added through
@@ -2009,7 +2012,10 @@ every turn without a proven recipient:
   records, never their text. The attempt fails into backoff and, once
   exhausted, dead-letters as any failed attempt: stored items and staging are
   kept, the work is not completed, rewritten or sent to another provider, and
-  no sanitized history is invented. Legacy or unverifiable queued work may
+  no sanitized history is invented. The refusal itself removes nothing.
+  Afterwards the work follows the lifecycle of any failed work: it expires
+  with its retention, and its dead-letter decision counts against the Actions
+  cap, which can retire it and journal its staging cleanup. Legacy or unverifiable queued work may
   therefore be refused under a provider rule; compatibility is a proof
   obligation, not presumed from creation time. Tool names, schemas, rosters,
   principal and scope checks are unchanged, and turns without masked folders

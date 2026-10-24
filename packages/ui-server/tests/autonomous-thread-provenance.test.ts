@@ -24,6 +24,8 @@ import { createInboxRuntime } from "../src/inbox/runtime.js";
 import { createInboxBudget } from "../src/inbox/budget.js";
 import { createInboxDispatcher } from "../src/inbox/dispatcher.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
+import { admitOriginThread, recordInboxProvenance } from "../src/inbox/provenance.js";
+import { governancePolicyReaderFor } from "../src/brain/governance-policy.js";
 import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { boundaryPlanner } from "../src/brain/application.js";
 import type { FetchLike } from "../src/classification/jev-client.js";
@@ -132,6 +134,8 @@ test("dispatch refuses an arrival whose staged bytes changed after intake record
   await f.runtime.tick();
   expect(f.turns.map(turn => turn.prompt), "REWRITTEN_ARRIVAL_NEVER_DISPATCHED").toEqual([]);
   expect(f.traces()).not.toContain(SENTINEL);
+  expect(f.traces(), "REWRITTEN_ARRIVAL_REFUSED_BY_PROVENANCE").toContain(`provider_masked: inbox thread ${arrival.threadId} is unavailable`);
+  expect(f.store.getItem(arrival.itemId)).toMatchObject({ status: "ready", waitUntil: expect.any(Number) });
 }, 120_000);
 
 test("a person's arrival through real intake is admitted under the masks with its evidence recorded", async () => {
@@ -147,7 +151,7 @@ test("a person's arrival through real intake is admitted under the masks with it
   expect(admission.policyHash).toEqual(expect.any(String));
   expect(admission.subjects, "EVIDENCE_RECORDED_ON_THE_ADMISSION").toEqual([
     { subject: `item:${arrival.itemId}`, origin: "person" },
-    { subject: `checkpoint:triage-result:${arrival.itemId}`, origin: "person", derivedFrom: `item:${arrival.itemId}` },
+    { subject: `checkpoint:triage-result:${arrival.itemId}`, origin: "server" },
   ]);
 }, 120_000);
 
@@ -230,3 +234,50 @@ test("an unrestricted turn keeps its reads and needs no provenance", async () =>
   expect(result.outcome).toBe("success");
   expect(seen, "UNRESTRICTED_READS_UNCHANGED").toContain("An earlier run's note.");
 }, 120_000);
+
+/** Admit a run's thread for `masked`, refusing as the turn would; the refusal message or "admitted". */
+async function admit(f: ReturnType<typeof fixture>, threadId: string, runId: string, masked: string[]) {
+  try {
+    await admitOriginThread(f.db, f.root, { runId, threadId, masked, policyHash: governancePolicyReaderFor(f.root).load().hash });
+    return "admitted";
+  } catch (error) { return (error as Error).message; }
+}
+
+for (const [hidden, masked, expected] of [
+  [[], ["me"], "refused"], [["me"], ["me"], "admitted"], [["me"], ["me/letters"], "admitted"],
+  [["me/letters"], ["me"], "refused"], [["me"], ["me", "finance"], "refused"], [["finance"], ["me"], "refused"],
+] as const) test(`an earlier run that hid ${JSON.stringify(hidden)} qualifies its text for masks ${JSON.stringify(masked)}: ${expected}`, async () => {
+  const f = fixture();
+  const arrival = await f.arrive("Penelope asks that the loom be recorded.");
+  f.claim(arrival.itemId, "earlier-run");
+  expect(await admit(f, arrival.threadId, "earlier-run", [...hidden])).toBe("admitted");
+  // The earlier run's own text, as escalation records it.
+  const written = f.legacy(arrival.threadId, "The earlier run's question.");
+  recordInboxProvenance(f.db, { item: written }, { origin: "autonomous", runId: "earlier-run" });
+  const outcome = await admit(f, arrival.threadId, "later-run", [...masked]);
+  if (expected === "admitted") expect(outcome, "COMPATIBLE_AUTONOMOUS_PROVENANCE_ADMITTED").toBe("admitted");
+  else expect(outcome, "INCOMPATIBLE_AUTONOMOUS_PROVENANCE_REFUSED").toContain(`item:${written}`);
+}, 60_000);
+
+test("a recorded item whose text changed after its provenance was recorded no longer qualifies", async () => {
+  const f = fixture();
+  const arrival = await f.arrive("Penelope asks that the loom be recorded.");
+  const notice = f.legacy(arrival.threadId, "Queued work expired.");
+  recordInboxProvenance(f.db, { item: notice }, { origin: "server" });
+  expect(await admit(f, arrival.threadId, "run", ["me"])).toBe("admitted");
+  const row = f.db.query("SELECT data_json FROM inbox_items WHERE id = ?").get(notice) as { data_json: string };
+  const item = JSON.parse(row.data_json) as { payload: { detail: string } };
+  item.payload.detail = `${SENTINEL} written over the notice.`;
+  f.db.query("UPDATE inbox_items SET data_json = ? WHERE id = ?").run(JSON.stringify(item), notice);
+  expect(await admit(f, arrival.threadId, "run", ["me"]), "CHANGED_TEXT_INVALIDATES_ITS_PROVENANCE").toContain(`item:${notice}`);
+}, 60_000);
+
+test("a budget notice the server adds to a thread keeps it qualified", async () => {
+  const f = fixture();
+  const arrival = await f.arrive("Penelope asks that the loom be recorded.");
+  // An unpriced model: the claim files the server's own notice in the thread.
+  createInboxBudget(f.db, { ...budgetConfig, pricing: { resolve: () => null } })
+    .claim(arrival.itemId, { runId: "unpriced", principalId: f.principal.id, model: "unpriced-model", billingMode: "api", purpose: "execute" }, Date.now() + 600_000);
+  expect(f.store.snapshot().items.filter(item => item.threadId === arrival.threadId && item.queue === "actions"), "BUDGET_NOTICE_FILED").toHaveLength(1);
+  expect(await admit(f, arrival.threadId, "unpriced", ["me"]), "SERVER_NOTICE_QUALIFIES").toBe("admitted");
+}, 60_000);

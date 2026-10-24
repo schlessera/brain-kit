@@ -9,9 +9,10 @@
  *
  * Compatible evidence is exactly:
  * - `person`: a person's arrival through authenticated intake outside any
- *   turn (the share and queue routes), bound to the staged bytes intake read;
- * - `server`: text the server composed from no brain content and no model
- *   output (schedule instructions, cleanup, lifecycle notices);
+ *   turn (the share and queue routes), bound to the bytes intake published;
+ * - `server`: text the server composed from no brain content and no free
+ *   model output (schedule instructions, cleanup, budget and lifecycle
+ *   notices, triage results from closed route and reason vocabularies);
  * - `autonomous`: written by an autonomous run whose admitted masks hid every
  *   folder now masked, as recorded on its budget reservation;
  * - a copy (`derived_from`) carries its source's origin.

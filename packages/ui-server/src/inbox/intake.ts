@@ -8,7 +8,7 @@ import { safeResolve } from "../files/walker.js";
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 import { createInboxStore } from "./store.js";
 import { shareContentHash, stageShareAt, type ShareInput } from "../share/staging.js";
-import { stagedArrival, stagedArrivalDigest } from "./arrival.js";
+import { publishedArrival, stagedArrivalDigest } from "./arrival.js";
 import { recordInboxProvenance } from "./provenance.js";
 
 export class IntakeAuthorizationError extends Error {}
@@ -99,10 +99,12 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     active.add(id);
     let accepted = false;
     try {
-      const result = await stageShareAt(brainRoot, input, id, log, source === "cli" ? "cli" : "web-share-target");
+      let published: ReadonlyMap<string, Uint8Array> | undefined;
+      const result = await stageShareAt(brainRoot, input, id, log, source === "cli" ? "cli" : "web-share-target", files => { published = files; });
       const binaryHashes = result.skipped?.length ? [] : await Promise.all(input.files.map(async (file, index) => ({ path: result.files[index]?.path, sha256: createHash("sha256").update(new Uint8Array(await file.arrayBuffer())).digest("hex") })));
-      // An unreadable staging records no evidence; queued work could not read it either.
-      const evidence = person && result.id === id ? await stagedArrival(brainRoot, id).then(stagedArrivalDigest, () => null) : null;
+      // Evidence of the bytes this process wrote, never a re-read of the
+      // published directory; unreadable staging records none.
+      const evidence = person && published ? await publishedArrival(id, published).then(stagedArrivalDigest, () => null) : null;
       const outcome = db.transaction(() => {
         authorize(principal, isCurrent); // revocation may occur during decoding or staging
         const owned = db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(id) as { state: string } | null;
