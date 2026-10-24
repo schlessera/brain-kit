@@ -215,7 +215,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:788-799`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:539-550`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:546-557`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is

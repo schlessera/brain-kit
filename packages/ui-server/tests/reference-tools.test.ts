@@ -178,13 +178,16 @@ describe("turn boundaries", () => {
   });
 
   test("a turn at its reader limit is refused another source instead of dropping an earlier reader", async () => {
-    const { turn, released } = host();
+    const { turn, released, tools } = host();
     const penelope = principal();
     const current = await turn(penelope.id);
     for (let index = 0; index < 32; index++) ok(await current.call(source(`${PUBLIC}-${index}`)));
     expect(await current.call(source(`${PUBLIC}-32`)), "REFERENCE_TOOLS_READER_LIMIT_REFUSES").toMatchObject({ ok: false, code: "busy" });
-    expect(released, "REFERENCE_TOOLS_READER_LIMIT_KEEPS_EARLIER_READERS").toHaveLength(1);
-    ok(await current.call(source(`${PUBLIC}-0`)));
+    // Only the refused 33rd reader was released; every admitted reader is still held.
+    expect(released, "REFERENCE_TOOLS_READER_LIMIT_KEEPS_EARLIER_READERS").toEqual([released[0]!]);
+    expect(released[0], "REFERENCE_TOOLS_READER_LIMIT_RELEASES_THE_REFUSED").toContain("ithaca-32");
+    tools.end(current.turnId);
+    expect(released, "REFERENCE_TOOLS_END_RELEASES_EVERY_READER").toHaveLength(33);
   });
 
   test("a refusal names no host path even when the views could not be prepared", async () => {

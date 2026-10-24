@@ -71,7 +71,7 @@ export function createReferenceTools(options: {
   function scrub(text: string): string {
     let out = text;
     for (const root of hidden) if (root) out = out.split(root).join("<host>");
-    out = out.replace(/(?<![\w:/.])\/(?!\/)[^\s'"`,;)]+/g, match => match.startsWith("/tmp/brain-") ? match : "<host path>");
+    out = out.replace(/(?<![\w:/.])\/(?!\/)[^\s'"`,;)]+/g, match => /^\/tmp\/brain-(?:reference\/(?:public|private)|worktrees)(?:\/|$)/.test(match) && !match.includes("/../") ? match : "<host path>");
     return Buffer.byteLength(out) > MESSAGE_BYTES ? `${Buffer.from(out).subarray(0, MESSAGE_BYTES - 3).toString().replace(/\uFFFD$/, "")}...` : out;
   }
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -154,6 +154,8 @@ export function createReferenceTools(options: {
             truncated: all.length > REFERENCE_WORKTREE_LIST_LIMIT, guidance: LIST_GUIDANCE };
         }
         if (access.posture === "voice") return { ok: false, code: "unavailable", message: "Managed worktrees cannot be changed from a voice turn." };
+        // A call whose turn ended while it waited changes nothing.
+        if (!current(turnId, access)) return ended();
         if (input.action === "renew") {
           const item = await worktrees.renew({ worktreeId: input.worktreeId!, principalId: access.principalId });
           return { ok: true, action: "renew", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.renew };
@@ -171,6 +173,7 @@ export function createReferenceTools(options: {
         }
         const allocated = await worktrees.allocate({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal });
         try {
+          if (!current(turnId, access)) throw new ReferenceWorktreeError("unavailable", "This turn ended before the worktree could be made available to it.");
           const item = await worktrees.access({ worktreeId: allocated.id, principalId: access.principalId, generation: generation.id, signal });
           return { ok: true, action: "request", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.request };
         } catch (error) {

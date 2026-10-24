@@ -403,7 +403,7 @@ export function createReferenceSources(options: {
       if (fresh(current) && !withdrawn.has(sourceKey(PUBLIC, repository.canonical, revision)) && !suspended.has(sourceKey(PUBLIC, repository.canonical, revision))) return lease(current!, false, null);
       const outcome = await join(sourceKey(PUBLIC, repository.canonical, revision), { domain: PUBLIC, principalId: null, grantId: null },
         signal => operate(signal, { domain: PUBLIC, principalId: null, repository, revision, grant: null }), input.signal);
-      if (outcome.kind === "source") { await restore(outcome.row); return lease(outcome.row, outcome.stale, outcome.error); }
+      if (outcome.kind === "source") return restored(lease(outcome.row, outcome.stale, outcome.error), outcome.row);
       // An unanswered public check proves nothing; only a covering grant may try the private path.
       if (outcome.reason === "unavailable" && !coveringReferenceGrant(db, { brain: options.brain, principalId: input.principalId, repository, now: now() }))
         throw new ReferenceSourceError("unavailable", `Reference check failed: ${outcome.detail}`);
@@ -417,9 +417,9 @@ export function createReferenceSources(options: {
     if (outcome.kind !== "source") throw new ReferenceSourceError("unavailable", outcome.detail);
     // Authority may have ended while the operation ran: a private lease is granted only under a live grant.
     authorize(domain, input.principalId, repository);
-    await restore(outcome.row);
-    authorize(domain, input.principalId, repository);
-    return lease(outcome.row, outcome.stale, outcome.error);
+    const held = await restored(lease(outcome.row, outcome.stale, outcome.error), outcome.row);
+    try { authorize(domain, input.principalId, repository); } catch (error) { held.release(); throw error; }
+    return held;
   }
 
   /**
@@ -440,6 +440,13 @@ export function createReferenceSources(options: {
       await pool.poolUnpublish(view.id, source.name);
       for (const root of roots) await pool.poolWithdraw(root.id);
     }
+  }
+  /**
+   * The lease is taken first, in the same turn as the outcome, so eviction can
+   * never pick the source while it is being published again.
+   */
+  async function restored(held: ReferenceSourceLease, source: SourceRow): Promise<ReferenceSourceLease> {
+    try { await restore(source); return held; } catch (error) { held.release(); throw error; }
   }
   /** Publish a source a validated request returned, if a lapsed validation suspended it. */
   async function restore(source: SourceRow) {
