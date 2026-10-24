@@ -282,6 +282,135 @@ are mounted; failed cleanup retains dirty upper layers and the prepared source.
 Private reports stay outside the public tree. Invocation identifiers prevent a
 reused report destination from supplying stale cleanup receipts.
 
+#### Reviewed timing refresh
+
+The #2736 refresh uses
+[exhaustive hosted run 39998539459, attempt 1](https://github.com/schlessera/brain-kit/actions/runs/39998539459/attempts/1),
+source `48364d94f8014357ab72ffa28ce0f7e7c6a78baf`, tree
+`5009f1252d894615a094b8ad0bcd6eacf05235f9`. The existing explicit command
+verified all four successful unit jobs, their completed-file/JUnit inventories,
+checkout logs, immutable source discovery and downloaded archive digests.
+`scripts/unit-shard-measurement.json` records each job and artifact identity.
+The table grows from 955 to 1,180 positive weights, adding 225 files without
+removing any earlier path. The four hosted partition estimates on that source
+are 1088.413 / 1088.512 / 1088.512 / 1088.413 seconds; these are estimates for
+new assignments, not remeasured job durations.
+
+New observations above 30 seconds include `worker-var-sockets` (90.999s),
+`egress-first-party-paths` (122.874s), `test-invocation` (50.967s) and
+`unit-test-consumers` (44.858s). The reviewed weights for
+`http-supported-mounts` and `governance-policy` rise from 25.142 / 2.889 seconds
+to 36.549 / 4.753 seconds. Large runtime reductions also belong to their
+completed-file observations; the refreshed hosted source already uses one
+build per invocation. Local wall times describe different hardware, source and
+load, and never replace those hosted values.
+
+Of the original 82 unweighted wide-selection files, 81 now have hosted weights.
+`tests/changed-unit-workers.test.ts` was added after the qualified hosted source
+and retains Bun's ordinary unseeded behavior; the earlier serial observation
+was 9.242 seconds. Complete coverage means the qualified source's entire
+1,180-file discovery, rather than a promise to seed later additions.
+
+The [refresh procedure](../process/ci-timings.md#refresh-reviewed-unit-weights)
+retains all attribution controls. For example, the newer successful main run
+40026244740 attempt 2 was refused because repeated unit uploads left duplicate
+artifact names; run 40024930605 was refused as nonexhaustive. Neither supplies a
+weight in this table.
+
+The single refreshed N=8 prepared-tree replay used source
+`a529ebd288c1b806f347fb4e51638385327fd6a6` and base
+`f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162`, changing only the table and its
+receipt. Bun selected 469 files: all 464 original serial files, the previously
+recorded extra `haiku-model-runtime` file, and four tooling files affected by
+the seed-table edit. An independent name-filtered serial collection confirmed
+that exact 469-file selection; all 6,017 cases were filtered, so it is an
+inventory inspection with exit 1, not passing behavioral proof.
+
+| Worker | Before files | Before known seed / completed seconds | After assigned files | After known seed / reported seconds | After outcome |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 146 | 457.258 / 504.853 | 97 | 342.236 / 372.476 | Pass, four existing skips |
+| 2 | 4 | 434.991 / 257.137 | 53 | 392.595 / 436.656 | Pass |
+| 3 | 3 | 616.299 / 526.599 | 3 | 420.396 / 500.974 | Cancelled; browser-close errors |
+| 4 | 5 | 415.309 / 90.955 | 7 | Unavailable | Cancelled; no JUnit |
+| 5 | 2 | 497.009 / 587.738 | 65 | 281.932 / 499.886 | Failed rollback-writer readiness |
+| 6 | 4 | 344.048 / 181.539 | 51 | Unavailable | Cancelled; no JUnit |
+| 7 | 112 | 372.275 / 1272.314 | 83 | Unavailable | Cancelled; no JUnit |
+| 8 | 189 | 283.692 / 1440.440 | 110 | Unavailable | Cancelled; no JUnit |
+
+The earlier 25m 38s observation passed. The refreshed arm stopped after
+**599.166 seconds (9m 59s)** at failure and cleanup; it has no successful
+completion duration. Common checkout/copy/build took 1.384 / 2.734 / 78.307
+seconds, worker checkout 9.768 seconds and maximum build adoption 0.105 seconds.
+Only 218 unique files have JUnit-backed reports, including 150 in successful
+workers, so the final report union does **not** equal the 469-file serial
+selection. Cancelled workers' 1,180-entry seed files are not completed timing
+observations and are excluded from the table above.
+
+The rollback writer missed its 5-second readiness signal; a focused unchanged
+invocation reproduced the same failure. It is tracked as
+[#2747](https://github.com/schlessera/brain-kit/issues/2747), outside this
+weight refresh. Worker 5's exit cancelled five siblings, including the browser
+errors. No guard or deadline was changed and no additional wide replay ran.
+An initial private-build setup was explicitly cancelled before cases ran,
+after detecting that the frozen source requires `--prepared-tree`; it supplies
+no performance result.
+
+The host began at load 31.01 / 26.83 / 14.96 and ended at
+13.18 / 17.27 / 15.50. Whole-host minimum available RAM was 30.341 GiB,
+CPU busy time 23.800% (7.616 average busy cores), and child CPU 1281.445 seconds.
+One-second samples observed 0–1 other check:pr processes, 8–20 test wrappers,
+0–2 builds and 0–3 native hosted proofs; nested wrappers and this task's separate
+inventory build are included, so these are process counts, not independent run
+counts. Source-bound per-worker observations, inventories, load and limitations
+are in [the sanitized refresh evidence](../process/evidence/unit-weight-refresh-2736.json).
+
+**Default feedback stays opt-in.** The failed 599-second duration cannot qualify
+a setting at or below 900 seconds. The incomplete after-balance, different
+load and four added tooling selections support no successful speedup claim.
+
+#### Rollback-writer readiness and the subsequent wide recheck
+
+The #2747 fixture diagnosis reproduced the original five-second readiness
+failure under CPU pressure. A traced child spent 5.775 seconds in its
+uncommitted 300-row update, including 299 `fsync` calls taking 5.544 seconds.
+SQLite's [cache-spill sequence](https://www.sqlite.org/atomiccommit.html)
+flushes the journal before spilling dirty pages. Bun startup was a smaller
+part of the separately measured child phases.
+
+The fixture now commits its 300 padded seed rows before the bounded readiness
+window, then updates sixteen rows in the child with the existing five-page
+cache. Readiness still follows the update. The test asserts SIGKILL, a hot
+journal header and changed database bytes before its original copy, committed
+row recovery, integrity and writeability checks. The five-second readiness
+limit, per-test deadline, product preparer, isolation and offline guards are
+unchanged (`killRollbackWriter`,
+`packages/ui-sdk/tests/maintenance-index-input.test.ts:16-37`). Removing the
+journal before recovery fails the original row-sum assertion, and thirty
+sequential repetitions pass under both twenty and forty busy loops on four
+CPUs.
+
+The one subsequent eight-worker `check:pr --import-graph` ran at fixture commit
+`ada2e1767626ef6f4e8fa7ef50784998988eaa5c` against reference base
+`f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162`. Current source selects 626 files,
+containing all 464 historical reference files plus 162 additions. All eight
+JUnit/timing inventories reconcile exactly once, with 7,970 passing cases,
+four skips and two failures. The rollback-journal case passes in 517.28 ms.
+Both failures are exact-note assertions in `worker-sandbox-note.test.ts`:
+ambient provider-variable names appear in pi's note while the fixture expects
+an empty provider list. An empty-environment control passes all three focused
+cases; fictional provider values reproduce both failures. The independent
+fixture repair is [#2769](https://github.com/schlessera/brain-kit/issues/2769).
+
+Complete preflight wall time is 1289.718 seconds (21m 29.7s); queue wall time
+is 1203.034 seconds. This is a failed attempt, not a successful qualification.
+**Feedback remains opt-in.** Minimum available RAM is 30.437 GiB and whole-host
+CPU is 18.535%; concurrent proof and focused pressure diagnostics overlap the
+run, so these are shared-host observations rather than a controlled speedup.
+The [source-bound receipt](../process/evidence/rollback-writer-readiness-2747.json)
+records phase timings, per-worker reports, reference coverage, load and limits.
+The earlier failed #2736 receipt remains unchanged; local observations never
+replace the reviewed hosted timing weights.
+
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap

@@ -39,13 +39,13 @@ function observingProbe() {
   restore.push(() => probe.mockRestore()); return probe;
 }
 
-test("boot/check/turn ordinary and restricted probes forward the existing outside-state placement", () => {
+test("boot/check/turn ordinary and restricted probes forward the existing outside-state placement", async () => {
   const f = fixture(); const probe = observingProbe();
   for (const mode of ["ordinary", "restricted"] as const) {
     for (const trigger of ["boot", "check"] as const) {
       probeWorkerHostRecorded(f.brain, mode, undefined, trigger, undefined, undefined, { dbPath: f.dbPath });
     }
-    expect(() => requireWorkerHostRecorded(f.brain, mode, undefined, { dbPath: f.dbPath })).toThrow("observed sentinel placement");
+    await expect(requireWorkerHostRecorded(f.brain, mode, undefined, { dbPath: f.dbPath })).rejects.toThrow("observed sentinel placement");
   }
   expect(probe).toHaveBeenCalledTimes(6);
   for (const [, options] of probe.mock.calls) expect(options?.identitySentinelDirectory, "SERVER_PROBE_SENTINEL_OUTSIDE_CHECKPOINT").toBe(f.state);

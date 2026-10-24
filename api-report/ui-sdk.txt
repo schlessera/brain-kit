@@ -1109,6 +1109,7 @@ export "./internal" (./src/internal.ts)
   isEnvName
   isManagedWorkerStartupView
   launchAgentWorker
+  launchAgentWorkerAsync
   launchLimits
   launchMaintenanceWorker
   limitFailureMessage
@@ -1139,9 +1140,11 @@ export "./internal" (./src/internal.ts)
   prepareRecoveredWorkerFiles
   prepareWorkerOutput
   prepareWorkerSandbox
+  prepareWorkerSandboxAsync
   probeMaintenanceWorker
   probeNativeMaintenanceWorker
   probeWorkerHost
+  probeWorkerHostAsync
   processStateLedger
   promptPrefixFingerprint
   protectedPaths
@@ -1154,6 +1157,7 @@ export "./internal" (./src/internal.ts)
   relayedProviderKeys
   requestPolicyPermission
   requireWorkerHost
+  requireWorkerHostAsync
   resolveMaintenanceTempLimits
   resolveOutputStagingLimits
   resolveTurnTempLimits
@@ -3350,6 +3354,10 @@ signatures (every public export and the types it is made of)
         listProfiles(): ProviderInfo[] | Promise<ProviderInfo[]>;
         listUnavailableProfiles?(): UnavailableProfile[] | Promise<UnavailableProfile[]>;
         brainApplicationPolicy?(req: Pick<StartTurnRequest, "profileId" | "posture" | "autonomous" | "noGrantSurface" | "enforceAllowedTools">): import("./brain-application.js").BrainApplicationPolicy;
+        inferenceOrigin?(req: {
+            profileId?: string;
+            sessionId?: string;
+        }): Promise<string | undefined>;
         startTurn(req: StartTurnRequest): Promise<void>;
         followUp?(req: FollowUpRequest): Promise<void>;
         storageRoots?(): readonly {

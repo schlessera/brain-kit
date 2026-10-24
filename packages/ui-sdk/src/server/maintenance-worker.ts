@@ -23,6 +23,7 @@ import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenanc
 import { resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
+import { runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -424,6 +425,11 @@ const EMPTY_REPOSITORY = "/tmp/brain-empty-repository";
  * repository inside the worker, for a brain outside any repository.
  */
 export function brainGitSync(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number } & MaintenanceHost = {}): number {
+  return runWorkerStepsSync(brainGitSteps(brain, args, options));
+}
+
+/** `brainGitSync` as steps, for a caller that can await the worker (#2416). */
+export function* brainGitSteps(brain: string, args: readonly string[], options: { emptyRepository?: boolean; timeoutMs?: number } & MaintenanceHost = {}): WorkerSteps<number> {
   const git = Bun.which("git");
   if (!git) return 127;
   const root = realpathSync(brain);
@@ -441,8 +447,8 @@ export function brainGitSync(brain: string, args: readonly string[], options: { 
     ? ["/bin/sh", "-c", 'r="$1"; shift; "$0" init -q --bare "$r" >/dev/null 2>&1 && exec "$0" --git-dir="$r" --work-tree=. "$@"', git, EMPTY_REPOSITORY, ...safe, ...args]
     : [git, ...safe, ...args];
   try {
-    return runMaintenanceWorkerSync({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
-      credentials: false, timeoutMs: options.timeoutMs ?? 10_000 }).exitCode;
+    return (yield* runMaintenanceWorkerSteps({ ...options, brainPath: brain, command, ...(parent ? { readPaths: [parent] } : {}), env: { PATH: [dirname(git), "/usr/bin:/bin"].join(":"), GIT_DISCOVERY_ACROSS_FILESYSTEM: "1" },
+      credentials: false, timeoutMs: options.timeoutMs ?? 10_000 })).exitCode;
   } catch (error) { if (error instanceof WorkerStateError) throw error; return 127; }
 }
 
@@ -471,6 +477,10 @@ export function probeMaintenanceWorker(brainPath: string, tempLimits?: WorkerSta
  * `check-ignore`). No input is passed; the deadline is required.
  */
 export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs: number }): MaintenanceResult {
+  return runWorkerStepsSync(runMaintenanceWorkerSteps(input));
+}
+
+function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: number }): WorkerSteps<MaintenanceResult> {
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
   const reservation = reserveMaintenanceTemp(limits, tempDomain(input));
   let startupView: WorkerStartupView | undefined;
@@ -483,7 +493,7 @@ export function runMaintenanceWorkerSync(input: MaintenanceCommand & { timeoutMs
     preparedMaintenanceCommands.delete(input);
     const boot = workerBootstrap(launch);
     pipes = createWorkerPipes();
-    const child = Bun.spawnSync(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
+    const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
       stdout: pipes.child[1], stderr: pipes.child[2], timeout: input.timeoutMs });
     pipes.closeChild(); pipes.closeInput();
     return { stdout: readFileSync(pipes.parent[1], "utf8"), stderr: readFileSync(pipes.parent[2], "utf8"),

@@ -105,7 +105,7 @@ policy, because `models.json` routing may come from the writable brain.
 
 How the implementation holds to these rulings
 (`export async function preparePiHostInference`,
-`packages/ui-backend-pi/src/host-inference.ts:211-325`):
+`packages/ui-backend-pi/src/host-inference.ts:242-359`):
 
 - **Before launch:** the host refuses a command in any key or header pi
   resolves for the provider: its own, its model definitions' and its model

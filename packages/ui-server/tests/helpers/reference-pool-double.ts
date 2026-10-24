@@ -48,7 +48,7 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       if (existing && ["deleting", "deleted", "reclaimed"].includes(existing.state)) fail("released", "This reference pool identity was released; it cannot be recreated.");
       if (existing) return existing;
       if (live().length >= pool.capacityRoots) fail("capacity", "Reference pool combined allowance cannot reserve its allowance; nothing was admitted.");
-      const record: NativePoolRecord = { id, purpose, from, allowanceBytes, state: "writable", root: { rootId: String(256 + records.size), uuid: "a".repeat(32), otransid: "1" },
+      const record: NativePoolRecord = { id, purpose, from, allowanceBytes, state: "writable", root: { rootId: String(256 + records.size), uuid: createHash("sha256").update(id).digest("hex").slice(0, 32), otransid: "1" },
         path: join(roots, id), ownerBytes: 0, reason: null, view: null, access: null };
       if (from) { const source = records.get(from); if (!source || source.state !== "sealed") fail("unknown", "A reference snapshot requires one retained sealed pool root."); cpSync(location(source!), record.path!, { recursive: true, verbatimSymlinks: true }); }
       else mkdirSync(record.path!);
@@ -103,6 +103,8 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
         records.set(id, fenced);
         return fenced;
       }
+      // Like the manager (#2729), a worktree an access generation holds is parked before release.
+      if (record.state === "writable" && record.access) fail("invalid", "This worktree is held by an access generation; park it before releasing it.");
       if (record!.view && existsSync(join(views, record!.view)))
         for (const entry of readdirSync(join(views, record!.view))) {
           const path = join(views, record!.view, entry);

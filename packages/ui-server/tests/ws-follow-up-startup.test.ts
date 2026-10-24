@@ -6,9 +6,10 @@
  * like the Claude runner has no live turn to inject into in that window, so
  * a message sent there must be queued, never handed to `followUp()` and lost.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import type { LocalExchange, ServerMessage } from "@schlessera/brain-ui-sdk/protocol";
 import { BackendRequestError } from "@schlessera/brain-ui-sdk/server";
+import { workerHostBoundary } from "@schlessera/brain-ui-sdk/internal";
 import type { AgentBackend, FollowUpRequest } from "@schlessera/brain-ui-sdk/server";
 import type { WSContext } from "../src/ws/clients";
 import { queuedFollowUpBytes } from "../src/ws/turns";
@@ -510,5 +511,34 @@ describe("follow-ups sent before the backend has the turn (#1063)", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fake.prompts.map((entry) => entry.prompt)).toEqual(["Land on Thrinacia", "Leave the cattle alone"]);
     await waitFor(() => !isTurnActive());
+  });
+});
+
+describe("a cancel accepted while the per-turn host probe runs (#2416)", () => {
+  beforeEach(() => { resetForTests(); closeDb(); });
+  afterEach(() => { resetForTests(); closeDb(); });
+
+  test("stops admission before the backend starts the turn", async () => {
+    const fake = runnerLikeBackend(); setBackendForTests(fake.backend);
+    const host = testHost();
+    let entered = false, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    // The real probe is awaited; hold it so the cancel lands while it runs.
+    const probe = spyOn(workerHostBoundary, "probeAsync").mockImplementation(async () => { entered = true; await gate; return { ok: true }; });
+    const { ws, sent } = client();
+    try {
+      await handleClientMessage(ws, { type: "chat_message", text: "Sail past the Sirens", sessionId: "s-ithaca" });
+      await waitFor(() => entered);
+      await handleClientMessage(ws, { type: "cancel", sessionId: "s-ithaca" });
+      release();
+      // Settles cancelled, or (the defect) reaches the backend, which then holds the turn.
+      await waitFor(() => !isTurnActive() || fake.prompts.length > 0);
+      expect(fake.prompts, "CANCEL_DURING_PROBE_NEVER_STARTS_TURN").toEqual([]);
+      expect(sent.some(frame => frame.type === "status" && frame.status === "cancelled"), "CANCEL_DURING_PROBE_SETTLES_CANCELLED").toBe(true);
+    } finally {
+      release(); host.coordinator.cancelAll("Fixture finished");
+      await Promise.allSettled([...host.turnTasks]);
+      probe.mockRestore();
+    }
   });
 });

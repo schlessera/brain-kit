@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 const CUPS = "/var/snap/cups/common/run/cups.sock";
+const WALK_CONTROL = "/opt/odysseus-var-fixture/inherited/walk-control.sock";
 
 test("all worker profiles hide every /var socket while explicit runtime files still execute", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-var-sockets-"));
@@ -20,18 +21,23 @@ test("all worker profiles hide every /var socket while explicit runtime files st
     expect(code, stderr || stdout).toBe(0);
     const result = JSON.parse(stdout.trim().split("\n").at(-1)!) as {
       control: boolean; hostControls: boolean[]; workers: Record<string, { exit: number; stderr: string;
-        runtime: string; runtimeWrite: string; hostSockets: string[]; cups: string | boolean | null; sockets: string[] }>;
+        runtime: string; runtimeWrite: string; hostSockets: string[]; cups: string | boolean | null; sockets: string[];
+        walk: { changed: number; entries: number; checked: number; ms: number } }>;
+      baseline: { entries: number; skipped: number; sockets: number };
     };
     expect(result.control, "UNMASKED_SOCKET_POSITIVE_CONTROL").toBe(true);
     expect(result.hostControls, "VAR_HOST_SOCKETS_LISTENING").toEqual([true, true, true, true]);
-    console.log("VAR_SOCKET_RECEIPT=" + JSON.stringify(result.workers));
+    console.log("VAR_SOCKET_RECEIPT=" + JSON.stringify({ baseline: result.baseline, workers: result.workers }));
     for (const profile of ["governed", "strict", "maintenance"] as const) {
       const row = result.workers[profile]!;
       expect(row.exit, row.stderr).toBe(0);
       expect(row.runtime, `${profile}: VAR_EXPLICIT_RUNTIME_INPUT_READABLE`).toBe("Odysseus reaches Ithaca");
       expect(row.runtimeWrite, `${profile}: VAR_EXPLICIT_RUNTIME_INPUT_READ_ONLY`).toBe("EROFS");
-      expect(row.sockets.sort(), `${profile}: SOCKET_WALK_ONLY_APPROVED_RELAY_AND_PROXY`).toEqual(profile === "maintenance" ? []
-        : ["/run/brain-egress/inference.sock", "/run/brain-egress/proxy.sock"]);
+      // The control is inherited from the fixture's view, so finding it proves
+      // the part of the walk that lstats the baseline instead of reading it.
+      expect(row.sockets, `${profile}: SOCKET_WALK_SEES_INHERITED_CONTROL`).toContain(WALK_CONTROL);
+      expect(row.sockets.filter(path => path !== WALK_CONTROL).sort(), `${profile}: SOCKET_WALK_ONLY_APPROVED_RELAY_AND_PROXY`)
+        .toEqual(profile === "maintenance" ? [] : ["/run/brain-egress/inference.sock", "/run/brain-egress/proxy.sock"]);
       expect(row.hostSockets, `${profile}: VAR_HOST_SOCKET_CONNECTIONS_REFUSED`).toEqual(["ENOENT", "ENOENT", "ENOENT", "ENOENT"]);
       if (existsSync(CUPS)) expect(row.cups, `${profile}: VAR_CUPS_SOCKET_UNREACHABLE`).toBe("ENOENT");
     }

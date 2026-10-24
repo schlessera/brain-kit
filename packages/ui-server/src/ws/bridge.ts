@@ -2,7 +2,7 @@ import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schles
 import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
-import { createProviderMaskGuard, ProviderMaskRefusedError } from "../brain/provider-mask-refusal.js";
+import { createProviderMaskGuard, ProviderMaskRefusedError, ProviderRecordsRefusedError } from "../brain/provider-mask-refusal.js";
 import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
 import { SHARE_STAGING_DIR } from "@schlessera/brain-ui-sdk/protocol";
@@ -59,7 +59,7 @@ export function makeBridge(
   pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute },
   mainModel?: { current(): string | null; bind(model: string): void },
   /** The admitted turn's masked provider folders (`sandbox.providerMasks.folders`) and the policy that named them. */
-  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>> }
+  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>>; recipient?: string }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -112,7 +112,7 @@ export function makeBridge(
   // Host bridge tools run outside the worker's mounts, so they refuse the
   // folders the worker masks, with one governance event per refused call (#2690).
   const maskGuard = providerMasks?.folders.length ? createProviderMaskGuard({ folders: providerMasks.folders, policy: providerMasks.policy.policy,
-    ...(providerMasks.typeFolders ? { typeFolders: providerMasks.typeFolders } : {}),
+    ...(providerMasks.typeFolders ? { typeFolders: providerMasks.typeFolders } : {}), ...(providerMasks.recipient ? { recipient: providerMasks.recipient } : {}),
     record: refusal => catalog.recordGovernanceEvent?.({ kind: "provider_mask_refusal", turnId, sessionId: turn.sessionId,
       actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null,
       payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;
@@ -680,6 +680,13 @@ export function makeBridge(
     }
     return inboxAdd(input);
   };
+  // The activity record and inbox items are the server's own text, kept from
+  // earlier runs, and may quote a masked document. They are refused whole,
+  // before any record is read; the tools stay registered (#2698, option A).
+  if (maskGuard) for (const [name, tool, what] of [["queryActivity", "query_activity", "The activity record"],
+    ["inboxList", "inbox_list", "The inbox"], ["inboxGet", "inbox_get", "The inbox"]] as const) {
+    if (bridge[name]) bridge[name] = async () => { throw new ProviderRecordsRefusedError(toolName(tool), maskGuard.folders, what); };
+  }
   // A worker may invoke a bridge executor without the runtime's permission
   // hook. Check live server authority on every parent effect, not only at
   // tool admission. Voice retains the same narrower named capabilities.

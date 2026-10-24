@@ -27,6 +27,22 @@ export class ProviderMaskRefusedError extends Error {
   }
 }
 
+/**
+ * A host read of the server's own records, refused whole while the turn has
+ * masked folders (#2698, option A). The activity record and inbox items keep
+ * free text from earlier runs, which may quote a masked document; no field
+ * says which, so nothing is filtered and nothing is read.
+ */
+export class ProviderRecordsRefusedError extends Error {
+  readonly code = PROVIDER_MASKED;
+  constructor(readonly tool: string, folders: readonly string[], what: string) {
+    super(`${PROVIDER_MASKED}: ${tool} is unavailable to this turn, because the governance policy's provider rules hide `
+      + `${folders.map(folder => `\`${folder}/\``).join(", ")} from it. ${what} keeps text from earlier runs, which may quote those folders; nothing was read. `
+      + "The user can still read it in the app.");
+    this.name = "ProviderRecordsRefusedError";
+  }
+}
+
 export interface ProviderMaskGuard {
   /** The admitted turn's masked roots, as its worker mounts them. */
   readonly folders: readonly string[];
@@ -70,19 +86,33 @@ export function createProviderMaskGuard(options: {
   policy: Pick<EffectiveGovernancePolicy, "providers">;
   /** The folders admission translated each selected type to (#2694). */
   typeFolders?: Readonly<Record<string, readonly string[]>>;
+  /** The turn's proven recipient (#2695): a rule that allows it never names a refusal. */
+  recipient?: string;
   record(refusal: ProviderMaskRefusal): void;
 }): ProviderMaskGuard {
   const folders = Object.freeze([...options.folders]);
   const providers = options.policy.providers;
-  // The first rule that maps onto the folder: a path selector naming it whole,
-  // else a type admission translated onto it.
+  // The first rule that maps onto the folder and does not allow the turn's
+  // recipient: a path selector naming it whole, else a type admission
+  // translated onto it. Indices stay the policy's own.
+  const denies = (rule: (typeof providers)[number]) => options.recipient === undefined || !rule.allow.includes(options.recipient);
   const ruleFor = (root: string) => {
     for (const [index, rule] of providers.entries()) {
+      if (!denies(rule)) continue;
       const pattern = rule.paths.find(path => providerFolderRoots({ providers: [{ paths: [path], allow: [] }] }).includes(root));
       if (pattern) return { index, pattern };
     }
     for (const [index, rule] of providers.entries()) {
+      if (!denies(rule)) continue;
       const type = (rule.types ?? []).find(name => options.typeFolders?.[name]?.includes(root));
+      if (type) return { index, pattern: `type ${type}` };
+    }
+    // A denied folder nested inside the masked root masks it whole (#2695).
+    if (options.recipient !== undefined) for (const [index, rule] of providers.entries()) {
+      if (!denies(rule)) continue;
+      const pattern = rule.paths.find(path => providerFolderRoots({ providers: [{ paths: [path], allow: [] }] }).some(folder => folder.startsWith(`${root}/`)));
+      if (pattern) return { index, pattern };
+      const type = (rule.types ?? []).find(name => options.typeFolders?.[name]?.some(folder => folder.startsWith(`${root}/`)));
       if (type) return { index, pattern: `type ${type}` };
     }
     return { index: 0, pattern: `${root}/**` };

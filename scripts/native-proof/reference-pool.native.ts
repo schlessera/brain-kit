@@ -538,6 +538,14 @@ const shapes = await create("staging", 32 * MIB);
   expect((await refusal({ operation: "poolAccess", id: tree.id, access: SECOND_ACCESS })).code, "REFERENCE_ACCESS_NO_CROSS_GENERATION").toBe("invalid");
   expect((await refusal({ operation: "poolAccess", id: base.id, access: ACCESS })).code, "REFERENCE_ACCESS_ONLY_WORKTREES").toBe("unknown");
   expect((await status()).refusal, "REFERENCE_ACCESS_ACCOUNTED").toBeNull();
+  // #2729: the pool's own release refuses a granted worktree, atomically with grants, so no
+  // second process can delete what a generation holds; nothing is deleted and the charge stays.
+  const heldBefore = await charged();
+  const heldRefusal = await refusal({ operation: "poolRelease", id: tree.id });
+  const heldRecord = (await call<{ records: NativePoolRecord[] }>({ operation: "listPoolRecovery", after: null })).records.find(item => item.id === tree.id);
+  note("access-held-release", { refusal: heldRefusal, record: heldRecord });
+  expect({ code: heldRefusal.code, state: heldRecord?.state, access: heldRecord?.access, read: await ask("read"), charged: (await charged()).chargedBytes },
+    "REFERENCE_ACCESS_HELD_NOT_RELEASED").toEqual({ code: "invalid", state: "writable", access: ACCESS, read: "Telemachus returns", charged: heldBefore.chargedBytes });
   // Parking returns the worktree to the masked roots: the next lookup misses it.
   expect((await call<NativePoolRecord>({ operation: "poolPark", id: tree.id })).access, "REFERENCE_ACCESS_PARKED_RECORD").toBeNull();
   expect(await ask("read"), "REFERENCE_ACCESS_PARKED_GONE").toBe("MISSING");
@@ -654,6 +662,13 @@ const shapes = await create("staging", 32 * MIB);
     await worktrees.closeGeneration(second.id);
     expect((await worktrees.release({ worktreeId: read.id, principalId: penelope.id })).cleanup, "REFERENCE_WORKTREE_NATIVE_READS_ARE_NOT_WORK")
       .toMatchObject({ owner: "none", work: "none", changedPaths: 0, eligible: true });
+    // #2431: release removed the clean worktree, credited only on the pool's observed reclamation.
+    const receipt = (id: string) => db.query("SELECT state, trigger FROM reference_worktree_cleanups WHERE worktree_id = ?").get(id) as { state: string; trigger: string } | null;
+    for (let attempt = 0; attempt < 10 && receipt(read.id)?.state !== "reclaimed"; attempt++) { sync(); await client.poolStatus(); await worktrees.reconcile(); }
+    note("worktree-clean-removed", { receipt: receipt(read.id), record: (await records()).find(record => record.id === read.id) });
+    expect({ receipt: receipt(read.id), state: (await records()).find(record => record.id === read.id)?.state }, "REFERENCE_WORKTREE_NATIVE_CLEAN_REMOVED")
+      .toEqual({ receipt: { state: "reclaimed", trigger: "automatic" }, state: "reclaimed" });
+    expect((await records()).filter(record => record.purpose === "checkpoint" && record.from === read.id && record.state === "sealed"), "REFERENCE_WORKTREE_NATIVE_CLEAN_CHECKPOINTS_RELEASED").toEqual([]);
     // Swapping two directories through a temporary name leaves every name in place, and is still work.
     const swapped = await worktrees.allocate({ principalId: penelope.id, repository, revision: "main" });
     const third = await turn("turn-18-swap");
@@ -664,7 +679,37 @@ const shapes = await create("staging", 32 * MIB);
     const swapFacts = (await worktrees.release({ worktreeId: swapped.id, principalId: penelope.id })).cleanup;
     note("worktree-swap", { cleanup: swapFacts });
     expect(swapFacts, "REFERENCE_WORKTREE_NATIVE_SWAP_IS_WORK").toMatchObject({ owner: "none", work: "unpreserved", eligible: false });
-    // Nothing above deleted a worktree; the proof releases its own roots.
+    // #2431: retained work waits for human review, which removes exactly the reviewed worktree.
+    const { createReferenceWorktreeHygiene } = await import("../../packages/ui-server/src/brain/reference-worktree-hygiene.js");
+    const { createHygieneReview } = await import("../../packages/ui-server/src/inbox/hygiene-review.js");
+    const { createInboxStore } = await import("../../packages/ui-server/src/inbox/store.js");
+    const core = await import("@schlessera/brain/internal");
+    const hygiene = createReferenceWorktreeHygiene({ db, worktrees, core: async () => core, brainPath: "/brain-fixture/brain" });
+    const brain = { hygiene: async (args: string[]) => {
+      if (args[0] === "next") return { finding: null, counts: { eligibleRemaining: 0, fixed: 0, dismissed: 0, snoozed: 0, nextSnoozeDueAt: null, informationalNotShown: 0 } };
+      if (args[0] === "list") return { entries: [] };
+      throw Error(`A managed worktree operation reached the CLI: ${args.join(" ")}`);
+    } };
+    const review = createHygieneReview(db, { brain: brain as never, worktrees: hygiene });
+    const card = (await review.command(penelope.id, "start")).action!;
+    const target = (card.hygiene!.finding as { path: string }).path.slice("reference-worktree://".length), kept = target === edited.id ? swapped.id : edited.id;
+    note("worktree-review-card", { card });
+    for (const secret of [srv, "ithaca.git", commit, "argos", "book-", penelope.id])
+      expect(JSON.stringify(card).includes(secret), `REFERENCE_WORKTREE_NATIVE_PRIVATE_CARD_OPAQUE ${secret}`).toBe(false);
+    expect([edited.id, swapped.id], "REFERENCE_WORKTREE_NATIVE_RETAINED_REVIEWED").toContain(target);
+    const targetPath = (await records()).find(record => record.id === target)!.path!;
+    await review.resolver.resolveAsync(penelope.id, { type: "inbox_resolve", itemId: card.id, optionId: "delete-worktree" });
+    for (let attempt = 0; attempt < 10 && receipt(target)?.state !== "reclaimed"; attempt++) { sync(); await client.poolStatus(); await worktrees.reconcile(); }
+    note("worktree-reviewed-removal", { receipt: receipt(target), record: (await records()).find(record => record.id === target) });
+    expect({ item: createInboxStore(db).getItem(card.id)?.status, receipt: receipt(target), state: (await records()).find(record => record.id === target)?.state, present: existsSync(targetPath) },
+      "REFERENCE_WORKTREE_NATIVE_REVIEWED_REMOVAL").toEqual({ item: "resolved", receipt: { state: "reclaimed", trigger: "review" }, state: "reclaimed", present: false });
+    const keptRecord = (await records()).find(record => record.id === kept)!;
+    expect({ state: keptRecord.state, receipt: receipt(kept), files: existsSync(join(keptRecord.path!, "odyssey")) }, "REFERENCE_WORKTREE_NATIVE_UNREVIEWED_KEPT")
+      .toEqual({ state: "writable", receipt: null, files: true });
+    const sourceRoot = (await records()).find(record => record.id === keptRecord.from)!;
+    expect({ source: sourceRoot.state, commit: command(["git", "--git-dir", join(srv, "ithaca.git"), "rev-parse", "main"]).trim() }, "REFERENCE_WORKTREE_NATIVE_SOURCE_UNTOUCHED")
+      .toEqual({ source: "sealed", commit });
+    // The proof releases the roots review left.
     for (const record of await records()) if (record.purpose === "checkpoint" && (record.state === "sealed")) await client.poolRelease(record.id);
     for (const id of [edited.id, read.id, swapped.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
     db.query("DELETE FROM reference_worktrees").run();

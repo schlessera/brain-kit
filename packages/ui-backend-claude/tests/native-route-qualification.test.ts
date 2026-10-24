@@ -114,3 +114,12 @@ for (const [mode, reason] of [["api-key-project-credential", "projectSettings se
   expect(proof.apiRequests).toEqual([]);
   expect(proof.results[0]?.failure?.message, "RELAY_REFUSAL_NAMES_ITS_REASON").toContain(reason);
 });
+
+test("a turn admitted for one recipient's origin reaches only that origin (#2695)", () => {
+  const admitted = probe("server-host-relay-probe.ts", "recipient-admitted");
+  expect(admitted.requests, "ADMITTED_RECIPIENT_RELAYED").toEqual([{ credential: 0, model: "claude-haiku-4-5", history: 1 }]);
+  const other = probe("server-host-relay-probe.ts", "recipient-other");
+  expect(other.requests, "OTHER_RECIPIENT_SENDS_NOTHING").toEqual([]);
+  expect(other.refreshes).toBe(0);
+  expect(JSON.stringify(other.results), "OTHER_RECIPIENT_REFUSED_BY_NAME").toContain("is not the recipient this turn was admitted for");
+});

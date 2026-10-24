@@ -54,7 +54,7 @@ export async function probe(binding: "rpc" | "gate", options: { deny?: Rule[]; c
       process.env.PI_CODING_AGENT_DIR = join(root, "agent");
       cleanup.push(() => { if (prior === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prior; });
       const host = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true }); cleanup.push(() => host.mockRestore());
-      const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
+      const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => {
         const configurationRoot = join(root, "brain");
         const stdout = new PassThrough(), stderr = new PassThrough(), exited = Promise.withResolvers<number>();
         let next = 0;

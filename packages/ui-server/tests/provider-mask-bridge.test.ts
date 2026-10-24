@@ -37,6 +37,14 @@ import { makeFakeBackend } from "./helpers/fake-backend";
 import { testAuthorization } from "./helpers/principal";
 import { createPrincipal, isUsablePrincipal, resolvePrincipal } from "../src/db/principals";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
+import { createPiBridgeTools } from "../../ui-backend-pi/src/bridge-tools";
+import { createActivityStore } from "../src/activity/store";
+import { createActivityStream } from "../src/activity/stream";
+import { runActivityQuery } from "../src/activity/query";
+import { createInboxStore } from "../src/inbox/store";
+import { createInboxIntake } from "../src/inbox/intake";
+import { createInboxResolver } from "../src/inbox/resolve";
+import { createInboxBridgeTools } from "../src/inbox/bridge-tools";
 
 const IDENTITY = "---\ntype: note\ntitle: Odysseus identity\n---\nOdysseus keeps the name Nobody for the Cyclops.\n";
 const RAFT = "---\ntype: note\ntitle: Raft\n---\nOdysseus lashes the raft.\n";
@@ -85,19 +93,21 @@ async function registration(kind: "claude" | "pi", brain: string, bridge: Backen
 }
 
 async function maskedTurn(kind: "claude" | "pi", script: (bridge: BackendBridge, brain: string, request: StartTurnRequest) => Promise<void>,
-  options: { folders?: readonly string[]; setup?: (brain: string) => Partial<ConstructorParameters<typeof WsHost>[0]> | void;
+  options: { folders?: readonly string[]; setup?: (brain: string, db: ReturnType<typeof createUiDb>) => Partial<ConstructorParameters<typeof WsHost>[0]> | void;
     host?: Partial<ConstructorParameters<typeof WsHost>[0]>; check?: (brain: string) => void } = {}) {
   const folders = options.folders ?? ["me"];
   const root = mkdtempSync(join(tmpdir(), "odysseus-provider-mask-bridge-"));
   const brain = join(root, "brain");
   for (const dir of ["context/policies", "me", "notes"]) mkdirSync(join(brain, dir), { recursive: true });
   writeFileSync(join(brain, "context/policies/governance.md"),
-    `---\nschema_version: 1\nproviders: [{ paths: [${folders.map(root => `${root}/**`).join(", ")}], allow: [anthropic] }]\n---\nOnly Anthropic may read Odysseus's own folders.\n`);
+    // No folders: a policy without provider rules, so the turn has no masks.
+    folders.length ? `---\nschema_version: 1\nproviders: [{ paths: [${folders.map(root => `${root}/**`).join(", ")}], allow: [anthropic] }]\n---\nOnly Anthropic may read Odysseus's own folders.\n`
+      : "---\nschema_version: 1\n---\nOdysseus's brain has no provider rules.\n");
   writeFileSync(join(brain, "me/identity.md"), IDENTITY);
   writeFileSync(join(brain, "me/avatar.png"), PNG);
   writeFileSync(join(brain, "notes/raft.md"), RAFT);
-  const extraHost = options.setup?.(brain) ?? {};
   const dbPath = join(root, "ui.db"), db = createUiDb(dbPath);
+  const extraHost = options.setup?.(brain, db) ?? {};
   const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 3600 });
   const authorization = testAuthorization(principal.id);
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
@@ -135,7 +145,7 @@ async function maskedTurn(kind: "claude" | "pi", script: (bridge: BackendBridge,
   try {
     await runSession(host, { authorization, text: "Odysseus works beside his own folder.", attachments: [] });
     if (failure) throw failure;
-    expect(masks, "TURN_ADMITTED_WITH_PROVIDER_MASKS").toEqual([...folders].sort());
+    expect(masks, "TURN_ADMITTED_WITH_PROVIDER_MASKS").toEqual(folders.length ? [...folders].sort() : undefined);
     expect(snapshot(join(brain, "me")), "MASKED_FOLDER_BYTE_IDENTICAL").toEqual(before);
     options.check?.(brain);
     return { events: queryGovernanceEvents(db, { kinds: ["provider_mask_refusal"], limit: 100 }) };
@@ -308,3 +318,88 @@ for (const variant of ["inside", "alias"] as const) test(`inbox_add refuses when
   expect(added, "NO_ITEM_STAGED").toBe(0);
   expect(events).toHaveLength(1);
 }, 60_000);
+
+/**
+ * The activity record and inbox items are the server's own text, kept from
+ * earlier runs (#2698). An earlier run's failure quoted `me/identity.md`, and
+ * an inbox item holds the same quote; a masked turn reads neither, through
+ * any scope, either backend's tool or a direct bridge call.
+ */
+const RETAINED = "RETAINED_2698: Odysseus keeps the name Nobody for the Cyclops.";
+const ACTIVITY_SCOPES = [{ scope: "running" }, { scope: "recent", hoursBack: 2160 }, { scope: "run", runId: "earlier-run" }, { scope: "rollups", hoursBack: 2160 },
+  { scope: "inbox" }, { scope: "roadblocks" }] as const;
+
+/** The backend's own registration of the record tools, called as its agent would. */
+async function recordTools(kind: "claude" | "pi", brain: string, bridge: BackendBridge, closes: (() => Promise<unknown>)[]) {
+  if (kind === "claude") return registration(kind, brain, bridge, closes);
+  const turn = createTurnContext(); turn.bridge = bridge;
+  const tools = createPiBridgeTools({ brainPath: brain, turn, capabilities: { activity: true, inbox: true } });
+  return { call: async (tool: string, input: Record<string, unknown>) => {
+    try {
+      const result = await tools.find(t => t.name === tool)!.execute(`call-${tool}`, input, undefined, undefined, {} as never);
+      return { isError: false, message: (result.content[0] as { text: string }).text } as Record<string, any>;
+    } catch (error) { return { isError: true, message: (error as Error).message } as Record<string, any>; }
+  } };
+}
+
+/** An earlier run whose failure quoted the masked document, and an inbox item quoting it. */
+function retainedRecords(brain: string, db: ReturnType<typeof createUiDb>) {
+  const store = createActivityStore(db, { writer: "provider-retained-records" });
+  store.startSpan({ spanId: "earlier-root", runId: "earlier-run", name: "invoke_agent", kind: "turn", origin: "session", sessionId: "earlier-session" });
+  store.endSpan("earlier-root", { outcome: "error", reason: `Read me/identity.md: ${RETAINED}` });
+  store.rollupRun("earlier-run");
+  const inbox = createInboxStore(db), now = Date.now();
+  inbox.ingest({ threadId: "ithaca", itemId: "work-ithaca", source: "cli", stagingId: crypto.randomUUID(), dedupKey: "ithaca", expiresAt: now + 86_400_000, stakes: 1 });
+  inbox.commit([{ kind: "item", item: { id: "retained", threadId: "ithaca", dedupKey: "retained", queue: "actions", type: "approve", status: "pending", version: 1,
+    createdAt: now, updatedAt: now, expiresAt: now + 86_400_000, payload: { title: "Keep the name?", detail: RETAINED },
+    options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] } }]);
+  const intake = createInboxIntake(db, brain);
+  return { activity: { store, stream: createActivityStream(store), query: (query: Parameters<typeof runActivityQuery>[2]) => runActivityQuery(db, store, query) },
+    inboxTools: createInboxBridgeTools(db, intake, createInboxResolver(db, { allowedOperations: () => [] })) };
+}
+
+for (const kind of ["claude", "pi"] as const) for (const masked of [true, false]) {
+  test(`${kind} ${masked ? "masked" : "unmasked"} turn: query_activity, inbox_list and inbox_get ${masked ? "refuse before reading the retained records" : "return them"}`, async () => {
+    const closes: (() => Promise<unknown>)[] = [];
+    const seen: { tool: string; isError: boolean; message: string }[] = [];
+    const direct: unknown[] = [];
+    let bridgeHas: string[] = [];
+    await maskedTurn(kind, async (bridge, brain) => {
+      bridgeHas = (["queryActivity", "inboxList", "inboxGet"] as const).filter(name => typeof bridge[name] === "function");
+      const tools = await recordTools(kind, brain, bridge, closes);
+      try {
+        for (const query of ACTIVITY_SCOPES) seen.push({ tool: `query_activity ${query.scope}`, ...await tools.call("query_activity", { ...query }) as { isError: boolean; message: string } });
+        seen.push({ tool: "inbox_list", ...await tools.call("inbox_list", { view: "actions" }) as { isError: boolean; message: string } });
+        seen.push({ tool: "inbox_get", ...await tools.call("inbox_get", { itemId: "retained" }) as { isError: boolean; message: string } });
+        // A worker may call the bridge executors without the tool layer.
+        for (const call of [() => bridge.queryActivity!({ scope: "run", runId: "earlier-run" }), () => bridge.inboxList!({ view: "actions", limit: 20 } as never),
+          () => bridge.inboxGet!({ itemId: "retained" })]) {
+          try { direct.push(await call()); } catch (error) { direct.push(error); }
+        }
+      } finally { for (const close of closes) await close(); }
+    }, { folders: masked ? ["me"] : [], setup: retainedRecords });
+    // Registration is unchanged: the same three executors exist either way.
+    expect(bridgeHas, "RECORD_TOOLS_STAY_REGISTERED").toEqual(["queryActivity", "inboxList", "inboxGet"]);
+    const name = (tool: string) => kind === "claude" ? `mcp__brain-ui__${tool}` : tool;
+    if (masked) {
+      const leaked = [...seen.filter(call => call.message.includes("RETAINED_2698")).map(call => call.tool),
+        ...direct.filter(result => JSON.stringify(result ?? null).includes("RETAINED_2698") || String(result).includes("RETAINED_2698")).map(() => "direct bridge call")];
+      expect(leaked, "MASKED_TURN_GETS_NO_RETAINED_TEXT").toEqual([]);
+      for (const call of seen) {
+        expect(call.isError, call.tool).toBe(true);
+        expect(call.message, `RECORD_READ_NAMED_REFUSAL ${call.tool}`).toStartWith(`provider_masked: ${name(call.tool.split(" ")[0]!)} is unavailable to this turn`);
+      }
+      for (const result of direct) {
+        expect(result, "DIRECT_BRIDGE_CALL_REFUSED").toBeInstanceOf(Error);
+        expect(String((result as Error).message), "DIRECT_BRIDGE_CALL_RETURNS_NO_RETAINED_TEXT").not.toContain("RETAINED_2698");
+        expect((result as { code?: string }).code).toBe("provider_masked");
+      }
+    } else {
+      // The paired control: without masks the same records are reachable, so
+      // the masked turn's refusal is what kept the text out.
+      const reached = seen.filter(call => !call.isError && call.message.includes("RETAINED_2698")).map(call => call.tool);
+      expect(reached, `UNMASKED_TURN_READS_RETAINED_RECORDS ${JSON.stringify(seen)}`).toEqual(["query_activity recent", "query_activity run", "inbox_list", "inbox_get"]);
+      expect(direct.every(result => !(result instanceof Error) && JSON.stringify(result).includes("RETAINED_2698")), `UNMASKED_DIRECT_CALLS_READ ${direct}`).toBe(true);
+    }
+  }, 60_000);
+}

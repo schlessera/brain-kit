@@ -602,9 +602,17 @@ signatures (every public export and the types it is made of)
         readonly managedStorage: boolean;
         end(): Promise<Reconciliation | null>;
     }
+  GovernedTurnRoute (packages/ui-server/src/brain/governed-turn.ts)
+    export interface GovernedTurnRoute {
+        readonly inferenceOrigin?: string;
+        readonly sessionId?: string;
+        readonly inherit?: readonly string[];
+    }
   GovernedTurns (packages/ui-server/src/brain/governed-turn.ts)
     export interface GovernedTurns {
-        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict"): Promise<GovernedTurnHold>;
+        begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
+        bindSession(turnId: string, sessionId: string): void;
+        exposures(sessionIds: readonly string[]): ProviderExposure[];
         facts(origin?: "interactive" | "voice"): {
             policyProfile: "governed" | "strict";
             policy: TurnGovernancePolicy;
@@ -1001,6 +1009,12 @@ signatures (every public export and the types it is made of)
         readonly reason: string;
         readonly mode: "read_only" | "mask_file" | "mask_directory" | "absent";
     }
+  ProviderExposure (packages/ui-server/src/brain/governance-policy.ts)
+    export interface ProviderExposure {
+        readonly recipient: string;
+        readonly visible: readonly string[];
+        readonly hidden: readonly string[];
+    }
   PruneOptions (packages/ui-server/src/activity/store.ts)
     export interface PruneOptions {
         digestFloorAt: number;
@@ -1097,6 +1111,7 @@ signatures (every public export and the types it is made of)
             refreshMs: number;
             operations: number;
         };
+        providerRecipientOrigins?: ReadonlyMap<string, string>;
         maintenanceTemp?: {
             allowanceBytes: number;
             budgetBytes: number;

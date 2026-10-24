@@ -91,6 +91,14 @@ an error whose message starts `provider_masked:`; the application tools return
 records one `provider_mask_refusal` [governance event](integration-contract/http.md#governance-events-additive-1651)
 (`tool`, `path`, `rule`, `policyHash`).
 
+Additive (#2698): for such a turn `query_activity` (every scope), `inbox_list`
+and `inbox_get` are refused whole, before any record is read, with an error
+whose message starts `provider_masked: <tool> is unavailable to this turn`.
+The activity record and inbox items keep free text from earlier runs that may
+quote a masked document. The tools stay registered with the same names and
+schemas; a turn without masked folders and the owner's UI read them as before.
+No governance event is recorded for these refusals.
+
 ## Separate-UID provider folder turns (additive, 0.44.0, #2696)
 
 The host identity helper protocol (`--brain-worker-identity-v1`) gains a
@@ -100,6 +108,21 @@ server uses them to qualify a separate-UID governed worker's mounted provider
 folders and private index before its payload starts. Other launches do not
 send the field. A helper without the operation refuses provider-folder turns
 before payload start, as before; nothing else changes.
+
+## Allowed provider recipients (additive, 0.44.0, #2695)
+
+A hosted turn whose recipient a `providers` rule allows now sees that rule's
+folders, as specified under
+[supported inputs](supported-inputs.md#governance-policy). The recipient is
+named only from the exact origin the turn's host inference relay forwards to:
+a built-in vendor origin, or one the new server variable
+`BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` (`name=origin[,origin];name=origin`)
+names. Every other turn keeps the masks. A conversation that showed folders to
+one recipient refuses a later turn, or a handoff, whose recipient may not see
+them, with `ProviderRecipientRefusedError`. The optional
+[`AgentBackend.inferenceOrigin`](integration-contract/package-api.md#inference-recipient-origin-additive-2695)
+supplies the origin. No schema, CLI `--json` shape, MCP tool or HTTP route
+changes.
 
 ## Authoritative surfaces
 
@@ -644,3 +667,11 @@ fixed-reader checkpoint reads, plus access generations that move a writable
 worktree into or out of one worker-bound directory; `NativePoolRecord` gains
 the `checkpoint` purpose and `access`. Described in
 [the package API](integration-contract/package-api.md#managed-worktree-storage-additive-2430).
+
+## Managed worktree hygiene review (additive, #2431)
+
+The human-started hygiene review (`/api/hygiene/review`) also selects host-only
+`managed-worktree` findings, with a `delete-worktree` repair revalidated by the
+worktree service before it removes anything; described in
+[the package API](integration-contract/package-api.md#managed-worktree-findings-in-the-review-additive-0440-2431).
+

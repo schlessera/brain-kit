@@ -23,7 +23,7 @@ test("pi restricted autonomous launch carries the host-admitted provider masks i
   process.env.PI_CODING_AGENT_DIR = join(root, "pi-agent");
   process.env.ANTHROPIC_API_KEY = "sk-odysseus-offline";
   let captured: Parameters<typeof worker.launchAgentWorker>[0] | undefined;
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(options => { captured = options; throw new Error("LAUNCH_CAPTURED"); });
+  const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async options => { captured = options; throw new Error("LAUNCH_CAPTURED"); });
   try {
     await expect(openPiWorkerSession({ brainPath: brain, model: "anthropic/claude-sonnet-4-6" }, join(root, "sessions"), {
       workerStartupView: view, workerProviderMasks: masks,

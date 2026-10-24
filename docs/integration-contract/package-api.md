@@ -3,6 +3,22 @@
 Authoritative component of the [integration contract](../integration-contract.md).
 Its [shared scope and versioning policy](../integration-contract.md) apply to every section below.
 
+## Event-loop-free worker checks (internal #2416)
+
+The SDK's `/internal` entry adds `probeWorkerHostAsync`,
+`requireWorkerHostAsync`, `prepareWorkerSandboxAsync` and
+`launchAgentWorkerAsync`. Each one drives the same steps as its existing
+synchronous form: the same real-launcher probe, scratch git check and
+bubblewrap setup waits, in the same order, with the same deadlines and
+refusals. The difference is that it awaits each wait instead of blocking the
+caller's event loop. `workerHostBoundary` gains `probeAsync`, which answers
+through a replaced `probe`, so one test double still stands in for both.
+The synchronous exports are unchanged.
+
+This is internal compatibility wiring under the internal-entry classification
+below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
+frontmatter meaning or credential authority, and requires a patch changeset.
+
 ## Native maintenance preparation (internal #2300 / #2343)
 
 The SDK's `/internal` entry adds `prepareMaintenanceWorker` and
@@ -72,6 +88,27 @@ Custom-origin selection and Pi integration are separate from this input. Host-ow
 credential remains mandatory for custom OAuth recipients. This input neither
 sanitizes arbitrary unrelated provider/command credentials nor completes the
 credential capability and maintenance cutover in #1666.
+
+## Inference recipient origin (additive, #2695)
+
+`AgentBackend` adds optional `inferenceOrigin(req: { profileId?: string;
+sessionId?: string }): Promise<string | undefined>`. It returns the exact origin
+(`scheme://host[:port]`) that an ordinary turn on that profile, or resuming
+that session, sends inference to through the host inference relay. The server
+calls it in the trusted host before admission and names the turn's provider
+policy recipient from it: a built-in vendor origin, or one listed in the
+server's `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS` (`name=origin[,origin];...`).
+A backend that omits it, returns `undefined` or does not run the relay has no
+proven recipient, so every provider folder stays masked for its turns.
+
+The internal `WorkerSandbox` gains optional `@internal inferenceRecipient`
+(`{ name, origin }`), and `providerMasks.index` becomes optional: absent
+exactly when `providerMasks.folders` is empty, for a turn whose recipient
+is allowed every provider folder. A backend that receives `inferenceRecipient`
+passes its origin to `startInferenceRelay` as the new internal
+`recipientOrigin` option. The relay then refuses to start toward any other
+origin, and a turn without a relay refuses to start. The first-party
+Claude and pi backends implement all three.
 
 **Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
 adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
@@ -3096,6 +3133,37 @@ stale. Interrupted dispositions are verified against CLI log state and their
 exact due instant. An uncertain inverse remains `check_failed`; it is not
 reapplied. Neither leaving nor disconnecting stops an already confirmed effect.
 
+#### Managed worktree findings in the review (additive, 0.44.0, #2431)
+
+When the host runs managed reference worktrees and core's hygiene functions
+load, the same review also selects host-only findings about those worktrees.
+They are never written to `context/hygiene/` and never appear in
+`brain hygiene list` or any other CLI output; their findings and dispositions
+live in the host's operational database
+([decision](../decisions/managed-worktrees.md#hygiene-and-cleanup)).
+
+- A worktree is at most one finding, with `category: "managed-worktree"`, `path:
+  "reference-worktree://<worktree id>"`, an ID and fingerprint from core's
+  `canonicalFindings`, and an additive `worktree` object (`id`, `domain`,
+  `state`, `changedPaths`, `removal`; a public worktree adds `repository`,
+  `revision`, `commit` and `sample`). A private worktree's card names no
+  repository, revision, commit, changed path or principal.
+- Its repair handler is `delete-worktree` (input `none`), offered for retained
+  unfinished work and for a failed removal, never for a worktree whose holder,
+  owner or work is unknown. Its preview `path` is the logical
+  `reference-worktree/<worktree id>`, with an empty `after`.
+- `start`/`resume` pick across both backlogs by the CLI's ordinal rules and
+  report summed counts; every operation on a worktree finding is answered by
+  the host and never sent to the CLI. Dismiss, snooze and check keep the CLI's
+  result shapes and fingerprint semantics; a dismissal or snooze never removes
+  a worktree.
+- A confirmed removal is revalidated by the worktree service immediately before
+  it deletes: the reviewer's authority, the exact native identity, no live or
+  unknown holder, the reviewed fingerprint and preview against a fresh
+  assessment. Any change returns `stale`. A removal that fails returns
+  `check_failed` with `code: "cleanup-failed"` and a fixed `reason`; the same
+  finding then reappears with a new fingerprint.
+
 ## Governed hosted workers (additive, 0.42.0, #1649)
 
 Ordinary interactive and voice hosted turns default to the governed writable
@@ -3257,6 +3325,8 @@ caller-generated UUID naming one worker generation. `NativePoolRecord.purpose`
 gains `checkpoint`, and records gain `access`, the generation holding a
 writable worktree, else `null`; earlier records read as `access: null`.
 `poolCreate` refuses the `checkpoint` purpose and a checkpoint as its source.
+`poolRelease` refuses a writable worktree whose record names an access
+generation with `invalid`, deleting nothing; park it first (#2729).
 The lease owner checkpoints only a held worktree, reads and diffs only held
 checkpoints, and moves only held worktrees; its lease table migrates in place.
 No call accepts a host path, UID or mount. Worker masks now include the pool's

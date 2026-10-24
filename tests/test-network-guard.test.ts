@@ -68,23 +68,24 @@ describe("offline test guard", () => {
     test(`${dirname(file)} test command loads its guard`, async () => {
       const result = await run("partial", "package", join(ROOT, dirname(file)));
       expect(result.calls.length, result.output).toBeGreaterThan(0);
-      expect(result.calls.flat()).toEqual([]);
+      expect(result.calls.flat(), result.output).toEqual([]);
       expect(result.output).toContain("Offline test guard");
       expect(result.code).not.toBe(0);
     });
   }
-  for (const scenario of ["partial", "robots", "proxy", "curl-forms", "hosts", "retries", "exit-zero", "mocks", "mock-files", "redirect"]) {
+  for (const scenario of ["net-connect", "net-forms", "tls-forms", "bun-connect", "socket-exit-zero", "socket-mocks",
+    "partial", "robots", "proxy", "curl-forms", "hosts", "retries", "exit-zero", "mocks", "mock-files", "redirect"]) {
     test(`${scenario} fails despite caught errors without dispatching native transport`, async () => {
       const result = await run(scenario);
       expect(result.calls.length, result.output).toBeGreaterThan(0);
-      expect(result.calls.flat()).toEqual([]);
+      expect(result.calls.flat(), result.output).toEqual([]);
       expect(result.code).not.toBe(0);
       expect(result.output).toContain("Offline test guard");
       expect(result.output).toContain(scenario === "curl-forms" ? "curl" : "escape.example.invalid");
       if (scenario === "mock-files") expect(result.output).toContain("(pass) restore mocks in another file");
     });
   }
-  for (const scenario of ["local", "manual", "redirect-error"]) {
+  for (const scenario of ["local-sockets", "local-tls", "local", "manual", "redirect-error"]) {
     test(`${scenario} retains real loopback fixture behavior`, async () => {
       const result = await run(scenario);
       expect(result.calls.length).toBeGreaterThan(0);

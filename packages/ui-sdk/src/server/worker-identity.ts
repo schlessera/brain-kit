@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { workerIdentityHelperInput } from "../config/env.js";
 import { WORKER_IDENTITY_CLIENT, WORKER_IDENTITY_FALLBACK, WORKER_IDENTITY_STOP, WORKER_IDENTITY_SUPERVISOR } from "./worker-identity-program.js";
+import { runWorkerStepsSync, workerStep, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 export const WORKER_IDENTITY_HELPER_ENV = "BRAIN_UI_WORKER_IDENTITY_HELPER";
 export class WorkerIdentityCleanupError extends Error {
@@ -70,10 +71,15 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     })], { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 12_000 });
     if (cleanup.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_cleanup_unconfirmed: ${cleanup.stderr.toString().slice(0, 300)}`);
   };
-  const request = <T extends object>(operation: string, input: object = {}): T => {
+  const requestSteps = function* <T extends object>(operation: string, input: object = {}): WorkerSteps<T> {
     if (!open) throw new Error("worker_identity_control_closed");
-    const result = Bun.spawnSync([python, "-I", "-S", "-c", WORKER_IDENTITY_CLIENT, socket,
-      JSON.stringify({ secret, operation, ...input })], { env: {}, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 7_000 });
+    const command = [python, "-I", "-S", "-c", WORKER_IDENTITY_CLIENT, socket, JSON.stringify({ secret, operation, ...input })];
+    const options = { env: {}, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 7_000 } as const;
+    const result = yield* workerStep<{ exitCode: number | null; stdout: Buffer; stderr: Buffer }>(() => Bun.spawnSync(command, options), async () => {
+      const child = Bun.spawn(command, options);
+      const [stdout, stderr] = await Promise.all([new Response(child.stdout).arrayBuffer(), new Response(child.stderr).arrayBuffer(), child.exited]);
+      return { exitCode: child.exitCode, stdout: Buffer.from(stdout), stderr: Buffer.from(stderr) };
+    });
     if (result.exitCode !== 0) {
       supervisionLost();
       throw new Error(`worker_identity_control_lost: ${result.stderr.toString().slice(0, 300)}`);
@@ -83,6 +89,7 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
       throw new Error(`worker_identity_operation_failed: ${JSON.stringify(reply).slice(0, 300)}`);
     return reply as T;
   };
+  const request = <T extends object>(operation: string, input: object = {}): T => runWorkerStepsSync(requestSteps<T>(operation, input));
   const requestAsync = async <T extends object>(operation: string, input: object = {}, signal?: AbortSignal): Promise<T> => {
     signal?.throwIfAborted();
     if (!open) throw new Error("worker_identity_control_closed");
@@ -112,6 +119,37 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
       throw error;
     } finally { signal?.removeEventListener("abort", cancel); }
   };
+  function* readySteps(supervisor: number, deadline: number): WorkerSteps<Ready> {
+    supervisorIdentity = processIdentity(supervisor);
+    for (;;) {
+      try {
+        const result = JSON.parse(readFileSync(readyPath, "utf8")) as Ready | { ok: false; reason: string };
+        if (!result.ok) throw new Error(result.reason);
+        if (!Number.isSafeInteger(result.workerUid) || result.workerUid <= 0 || result.workerUid >= 0xffffffff || result.workerUid === process.getuid?.())
+          throw new Error("worker_identity_wrong_uid");
+        if (!Number.isSafeInteger(result.worker?.pid) || result.worker.pid <= 1 || typeof result.worker.start !== "string" || !/^[0-9]+$/.test(result.worker.start))
+          throw new Error("worker_identity_malformed_worker_identity");
+        if (Object.keys(result.roots).length !== roots.length) throw new Error("worker_identity_unexpected_mount_handles");
+        for (const root of roots) {
+          const receipt = result.roots[root.name];
+          if (!receipt || !Number.isSafeInteger(receipt.fd) || receipt.fd < 3 || !Number.isSafeInteger(receipt.dev) || !Number.isSafeInteger(receipt.ino)) throw new Error("worker_identity_missing_mount_handle");
+          // This alias belongs to our same-uid coordinator, not the cross-UID payload.
+          const descriptor = openSync(`/proc/${supervisor}/fd/${receipt.fd}`, constants.O_RDONLY | constants.O_DIRECTORY);
+          try {
+            const info = fstatSync(descriptor), space = statfsSync(`/proc/self/fd/${descriptor}`);
+            if (info.dev !== receipt.dev || info.ino !== receipt.ino || space.type !== 0x01021994 || space.blocks * space.bsize !== root.bytes)
+              throw new Error("worker_identity_substituted_mount");
+          } finally { closeSync(descriptor); }
+        }
+        return result;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        processIdentity(supervisor);
+        if (Date.now() >= deadline) throw new Error("worker_identity_setup_timed_out");
+      }
+      yield* workerStepSleep(1);
+    }
+  }
   return {
     command: [python, "-I", "-S", "-c", WORKER_IDENTITY_SUPERVISOR, JSON.stringify({
       helper, argv, roots, cgroup, socket, ready: readyPath, secret, ...(view ? { view } : {}),
@@ -119,38 +157,12 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
         keeper: { pid: stage.namespacePid, start: stage.namespaceStart } } } : {}),
       bwrap: Bun.which("bwrap"), server, launch,
     })],
-    ready(supervisor: number, deadline: number): Ready {
-      supervisorIdentity = processIdentity(supervisor);
-      for (;;) {
-        try {
-          const result = JSON.parse(readFileSync(readyPath, "utf8")) as Ready | { ok: false; reason: string };
-          if (!result.ok) throw new Error(result.reason);
-          if (!Number.isSafeInteger(result.workerUid) || result.workerUid <= 0 || result.workerUid >= 0xffffffff || result.workerUid === process.getuid?.())
-            throw new Error("worker_identity_wrong_uid");
-          if (!Number.isSafeInteger(result.worker?.pid) || result.worker.pid <= 1 || typeof result.worker.start !== "string" || !/^[0-9]+$/.test(result.worker.start))
-            throw new Error("worker_identity_malformed_worker_identity");
-          if (Object.keys(result.roots).length !== roots.length) throw new Error("worker_identity_unexpected_mount_handles");
-          for (const root of roots) {
-            const receipt = result.roots[root.name];
-            if (!receipt || !Number.isSafeInteger(receipt.fd) || receipt.fd < 3 || !Number.isSafeInteger(receipt.dev) || !Number.isSafeInteger(receipt.ino)) throw new Error("worker_identity_missing_mount_handle");
-            // This alias belongs to our same-uid coordinator, not the cross-UID payload.
-            const descriptor = openSync(`/proc/${supervisor}/fd/${receipt.fd}`, constants.O_RDONLY | constants.O_DIRECTORY);
-            try {
-              const info = fstatSync(descriptor), space = statfsSync(`/proc/self/fd/${descriptor}`);
-              if (info.dev !== receipt.dev || info.ino !== receipt.ino || space.type !== 0x01021994 || space.blocks * space.bsize !== root.bytes)
-                throw new Error("worker_identity_substituted_mount");
-            } finally { closeSync(descriptor); }
-          }
-          return result;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          processIdentity(supervisor);
-          if (Date.now() >= deadline) throw new Error("worker_identity_setup_timed_out");
-          Bun.sleepSync(1);
-        }
-      }
-    },
+    ready: (supervisor: number, deadline: number): Ready => runWorkerStepsSync(readySteps(supervisor, deadline)),
+    /** `ready`, waiting through steps so an asynchronous caller keeps its event loop (#2416). */
+    readySteps,
     request,
+    /** `request`, with the same deadline and failures, as a step (#2416). */
+    requestSteps,
     requestAsync,
     /** The gated worker's own view of the launch's authorized path (#2696); close it before release. */
     brainView() {

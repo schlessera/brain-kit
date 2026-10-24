@@ -36,6 +36,12 @@ export interface InferenceRelayOptions {
   egress?: Pick<Awaited<ReturnType<typeof startEgressProxy>>, "inference">;
   /** Called for every request, forwarded or refused. Values are never logged. */
   observe?(event: InferenceRelayEvent): void;
+  /**
+   * The exact origin turn admission proved this turn's recipient from (#2695).
+   * A relay whose upstream has another origin refuses to start, so a turn that
+   * sees provider folders reaches no recipient but the one they were unmasked for.
+   */
+  recipientOrigin?: string;
 }
 
 export interface InferenceRelayEvent {
@@ -69,6 +75,9 @@ export function startInferenceRelay(options: InferenceRelayOptions): InferenceRe
   }
   if (upstream.username || upstream.password || upstream.search || upstream.hash) {
     throw new Error("The inference upstream must not carry credentials, a query or a fragment");
+  }
+  if (options.recipientOrigin !== undefined && upstream.origin !== options.recipientOrigin) {
+    throw new Error(`The inference upstream ${upstream.origin} is not the recipient this turn was admitted for (${options.recipientOrigin})`);
   }
   const base = upstream.pathname.replace(/\/+$/, "");
   const routes = new Set(options.routes.map(route => `${base}${route}`));

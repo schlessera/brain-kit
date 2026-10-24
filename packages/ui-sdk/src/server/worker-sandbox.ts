@@ -18,7 +18,8 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
-import { brainGitSync } from "./maintenance-worker.js";
+import { brainGitSteps } from "./maintenance-worker.js";
+import { runWorkerStepsSync, type WorkerSteps } from "./worker-steps.js";
 import { WORKER_XDG_HOME } from "./worker-xdg.js";
 
 /**
@@ -69,10 +70,26 @@ export interface WorkerArea {
  * the masked view, so it never held the masked documents.
  */
 export interface WorkerProviderMasks {
-  /** Literal repo-relative provider folder roots, masked when present in the worker's view. */
+  /**
+   * Literal repo-relative provider folder roots the turn's recipient may not
+   * see, masked when present in the worker's view. Empty when a proven
+   * recipient is allowed every provider folder (#2695).
+   */
   readonly folders: readonly string[];
-  /** Absolute host directory mounted read-write over `.brain-index/`. */
-  readonly index: string;
+  /**
+   * Absolute host directory mounted read-write over `.brain-index/`, with
+   * `.git` hidden. Present exactly when `folders` is not empty: a turn allowed
+   * every provider folder keeps the real index and its history.
+   */
+  readonly index?: string;
+}
+
+/** The proven inference recipient a turn's provider folders were judged against (#2695). */
+export interface WorkerInferenceRecipient {
+  /** The provider policy name, e.g. `anthropic`. */
+  readonly name: string;
+  /** The exact origin the name was proven from; the turn's relay reaches no other. */
+  readonly origin: string;
 }
 
 export interface WorkerSandbox {
@@ -95,8 +112,10 @@ export interface WorkerSandbox {
   readonly protection?: WorkerProtection;
   /** Frozen topology plan for host publication; does not grant access to provider-restricted data. */
   readonly retainedFolders?: readonly string[];
-  /** @internal Host-prepared provider data masks for a turn whose recipient no provider folder rule allows (#1668). */
+  /** @internal Host-prepared provider data masks for a turn under provider folder rules (#1668, #2695). */
   readonly providerMasks?: WorkerProviderMasks;
+  /** @internal The proven recipient admission unmasked provider folders for; absent while none is proven (#2695). */
+  readonly inferenceRecipient?: WorkerInferenceRecipient;
   /** Runtime paths to restore below the host masks, read-only. */
   readonly readPaths?: readonly string[];
   /** Host-private operational state, hidden in addition to the standard masks. */
@@ -342,17 +361,17 @@ function unlinkScanned(dir: string, alias: ScannedAlias): void {
  * credential-free maintenance worker (#1648), which names the brain a safe
  * directory itself; a worker that cannot run leaves scratch read-only.
  */
-function scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): true | { refused: string } {
+function* scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<true | { refused: string }> {
   const git = Bun.which("git");
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
   if (!own) {
     if (!git) return true;
-    const inRepo = brainGitSync(brain, ["rev-parse", "--git-dir"], maintenance);
+    const inRepo = yield* brainGitSteps(brain, ["rev-parse", "--git-dir"], maintenance);
     if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
     if (inRepo !== 0) return true;
   }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const exitCode = brainGitSync(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], maintenance);
+  const exitCode = yield* brainGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], maintenance);
   if (exitCode === 0) return true;
   return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"
@@ -371,6 +390,11 @@ function shown(paths: readonly string[]): string {
  * disposable, and the other name keeps its data.
  */
 export function resolveScratchMount(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): { mount: WorkerMount; removed: string[] } {
+  return runWorkerStepsSync(resolveScratchMountSteps(brain, maintenance));
+}
+
+/** `resolveScratchMount` as steps: its git check runs in a worker a caller can await (#2416). */
+export function* resolveScratchMountSteps(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<{ mount: WorkerMount; removed: string[] }> {
   const dir = realBrainDirectory(brain, BRAIN_SCRATCH_DIR, true);
   if (dir === null || typeof dir === "object") return { mount: { writable: false, reason: dir?.refused ?? "missing" }, removed: [] };
   if (mountPointsUnder(dir).length) return { mount: { writable: false, reason: ".brain/scratch/ is or contains a mount point" }, removed: [] };
@@ -386,7 +410,7 @@ export function resolveScratchMount(brain: string, maintenance?: import("./maint
       return { mount: { writable: false, reason: `the scratch alias ${rel} could not be removed (${(error as NodeJS.ErrnoException).code ?? error})` }, removed };
     }
   }
-  const ignored = scratchIgnoredByGit(brain, maintenance);
+  const ignored = yield* scratchIgnoredByGit(brain, maintenance);
   if (ignored !== true) return { mount: { writable: false, reason: ignored.refused }, removed };
   return { mount: { writable: true, path: dir }, removed };
 }
@@ -557,7 +581,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       secretsNote(resolvedFacts.providerKeys ?? [], resolvedFacts.egress === true),
     );
   }
-  if (profile !== "restricted" && sandbox.providerMasks) {
+  if (profile !== "restricted" && sandbox.providerMasks?.folders.length) {
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
     lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }

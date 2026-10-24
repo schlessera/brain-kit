@@ -314,6 +314,24 @@ describe("createClaudeBackend identity + profiles", () => {
     ]);
   });
 
+  test("names the origin each profile's relayed turn reaches, as the turn runner selects it (#2695)", async () => {
+    const keyName = "ITHACA_GATEWAY_TOKEN", previous = { key: process.env[keyName], base: process.env.ANTHROPIC_BASE_URL };
+    process.env[keyName] = "test-token"; delete process.env.ANTHROPIC_BASE_URL;
+    try {
+      const backend = createClaudeBackend({ brainPath: "/brain", profiles: defineProfiles([
+        { id: "claude", label: "Claude", vendor: "anthropic" },
+        { id: "ithaca-gateway", label: "Ithaca gateway", baseUrl: "https://gateway.ithaca.invalid/anthropic/", authTokenEnv: keyName },
+      ]) });
+      expect(await backend.inferenceOrigin?.({}), "DEFAULT_PROFILE_FIRST_PARTY_ORIGIN").toBe("https://api.anthropic.com");
+      expect(await backend.inferenceOrigin?.({ profileId: "claude" })).toBe("https://api.anthropic.com");
+      expect(await backend.inferenceOrigin?.({ profileId: "ithaca-gateway" }), "PROFILE_BASE_URL_ORIGIN").toBe("https://gateway.ithaca.invalid");
+      expect(await backend.inferenceOrigin?.({ profileId: "no-such-profile" }), "UNKNOWN_PROFILE_NO_ORIGIN").toBeUndefined();
+    } finally {
+      if (previous.key === undefined) delete process.env[keyName]; else process.env[keyName] = previous.key;
+      if (previous.base !== undefined) process.env.ANTHROPIC_BASE_URL = previous.base;
+    }
+  });
+
   test("a profile missing its required key is reported unavailable, with no key name (#1044)", () => {
     const keyName = "ITHACA_PROXY_TOKEN";
     const previous = process.env[keyName];

@@ -11,11 +11,12 @@ import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
 import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file-observer.js";
 import { createWorkerPipes } from "./worker-pipes.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMount, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT,
+import { resolveScratchMountSteps, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 import { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
@@ -23,7 +24,7 @@ import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_EN
 import { createWorkerCgroup, workerCgroupHostFailed, type WorkerCgroup } from "./worker-cgroup.js";
 import { processStateLedger } from "./worker-state-budget.js";
 import { TURN_TEMP_ROOT } from "./worker-turn-temp.js";
-import { resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMounts } from "./worker-protection.js";
+import { resolveWorkerProtection, protectedWorkerMounts, providerMaskMounts, verifyWorkerFolderMountsSteps } from "./worker-protection.js";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { createWorkerStartupView, isNativeWorkerStartupRoot, type WorkerStartupView } from "./worker-startup-view.js";
 import { consumeNativeMaintenanceMasks, transferNativeMaintenanceMasks, bindNativeMaintenanceExit, bindPreparedWorkerOutputExit, type PreparedWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
@@ -874,6 +875,18 @@ export interface PrepareWorkerSandboxOptions {
  * restricted (autonomous) turn gets none of them: its envelope is unchanged.
  */
 export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSandboxOptions = {}): WorkerSandbox {
+  return runWorkerStepsSync(prepareWorkerSandboxSteps(brainPath, options));
+}
+
+/**
+ * The same sandbox, awaiting the scratch check's git worker instead of
+ * blocking the event loop while a loaded host starts it (#2416).
+ */
+export function prepareWorkerSandboxAsync(brainPath: string, options: PrepareWorkerSandboxOptions = {}): Promise<WorkerSandbox> {
+  return runWorkerStepsAsync(prepareWorkerSandboxSteps(brainPath, options));
+}
+
+function* prepareWorkerSandboxSteps(brainPath: string, options: PrepareWorkerSandboxOptions): WorkerSteps<WorkerSandbox> {
   let brain: string;
   try { brain = realpathSync(brainPath); } catch {
     // Nothing to bind; the launch itself refuses a missing brain.
@@ -893,7 +906,7 @@ export function prepareWorkerSandbox(brainPath: string, options: PrepareWorkerSa
     // table) leaves the area read-only for the turn rather than failing it.
     try {
       if (name === "scratch") {
-        const scratch = resolveScratchMount(brain, options.maintenance);
+        const scratch = yield* resolveScratchMountSteps(brain, options.maintenance);
         removed = scratch.removed;
         areas.push({ name, rel: WORKER_AREAS[name], mount: scratch.mount });
       } else areas.push({ name, rel: WORKER_AREAS[name], mount: resolveWorkspacesMount(brain) });
@@ -1046,6 +1059,10 @@ function sandboxPid(bwrap: number, deadline: number): number {
  * the host's directory, or nothing.
  */
 function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE, stagingDirectories = false): number {
+  return runWorkerStepsSync(openPrivateStateSteps(bwrap, pid, bytes, deadline, mount, stagingDirectories));
+}
+
+function* openPrivateStateSteps(bwrap: number, pid: number, bytes: number, deadline: number, mount = WORKER_STATE, stagingDirectories = false): WorkerSteps<number> {
   const path = `/proc/${pid}/root${mount}`;
   let last = "it never appeared";
   for (;;) {
@@ -1067,7 +1084,7 @@ function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: n
     if (fd !== undefined) closeSync(fd);
     if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private runtime-state tmpfs (${last})`);
     if (Date.now() > deadline) throw new WorkerHostError(`the worker's private runtime-state tmpfs was not mounted in time (${last})`);
-    Bun.sleepSync(1);
+    yield* workerStepSleep(1);
   }
 }
 
@@ -1078,7 +1095,7 @@ function openPrivateState(bwrap: number, pid: number, bytes: number, deadline: n
  * the allowance on another device than that. Nothing in the worker has run
  * yet: its command waits behind the start gate.
  */
-function openPrivateTurnTemp(bwrap: number, pid: number, bytes: number, deadline: number): number {
+function* openPrivateTurnTempSteps(bwrap: number, pid: number, bytes: number, deadline: number): WorkerSteps<number> {
   const path = `/proc/${pid}/root${TURN_TEMP_ROOT}`;
   let hostTmp: number | undefined;
   try { hostTmp = statSync(TURN_TEMP_ROOT).dev; } catch { hostTmp = undefined; }
@@ -1102,7 +1119,7 @@ function openPrivateTurnTemp(bwrap: number, pid: number, bytes: number, deadline
     if (fd !== undefined) closeSync(fd);
     if (exited(pid) || exited(bwrap)) throw new WorkerHostError(`bubblewrap exited before it mounted the worker's private turn-temp tmpfs (${last})`);
     if (Date.now() > deadline) throw new WorkerHostError(`the worker's private turn-temp tmpfs was not mounted in time (${last})`);
-    Bun.sleepSync(1);
+    yield* workerStepSleep(1);
   }
 }
 
@@ -1238,6 +1255,20 @@ function launchDiagnostics(stderr: number): string {
  * verified and populated.
  */
 export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
+  return runWorkerStepsSync(launchAgentWorkerSteps(input));
+}
+
+/**
+ * The same launch, awaiting bubblewrap's setup (its status, private mounts
+ * and folder qualification) instead of blocking the event loop while a
+ * loaded host performs it (#2416). The worker's command still starts only
+ * when the gate is released, after every check.
+ */
+export function launchAgentWorkerAsync(input: WorkerLaunch): Promise<LaunchedWorker> {
+  return runWorkerStepsAsync(launchAgentWorkerSteps(input));
+}
+
+function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorker> {
   let startupView = input.preparedOutput?.view ?? input.startupView;
   let areaOutput: ReturnType<typeof prepareWorkerOutput> | PreparedWorkerOutput | undefined = input.preparedOutput;
   let plan: WorkerLimitsPlan;
@@ -1320,9 +1351,9 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     const deadline = Date.now() + STATE_SETUP_MS;
     let pid: number;
     let identityReady: ReturnType<NonNullable<typeof identityBroker>["ready"]> | undefined;
-    try { identityReady = identityBroker?.ready(child.pid, deadline); }
+    try { identityReady = identityBroker ? yield* identityBroker.readySteps(child.pid, deadline) : undefined; }
     catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
-    try { pid = identityReady?.worker.pid ?? status!.childPid(child.pid, deadline); }
+    try { pid = identityReady?.worker.pid ?? (yield* status!.childPidSteps(child.pid, deadline)); }
     catch (error) { throw new WorkerHostError(error instanceof Error ? error.message : String(error)); }
     status?.closeWriter();
     const statusChannel = status;
@@ -1346,22 +1377,22 @@ export function launchAgentWorker(input: WorkerLaunch): LaunchedWorker {
     };
     if (input.stateBytes !== undefined) {
       // Runtime state is bubblewrap's last mount, so once it is there the sandbox is complete.
-      stateFd = identityBroker ? openIdentityRoot("state") : openPrivateState(child.pid, pid, input.stateBytes, deadline);
+      stateFd = identityBroker ? openIdentityRoot("state") : yield* openPrivateStateSteps(child.pid, pid, input.stateBytes, deadline);
       state = identityBroker ? holdIdentityRoot(stateFd, "state") : heldTmpfs(stateFd);
       if (identityBroker) stateFd = undefined;
       input.populateState?.(state.root);
       if (identityBroker) shareInitialWorkerState(state.root);
     }
     if (input.turnTempBytes !== undefined) {
-      tempFd = identityBroker ? openIdentityRoot("temp") : openPrivateTurnTemp(child.pid, pid, input.turnTempBytes, deadline);
+      tempFd = identityBroker ? openIdentityRoot("temp") : yield* openPrivateTurnTempSteps(child.pid, pid, input.turnTempBytes, deadline);
       turnTemp = identityBroker ? holdIdentityRoot(tempFd, "temp") : heldTmpfs(tempFd);
       if (identityBroker) tempFd = undefined;
     }
     if (input.sandbox?.profile === "governed")
-      verifyWorkerFolderMounts(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
+      yield* verifyWorkerFolderMountsSteps(brain, input.sandbox.protection, input.sandbox.retainedFolders, pid, deadline, input.sandbox.providerMasks,
         identityBroker?.brainView());
     // Release the gate: the worker's command starts only now.
-    if (identityBroker) identityBroker.request("release"); else status!.release();
+    if (identityBroker) yield* identityBroker.requestSteps("release"); else status!.release();
     stateFd = tempFd = undefined;
     const streams = pipes.streams();
     let killed = false;
@@ -1532,6 +1563,18 @@ export function workerHostProven(brainPath: string): boolean {
 
 /** Runs the real launcher before each turn; a version/OS check is insufficient. */
 export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): WorkerHostProbe {
+  return runWorkerStepsSync(probeWorkerHostSteps(brainPath, options));
+}
+
+/**
+ * The same probe, awaiting the probe worker instead of blocking the event
+ * loop: a loaded host can take seconds to start it (#2416).
+ */
+export function probeWorkerHostAsync(brainPath: string, options: WorkerHostProbeOptions = {}): Promise<WorkerHostProbe> {
+  return runWorkerStepsAsync(probeWorkerHostSteps(brainPath, options));
+}
+
+function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOptions): WorkerSteps<WorkerHostProbe> {
   let fixture: string | undefined;
   let relayDir: string | undefined;
   let identitySentinel: string | undefined;
@@ -1575,7 +1618,7 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
         const relayDeadline = Date.now() + STATE_SETUP_MS;
         while (!existsSync(join(relayDir, "relay.sock.ready"))) {
           if (Date.now() >= relayDeadline) throw new WorkerHostError("worker_identity_relay_probe_unavailable");
-          Bun.sleepSync(1);
+          yield* workerStepSleep(1);
         }
         const directoryInfo = lstatSync(relayDir), socketInfo = lstatSync(join(relayDir, "relay.sock"));
         if (realpathSync(relayDir) !== relayDir || !directoryInfo.isDirectory()
@@ -1651,18 +1694,18 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
         payload.argv = broker.command; boot.env.BRAIN_WORKER_LAUNCH = JSON.stringify(payload);
         const supervisor = Bun.spawn(boot.command, { env: boot.env, stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
         const deadline = Date.now() + 10_000;
-        verifiedWorkerUid = broker.ready(supervisor.pid, deadline).workerUid; broker.request("release");
+        verifiedWorkerUid = (yield* broker.readySteps(supervisor.pid, deadline)).workerUid; yield* broker.requestSteps("release");
         for (;;) {
-          const result = broker.request<{ exited: boolean; code: number | null; failure?: string }>("status");
+          const result = yield* broker.requestSteps<{ exited: boolean; code: number | null; failure?: string }>("status");
           if (result.failure) throw new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`);
           if (result.exited) { child = { exitCode: result.code }; break; }
           if (Date.now() >= deadline) throw new WorkerHostError("worker_identity_probe_timed_out");
-          Bun.sleepSync(10);
+          yield* workerStepSleep(10);
         }
         broker.close(); broker = undefined;
       } else {
         if (gated(options)) writeSync(pipes.parent[0], STATE_GATE_OPEN);
-        child = Bun.spawnSync(boot.command, { env: boot.env, stdin: pipes.child[0],
+        child = yield* workerStepSpawn(boot.command, { env: boot.env, stdin: pipes.child[0],
           stdout: pipes.child[1], stderr: pipes.child[2], timeout: 5_000 });
       }
       pipes.closeChild(); pipes.closeInput();
@@ -1707,17 +1750,36 @@ export function probeWorkerHost(brainPath: string, options: WorkerHostProbeOptio
 }
 
 /** Concrete probe object permits test spies, with no production disable flag. */
-export const workerHostBoundary = { probe: probeWorkerHost };
-export function requireWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): Extract<WorkerHostProbe, { ok: true }> {
+export const workerHostBoundary = {
+  probe: probeWorkerHost,
+  /**
+   * The probe for a caller that can await it. A replaced `probe` answers
+   * here too, so one test double stands in for both forms.
+   */
+  async probeAsync(brainPath: string, options: WorkerHostProbeOptions = {}): Promise<WorkerHostProbe> {
+    return workerHostBoundary.probe === probeWorkerHost ? probeWorkerHostAsync(brainPath, options) : workerHostBoundary.probe(brainPath, options);
+  },
+};
+function requiredWorkerHost(probe: () => WorkerHostProbe): Extract<WorkerHostProbe, { ok: true }> {
   let result: WorkerHostProbe;
   try {
-    result = workerHostBoundary.probe(brainPath, options);
+    result = probe();
   } catch (error) {
     if (error instanceof WorkerHostError) throw error;
     throw new WorkerHostError(error instanceof Error ? error.message : String(error));
   }
   if (!result.ok) throw new WorkerHostError(result.requirement);
   return result;
+}
+export function requireWorkerHost(brainPath: string, options: WorkerHostProbeOptions = {}): Extract<WorkerHostProbe, { ok: true }> {
+  return requiredWorkerHost(() => workerHostBoundary.probe(brainPath, options));
+}
+/** `requireWorkerHost` for a caller that can await the probe (#2416). */
+export async function requireWorkerHostAsync(brainPath: string, options: WorkerHostProbeOptions = {}): Promise<Extract<WorkerHostProbe, { ok: true }>> {
+  let result: WorkerHostProbe;
+  try { result = await workerHostBoundary.probeAsync(brainPath, options); }
+  catch (error) { return requiredWorkerHost(() => { throw error; }); }
+  return requiredWorkerHost(() => result);
 }
 
 /**

@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:67-194`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:95-222`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:40-196`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:59-224`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -545,7 +545,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:668-685`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:669-679`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -842,7 +842,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function openPrivateTurnTemp`, `packages/ui-sdk/src/server/worker-launcher.ts:1081-1109`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1098-1126`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1137,7 +1137,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:325`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:334`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:543`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1505,7 +1505,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:223`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:224`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -1523,7 +1523,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1730`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1792`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1547,7 +1547,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:382-441`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:383-442`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -1582,7 +1582,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:238-302`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:239-303`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1590,7 +1590,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:95-113`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:96-114`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -1623,9 +1623,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:731-737`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:738-777`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:778-796`).
+`packages/ui-sdk/src/server/worker-launcher.ts:603-609`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:630-669`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:779-797`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -1750,9 +1750,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:239-246`;
+`packages/ui-sdk/src/server/worker-protection.ts:247-254`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:249-287`).
+`packages/ui-sdk/src/server/worker-protection.ts:257-295`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -1861,7 +1861,9 @@ The contract change is recorded in the
 **Denied turns, before recipients are proven (2026-10-22, #1668).** No
 ordinary turn has a proven recipient until #1665 delivers per-credential
 exact-origin authority, so a provider rule denies every hosted interactive and
-voice turn, and admission applies the masks to all of them:
+voice turn, and admission applies the masks to all of them. Since #2695
+("Allowed recipients" below) this describes every turn a rule denies, and
+every turn without a proven recipient:
 
 - Each literal `folder/**` root present in the turn's view is an empty
   read-only tmpfs, laid after the retention pins (`providerMaskMounts`). The
@@ -1906,8 +1908,7 @@ voice turn, and admission applies the masks to all of them:
   path and the `providers` rule whose selector maps onto the folder. Search and context need no host change: the
   in-worker CLI and the `brain` MCP server already read the private index.
   `inbox_list`, `inbox_get` and `query_activity` read the server's own
-  database, not brain paths; what that record retains is part of the
-  retained-copy audit. Capture planning still classifies against the real
+  database, not brain paths; see the activity record and inbox items below. Capture planning still classifies against the real
   index, so a capture it would file under a masked folder refuses by name,
   which tells the agent such a destination exists. The maintenance worker is
   not mount-masked: the brain's own code running there could still read a
@@ -1957,7 +1958,7 @@ voice turn, and admission applies the masks to all of them:
     worker cannot export into them.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:63-69`). Its stored native
+    `packages/ui-backend-pi/src/worker-session.ts:83-89`). Its stored native
     file observations are content hashes, not text.
   - Autonomous turns carry nothing: Claude's state is ephemeral, and Pi's
     restricted envelope copies no native state.
@@ -1969,6 +1970,34 @@ voice turn, and admission applies the masks to all of them:
   edits ([provider history](provider-history.md)), is re-sent to the provider.
   How to handle that state needs a ruling
   ([#2726](https://github.com/schlessera/brain-kit/issues/2726)).
+- **The activity record and inbox items (audit and maintainer ruling,
+  2026-10-23, #2698 option A).** Three bridge reads serve the server's own
+  database rather than a brain path, so no path refusal applies to them.
+  Source inspection finds these retained copies a masked document's text can
+  reach:
+  - `query_activity` (`runActivityQuery`,
+    `packages/ui-server/src/activity/query.ts:19-180`): run failure reasons
+    (`failureReason`, an error's message or a stderr tail), span outcome
+    reasons and tool spans of a single run (`scope=run`), subagent transcript
+    excerpts, notification intent titles (`scope=inbox`) and
+    roadblock signatures (`scope=roadblocks`). `running` and `rollups`
+    return labels and counts that may also name documents.
+  - `inbox_list` and `inbox_get` (`inboxList`,
+    `packages/ui-server/src/inbox/bridge-tools.ts:51-72`): each item's stored
+    payload, titles, details and option labels, and its thread.
+
+  None of these fields records which documents its text came from. A run from
+  before a provider rule existed, or on an allowed route, can leave masked
+  text in them, and a later denied turn would read it back. The ruling refuses
+  all three tools whole for a turn with masked folders, in every scope and on
+  a direct bridge call, before any record is read (`ProviderRecordsRefusedError`,
+  the `provider_masked` refusal). The tools stay registered with the same
+  names and schemas, so provider history is unchanged across turns; the
+  refusal is decided from the turn's admitted masks, the same set as every
+  other refusal. No record is filtered and no field is claimed safe or
+  traced to its source. Such a turn loses the agent's diagnostics over
+  earlier runs (failures, cost, roadblocks) and its inbox reads; the user
+  still reads both in the app, and turns without masked folders keep them.
 
 
 **Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
@@ -2100,9 +2129,90 @@ turn cannot create such a link itself, because it cannot name the masked file.
 Nested masks (`me` and `me/x`) reach it as `me` alone (#2718, above), and
 the walk of `me` covers `me/x`.
 
-Still open under #1668: state written before a policy existed (#2726), what
-the activity record and inbox items retain (#2698), and the allowed
-recipient's unmasked turn, which needs #1665. Each restricted turn
+**Allowed recipients (maintainer, 2026-10-23, #2695).** #1665 put every
+governed and strict Claude and pi turn on managed native storage on a host
+inference relay that forwards to one server-selected upstream. That upstream
+is the turn's recipient. The maintainer ruled three things on #2695:
+
+1. **Origin to policy name.** Only the exact origin of that upstream names a
+   recipient. A fixed table names the vendors' own API origins, pi providers
+   included (`https://chatgpt.com`, pi's `openai-codex`, is `openai`). The
+   server variable `BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`
+   (`name=origin[,origin];...`) lets an operator name a trusted gateway; it
+   cannot rename a built-in origin, and a malformed entry refuses the boot.
+   Every other origin is unknown and denied every folder: a custom `baseUrl`
+   or `ANTHROPIC_BASE_URL`, an origin listed only in
+   `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or `BRAIN_UI_PI_CREDENTIAL_ORIGINS` (they
+   authorize a credential, not data), routers, and multi-vendor clouds such as
+   Bedrock and Vertex unless an operator names them (`export function
+   providerRecipient`, `packages/ui-server/src/brain/provider-recipients.ts:81-85`).
+2. **History, option A.** A conversation's provider history keeps what its
+   turns read, so the server records, per conversation, which recipient each
+   turn showed which provider folders. A later turn whose recipient the
+   current policy does not allow those folders is refused by name with
+   `ProviderRecipientRefusedError`. That covers a pin that fell back to the
+   default profile, a changed route, a handoff and a pi model change.
+3. **Other exits, option a.** G2 governs the inference recipient only. A
+   turn's tool egress and the `brain` CLI's own provider calls (#1673) are
+   egress-policy territory (G5). The generated-text caches stay masked on
+   every turn under a provider rule, allowed ones included, until #2725 moves
+   them into a masked directory.
+
+The backend supplies the origin before admission through the optional
+`AgentBackend.inferenceOrigin`, resolved as its turn runner resolves its relay:
+Claude from the profile's route, pi from the profile's declared model or a
+resumed session's last model over its `models.json` entry. Admission names the
+recipient only on managed native storage, where the relay runs, and only when
+it can record what the turn is shown (`const recipient = options.exposures`,
+`packages/ui-server/src/brain/governed-turn.ts:113-114`). The turn's relay is
+then held to that origin: it refuses to start toward any other
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
+pi refuses a changed endpoint before its credential is read, and a turn that
+has a recipient but no relay refuses to start. A model change inside a turn
+cannot leave the one relay socket the worker has.
+
+Matching rules intersect their allowlists, so the masked set is the folders of
+every rule that does not allow the recipient. Only outermost provider folders
+are retained (#2718), and a mask nested inside a visible folder would detach
+when a peer renames that folder, so a denied folder inside another provider
+folder masks the outer folder whole: a policy allowing `me/**` but denying
+`me/letters/**` hides all of `me/` from that recipient, which loses data but
+leaks nothing (`export function providerDeniedFolders`,
+`packages/ui-server/src/brain/governance-policy.ts:192-201`). An unproven
+recipient is allowed nothing, which is the denied-turn set above. A turn
+allowed every folder gets no folder masks, `.git` and the real
+`.brain-index/`. Its `providerMasks` stays present with no folders and no
+private index, so whatever every provider-rule turn hides regardless of
+recipient still applies. A turn allowed some folders masks the rest; `.git`
+stays hidden, because history holds every folder, and its private index is
+built from that partial view. One set again feeds retention checks, the
+hardlink scan, the private index and the server-tool refusals of #2690, which
+read the turn's `providerMasks.folders`. A refusal names a rule that denies the turn's recipient,
+which for an outer folder masked through a denied nested one is that nested
+rule. Autonomous turns (#2691) have no relay-named recipient, so they keep
+every mask.
+
+Admission records the turn's provider folders and the ones still hidden from
+it before the worker starts, in `session_provider_exposure`. A new
+conversation is named after admission, so its rows carry the turn until the
+session id binds them. A turn conflicts with an earlier record when a folder
+it would mask overlaps a folder that record showed, and that folder was not
+itself hidden then (`export function exposureConflicts`,
+`packages/ui-server/src/brain/governance-policy.ts:225-233`). A handoff's first
+turn is judged against its source's records and copies them into the new
+conversation. The handoff summary is drafted on the source's autonomous
+route, which has no proven recipient, so a conversation with any record gets
+no drafted summary. A user who writes one by hand is copying text, which path
+matching never promised to trace.
+
+**Limitation.** A record covers folders under a provider rule when the turn
+ran. Content a turn read before a rule selected its folder is not tracked, and
+neither is text a turn copied into an unselected document. Host-side helpers
+that read a user's own messages, such as pill labels and titles, are not
+inference over brain content and are not judged.
+
+Still open under #1668: state written before a policy existed (#2726) and
+what the activity record and inbox items retain (#2698). Each restricted turn
 also pays one keyword index build at admission.
 
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
@@ -2185,7 +2295,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:65`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -2198,7 +2308,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:247-281`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:248-282`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -2336,11 +2446,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1048-1076`;
-`function openPrivateTurnTemp`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1081-1107`) before population and
-start-gate release (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1240-1313`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1061-1089`;
+`function* openPrivateTurnTempSteps`,
+`packages/ui-sdk/src/server/worker-launcher.ts:1098-1124`) before population and
+start-gate release (`function* launchAgentWorkerSteps`,
+`packages/ui-sdk/src/server/worker-launcher.ts:1271-1344`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2657,7 +2767,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:292-309`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:301-318`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -2844,7 +2954,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:520-585`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:544-609`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

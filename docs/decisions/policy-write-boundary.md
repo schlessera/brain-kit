@@ -43,7 +43,7 @@ application, refusal and recovery.
 
 This is a change to the execution architecture. Current Claude assembly creates
 SDK options and in-process bridge tools (`createClaudeSdkTurn`,
-`packages/ui-backend-claude/src/sdk-options.ts:98-486`); pi builds its worker-local resource
+`packages/ui-backend-claude/src/sdk-options.ts:107-495`); pi builds its worker-local resource
 loader and calls `reload()` (`createSessionResources`,
 `packages/ui-backend-pi/src/session-resources.ts:29-118`). A child-only wrapper
 cannot be treated as proof for those parent-side paths. The investigation records
@@ -447,14 +447,14 @@ sessions.
 **Copy-in and copy-out from the server side.** The server must fill the tmpfs
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
-host (`export function launchAgentWorker`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1240-1378`):
+host (`function* launchAgentWorkerSteps`,
+`packages/ui-sdk/src/server/worker-launcher.ts:1271-1507`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:1048-1072`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:1061-1085`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's
@@ -464,7 +464,7 @@ host (`export function launchAgentWorker`,
    code: the absolute `/bin/sh` reads one line from the worker's stdin with
    its `read` builtin, which only the server writes, and then becomes the
    command; closed stdin or any other line ends the worker unstarted
-   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:55`).
+   (`const STATE_GATE`, `packages/ui-sdk/src/server/worker-launcher.ts:56`).
    The gate runs no `PATH` lookup, so nothing in the worker's environment or
    the brain can stand in for it, and the shell reads a pipe a byte at a time,
    so the runtime's own input is untouched. The server copies the snapshot in

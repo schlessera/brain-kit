@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect } from "node:net";
 import { createUiDb } from "../src/db/client.js";
 import { createInboxStore, InboxStore } from "../src/inbox/store.js";
 import { createActivityStore } from "../src/activity/store.js";
@@ -236,11 +237,12 @@ async function externalSocket(port: number, authorization: string): Promise<stri
   if (!address) throw new Error("non-loopback local fixture interface required");
   return await new Promise<string>((resolve, reject) => {
     let response = "";
-    void Bun.connect({ hostname: address, port, socket: {
-      open(socket) { socket.write(`POST /api/internal/inbox/poke HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer ${authorization}\r\nX-Forwarded-For: 127.0.0.1\r\nX-Real-IP: ::1\r\nContent-Length: 0\r\n\r\n`); },
-      data(_socket, bytes) { response += new TextDecoder().decode(bytes); },
-      close() { resolve(response); }, error(_socket, error) { reject(error); },
-    } }).catch(reject);
+    // Only the destination is loopback. Binding the owned non-loopback source
+    // preserves the real peer-address refusal without opening an external route.
+    const socket = connect({ host: "127.0.0.1", port, localAddress: address });
+    socket.once("connect", () => socket.write(`POST /api/internal/inbox/poke HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nAuthorization: Bearer ${authorization}\r\nX-Forwarded-For: 127.0.0.1\r\nX-Real-IP: ::1\r\nContent-Length: 0\r\n\r\n`));
+    socket.on("data", bytes => { response += bytes.toString(); });
+    socket.once("close", () => resolve(response)); socket.once("error", reject);
   });
 }
 

@@ -37,7 +37,7 @@ import { ambientExecConfig, referenceCredentialValues, resolveServerConfig, subp
 import { declaredContentRenderers } from "./brain/content-renderers.js";
 import { createHealthRoutes, createStatusRoutes } from "./routes/health.js";
 import { createSubscriptionMonitor, parseMintedAt } from "./agent/subscription.js";
-import { probeWorkerHostRecorded, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
+import { probeWorkerHostRecorded, probeWorkerHostRecordedAsync, ROOT_SERVER_WARNING, serverRunsAsRoot } from "./agent/worker-host.js";
 import type { WorkerHostMode } from "./activity/runtime-status.js";
 import { createNativeBrainManagerClient, workerLimitsStatus, type WorkerHostProbe } from "@schlessera/brain-ui-sdk/internal";
 import type { WorkerHostStatus } from "@schlessera/brain-ui-sdk/protocol";
@@ -129,6 +129,7 @@ import { boundaryPlanner } from "./brain/application.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
 import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
+import { createProviderExposures } from "./brain/provider-exposure.js";
 import type { BackendVersionRequirements, ExecWrapperConfig, LiveConversationProvider, SpeechProvider } from "@schlessera/brain-ui-sdk/server";
 import { validateVersionMinimum } from "@schlessera/brain-ui-sdk/server";
 import { createCronScheduler } from "./cron/scheduler.js";
@@ -147,6 +148,7 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
+import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
 import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
@@ -513,7 +515,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // A migrating brain rebuilds its index in the new directory once, at boot.
   if (legacyIndex.removed.length) keyedReindex();
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
-  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
+  // Managed worktree findings (#2431) reuse core's hygiene rules; without core there is no review to join.
+  const hygieneCore = referenceWorktrees ? await import("@schlessera/brain/internal").catch(() => undefined) : undefined;
+  const worktreeHygiene = referenceWorktrees && hygieneCore
+    ? createReferenceWorktreeHygiene({ db, worktrees: referenceWorktrees, core: async () => hygieneCore, brainPath: config.brainPath }) : undefined;
+  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone, ...(worktreeHygiene ? { worktrees: worktreeHygiene } : {}),
     // Exact-operation approval stays fail-closed unless the gated engine runs.
     ...(dispatchFixture ? { allowedOperations: createInboxOperationEnvelope(db) } : {}) });
   await hygieneReview.recover();
@@ -582,7 +588,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
         (turn_id, origin, profile, policy_hash, source, policy, errors, admitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(turnId, origin, profile, policy.hash, policy.source, JSON.stringify(policy.policy), JSON.stringify(policy.errors), Date.now()),
       maskPaths: turnMaskPaths,
-      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }) });
+      index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
+      exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}) });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
   relayBudgets = budgets;
@@ -891,7 +898,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       getSubscription: () => subscription.status(),
       // "Check again" (#1632): the boot probes, re-run now and recorded.
       checkWorkerHost: async () => {
-        for (const mode of workerHostModes) probeWorkerHostRecorded(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes, probeState);
+        for (const mode of workerHostModes) await probeWorkerHostRecordedAsync(config.brainPath, mode, activity.runtime, "check", workerStateBytes, turnTempBytes, probeState);
         await boundary.prepare();
         activity.runtime.recordGoverned(boundary.status());
         return activity.runtime.snapshot().workerHost ?? {};

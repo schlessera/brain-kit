@@ -51,7 +51,7 @@ for (const backend of ["Claude", "Pi"] as const) for (const profile of ["governe
       } else {
         const nativeLaunch = worker.launchAgentWorker;
         const program = `let data = ""; for await (const chunk of process.stdin) { data += chunk; const end = data.indexOf("\\n"); if (end < 0) continue; const init = JSON.parse(data.slice(0, end)); const result = Bun.spawnSync(["/bin/sh", "-c", ${JSON.stringify(shell)}], { env: process.env }); if (result.exitCode) throw Error(result.stderr.toString()); console.log(JSON.stringify({ type: "ready", sessionId: init.sessionId, model: { id: result.stdout.toString() }, levels: [], cost: 0 })); break; } await Bun.sleep(30000);`;
-        launch = spyOn(worker, "launchAgentWorker").mockImplementation(options => {
+        launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async options => {
           child = nativeLaunch({ ...options, command: [process.execPath, "--no-env-file", "-e", program] });
           return child;
         });
