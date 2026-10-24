@@ -19,7 +19,8 @@ import { createFixtureWorkerStartupView } from "../../ui-sdk/tests/helpers/worke
 import { createUiDb } from "../src/db/client";
 import { createHostExecution } from "../src/brain/host-execution";
 import { createGovernedTurns, type GovernedTurnHold, type GovernedTurnRoute } from "../src/brain/governed-turn";
-import { classifyPrivateIndexChanges, createPrivateIndexCache, privateIndexBuildFolders, privateIndexCacheKey, privateIndexInert, type PrivateIndexChanges, type PrivateIndexDiffer, type PrivateIndexIdentity } from "../src/brain/private-index-cache";
+import type { KeyedLock } from "../../ui-sdk/src/server/keyed-lock";
+import { classifyPrivateIndexChanges, createPrivateIndexCache, privateIndexBuildFolders, privateIndexCacheKey, privateIndexInert, type PrivateIndexAdvance, type PrivateIndexChanges, type PrivateIndexDiffer, type PrivateIndexIdentity } from "../src/brain/private-index-cache";
 import { createProviderExposures } from "../src/brain/provider-exposure";
 import { createNativeJournalFixture, fixtureDelta, inventory } from "./helpers/native-journal-fixture.js";
 import type { NativeBrainDeltaCandidate } from "../../ui-sdk/src/server/native-brain-delta";
@@ -89,8 +90,9 @@ function fixture(providers = "[{ paths: [me/**], allow: [google] }]", options: {
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   const reports: string[] = [];
   const exposures = options.recipients ? createProviderExposures(db) : undefined;
+  const advances: PrivateIndexAdvance[][] = [];
   const create = (differ?: PrivateIndexDiffer) => {
-    const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
+    const turns = createGovernedTurns({ onPrivateIndexAdvance: results => advances.push(results), nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution,
       profile: "governed", maskPaths: [], index: async () => {}, report: message => reports.push(message), privateIndexCommand: CLI,
       ...(exposures ? { exposures } : {}), ...(differ ? { privateIndexDiffer: differ } : {}) });
     cleanup.push(() => turns.close());
@@ -111,7 +113,15 @@ function fixture(providers = "[{ paths: [me/**], allow: [google] }]", options: {
     const hold = await create().begin(`oracle-${Math.random()}`, new AbortController().signal, "interactive", undefined, route);
     try { expect(hold.privateIndex?.kind, "ORACLE_IS_A_CLEAN_BUILD").toBe("built"); return snapshot(indexOf(hold)); } finally { await hold.end(); }
   };
-  return { root, brain, turns, begin, oracle, reports, policy };
+  /** The post-turn refresh, then the advance it starts. */
+  const refreshed = async () => {
+    const seen = advances.length;
+    turns.refresh({} as KeyedLock);
+    const deadline = Date.now() + 120_000;
+    while (advances.length === seen) { if (Date.now() > deadline) throw new Error("no advance"); await Bun.sleep(20); }
+    return advances.at(-1)!.map(result => result.kind === "dropped" || result.kind === "kept" || result.kind === "rebuilt" ? `${result.kind}: ${result.reason}` : result.kind);
+  };
+  return { root, brain, turns, begin, oracle, reports, policy, refreshed };
 }
 
 const indexOf = (hold: GovernedTurnHold) => hold.sandbox.providerMasks!.index!;
@@ -206,6 +216,68 @@ test.each([
     return snapshot(indexOf(hold));
   });
   expect(after, "REBUILT_INDEX_EQUALS_A_CLEAN_BUILD").toEqual(await f.oracle());
+});
+
+test("after a turn adds notes, the post-turn advance brings the base up to the live brain, so the next turn reuses it", async () => {
+  const f = fixture();
+  await turn(f.begin("first"), hold => expect(hold.privateIndex?.kind).toBe("built"));
+  writeFileSync(join(f.brain, "notes/scheria.md"), NOTE("Landfall on Scheria", "Odysseus washes ashore on Scheria and meets Nausicaa. See [[calypso]]."));
+  expect(await f.refreshed(), "THE_ADVANCE_ADDS_THE_NEW_NOTE").toEqual(["updated"]);
+  const warm = await turn(f.begin("warm"), hold => {
+    expect(hold.privateIndex?.kind, "THE_NEXT_TURN_REUSES_THE_ADVANCED_BASE").toBe("reused");
+    expect(search(f.brain, hold, "Scheria"), "THE_ADVANCED_BASE_HOLDS_THE_NEW_NOTE").toContain("notes/scheria.md");
+    expect(bytesHolding(indexOf(hold), SENTINEL), "NO_MASKED_BYTES").toEqual([]);
+    return snapshot(indexOf(hold));
+  });
+  expect(warm, "THE_ADVANCED_BASE_EQUALS_A_CLEAN_BUILD").toEqual(await f.oracle());
+  // Nothing changed since: the next advance only moves the checkpoint.
+  expect(await f.refreshed(), "AN_UNCHANGED_BRAIN_REBINDS").toEqual(["rebound"]);
+});
+
+test.each([
+  ["changed", (brain: string) => writeFileSync(join(brain, "notes/calypso.md"), NOTE("Seven years on Ogygia", "The island is behind him now."))],
+  ["removed", (brain: string) => rmSync(join(brain, "notes/calypso.md"))],
+  ["moved into the masked folder", (brain: string) => renameSync(join(brain, "notes/calypso.md"), join(brain, "me/calypso.md"))],
+] as const)("a document %s outside the masks is rebuilt off the turn path, and none of its old bytes reach the next turn", async (_what, change) => {
+  const f = fixture();
+  await turn(f.begin("first"), hold => expect(hold.privateIndex?.kind).toBe("built"));
+  change(f.brain);
+  expect((await f.refreshed())[0], "THE_ADVANCE_REBUILDS_CLEANLY").toMatch(/^rebuilt: notes\/calypso\.md /);
+  const warm = await turn(f.begin("warm"), hold => {
+    expect(bytesHolding(indexOf(hold), DOOMED), "NO_FILE_OF_THE_ADVANCED_INDEX_HOLDS_THE_OLD_TEXT").toEqual([]);
+    expect(hold.privateIndex?.kind, "THE_NEXT_TURN_REUSES_THE_REBUILT_BASE").toBe("reused");
+    return snapshot(indexOf(hold));
+  });
+  expect(warm, "THE_REBUILT_BASE_EQUALS_A_CLEAN_BUILD").toEqual(await f.oracle());
+});
+
+test("the advance drops a base it cannot prove, and the next turn builds from nothing", async () => {
+  const f = fixture();
+  await turn(f.begin("first"), hold => expect(hold.privateIndex?.kind).toBe("built"));
+  // Not a document: it may be configuration, which decides the masks.
+  writeFileSync(join(f.brain, "notes/chart.txt"), "Ithaca lies west.");
+  expect(await f.refreshed(), "A_CHANGE_BEYOND_DOCUMENTS_DROPS_THE_BASE").toEqual(["dropped: notes/chart.txt is not a document the index can add"]);
+  await turn(f.begin("after"), hold => expect(hold.privateIndex, "THE_NEXT_TURN_BUILDS").toMatchObject({ kind: "built", reason: "no base yet" }));
+  // A base changed outside the server is dropped, not advanced.
+  const bases = readdirSync(tmpdir()).filter(name => name.startsWith(`brain-private-index-base-${process.pid}-`));
+  Bun.spawnSync(["chmod", "u+w", join(tmpdir(), bases[0]!, "brain.db")]); appendFileSync(join(tmpdir(), bases[0]!, "brain.db"), "Polyphemusmarker");
+  writeFileSync(join(f.brain, "notes/scheria.md"), NOTE("Scheria", "Nausicaa."));
+  expect(await f.refreshed(), "A_TAMPERED_BASE_IS_DROPPED").toEqual(["dropped: the base changed outside the server"]);
+  await turn(f.begin("tampered"), hold => {
+    expect(bytesHolding(indexOf(hold), "Polyphemusmarker")).toEqual([]);
+    expect(hold.privateIndex?.kind).toBe("built");
+  });
+});
+
+test("changes inside a masked folder advance the base without reaching it", async () => {
+  const f = fixture();
+  await turn(f.begin("first"), hold => expect(hold.privateIndex?.kind).toBe("built"));
+  writeFileSync(join(f.brain, "me/ithaca.md"), NOTE("Home", `${SENTINEL} waits in Ithaca.`));
+  expect(await f.refreshed(), "MASKED_CHANGES_REBIND").toEqual(["rebound"]);
+  await turn(f.begin("warm"), hold => {
+    expect(bytesHolding(indexOf(hold), SENTINEL), "NO_MASKED_BYTES").toEqual([]);
+    expect(hold.privateIndex?.kind).toBe("reused");
+  });
 });
 
 test("the byte scan finds text whose rows were deleted, and the folded term FTS keeps", async () => {
@@ -337,9 +409,9 @@ test.each([
   ["a new note", (brain: string) => writeFileSync(join(brain, "notes/new.md"), "x"), { kind: "additions", paths: ["notes/new.md"] }],
   ["a new folder of notes and an image", (brain: string) => { mkdirSync(join(brain, "notes/trip")); writeFileSync(join(brain, "notes/trip/a.md"), "x"); writeFileSync(join(brain, "notes/trip/map.PNG"), "x"); },
     { kind: "additions", paths: ["notes/trip/a.md", "notes/trip/map.PNG"] }],
-  ["a changed note", (brain: string) => writeFileSync(join(brain, "notes/eagle.md"), "x"), { kind: "rebuild", reason: "notes/eagle.md changed" }],
-  ["a removed note", (brain: string) => rmSync(join(brain, "notes/eagle.md")), { kind: "rebuild", reason: "notes/eagle.md was removed" }],
-  ["a note moved into the masked folder", (brain: string) => renameSync(join(brain, "notes/eagle.md"), join(brain, "me/eagle.md")), { kind: "rebuild", reason: "notes/eagle.md was removed" }],
+  ["a changed note", (brain: string) => writeFileSync(join(brain, "notes/eagle.md"), "x"), { kind: "rebuild", reason: "notes/eagle.md changed", documents: true }],
+  ["a removed note", (brain: string) => rmSync(join(brain, "notes/eagle.md")), { kind: "rebuild", reason: "notes/eagle.md was removed", documents: true }],
+  ["a note moved into the masked folder", (brain: string) => renameSync(join(brain, "notes/eagle.md"), join(brain, "me/eagle.md")), { kind: "rebuild", reason: "notes/eagle.md was removed", documents: true }],
   ["a new configuration file", (brain: string) => writeFileSync(join(brain, "brain.config.ts"), "export default {};"), { kind: "rebuild", reason: "brain.config.ts is not a document the index can add" }],
   ["a new operational-state folder", (brain: string) => { mkdirSync(join(brain, ".brain")); writeFileSync(join(brain, ".brain/x.md"), "x"); }, { kind: "rebuild", reason: ".brain/x.md is not a document the index can add" }],
   ["another hidden folder", (brain: string) => { mkdirSync(join(brain, ".config")); writeFileSync(join(brain, ".config/types.ts"), "x"); }, { kind: "rebuild", reason: ".config/types.ts is not a document the index can add" }],
@@ -390,7 +462,7 @@ test("a renamed directory is expanded in both roots, so text that leaves the vie
   // Replaced under the same name, reported as a move to a temporary name.
   const swapped = await classify(trip("notes"), brain => { rmSync(join(brain, "notes/trip"), { recursive: true }); mkdirSync(join(brain, "notes/trip")); },
     rename("notes/trip", "o257-1-0"));
-  expect(swapped, "REPLACED_DIRECTORY_REBUILDS").toEqual({ kind: "rebuild", reason: "notes/trip/a.md was removed" });
+  expect(swapped, "REPLACED_DIRECTORY_REBUILDS").toEqual({ kind: "rebuild", reason: "notes/trip/a.md was removed", documents: true });
 });
 
 test("the cache identity covers the brain, policy, masks, recipient, mask paths and build command", () => {
@@ -410,21 +482,30 @@ function bench(options: { entries?: number; idleMs?: number; report?: (message: 
   mkdirSync(join(root, "brain/notes"), { recursive: true }); writeFileSync(join(root, "brain/notes/eagle.md"), "x");
   const state = { gate: Promise.resolve() };
   const cache = createPrivateIndexCache({ report: options.report ?? (() => {}), entries: options.entries ?? 2, idleMs: options.idleMs ?? 200,
-    differ: async (from, to, signal) => { await state.gate; return fixtureDiffer(from, to, signal); } });
+    differ: async (from, to, signal) => {
+      // A held delta still ends when the cache closes, as the native one does.
+      await Promise.race([state.gate, new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
+      return fixtureDiffer(from, to, signal);
+    } });
   cleanup.push(() => cache.close());
   const views: startup.WorkerStartupView[] = [];
-  const prepare = async (policyHash: string, input: { partial?: boolean; maskPaths?: string[] } = {}) => {
+  const runner = (stdout: string) => (_view: startup.WorkerStartupView, index: string) => ({
+    build: async () => { writeFileSync(join(index, "brain.db"), "rebuilt"); return { ok: true as const }; },
+    update: async () => { appendFileSync(join(index, "brain.db"), "+added"); return { ok: true as const, stdout }; } });
+  const prepare = async (policyHash: string, input: { partial?: boolean; maskPaths?: string[]; stdout?: string } = {}) => {
     const view = retainableFixtureView(join(root, "brain")); views.push(view);
     const index = mkdtempSync(join(root, "index-"));
     try {
       return await cache.prepare({ identity: { brain: root, policyHash, folders: ["me"], maskPaths: input.maskPaths ?? [], command: ["brain"] }, startupView: view, index,
         signal: new AbortController().signal, update: async () => ({ ok: false, detail: "unused" }),
+        runner: runner(input.stdout ?? '{"updated":0,"deleted":0,"added":1}'),
         build: async () => { writeFileSync(join(index, "brain.db"), policyHash); return input.partial ? { ok: false, detail: "timed out" } : { ok: true }; } });
     } finally { await view.cleanup(); rmSync(index, { recursive: true, force: true }); }
   };
   const live = (view: startup.WorkerStartupView) => existsSync(view.root);
   const bases = () => readdirSync(tmpdir()).filter(name => name.startsWith(`brain-private-index-base-${process.pid}-`));
-  return { root, cache, views, prepare, live, bases, state };
+  const advance = () => cache.advance(async signal => { signal.throwIfAborted(); const view = retainableFixtureView(join(root, "brain")); views.push(view); return view; });
+  return { root, cache, views, prepare, live, bases, state, advance };
 }
 
 test("the cache keeps a bounded number of bases and releases their checkpoints on eviction, idle expiry and close", async () => {
@@ -499,6 +580,38 @@ test("bases are kept only where no worker can see them, and a crashed server's a
   expect((await sweeper.prepare("one")).kind).toBe("built");
   expect(existsSync(orphan), "A_DEAD_SERVERS_BASE_IS_SWEPT").toBe(false);
   expect(existsSync(alive), "A_LIVE_SERVERS_BASE_STAYS").toBe(true);
+});
+
+test("a turn arriving during an advance waits for it and reuses what it made", async () => {
+  const b = bench();
+  expect((await b.prepare("one")).kind).toBe("built");
+  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+  let release!: () => void;
+  b.state.gate = new Promise<void>(resolve => { release = resolve; });
+  const advancing = b.advance();
+  await Bun.sleep(50);
+  const arriving = b.prepare("one");
+  await Bun.sleep(100);
+  release();
+  expect((await advancing).map(result => result.kind), "THE_ADVANCE_UPDATES").toEqual(["updated"]);
+  expect((await arriving).kind, "THE_TURN_REUSES_THE_ADVANCED_BASE").toBe("reused");
+  expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_ADVANCED_BASE_IS_THE_UPDATE").toBe("one+added");
+});
+
+test("an advance whose update rewrote rows keeps the old base, and close stops an advance in flight", async () => {
+  const b = bench();
+  expect((await b.prepare("one", { stdout: '{"updated":1,"deleted":0,"added":1}' })).kind).toBe("built");
+  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+  expect(await b.advance(), "UNPROVED_UPDATES_ARE_NOT_PROMOTED").toMatchObject([{ kind: "kept", reason: "the incremental index changed existing rows" }]);
+  expect(readFileSync(join(tmpdir(), b.bases()[0]!, "brain.db"), "utf8"), "THE_OLD_BASE_STAYS").toBe("one");
+  expect(b.live(b.views[0]!), "STILL_BOUND_TO_ITS_OWN_CHECKPOINT").toBe(true);
+  b.state.gate = new Promise<void>(() => {});
+  const stuck = b.advance();
+  await Bun.sleep(50);
+  await b.cache.close();
+  expect(await stuck, "CLOSE_ENDS_THE_ADVANCE").toMatchObject([{ kind: "kept", reason: "closing" }]);
+  expect(b.views.map(b.live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual(b.views.map(() => false));
+  expect(b.bases(), "CLOSE_REMOVES_EVERY_BASE_AND_STAGING").toEqual([]);
 });
 
 test("an external build command is identified by its files, not only its name", () => {
