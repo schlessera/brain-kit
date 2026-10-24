@@ -23,7 +23,7 @@ through its owners. Offer selected canonical attachment removal only after a
 dedicated, stale-safe, journaled application operation exists. The current
 file routes read files; they have no deletion endpoint. The curated application
 route accepts ordinary Markdown, not arbitrary binaries
-(`function validatePath`, `packages/ui-server/src/brain/application.ts:35-53`).
+(`function validatePath`, `packages/ui-server/src/brain/application.ts:36-54`).
 Document archive changes visibility/relevance and may move Markdown; it does
 not remove an attachment or reclaim its history. Do not present it as Delete.
 

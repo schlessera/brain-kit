@@ -168,6 +168,17 @@ export async function decidePiToolPermission(options: PermissionGateOptions, too
       effective = decision.updatedInput;
     }
   }
+  // pi's readers query the index directly, in the worker or in process: an
+  // admitted one runs only once the host indexed every application committed
+  // before it. A failed update refuses it rather than serve stale results.
+  if (turn.bridge?.awaitIndex) {
+    try { await turn.bridge.awaitIndex(toolName); }
+    catch (error) {
+      const refused = { behavior: "deny" as const, message: error instanceof Error ? error.message : "The search index could not be brought up to date." };
+      observe(effective, refused);
+      return refused;
+    }
+  }
   observe(effective, { behavior: "allow" });
   return effective === input ? { behavior: "allow" } : { behavior: "allow", updatedInput: effective };
 }

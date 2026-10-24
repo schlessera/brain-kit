@@ -11,6 +11,7 @@ import {
 } from "@schlessera/brain-ui-sdk/server";
 import { BRAIN_LOCK_KEY } from "@schlessera/brain-ui-sdk/server";
 import { createHostBoundary, MAINTENANCE_ENTRY, type HostBoundary } from "./host-boundary.js";
+import { createIndexBatch, IndexFlushError, type IndexBatch } from "./index-batch.js";
 import { subprocessEnv } from "../config/env.js";
 import { isProtectedTarget } from "./protected-target.js";
 import { isProviderMasked, ProviderMaskRefusedError, type ProviderMaskGuard } from "./provider-mask-refusal.js";
@@ -130,11 +131,12 @@ export interface CapturePlan {
 
 /**
  * Evaluates the brain's own code for the application route: capture planning
- * and the index refresh after a commit. Both import the brain's config and
- * whatever it imports, so under the host execution boundary (#1648) they run
- * in a credential-free maintenance worker, and the commit here receives the
- * plan as data. Credential-free on purpose: the turn that applies the change
- * waits for this work, and a running turn never waits on a credentialed one.
+ * and the batched index updates after commits. Both import the brain's config
+ * and whatever it imports, so under the host execution boundary (#1648) they
+ * run in a credential-free maintenance worker, and the commit here receives
+ * the plan as data. Credential-free on purpose: the turn that applies the
+ * change waits for this work, at its next index-dependent read or its end, and
+ * a running turn never waits on a credentialed one.
  */
 export interface ApplicationPlanner {
   /**
@@ -142,7 +144,12 @@ export interface ApplicationPlanner {
    * their documents as absent, wherever it runs, so it never reads them.
    */
   planAdd(root: string, input: Record<string, unknown>, readDocument: (path: string) => string | null, signal: AbortSignal, masked?: readonly string[]): Promise<CapturePlan>;
-  index(root: string, signal: AbortSignal): Promise<void>;
+  /**
+   * Bring the index up to date with Markdown already committed. `paths` names
+   * exactly what changed, for a targeted update; without it, or when the index
+   * cannot be trusted for one, the whole brain is indexed.
+   */
+  index(root: string, signal: AbortSignal | undefined, paths?: readonly string[]): Promise<void>;
 }
 
 /** The in-process planner, for a server where no governed turn can run. */
@@ -156,11 +163,11 @@ export const inProcessPlanner: ApplicationPlanner = {
       return { path: plan.path, content: plan.content, baseContent: plan.baseContent, outcome: { ...plan.outcome } };
     } finally { db.close(); }
   },
-  async index(root) {
+  async index(root, _signal, paths) {
     const core = await import("@schlessera/brain/internal");
     const context = await core.initContext({ root });
     const db = core.openDatabase(context.dbPath);
-    try { await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false }); }
+    try { await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false, ...(paths ? { paths: [...paths] } : {}) }); }
     finally { db.close(); }
   },
 };
@@ -202,11 +209,11 @@ export function boundaryPlanner(boundary: HostBoundary, options: { afterIndex?: 
       if (!boundary.isolated()) return inProcessPlanner.planAdd(root, input, readDocument, signal, masked);
       return validatePlan((await run({ op: "plan-add", root, input, ...(masked?.length ? { masked: [...masked] } : {}) }, "application plan", signal)).plan);
     },
-    async index(root, signal) {
-      if (!boundary.isolated()) return inProcessPlanner.index(root, signal);
+    async index(root, signal, paths) {
+      if (!boundary.isolated()) return inProcessPlanner.index(root, signal, paths);
       // Markdown has committed: the turn ending or being cancelled does not
       // stop the index refresh that follows it, as in-process indexing never did.
-      await run({ op: "index", root }, "application index", undefined);
+      await run({ op: "index", root, ...(paths ? { paths: [...paths] } : {}) }, "application index", undefined);
       // The worker had no provider key, so new chunks wait for vectors; a
       // credentialed reindex runs once no writer holds the gate.
       options.afterIndex?.();
@@ -230,13 +237,21 @@ export function createBrainApplication(options: {
   signal: AbortSignal;
   isAuthorized(): boolean;
   approve(input: BrainApplicationInput, destructive: boolean): Promise<boolean>;
-  record(result: BrainApplicationResult): void;
+  /** Records the result; a returned string names its record for later index outcomes. */
+  record(result: BrainApplicationResult): unknown;
   /**
    * Where the brain's own code is evaluated. Omitted: a host boundary of its
    * own, so the route is never left evaluating that code on a host that can
    * run a governed turn.
    */
   planner?: ApplicationPlanner;
+  /**
+   * The host's deferred index updates, shared with every reader that must
+   * wait for them (#2835). Omitted: a batch of this route's own, over its planner.
+   */
+  indexBatch?: IndexBatch;
+  /** Each deferred index outcome for an application this route committed. */
+  recordIndex?(outcome: BrainApplicationIndexOutcome): void;
   /** Internal deterministic race fixture; never wired to a worker or HTTP. */
   beforeCommit?: () => void;
 }) {
@@ -247,13 +262,30 @@ export function createBrainApplication(options: {
     if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This target is protected by the policy admitted for this turn; no change was applied.");
   };
   const planner = options.planner ?? boundaryPlanner(createHostBoundary({ brainPath: root }));
+  const indexBatch = options.indexBatch ?? createIndexBatch({ index: paths => planner.index(root, undefined, paths) });
   function authority(request: BrainApplicationRequest): void {
     if (request.principalId !== options.principalId || request.turnId !== options.turnId || !options.isAuthorized())
       refuse("authority_revoked", "This turn no longer has current principal authority to apply changes.");
     if (options.signal.aborted) refuse("cancelled", "The turn was cancelled; no change was applied.");
   }
-  return async (request: BrainApplicationRequest): Promise<BrainApplicationResult> => {
+  const apply = async (request: BrainApplicationRequest): Promise<BrainApplicationResult> => {
     const committed: BrainApplicationResult["changes"] = [];
+    // A deferred outcome names the application record it follows, even one
+    // that settles before that record is written.
+    const early: BrainApplicationIndexOutcome[] = [];
+    let recorded: { id: unknown } | undefined;
+    const receipt = { report(outcome: BrainApplicationIndexOutcome) {
+      if (!recorded) early.push(outcome);
+      else options.recordIndex?.({ ...outcome, ...(typeof recorded.id === "string" ? { applicationId: recorded.id } : {}) });
+    } };
+    // Every committed effect is queued once, including those of a partial failure.
+    let queued = false;
+    const queue = () => {
+      if (queued || !committed.length) return;
+      queued = true;
+      const applied = [...committed];
+      indexBatch.queue(applied.map(change => change.path), settled => receipt.report({ changes: applied, indexed: settled.indexed, ...(settled.indexError ? { indexError: settled.indexError } : {}) }));
+    };
     let result: BrainApplicationResult;
     try {
       if (!request || Object.keys(request).some(key => !["principalId", "turnId", "input"].includes(key)))
@@ -287,6 +319,15 @@ export function createBrainApplication(options: {
       // authority and input/base are rechecked inside the shared lock.
       if ((!options.policy.autoAllowed.includes(input.operation) || destructive) && !await options.approve(input, destructive))
         refuse("permission_denied", "The exact application was not approved; no change was applied.");
+      // Capture planning reads the index (title matches, appends): it waits
+      // for earlier writes like any other reader, before the lock they share.
+      if (input.operation === "add") {
+        try { await indexBatch.barrier(options.signal); }
+        catch (error) {
+          if (error instanceof IndexFlushError) refuse("index_stale", `${error.message} No change was applied.`);
+          throw error;
+        }
+      }
       result = await options.policy.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(request); membership();
         const core = await import("@schlessera/brain/internal");
@@ -407,21 +448,33 @@ export function createBrainApplication(options: {
           for (const target of targets) closeTarget(target);
           if (!committed.length) for (const path of created.reverse()) { try { rmdirSync(path); } catch { /* Preserve concurrent directory contents. */ } }
         }
-        // Markdown has committed. Cancellation during disposable-index work
-        // cannot misreport the write as refused or roll back someone else's edit.
-        let indexed = false;
-        let indexError: string | undefined;
-        try { await planner.index(root, options.signal); indexed = true; }
-        catch (error) { indexError = error instanceof Error ? error.message : String(error); }
-        return { ok: true, message: indexed ? "Applied authoritative Markdown and updated its index." : `Applied authoritative Markdown; index update failed${indexError ? `: ${indexError.slice(0, 300)}` : "."}`,
-          changes: [...committed], indexed, outcome: { ...outcome, ...(input.operation === "add" ? { indexed } : {}), ...(indexError ? { indexError } : {}) } };
+        // Markdown has committed. Its index update waits, batched with every
+        // other committed path, for the next index-dependent read or the end
+        // of the turn (#2835); cancellation cannot drop it or misreport the
+        // write as refused. Its outcome is recorded when an update settles.
+        queue();
+        return { ok: true, message: "Applied authoritative Markdown. Its index update is queued: the next search or read that needs the index waits for it.",
+          changes: [...committed], indexed: false, indexStatus: "pending" as const,
+          outcome: { ...outcome, ...(input.operation === "add" ? { indexed: false, indexStatus: "pending" } : {}) } };
       }, { signal: options.signal });
     } catch (error) {
+      queue();
       result = { ok: false, code: error instanceof Refusal || error instanceof ProviderMaskRefusedError ? error.code : (error instanceof Error && error.name === "AbortError" ? "cancelled" : "application_failed"), message: error instanceof Error ? error.message : "Application failed.", changes: [...committed] };
     }
-    options.record(result);
+    recorded = { id: options.record(result) };
+    for (const outcome of early.splice(0)) receipt.report(outcome);
     return result;
   };
+  return Object.assign(apply, { indexBatch });
+}
+
+/** A deferred index outcome for one committed application (#2835). */
+export interface BrainApplicationIndexOutcome {
+  /** The application record this outcome follows, when the recorder named one. */
+  applicationId?: string;
+  changes: BrainApplicationResult["changes"];
+  indexed: boolean;
+  indexError?: string;
 }
 
 /**

@@ -10,6 +10,16 @@ prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
+`--apply-timing` adds one strict conversation after the cancellation checks
+(#2835). Claude calls its turn's `brain-ui` MCP `write_file` handler 20 times and
+`edit_file` 20 times, then admits `mcp__brain__brain_search` through its
+`PreToolUse` hooks and reads the index; pi's fixture model makes the same 40
+calls through host apply and then calls `brain_search`. Every host apply and
+index barrier is timed at the bridge, with the host load before and after, in
+`apply-timing.json`. The run fails unless both medians are at most 300 ms and
+the same-turn search sees all 20 edited notes. It is a measurement, not part of
+the default qualification.
+
 `bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
 the host identity protocol. It compiles the test-only helper on the host without
 setuid permissions, then installs it as root-owned setuid only inside its owned,

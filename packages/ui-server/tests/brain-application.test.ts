@@ -190,7 +190,7 @@ describe("server-owned application boundary", () => {
   test("permitted write and edit apply with no extra approval and accurate history", async () => {
     const apply = application();
     const result = await apply(request(write()));
-    expect(result.ok).toBe(true); expect(result.indexed).toBe(true);
+    expect(result.ok).toBe(true); expect(result.indexed).toBe(false); expect(result.indexStatus).toBe("pending");
     expect(result.changes).toEqual([{ path, contentHash: contentHash("Odysseus sails.\n") }]);
     const base = readBrainApplicationBase(root, path);
     const edit = await apply(request({ operation: "edit", path, expectedBaseHash: base.expectedBaseHash, old_string: "sails", new_string: "rows" }));

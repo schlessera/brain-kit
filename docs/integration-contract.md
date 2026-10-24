@@ -68,6 +68,26 @@ floor above: an older CLI would keep writing the root-level index the server no
 longer reads. The template ignores `.brain-index/`; its existing unanchored
 `brain.db*` line already matches the new files.
 
+## Deferred application indexing (breaking, 0.44.0, #2835)
+
+A hosted application (`brain_add`, `brain_update`, `brain_archive`,
+`write_file`, `edit_file`, `apply_staged_changes`) no longer re-indexes the brain
+before it returns. Its Markdown commits durably as before; the result reports
+`indexed: false` with the additive `indexStatus: "pending"`, and `indexed: true`
+only ever means a completed update. Changed paths are batched into one targeted
+update, in the isolated maintenance worker, at the next index-dependent read or
+turn end; every such reader, including pi's in-worker search and the host's
+HTTP index routes, waits for it, and a failed update refuses the read rather
+than serve a stale index. The [application contract](integration-contract/mcp.md),
+[HTTP routes](integration-contract/http.md#index-reads-wait-for-applications-2835)
+and [package API](integration-contract/package-api.md) state the lifecycle.
+
+This is breaking: the value of `indexed` on a successful application changes
+from `true` to `false` while its update is queued. The maintainer ruled it on
+#2835 (2026-10-24, options A and C combined, with the pending result and
+deferred failure delivery separately approved). `brain add --json` in the
+standalone CLI keeps its synchronous `indexed` meaning.
+
 ## Provider folder turns (additive, 0.44.0, #1668)
 
 A governance policy's `providers` rules now take effect in hosted interactive,

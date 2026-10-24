@@ -90,7 +90,7 @@ test(`strict pi: ${EDITS} sequential edit_file host applies each return to the m
     expect(frames.find(frame => frame.type === "result"), JSON.stringify(frames.filter(frame => frame.type === "error"))).toMatchObject({ isError: false });
     expect(requests, "STRICT_PI_EVERY_EDIT_RETURNED_TO_THE_MODEL").toBe(EDITS + 1);
     expect(results.map(result => result.isError), "STRICT_PI_EVERY_EDIT_SUCCEEDED").toEqual(Array(EDITS).fill(false));
-    for (const result of results) expect(JSON.stringify(result.content), "STRICT_PI_EDIT_WENT_THROUGH_HOST_APPLY").toContain("Applied authoritative Markdown and updated its index.");
+    for (const result of results) expect(JSON.stringify(result.content), "STRICT_PI_EDIT_WENT_THROUGH_HOST_APPLY").toContain("Applied authoritative Markdown. Its index update is queued");
     for (let i = 0; i < EDITS; i++) expect(readFileSync(join(brain, `notes/ithaca-${i}.md`), "utf8"), "STRICT_PI_EDIT_ON_DISK").toContain(`Telemachus edits ${i}.`);
     expect(journal()?.scope, "STRICT_PI_INDEX_REFRESHES_NEVER_REACH_THE_CAP").toMatchObject({ receipts: [], limits: { turn_bytes: cap } });
     expect(journal()!.scope!.observedBytes!, "STRICT_PI_OBSERVED_BYTES_BELOW_CAP").toBeLessThan(cap);

@@ -243,6 +243,46 @@ and exact operation membership are checked again at application time. Supported
 applications are bounded UTF-8 Markdown effects plus the narrow PNG mask
 operation below, never commands or file handles.
 
+## Deferred, batched indexing after applications — 2026-10-24
+
+The [maintainer ruling on #2835](https://github.com/schlessera/brain-kit/issues/2835)
+combines its options A and C. An application still commits its Markdown durably,
+exactly as above, before it returns; it no longer waits for the index. Measured on
+the native hosted fixture (2,000 notes of 16 KiB), the re-index was 99 % of a
+host write: 4.3 s median against 17 ms for the write and its fsyncs.
+
+- **Batch (C).** Each application queues its exact committed paths with the
+  host's one index batch. The next index-dependent read, from any turn or host
+  route, and the end of every turn that applied something flush everything
+  queued in one update. Twenty writes followed by one search pay for one update.
+- **Targeted (A).** That update runs in the same credential-free maintenance
+  worker, with the path list. Core reads and writes only those documents, then
+  rebuilds every corpus-wide structure (link resolution, links, supersedes,
+  graph tables) from the whole index, so the result matches a fresh build. An
+  index with no Markdown yet, a pending re-chunk or full-text rebuild, or an
+  embedding run is a complete run instead, so a brain's first index is never
+  reported as a targeted one.
+- **Barriers.** Readers wait in the every-call admission paths both backends
+  already have: Claude's `PreToolUse` enforcement hook and pi's shared
+  permission decision, which also covers pi's in-worker index readers. The
+  host's HTTP index routes and `add` planning wait too. A barrier is satisfied
+  only by a completed update: a failed one refuses the read, keeps the paths
+  queued and is retried by the next waiter. A waiter that stops waiting does
+  not cancel an update; the batch owns it.
+- **Results.** A queued application reports `indexed: false` with
+  `indexStatus: "pending"` and no error; `indexed: true` means a completed
+  update. Outcomes are appended to the Activity record as
+  `brain_application_index` events after the application they name, before the
+  turn's terminal record; a failure reaches the agent as the refused read.
+  Earlier results and provider messages are never rewritten.
+
+Option B alone (a background update per write behind a per-turn barrier) still
+starts one maintenance worker per write, and a whole-brain pass each time; the
+batch starts one per read that needs it. Host evaluation of brain-controlled
+code, provider masks, authorization, the journal and Markdown durability are
+unchanged. Provider-masked turns read a private index built at turn start; this
+change does not update it during the turn.
+
 ## PNG mask application — 2026-10-10
 
 The [maintainer ruling on #1037](https://github.com/schlessera/brain-kit/issues/1037)

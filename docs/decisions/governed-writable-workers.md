@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:600-605`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:613-618`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -194,7 +194,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:40`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:41`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -1086,8 +1086,9 @@ A credentialed maintenance worker holds it exclusively.
 
 **No deadlock.** A turn never awaits a credentialed maintenance worker, because
 the turn's own shared hold would block it forever. Maintenance that a running
-turn waits for is credential-free; for example, the synchronous index after a
-curated application. The automatic plain `brain index` command is keyword-only
+turn waits for is credential-free; for example, the batched index update a
+turn's curated applications queue, which its next index read or its end awaits
+(#2835). The automatic plain `brain index` command is keyword-only
 and uses that same credential-free shared path. Flagged index operations,
 including embedding and on-commit passes, retain the credentialed exclusive
 path. Git transport and other credentialed work remain queued until no shared
@@ -1411,7 +1412,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:299`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:301`).
 
 **What changes:**
 
@@ -2182,7 +2183,7 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:350`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:359`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,

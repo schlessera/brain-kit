@@ -3747,6 +3747,20 @@ time. Direct unhosted consumers omitting it retain their legacy project MCP
 roster. Existing custom bridges without the field retain the prior `applyBrain`
 presence fallback. Autonomous authority/rosters are unchanged.
 
+### Deferred application indexing (breaking, 0.44.0, #2835)
+
+`BrainApplicationResult` adds `indexStatus?: "pending"`, and `indexed` now
+means the index covers the result's committed changes: a host that defers the
+update reports `indexed: false` with `indexStatus: "pending"` and no error, as
+specified in the [application contract](mcp.md). `BackendBridge` adds the
+optional `awaitIndex(toolName)`. A backend awaits it before admitting any tool,
+under the name the runtime calls it, and refuses the tool with the rejection's
+message; the host resolves at once for tools that do not read the index. The
+Claude and pi backends call it from their every-call admission paths (the
+`PreToolUse` enforcement hook and the shared pi permission decision). A custom
+backend that never calls it can read an index that misses applications its
+turn already committed.
+
 ### Prompt-cache diagnostic events (additive, #2050)
 
 `BackendActivityEvent` adds `prompt_prefix` (`prefix: PromptPrefixFingerprint`,

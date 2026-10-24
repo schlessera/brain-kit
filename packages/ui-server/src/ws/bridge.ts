@@ -2,6 +2,7 @@ import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schles
 import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
 import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createProviderMaskGuard, ProviderMaskRefusedError, ProviderRecordsRefusedError } from "../brain/provider-mask-refusal.js";
 import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { GOVERNANCE_POLICY_PATH } from "@schlessera/brain-common/internal/governance-policy";
@@ -34,6 +35,17 @@ import type { TurnRecorder } from "../activity/recorder.js";
 import { TurnTextCollector } from "../classification/classify-turn.js";
 import { JournalCapacityError } from "../brain/journal-objects.js";
 import { JournalStorageUnavailable } from "../brain/journal-accounting.js";
+
+const turnIndexSettlers = new WeakMap<BackendBridge, () => Promise<void>>();
+
+/**
+ * At turn end: flush the index updates this turn's applications queued.
+ * Rejects when that update fails; each application's Activity record has
+ * already received the outcome, and its paths stay queued for the next reader.
+ */
+export function settleTurnIndex(bridge: BackendBridge): Promise<void> {
+  return turnIndexSettlers.get(bridge)?.() ?? Promise.resolve();
+}
 
 /** Build the per-turn bridge the backend drives. */
 export function makeBridge(
@@ -117,6 +129,7 @@ export function makeBridge(
       actor: work?.posture === "voice" ? "voice" : "interactive", model: mainModel?.current() ?? null, profile: workerProfile?.actualProfile ?? null,
       payload: { ...refusal, policyHash: providerMasks.policy.hash } }) }) : undefined;
   const toolName = (name: string) => backendId === "claude" ? `mcp__brain-ui__${name}` : name;
+  let turnIndex: IndexBatch | undefined;
   /**
    * A linked turn-temp file the backend promoted, or could not (#1655): kept
    * as a governance event with the session history, never shown in the chat.
@@ -612,7 +625,10 @@ export function makeBridge(
         return decision.behavior === "allow" && decision.updatedInput === undefined;
       },
       record: result => recorder?.recordApplication?.(result),
+      ...(host.indexBatch ? { indexBatch: host.indexBatch } : {}),
+      recordIndex: outcome => recorder?.recordApplicationIndex?.(outcome),
     });
+    turnIndex = apply.indexBatch;
     bridge.readBrainBase = async path => {
       if (turn.turnId !== turnId || signal.aborted || !authorization.valid || authorization.expiresAt <= Date.now() || turn.cancelled || turn.startedAt === undefined || !host.isPrincipalAuthorized(principalId)) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(host.brainPath!, path, maskGuard ? { guard: maskGuard, tool: toolName("brain_read_base") } : undefined);
@@ -665,6 +681,13 @@ export function makeBridge(
       // exact removals. No second, unrecorded prune callback is handed out.
       delete bridge.pruneScratch;
     }
+  }
+  // Index-dependent reads wait for every application committed before them,
+  // in any turn; the end of this turn flushes what is still queued (#2835).
+  const indexBatch = turnIndex ?? host.indexBatch;
+  if (indexBatch) {
+    bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
+    if (turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
   }
   // Reference source and managed worktrees (#2432): the host's record of this
   // turn supplies principal, views and generation; the call carries its input only.
