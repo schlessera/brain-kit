@@ -45,6 +45,18 @@ function retainableFixtureView(brain: string): startup.WorkerStartupView {
   return startup.retainWorkerStartupView({ brain: inner.brain, root: inner.root, storage, cleanup() {} });
 }
 
+/**
+ * A private temporary directory for this test, under `/tmp` as the cache
+ * requires: bun runs every file in one process, so other suites' turns keep
+ * bases under the same process id in the shared one.
+ */
+function privateTmp(): string {
+  const previous = process.env.TMPDIR, dir = mkdtempSync("/tmp/odysseus-private-index-tmp-");
+  process.env.TMPDIR = dir;
+  cleanup.push(() => { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; rmSync(dir, { recursive: true, force: true }); });
+  return dir;
+}
+
 const NOTE = (title: string, body: string) => `---\ntype: note\ntitle: "${title}"\ncreated: 2026-07-12\nupdated: 2026-07-12\ntags: [note]\n---\n\n${body}\n`;
 
 /** The native delta's framing and parser over two copied views, as the kernel would send it. */
@@ -57,6 +69,7 @@ const fixtureDiffer: PrivateIndexDiffer = async (from, to, signal) => {
 };
 
 function fixture(providers = "[{ paths: [me/**], allow: [google] }]", options: { differ?: PrivateIndexDiffer; recipients?: boolean } = {}) {
+  privateTmp();
   mkdirSync(join(REPO, "tmp"), { recursive: true });
   const root = mkdtempSync(join(REPO, "tmp", "odysseus-private-index-cache-"));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
@@ -392,6 +405,7 @@ test("the cache identity covers the brain, policy, masks, recipient, mask paths 
 
 /** A cache over a tiny copied brain whose builds write one file; `gate` holds every delta. */
 function bench(options: { entries?: number; idleMs?: number; report?: (message: string) => void } = {}) {
+  privateTmp();
   const root = mkdtempSync(join(tmpdir(), "odysseus-private-index-bound-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "brain/notes"), { recursive: true }); writeFileSync(join(root, "brain/notes/eagle.md"), "x");
   const state = { gate: Promise.resolve() };
@@ -465,10 +479,10 @@ test("an expiry skipped while a turn reconciles applies once that turn finishes"
 test("bases are kept only where no worker can see them, and a crashed server's are swept", async () => {
   const reports: string[] = [];
   const outside = mkdtempSync(join(REPO, "tmp", "odysseus-visible-tmp-")); cleanup.push(() => rmSync(outside, { recursive: true, force: true }));
+  const b = bench({ report: message => reports.push(message) });
   const previous = process.env.TMPDIR;
   process.env.TMPDIR = outside;
   try {
-    const b = bench({ report: message => reports.push(message) });
     expect((await b.prepare("one")).kind).toBe("built");
     expect(await b.prepare("one"), "NO_BASE_ON_A_WORKER_VISIBLE_TMPDIR").toMatchObject({ kind: "built", reason: "no hidden place to keep a base" });
     expect(readdirSync(outside).filter(name => name.startsWith("brain-private-index-base-")), "NOTHING_KEPT_THERE").toEqual([]);
@@ -478,10 +492,11 @@ test("bases are kept only where no worker can see them, and a crashed server's a
     expect((await b.prepare("two", { maskPaths: [outside] })).kind, "A_MASKED_PARENT_KEEPS_BASES").toBe("reused");
   } finally { if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous; }
   // A base whose server process is gone is removed by the next cache that looks; a live one stays.
+  const sweeper = bench();
   const dead = Bun.spawnSync(["/bin/true"]).pid, orphan = join(tmpdir(), `brain-private-index-base-${dead}-odysseus`);
   const alive = join(tmpdir(), `brain-private-index-base-${process.ppid}-odysseus`);
-  for (const dir of [orphan, alive]) { mkdirSync(dir); cleanup.push(() => rmSync(dir, { recursive: true, force: true })); }
-  expect((await bench().prepare("one")).kind).toBe("built");
+  for (const dir of [orphan, alive]) mkdirSync(dir);
+  expect((await sweeper.prepare("one")).kind).toBe("built");
   expect(existsSync(orphan), "A_DEAD_SERVERS_BASE_IS_SWEPT").toBe(false);
   expect(existsSync(alive), "A_LIVE_SERVERS_BASE_STAYS").toBe(true);
 });
