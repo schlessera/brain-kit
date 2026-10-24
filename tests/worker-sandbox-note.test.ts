@@ -89,7 +89,9 @@ async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: st
   let text: string | undefined;
   const stops: Array<() => void> = [];
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(input => {
+  // Pi awaits its launch off the event loop (#2416); a double on the
+  // synchronous form would let the real launcher run.
+  const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async input => {
     const stdout = new PassThrough(), stderr = new PassThrough();
     const exited = Promise.withResolvers<number>();
     const stop = () => { stdout.end(); stderr.end(); exited.resolve(0); };
@@ -107,7 +109,7 @@ async function piTurnContext(sandbox?: worker.WorkerSandbox): Promise<{ note: st
       callback();
     } });
     // The real launcher owns prepared output through its exit cleanup.
-    return { stdin, stdout, stderr, exited: exited.promise.finally(() => input.preparedOutput?.cleanup()), kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    return { stdin, stdout, stderr, exited: exited.promise.finally(() => input.preparedOutput?.cleanup()), kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as worker.LaunchedWorker;
   });
   try {
     mkdirSync(join(root, "sessions"), { recursive: true });
