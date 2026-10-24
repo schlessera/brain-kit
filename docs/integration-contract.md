@@ -731,6 +731,13 @@ recorded facts to the owner principal only; `HygieneCard` gains a `details`
 slot. Described in
 [the package API](integration-contract/package-api.md#owner-only-private-worktree-details-additive-0440-2734).
 
+## Hygiene card caller copy (additive, 0.44.0, #2837)
+
+`HygieneCard` gains optional inert `stateText` and `busyLabel` copy that keeps
+every file default when omitted; the hygiene review uses it for managed-worktree
+findings. Described in
+[the package API](integration-contract/package-api.md#hygiene-card-caller-copy-additive-0440-2837).
+
 
 ## Reference and worktree tools (additive, 0.44.0, #2432)
 

@@ -131,6 +131,17 @@ adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
 glyph and accessible label remain outside the truncating summary label, before
 the chevron. Existing controlled, seeded and uncontrolled behavior is unchanged.
 
+<a id="hygiene-card-caller-copy-additive-0440-2837"></a>
+
+**Hygiene card caller copy (additive, 0.44.0, #2837).** `HygieneCardProps`
+adds optional `stateText?: Partial<Record<state, string>>` and
+`busyLabel?: string`. A named state's text replaces its file default, the
+`fixed` entry included; `busyLabel` replaces the applying label of the commit
+control. Both are plain inert text, wrapped anywhere and never parsed. An
+omitted prop or state keeps every existing file default, meaning, state
+machine, focus and announcement. The kit has no finding-kind prop: callers
+choose the copy from the action and outcome they hold.
+
 ## UI-kit action accessibility and loading (additive #1756)
 
 `ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to

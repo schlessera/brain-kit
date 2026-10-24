@@ -379,6 +379,23 @@ either way. A removed, revoked or expired owning principal reads as removed,
 without its former label. The review card offers them inline as Private
 details, fetched on opening and kept in that card's memory only.
 
+**Card wording (#2837, maintainer ruling 2026-10-24).** A worktree finding's
+card describes host state, not a file edit. The kit's `HygieneCard` keeps its
+file defaults; the review supplies inert caller copy for a managed-worktree
+finding, chosen from the action this device sent and the outcome the host
+reported, and the kit never branches on the finding's kind. A finding with no
+repair offers "Check again", explained as "Checks its current state. A worktree
+verified clean and unused may be reclaimed automatically.", because `check`
+reassesses with removal allowed and a fresh assessment that proves a clean,
+unheld worktree reclaims it. The card never promises that checking removes
+nothing. "Worktree removed" needs confirmed evidence: the host's `fixed` for
+this device's own removal. Any other cleared finding reads "No longer needs
+review", and an uncertain reply reads "The outcome wasn't confirmed. Check
+again." Stale, refused and failed removals name the removal and quote the
+host's fixed reason as inert text, with no claim that nothing changed or that
+nothing was removed. There is no Undo for a worktree, so the review never
+selects undone copy.
+
 **Review.** The review reads one backlog: `next` and `list` merge the CLI's
 Markdown findings and the host's by core's ordinal rules (severity, known
 urgency, age, identity), and every operation that names a host finding goes to

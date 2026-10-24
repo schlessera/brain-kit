@@ -816,7 +816,7 @@ export function ActivityPage() {
 
           {lens === "done" && (
             <>
-              {actions.filter(a => a.hygiene?.outcome?.status === "fixed" || a.hygiene?.outcome?.status === "not_detected").map(a => <div key={a.id} role="status" className="rounded-[10px] border border-[var(--bk-teal-ink)] p-3 text-xs" data-hygiene-fixed="">Fixed · re-checked · Finding no longer detected in {a.payload.detail}</div>)}
+              {actions.filter(a => a.hygiene?.outcome?.status === "fixed" || a.hygiene?.outcome?.status === "not_detected").map(a => <div key={a.id} role="status" className="rounded-[10px] border border-[var(--bk-teal-ink)] p-3 text-xs" data-hygiene-fixed="">{a.hygiene?.finding.category === "managed-worktree" ? "No longer needs review" : `Fixed · re-checked · Finding no longer detected in ${a.payload.detail}`}</div>)}
               {notes.length > 0 && (
                 <section aria-labelledby="notes-heading" className="flex flex-col gap-2">
                   <h2 id="notes-heading" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes · {notes.length}</h2>
