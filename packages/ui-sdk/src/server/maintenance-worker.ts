@@ -213,6 +213,8 @@ export interface MaintenanceWorker {
   pid: number;
   /** Outer monitor exit; runMaintenanceWorker also awaits namespace-owned output EOF. */
   exited: Promise<number>;
+  /** Resolves once no descriptor of the worker's stdio remains open in this process, once its streams have ended (#2862). */
+  released(): Promise<void>;
   kill(signal?: NodeJS.Signals): void;
 }
 
@@ -289,6 +291,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
         stderr: Readable.toWeb(running.stderr) as unknown as ReadableStream<Uint8Array>,
         pid: running.pid,
         exited: helperCompletion,
+        released: running.released,
         kill: signal => running.kill(signal),
       };
     }
@@ -317,6 +320,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       stderr: fifoStream(ends.stderr),
       pid: running.pid,
       exited: running.exited.finally(() => { try { closeInput(); } finally { try { if (!input.startupView) startupView?.cleanup(); } finally { reservation.release(); } } }),
+      released: pipes.released,
       kill: (signal?: NodeJS.Signals) => killWorker(running, signal),
     };
   } catch (error) {
@@ -407,6 +411,8 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   } finally {
     if (timer) clearTimeout(timer);
     input.signal?.removeEventListener("abort", kill);
+    // Ended streams can still hold Bun's duplicate descriptors (#2862).
+    await worker.released();
   }
 }
 

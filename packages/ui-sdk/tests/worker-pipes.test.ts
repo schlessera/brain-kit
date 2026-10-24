@@ -7,7 +7,7 @@
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { availableParallelism } from "node:os";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, read, readdirSync, readlinkSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -67,6 +67,23 @@ function ownedTmp() {
       rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Holds every thread of Bun's pool on a blocking FIFO read until `release`.
+ * Bun's file streams and sinks close their duplicate descriptors on that pool
+ * (#2862), so while it is held they stay open after their streams end.
+ */
+function holdWorkPool(dir: string) {
+  const plug = join(dir, "pool-plug");
+  if (Bun.spawnSync(["mkfifo", plug]).exitCode !== 0) throw new Error("mkfifo failed");
+  const writer = openSync(plug, constants.O_RDWR);
+  const reads = Array.from({ length: 8 * availableParallelism() + 16 }, () => {
+    const fd = openSync(plug, constants.O_RDONLY);
+    return new Promise<void>(done => read(fd, Buffer.alloc(1), 0, 1, null, () => { closeSync(fd); done(); }));
+  });
+  let released: Promise<void> | undefined;
+  return { release: () => released ??= (writeSync(writer, Buffer.alloc(reads.length)), Promise.all(reads).then(() => closeSync(writer))) };
 }
 
 const refusal = (work: () => unknown) => Promise.resolve().then(work).then(() => undefined, (error: unknown) => error as Error);
@@ -136,6 +153,7 @@ test("an abort accepted while a maintenance launch awaits its FIFOs stops the wo
   const tmp = ownedTmp();
   const controller = new AbortController();
   let run: Promise<Error | undefined> | undefined;
+  let pool: ReturnType<typeof holdWorkPool> | undefined;
   try {
     const startedAt = performance.now();
     run = refusal(() => runMaintenanceWorker({ brainPath: f.brain, startupView, command: ["/bin/sh", "-c", "exec sleep 30"],
@@ -143,14 +161,17 @@ test("an abort accepted while a maintenance launch awaits its FIFOs stops the wo
     while (!existsSync(started) && performance.now() - startedAt < 10_000) await Bun.sleep(5);
     expect(existsSync(started), "ABORT_LANDS_DURING_MKFIFO").toBe(true);
     controller.abort();
+    // The pool stays held through the worker's teardown, then frees: the launch settles only after.
+    pool = holdWorkPool(f.root);
     writeFileSync(release, "");
+    setTimeout(pool.release, 1_000);
     const refused = await run;
     expect(refused, "ABORT_DURING_FIFOS_REJECTS").toBeInstanceOf(DOMException);
     expect(performance.now() - startedAt, "ABORT_DURING_FIFOS_STOPS_WORKER").toBeLessThan(10_000);
     expect(tmp.remains(), "ABORT_DURING_FIFOS_RELEASES_PIPES").toEqual({ directories: [], descriptors: [] });
   } finally {
     // A failed assertion still settles the launch before its fixture goes.
-    controller.abort(); writeFileSync(release, ""); await run;
+    controller.abort(); writeFileSync(release, ""); await pool?.release(); await run;
     tmp.restore(); held.restore(); startupView.cleanup(); f.cleanup();
   }
 });

@@ -842,7 +842,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1111-1139`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1113-1141`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1524,7 +1524,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1837`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1839`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1583,7 +1583,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:239-316`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:241-319`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -2697,11 +2697,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1074-1102`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1076-1104`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1111-1137`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1113-1139`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1285-1358`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1287-1360`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
