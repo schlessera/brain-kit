@@ -87,13 +87,30 @@ export function openSqliteWriter(db: Database, options: { attach?: readonly Atta
  * on `db` that reads and then writes can lose its snapshot upgrade to a worker
  * commit and fail at once with SQLITE_BUSY, which no busy timeout retries. So
  * every transaction on `db` takes the write lock when it begins, and waits its
- * turn like any other writer.
+ * turn like any other writer. In the native hosted proof under fsync load, a
+ * BEGIN IMMEDIATE beside a committing worker also returned SQLITE_BUSY after
+ * about 37 ms with a 5 s busy timeout; nothing has run at that point, so the
+ * BEGIN is retried until the connection's busy timeout has passed.
  */
 function writeLockUpFront(db: Database) {
   const transaction = db.transaction.bind(db);
+  const timeout = (db.query("PRAGMA busy_timeout").get() as { timeout: number }).timeout;
   db.transaction = ((run: (...args: never[]) => unknown) => {
-    const modes = transaction(run);
-    return Object.assign((...args: unknown[]) => Reflect.apply(modes.immediate, modes, args), { deferred: modes.immediate, immediate: modes.immediate, exclusive: modes.exclusive });
+    let entered = false;
+    const modes = transaction(function (this: unknown, ...args: never[]) { entered = true; return run.apply(this, args); });
+    const immediate = (...args: unknown[]) => {
+      const deadline = performance.now() + timeout;
+      for (let delay = 1; ; delay = Math.min(delay * 2, 50)) {
+        entered = false;
+        try { return Reflect.apply(modes.immediate, modes, args); }
+        catch (error) {
+          const busy = String((error as { code?: unknown }).code ?? "").startsWith("SQLITE_BUSY") || (error as { errno?: unknown }).errno === 5;
+          if (!busy || entered || db.inTransaction || performance.now() + delay > deadline) throw error;
+          Bun.sleepSync(delay);
+        }
+      }
+    };
+    return Object.assign(immediate, { deferred: immediate, immediate, exclusive: modes.exclusive });
   }) as Database["transaction"];
 }
 
