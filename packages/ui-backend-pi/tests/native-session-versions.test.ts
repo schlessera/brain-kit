@@ -14,7 +14,7 @@ for (const restart of [false, true]) test(`${restart ? "restarted backend" : "fr
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
   let launched = 0;
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
+  const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => {
     launched++;
     const child = spawn(process.execPath, [join(import.meta.dir, "fixtures/native-session-version-worker.ts")], { stdio: ["pipe", "pipe", "pipe"] });
     const exited = new Promise<number>((resolve, reject) => { child.once("exit", code => resolve(code ?? 0)); child.once("error", reject); });

@@ -48,7 +48,7 @@ for (const profile of ["governed", "strict", "restricted"] as const) {
     const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
     const nativeLaunch = worker.launchAgentWorker;
     let child: worker.LaunchedWorker | undefined;
-    const launch = spyOn(worker, "launchAgentWorker").mockImplementation(options => {
+    const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async options => {
       child = nativeLaunch({ ...options, command: [process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/host-exec-worker.ts")] });
       return child;
     });
@@ -101,7 +101,7 @@ for (const [name, configure, message] of refusals) for (const restricted of [fal
     process.env.ANTHROPIC_API_KEY = "sk-odysseus-offline";
     delete process.env.BRAIN_UI_EXEC_WRAPPER; delete process.env.BRAIN_UI_EXEC_KILLER;
     const envelope = spyOn(autonomous, "piAutonomousEnvelope");
-    const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => { throw new Error("worker launched"); });
+    const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => { throw new Error("worker launched"); });
     try {
       const options = configure(fixture);
       await expect(openPiWorkerSession({ brainPath: fixture.brain, model: "anthropic/claude-sonnet-4-6", ...options },

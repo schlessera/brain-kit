@@ -34,11 +34,15 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
-async function until(condition: () => boolean, attempts = 200): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+// A deadline, not an attempt count: the real per-turn host probe now runs
+// without blocking the event loop (#2416), so polls continue while it starts.
+async function until(condition: () => boolean, deadlineMs = 10_000): Promise<void> {
+  const end = performance.now() + deadlineMs;
+  while (performance.now() < end) {
     if (condition()) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
+  if (condition()) return;
   throw new Error("condition was not reached");
 }
 
@@ -603,11 +607,12 @@ describe("principal revocation boundary", () => {
         settleFollowUp = resolve;
         rejectFollowUp = reject;
       });
-      let followUpCalls = 0;
+      let followUpCalls = 0, originalStarted = false;
       const backend = makeFakeBackend({
         id: "fake",
         capabilities: { followUp: true },
         startTurn: async () => {
+          originalStarted = true;
           await releaseOriginal.promise;
         },
         followUp: async () => {
@@ -634,6 +639,9 @@ describe("principal revocation boundary", () => {
         originalSocket.ws
       );
       await until(() => host.coordinator.bySession.has("session-native-follow-up"));
+      // A native follow-up joins only a turn the backend is running; the host
+      // probe before it is awaited (#2416), so wait for the backend itself.
+      await until(() => originalStarted);
       followUpHandlers.onMessage(
         {
           data: JSON.stringify({
@@ -716,7 +724,7 @@ describe("principal revocation boundary", () => {
         );
 
         // Keep authorization time fixed through the real per-turn host probe and
-        // queue admission. Its synchronous startup can exceed the 50 ms lifetime.
+        // queue admission. Its startup can exceed the 50 ms lifetime.
         // Advance only after both prerequisites exist, then release before yielding
         // to the real sweep timer: dequeue must reject an already-expired follow-up.
         now = principal.expiresAt + 1;

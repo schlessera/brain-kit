@@ -112,7 +112,7 @@ export async function runAutonomousTurn(
   if ((providerFolderRoots(policy.policy).length || providerTypeSelectors(policy.policy).length) && !deps.privateIndex)
     throw new BackendRequestError("Autonomous turns under a provider folder rule need the host's private index masks; none are configured.");
   // The restricted envelope must be establishable, not only the ordinary worker (#676).
-  try { requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime, { dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory }); }
+  try { await requireWorkerHostRecorded(deps.brainPath ?? process.cwd(), "restricted", deps.runtime, { dbPath: deps.db.filename, identitySentinelDirectory: deps.identitySentinelDirectory }); }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.emit?.({ type: "error", code: "BACKEND_REQUEST_ERROR", turnId: input.turnId, message,

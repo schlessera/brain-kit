@@ -15,7 +15,7 @@ for (const mode of ["none", "header", "late", "cancel", "multiple", "resume"]) t
   const previous = process.env.PI_CODING_AGENT_DIR; process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   const children: ReturnType<typeof spawn>[] = [], exits: Promise<number>[] = [];
   const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
-  const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
+  const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => {
     const child = spawn(process.execPath, [join(import.meta.dir, "fixtures/direct-application-worker.ts")], { stdio: ["pipe", "pipe", "pipe"], env: { PATH: process.env.PATH! } });
     children.push(child);
     const exited = new Promise<number>((resolve, reject) => { child.once("exit", (code, signal) => { expect(signal === "SIGKILL" || code === 0).toBe(true); resolve(code ?? 128); }); child.once("error", reject); });

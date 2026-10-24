@@ -26,7 +26,7 @@ beforeEach(() => {
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   receivedInit = undefined; overflow = false; publicationFailure = false;
   probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
-  launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
+  launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => {
     const stdout = new PassThrough(), stderr = new PassThrough();
     const exited = Promise.withResolvers<number>();
     const stop = () => { stdout.end(); stderr.end(); if (publicationFailure) exited.reject(new Error("stale maintenance output: workspaces/shared.md")); else exited.resolve(0); };
@@ -219,8 +219,8 @@ test("Pi publication refusal fails the turn without unhandled lifecycle rejectio
 });
 test("pi startup forwards trusted host admission and keeps it out of the worker init payload",async()=>{
  const maintenance={tempLimits:{allowanceBytes:8388608,budgetBytes:16777216},tempDomain:{statePath:join(root,"ui.db")},maskPaths:[join(root,"state")]};
- const prepare=worker.prepareWorkerSandbox;let seen:unknown;
- const capture=spyOn(worker,"prepareWorkerSandbox").mockImplementation((path,options)=>{seen=options?.maintenance;return prepare(path,options);});
+ const prepare=worker.prepareWorkerSandboxAsync;let seen:unknown;
+ const capture=spyOn(worker,"prepareWorkerSandboxAsync").mockImplementation((path,options)=>{seen=options?.maintenance;return prepare(path,options);});
  try{
   await createPiBackend({brainPath:brain,sessionDir,maintenance}).startTurn({prompt:"Return to Ithaca",signal:new AbortController().signal,
    bridge:{emit:()=>{},requestPermission:async()=>({behavior:"allow"})}});

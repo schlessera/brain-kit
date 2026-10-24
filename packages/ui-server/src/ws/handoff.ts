@@ -296,7 +296,7 @@ export async function prepareHandoff(
     if (backend.capabilities.autonomous !== true) {
       return answer({ state: "failed", message: `${backend.id} can't draft a summary on this server.` });
     }
-    requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
+    await requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
     let history: SessionHistoryMessage[];
     try {
       history = host.prepareHistory(msg.sourceSessionId, await backend.getHistory(msg.sourceSessionId));

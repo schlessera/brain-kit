@@ -32,7 +32,8 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
   const heartbeatSize = () => heartbeatPath ? Bun.file(heartbeatPath).size : 0;
   const originalLaunch = workers.launchAgentWorker;
   const priorPi = process.env.PI_CODING_AGENT_DIR; process.env.PI_CODING_AGENT_DIR = config;
-  spawn = spyOn(workers, "launchAgentWorker").mockImplementation(input => {
+  // Pi awaits its launch; Claude's synchronous spawn callback launches directly.
+  const launch = (input: Parameters<typeof originalLaunch>[0]) => {
     const worker = originalLaunch(adapter === "pi" ? { ...input,
       command: [process.execPath, "--no-env-file", join(import.meta.dir, "fixtures/scope-pi-worker.ts")], env: { PATH: "/usr/bin:/bin", ...(overshoot ? { SCOPE_FIXTURE_CHECKPOINT: "4" } : {}) } } : input);
     // Read the actual worker's private writable tmpfs through its retained host handle.
@@ -40,7 +41,9 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
     heartbeatPath = join(worker.turnTemp!.root, relative("/tmp", workers.WORKER_SCRATCH), "adapter-heartbeat");
     if (adapter === "pi") { piProgress = scopePiProgress(worker); return piProgress.worker; }
     return worker;
-  });
+  };
+  spawn = adapter === "pi" ? spyOn(workers, "launchAgentWorkerAsync").mockImplementation(async input => launch(input))
+    : spyOn(workers, "launchAgentWorker").mockImplementation(launch);
   const backend = adapter === "pi" ? createPiBackend({ brainPath: brain, sessionDir: join(root, "sessions"), loadExtensions: false })
     : createClaudeBackend({ brainPath: brain, queryFn: ((params: any) => {
       const child = params.options.spawnClaudeCodeProcess({ command: "/bin/sh", args: ["-c", 'while :; do printf x >> "$BRAIN_WORKER_SCRATCH/adapter-heartbeat"; sleep 0.02; done'],

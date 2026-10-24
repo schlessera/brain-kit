@@ -25,7 +25,7 @@ for (const mode of ["default", "narrowed", "absent", "forged-tool", "mismatched-
     const stopChildren: Array<() => void> = [];
     const terminations: Array<{ code: number | null; signal: string | null }> = [];
     const probe = spyOn(worker.workerHostBoundary, "probe").mockReturnValue({ ok: true });
-    const launch = spyOn(worker, "launchAgentWorker").mockImplementation(() => {
+    const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async () => {
       const child = spawn(process.execPath, [join(import.meta.dir, "fixtures/read-base-worker.ts")], {
         stdio: ["pipe", "pipe", "pipe"], env: { PATH: process.env.PATH! },
       });

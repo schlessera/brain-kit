@@ -18,7 +18,8 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BRAIN_SCRATCH_DIR, BRAIN_WORKSPACES_DIR, linkRule, READ_ONLY_BRAIN_RULE, TURN_TEMP_RULE } from "@schlessera/brain-common/internal/worker-areas";
-import { brainGitSync } from "./maintenance-worker.js";
+import { brainGitSteps } from "./maintenance-worker.js";
+import { runWorkerStepsSync, type WorkerSteps } from "./worker-steps.js";
 import { WORKER_XDG_HOME } from "./worker-xdg.js";
 
 /**
@@ -360,17 +361,17 @@ function unlinkScanned(dir: string, alias: ScannedAlias): void {
  * credential-free maintenance worker (#1648), which names the brain a safe
  * directory itself; a worker that cannot run leaves scratch read-only.
  */
-function scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): true | { refused: string } {
+function* scratchIgnoredByGit(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<true | { refused: string }> {
   const git = Bun.which("git");
   const own = Boolean(lstatSync(join(brain, ".git"), { throwIfNoEntry: false }));
   if (!own) {
     if (!git) return true;
-    const inRepo = brainGitSync(brain, ["rev-parse", "--git-dir"], maintenance);
+    const inRepo = yield* brainGitSteps(brain, ["rev-parse", "--git-dir"], maintenance);
     if (inRepo === 127) return { refused: "git could not run to confirm .brain/scratch/ is gitignored" };
     if (inRepo !== 0) return true;
   }
   if (!git) return { refused: "git is not available to confirm .brain/scratch/ is gitignored" };
-  const exitCode = brainGitSync(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], maintenance);
+  const exitCode = yield* brainGitSteps(brain, ["check-ignore", "-q", "--no-index", "--", BRAIN_SCRATCH_DIR], maintenance);
   if (exitCode === 0) return true;
   return { refused: exitCode === 1
     ? ".brain/scratch/ is not gitignored, so a file written there could be committed; run `brain doctor --fix` outside a hosted turn"
@@ -389,6 +390,11 @@ function shown(paths: readonly string[]): string {
  * disposable, and the other name keeps its data.
  */
 export function resolveScratchMount(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): { mount: WorkerMount; removed: string[] } {
+  return runWorkerStepsSync(resolveScratchMountSteps(brain, maintenance));
+}
+
+/** `resolveScratchMount` as steps: its git check runs in a worker a caller can await (#2416). */
+export function* resolveScratchMountSteps(brain: string, maintenance?: import("./maintenance-worker.js").MaintenanceHost): WorkerSteps<{ mount: WorkerMount; removed: string[] }> {
   const dir = realBrainDirectory(brain, BRAIN_SCRATCH_DIR, true);
   if (dir === null || typeof dir === "object") return { mount: { writable: false, reason: dir?.refused ?? "missing" }, removed: [] };
   if (mountPointsUnder(dir).length) return { mount: { writable: false, reason: ".brain/scratch/ is or contains a mount point" }, removed: [] };
@@ -404,7 +410,7 @@ export function resolveScratchMount(brain: string, maintenance?: import("./maint
       return { mount: { writable: false, reason: `the scratch alias ${rel} could not be removed (${(error as NodeJS.ErrnoException).code ?? error})` }, removed };
     }
   }
-  const ignored = scratchIgnoredByGit(brain, maintenance);
+  const ignored = yield* scratchIgnoredByGit(brain, maintenance);
   if (ignored !== true) return { mount: { writable: false, reason: ignored.refused }, removed };
   return { mount: { writable: true, path: dir }, removed };
 }

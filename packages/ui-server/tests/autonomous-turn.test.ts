@@ -124,7 +124,8 @@ describe("server-selected autonomous turn", () => {
       expect(f.budget.claim("telemachus", { runId: "run-3", principalId: f.principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000)).toBeNull();
       expect(store.getItem("telemachus")).toMatchObject({ status: "ready", attempts: 0 });
       await handleChatMessage(host, ws, { authorization: testAuthorization(f.principal.id), text: "Odysseus interactive request", attachments: [] });
-      await Bun.sleep(0);
+      // The real per-turn host probe is awaited (#2416); the dispatch starts once it answers.
+      while (interactiveStarts < 1 && !frames.some((frame) => frame.includes("SESSION_LIMIT"))) await Bun.sleep(1);
       expect(interactiveStarts).toBe(1);
       expect(frames.some((frame) => frame.includes("SESSION_LIMIT"))).toBe(false);
       expect(starts).toBe(2);

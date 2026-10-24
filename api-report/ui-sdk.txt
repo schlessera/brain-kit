@@ -1093,6 +1093,7 @@ export "./internal" (./src/internal.ts)
   isEnvName
   isManagedWorkerStartupView
   launchAgentWorker
+  launchAgentWorkerAsync
   launchLimits
   launchMaintenanceWorker
   limitFailureMessage
@@ -1122,9 +1123,11 @@ export "./internal" (./src/internal.ts)
   prepareRecoveredWorkerFiles
   prepareWorkerOutput
   prepareWorkerSandbox
+  prepareWorkerSandboxAsync
   probeMaintenanceWorker
   probeNativeMaintenanceWorker
   probeWorkerHost
+  probeWorkerHostAsync
   processStateLedger
   promptPrefixFingerprint
   protectedPaths
@@ -1135,6 +1138,7 @@ export "./internal" (./src/internal.ts)
   recoveredWorkerFiles
   requestPolicyPermission
   requireWorkerHost
+  requireWorkerHostAsync
   resolveMaintenanceTempLimits
   resolveOutputStagingLimits
   resolveTurnTempLimits

@@ -2,7 +2,7 @@
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import type { KeyedLock } from "@schlessera/brain-ui-sdk/server";
-import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandbox, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
+import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativeBrainManagerClient, prepareWorkerSandboxAsync, workerProfile, type WorkerSandbox, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
@@ -141,10 +141,10 @@ export function createGovernedTurns(options: {
         if (folderPaths.includes(INDEX_DIR)) { try { ensureIndexDirectory(options.brainPath); } catch { /* resolver refuses */ } }
         const requested = options.profile === "strict" || (origin === "interactive" && preference === "strict") ? "strict" : policy.policy.profiles[origin];
         const selected = requested === "governed" && !availability.available ? "strict" : requested;
-        const resolveSandbox = () => prepareWorkerSandbox(options.brainPath, { profile: selected,
+        const resolveSandbox = () => prepareWorkerSandboxAsync(options.brainPath, { profile: selected,
           protectedPaths: protectedPaths(policy.policy), folderPaths,
           maskPaths: options.maskPaths, maintenance: { ...options.execution.boundary.maintenance, startupView } });
-        let resolved = resolveSandbox();
+        let resolved = await resolveSandbox();
         const missingWritableRoot = () => resolved.areas.find(area => area.mount.writable
           && !lstatSync(join(startupView!.root, area.rel), { throwIfNoEntry: false })?.isDirectory());
         // Host setup may create scratch after the initial admission checkpoint.
@@ -153,7 +153,7 @@ export function createGovernedTurns(options: {
         if (workerProfile(resolved) !== "governed" && missingWritableRoot()) {
           await startupView.cleanup(); startupView = undefined;
           startupView = await prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal);
-          signal.throwIfAborted(); resolved = resolveSandbox();
+          signal.throwIfAborted(); resolved = await resolveSandbox();
           const missing = missingWritableRoot();
           if (missing) throw new Error(`The immutable worker checkpoint does not include writable ${missing.rel} after host setup; retry admission once concurrent setup has settled.`);
           // The turn runs on this newer checkpoint, so its types are judged

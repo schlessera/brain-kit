@@ -357,10 +357,15 @@ async function runRetainedSession(
       next = null;
 
       let workerIdentity: import("@schlessera/brain-ui-sdk/internal").WorkerNoteFacts["identity"];
+      // The turn's own controller exists before the host check is awaited, so
+      // a cancel accepted while the probe runs (#2416) aborts this turn's
+      // admission, as one accepted during billing does.
+      const abortController = new AbortController();
+      turn.abortController = abortController;
       // Before transcript/source/failure recording or any runtime initialization.
       // Every queued interactive or voice turn repeats the actual host check.
       try {
-        const workerHost = requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
+        const workerHost = await requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
         if (workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined) workerIdentity = { kind: "separate_uid", workerUid: workerHost.workerUid };
         // Pi turn-runner declares no voice tool posture. Keep this early
         // admission refusal aligned with that direct-consumer guard if Pi
@@ -375,8 +380,6 @@ async function runRetainedSession(
         break;
       }
 
-      const abortController = new AbortController();
-      turn.abortController = abortController;
       const timeoutHandle = setTimeout(() => {
         host.log.emit({
           severityText: "WARN",

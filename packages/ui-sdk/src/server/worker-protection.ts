@@ -3,6 +3,7 @@ import { closeSync, fstatSync, lstatSync, mkdirSync, readdirSync, realpathSync, 
 import { isAbsolute, join, normalize } from "node:path";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 import { hasNativeBrainBoundary } from "./worker-startup-view.js";
+import { runWorkerStepsSync, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 import { isEnvName, protectedPaths, PROTECTED_TIER_A, PROTECTED_TIER_B } from "./protected-paths.js";
 import { at, openDirectory, mountPointsUnder, scanForOutsideLinks, WORKER_MOUNT_SCAN_LIMIT,
   type WorkerProtection, type ProtectedWorkerPath, type WorkerProviderMasks } from "./worker-sandbox.js";
@@ -256,6 +257,13 @@ function requireWorkerBrainMount(fd: number, pid: number, brain: string): void {
 export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtection | undefined,
   retainedFolders: readonly string[] | undefined, pid: number, deadline: number, masks?: WorkerProviderMasks,
   view?: WorkerBrainView): void {
+  runWorkerStepsSync(verifyWorkerFolderMountsSteps(brain, protection, retainedFolders, pid, deadline, masks, view));
+}
+
+/** `verifyWorkerFolderMounts`, waiting through steps for an asynchronous launch (#2416). */
+export function* verifyWorkerFolderMountsSteps(brain: string, protection: WorkerProtection | undefined,
+  retainedFolders: readonly string[] | undefined, pid: number, deadline: number, masks?: WorkerProviderMasks,
+  view?: WorkerBrainView): WorkerSteps<void> {
   if (!retainedFolders?.length) return;
   const qualified = protection && qualifiedFolders.get(protection);
   if (!qualified || retainedFolders.some(root => !qualified.roots.includes(root)))
@@ -275,7 +283,7 @@ export function verifyWorkerFolderMounts(brain: string, protection: WorkerProtec
       if (qualified.pins.every(pin => mounts.has(join(brain, pin.rel)))) break;
       if (Date.now() >= deadline) throw new Error("retained folder mount points are unavailable");
       if (identity() !== started) throw new Error("worker identity changed");
-      Bun.sleepSync(1);
+      yield* workerStepSleep(1);
     }
     // Check the still-live brain paths as well as the actual namespace view.
     protectedWorkerMounts(brain, protection!, retainedFolders);
