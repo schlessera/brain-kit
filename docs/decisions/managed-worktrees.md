@@ -80,7 +80,7 @@ such as an owner in another PID namespace, is **unknown**
 (`function live`, `packages/ui-server/src/brain/reference-worktrees.ts:204-210`).
 
 Reconciliation runs at startup and when a generation closes, never on a timer
-(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:587-614`).
+(`async function reconcile`, `packages/ui-server/src/brain/reference-worktrees.ts:590-617`).
 After three days without explicit activity, a worktree expires:
 
 - with a live holder it stays `active` and held, however long the turn runs;
@@ -193,7 +193,7 @@ source and worktrees to agents through two bridge tools, `reference_source` and
 once in the SDK and registered identically by both backends
 ([MCP contract](../integration-contract/mcp.md#reference-source-and-managed-worktree-tools-additive-0440-2432)).
 The host side is `createReferenceTools`
-(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:49-184`).
+(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:59-194`).
 
 **The turn is the authority.** Before a governed or strict turn's workers
 start, the host records its principal and what those workers bind: the public
@@ -203,7 +203,7 @@ opened
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses
-(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:134-183`).
+(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:141-190`).
 Every operation then runs through the acquisition and worktree services, which
 check grants, validation and ownership again; a tool never repeats or skips
 their rules. Once the turn ends, its record is gone and its bridge holds
@@ -215,7 +215,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:853-864`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:668-680`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:707-719`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -227,9 +227,10 @@ protecting it from capacity eviction until the turn ends.
 `/tmp/brain-reference/<domain>/<name>` only when the source's view is the one
 this turn's workers bind, and a worktree result names
 `/tmp/brain-worktrees/<id>` only while this turn's generation holds it.
-Otherwise the path is `null`. No result names a host path: refusal messages
-are bounded to 500 bytes, and every absolute path in them other than a worker
-path is replaced.
+Otherwise the path is `null`. No result names a host path: a refusal or
+refresh error whose text could name one (it contains `/` or `\`) is replaced
+by a fixed message for its code, the original goes to the host log, and every
+message is bounded to 500 bytes.
 
 **Worktrees go to the turn's generation.** `request` allocates a worktree and
 grants it to the turn's generation at once; when the grant fails, the untouched
@@ -251,37 +252,42 @@ so no earlier system prompt, tool or message changes
 published there, not only those this turn asks for, so the Q4 rule (a fresh
 check before a new mount) applies to the bind itself. The maintainer ruled on
 2026-10-24 how ([option 1](https://github.com/schlessera/brain-kit/issues/2432)):
-before a turn's workers bind a view, every source in it whose validation
-lifetime lapsed is either checked again or taken out
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:527-549`):
+before a turn's workers bind a view, every source in it whose validation lapsed
+is validated again, including sources a running turn reads; one that fails is
+withheld from the new bind, and a running reader keeps its existing mount
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:549-587`):
 
-- a source a running turn reads is validated again, for its exact published
-  commit and under its domain's authority. A revision that moved, a failed or
-  impossible check, or a lost grant withholds it; a denial or a missing
-  revision withdraws it, as a request would. The check never fetches;
-- any other lapsed source leaves the view without a network check;
-- superseded roots leave the view as soon as their source refreshes, and roots
-  kept only for a worktree leave it at recovery and before every bind.
+- a source with less than a minute of validation left counts as lapsed, so it
+  does not lapse between the check and its workers' start;
+- the check covers the exact published commit under the domain's authority,
+  four sources at a time, and never fetches. A revision that moved, or a
+  failed or impossible check, withholds the source; a denial or a missing
+  revision withdraws it, as a request would;
+- no root but a source's current one stays in the view: superseded roots leave
+  as soon as their source refreshes, and a bind takes out any other, such as
+  one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:463-474`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:484-495`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
-A suspension the pool does not confirm refuses the bind, and the next bind
-retries it.
+An exposure change the pool did not confirm, a suspension or a restoration,
+refuses the bind, and the next bind settles it. A cancelled bind stops waiting
+for other requests' work without cancelling it.
 
 Suspension, restoration, withdrawal and publication of one source run one at a
-time, and a bind waits for any of them in progress. A restoration publishes
-only a source that nothing withdrew, replaced or let lapse meanwhile. A failed
-publication points the name back only at a previous root that is exposed under
-live validation; otherwise the name goes. Revocation and anonymous denial still
-withdraw a source at once, as
+time, and a bind waits for any of them in progress, a first publication
+included. A restoration publishes only a source that nothing withdrew, replaced
+or let lapse meanwhile. A failed publication points the name back only at a
+previous root that is exposed under live validation; otherwise the name goes.
+Revocation and anonymous denial still withdraw a source at once, as
 [acquisition](reference-source-acquisition.md#revocation-and-recovery) records.
 
 **Turn limits.** A turn keeps at most 32 distinct sources protected; a 33rd is
 refused rather than ending an earlier reader's protection. A call that finishes
-after its turn ended releases what it took and reports no path.
+after its turn ended releases what it took and reports no path, and a worktree
+renewal or release still queued when the turn ended changes nothing.
 
 ## Hygiene and cleanup
 

@@ -13,7 +13,6 @@
  *   fixed per action.
  * See docs/decisions/managed-worktrees.md#agent-tools.
  */
-import { dirname } from "node:path";
 import { ZodError } from "zod";
 import type { Logger } from "@opentelemetry/api-logs";
 import { WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "@schlessera/brain-ui-sdk/internal";
@@ -27,6 +26,17 @@ import { ReferenceWorktreeError, type ReferenceWorktree, type ReferenceWorktreeG
 /** Distinct sources one turn keeps protected from capacity eviction while it reads them. */
 const TURN_LEASES = 32;
 const MESSAGE_BYTES = 500;
+/** What a refusal says when its service message could name a host path. */
+const PUBLIC_MESSAGES: Record<ReferenceToolRefusalCode, string> = {
+  unavailable: "The reference service could not complete this request; try again later.",
+  unauthorized: "No reference grant you hold covers this repository, or the repository refused access.",
+  missing: "No such repository, revision or worktree is available to you.",
+  invalid: "The request is invalid.",
+  capacity: "The reference pool has no room for this request.",
+  busy: "Too many reference requests are waiting; try again later.",
+  released: "This worktree was released; request a new one.",
+  cancelled: "The request was cancelled.",
+};
 
 const SOURCE_GUIDANCE = "Read only under path. Shared source is read-only and moves: a later read may see a newer commit. To edit it, or to read one fixed commit across several steps, request a managed worktree.";
 const WORKTREE_GUIDANCE: Record<"request" | "access" | "renew" | "release", string> = {
@@ -49,30 +59,28 @@ interface TurnAccess {
 export function createReferenceTools(options: {
   sources: Pick<ReferenceSources, "request" | "bindable">;
   worktrees?: Pick<ReferenceWorktrees, "allocate" | "access" | "renew" | "release" | "list">;
-  /** Host roots whose paths never reach a result. */
-  redact?: readonly string[];
   log?: Logger;
 }) {
   const turns = new Map<string, TurnAccess>();
-  const hidden = new Set(options.redact ?? []);
 
   function refusal(error: unknown): ReferenceToolResult {
-    if (error instanceof ZodError) return { ok: false, code: "invalid", message: scrub(error.issues.map(issue => issue.message).join("; ")) };
+    if (error instanceof ZodError) return { ok: false, code: "invalid", message: scrub(error.issues.map(issue => issue.message).join("; "), "invalid") };
     if (error instanceof ReferenceSourceError || error instanceof ReferenceWorktreeError)
-      return { ok: false, code: error.code as ReferenceToolRefusalCode, message: scrub(error.message) };
+      return { ok: false, code: error.code as ReferenceToolRefusalCode, message: scrub(error.message, error.code as ReferenceToolRefusalCode) };
     options.log?.emit({ severityText: "WARN", body: `reference tool failed: ${error instanceof Error ? error.message : String(error)}` });
     return { ok: false, code: "unavailable", message: "The reference service could not complete this request." };
   }
   /**
-   * Bounded, and without host paths: the pool's and brain's roots, and any
-   * other absolute path a service error carried. A `file://` repository the
-   * caller named stays readable.
+   * What a refusal may say. A service message that could name a path (any `/`
+   * or `\\`) is replaced by a fixed one for its code, and the original goes to
+   * the host log only; the rest is bounded.
    */
-  function scrub(text: string): string {
-    let out = text;
-    for (const root of hidden) if (root) out = out.split(root).join("<host>");
-    out = out.replace(/(?<![\w:/.])\/(?!\/)[^\s'"`,;)]+/g, match => /^\/tmp\/brain-(?:reference\/(?:public|private)|worktrees)(?:\/|$)/.test(match) && !match.includes("/../") ? match : "<host path>");
-    return Buffer.byteLength(out) > MESSAGE_BYTES ? `${Buffer.from(out).subarray(0, MESSAGE_BYTES - 3).toString().replace(/\uFFFD$/, "")}...` : out;
+  function scrub(text: string, code: ReferenceToolRefusalCode = "unavailable"): string {
+    if (/[/\\]/.test(text)) {
+      options.log?.emit({ severityText: "INFO", body: `reference tool refusal (${code}): ${text}` });
+      return PUBLIC_MESSAGES[code];
+    }
+    return Buffer.byteLength(text) > MESSAGE_BYTES ? `${Buffer.from(text).subarray(0, MESSAGE_BYTES - 3).toString().replace(/\uFFFD$/, "")}...` : text;
   }
   const iso = (ms: number) => new Date(ms).toISOString();
   const ended = (): ReferenceToolResult => ({ ok: false, code: "cancelled", message: "This turn ended before the call finished." });
@@ -82,7 +90,7 @@ export function createReferenceTools(options: {
     return { repository: lease.repository, revision: lease.revision, domain: lease.domain, commit: lease.commit,
       path: bound && lease.viewPath === bound ? `${WORKER_REFERENCE_ROOT}/${lease.domain}/${lease.name}` : null,
       freshness: lease.stale ? "stale" : "fresh", refreshedAt: iso(lease.refreshedAt), validatedAt: iso(lease.validatedAt),
-      error: lease.error === null ? null : scrub(lease.error) };
+      error: lease.error === null ? null : /[/\\]/.test(lease.error) ? "The last refresh failed; its details are in the host log." : scrub(lease.error) };
   }
   function worktree(access: TurnAccess, item: ReferenceWorktree, turnId?: string): ReferenceWorktreeView {
     const reachable = (turnId === undefined || current(turnId, access)) && access.generation && item.generation === access.generation.id && item.state !== "released";
@@ -117,7 +125,6 @@ export function createReferenceTools(options: {
       let views: { public: string; private: string } | null = null;
       try {
         views = await options.sources.bindable(input.principalId, input.signal);
-        for (const path of [views.public, views.private]) hidden.add(dirname(dirname(path)));
       } catch (error) {
         input.signal?.throwIfAborted();
         options.log?.emit({ severityText: "WARN", body: `reference source views unavailable for this turn: ${error instanceof Error ? error.message : String(error)}` });
@@ -157,11 +164,11 @@ export function createReferenceTools(options: {
         // A call whose turn ended while it waited changes nothing.
         if (!current(turnId, access)) return ended();
         if (input.action === "renew") {
-          const item = await worktrees.renew({ worktreeId: input.worktreeId!, principalId: access.principalId });
+          const item = await worktrees.renew({ worktreeId: input.worktreeId!, principalId: access.principalId, live: () => current(turnId, access) });
           return { ok: true, action: "renew", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.renew };
         }
         if (input.action === "release") {
-          const item = await worktrees.release({ worktreeId: input.worktreeId!, principalId: access.principalId, signal });
+          const item = await worktrees.release({ worktreeId: input.worktreeId!, principalId: access.principalId, signal, live: () => current(turnId, access) });
           return { ok: true, action: "release", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.release };
         }
         // Requesting and accessing grant to this turn's generation: without one, nothing is allocated.

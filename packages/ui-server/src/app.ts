@@ -464,7 +464,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   }
   // The agent tools (#2432) reach both services only through the turn's own access.
   const referenceTools = referenceSources ? createReferenceTools({ sources: referenceSources, ...(referenceWorktrees ? { worktrees: referenceWorktrees } : {}),
-    redact: [config.brainPath], log: brainLog }) : undefined;
+    log: brainLog }) : undefined;
   if (referenceWorktrees) {
     bootCleanup.push(() => referenceWorktrees.close());
     const recovered = await referenceWorktrees.recover().catch((error: Error) => ({ discarded: [], closed: [], retained: [error.message] }));

@@ -888,7 +888,8 @@ authenticated turn, and another principal's worktree identity reads as
 `missing`. A refusal is `{ ok: false, code, message }`, a tool error on both
 backends, with `code` one of `unavailable`, `unauthorized`, `missing`,
 `invalid`, `capacity`, `busy`, `released` or `cancelled`. Messages are at most
-500 bytes and never name the host's pool or brain paths.
+500 bytes; one that could name a host path is replaced by a fixed message for
+its code, as is a stale source's `error`.
 
 `source` is `{ repository, revision, domain, commit, path, freshness,
 refreshedAt, validatedAt, error }`. `freshness` is `fresh` or `stale`; a stale
@@ -896,9 +897,9 @@ source carries the refresh `error` and its unchanged `refreshedAt`. `path` is
 `/tmp/brain-reference/<public|private>/<name>` when this turn's workers bind
 that view, else `null`. The source is read-only and moves: a later read of the
 same path may see a newer commit. Before a turn's workers bind a view, every
-source in it whose five-minute validation lapsed is validated again if a running
-turn reads it, and otherwise taken out until a request validates it; one that
-fails is withheld, and a running reader's later lookups of it fail until then. One turn keeps at most 32
+source in it whose five-minute validation lapsed, or has less than a minute
+left, is validated again; one that fails is withheld until a request validates
+it, and a running reader's later lookups of it fail until then. One turn keeps at most 32
 distinct sources; a further one is refused as `busy`.
 
 `worktree` is `{ id, repository, revision, domain, startingCommit, state,
