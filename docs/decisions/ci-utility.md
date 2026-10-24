@@ -368,6 +368,49 @@ are in [the sanitized refresh evidence](../process/evidence/unit-weight-refresh-
 a setting at or below 900 seconds. The incomplete after-balance, different
 load and four added tooling selections support no successful speedup claim.
 
+#### Rollback-writer readiness and the subsequent wide recheck
+
+The #2747 fixture diagnosis reproduced the original five-second readiness
+failure under CPU pressure. A traced child spent 5.775 seconds in its
+uncommitted 300-row update, including 299 `fsync` calls taking 5.544 seconds.
+SQLite's [cache-spill sequence](https://www.sqlite.org/atomiccommit.html)
+flushes the journal before spilling dirty pages. Bun startup was a smaller
+part of the separately measured child phases.
+
+The fixture now commits its 300 padded seed rows before the bounded readiness
+window, then updates sixteen rows in the child with the existing five-page
+cache. Readiness still follows the update. The test asserts SIGKILL, a hot
+journal header and changed database bytes before its original copy, committed
+row recovery, integrity and writeability checks. The five-second readiness
+limit, per-test deadline, product preparer, isolation and offline guards are
+unchanged (`killRollbackWriter`,
+`packages/ui-sdk/tests/maintenance-index-input.test.ts:16-37`). Removing the
+journal before recovery fails the original row-sum assertion, and thirty
+sequential repetitions pass under both twenty and forty busy loops on four
+CPUs.
+
+The one subsequent eight-worker `check:pr --import-graph` ran at fixture commit
+`ada2e1767626ef6f4e8fa7ef50784998988eaa5c` against reference base
+`f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162`. Current source selects 626 files,
+containing all 464 historical reference files plus 162 additions. All eight
+JUnit/timing inventories reconcile exactly once, with 7,970 passing cases,
+four skips and two failures. The rollback-journal case passes in 517.28 ms.
+Both failures are exact-note assertions in `worker-sandbox-note.test.ts`:
+ambient provider-variable names appear in pi's note while the fixture expects
+an empty provider list. An empty-environment control passes all three focused
+cases; fictional provider values reproduce both failures. The independent
+fixture repair is [#2769](https://github.com/schlessera/brain-kit/issues/2769).
+
+Complete preflight wall time is 1289.718 seconds (21m 29.7s); queue wall time
+is 1203.034 seconds. This is a failed attempt, not a successful qualification.
+**Feedback remains opt-in.** Minimum available RAM is 30.437 GiB and whole-host
+CPU is 18.535%; concurrent proof and focused pressure diagnostics overlap the
+run, so these are shared-host observations rather than a controlled speedup.
+The [source-bound receipt](../process/evidence/rollback-writer-readiness-2747.json)
+records phase timings, per-worker reports, reference coverage, load and limits.
+The earlier failed #2736 receipt remains unchanged; local observations never
+replace the reviewed hosted timing weights.
+
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap

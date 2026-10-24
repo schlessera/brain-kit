@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync, linkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { prepareMaintenanceIndex } from "../src/server/maintenance-index-input.js";
 function fixture(run: (root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), "maintenance-index-test-"));
@@ -12,6 +12,28 @@ function fixture(run: (root: string) => void) {
 function inherited(run: () => void) {
   const getuid = process.getuid!; process.getuid = () => getuid() + 1;
   try { run(); } finally { process.getuid = getuid; }
+}
+async function killRollbackWriter(path: string) {
+  // Sixteen padded rows exceed the five-page cache and spill uncommitted
+  // pages. Updating all 300 rows adds repeated journal syncs to readiness.
+  const code = `import {Database} from "bun:sqlite";
+console.error("ROLLBACK_WRITER_OPENING");const db=new Database(process.argv[1]);db.run("PRAGMA cache_size=5");
+console.error("ROLLBACK_WRITER_UPDATING");db.run("BEGIN IMMEDIATE");db.run("UPDATE odysseus SET value=999 WHERE rowid<=16");
+console.error("ROLLBACK_WRITER_READY");console.log("READY");setInterval(()=>{},1000);`;
+  const child = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", "-e", code, path], { cwd: dirname(path), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const reader = child.stdout.getReader(), stderr = new Response(child.stderr).text();
+  let timer: ReturnType<typeof setTimeout> | undefined, failure: Error | undefined;
+  try {
+    const first = await Promise.race([reader.read(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error("ROLLBACK_WRITER_READY_TIMEOUT")), 5000); })]);
+    expect(new TextDecoder().decode(first.value)).toContain("READY");
+  } catch (error) {
+    failure = new Error(`${error instanceof Error ? error.message : error}; exitCode=${child.exitCode}; signalCode=${child.signalCode}`, { cause: error });
+  } finally {
+    if (timer) clearTimeout(timer); child.kill("SIGKILL"); await child.exited; await reader.cancel();
+  }
+  const diagnostics = await stderr;
+  if (failure) throw new Error(`${failure.message}; stderr=${diagnostics || "(empty)"}`, { cause: failure });
+  expect(child.signalCode, "ROLLBACK_WRITER_WAS_KILLED").toBe("SIGKILL");
 }
 describe("fixed disposable index preparation", () => {
   test("inherited file copy replaces inode, preserves bytes/modes and remains SQLite writable", () => fixture(root => {
@@ -59,19 +81,20 @@ describe("fixed disposable index preparation", () => {
   test("recovers an actual killed writer's hot rollback journal", async () => {
     const root = mkdtempSync(join(tmpdir(), "maintenance-index-rollback-"));
     mkdirSync(join(root, ".brain-index"));
-    const code = `import {Database} from "bun:sqlite";
-const db=new Database(process.argv[1]);db.run("PRAGMA journal_mode=DELETE");db.run("PRAGMA cache_size=5");
-db.run("CREATE TABLE odysseus(value INTEGER,padding TEXT)");const insert=db.prepare("INSERT INTO odysseus VALUES(1,?)");
-db.transaction(()=>{for(let i=0;i<300;i++)insert.run("x".repeat(4000));})();
-db.run("BEGIN IMMEDIATE");db.run("UPDATE odysseus SET value=999");console.log("READY");setInterval(()=>{},1000);`;
-    const child = Bun.spawn([process.execPath, "--config=/dev/null", "--no-env-file", "-e", code, join(root, ".brain-index", "brain.db")], { cwd: root, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-    const reader = child.stdout.getReader(); let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const first = await Promise.race([reader.read(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Error("ROLLBACK_WRITER_READY_TIMEOUT")), 5000); })]);
-      expect(new TextDecoder().decode(first.value)).toContain("READY");
-      child.kill("SIGKILL"); await child.exited;
+      // Commit the full fixture before the bounded child-readiness window.
+      const path = join(root, ".brain-index", "brain.db"), db = new Database(path);
+      try {
+        db.run("PRAGMA journal_mode=DELETE"); db.run("CREATE TABLE odysseus(value INTEGER,padding TEXT)");
+        const insert = db.prepare("INSERT INTO odysseus VALUES(1,?)");
+        db.transaction(() => { for (let i = 0; i < 300; i++) insert.run("x".repeat(4000)); })();
+      } finally { db.close(); }
+      const committed = readFileSync(path);
+      await killRollbackWriter(path);
       expect(lstatSync(join(root, ".brain-index", "brain.db-journal")).size).toBeGreaterThan(0);
       const journal = join(root, ".brain-index", "brain.db-journal"), journalInfo = lstatSync(journal), journalBytes = readFileSync(journal);
+      expect(journalBytes.subarray(0, 8).toString("hex"), "HOT_ROLLBACK_JOURNAL_HEADER").toBe("d9d505f920a163d7");
+      expect(readFileSync(path).equals(committed), "UNCOMMITTED_PAGES_REACHED_DATABASE").toBe(false);
       inherited(() => prepareMaintenanceIndex(root, 4 * 1024 ** 2));
       expect(lstatSync(journal).ino, "HOT_ROLLBACK_JOURNAL_IS_COPIED").not.toBe(journalInfo.ino);
       expect(lstatSync(journal).mode & 0o777).toBe(journalInfo.mode & 0o777); expect(readFileSync(journal)).toEqual(journalBytes);
@@ -81,10 +104,7 @@ db.run("BEGIN IMMEDIATE");db.run("UPDATE odysseus SET value=999");console.log("R
         expect(copy.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
         copy.run("CREATE TABLE worker_write(value TEXT)");
       } finally { copy.close(); }
-    } finally {
-      if (timer) clearTimeout(timer); child.kill("SIGKILL"); await child.exited;
-      await reader.cancel(); await new Response(child.stderr).text(); rmSync(root, { recursive: true, force: true });
-    }
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
   test("owned family is checked without replacing the database", () => fixture(root => {
     const path = join(root, ".brain-index", "brain.db"); writeFileSync(path, "Odysseus index"); const before = lstatSync(path);
