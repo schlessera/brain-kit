@@ -7,6 +7,7 @@ beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "f
 
 test("Pi captures three real resumed interactive turns and a tool result through Responses", () => {
   for (const [name, capture] of Object.entries(captures)) {
+    if (name === "reference") continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -49,4 +50,30 @@ test("Pi promoted answer remains the exact provider answer (#2049)", () => {
 test("Pi voice is refused before inference (#2048)", () => {
   expect(captures.control!.voiceRefusal!.message).toContain("declares no voice tool posture");
   expect(captures.control!.voiceRefusal!.after).toBe(captures.control!.voiceRefusal!.before);
+});
+
+// #2432: the worktree tool crosses the real worker pipe and server permission
+// route on every turn, while the host's lifecycle answer changes.
+test("Pi reference tools dispatch to the host and keep tools, system and history stable across the worktree lifecycle", () => {
+  const capture = captures.reference!;
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "REFERENCE_TOOLS_PI_TOOLS_STABLE");
+    identical(system(a), system(b), "REFERENCE_TOOLS_PI_SYSTEM_STABLE");
+  }
+  expect(capture.sessions).toHaveLength(3);
+  expect(new Set(capture.sessions).size).toBe(1);
+  expect(main(capture).map(e => e.turn), "REFERENCE_TOOLS_PI_EVERY_TURN_CALLS").toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls, "REFERENCE_TOOLS_PI_HOST_RECEIVES_PARSED_INPUT").toEqual([
+    { tool: "reference_worktree", input: { action: "request", repository: "https://github.com/odysseus/ithaca", revision: "main" } },
+    { tool: "reference_worktree", input: { action: "release", worktreeId: "raft-worktree" } }]);
+  const results = main(capture).filter((_, index) => index % 2 === 1);
+  for (const exchange of results) expect(exchange.raw).toContain('"function_call_output"');
+  expect(results[1]!.raw, "REFERENCE_TOOLS_PI_NO_HANDLER_REFUSES").toContain("no available host handler");
+  expect(main(capture)[5]!.raw).toContain('\\"state\\":\\"released\\"');
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "REFERENCE_TOOLS_PI_TOOLS_STABLE");
+    identical(system(a), system(b), "REFERENCE_TOOLS_PI_SYSTEM_STABLE");
+    history(a, b);
+  }
+  expect(body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name)).toEqual(expect.arrayContaining(["reference_source", "reference_worktree"]));
 });

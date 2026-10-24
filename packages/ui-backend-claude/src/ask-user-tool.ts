@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createPolicyProposalTool } from "./policy-tool.js";
 import { registerInboxTools } from "./inbox-tools.js";
+import { registerReferenceTools } from "./reference-tools.js";
 import { registerBrainApplicationTools } from "./brain-application-tools.js";
 import type { AskUserFormLimits } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { createAskUserFormTool, type AskUserFormHandler } from "./ask-user-form-tool.js";
@@ -98,6 +99,8 @@ export function createBrainUiMcpServer(handlers: {
   stableRoster?: boolean;
   proposePolicyChange?: BackendBridge["proposePolicyChange"];
   inbox?: Pick<BackendBridge, "inboxList" | "inboxGet" | "inboxAdd" | "resolveAction" | "completeShare">;
+  /** Shared reference source and managed worktrees (#2432). */
+  reference?: Pick<BackendBridge, "referenceAccess">;
   application?: Pick<BackendBridge, "applyBrain" | "readBrainBase" | "applyImageMask">;
   askUser?: AskUserHandler;
   askUserList?: AskUserListHandler;
@@ -122,7 +125,7 @@ export function createBrainUiMcpServer(handlers: {
       askUser: handlers.askUser ?? unavailable, askUserList: handlers.askUserList ?? unavailable,
       askUserRank: handlers.askUserRank ?? unavailable, askUserForm: handlers.askUserForm ?? unavailable,
       requestMask: handlers.requestMask ?? unavailable, queryActivity: handlers.queryActivity ?? unavailable,
-      inbox: handlers.inbox ?? {}, application: handlers.application ?? {},
+      inbox: handlers.inbox ?? {}, application: handlers.application ?? {}, reference: handlers.reference ?? {},
     };
   }
   const tools: SdkMcpToolDefinition<any>[] = [createShowBlockTool()];
@@ -173,6 +176,7 @@ export function createBrainUiMcpServer(handlers: {
     alwaysLoad: true,
   });
   if (handlers.inbox) registerInboxTools(server.instance, handlers.inbox, observe);
+  if (handlers.reference) registerReferenceTools(server.instance, handlers.reference, observe);
   if (handlers.application && (handlers.stableRoster || handlers.application.applyBrain)) registerBrainApplicationTools(server.instance, handlers.application, handlers.stableRoster, observe);
   if (rosterComplete) {
     try { handlers.observeTools?.(roster); } catch { /* Observability must not fail the observed turn. */ }

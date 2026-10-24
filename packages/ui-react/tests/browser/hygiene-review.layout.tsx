@@ -294,6 +294,36 @@ for (const theme of ["dark", "light"])
       await expect.poll(() => current().textContent).toContain("Still detected — nothing changed");
       expect(host!.textContent).not.toContain("Another link points");
     });
+    test(`${theme} ${width}: a Markdown manual finding opens its file`, async () => {
+      await scene({ category: "manual" }, width, theme);
+      await page.getByRole("button", { name: "Open file ›", exact: true }).click();
+      expect(ui!.stores.file.getState().currentPath).toBe("journeys/return-to-ithaca.md");
+    });
+    // #2723: a managed-worktree finding's path is the logical
+    // `reference-worktree://<id>` (#2431), never a brain file.
+    for (const kind of ["unknown", "check-failed"])
+      test(`${theme} ${width}: a managed-worktree card (${kind}) offers no file to open`, async () => {
+        await scene({ category: kind === "unknown" ? "managed-worktree" : "managed-worktree-retained" }, width, theme);
+        if (kind === "check-failed") {
+          await set({ mode: "check_failed" });
+          await apply();
+          await expect.poll(() => current().querySelector("[data-hygiene-state]")?.getAttribute("data-hygiene-state")).toBe(
+            "check_failed"
+          );
+        } else expect(current().textContent).toContain("Check again later.");
+        expect(current().textContent, "the logical identity stays visible").toContain(
+          "reference-worktree://7c1e4a52-3d9b-4f0e-9a61-2b8d5e0c9f13"
+        );
+        await commands.hygieneServer({
+          op: "capture",
+          selector: ".bg-background.text-foreground",
+          name: `c5-${theme}-${width}-worktree-${kind}.png`,
+        });
+        const opens = [...current().querySelectorAll("button")].filter((b) => (b.textContent ?? "").startsWith("Open"));
+        for (const b of opens) b.click();
+        expect(ui!.stores.file.getState().currentPath, "no nonexistent brain file is opened").toBeNull();
+        expect(opens.map((b) => b.textContent)).toEqual([]);
+      });
   }
 for (const theme of ["dark", "light"])
   for (const width of [320, 1280])

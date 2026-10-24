@@ -154,6 +154,8 @@ const PUBLIC_CALLS: PublicCall[] = [
   { toolUseId: "call-complete-share", name: "complete_share", input: { receiptIds: ["harbor-receipt"], files: [] } },
   { toolUseId: "call-turn-temp", name: "turn_temp", input: { action: "usage" } },
   { toolUseId: "call-policy", name: "propose_policy_change", input: { content: "---\nschema_version: 1\nprofiles:\n  interactive: strict\n---\nOdysseus reviews the policy.\n", rationale: "Review strict for the next crossing." } },
+  { toolUseId: "call-reference-source", name: "reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } },
+  { toolUseId: "call-reference-worktree", name: "reference_worktree", input: { action: "list" } },
   { toolUseId: "call-block", name: "show_block", input: { block: { kind: "link", url: "https://ithaca-harbour.example/tides", title: "Harbour tide tables" } } },
 ];
 
@@ -183,6 +185,10 @@ function publicOnlyBackend(brainPath: string, calls: readonly PublicCall[]): Age
         if (!bridge.proposePolicyChange) throw new Error("Host policy review unavailable");
         return bridge.proposePolicyChange(call.toolUseId, proposal);
       }
+      case "reference_source": case "reference_worktree": return sdk.handleReferenceTool(call.name, input, bridge).then(result => {
+        if (result.isError) throw new Error(result.text);
+        return result.text;
+      });
       case "show_block": return sdk.handleShowBlock(input);
       // The backend's own worker /tmp as the server holds it; here a directory.
       case "turn_temp": return sdk.handleTurnTemp(input, { root: () => join(brainPath, "assets"), allowanceBytes: 64 * 1024 * 1024,
@@ -253,6 +259,13 @@ describe("a backend built only from public /server names", () => {
       },
       completeShare: async input => { asked.push(`complete_share:${input.receiptIds.join(",")}`); return { itemId: "work-harbor", status: "done", replay: false }; },
       resolveAction: async input => { asked.push(`resolve_action:${input.sessionId}:${input.itemId}:${input.optionId}:${input.expectedVersion}`); return { replay: false, followUpId: "follow-up-harbor" }; },
+      referenceAccess: async call => {
+        asked.push(`${call.tool}:${JSON.stringify(call.input)}`);
+        return call.tool === "reference_source"
+          ? { ok: true, source: { repository: call.input.repository, revision: call.input.revision, domain: "public", commit: "1".repeat(40), path: "/tmp/brain-reference/public/ithaca", freshness: "fresh",
+            refreshedAt: "2026-07-12T00:00:00.000Z", validatedAt: "2026-07-12T00:00:00.000Z", error: null }, guidance: "Read only under path." }
+          : { ok: true, action: "list", worktrees: [], truncated: false, guidance: "No worktrees." };
+      },
     };
 
     await publicOnlyBackend(brainPath, PUBLIC_CALLS).startTurn({ prompt: "use every bridge tool", signal: new AbortController().signal, bridge });
@@ -266,6 +279,7 @@ describe("a backend built only from public /server names", () => {
       "ask_user:call-ask", "ask_user_list:call-list", "ask_user_rank:call-rank", "ask_user_form:call-form",
       "get_current_location", "request_image_mask:assets/sail.png", "query_activity:recent",
       "inbox_list:queue:50", "inbox_get:work-harbor", "inbox_add:harbor", "resolve_action:harbor-session:harbor-action:approve:1", "complete_share:harbor-receipt", "propose_policy_change:call-policy",
+      'reference_source:{"repository":"https://github.com/odysseus/ithaca","revision":"main"}', 'reference_worktree:{"action":"list"}',
     ]);
     const output = (id: string) => results.get(id)!.output;
     expect(JSON.parse(output("call-ask")).answers).toEqual({ "Which harbour first?": "Ithaca" });
@@ -288,6 +302,8 @@ describe("a backend built only from public /server names", () => {
     expect(JSON.parse(output("call-policy"))).toMatchObject({ requestId: "call-policy", state: "declined", message: "Policy change declined. Nothing was written." });
     expect(existsSync(join(brainPath, "context/policies/governance.md"))).toBe(false);
     expect(JSON.parse(output("call-block"))).toEqual(PUBLIC_CALLS.at(-1)!.input);
+    expect(JSON.parse(output("call-reference-source")).source).toMatchObject({ path: "/tmp/brain-reference/public/ithaca", freshness: "fresh" });
+    expect(JSON.parse(output("call-reference-worktree"))).toMatchObject({ ok: true, action: "list", worktrees: [] });
     expect(JSON.parse(output("call-turn-temp"))).toMatchObject({ limitBytes: 64 * 1024 * 1024,
       largest: expect.arrayContaining([{ path: "/tmp/sail.png", bytes: 3, type: "file" }]) });
   });

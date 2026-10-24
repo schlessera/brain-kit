@@ -142,6 +142,68 @@ test("a peer inherits retired provider folders from the active cross-process gat
 });
 
 
+describe("provider folder admission beside earlier writers (#2832)", () => {
+  // A writer admitted before any plan held the folders, as one started with
+  // the server is before the first turn has translated a type selector.
+  async function earlierWriter(host = false) {
+    const w = world();
+    const peer = await w.cron.acquire("shared", "brain CLI version");
+    expect(peer.folderPaths, "EARLIER_WRITER_PLANS_NO_FOLDER").toEqual([]);
+    if (host) markUnpinnedHostWriter(peer);
+    mkdirSync(join(w.brain, "context/policies"), { recursive: true });
+    mkdirSync(join(w.brain, "group/private"), { recursive: true });
+    writeFileSync(join(w.brain, "context/policies/governance.md"), "---\nschema_version: 1\nproviders: [{ paths: [group/private/**], allow: [anthropic] }]\n---\nAthena restricts a folder.\n");
+    const turn = await w.server.acquire("shared", "turn:odysseus", { turn: true });
+    expect(turn.folderPaths).toEqual([".brain-index", "group/private"]);
+    return { w, peer, turn, close: () => { peer.release(); turn.release(); w.close(); } };
+  }
+
+  test("admission waits for a writer admitted before it retained its folders, then admits", async () => {
+    const { w, peer, turn, close } = await earlierWriter();
+    try {
+      expect(() => turn.assertPeerFolderPlans!(turn.folderPaths!), "THE_EARLIER_WRITER_LACKS_THE_FOLDERS").toThrow("did not retain");
+      let settled = false;
+      const waiting = turn.waitForPeerFolderPlans!(turn.folderPaths!, { timeoutMs: 10_000 }).finally(() => { settled = true; });
+      await settle();
+      expect(settled, "ADMISSION_WAITS_WHILE_THE_EARLIER_WRITER_RUNS").toBe(false);
+      // A writer admitted meanwhile merges the held folders, so it never extends the wait.
+      const later = await w.cron.acquire("shared", "index refresh");
+      try {
+        expect(later.folderPaths, "A_LATER_WRITER_RETAINS_THE_HELD_FOLDERS").toEqual([".brain-index", "group/private"]);
+        peer.release();
+        await waiting;
+        expect(settled, "ADMITTED_ONCE_THE_EARLIER_WRITER_FINISHED").toBe(true);
+      } finally { later.release(); }
+    } finally { close(); }
+  });
+
+  test("a writer still active at the bound refuses admission", async () => {
+    const { turn, close } = await earlierWriter();
+    try {
+      const started = performance.now();
+      await expect(turn.waitForPeerFolderPlans!(turn.folderPaths!, { timeoutMs: 150 }), "A_LASTING_NON_RETAINING_PEER_REFUSES")
+        .rejects.toThrow("An active peer did not retain the requested provider folders; finish that peer and retry admission");
+      expect(performance.now() - started, "REFUSED_AT_THE_BOUND").toBeGreaterThanOrEqual(140);
+    } finally { close(); }
+  });
+
+  test("a peer that is unsafe whatever it does next refuses at once, and an aborted wait stops", async () => {
+    const host = await earlierWriter(true);
+    try {
+      const started = performance.now();
+      await expect(host.turn.waitForPeerFolderPlans!(host.turn.folderPaths!, { timeoutMs: 10_000 }), "AN_UNPINNED_HOST_PEER_IS_NOT_WAITED_FOR")
+        .rejects.toThrow("unpinned host writer");
+      expect(performance.now() - started, "REFUSED_WITHOUT_WAITING").toBeLessThan(1000);
+    } finally { host.close(); }
+    const { turn, close } = await earlierWriter();
+    try {
+      const abort = new AbortController(), reason = new Error("Odysseus stops the turn");
+      setTimeout(() => abort.abort(reason), 50);
+      await expect(turn.waitForPeerFolderPlans!(turn.folderPaths!, { signal: abort.signal, timeoutMs: 10_000 }), "AN_ABORTED_WAIT_STOPS").rejects.toBe(reason);
+    } finally { close(); }
+  });
+});
+
 describe("unpinned host writer provenance", () => {
   function protectedWorld() {
     const w = world();

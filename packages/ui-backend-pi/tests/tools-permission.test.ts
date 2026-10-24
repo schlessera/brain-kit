@@ -747,7 +747,7 @@ describe("bridge-capability tool registration", () => {
         turn,
         lock: toolLockFromKeyed(createKeyedLock()),
         // Every capability the toolkit accepts: a new one fails to typecheck here until it is enabled.
-        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
+        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true, reference: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
       });
       expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {
@@ -755,6 +755,8 @@ describe("bridge-capability tool registration", () => {
       }
       // A turn-temp purge reaches only the worker's own /tmp; an approved policy proposal writes governance.md (#2801).
       expect({ turnTemp: TOOL_RISK.turn_temp, policy: TOOL_RISK.propose_policy_change }, "TOOL_RISK_BRIDGE").toEqual({ turnTemp: "read", policy: "mutate" });
+      // Shared source only reads; a worktree action changes host state (#2432).
+      expect({ source: TOOL_RISK.reference_source, worktree: TOOL_RISK.reference_worktree }, "TOOL_RISK_REFERENCE").toEqual({ source: "read", worktree: "mutate" });
       expect(TOOL_RISK.read_file).toBe("read");
       expect(TOOL_RISK.write_file).toBe("mutate");
       expect(TOOL_RISK.bash).toBe("mutate");

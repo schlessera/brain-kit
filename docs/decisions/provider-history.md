@@ -116,7 +116,11 @@ SDK on each turn, not only the bytes that reach the endpoint. Against a local
 endpoint the CLI replays turn 1's recorded system prompt, so a changed append
 never shows up in the request there. The SDK documents that recording as
 account-gated, so production can still send the changed append, and only the
-option-level check catches it.
+option-level check catches it. The same holds for the in-process MCP roster:
+on resume the local CLI sends turn 1's `mcp__brain-ui__*` definitions again,
+so a changed description never reaches the local endpoint. The reference-tool
+scenario (#2432) therefore also holds the digest of the roster brain-kit
+assembles for each turn, which the `prompt_prefix` activity event reports.
 
 The resolved #2047/#2048/#2049/#2051 cases are ordinary passing tests.
 A new known break that is not fixed yet is written as `test.failing` with the

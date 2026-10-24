@@ -220,6 +220,12 @@ export interface BackendBridge {
   inboxAdd?(input: import("../tool-contracts/inbox.js").InboxAddInput): Promise<{ created: boolean; threadId: string; itemId: string }>;
   resolveAction?(input: import("../tool-contracts/inbox.js").ResolveActionInput): Promise<{ replay: boolean; followUpId?: string }>;
   completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
+  /**
+   * Shared reference source and managed worktrees (#2432). The host binds the
+   * principal, turn and worker generation; the call carries only the tool and
+   * its parsed input. Refusals resolve as `{ ok: false }`.
+   */
+  referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
 
 }
 

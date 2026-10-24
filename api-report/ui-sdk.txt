@@ -700,6 +700,15 @@ export "./client" (./src/client/index.ts)
   type QueueAddResult
   type QueueStagingManifest
   type QueuedFollowUpView
+  REFERENCE_SOURCE_CONTRACT
+  REFERENCE_SOURCE_INPUT_SCHEMA
+  REFERENCE_SOURCE_TOOL_NAME
+  REFERENCE_TOOL_CONTRACTS
+  REFERENCE_WORKTREE_ACTIONS
+  REFERENCE_WORKTREE_CONTRACT
+  REFERENCE_WORKTREE_INPUT_SCHEMA
+  REFERENCE_WORKTREE_LIST_LIMIT
+  REFERENCE_WORKTREE_TOOL_NAME
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -707,6 +716,14 @@ export "./client" (./src/client/index.ts)
   RESOLVE_ACTION_CONTRACT
   RESOLVE_ACTION_INPUT_SCHEMA
   type RecordingTranscription
+  type ReferenceSourceInput
+  type ReferenceSourceView
+  type ReferenceToolCall
+  type ReferenceToolRefusalCode
+  type ReferenceToolResult
+  type ReferenceWorktreeAction
+  type ReferenceWorktreeInput
+  type ReferenceWorktreeView
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -1041,6 +1058,7 @@ export "./internal" (./src/internal.ts)
   WORKER_PROVIDER_CREDENTIAL_ENV
   WORKER_PROVIDER_RELAY_DIR
   WORKER_PROVIDER_RELAY_SOCKET
+  WORKER_REFERENCE_ROOT
   WORKER_SCRATCH
   WORKER_STATE
   WORKER_STATE_BUDGET_ENV
@@ -2136,6 +2154,15 @@ export "./server" (./src/server/index.ts)
   type QueueAddResult
   type QueueStagingManifest
   type QueuedFollowUpView
+  REFERENCE_SOURCE_CONTRACT
+  REFERENCE_SOURCE_INPUT_SCHEMA
+  REFERENCE_SOURCE_TOOL_NAME
+  REFERENCE_TOOL_CONTRACTS
+  REFERENCE_WORKTREE_ACTIONS
+  REFERENCE_WORKTREE_CONTRACT
+  REFERENCE_WORKTREE_INPUT_SCHEMA
+  REFERENCE_WORKTREE_LIST_LIMIT
+  REFERENCE_WORKTREE_TOOL_NAME
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
@@ -2144,6 +2171,15 @@ export "./server" (./src/server/index.ts)
   RESOLVE_ACTION_INPUT_SCHEMA
   type RecordingTranscription
   type RecoverableTranscriptStore
+  type ReferenceSourceInput
+  type ReferenceSourceView
+  type ReferenceToolCall
+  type ReferenceToolName
+  type ReferenceToolRefusalCode
+  type ReferenceToolResult
+  type ReferenceWorktreeAction
+  type ReferenceWorktreeInput
+  type ReferenceWorktreeView
   type RenderContentType
   type RenderFormat
   type RenderRequest
@@ -2402,6 +2438,7 @@ export "./server" (./src/server/index.ts)
   handleGetCurrentLocation
   handleInboxTool
   handleQueryActivity
+  handleReferenceTool
   handleRequestImageMask
   handleShowBlock
   handleTurnTemp
@@ -2568,12 +2605,29 @@ export "./tool-contracts" (./src/tool-contracts/index.ts)
   QUERY_ACTIVITY_INPUT_SCHEMA
   QUERY_ACTIVITY_TOOL_NAME
   type QueryActivityInput
+  REFERENCE_SOURCE_CONTRACT
+  REFERENCE_SOURCE_INPUT_SCHEMA
+  REFERENCE_SOURCE_TOOL_NAME
+  REFERENCE_TOOL_CONTRACTS
+  REFERENCE_WORKTREE_ACTIONS
+  REFERENCE_WORKTREE_CONTRACT
+  REFERENCE_WORKTREE_INPUT_SCHEMA
+  REFERENCE_WORKTREE_LIST_LIMIT
+  REFERENCE_WORKTREE_TOOL_NAME
   REQUEST_IMAGE_MASK_CONTRACT
   REQUEST_IMAGE_MASK_DESCRIPTION
   REQUEST_IMAGE_MASK_INPUT_SCHEMA
   REQUEST_IMAGE_MASK_TOOL_NAME
   RESOLVE_ACTION_CONTRACT
   RESOLVE_ACTION_INPUT_SCHEMA
+  type ReferenceSourceInput
+  type ReferenceSourceView
+  type ReferenceToolCall
+  type ReferenceToolRefusalCode
+  type ReferenceToolResult
+  type ReferenceWorktreeAction
+  type ReferenceWorktreeInput
+  type ReferenceWorktreeView
   type RequestImageMaskInput
   type ResolveActionInput
   SHOW_BLOCK_CONTRACT
@@ -4882,12 +4936,26 @@ signatures (every public export and the types it is made of)
         all: z.ZodOptional<z.ZodBoolean>;
         force: z.ZodOptional<z.ZodBoolean>;
         paths: z.ZodOptional<z.ZodArray<z.ZodString>>;
-    }, z.core.$strip>>];
+    }, z.core.$strip>>, import("./contract.js").ToolContract<"reference_source", z.ZodObject<{
+        repository: z.ZodString;
+        revision: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"reference_worktree", z.ZodObject<{
+        action: z.ZodEnum<{
+            access: "access";
+            list: "list";
+            release: "release";
+            renew: "renew";
+            request: "request";
+        }>;
+        repository: z.ZodOptional<z.ZodString>;
+        revision: z.ZodOptional<z.ZodString>;
+        worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>];
   BRIDGE_TOOL_POSTURE (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const BRIDGE_TOOL_POSTURE: Readonly<{
         allowedTools(adapter: BridgeToolAdapter): readonly string[];
         claudePrefix: "mcp__brain-ui__";
-        names: readonly [...("complete_share" | "inbox_add" | "inbox_get" | "inbox_list" | "resolve_action")[], "ask_user", "ask_user_list", "ask_user_rank", "ask_user_form", "get_current_location", "request_image_mask", "query_activity", "show_block", "turn_temp"];
+        names: readonly ("ask_user" | "ask_user_form" | "ask_user_list" | "ask_user_rank" | "complete_share" | "get_current_location" | "inbox_add" | "inbox_get" | "inbox_list" | "query_activity" | "reference_source" | "reference_worktree" | "request_image_mask" | "resolve_action" | "show_block" | "turn_temp")[];
         visibleName(name: BridgeToolName, adapter: BridgeToolAdapter): string;
     }>;
   BackendActivityEvent (packages/ui-sdk/src/server/backend.ts)
@@ -5090,6 +5158,7 @@ signatures (every public export and the types it is made of)
             followUpId?: string;
         }>;
         completeShare?(input: import("../tool-contracts/inbox.js").CompleteShareInput): Promise<import("../tool-contracts/inbox.js").CompleteShareResult>;
+        referenceAccess?(call: import("../tool-contracts/reference.js").ReferenceToolCall): Promise<import("../tool-contracts/reference.js").ReferenceToolResult>;
     }
   BackendBusyError (packages/ui-sdk/src/server/backend.ts)
     export class BackendBusyError extends Error {
@@ -7435,6 +7504,66 @@ signatures (every public export and the types it is made of)
         queuedAt: number;
         label?: string;
     }
+  REFERENCE_SOURCE_CONTRACT (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_SOURCE_CONTRACT: import("./contract.js").ToolContract<"reference_source", z.ZodObject<{
+        repository: z.ZodString;
+        revision: z.ZodString;
+    }, z.core.$strict>>;
+  REFERENCE_SOURCE_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_SOURCE_INPUT_SCHEMA: z.ZodObject<{
+        repository: z.ZodString;
+        revision: z.ZodString;
+    }, z.core.$strict>;
+  REFERENCE_SOURCE_TOOL_NAME (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_SOURCE_TOOL_NAME: "reference_source";
+  REFERENCE_TOOL_CONTRACTS (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_TOOL_CONTRACTS: readonly [import("./contract.js").ToolContract<"reference_source", z.ZodObject<{
+        repository: z.ZodString;
+        revision: z.ZodString;
+    }, z.core.$strict>>, import("./contract.js").ToolContract<"reference_worktree", z.ZodObject<{
+        action: z.ZodEnum<{
+            access: "access";
+            list: "list";
+            release: "release";
+            renew: "renew";
+            request: "request";
+        }>;
+        repository: z.ZodOptional<z.ZodString>;
+        revision: z.ZodOptional<z.ZodString>;
+        worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>];
+  REFERENCE_WORKTREE_ACTIONS (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_WORKTREE_ACTIONS: readonly ["request", "access", "renew", "release", "list"];
+  REFERENCE_WORKTREE_CONTRACT (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_WORKTREE_CONTRACT: import("./contract.js").ToolContract<"reference_worktree", z.ZodObject<{
+        action: z.ZodEnum<{
+            access: "access";
+            list: "list";
+            release: "release";
+            renew: "renew";
+            request: "request";
+        }>;
+        repository: z.ZodOptional<z.ZodString>;
+        revision: z.ZodOptional<z.ZodString>;
+        worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>;
+  REFERENCE_WORKTREE_INPUT_SCHEMA (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_WORKTREE_INPUT_SCHEMA: z.ZodObject<{
+        action: z.ZodEnum<{
+            access: "access";
+            list: "list";
+            release: "release";
+            renew: "renew";
+            request: "request";
+        }>;
+        repository: z.ZodOptional<z.ZodString>;
+        revision: z.ZodOptional<z.ZodString>;
+        worktreeId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+  REFERENCE_WORKTREE_LIST_LIMIT (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_WORKTREE_LIST_LIMIT: 20;
+  REFERENCE_WORKTREE_TOOL_NAME (packages/ui-sdk/src/tool-contracts/reference.ts)
+    const REFERENCE_WORKTREE_TOOL_NAME: "reference_worktree";
   REQUEST_IMAGE_MASK_CONTRACT (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const REQUEST_IMAGE_MASK_CONTRACT: import("./contract.js").ToolComponentContract<"request_image_mask", z.ZodObject<{
         imagePath: z.ZodString;
@@ -7490,6 +7619,71 @@ signatures (every public export and the types it is made of)
         recover(sessionId: string, opts: {
             sourceVersion: string;
         }): string;
+    }
+  ReferenceSourceInput (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceSourceInput = z.infer<typeof REFERENCE_SOURCE_INPUT_SCHEMA>;
+  ReferenceSourceView (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export interface ReferenceSourceView {
+        repository: string;
+        revision: string;
+        domain: "public" | "private";
+        commit: string;
+        path: string | null;
+        freshness: "fresh" | "stale";
+        refreshedAt: string;
+        validatedAt: string;
+        error: string | null;
+    }
+  ReferenceToolCall (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceToolCall = {
+        tool: typeof REFERENCE_SOURCE_TOOL_NAME;
+        input: ReferenceSourceInput;
+    } | {
+        tool: typeof REFERENCE_WORKTREE_TOOL_NAME;
+        input: ReferenceWorktreeInput;
+    };
+  ReferenceToolName (packages/ui-sdk/src/server/bridge-tools/reference.ts)
+    export type ReferenceToolName = (typeof REFERENCE_TOOL_CONTRACTS)[number]["name"];
+  ReferenceToolRefusalCode (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceToolRefusalCode = "unavailable" | "unauthorized" | "missing" | "invalid" | "capacity" | "busy" | "released" | "cancelled";
+  ReferenceToolResult (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceToolResult = {
+        ok: true;
+        source: ReferenceSourceView;
+        guidance: string;
+    } | {
+        ok: true;
+        action: Exclude<ReferenceWorktreeAction, "list">;
+        worktree: ReferenceWorktreeView;
+        guidance: string;
+    } | {
+        ok: true;
+        action: "list";
+        worktrees: ReferenceWorktreeView[];
+        truncated: boolean;
+        guidance: string;
+    } | {
+        ok: false;
+        code: ReferenceToolRefusalCode;
+        message: string;
+    };
+  ReferenceWorktreeAction (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceWorktreeAction = (typeof REFERENCE_WORKTREE_ACTIONS)[number];
+  ReferenceWorktreeInput (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export type ReferenceWorktreeInput = z.infer<typeof REFERENCE_WORKTREE_INPUT_SCHEMA>;
+  ReferenceWorktreeView (packages/ui-sdk/src/tool-contracts/reference.ts)
+    export interface ReferenceWorktreeView {
+        id: string;
+        repository: string;
+        revision: string;
+        domain: "public" | "private";
+        startingCommit: string;
+        state: "active" | "expired" | "released";
+        path: string | null;
+        lastActivityAt: string;
+        expiresAt: string;
+        releasedAt: string | null;
+        allowanceBytes: number;
     }
   RegisterDefaultRoutesDeps (packages/ui-sdk/src/client/sw-policy.ts)
     export interface RegisterDefaultRoutesDeps<NetworkOnlyInstance extends object = object, CacheFirstInstance extends object = object, ExpirationPluginInstance extends object = object> {
@@ -10171,6 +10365,8 @@ signatures (every public export and the types it is made of)
         completeShare?: string | false;
         block?: string | false;
         turnTemp?: string | false;
+        referenceSource?: string | false;
+        referenceWorktree?: string | false;
     }
   SystemStatus (packages/ui-sdk/src/protocol.ts)
     export interface SystemStatus {
@@ -11801,6 +11997,11 @@ signatures (every public export and the types it is made of)
     export function handleInboxTool(name: InboxToolName, input: unknown, bridge: BackendBridge): Promise<string>;
   handleQueryActivity (packages/ui-sdk/src/server/bridge-tools/activity.ts)
     export function handleQueryActivity(input: QueryActivityInput, bridge: BackendBridge): Promise<string>;
+  handleReferenceTool (packages/ui-sdk/src/server/bridge-tools/reference.ts)
+    export function handleReferenceTool(name: ReferenceToolName, input: unknown, bridge: Pick<BackendBridge, "referenceAccess">): Promise<{
+        text: string;
+        isError: boolean;
+    }>;
   handleRequestImageMask (packages/ui-sdk/src/server/bridge-tools/mask.ts)
     export function handleRequestImageMask(input: RequestImageMaskInput, bridge: BackendBridge, options: ImageMaskHandlerOptions): Promise<ImageMaskPayload>;
   handleShowBlock (packages/ui-sdk/src/server/bridge-tools/show-block.ts)

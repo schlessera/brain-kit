@@ -77,6 +77,8 @@ export function createGovernedTurns(options: {
   exposures?: ProviderExposures;
   /** Operator-named gateway origins (`BRAIN_UI_PROVIDER_RECIPIENT_ORIGINS`). */
   recipientOrigins?: ReadonlyMap<string, string>;
+  /** How long provider folder admission waits for an earlier writer to finish; default `PEER_FOLDER_PLAN_WAIT_MS`. */
+  peerFolderPlanWaitMs?: number;
 }): GovernedTurns {
   const policyReader = governancePolicyReaderFor(options.brainPath);
   let current: Promise<unknown> | undefined;
@@ -201,7 +203,11 @@ export function createGovernedTurns(options: {
         }
         if (workerProfile(resolved) === "governed" && folderPaths.length) {
           if (!hold.assertPeerFolderPlans) throw new Error("Provider folder admission cannot check active peer plans with this writer gate; retry using the qualified gate");
-          hold.assertPeerFolderPlans(folderPaths);
+          // A writer admitted before this turn retained its folders, such as
+          // one started with the server before any turn had translated a type
+          // selector, finishes rather than refusing the turn (#2832).
+          if (hold.waitForPeerFolderPlans) await hold.waitForPeerFolderPlans(folderPaths, { signal, ...(options.peerFolderPlanWaitMs !== undefined ? { timeoutMs: options.peerFolderPlanWaitMs } : {}) });
+          else hold.assertPeerFolderPlans(folderPaths);
         }
         const commandPolicy = Object.freeze({ hash: policy.hash,
           outwardAllow: Object.freeze(policy.policy.outward.allow.map((rule, index) => Object.freeze({ ...rule, remotes: Object.freeze([...rule.remotes]), index: policy.outwardRuleIndices[index]! }))),

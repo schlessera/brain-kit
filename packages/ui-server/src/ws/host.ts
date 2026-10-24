@@ -92,11 +92,13 @@ export interface WsHostOptions {
   /**
    * @internal Managed reference worktrees (#2430). Each governed or strict turn
    * gets its own worker generation only when `referenceWorktreeAccess` is set,
-   * which the supported worktree tools (#2432) enable.
+   * which the app sets with the supported worktree tools (#2432).
    */
   referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
   /** @internal */
   referenceWorktreeAccess?: boolean;
+  /** @internal The agent tools over reference source and worktrees (#2432); used only with `referenceWorktreeAccess`. */
+  referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
   maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
   /** @internal Concrete authenticated session preference store, supplied by createApp. */
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
@@ -262,6 +264,8 @@ export class WsHost {
   readonly referenceWorktrees?: import("../brain/reference-worktrees.js").ReferenceWorktrees;
   /** @internal Whether governed and strict turns open worker generations (#2432 enables it). */
   readonly referenceWorktreeAccess: boolean;
+  /** @internal The agent tools over reference source and worktrees (#2432), present only with `referenceWorktreeAccess`. */
+  readonly referenceTools?: import("../brain/reference-tools.js").ReferenceTools;
   /** @internal The open worker generation of each running turn. */
   readonly referenceWorktreeGenerations: Map<string, import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration> = new Map();
   readonly maintenance?: import("@schlessera/brain-ui-sdk/internal").MaintenanceHost;
@@ -355,6 +359,7 @@ export class WsHost {
     this.governedTurns = options.governedTurns;
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);
+    if (this.referenceWorktreeAccess) this.referenceTools = options.referenceTools;
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;

@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:112-257`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:114-263`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-259`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-265`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -842,7 +842,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1098-1126`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1111-1139`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1137,9 +1137,9 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:336`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:341`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:545`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:548`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1523,7 +1523,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1824`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1837`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1775,6 +1775,11 @@ missing-root plans cannot retain the requested topology. A retained descendant
 also pins its ancestors, while an ancestor alone does not pin arbitrary children.
 Unknown checking capability refuses. Existing peers continue, nested shared
 maintenance stays admissible, and strict consumers keep their existing path.
+A peer whose plan only lacks a root is waited for, up to
+`PEER_FOLDER_PLAN_WAIT_MS`, before it refuses (#2832): a type selector's folders
+are planned only once a turn has translated it, so writers admitted with the
+server predate them, and every later writer inherits them from the held plan
+(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:235-246`).
 Successful plan checks remain nonattestation and cannot authorize a protected
 reader; complete active-writer provenance remains required.
 
@@ -1997,7 +2002,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:158-167`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:160-169`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2099,14 +2104,23 @@ every turn without a proven recipient:
   `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
   the evidence in `inbox_provenance`, in the transaction that writes the item
   or checkpoint, bound to a digest of its text (`export function
-  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:78-97`).
+  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:93-117`).
   Compatible evidence is exactly: a person's arrival through the
   authenticated share or queue route, outside any turn, also bound to a
-  digest of the staged bytes intake read (`const evidence = person`,
-  `packages/ui-server/src/inbox/intake.ts:107`); text the server composed
+  digest of the staged bytes intake read (`const evidence = author`,
+  `packages/ui-server/src/inbox/intake.ts:110`); text the server composed
   from no brain content or model output (schedule instructions, cleanup and
-  lifecycle notices); and text an autonomous run wrote (escalations, yields)
-  whose admitted masks hid every folder now masked. Triage results count as
+  lifecycle notices); text an autonomous run wrote (escalations, yields)
+  whose admitted masks hid every folder now masked; and, since #2816, an
+  item a hosted conversation added through `inbox_add`, bound to its staged
+  bytes the same way, whose born-masked lineage hid every folder now masked.
+  That record takes the lineage's folders from the host's own row for the
+  adding turn (`function turnLineage`,
+  `packages/ui-server/src/inbox/provenance.ts:80-85`), which exists only
+  while that turn was the last to start or narrow it, so it covers every
+  turn of the conversation up to and including the one that wrote the text.
+  The bridge names the turn it was built for; the model supplies only the
+  text. Triage results count as
   server text: the server composes them from closed route and reason
   vocabularies. A copy (follow-ups, a retired decision's notice) carries its
   source's record. Intake digests the bytes it is about to publish, never a
@@ -2115,11 +2129,13 @@ every turn without a proven recipient:
   run's budget reservation (`provider_admission`), which is where the run's
   own records take their hidden folders from
   (`export async function admitOriginThread`,
-  `packages/ui-server/src/inbox/provenance.ts:138-168`).
+  `packages/ui-server/src/inbox/provenance.ts:160-191`).
 
   Everything else is refused, never assumed compatible: a legacy item or
   checkpoint with no record, an arrival a conversation added through
-  `inbox_add` (that conversation's earlier history is #2726's scope), text
+  `inbox_add` without a qualifying lineage (pre-policy, legacy, narrowed by
+  an unmasked or allowed-route turn so it no longer covers the folders, or
+  whose record is lost), text
   from a run that saw a folder now masked (including every run before the
   rule), a record whose digest no longer matches, rewritten staging bytes,
   and any read after the policy hash changed. A timestamp, the latest policy
@@ -2304,7 +2320,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:130-131`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:132-133`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -2587,11 +2603,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1061-1089`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1074-1102`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1098-1124`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1111-1137`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1272-1345`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1285-1358`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2908,7 +2924,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:303-320`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:308-325`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.
@@ -2944,7 +2960,7 @@ is now consumer-qualified independently of reference classification (#2028). The
 This mapping was checked against core's (`loadModules`,
 `packages/core/src/lib/module-loader.ts:95-103`), (`importManifest`,
 `packages/core/src/lib/module-loader.ts:192-224`), Pi's (`build`,
-`packages/ui-backend-pi/src/session-resources.ts:88-132`) and the installed
+`packages/ui-backend-pi/src/session-resources.ts:89-133`) and the installed
 Pi 0.99.2 package-manager/settings consumers and Claude SDK 0.3.293 settings
 schema. Nothing imports or evaluates repository configuration on the host.
 Followed JSON resources do not acquire configuration-consumer semantics merely
@@ -3095,7 +3111,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:544-609`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:556-621`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

@@ -118,7 +118,11 @@ Before admitting a governed live writer with retained folders, the gate refuses
 an active peer with an unaccounted plan or a plan missing a required root pin.
 A peer's descendant root also retains its ancestors; retaining an ancestor alone
 does not retain each child inside it. An unknown peer-plan checker refuses too.
-This check does not wait for or stop an older writer and does not block nested
+A peer missing a root waits rather than refusing, for up to 30 seconds: every
+writer admitted after the turn retained its folders inherits them, so only an
+older one can lack them, such as a writer started with the server before any
+turn translated a type selector. A peer still active at that bound refuses.
+This check does not stop an older writer and does not block nested
 shared maintenance, explicitly strict turns or strict inspection fallback.
 
 The gate stores planned root sets, not proof of mounted namespace identities;
@@ -153,9 +157,10 @@ once the brain's taxonomy has been read, a hardlink out of a masked folder as
 for hosted turns. Its bridge refuses masked paths the same way (#2691).
 It also starts only when host provenance shows its origin inbox thread was
 written without the masked folders, and its `inbox_list` and `inbox_get`
-revalidate that; a legacy thread, an item a conversation added, or a thread
-changed under a new policy is refused with `provider_masked` and the queued
-work stays stored (#2741). In
+revalidate that; a legacy thread, an item a conversation added without a
+born-masked lineage that hid those folders (#2816), or a thread changed
+under a new policy is refused with `provider_masked` and the queued work
+stays stored (#2741). In
 every denied turn the committed generated-text caches (`.context-cache.jsonl`,
 `.asset-cache.jsonl`) read as empty (#2692), and so they do in every turn
 allowed some or all provider folders (below).

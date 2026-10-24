@@ -15,9 +15,11 @@
  *   notices, triage results from closed route and reason vocabularies);
  * - `autonomous`: written by an autonomous run whose admitted masks hid every
  *   folder now masked, as recorded on its budget reservation;
+ * - `conversation`: added through `inbox_add` by a hosted conversation whose
+ *   born-masked lineage (#2726) hid every folder now masked from each of its
+ *   turns up to the adding one, bound to the bytes intake published (#2816);
  * - a copy (`derived_from`) carries its source's origin.
- * An item a conversation added (`inbox_add`) has none: its conversation's
- * earlier history is #2726's scope, so its text is not qualified.
+ * An item a conversation without such a lineage added has none.
  */
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
@@ -30,10 +32,11 @@ export type InboxProvenance =
   | { origin: "person"; evidence: string }
   | { origin: "server" }
   | { origin: "autonomous"; runId: string }
+  | { origin: "conversation"; turnId: string; evidence: string }
   | { derivedFrom: InboxSubject };
 
-interface ProvenanceRow { subject: string; digest: string; origin: "person" | "server" | "autonomous"; hidden: string | null;
-  run_id: string | null; derived_from: string | null; evidence: string | null }
+interface ProvenanceRow { subject: string; digest: string; origin: "person" | "server" | "autonomous" | "conversation"; hidden: string | null;
+  run_id: string | null; turn_id: string | null; derived_from: string | null; evidence: string | null }
 
 const key = (subject: InboxSubject): string => "item" in subject ? `item:${subject.item}` : `checkpoint:${subject.checkpoint}`;
 const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
@@ -70,30 +73,47 @@ function runMasks(db: Database, runId: string): string[] | undefined {
 }
 
 /**
+ * The folders a hosted conversation kept masked from every turn up to `turnId`:
+ * its lineage row, only while that turn was the last to start or narrow it.
+ * Undefined without one, or once a later turn of it was admitted.
+ */
+function turnLineage(db: Database, turnId: string): string[] | undefined {
+  const row = db.query("SELECT masked FROM session_masked_lineage WHERE turn_id = ?").get(turnId) as { masked: string } | null;
+  let masked: unknown;
+  try { masked = row ? JSON.parse(row.masked) : undefined; } catch { return undefined; }
+  return Array.isArray(masked) && masked.every(folder => typeof folder === "string") ? masked : undefined;
+}
+
+/**
  * Record who produced a subject's text, in the caller's transaction, right
  * after writing it. Without trustworthy evidence nothing is recorded, and the
- * subject then never qualifies: an autonomous run with no admitted masks, or a
- * copy of a subject that has no record.
+ * subject then never qualifies: an autonomous run with no admitted masks, a
+ * conversation turn with no lineage, or a copy of a subject that has no record.
  */
 export function recordInboxProvenance(db: Database, subject: InboxSubject, provenance: InboxProvenance, now = Date.now()): void {
   const text = subjectText(db, subject);
   if (!text) throw new Error("Inbox provenance names no stored item or checkpoint");
-  let origin: ProvenanceRow["origin"], hidden: string | null = null, runId: string | null = null, derived: string | null = null, evidence: string | null = null;
+  let origin: ProvenanceRow["origin"], hidden: string | null = null, runId: string | null = null, turnId: string | null = null,
+    derived: string | null = null, evidence: string | null = null;
   if ("derivedFrom" in provenance) {
     const source = db.query("SELECT * FROM inbox_provenance WHERE subject = ?").get(key(provenance.derivedFrom)) as ProvenanceRow | null;
     if (!source) return;
-    ({ origin, hidden, run_id: runId } = source);
+    ({ origin, hidden, run_id: runId, turn_id: turnId } = source);
     derived = source.subject;
   } else if (provenance.origin === "autonomous") {
     const masked = runMasks(db, provenance.runId);
     if (!masked) return;
     origin = "autonomous"; hidden = JSON.stringify(masked); runId = provenance.runId;
+  } else if (provenance.origin === "conversation") {
+    const masked = turnLineage(db, provenance.turnId);
+    if (!masked) return;
+    origin = "conversation"; hidden = JSON.stringify(masked); turnId = provenance.turnId; evidence = provenance.evidence;
   } else {
     origin = provenance.origin;
     if (provenance.origin === "person") evidence = provenance.evidence;
   }
-  db.query(`INSERT OR IGNORE INTO inbox_provenance (subject, thread_id, digest, origin, hidden, run_id, derived_from, evidence, recorded_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(key(subject), text.threadId, text.digest, origin, hidden, runId, derived, evidence, now);
+  db.query(`INSERT OR IGNORE INTO inbox_provenance (subject, thread_id, digest, origin, hidden, run_id, turn_id, derived_from, evidence, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(key(subject), text.threadId, text.digest, origin, hidden, runId, turnId, derived, evidence, now);
 }
 
 /** Why each subject the thread can show fails to qualify for `masked`; empty when all qualify. */
@@ -108,8 +128,10 @@ function unqualified(db: Database, threadId: string, masked: readonly string[]):
     const row = db.query("SELECT * FROM inbox_provenance WHERE subject = ?").get(key(subject)) as ProvenanceRow | null;
     const current = subjectText(db, subject);
     const hidden = row?.hidden ? JSON.parse(row.hidden) as string[] : [];
+    // Only a person or the server writes text from no brain content; a run's or
+    // a conversation's text qualifies for the folders it had hidden.
     const compatible = row !== null && row.digest === current?.digest &&
-      (row.origin !== "autonomous" || masked.every(folder => hidden.some(outer => within(folder, outer))));
+      (row.hidden === null ? row.origin === "person" || row.origin === "server" : masked.every(folder => hidden.some(outer => within(folder, outer))));
     if (compatible) qualified.push(row); else refused.push(key(subject));
   }
   return { subjects: refused, qualified };
@@ -161,7 +183,8 @@ export async function admitOriginThread(db: Database, brainPath: string, input: 
     const unread = current.filter(row => row.evidence !== null && !arrivals.has(row.subject.slice(5))).map(row => row.subject);
     if (unread.length) throw new ProviderThreadRefusedError(input.threadId, masked, unread, "provenance");
     const recorded = { policyHash: input.policyHash, masked,
-      subjects: current.map(row => ({ subject: row.subject, origin: row.origin, ...(row.run_id ? { runId: row.run_id } : {}), ...(row.derived_from ? { derivedFrom: row.derived_from } : {}) })) };
+      subjects: current.map(row => ({ subject: row.subject, origin: row.origin, ...(row.run_id ? { runId: row.run_id } : {}),
+        ...(row.turn_id ? { turnId: row.turn_id } : {}), ...(row.derived_from ? { derivedFrom: row.derived_from } : {}) })) };
     db.query("UPDATE inbox_budget_reservations SET provider_admission = ? WHERE run_id = ? AND status = 'active'").run(JSON.stringify(recorded), input.runId);
   }).immediate();
   return Object.freeze({ threadId: input.threadId, masked, policyHash: input.policyHash, arrivals, revalidate: () => { revalidate(); } });

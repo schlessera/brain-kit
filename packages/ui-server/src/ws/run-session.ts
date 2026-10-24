@@ -502,6 +502,7 @@ async function runRetainedSession(
       let turnEgress: Awaited<ReturnType<typeof prepareTurnEgress>> | undefined;
       let providerRelay: ProviderRelay | undefined;
       let worktreeGeneration: import("../brain/reference-worktrees.js").ReferenceWorktreeGeneration | undefined;
+      let referenceViews: { public: string; private: string } | null = null, referenceTurn = false;
       let journalFailure: Error | undefined;
       let budgetFailure: Error | undefined;
       let scopeStopReason: string | undefined;
@@ -570,6 +571,13 @@ async function runRetainedSession(
             if (abortController.signal.aborted) throw error;
             host.log.emit({ severityText: "WARN", body: `managed worktree generation unavailable for this turn: ${String(error)}` });
           }
+        }
+        // Reference tools (#2432): the turn's workers bind the principal's source
+        // views and the generation above; the tools report only what they bind.
+        if (governedHold && host.referenceTools) {
+          referenceTurn = true;
+          referenceViews = await host.referenceTools.begin(turn.turnId, { principalId: turn.principalId, posture: work?.posture === "voice" ? "voice" : "interactive",
+            generation: worktreeGeneration ?? null, signal: abortController.signal });
         }
         const scopeTurnId = turn.turnId;
         if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
@@ -748,7 +756,7 @@ async function runRetainedSession(
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(commandPolicy ? { commandPolicy } : {}), ...(turnEgress ? { egress: turnEgress } : {}),
-            ...(worktreeGeneration ? { worktrees: { source: worktreeGeneration.path } } : {}), noteFacts: {
+            ...(worktreeGeneration ? { worktrees: { source: worktreeGeneration.path } } : {}), ...(referenceViews ? { references: referenceViews } : {}), noteFacts: {
             ...governedHold.sandbox.noteFacts,
             ...(workerIdentity ? { identity: workerIdentity } : {}),
             history: { journal: Boolean(host.journal && host.journal.summary(turn.turnId).state === "recording"),
@@ -851,6 +859,7 @@ async function runRetainedSession(
       } finally {
         await providerRelay?.stop();
         turnEgress?.stop();
+        if (referenceTurn) host.referenceTools?.end(turn.turnId);
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});
         try {

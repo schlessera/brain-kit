@@ -930,6 +930,15 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
     unlinkNames(intent.view, id);
     return publicRecord(await move(intent, null, signal));
   }
+  /**
+   * Open one view's directory before anything is published there (#2432), so
+   * a worker can bind it whole at its start and see the domain's first
+   * publication on a later lookup.
+   */
+  function viewOpen(view: string): { view: string; path: string } {
+    ensureView(view);
+    return { view, path: viewPath(view) };
+  }
   /** Remove one published name; its root stays charged and retained until released. */
   function unpublish(request: { view: string; name: string }): { view: string; name: string; removed: boolean } {
     nativePoolName.parse(request.name);
@@ -955,7 +964,7 @@ export async function createNativeReferencePool(context: ReferencePoolContext) {
   return {
     /** Mandatory worker masks for pool private state, roots, views and access generations; a worker sees only what is bound for it. */
     privatePaths: [privateRoot, roots, views, accessRoot, pool.devicePath, ...(backing?.backingPath ? [backing.backingPath] : []), ...(pool.headroomLedgerPath ? [dirname(pool.headroomLedgerPath)] : [])],
-    status, create, seal, release, publish, unpublish, withdraw, list, rearm: ensureEmergency,
+    status, create, seal, release, publish, viewOpen, unpublish, withdraw, list, rearm: ensureEmergency,
     checkpoint, checkpointPath, deltaRoots, accessOpen, grant, park, accessClose,
     close() { index.close(); closeSync(stateFd); },
   };

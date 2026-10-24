@@ -6,6 +6,7 @@ const handlers: Record<string, string> = {
   query_activity: "queryActivity", propose_policy_change: "proposePolicyChange",
   inbox_list: "inboxList", inbox_get: "inboxGet", inbox_add: "inboxAdd", resolve_action: "resolveAction",
   complete_share: "completeShare", brain_read_base: "readBrainBase",
+  reference_source: "referenceAccess", reference_worktree: "referenceAccess",
   brain_add: "applyBrain", brain_update: "applyBrain", brain_archive: "applyBrain",
   write_file: "applyBrain", edit_file: "applyBrain", apply_staged_changes: "applyBrain",
 };

@@ -37,6 +37,8 @@ export const nativeManagerRequest = z.discriminatedUnion("operation", [
   // domain; the manager owns its directory and swaps one name atomically.
   z.object({ operation: z.literal("poolPublish"), id: nativeCheckpointId, view: nativeCheckpointId, name: nativePoolName }).strict(),
   z.object({ operation: z.literal("poolUnpublish"), view: nativeCheckpointId, name: nativePoolName }).strict(),
+  // A view's directory, opened before its first publication so a worker can bind it (#2432).
+  z.object({ operation: z.literal("poolView"), view: nativeCheckpointId }).strict(),
   z.object({ operation: z.literal("poolWithdraw"), id: nativeCheckpointId }).strict(),
   // Managed worktrees (#2430). A checkpoint is a read-only snapshot of one
   // writable worktree; deltas and fixed worker-UID reads stay inside one

@@ -6,7 +6,7 @@
  */
 import { installFixtureNativeStartupViews } from "./helpers/fixture-native-startup.js";
 installFixtureNativeStartupViews();
-import { afterEach, expect, test, type Mock } from "bun:test";
+import { afterEach, expect, spyOn, test, type Mock } from "bun:test";
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { launchAgentWorker, workerCommand } from "../../ui-sdk/src/server/worker-launcher";
@@ -153,6 +153,34 @@ test.each([
     expect(refresh.folderPaths, "LATER_WRITER_PLANS_THE_TRANSLATED_FOLDER").toContain("me");
     await (await f.turns.begin("next", new AbortController().signal)).end();
   } finally { refresh.release(); }
+});
+
+test("the first type-selector turn after server start waits for a writer started with the server, rather than refusing (#2832)", async () => {
+  // A fresh fixture is a fresh server: no turn has translated the type yet.
+  const f = fixture("[{ types: [identity], allow: [anthropic] }]");
+  const gate = f.execution.gate()!, acquire = gate.acquire.bind(gate);
+  // Admitted with the server, before the turn: its plan cannot hold me/.
+  const boot = await gate.acquire("shared", "brain CLI version");
+  expect(boot.folderPaths, "SERVER_START_WRITER_PLANS_NO_TYPE_FOLDER").toEqual([]);
+  // The boot writer finishes a little after the turn reaches it. A turn that
+  // refuses, or checks without waiting, never lets it finish first.
+  let releasedAt: number | undefined;
+  const hook = spyOn(gate, "acquire").mockImplementation(async (...args) => {
+    const hold = await acquire(...args), wait = hold.waitForPeerFolderPlans?.bind(hold);
+    return wait ? Object.assign(hold, { waitForPeerFolderPlans: (...values: Parameters<typeof wait>) => {
+      setTimeout(() => { releasedAt = performance.now(); boot.release(); }, 300);
+      return wait(...values);
+    } }) : hold;
+  });
+  let hold: Awaited<ReturnType<typeof f.turns.begin>> | undefined, refusal: unknown;
+  try {
+    try { hold = await f.turns.begin("first-after-start", new AbortController().signal); } catch (error) { refusal = error; }
+    const admittedAt = performance.now();
+    expect(refusal, "FIRST_PROVIDER_POLICY_TURN_AFTER_START_ADMITTED").toBeUndefined();
+    expect(releasedAt !== undefined && admittedAt >= releasedAt, "ADMITTED_ONLY_ONCE_THE_SERVER_START_WRITER_FINISHED").toBe(true);
+    expect(hold!.sandbox.profile, hold!.sandbox.fallbackReason).toBe("governed");
+    expect(hold!.sandbox.retainedFolders, "TYPE_FOLDER_RETAINED").toEqual([".brain-index", "me"]);
+  } finally { hook.mockRestore(); boot.release(); await hold?.end(); }
 });
 
 test("a folder nested inside another masked folder launches under the outer mask alone", async () => {

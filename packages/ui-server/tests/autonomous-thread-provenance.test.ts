@@ -25,6 +25,9 @@ import { createInboxBudget } from "../src/inbox/budget.js";
 import { createInboxDispatcher } from "../src/inbox/dispatcher.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { admitOriginThread, recordInboxProvenance } from "../src/inbox/provenance.js";
+import { createInboxBridgeTools } from "../src/inbox/bridge-tools.js";
+import { createInboxResolver } from "../src/inbox/resolve.js";
+import { createProviderExposures } from "../src/brain/provider-exposure.js";
 import { governancePolicyReaderFor } from "../src/brain/governance-policy.js";
 import { createHostBoundary } from "../src/brain/host-boundary.js";
 import { boundaryPlanner } from "../src/brain/application.js";
@@ -86,6 +89,16 @@ function fixture() {
   const arrive = async (text: string) => intake.person({ text, files: [] }, crypto.randomUUID(), principal);
   /** An arrival a conversation added (`inbox_add`): no person provenance. */
   const conversationArrival = async (text: string) => intake.cli({ text, files: [] }, `bridge:${principal.id}:turn:${crypto.randomUUID()}`, principal, () => true);
+  /**
+   * What a hosted conversation's turn adds through its own `inbox_add`; with
+   * `lineage`, the conversation was born masking those folders (#2726).
+   */
+  const conversationAdd = async (text: string, lineage?: string[], turnId: string = crypto.randomUUID()) => {
+    if (lineage) createProviderExposures(db).startMasked(turnId, lineage);
+    const bridge = createInboxBridgeTools(db, intake, createInboxResolver(db, { allowedOperations: () => [] }))
+      .forTurn({ principalId: principal.id, origin: "interactive", turnId, isCurrent: () => true, sessionId: () => undefined, membership: "interactive" });
+    return { turnId, ...await bridge.inboxAdd!({ text, idempotencyKey: crypto.randomUUID() }) };
+  };
   /** Text an earlier run left in the thread before any provenance was recorded. */
   const legacy = (threadId: string, text: string) => {
     const at = Date.now(), id = crypto.randomUUID();
@@ -99,7 +112,7 @@ function fixture() {
   const claim = (itemId: string, runId: string) => createInboxBudget(db, budgetConfig)
     .claim(itemId, { runId, principalId: principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, Date.now() + 600_000);
   const deps = { db, store: activity, brainPath: root, nativeManager, privateIndex, checkpoint() {} };
-  return { root, db, principal, backend, turns, scripts, runtime, store, arrive, conversationArrival, legacy, traces, claim, deps };
+  return { root, db, principal, backend, turns, scripts, runtime, store, arrive, conversationArrival, conversationAdd, legacy, traces, claim, deps };
 }
 
 test("dispatch refuses a thread holding an earlier item without provenance before its prompt is built", async () => {
@@ -123,6 +136,63 @@ test("dispatch refuses a triggering arrival without person provenance, so its te
   expect(f.turns.map(turn => turn.prompt), "TRIGGER_SENTINEL_NEVER_DISPATCHED").toEqual([]);
   expect(f.traces(), "NO_TRACE_RECEIVES_THE_TRIGGER_SENTINEL").not.toContain(SENTINEL);
   expect(f.store.getItem(arrival.itemId)).toMatchObject({ status: "ready", waitUntil: expect.any(Number) });
+}, 120_000);
+
+test("dispatch admits an item a born-masked conversation added, with its turn recorded as the evidence", async () => {
+  const f = fixture();
+  const added = await f.conversationAdd("Penelope asks that the loom be recorded in Ithaca's notes.", ["me"]);
+  await f.runtime.tick();
+  expect(f.turns, "BORN_MASKED_CONVERSATION_ITEM_DISPATCHED").toHaveLength(1);
+  expect(f.turns[0]!.prompt).toContain("Penelope asks that the loom be recorded");
+  expect(f.turns[0]!.workerProviderMasks?.folders).toEqual(["me"]);
+  const row = f.db.query("SELECT provider_admission FROM inbox_budget_reservations WHERE item_id = ? AND purpose = 'execute'").get(added.itemId) as { provider_admission: string };
+  expect((JSON.parse(row.provider_admission) as { subjects: unknown[] }).subjects, "CONVERSATION_EVIDENCE_RECORDED_ON_THE_ADMISSION").toEqual([
+    { subject: `item:${added.itemId}`, origin: "conversation", turnId: added.turnId },
+    { subject: `checkpoint:triage-result:${added.itemId}`, origin: "server" },
+  ]);
+}, 120_000);
+
+test("dispatch refuses an item a conversation without a lineage added, and one whose lineage hid other folders", async () => {
+  const f = fixture();
+  const unrecorded = await f.conversationAdd(`No lineage: ${SENTINEL} from me/oath.md.`);
+  const elsewhere = await f.conversationAdd(`Born masking finance only: ${SENTINEL} from me/oath.md.`, ["finance"]);
+  await f.runtime.tick(); await f.runtime.tick();
+  expect(f.turns.map(turn => turn.prompt), "UNQUALIFIED_CONVERSATION_ITEMS_NEVER_DISPATCHED").toEqual([]);
+  expect(f.traces()).not.toContain(SENTINEL);
+  for (const added of [unrecorded, elsewhere]) expect(f.store.getItem(added.itemId)).toMatchObject({ status: "ready", waitUntil: expect.any(Number) });
+}, 120_000);
+
+test("an earlier turn's item refuses once a later turn of its conversation narrowed the lineage", async () => {
+  const f = fixture();
+  const exposures = createProviderExposures(f.db), earlier = crypto.randomUUID();
+  exposures.startMasked(earlier, ["me"]);
+  exposures.bind(earlier, "voyage");
+  // The later turn masks the same folder: the lineage is unchanged but now belongs to it.
+  exposures.narrowMasked(crypto.randomUUID(), "voyage", ["me"]);
+  const added = await f.conversationAdd("Added by the earlier turn after the later one was admitted.", undefined, earlier);
+  expect(f.db.query("SELECT subject FROM inbox_provenance WHERE subject = ?").all(`item:${added.itemId}`), "SUPERSEDED_TURN_RECORDS_NOTHING").toEqual([]);
+  expect(await admit(f, added.threadId, "run", ["me"]), "SUPERSEDED_TURN_ITEM_REFUSED").toContain(`item:${added.itemId}`);
+}, 60_000);
+
+test("a copy of a born-masked conversation's item carries its turn and lineage", async () => {
+  const f = fixture();
+  const added = await f.conversationAdd("Penelope asks that the loom be recorded.", ["me"]);
+  const copy = f.legacy(added.threadId, "A follow-up copied from the conversation's item.");
+  recordInboxProvenance(f.db, { item: copy }, { derivedFrom: { item: added.itemId } });
+  expect(f.db.query("SELECT origin, hidden, turn_id, derived_from FROM inbox_provenance WHERE subject = ?").get(`item:${copy}`), "COPY_CARRIES_CONVERSATION_PROVENANCE")
+    .toEqual({ origin: "conversation", hidden: JSON.stringify(["me"]), turn_id: added.turnId, derived_from: `item:${added.itemId}` });
+  expect(await admit(f, added.threadId, "run", ["me"]), "CONVERSATION_COPY_QUALIFIES").toBe("admitted");
+}, 60_000);
+
+test("an item whose staged bytes changed after a born-masked conversation added it no longer qualifies", async () => {
+  const f = fixture();
+  const added = await f.conversationAdd("Penelope asks that the loom be recorded.", ["me"]);
+  const stagingId = (f.store.getItem(added.itemId) as { payload: { stagingId: string } }).payload.stagingId;
+  const meta = join(f.root, SHARE_STAGING_DIR, stagingId, "meta.json");
+  writeFileSync(meta, JSON.stringify({ ...JSON.parse(await Bun.file(meta).text()) as Record<string, unknown>, text: `Rewritten in place: ${SENTINEL}.` }));
+  await f.runtime.tick();
+  expect(f.turns.map(turn => turn.prompt), "REWRITTEN_CONVERSATION_ITEM_NEVER_DISPATCHED").toEqual([]);
+  expect(f.traces()).not.toContain(SENTINEL);
 }, 120_000);
 
 test("dispatch refuses an arrival whose staged bytes changed after intake recorded them", async () => {
