@@ -315,7 +315,10 @@ export function isGovernanceEventKind(value: string): value is GovernanceEventKi
  * never has to know whether `session_info` has landed yet; `bindTurnEvents`
  * attaches the rest when it does.
  */
-export function recordGovernanceEvent(db: Database, input: GovernanceEventInput): { id: number; recorded: boolean } {
+export function recordGovernanceEvent(db: Database, input: GovernanceEventInput, options: {
+  /** False inside a journal write, which must not free another component's pages; the caller expires afterwards. */
+  expire?: boolean;
+} = {}): { id: number; recorded: boolean } {
   if (typeof input?.kind !== "string" || !isGovernanceEventKind(input.kind)) {
     throw new GovernanceEventError(`Unknown governance event kind: ${String(input?.kind)}`);
   }
@@ -335,7 +338,7 @@ export function recordGovernanceEvent(db: Database, input: GovernanceEventInput)
   const m = meta.data;
   const at = m.at ?? Date.now();
   return db.transaction(() => {
-    db.query("DELETE FROM governance_events WHERE session_id IS NULL AND at < ?").run(at - UNBOUND_GOVERNANCE_RETENTION_MS);
+    if (options.expire !== false) expireUnboundGovernanceEvents(db, at);
     const row = db.query(`INSERT INTO governance_events
         (session_id, turn_id, at, kind, schema_version, actor, model, profile, payload, dedupe_key)
       VALUES ((SELECT id FROM sessions WHERE id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -347,6 +350,13 @@ export function recordGovernanceEvent(db: Database, input: GovernanceEventInput)
       .get(input.kind, m.dedupeKey ?? null) as { id: number };
     return { id: existing.id, recorded: false };
   }).immediate();
+}
+
+/** Removes session-less events past their retention, relative to `at`. */
+export function expireUnboundGovernanceEvents(db: Database, at = Date.now()): void {
+  // Probe first: the delete would otherwise be a write, and a commit, every time.
+  if (!db.query("SELECT 1 FROM governance_events WHERE session_id IS NULL AND at < ? LIMIT 1").get(at - UNBOUND_GOVERNANCE_RETENTION_MS)) return;
+  db.query("DELETE FROM governance_events WHERE session_id IS NULL AND at < ?").run(at - UNBOUND_GOVERNANCE_RETENTION_MS);
 }
 
 /**

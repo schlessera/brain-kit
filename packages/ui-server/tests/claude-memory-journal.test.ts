@@ -154,3 +154,16 @@ test("uninspectable native copy-out marks external memory unavailable before any
     expect(readFileSync(join(f.memory,"voyage.md"))).toEqual(Buffer.from([65,13,10,255]));
   }finally{await f.close();}
 });
+
+test("a steering change recorded inside a journal write leaves governance expiry until after it commits", async () => {
+  const f = fixture(); try {
+    await f.begin("return");
+    // A session-less event far past retention: expiring it inside the journal write would free foreign pages.
+    recordGovernanceEvent(f.db, { kind: "taint", sessionId: null, turnId: "elsewhere", actor: "interactive", model: "odysseus-model", profile: "governed", at: 1, payload: { source: "user_marked", tool: "fixture", detail: "Old report from the suitors" } }, { expire: false });
+    const w = f.worker("return");
+    writeFileSync(join(w.notes, "athena.md"), "Counsel\r\n");
+    w.persist(); await f.journal.finish("return");
+    expect(queryGovernanceEvents(f.db, { sessionId: "ithaca", turnId: "return", kinds: ["steering_change"], limit: 100 }).length, "JOURNAL_STEERING_EVENT_RECORDED").toBe(1);
+    expect(f.db.query("SELECT count(*) AS n FROM governance_events WHERE session_id IS NULL AND turn_id = 'elsewhere'").get(), "JOURNAL_GOVERNANCE_EXPIRY_AFTER_COMMIT").toEqual({ n: 0 });
+  } finally { await f.close(); }
+});

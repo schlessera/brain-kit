@@ -14,7 +14,7 @@ function fixture(prefix: string) {
 }
 const reserved = (db: Database) => (db.query("SELECT wal_reserved FROM turn_journal_allocation WHERE id=1").get() as { wal_reserved: number }).wal_reserved;
 
-test("a journal write after startup takes no WAL checkpoint", () => {
+test("a journal write after startup takes no WAL checkpoint and walks no b-tree", () => {
   const f = fixture("path");
   let checkpoints = 0;
   const ledger = createJournalAccounting(f.db, f.path, { afterCheckpoint() { checkpoints++; } });
@@ -29,6 +29,7 @@ test("a journal write after startup takes no WAL checkpoint", () => {
     }
     const reservation = ledger.reserveTemporary(4096); reservation.release();
     expect(statements.filter(sql => /wal_checkpoint/i.test(sql)), "JOURNAL_WRITE_RUNS_NO_CHECKPOINT").toEqual([]);
+    expect(statements.filter(sql => /dbstat/i.test(sql)), "JOURNAL_WRITE_WALKS_NO_BTREE").toEqual([]);
     expect(checkpoints - startup, "JOURNAL_WRITE_TAKES_NO_CHECKPOINT").toBe(0);
     expect(startup, "JOURNAL_STARTUP_ESTABLISHES_EMPTY_WAL").toBe(1);
     expect(reserved(f.db), "JOURNAL_WAL_DEBT_STAYS_RESERVED").toBeGreaterThanOrEqual(statSync(`${f.path}-wal`).size);
@@ -65,6 +66,8 @@ test("journal storage another connection wrote is charged at the next accounted 
     const bounded = createJournalAccounting(f.db, f.path, { capBytes: ledger.usage() + 64 * 1024 });
     // A connection without a ledger has no guard; the full measurement still sees its pages.
     turn(other, "athena", "Ithaca".repeat(40_000));
+    // Its WAL frames are gone after a checkpoint; only its commit having happened is left to notice.
+    other.query("PRAGMA wal_checkpoint(TRUNCATE)").get();
     expect(() => bounded.write(() => {}), "JOURNAL_UNGUARDED_WRITER_STILL_CHARGED").toThrow(JournalCapacityError);
     expect(ledger.usage(), "JOURNAL_UNGUARDED_PAGES_IN_USAGE").toBeGreaterThan(240_000);
   } finally { f.close(other, f.db); }
@@ -103,7 +106,8 @@ test("the charge never falls below formerly-owned journal pages still free, whoe
     for (const row of owned) ever.add(row.pageno);
     return owned.length + [...ever].filter(page => !inTree.has(page)).length;
   };
-  const charged = () => (JSON.parse((f.db.query("SELECT pages FROM turn_journal_allocation WHERE id=1").get() as { pages: string }).pages) as number[]).length;
+  // A no-op write records what the previous commit wrote; the oracle then reads the charged set.
+  const charged = () => { ledger.write(() => {}); return (f.db.query("SELECT count(*) AS n FROM turn_journal_pages").get() as { n: number }).n; };
   const check = (label: string) => { expect(charged(), `JOURNAL_CHARGE_COVERS_RELEASED_PAGES_${label}`).toBeGreaterThanOrEqual(truth()); };
   try {
     f.db.exec("CREATE TABLE fixture_activity (value TEXT)");
@@ -113,9 +117,11 @@ test("the charge never falls below formerly-owned journal pages still free, whoe
     f.db.query("DELETE FROM fixture_activity").run(); check("OTHER_RELEASED");
     // The journal grows into free pages that may be the other component's.
     ledger.write(() => turn(f.db, "athena", "Ithaca".repeat(40_000))); check("JOURNAL_REUSED");
-    // Non-journal rows removed inside a journal transaction, like governance expiry.
+    // A journal write may not free another component's pages (governance expiry runs after it).
     f.db.query("INSERT INTO fixture_activity VALUES (?)").run("Telemachus".repeat(30_000));
-    ledger.write(() => { f.db.query("DELETE FROM fixture_activity").run(); turn(f.db, "telemachus", "Ithaca"); }); check("FOREIGN_DELETE");
+    expect(() => ledger.write(() => { f.db.query("DELETE FROM fixture_activity").run(); turn(f.db, "telemachus", "Ithaca"); }), "JOURNAL_WRITE_CANNOT_FREE_FOREIGN_PAGES").toThrow("pages another component owns");
+    f.db.query("DELETE FROM fixture_activity").run();
+    ledger.write(() => turn(f.db, "telemachus", "Ithaca".repeat(30_000))); check("REUSED_FOREIGN_RELEASE");
     f.db.query("INSERT INTO fixture_activity VALUES (?)").run("Eumaeus".repeat(120_000));
     ledger.write(() => turn(f.db, "eumaeus", "Ithaca")); check("OTHER_REUSED");
   } finally { f.close(f.db); }
@@ -140,10 +146,32 @@ test("a large write onto a large WAL truncates first, so the store and the WAL i
   try {
     ledger.write(() => turn(f.db, "odysseus", "Ithaca"));
     const cap = ledger.usage() + 600 * 1024, bounded = createJournalAccounting(f.db, f.path, { capBytes: cap, afterCheckpoint() { checkpoints++; } });
-    for (let index = 0; statSync(`${f.path}-wal`).size < 400 * 1024; index++) bounded.write(() => f.db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id='odysseus'").run(`penelope-${index}`));
+    for (let index = 0; index < 500 && statSync(`${f.path}-wal`).size < 400 * 1024; index++) bounded.write(() => f.db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id='odysseus'").run(`penelope-${index}`));
+    expect(statSync(`${f.path}-wal`).size, "JOURNAL_SMALL_WRITES_GROW_THE_WAL").toBeGreaterThanOrEqual(400 * 1024);
     const before = checkpoints;
     bounded.write(() => turn(f.db, "athena", "Ithaca".repeat(42_000)));
     expect(checkpoints - before, "JOURNAL_LARGE_WRITE_TRUNCATES_A_LARGE_WAL").toBe(1);
     expect(bounded.usage(), "JOURNAL_ADMITTED_WRITE_FITS_WITH_ITS_WAL").toBeLessThanOrEqual(cap);
   } finally { f.close(f.db); }
+});
+
+test("pages a write can take from the free list or the file's growth are charged before admission", () => {
+  for (const source of ["free list", "file growth"]) {
+    const f = fixture(source === "free list" ? "free" : "growth-cap");
+    const ledger = createJournalAccounting(f.db, f.path);
+    try {
+      ledger.write(() => turn(f.db, "odysseus", "Ithaca"));
+      if (source === "free list") {
+        // Another component releases pages the journal then reuses: no file growth.
+        f.db.exec("CREATE TABLE fixture_activity (value TEXT)");
+        f.db.query("INSERT INTO fixture_activity VALUES (?)").run("Penelope".repeat(60_000));
+        f.db.query("DELETE FROM fixture_activity").run();
+      }
+      f.db.query("PRAGMA wal_checkpoint(TRUNCATE)").get();
+      const bounded = createJournalAccounting(f.db, f.path, { capBytes: ledger.usage() + 96 * 1024 });
+      const pages = f.db.query("PRAGMA page_count").get();
+      expect(() => bounded.write(() => turn(f.db, "athena", "Ithaca".repeat(40_000))), `JOURNAL_NEW_PAGES_FROM_${source.toUpperCase().replace(" ", "_")}_CHARGED`).toThrow(JournalCapacityError);
+      if (source === "free list") expect(f.db.query("PRAGMA page_count").get(), "JOURNAL_FIXTURE_REUSES_FREE_PAGES").toEqual(pages);
+    } finally { f.close(f.db); }
+  }
 });

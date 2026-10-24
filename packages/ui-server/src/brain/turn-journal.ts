@@ -13,7 +13,7 @@ import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
+import { expireUnboundGovernanceEvents, queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
@@ -43,6 +43,8 @@ export function createTurnJournal(db: Database, options: {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }
   const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number }>();
+  // Inside a journal write governance rows are only added; expiry runs after it commits.
+  const journalGovernanceEvent = (input: Parameters<typeof recordGovernanceEvent>[1]) => recordGovernanceEvent(db, input, { expire: false });
   const retainVersion = async (source: number, bytes: number, signal?: AbortSignal) => {
     const hash = await retainAsync(() => objects.putFileAsync(source, bytes, signal));
     // Pin the shared observation before another admission can collect objects.
@@ -248,7 +250,7 @@ export function createTurnJournal(db: Database, options: {
             const overlappingTurnIds = overlaps.filter(id => id !== turnId);
             db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
               .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source);
-            if (classification === "steering") recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId,
+            if (classification === "steering") journalGovernanceEvent({ kind: "steering_change", sessionId: metadata.session_id, turnId,
               actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
               payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds } });
             pin(turnId, item.before); pin(turnId, item.after);
@@ -281,7 +283,7 @@ export function createTurnJournal(db: Database, options: {
               const { ms, ...known } = item;
               missing.set(item.path, known);
               const signature = `journal_reader:${item.kind ?? "unknown"}:${item.bytes ?? "unknown"}:${item.path}`.slice(0, 1000);
-              recordGovernanceEvent(db, { kind: "roadblock", sessionId: metadata.session_id, turnId, actor: metadata.actor,
+              journalGovernanceEvent({ kind: "roadblock", sessionId: metadata.session_id, turnId, actor: metadata.actor,
                 model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `journal-reader:${turnId}:${item.path}`,
                 payload: { category: "permission_denied", family: "journal_reader", signature,
                   failures: [{ toolCallId: null, signature, category: "permission_denied" }], resolution: null,
@@ -290,6 +292,7 @@ export function createTurnJournal(db: Database, options: {
             db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify([...missing.values()]), turnId);
           }
         }));
+        expireUnboundGovernanceEvents(db, now());
         publish(turnId);
         // Ignored versions have metadata but no content hash: count their largest
         // observed size once per path, independently of hashed changed versions.
@@ -487,9 +490,10 @@ export function createTurnJournal(db: Database, options: {
           .run(turnId, sequence, path, "claude_memory", before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, actor, taint?.id ?? null);
         db.query("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)").run(turnId, path, target.directory, target.device, target.inode, target.note, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, "saved");
         pin(turnId, before); pin(turnId, after);
-        recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId, actor: metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
+        journalGovernanceEvent({ kind: "steering_change", sessionId: metadata.session_id, turnId, actor: metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
           payload: { path, sequence, beforeHash: before?.hash ?? null, afterHash: after?.hash ?? null, taintSourceEventId: taint?.id ?? null, overlappingTurnIds: [] } });
       }));
+      expireUnboundGovernanceEvents(db, now());
       publish(turnId);
     },
     /** All operation metadata uses the journal's existing physical allocation owner. */
