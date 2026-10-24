@@ -246,6 +246,13 @@ Follow [the wait classification and clock rules](test-waits.md): distinguish
 actual awaited delays from failure caps and fixture holds, preserve negative
 temporal guarantees, and measure native exceptions separately.
 
+Do not wrap a promise that waits on the SQLite write worker in
+`expect(...).rejects` or `.resolves`: Bun 1.4.2 waits for those in a nested
+event loop that does not deliver the worker's reply, so the test times out.
+Await it and assert on the result, or use `expectRejection`
+(`packages/ui-server/tests/helpers/expect-rejection.ts`)
+([why](../decisions/sqlite-write-worker.md#testing-note)).
+
 ## Tests that cannot fail
 
 A green test is evidence only if it could have been red. Each of these shapes

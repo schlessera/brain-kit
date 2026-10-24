@@ -1,10 +1,13 @@
 /** Concrete native-root ownership across app/cron crashes, separate from UI database creation. */
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { constants, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { NativeBrainManagerError, REFERENCE_POOL_CHECKPOINT_BYTES, type createNativeBrainManagerClient, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
+import { openSqliteWriter } from "../db/write-worker.js";
+import * as nativeLeaseStore from "./native-lease-store.js";
+import { reviveNativeLeaseError, type NativeLeaseOwner } from "./native-lease-store.js";
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
 type PoolLease = { id: string; purpose: "source" | "worktree" | "staging" | "checkpoint"; from_id: string | null; allowance: number; state: "creating" | "held" | "releasing" };
@@ -80,6 +83,11 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     }
   } catch (error) { db.close(); throw error; }
   const generation = randomUUID();
+  // Every durable intent commits on the write worker, off the event loop (#2814).
+  const writer = openSqliteWriter(db);
+  const leases = writer.channel<NativeLeaseOwner>(nativeLeaseStore, { generation, boot, pidNamespace }, reviveNativeLeaseError);
+  try { await leases.ready; } catch (error) { await writer.close(); db.close(); throw error; }
+  const run = (sql: string, ...params: SQLQueryBindings[]) => leases.call<number>("run", sql, params);
   let closed = false;
   const pending = new Set<Promise<unknown>>();
   function operation<T>(run: () => Promise<T>): Promise<T> {
@@ -98,26 +106,22 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
   const mine = (lease: Lease) => lease.owner_pid === SELF.pid && lease.owner_start === SELF.start && lease.owner_generation === generation && lease.owner_boot === boot && lease.owner_pid_namespace === pidNamespace;
   async function releaseOwned(lease: Lease, signal?: AbortSignal): Promise<{ id: string; state: "deleted" }> {
     // This intent must survive a lost delete reply, and never uses admission's aborted signal.
-    db.query("UPDATE native_root_leases SET state='deleting' WHERE id=?").run(lease.id);
+    await run("UPDATE native_root_leases SET state='deleting' WHERE id=?", lease.id);
     if (lease.kind === "checkpoint" && db.query("SELECT 1 FROM native_root_leases WHERE kind='stage' AND stage_lower_id=? LIMIT 1").get(lease.id))
       throw new NativeBrainManagerError("unknown", "A retained native stage still depends on this checkpoint; reconcile stage deletion first.");
     const result = await (lease.kind === "stage" ? raw.releaseStage(lease.id, signal) : raw.release(lease.id, signal));
     if (result.id !== lease.id || result.state !== "deleted") throw new NativeBrainManagerError("unknown", "Native lease deletion receipt is unreadable; retain and reconcile the same identity.");
-    db.query("DELETE FROM native_root_leases WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=?").run(lease.id, lease.owner_pid, lease.owner_start, lease.owner_generation);
+    await run("DELETE FROM native_root_leases WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=?", lease.id, lease.owner_pid, lease.owner_start, lease.owner_generation);
     return result;
   }
   const client: Client = {
     ...raw,
     checkpoint(id, signal) { return operation(async () => {
       signal?.throwIfAborted();
-      db.transaction(() => {
-        const lease = row(id);
-        if (lease && (!mine(lease) || lease.kind !== "checkpoint" || lease.state === "deleting")) throw new NativeBrainManagerError("unknown", "Checkpoint identity belongs to another live owner or deletion; no admission is authorized.");
-        if (!lease) db.query("INSERT INTO native_root_leases(id,owner_pid,owner_start,owner_generation,owner_boot,owner_pid_namespace,state) VALUES (?,?,?,?,?,?,'creating')").run(id, SELF.pid, SELF.start, generation, boot, pidNamespace);
-      }).immediate();
+      await leases.call("checkpointIntent", id);
       const checkpoint = await raw.checkpoint(id, signal);
       if (checkpoint.id !== id || checkpoint.fsid !== options.fsid || checkpoint.sourceUuid !== options.brainUuid) throw new NativeBrainManagerError("unknown", "Native checkpoint reply does not match its durable lease identity.");
-      db.query("UPDATE native_root_leases SET state='sealed',checkpoint_uuid=? WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=? AND state='creating'").run(checkpoint.uuid, id, SELF.pid, SELF.start, generation);
+      await run("UPDATE native_root_leases SET state='sealed',checkpoint_uuid=? WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=? AND state='creating'", checkpoint.uuid, id, SELF.pid, SELF.start, generation);
       return checkpoint;
     }); },
     delta(from, to, signal) { return operation(async () => {
@@ -130,17 +134,10 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     }); },
     prepareStage(id, checkpointId, allowanceBytes, signal) { return operation(async () => {
       signal?.throwIfAborted();
-      let lowerUuid: string | null = null;
-      db.transaction(() => {
-        const lower = row(checkpointId), lease = row(id);
-        if (!lower || lower.kind !== "checkpoint" || !mine(lower) || lower.state !== "sealed" || !lower.checkpoint_uuid) throw new NativeBrainManagerError("unknown", "Native stage requires this owner's retained sealed checkpoint lease.");
-        if (lease && (!mine(lease) || lease.kind !== "stage" || lease.state === "deleting" || lease.stage_lower_id !== checkpointId || lease.stage_allowance !== allowanceBytes)) throw new NativeBrainManagerError("unknown", "Native stage identity belongs to another owner or deletion.");
-        lowerUuid = lower.checkpoint_uuid;
-        if (!lease) db.query("INSERT INTO native_root_leases(id,owner_pid,owner_start,owner_generation,owner_boot,owner_pid_namespace,state,kind,stage_lower_id,stage_allowance) VALUES (?,?,?,?,?,?,'creating','stage',?,?)").run(id, SELF.pid, SELF.start, generation, boot, pidNamespace, checkpointId, allowanceBytes);
-      }).immediate();
+      const lowerUuid = await leases.call<string>("stageIntent", id, checkpointId, allowanceBytes);
       const stage = await raw.prepareStage(id, checkpointId, allowanceBytes, signal);
       if (stage.id !== id || stage.checkpointId !== checkpointId || stage.checkpointUuid !== lowerUuid || stage.sourceUuid !== options.brainUuid || stage.allowanceBytes !== allowanceBytes) throw new NativeBrainManagerError("unknown", "Native stage reply does not match its durable lease identity.");
-      db.query("UPDATE native_root_leases SET state='sealed' WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=? AND state='creating'").run(id, SELF.pid, SELF.start, generation);
+      await run("UPDATE native_root_leases SET state='sealed' WHERE id=? AND owner_pid=? AND owner_start=? AND owner_generation=? AND state='creating'", id, SELF.pid, SELF.start, generation);
       return stage;
     }); },
     releaseStage(id, signal) { return operation(async () => {
@@ -151,18 +148,11 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     }); },
     poolCreate(id, purpose, from, allowanceBytes, signal) { return operation(async () => {
       signal?.throwIfAborted();
-      db.transaction(() => {
-        const lease = poolRow(id);
-        if (row(id)) throw new NativeBrainManagerError("unknown", "This identity already belongs to a checkpoint or stage lease.");
-        if (lease && (lease.state === "releasing" || lease.purpose !== purpose || lease.from_id !== from || lease.allowance !== allowanceBytes))
-          throw new NativeBrainManagerError("unknown", "Reference pool identity is recorded with another purpose, source, allowance or release.");
-        if (from !== null && poolRow(from)?.state !== "held") throw new NativeBrainManagerError("unknown", "A reference snapshot needs this app's held source root.");
-        if (!lease) db.query("INSERT INTO native_pool_leases(id,purpose,from_id,allowance,state) VALUES (?,?,?,?,'creating')").run(id, purpose, from, allowanceBytes);
-      }).immediate();
+      await leases.call("poolIntent", id, purpose, from, allowanceBytes);
       const record = await raw.poolCreate(id, purpose, from, allowanceBytes, signal);
       if (record.id !== id || record.purpose !== purpose || record.from !== from || record.allowanceBytes !== allowanceBytes || !["writable", "sealed"].includes(record.state))
         throw new NativeBrainManagerError("unknown", "Reference pool reply does not match its durable lease identity.");
-      db.query("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'").run(id);
+      await run("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'", id);
       return record;
     }); },
     poolSeal(id, signal) { return operation(async () => {
@@ -180,18 +170,11 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       signal?.throwIfAborted();
       // A worktree whose release never committed is assessable again (#2431).
       await settleRelease(from, signal);
-      db.transaction(() => {
-        const lease = poolRow(id), worktree = poolRow(from);
-        if (row(id)) throw new NativeBrainManagerError("unknown", "This identity already belongs to a checkpoint or stage lease.");
-        if (lease && (lease.state === "releasing" || lease.purpose !== "checkpoint" || lease.from_id !== from))
-          throw new NativeBrainManagerError("unknown", "Reference pool identity is recorded with another purpose, source or release.");
-        if (worktree?.purpose !== "worktree" || worktree.state !== "held") throw new NativeBrainManagerError("unknown", "A worktree checkpoint needs this app's held worktree.");
-        if (!lease) db.query("INSERT INTO native_pool_leases(id,purpose,from_id,allowance,state) VALUES (?,'checkpoint',?,?,'creating')").run(id, from, REFERENCE_POOL_CHECKPOINT_BYTES);
-      }).immediate();
+      await leases.call("poolCheckpointIntent", id, from, REFERENCE_POOL_CHECKPOINT_BYTES);
       const record = await raw.poolCheckpoint(id, from, signal);
       if (record.id !== id || record.purpose !== "checkpoint" || record.from !== from || record.state !== "sealed" || record.readOnly !== true)
         throw new NativeBrainManagerError("unknown", "Reference pool checkpoint reply does not match its durable lease identity.");
-      db.query("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'").run(id);
+      await run("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='creating'", id);
       return record;
     }); },
     poolDelta(from, to, signal) { return operation(async () => {
@@ -221,14 +204,14 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       if (db.query("SELECT 1 FROM native_pool_leases WHERE from_id=? AND state='creating' LIMIT 1").get(id))
         throw new NativeBrainManagerError("unavailable", "A reference snapshot is still being created from this root.");
       // Survives a lost reply; a retry continues the same identity's release.
-      db.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(id);
+      await run("UPDATE native_pool_leases SET state='releasing' WHERE id=?", id);
       let record: NativePoolRecord;
       releases.set(id, (releases.get(id) ?? 0) + 1);
       try { record = await raw.poolRelease(id, signal); }
       catch (error) { await settleRelease(id, undefined, 1).catch(() => {}); throw error; }
       finally { releases.set(id, releases.get(id)! - 1); if (!releases.get(id)) releases.delete(id); }
       if (record.id !== id || !["deleted", "reclaimed"].includes(record.state)) throw new NativeBrainManagerError("unknown", "Reference pool release receipt is unreadable; retain and reconcile the same identity.");
-      db.query("DELETE FROM native_pool_leases WHERE id=? AND state='releasing'").run(id);
+      await run("DELETE FROM native_pool_leases WHERE id=? AND state='releasing'", id);
       return record;
     }); },
     release(id, signal) { return operation(async () => {
@@ -259,7 +242,7 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     const record = await poolRecord(id, signal);
     // Another release of this identity may have started while the pool answered; its intent stands.
     if ((releases.get(id) ?? 0) !== own) return;
-    if (record && (record.state === "writable" || record.state === "sealed")) db.query("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='releasing'").run(id);
+    if (record && (record.state === "writable" || record.state === "sealed")) await run("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='releasing'", id);
   }
   async function recoverDeadOwners(): Promise<{ released: string[]; retainedLive: number; retainedUnverifiable: number; unknown: string[]; retainedPool: number }> {
     return operation(async () => {
@@ -290,7 +273,7 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       try {
         const owned = db.query("SELECT * FROM native_root_leases WHERE owner_pid=? AND owner_start=? AND owner_generation=? ORDER BY (kind='stage') DESC,id").all(SELF.pid, SELF.start, generation) as Lease[];
         for (const lease of owned) { try { await releaseOwned(lease); } catch (error) { failures.push(error); } }
-      } finally { db.close(); }
+      } finally { await writer.close(); db.close(); }
       if (failures.length) throw new AggregateError(failures, "Native lease close retains unknown root outcomes for later owner recovery.");
     })();
     return closing;

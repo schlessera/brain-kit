@@ -878,6 +878,9 @@ async function runRetainedSession(
         }
         catch (error) { host.log.emit({ severityText: "ERROR", body: `governed reconciliation failed: ${String(error)}` }); }
         if (governedHold?.sandbox.profile === "governed") host.governedTurns?.refresh(host.workerLock);
+        // The recorder's writes, terminal included, commit off the event loop
+        // (#2814); the slot waits for them before it hands over.
+        await recorder?.settled();
         // The recorder has written the terminal: from here on the Activity
         // record, not this slot, answers for the request (#964).
         host.inboxTools?.shares?.end(turn.turnId);

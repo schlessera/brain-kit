@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { expectRejection } from "./helpers/expect-rejection.js";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import { createStateLedger } from "../../ui-backend-claude/src/worker-state-budg
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { createUiDb } from "../src/db/client.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
+import { journalStatement } from "../src/brain/journal-store.js";
 import { createTurnReverts } from "../src/brain/turn-revert.js";
 import { createWriterGate } from "../src/brain/writer-gate.js";
 import { recordGovernanceEvent, queryGovernanceEvents } from "../src/governance/events.js";
@@ -25,12 +27,12 @@ function fixture(capBytes?: number) {
   function worker(id: string) {
     const state = createClaudeWorkerState(brain, { CLAUDE_CONFIG_DIR: saved }, { ledger: createStateLedger() }); states.push(state);
     const temporary = join(root, id); mkdirSync(temporary); state.populate(temporary);
-    return { state, temporary, notes: join(temporary, project, "memory"), persist() { state.persist(temporary, undefined, (change, save) => journal.persistClaudeMemory(id, change, save)); } };
+    return { state, temporary, notes: join(temporary, project, "memory"), persist() { return state.persist(temporary, undefined, (change, save) => journal.persistClaudeMemory(id, change, save)); } };
   }
   const begin = (id: string) => journal.begin(id, { sessionId: "ithaca", actor: "interactive", model: "odysseus-model", profile: "governed", policyHash: "recorded-policy" }, () => {});
   const reverts = () => createTurnReverts(db, { brainPath: brain, journal, gate: createWriterGate(db, brain, { pollMs: 1 }), lock: createKeyedLock(), isAuthorized: id => id === "odysseus", refresh() {} });
   return { root, brain, saved, memory, db, get journal() { return journal; }, worker, begin, reverts,
-    async reopen() { await journal.close(); journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes }); },
+    async reopen() { await journal.close(); journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: path, objectsRoot: join(root, "objects"), capBytes }); await journal.ready; },
     async close() { for (const state of states) state.release(); await journal.close(); await native.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 
@@ -41,7 +43,7 @@ test("real populate/persist retains created and replaced external notes with tai
     const w = f.worker("return"), after = Buffer.from([66, 10, 0, 255]);
     writeFileSync(join(w.notes, "voyage.md"), after); writeFileSync(join(w.notes, "athena.md"), "Counsel\r\n");
     writeFileSync(join(f.brain, "content.md"), "Unrelated content\n");
-    w.persist(); await f.journal.finish("return");
+    await w.persist(); await f.journal.finish("return");
     await f.reopen();
     const details = f.journal.details("ithaca", "return")!;
     const notes = details.changes.filter(c => c.scope === "claude_memory");
@@ -56,18 +58,18 @@ test("real populate/persist retains created and replaced external notes with tai
     expect(JSON.stringify(details)).not.toContain(f.saved);
     expect(f.journal.details("other", "return")).toBeNull();
     const r = f.reverts();
-    expect(() => r.start("odysseus", "ithaca", "return", { id: "memory_forged_0001", path: join(f.memory, "voyage.md") })).toThrow("No retained eligible paths");
-    expect(() => r.start("agent", "ithaca", "return", { id: "memory_agent_0001" })).toThrow();
-    const receipt = r.start("odysseus", "ithaca", "return", { id: "memory_revert_0001", path: replaced.path }); await r.idle(receipt.id);
+    await expectRejection(r.start("odysseus", "ithaca", "return", { id: "memory_forged_0001", path: join(f.memory, "voyage.md") }), "No retained eligible paths");
+    await expectRejection(r.start("agent", "ithaca", "return", { id: "memory_agent_0001" }));
+    const receipt = await r.start("odysseus", "ithaca", "return", { id: "memory_revert_0001", path: replaced.path }); await r.idle(receipt.id);
     expect(r.receipt(receipt.id, "odysseus", "ithaca", "return")?.state, "MEMORY_REVERT_SUCCEEDS_FROM_PRIVATE_RETAINED_MAPPING").toBe("complete");
     expect(readFileSync(join(f.memory, "voyage.md"))).toEqual(Buffer.from([65, 13, 10, 255]));
     expect(readFileSync(join(f.brain, "content.md"), "utf8")).toBe("Unrelated content\n");
-    const undo = r.start("odysseus", "ithaca", receipt.journalTurnId, { id: "memory_undo_00001" }); await r.idle(undo.id);
+    const undo = await r.start("odysseus", "ithaca", receipt.journalTurnId, { id: "memory_undo_00001" }); await r.idle(undo.id);
     expect(readFileSync(join(f.memory, "voyage.md"))).toEqual(after);
-    const created = r.start("odysseus", "ithaca", "return", { id: "memory_create_revert", path: "claude-memory://athena.md" }); await r.idle(created.id);
+    const created = await r.start("odysseus", "ithaca", "return", { id: "memory_create_revert", path: "claude-memory://athena.md" }); await r.idle(created.id);
     expect(existsSync(join(f.memory, "athena.md"))).toBe(false);
-    const undoCreated = r.start("odysseus", "ithaca", created.journalTurnId, { id: "memory_creation_undo" }); await r.idle(undoCreated.id);
-    const whole = r.start("odysseus", "ithaca", "return", { id: "memory_whole_turn" }); await r.idle(whole.id);
+    const undoCreated = await r.start("odysseus", "ithaca", created.journalTurnId, { id: "memory_creation_undo" }); await r.idle(undoCreated.id);
+    const whole = await r.start("odysseus", "ithaca", "return", { id: "memory_whole_turn" }); await r.idle(whole.id);
     expect(r.receipt(whole.id, "odysseus", "ithaca", "return")?.state, "MEMORY_WHOLE_TURN_RECOVERS_CONTENT_AND_EXTERNAL_NOTES").toBe("complete");
     expect(readFileSync(join(f.memory, "voyage.md"))).toEqual(Buffer.from([65,13,10,255]));
     expect(existsSync(join(f.memory,"athena.md"))).toBe(false);
@@ -80,9 +82,9 @@ test("peer persistence refuses only the stale note, retains successful notes and
   const f = fixture(); try {
     await f.begin("return"); const stale = f.worker("return");
     await f.begin("athena"); const peer = f.worker("athena");
-    writeFileSync(join(peer.notes, "voyage.md"), "Peer counsel\n"); peer.persist(); await f.journal.finish("athena");
+    writeFileSync(join(peer.notes, "voyage.md"), "Peer counsel\n"); await peer.persist(); await f.journal.finish("athena");
     writeFileSync(join(stale.notes, "voyage.md"), "Stale counsel\n"); writeFileSync(join(stale.notes, "telemachus.md"), "Independent\n");
-    expect(() => stale.persist()).toThrow("changed concurrently"); await f.journal.finish("return");
+    await expectRejection(stale.persist(), "changed concurrently"); await f.journal.finish("return");
     expect(readFileSync(join(f.memory, "voyage.md"), "utf8"), "MEMORY_PEER_PERSIST_IS_NEVER_OVERWRITTEN").toBe("Peer counsel\n");
     expect(readFileSync(join(f.memory, "telemachus.md"), "utf8")).toBe("Independent\n");
     expect(f.journal.details("ithaca", "return")?.summary.state).toBe("partial");
@@ -91,7 +93,7 @@ test("peer persistence refuses only the stale note, retains successful notes and
     expect(partialReverts.plan("ithaca", "return").paths.find(item => item.path === "claude-memory://telemachus.md")?.state, "MEMORY_PARTIAL_SAVE_RETAINS_KNOWN_SUCCESSFUL_RECOVERY").toBe("eligible");
     await partialReverts.close();
     writeFileSync(join(f.memory, "voyage.md"), "Later peer\n");
-    const r = f.reverts(), receipt = r.start("odysseus", "ithaca", "athena", { id: "memory_stale_0001", path: "claude-memory://voyage.md" }); await r.idle(receipt.id);
+    const r = f.reverts(), receipt = await r.start("odysseus", "ithaca", "athena", { id: "memory_stale_0001", path: "claude-memory://voyage.md" }); await r.idle(receipt.id);
     expect(r.receipt(receipt.id, "odysseus", "ithaca", "athena")?.paths[0]?.state, "MEMORY_STALE_REVERT_PRESERVES_LATER_SAVE").toBe("conflict");
     expect(readFileSync(join(f.memory, "voyage.md"), "utf8")).toBe("Later peer\n"); await r.close();
   } finally { await f.close(); }
@@ -100,11 +102,11 @@ test("peer persistence refuses only the stale note, retains successful notes and
 test("interruption after memory commit retains staged versions and reports unconfirmed persistence after reopen", async () => {
   const f = fixture(); try {
     await f.begin("return"); const w = f.worker("return"); writeFileSync(join(w.notes, "voyage.md"), "Saved before interruption\n");
-    expect(() => w.state.persist(w.temporary, undefined, (change, save) => f.journal.persistClaudeMemory("return", change, () => { save(); throw Error("interrupted finalization"); }))).toThrow("interrupted finalization");
+    await expectRejection(w.state.persist(w.temporary, undefined, (change, save) => f.journal.persistClaudeMemory("return", change, () => { save(); throw Error("interrupted finalization"); })), "interrupted finalization");
     // Model abrupt owner loss before the exception handler could finalize the
     // turn. The staged receipt and raw file are the already-durable facts;
     // successor initialization must not infer whether the save committed.
-    f.journal.writeOperation(() => f.db.query("UPDATE turn_journal_turns SET state='recording',missing='[]',failure='',pid=2147483647,pid_start='',ended_at=NULL WHERE turn_id='return'").run());
+    await f.journal.writeOperation([journalStatement("UPDATE turn_journal_turns SET state='recording',missing='[]',failure='',pid=2147483647,pid_start='',ended_at=NULL WHERE turn_id='return'")]);
     await f.reopen();
     const details = f.journal.details("ithaca", "return")!;
     expect(details.summary.state).toBe("partial");
@@ -121,7 +123,7 @@ test("memory staging overflow refuses before publication and cannot promise a re
   const f = fixture(1024 * 1024); try {
     await f.begin("return"); const w = f.worker("return");
     writeFileSync(join(w.notes, "voyage.md"), Buffer.alloc(2 * 1024 * 1024, 65));
-    expect(() => w.persist()).toThrow(); await f.journal.finish("return");
+    await expectRejection(w.persist()); await f.journal.finish("return");
     expect(readFileSync(join(f.memory, "voyage.md")),"MEMORY_CAPACITY_REFUSES_BEFORE_SAVED_BYTES_CHANGE").toEqual(Buffer.from([65,13,10,255]));
     expect(f.journal.details("ithaca","return")?.changes).toEqual([]);
     expect(f.journal.details("ithaca","return")?.summary.state).toBe("partial");
@@ -131,9 +133,9 @@ test("memory staging overflow refuses before publication and cannot promise a re
 test("changed saved-store identity refuses user memory recovery while keeping its replacement untouched", async () => {
   const { renameSync } = await import("node:fs");
   const f = fixture(); try {
-    await f.begin("return"); const w=f.worker("return");writeFileSync(join(w.notes,"voyage.md"),"Saved by turn\n");w.persist();await f.journal.finish("return");
+    await f.begin("return"); const w=f.worker("return");writeFileSync(join(w.notes,"voyage.md"),"Saved by turn\n");await w.persist();await f.journal.finish("return");
     renameSync(f.memory,`${f.memory}-held`);mkdirSync(f.memory);writeFileSync(join(f.memory,"voyage.md"),"Replacement store\n");
-    const r=f.reverts(),receipt=r.start("odysseus","ithaca","return",{id:"memory_store_0001",path:"claude-memory://voyage.md"});await r.idle(receipt.id);
+    const r=f.reverts(),receipt=await r.start("odysseus","ithaca","return",{id:"memory_store_0001",path:"claude-memory://voyage.md"});await r.idle(receipt.id);
     expect(r.receipt(receipt.id,"odysseus","ithaca","return")?.paths[0]?.state,"MEMORY_STORE_IDENTITY_FENCES_REPLACEMENT").toBe("conflict");
     expect(readFileSync(join(f.memory,"voyage.md"),"utf8")).toBe("Replacement store\n");await r.close();
   } finally { await f.close(); }
@@ -145,7 +147,7 @@ test("uninspectable native copy-out marks external memory unavailable before any
   const f=fixture();try {
     await f.begin("return");const w=f.worker("return");
     symlinkSync(join(f.memory,"voyage.md"),join(w.notes,"untrusted.md"));
-    expect(()=>w.persist()).toThrow();await f.journal.finish("return");
+    await expectRejection(w.persist());await f.journal.finish("return");
     const details=f.journal.details("ithaca","return")!;
     expect(details.summary.state,"MEMORY_PRECALLBACK_FAILURE_IS_PARTIAL").toBe("partial");
     expect(details.summary.changedFiles).toBeNull();

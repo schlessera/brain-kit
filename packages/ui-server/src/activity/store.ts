@@ -366,6 +366,23 @@ export interface ActivityStore {
   prune(options: PruneOptions): { runsPruned: number; spansDeleted: number };
 }
 
+type Awaitable<T> = T | Promise<T>;
+/** The writes a store may commit off the event loop (#2814). */
+export type ActivityWriteMethod = "writeLifecycle" | "startSpan" | "endSpan" | "patchSpan" | "appendEvent" | "heartbeat"
+  | "cascadeClose" | "sweepOwnOrphans" | "sweepStale" | "rollupRun" | "prune";
+
+/**
+ * The store as the hosted server holds it. Reads are synchronous on the
+ * caller's connection; a write's result may be a promise, because the server
+ * commits standalone writes in its write worker, off the event loop
+ * (`createOffloopActivityStore`). Each write is atomic, and writes commit in
+ * call order. An `ActivityStore` is one whose writes all commit before they
+ * return.
+ */
+export type AwaitableActivityStore = Omit<ActivityStore, ActivityWriteMethod> & {
+  [K in ActivityWriteMethod]: (...args: Parameters<ActivityStore[K]>) => Awaitable<ReturnType<ActivityStore[K]>>;
+};
+
 /**
  * The pricing dependency rollups price through. `resolve` MUST be synchronous
  * — it is called inside the rollup write transaction, which never awaits.

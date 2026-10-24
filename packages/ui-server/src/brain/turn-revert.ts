@@ -6,6 +6,7 @@ import type { JournalVersion, TurnRevertPlan, TurnRevertReceipt, TurnRevertPath,
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
 import type { TurnJournal } from "./turn-journal.js";
+import { journalStatement } from "./journal-store.js";
 import type { WriterGate } from "./writer-gate.js";
 import { processAlive, SELF } from "./writer-gate.js";
 import { reversibleJournalPath, restoreJournalPath, createJournalSibling } from "./revert-files.js";
@@ -74,7 +75,8 @@ export function createTurnReverts(db: Database, options: {
   function operation(id: string, principalId: string, sessionId: string, sourceTurnId: string): Operation | null {
     const row = db.query("SELECT * FROM turn_journal_revert_operations WHERE id=? AND principal_id=? AND session_id=? AND source_turn_id=?").get(id, principalId, sessionId, sourceTurnId) as Operation | null;
     if (row && ["waiting", "applying"].includes(row.state) && !processAlive(row.pid, row.pid_start)) {
-      journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=? WHERE id=?").run(row.state === "waiting" ? "failed" : "unknown", Date.now(), row.state === "waiting" ? "interrupted_before_write" : "interrupted_partial_work", id));
+      // The repair is idempotent: a reader before it commits repairs again.
+      void journal.writeOperation([journalStatement("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=? WHERE id=?", row.state === "waiting" ? "failed" : "unknown", Date.now(), row.state === "waiting" ? "interrupted_before_write" : "interrupted_partial_work", id)]).catch(() => {});
       row.error = row.state === "waiting" ? "interrupted_before_write" : "interrupted_partial_work"; row.state = row.state === "waiting" ? "failed" : "unknown";
     }
     return row;
@@ -97,7 +99,7 @@ export function createTurnReverts(db: Database, options: {
         const source = journal.summary(row.journal_turn_id);
         await journal.begin(row.journal_turn_id, { sessionId: row.session_id, actor: "user", model: null, profile: source.profile ?? "strict", policyHash: source.policyHash, coveredPaths: selected.filter(item => !journal.claudeMemoryTarget(row.source_turn_id, item.path)).map(item => item.path) }, error => { observationFailure = error; });
         observed = true;
-        journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state='applying' WHERE id=?").run(row.id));
+        await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_operations SET state='applying' WHERE id=?", row.id)]);
         for (const path of selected) {
           if (path.state !== "eligible") continue;
           if (observationFailure || !options.isAuthorized(row.principal_id)) throw observationFailure ?? new RevertUnavailable("authorization_changed");
@@ -108,27 +110,27 @@ export function createTurnReverts(db: Database, options: {
               const info = lstatSync(target.directory);
               if (!info.isDirectory() || realpathSync(target.directory) !== target.directory || String(info.dev) !== target.device || String(info.ino) !== target.inode) state = "conflict";
               else {
-                state = journal.withRetainedVersion(path.before, copy => restoreJournalPath(target.directory, target.note, path.after, path.before, copy));
-                if (state === "restored") journal.recordClaudeMemory(row.journal_turn_id, path.path, target, path.after, path.before);
+                state = await journal.withRetainedVersion(path.before, copy => restoreJournalPath(target.directory, target.note, path.after, path.before, copy));
+                if (state === "restored") await journal.recordClaudeMemory(row.journal_turn_id, path.path, target, path.after, path.before);
               }
-            } else state = journal.withRetainedVersion(path.before, copy => restoreJournalPath(options.brainPath, path.path, path.after, path.before, copy));
+            } else state = await journal.withRetainedVersion(path.before, copy => restoreJournalPath(options.brainPath, path.path, path.after, path.before, copy));
             code = state === "conflict" ? "changed_since_observation" : "";
           } catch { state = "failed"; code = "restoration_unavailable"; }
-          journal.writeOperation(() => db.query("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?").run(state, code.padEnd(64), row.id, path.path));
+          await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?", state, code.padEnd(64), row.id, path.path)]);
           path.state = state; path.reason = code || null;
           await journal.observe();
           if(state === "restored" && path.other) {
             let sibling:Selected|undefined;
             try {
-              journal.withRetainedVersion(path.other, copy=>createJournalSibling(options.brainPath,path.path,path.other!,copy,
-                candidate=>{
+              await journal.withRetainedVersion(path.other, copy=>createJournalSibling(options.brainPath,path.path,path.other!,copy,
+                async candidate=>{
                   sibling={path:candidate,before:path.other!,after:null,beforeSequence:path.otherSequence!,afterSequence:0,state:"eligible",reason:null,quarantined:false};
-                  journal.writeOperation(()=>db.query("INSERT INTO turn_journal_revert_paths (operation_id,path,before_json,after_json,before_sequence,after_sequence,state,code) VALUES (?,?,?,NULL,?,0,'eligible',?)").run(row.id,candidate,JSON.stringify(path.other),path.otherSequence!,"".padEnd(64)));
+                  await journal.writeOperation([journalStatement("INSERT INTO turn_journal_revert_paths (operation_id,path,before_json,after_json,before_sequence,after_sequence,state,code) VALUES (?,?,?,NULL,?,0,'eligible',?)",row.id,candidate,JSON.stringify(path.other),path.otherSequence!,"".padEnd(64))]);
                   journal.coverPaths(row.journal_turn_id,[candidate]);
-                }, candidate=>{journal.writeOperation(()=>db.query("DELETE FROM turn_journal_revert_paths WHERE operation_id=? AND path=?").run(row.id,candidate));sibling=undefined;}));
+                }, async candidate=>{await journal.writeOperation([journalStatement("DELETE FROM turn_journal_revert_paths WHERE operation_id=? AND path=?",row.id,candidate)]);sibling=undefined;}));
               sibling!.state="restored";
-            } catch { if(sibling){sibling.state="failed";sibling.reason="sibling_creation_unavailable";}else{path.state="failed";path.reason="sibling_creation_unavailable";journal.writeOperation(()=>db.query("UPDATE turn_journal_revert_paths SET state='failed',code=? WHERE operation_id=? AND path=?").run("sibling_creation_unavailable".padEnd(64),row.id,path.path));} }
-            if(sibling){selected.push(sibling);journal.writeOperation(()=>db.query("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?").run(sibling!.state,(sibling!.reason??"").padEnd(64),row.id,sibling!.path));}
+            } catch { if(sibling){sibling.state="failed";sibling.reason="sibling_creation_unavailable";}else{path.state="failed";path.reason="sibling_creation_unavailable";await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_paths SET state='failed',code=? WHERE operation_id=? AND path=?","sibling_creation_unavailable".padEnd(64),row.id,path.path)]);} }
+            if(sibling){selected.push(sibling);await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_paths SET state=?,code=? WHERE operation_id=? AND path=?",sibling!.state,(sibling!.reason??"").padEnd(64),row.id,sibling!.path)]);}
             await journal.observe();
           }
         }
@@ -138,17 +140,16 @@ export function createTurnReverts(db: Database, options: {
       }));
       await journal.finish(row.journal_turn_id);
       const partial = selected.some(path => ["conflict", "failed", "excluded"].includes(path.state)) || journal.summary(row.journal_turn_id).state !== "complete";
-      journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=trim(error) WHERE id=?").run(partial ? "partial" : "complete", Date.now(), row.id));
+      await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=trim(error) WHERE id=?", partial ? "partial" : "complete", Date.now(), row.id)]);
     } catch (error) {
       const reason = (error as {reason?:string}).reason === "journal_capacity" ? "journal_capacity" : (error as {reason?:string}).reason === "journal_storage_unavailable" ? "journal_unavailable" : error instanceof RevertUnavailable ? "authorization_changed" : "operation_unavailable";
-      try { if (observed) await journal.finish(row.journal_turn_id); else journal.finishReserved(row.journal_turn_id); } catch { /* An interrupted journal remains partial, never undoable by assumption. */ }
-      try { journal.writeOperation(() => db.query("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=? WHERE id=?").run(observed ? "unknown" : "failed", Date.now(), reason, row.id)); } catch { /* Readback will retain the original pending identity. */ }
+      try { if (observed) await journal.finish(row.journal_turn_id); else await journal.finishReserved(row.journal_turn_id); } catch { /* An interrupted journal remains partial, never undoable by assumption. */ }
+      try { await journal.writeOperation([journalStatement("UPDATE turn_journal_revert_operations SET state=?,completed_at=?,error=? WHERE id=?", observed ? "unknown" : "failed", Date.now(), reason, row.id)]); } catch { /* Readback will retain the original pending identity. */ }
     } finally { hold?.release(); if (selected.some(path => path.state === "restored" || path.state === "failed")) { try { options.refresh(); } catch { /* The ordinary index refresh may be retried; file effects remain recorded. */ } } }
   }
-  return {
-    plan(sessionId: string, turnId: string, action: "revert" | "restore" = "revert"): TurnRevertPlan { return { turnId, action, paths: select(sessionId, turnId, action).map(publicPath) }; },
-    start(principalId: string, sessionId: string, sourceTurnId: string, request: TurnRevertRequest): TurnRevertReceipt {
-      if (shutdown.signal.aborted || !options.isAuthorized(principalId)) throw new RevertUnavailable("A current user authorization is required.");
+  let starting: Promise<unknown> = Promise.resolve();
+  async function begin(principalId: string, sessionId: string, sourceTurnId: string, request: TurnRevertRequest): Promise<TurnRevertReceipt> {
+    if (shutdown.signal.aborted || !options.isAuthorized(principalId)) throw new RevertUnavailable("A current user authorization is required.");
       if (!/^[a-zA-Z0-9_-]{16,96}$/.test(request.id)) throw new RevertUnavailable("Invalid operation identity.");
       const action = request.action ?? "revert";
       if(!["revert","restore","keep_version","keep_both"].includes(action))throw new RevertUnavailable("Invalid history action.");
@@ -163,16 +164,24 @@ export function createTurnReverts(db: Database, options: {
       const all = selection ? resolveSelection(sessionId,sourceTurnId,request) : select(sessionId,sourceTurnId,action as "revert"|"restore"), selected = request.path !== undefined ? all.filter(item=>item.path===request.path) : all;
       if (!selected.some(item=>item.state==="eligible")) throw new RevertUnavailable("No retained eligible paths are available.");
       const journalTurnId = `revert_${request.id}`;
-      journal.reserveRevert(journalTurnId,sourceTurnId,selected.flatMap(item=>[item.before,item.after,...(item.other?[item.other]:[])]));
-      try { journal.writeOperation(() => {
-        db.query("INSERT INTO turn_journal_revert_operations (id,principal_id,session_id,source_turn_id,journal_turn_id,fingerprint,action,state,pid,pid_start,requested_at,error,selection) VALUES (?,?,?,?,?,?,?,'waiting',?,?,?,?,?)")
-          .run(request.id,principalId,sessionId,sourceTurnId,journalTurnId,fingerprint,action,SELF.pid,SELF.start,Date.now(),"".padEnd(64),JSON.stringify(selection??{}));
-        for (const item of selected) db.query("INSERT INTO turn_journal_revert_paths (operation_id,path,before_json,after_json,before_sequence,after_sequence,state,code) VALUES (?,?,?,?,?,?,?,?)")
-          .run(request.id,item.path,item.before ? JSON.stringify(item.before) : null,item.after ? JSON.stringify(item.after) : null,item.beforeSequence,item.afterSequence,item.state,(item.reason ?? "").padEnd(64));
-      }); } catch (error) { journal.finishReserved(journalTurnId); throw error; }
+      await journal.reserveRevert(journalTurnId,sourceTurnId,selected.flatMap(item=>[item.before,item.after,...(item.other?[item.other]:[])]));
+      try { await journal.writeOperation([
+        journalStatement("INSERT INTO turn_journal_revert_operations (id,principal_id,session_id,source_turn_id,journal_turn_id,fingerprint,action,state,pid,pid_start,requested_at,error,selection) VALUES (?,?,?,?,?,?,?,'waiting',?,?,?,?,?)",
+          request.id,principalId,sessionId,sourceTurnId,journalTurnId,fingerprint,action,SELF.pid,SELF.start,Date.now(),"".padEnd(64),JSON.stringify(selection??{})),
+        ...selected.map(item => journalStatement("INSERT INTO turn_journal_revert_paths (operation_id,path,before_json,after_json,before_sequence,after_sequence,state,code) VALUES (?,?,?,?,?,?,?,?)",
+          request.id,item.path,item.before ? JSON.stringify(item.before) : null,item.after ? JSON.stringify(item.after) : null,item.beforeSequence,item.afterSequence,item.state,(item.reason ?? "").padEnd(64))),
+      ]); } catch (error) { await journal.finishReserved(journalTurnId); throw error; }
       const row = operation(request.id,principalId,sessionId,sourceTurnId)!;
       const work = execute(row,selected).finally(()=>running.delete(request.id)); running.set(request.id,work);
       return receipt(request.id,principalId,sessionId,sourceTurnId)!;
+  }
+  return {
+    plan(sessionId: string, turnId: string, action: "revert" | "restore" = "revert"): TurnRevertPlan { return { turnId, action, paths: select(sessionId, turnId, action).map(publicPath) }; },
+    /** Starts run one at a time, so an identity is reserved once even across their commits. */
+    start(principalId: string, sessionId: string, sourceTurnId: string, request: TurnRevertRequest): Promise<TurnRevertReceipt> {
+      const started = starting.then(() => begin(principalId, sessionId, sourceTurnId, request));
+      starting = started.catch(() => {});
+      return started;
     },
     receipt,
     latest(principalId: string, sessionId: string, sourceTurnId: string) {

@@ -13,7 +13,9 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sdk/server";
 
-import { createActivityStore, type ActivityStore, type RollupPricing } from "./store.js";
+import { createActivityStore, type AwaitableActivityStore, type RollupPricing } from "./store.js";
+import { afterWrite, createOffloopActivityStore, observeWrite, type ActivityPricingConfig } from "./store-writes.js";
+import type { SqliteWriter } from "../db/write-worker.js";
 import { createActivityStream, type ActivityStream } from "./stream.js";
 import { createActivityNotifier, type ActivityNotifier } from "./notify.js";
 import { createPushSender, type PushSender } from "./push-sender.js";
@@ -37,7 +39,7 @@ const ACTIVITY_HARD_CEILING_MS = 90 * 24 * 60 * 60 * 1000;
 const INTENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface ActivityRuntime {
-  store: ActivityStore;
+  store: AwaitableActivityStore;
   stream: ActivityStream;
   notifier: ActivityNotifier;
   pushSender: PushSender;
@@ -62,10 +64,19 @@ export function createActivityRuntime(
      * env-derived default (the same instance shape, just not shared).
      */
     pricing?: RollupPricing;
+    /**
+     * The app's write worker. Present, every standalone Activity write
+     * commits there, off the event loop (#2814), pricing its rollups from
+     * `pricingConfig`'s table.
+     */
+    writer?: SqliteWriter;
+    pricingConfig?: ActivityPricingConfig;
   }
 ): ActivityRuntime {
   const { log } = deps;
-  const store = createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
+  const store: AwaitableActivityStore = deps.writer
+    ? createOffloopActivityStore(db, deps.writer, { ...(deps.pricing ? { pricing: deps.pricing } : {}), ...(deps.pricingConfig ? { pricingConfig: deps.pricingConfig } : {}) })
+    : createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
   const stream = createActivityStream(store, log);
 
   // The notifier resumes its persisted cursor, including terminal changes
@@ -80,36 +91,48 @@ export function createActivityRuntime(
   const actionNotices = createActionNotifier(db);
 
   // Boot sweep: close this server's orphans from a previous life (interrupted).
-  try {
-    const orphans = store.sweepOwnOrphans();
-    if (orphans > 0) {
-      log.emit({
-        severityText: "WARN",
-        body: "closed orphaned activity spans from a previous process",
-        attributes: { count: orphans },
-      });
-    }
-  } catch (err) {
+  const sweepFailed = (err: unknown) => {
     log.emit({
       severityText: "WARN",
       body: "boot activity sweep failed",
       attributes: { error: err instanceof Error ? err.message : String(err) },
     });
+  };
+  try {
+    afterWrite(store.sweepOwnOrphans(), orphans => {
+      if (orphans > 0) {
+        log.emit({
+          severityText: "WARN",
+          body: "closed orphaned activity spans from a previous process",
+          attributes: { count: orphans },
+        });
+      }
+    }, sweepFailed);
+  } catch (err) {
+    sweepFailed(err);
   }
 
   let delivering = false;
   let lastPrune = 0;
+  const tickFailed = (err: unknown) => {
+    log.emit({
+      severityText: "WARN",
+      body: "activity tick failed",
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    });
+  };
   const tick = setInterval(() => {
     try {
-      const stale = store.sweepStale(ACTIVITY_STALE_AFTER_MS);
-      if (stale > 0) {
-        log.emit({
-          severityText: "WARN",
-          body: "closed stale activity spans (writer went silent)",
-          attributes: { count: stale },
-        });
-        stream.pump();
-      }
+      afterWrite(store.sweepStale(ACTIVITY_STALE_AFTER_MS), stale => {
+        if (stale > 0) {
+          log.emit({
+            severityText: "WARN",
+            body: "closed stale activity spans (writer went silent)",
+            attributes: { count: stale },
+          });
+          stream.pump();
+        }
+      }, tickFailed);
       notifier.tick();
       // Action notices: join newly eligible decisions to their fixed window
       // and store any due client-local digest. Isolated so a failure here
@@ -155,7 +178,7 @@ export function createActivityRuntime(
         if (typeof pricing?.ensureFresh === "function") {
           void pricing.ensureFresh().catch(() => {});
         }
-        store.prune({
+        observeWrite(store.prune({
           // Full detail survives until the digest has covered it AND the
           // retention window has passed; the hard ceiling bounds growth even
           // if the digest job silently dies. The setting is read every pass
@@ -163,15 +186,11 @@ export function createActivityRuntime(
           digestFloorAt: digestRetentionFloor(db),
           detailRetentionMs: getDetailRetentionDays(db, log) * 24 * 60 * 60 * 1000,
           hardCeilingMs: ACTIVITY_HARD_CEILING_MS,
-        });
+        }), tickFailed);
         notifier.pruneAcknowledged(INTENT_RETENTION_MS);
       }
     } catch (err) {
-      log.emit({
-        severityText: "WARN",
-        body: "activity tick failed",
-        attributes: { error: err instanceof Error ? err.message : String(err) },
-      });
+      tickFailed(err);
     }
   }, ACTIVITY_TICK_MS);
   // A Bun interval would otherwise keep a closed test app's process alive.

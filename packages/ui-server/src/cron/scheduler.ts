@@ -2,8 +2,9 @@ import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
 import { BrainSyncError, type BrainClient } from "../brain/client.js";
 import { syncActivityAttrs } from "../brain/sync-result.js";
-import type { ActivityStore } from "../activity/store.js";
+import type { AwaitableActivityStore } from "../activity/store.js";
 import { startCronSpan, type CronSpan } from "./activity.js";
+import { observeWrite } from "../activity/store-writes.js";
 
 // Scheduling is owned by the container crontab (config/crontab) — sync at
 // 02:00, validate at 03:00, job scrape at 04:00. This module only provides
@@ -77,7 +78,7 @@ export function createCronScheduler(deps: {
    * The activity store each run's root span goes into, as the container cron
    * wrapper writes it; absent records only `cron_runs`.
    */
-  activity?: ActivityStore;
+  activity?: AwaitableActivityStore;
 }): CronScheduler {
   const { db, brain, log, activity } = deps;
 
@@ -114,25 +115,29 @@ export function createCronScheduler(deps: {
     // Fail-open, as the wrapper's tracking is: the activity record never
     // stops the job it observes.
     let span: CronSpan | null = null;
-    try {
-      if (activity) span = startCronSpan(db, activity, job.name);
-    } catch (err) {
+    const unavailable = (err: unknown) => {
       log?.emit({
         severityText: "WARN",
         body: "job activity unavailable",
         attributes: { job: job.name, error: err instanceof Error ? err.message : String(err) },
       });
+    };
+    try {
+      if (activity) span = startCronSpan(db, activity, job.name, unavailable);
+    } catch (err) {
+      unavailable(err);
     }
     const attrs: Record<string, string> = {};
     const endSpan = (error?: string) => {
       if (!activity || !span) return;
       try {
-        activity.endSpan(span.rootSpanId, {
+        // Committed in this order; a failure stays unobserved, as before.
+        observeWrite(activity.endSpan(span.rootSpanId, {
           outcome: error === undefined ? "success" : "error",
           reason: error,
           attrs,
-        });
-        activity.rollupRun(span.runId);
+        }), () => {});
+        observeWrite(activity.rollupRun(span.runId), () => {});
       } catch {
         // Observability must not break the observed.
       }
