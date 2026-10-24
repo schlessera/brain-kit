@@ -1371,7 +1371,7 @@ inventory and retained governance events remain required by #1665/#1666.
 The existing ordinary spawn adapter can explicitly consume the turn proxy's
 private directory. It passes that transport to the actual worker launcher and
 selects state projection without `.credentials.json` (`const settings =`,
-`packages/ui-backend-claude/src/worker-state.ts:181`). It retains exact native
+`packages/ui-backend-claude/src/worker-state.ts:186`). It retains exact native
 settings, account metadata, shared auto-memory and the resumed transcript;
 copy-out still publishes only the existing transcript/memory domains. The host
 resolver reads and refreshes the original credential store instead of placing

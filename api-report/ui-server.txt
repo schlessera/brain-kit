@@ -613,6 +613,7 @@ signatures (every public export and the types it is made of)
         begin(turnId: string, signal: AbortSignal, origin?: "interactive" | "voice", preference?: "governed" | "strict", route?: GovernedTurnRoute): Promise<GovernedTurnHold>;
         bindSession(turnId: string, sessionId: string): void;
         exposures(sessionIds: readonly string[]): ProviderExposure[];
+        unprovenHistory(sessionId: string): boolean;
         facts(origin?: "interactive" | "voice"): {
             policyProfile: "governed" | "strict";
             policy: TurnGovernancePolicy;

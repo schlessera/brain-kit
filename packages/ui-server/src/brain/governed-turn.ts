@@ -6,7 +6,7 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { exposedAnything, exposureConflicts, governancePolicyReaderFor, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
+import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedInBoth, ProviderContinuationRefusedError, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, uncoveredFolders, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "./private-index.js";
@@ -48,6 +48,12 @@ export interface GovernedTurns {
   bindSession(turnId: string, sessionId: string): void;
   /** What earlier turns of these sessions showed their recipients (#2695). */
   exposures(sessionIds: readonly string[]): ProviderExposure[];
+  /**
+   * Whether this session's history may hold a folder the current policy hides
+   * from a run with no proven recipient (#2726): the policy masks provider
+   * folders, and the session has no born-masked lineage covering them.
+   */
+  unprovenHistory(sessionId: string): boolean;
   /** Display facts use the same process-local last-valid reader as admission. */
   facts(origin?: "interactive" | "voice"): { policyProfile: "governed" | "strict"; policy: TurnGovernancePolicy };
   /** Deferred maintenance, serialized with application/CLI mutations. */
@@ -92,6 +98,17 @@ export function createGovernedTurns(options: {
     async close() { closing = true; again = false; await current; },
     bindSession(turnId, sessionId) { options.exposures?.bind(turnId, sessionId); },
     exposures(sessionIds) { return options.exposures?.forSessions(sessionIds) ?? []; },
+    unprovenHistory(sessionId) {
+      const policy = policyReader.load();
+      if (!policy.policy.providers.length) return false;
+      if (unsupportedProviderSelectors(policy.policy).length) return true;
+      // A type selector's folders follow the current taxonomy, which this
+      // check does not translate; a remembered translation may be stale, so
+      // nothing proves them covered.
+      if (providerTypeSelectors(policy.policy).length) return true;
+      const always = options.exposures?.maskedThroughout(sessionId);
+      return !always || uncoveredFolders(providerMaskedFolders(policy.policy), always).length > 0;
+    },
     async begin(turnId, signal, origin = "interactive", preference, route) {
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
@@ -133,6 +150,21 @@ export function createGovernedTurns(options: {
         const inherited = route?.inherit?.length ? options.exposures?.forSessions(route.inherit) ?? [] : [];
         const conflicts = exposureConflicts(continued.length ? options.exposures?.forSessions(continued) ?? [] : [], maskedFolders);
         if (conflicts.length) throw new ProviderRecipientRefusedError(conflicts, recipient);
+        // A masked turn continues a conversation only if every folder it masks
+        // was masked from every earlier turn of it, or of a handoff's source
+        // (#2726). Only a conversation born masked has that record; one from
+        // before the policy, or without a record, refuses before its history
+        // is copied anywhere. A matching policy is no proof.
+        const lineages = continued.map(id => options.exposures?.maskedThroughout(id));
+        if (maskedFolders.length) for (const always of lineages) {
+          const uncovered = uncoveredFolders(maskedFolders, always ?? []);
+          if (uncovered.length) throw new ProviderContinuationRefusedError(uncovered, always ? "shown" : "unrecorded", !route?.sessionId);
+        }
+        // Born masked, or continuing a lineage: this turn's own masked set
+        // narrows it, on an allowed route too. A handoff starts its own from
+        // what its source kept masked.
+        const lineage = !continued.length ? (maskedFolders.length ? maskedFolders : undefined)
+          : lineages.every(always => always !== undefined) ? lineages.reduce<string[]>((kept, always) => maskedInBoth(kept, always!), maskedFolders) : undefined;
         const folderPaths = hold.retainFolders?.(retainedFolderRoots(policy.policy, typeFolderList))
           ?? [...new Set([...(hold.folderPaths ?? []), ...retainedFolderRoots(policy.policy, typeFolderList)])];
         // Retention needs the directory to exist; the host creates the index
@@ -207,6 +239,9 @@ export function createGovernedTurns(options: {
         // Recorded before the turn can read anything; a new conversation's rows bind when it is named.
         const shown: ProviderExposure | undefined = inferenceRecipient ? { recipient: inferenceRecipient.name, visible: providerFolders, hidden: maskedFolders } : undefined;
         for (const exposure of [...inherited, ...(shown && exposedAnything(shown) ? [shown] : [])]) options.exposures!.record(turnId, route?.sessionId ?? null, exposure);
+        // A turn that fails later in admission still narrows: that only refuses more.
+        if (lineage && route?.sessionId) options.exposures?.narrowMasked(turnId, route.sessionId, lineage);
+        else if (lineage) options.exposures?.startMasked(turnId, lineage);
         if (governed) manifests.begin(turnId, sandbox.protection!.paths.map(path => path.rel));
         let ended = false;
         return { sandbox, policy, managedStorage, typeFolders, ...(startupView ? { startupView } : {}), async end() {

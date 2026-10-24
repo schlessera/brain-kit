@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:95-222`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:112-257`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:59-224`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-259`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1953,23 +1953,96 @@ every turn without a proven recipient:
     auto-memory folder (`memory/`, shared by every session of the brain) and,
     when resuming, that session's own transcript
     (`settings.push`,
-    `packages/ui-backend-claude/src/worker-state.ts:183-188`). Other
+    `packages/ui-backend-claude/src/worker-state.ts:190-195`). Other
     sessions' transcripts are never copied; only their names are read, so a
-    worker cannot export into them.
+    worker cannot export into them. The settings files copied with them
+    (`settings.json`, `.claude.json` and, without host inference,
+    `.credentials.json`) hold configuration the operator's own CLI wrote; a
+    worker's changes to them are never saved, so no turn can write a
+    document's text there.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:83-89`). Its stored native
-    file observations are content hashes, not text.
+    `packages/ui-backend-pi/src/worker-session.ts:83-89`), together with
+    that session's fixed system-prompt append. Its stored native file
+    observations are content hashes, not text. Pi has no memory folder; its
+    worker receives only `settings.json` (with `auth.json` and `models.json`
+    when no host relay holds the credential), never a context file from the
+    agent directory.
   - Autonomous turns carry nothing: Claude's state is ephemeral, and Pi's
     restricted envelope copies no native state.
+  - The handoff summary run sends the source chat's history to its
+    provider with no proven recipient, so it is a third way saved history
+    reaches a provider, owned by the server rather than a backend.
 
   While every route is denied, a denied turn cannot add masked text to any of
   these, because it cannot read the masked folders. Text written before the
   policy existed remains. A memory note that quoted a masked document reaches
   every later denied turn. A resumed session's history, which brain-kit never
   edits ([provider history](provider-history.md)), is re-sent to the provider.
-  How to handle that state needs a ruling
-  ([#2726](https://github.com/schlessera/brain-kit/issues/2726)).
+- **Auto-memory and continuation of denied turns (maintainer, 2026-10-23 B,
+  amended 2026-10-24 by continuation B and memory-write A, #2726).** A
+  provider-denied turn is a hosted interactive or voice turn whose admitted
+  masks hide at least one provider folder, whatever its recipient, proven or
+  not.
+  - **Auto-memory.** A denied Claude worker gets no saved project
+    `memory/`, and no note it writes is saved, neither a new name nor a
+    replacement of an existing one (`omitMemory`,
+    `packages/ui-backend-claude/src/worker-state.ts:284-284`). Its notes stay
+    in its tmpfs and are discarded with it, so no note can collide with a
+    saved one and refuse the turn's transcript. The decision is taken from
+    the host's actual masks (`sandbox.providerMasks.folders`), never from a
+    policy hash or a model-supplied field. Saved memory stays byte-identical:
+    omission never deletes or overwrites it. A turn without masked folders
+    reads and saves memory as before.
+  - **Continuation.** A denied turn may continue a conversation only when
+    the host's lineage proves every folder it masks was masked from every
+    contributing turn (`lineages`,
+    `packages/ui-server/src/brain/governed-turn.ts:158-167`). The lineage is
+    one row per conversation in the exposure record (`session_masked_lineage`,
+    migration 064, `narrowMasked`,
+    `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
+    only for a genuinely fresh conversation whose first turn masked folders,
+    or for a handoff from a conversation that has one, which starts from what
+    its source kept masked. Every later admitted turn of it, on an allowed
+    route or with no provider rule too, narrows the row in place to the folders
+    that turn masked as well, by folder containment (`maskedInBoth`). The row
+    never widens, so losing it loses the proof rather than reviving an older,
+    wider set. A turn is admitted when each folder it masks lies inside one of
+    the row's folders (`uncoveredFolders`). A conversation
+    without a lineage, including one from before the policy, from a legacy
+    server, or whose record was lost, refuses with
+    `ProviderContinuationRefusedError` before its transcript is copied into a
+    worker or a request is made. So does a handoff whose source has none,
+    and a turn whose masks were widened. A refusal records nothing, so no
+    history is stamped clean after the fact; an identical policy, a matching
+    policy hash or safe-looking text is never proof. The row is written at
+    admission, before the turn can read anything, in the server's own
+    database, and an unreadable row refuses. A turn that fails later in
+    admission, before any worker runs, has already narrowed it; that only
+    refuses more. The existing exposure check (#2695)
+    still refuses a turn whose recipient may not see what an earlier turn was
+    shown.
+  - **The handoff summary.** Drafting a handoff summary refuses when the
+    policy has provider rules and the source chat's lineage does not cover
+    every provider folder, before its history is read (`unprovenHistory`,
+    `packages/ui-server/src/ws/handoff.ts:303-306`). The run has no proven
+    recipient, so every provider folder is denied to it. A policy with a type
+    selector always refuses: the type's folders follow the current taxonomy,
+    which this check does not translate, and a remembered translation may be
+    stale.
+  - **What a user loses.** A conversation started before a provider rule,
+    or on a route that could see a now-masked folder, cannot be continued by
+    a denied turn; the refusal asks for a new conversation and leaves the
+    saved one untouched. A denied Claude turn starts without the brain's
+    auto-memory and adds nothing to it. Within an admitted conversation,
+    provider history stays byte-identical and append-only: nothing is
+    redacted, rewritten or added to it, and no refusal silently starts a
+    replacement session.
+
+  The lineage assumes every hosted turn passes this server's admission,
+  which every interactive and voice turn does. A transcript changed outside
+  brain-kit, for example by the operator running the native CLI against the
+  saved session, is outside it; the operator can read every folder anyway.
 - **The activity record and inbox items (audit and maintainer ruling,
   2026-10-23, #2698 option A).** Three bridge reads serve the server's own
   database rather than a brain path, so no path refusal applies to them.
@@ -2164,7 +2237,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:113-114`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:130-131`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -2880,7 +2953,7 @@ and receipt finalization. Staged raw versions remain under the same aggregate
 cap, active pins and completed-turn retention/collection. This is the external
 memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
-boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:203-217`;
+boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
 `packages/ui-server/src/brain/turn-journal.ts:438-473`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
