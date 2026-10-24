@@ -33,10 +33,14 @@ test(`${percent}% resumed state${voice ? " voice" : ""}${failedStart ? " failed 
   const queryFn = ((params: { options: Options }) => {
     const stream = (async function* () {
       const child = params.options.spawnClaudeCodeProcess!({ command: failedStart ? "/nonexistent-odysseus-runtime" : "/bin/sh",
-        args: ["-c", `test "$(wc -c < \"$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl\")" -eq ${used - PAGE}`, `--resume=${SESSION}`],
+        args: ["-c", `printf ready; test "$(wc -c < \"$CLAUDE_CONFIG_DIR/$PROJECT/$SESSION.jsonl\")" -eq ${used - PAGE}`, `--resume=${SESSION}`],
         cwd: brain, env: { PATH: "/usr/bin:/bin", CLAUDE_CONFIG_DIR: config, PROJECT: project, SESSION }, signal: new AbortController().signal } as never);
       exited = new Promise(resolve => child.once("exit", (code: number | null) => resolve(code)));
+      // The runtime submits a prompt only once it runs; its worker starts
+      // behind the deferred spawn (#2790), so wait for its first output.
+      const running = new Promise(resolve => child.stdout.once("data", resolve));
       child.stdout.resume();
+      await Promise.race([running, exited]);
       const hook = params.options.hooks!.UserPromptSubmit!.at(-1)!.hooks[0]!;
       note = await hook({ hook_event_name: "UserPromptSubmit" } as never, undefined, { signal: new AbortController().signal });
       if (failedStart && await exited !== 0) throw new Error("Fixture runtime failed to start");

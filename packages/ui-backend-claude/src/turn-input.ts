@@ -42,7 +42,12 @@ export interface TurnInput {
 
 type FollowUpState = "pushed" | "queued" | "started";
 
-export function createTurnInput(prompt: string | AsyncIterable<SDKUserMessage>): TurnInput {
+/**
+ * `prompt` may be supplied later, as a function the stream calls when the SDK
+ * first pulls from it: the turn claims its input before its prompt exists
+ * (#2790), and the SDK pulls only once that prompt is prepared.
+ */
+export function createTurnInput(prompt: string | AsyncIterable<SDKUserMessage> | (() => string | AsyncIterable<SDKUserMessage>)): TurnInput {
   const queue: SDKUserMessage[] = [];
   const pending = new Map<string, FollowUpState>();
   let closed = false;
@@ -54,8 +59,9 @@ export function createTurnInput(prompt: string | AsyncIterable<SDKUserMessage>):
   };
 
   async function* messages(): AsyncIterable<SDKUserMessage> {
-    if (typeof prompt === "string") yield userMessage(prompt);
-    else yield* prompt;
+    const first = typeof prompt === "function" ? prompt() : prompt;
+    if (typeof first === "string") yield userMessage(first);
+    else yield* first;
     while (true) {
       const next = queue.shift();
       if (next) {

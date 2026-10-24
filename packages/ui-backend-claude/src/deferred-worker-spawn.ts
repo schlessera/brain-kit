@@ -49,7 +49,9 @@ export function deferredWorkerSpawn(start: (signal: AbortSignal) => Promise<{ pr
       finish(child.exitCode, child.signalCode ?? signalCode);
     }
   }).catch(error => {
-    if (!signal.aborted) fail(error);
+    // A started child reports its own lifecycle failures through its error
+    // event, already forwarded; only a preparation failure is reported here.
+    if (!signal.aborted && !child) fail(error);
     finish(signal.aborted ? null : 1, signal.aborted ? signalCode ?? "SIGKILL" : null);
     throw error;
   }).finally(() => {

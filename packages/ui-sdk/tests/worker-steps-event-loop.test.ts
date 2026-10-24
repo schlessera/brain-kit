@@ -8,10 +8,17 @@
  */
 import { createFixtureMaintenanceHost, createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { launchAgentWorkerAsync, prepareWorkerSandbox, prepareWorkerSandboxAsync, probeWorkerHost, probeWorkerHostAsync,
-  requireWorkerHostAsync, workerHostBoundary, WorkerHostError } from "../src/server/worker-launcher";
+import { identityWorkerExit, launchAgentWorkerAsync, prepareWorkerSandbox, prepareWorkerSandboxAsync, probeWorkerHost, probeWorkerHostAsync,
+  requireWorkerHostAsync, workerHostBoundary, WorkerHostError, type IdentityWorkerStatus, type LaunchedWorker } from "../src/server/worker-launcher";
+import * as launcher from "../src/server/worker-launcher";
+import * as identity from "../src/server/worker-identity";
+import { launchMaintenanceWorkerAsync } from "../src/server/maintenance-worker";
+import { claudeMaskFilename, claudeReportedMaskPath, handleRequestImageMask } from "../src/server/bridge-tools/mask";
+import type { BackendBridge } from "../src/server/backend";
+import { workerStep } from "../src/server/worker-steps";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 
@@ -86,4 +93,117 @@ test("the asynchronous launch waits for bubblewrap's setup with the event loop f
     worker.turnTemp?.close();
   } finally { f.cleanup(); }
   expect(ticks, "ASYNC_LAUNCH_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+});
+
+// #2790: the remaining sites that waited on a worker synchronously.
+
+test("a scratch mask's ignore check runs its real maintenance worker with the event loop free and refuses as before", async () => {
+  const f = fixture();
+  try {
+    Bun.spawnSync(["git", "-C", f.brain, "init", "-q"]);
+    mkdirSync(join(f.brain, ".brain/scratch"), { recursive: true });
+    writeFileSync(join(f.brain, ".brain/scratch/draft.png"), "png");
+    // The maintenance host copies the brain's input when it is created.
+    const request = async () => {
+      const maintenance = createFixtureMaintenanceHost(f.brain);
+      try { return await handleRequestImageMask({ imagePath: ".brain/scratch/draft.png", instruction: "the sea" },
+        { requestMask: async () => new Uint8Array([1, 2, 3]) } as unknown as BackendBridge,
+        { brainPath: f.brain, maskFilename: claudeMaskFilename, reportMaskPath: claudeReportedMaskPath, maintenance }); }
+      finally { maintenance.cleanup(); }
+    };
+    // Not yet ignored: the same refusal, after the worker answered.
+    const refused = await ticksDuring(() => request().catch((error: unknown) => error));
+    expect(refused.ticks, "ASYNC_SCRATCH_CHECK_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    expect((refused.result as Error).message, "ASYNC_SCRATCH_CHECK_SAME_REFUSAL").toMatch(/not gitignored as a directory.*brain doctor --fix/s);
+    expect(existsSync(join(f.brain, ".brain/scratch/draft-mask.png"))).toBe(false);
+    writeFileSync(join(f.brain, ".gitignore"), ".brain/scratch/\n");
+    const { result, ticks } = await ticksDuring(request);
+    expect(ticks, "ASYNC_SCRATCH_CHECK_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    expect(result.maskPath).toBe(".brain/scratch/draft-mask.png");
+    expect(readFileSync(join(f.brain, ".brain/scratch/draft-mask.png"))).toEqual(Buffer.from([1, 2, 3]));
+  } finally { f.cleanup(); }
+});
+
+/** A supervisor request that takes `ms`, counting the ticks that fire while it is outstanding. */
+function statusRequests(replies: IdentityWorkerStatus[], ms: number) {
+  const seen = { requests: 0, ticksDuringRequests: 0 };
+  let ticks = 0;
+  const timer = setInterval(() => { ticks++; }, 1);
+  const status = () => workerStep<IdentityWorkerStatus>(() => {
+    const before = ticks; Bun.sleepSync(ms); seen.ticksDuringRequests += ticks - before;
+    return replies[Math.min(seen.requests++, replies.length - 1)]!;
+  }, async () => {
+    const before = ticks; await Bun.sleep(ms); seen.ticksDuringRequests += ticks - before;
+    return replies[Math.min(seen.requests++, replies.length - 1)]!;
+  });
+  return { seen, status, stop: () => clearInterval(timer) };
+}
+
+function supervision() {
+  let finished = false, released = 0;
+  return { state: () => ({ finished, released }),
+    hooks: { finished: () => finished, finish: () => { finished = true; }, release: () => { released++; } } };
+}
+
+test("a separate-UID worker's exit is polled with the event loop free and maps the supervisor's answer as before", async () => {
+  const requests = statusRequests([{ exited: false, code: null }, { exited: false, code: null }, { exited: true, code: -9 }], 30);
+  const owner = supervision();
+  try {
+    const code = await identityWorkerExit(requests.status, new Promise<number>(() => {}), owner.hooks);
+    expect(code, "IDENTITY_EXIT_SIGNAL_CODE").toBe(137);
+    expect(requests.seen.requests).toBe(3);
+    expect(requests.seen.ticksDuringRequests, "IDENTITY_POLL_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    expect(owner.state()).toEqual({ finished: true, released: 1 });
+  } finally { requests.stop(); }
+  const failed = statusRequests([{ exited: true, code: 0, failure: "the worker could not be confined" }], 1);
+  try {
+    const refusal = await identityWorkerExit(failed.status, new Promise<number>(() => {}), supervision().hooks).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(WorkerHostError);
+    expect((refusal as WorkerHostError).requirement).toBe("worker_identity_supervision_failed: the worker could not be confined");
+  } finally { failed.stop(); }
+});
+
+test("a supervisor lost while a status request is outstanding refuses once and ignores the late answer", async () => {
+  const requests = statusRequests([{ exited: true, code: 0 }], 150);
+  const owner = supervision();
+  let lose!: (code: number) => void;
+  try {
+    const exit = identityWorkerExit(requests.status, new Promise<number>(resolve => { lose = resolve; }), owner.hooks);
+    await Bun.sleep(150);
+    expect(requests.seen.requests, "IDENTITY_REQUEST_OUTSTANDING").toBe(0);
+    lose(1);
+    const refusal = await exit.catch((error: unknown) => error);
+    expect((refusal as WorkerHostError).requirement).toBe("worker_identity_supervisor_lost (1)");
+    await Bun.sleep(200);
+    expect(requests.seen.requests).toBe(1);
+    // The late answer neither settles again nor releases the broker a second time.
+    expect(owner.state()).toEqual({ finished: true, released: 0 });
+  } finally { requests.stop(); }
+});
+
+test("a separate-UID maintenance launch waits for its helper worker with the event loop free", async () => {
+  const f = fixture();
+  const startupView = createFixtureWorkerStartupView(f.brain);
+  let blocked = 0;
+  const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue("/usr/lib/odysseus/identity-helper");
+  const launch = spyOn(launcher, "launchAgentWorkerSteps").mockImplementation(function* () {
+    // The helper's setup wait, as the launcher yields it.
+    yield* workerStep(() => { blocked++; Bun.sleepSync(100); }, () => Bun.sleep(100));
+    const child = spawn("/bin/cat", [], { stdio: ["pipe", "pipe", "pipe"] });
+    return { stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, pid: child.pid!,
+      exited: new Promise<number>(resolve => child.once("exit", code => resolve(code ?? 1))),
+      kill: (signal?: NodeJS.Signals) => { child.kill(signal); } } as unknown as LaunchedWorker;
+  });
+  try {
+    const { result: worker, ticks } = await ticksDuring(() => launchMaintenanceWorkerAsync({ brainPath: f.brain, startupView,
+      command: ["/bin/cat"], env: { PATH: "/usr/bin:/bin" }, credentials: false,
+      tempDomain: { statePath: join(f.root, "maintenance-state.db") } }));
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(blocked, "ASYNC_MAINTENANCE_LAUNCH_NEVER_BLOCKS").toBe(0);
+    expect(ticks, "ASYNC_MAINTENANCE_LAUNCH_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    const output = new Response(worker.stdout).text();
+    await worker.input("ithaca");
+    expect(await output).toBe("ithaca");
+    expect(await worker.exited).toBe(0);
+  } finally { launch.mockRestore(); helper.mockRestore(); startupView.cleanup(); f.cleanup(); }
 });

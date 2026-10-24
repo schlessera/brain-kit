@@ -1203,7 +1203,8 @@ export function launchAgentWorkerAsync(input: WorkerLaunch): Promise<LaunchedWor
   return runWorkerStepsAsync(launchAgentWorkerSteps(input));
 }
 
-function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorker> {
+/** The launch as steps, for a caller that drives it inside its own steps (#2790). */
+export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorker> {
   let startupView = input.preparedOutput?.view ?? input.startupView;
   let areaOutput: ReturnType<typeof prepareWorkerOutput> | PreparedWorkerOutput | undefined = input.preparedOutput;
   let plan: WorkerLimitsPlan;
@@ -1360,20 +1361,10 @@ function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorke
       return { hits, fatal };
     };
     const spawned = child;
-    const workerExit = identityBroker ? new Promise<number>((resolve, reject) => {
-      const timer = setInterval(() => {
-        try {
-          const result = identityBroker!.request<{ exited: boolean; code: number | null; failure?: string }>("status");
-          if (!result.exited) return;
-          clearInterval(timer); identityFinished = true;
-          if (result.failure) reject(new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`));
-          else resolve(result.code !== null && result.code < 0 ? 128 - result.code : result.code ?? 1);
-          releaseIdentity();
-        } catch (error) { clearInterval(timer); identityFinished = true; reject(error); }
-      }, 100);
-      void spawned.exited.then(code => {
-        if (!identityFinished) { clearInterval(timer); identityFinished = true; reject(new WorkerHostError(`worker_identity_supervisor_lost (${code})`)); }
-      });
+    const workerExit = identityBroker ? identityWorkerExit(() => identityBroker!.requestSteps<IdentityWorkerStatus>("status"), spawned.exited, {
+      finished: () => identityFinished,
+      finish: () => { identityFinished = true; },
+      release: releaseIdentity,
     }) : spawned.exited;
     if (input.preparedOutput) bindPreparedWorkerOutputExit(input.preparedOutput, workerExit);
     void workerExit.then(() => completeMaintenanceSetup?.(), error => failMaintenanceSetup?.(error));
@@ -1439,6 +1430,44 @@ function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<LaunchedWorke
     }
     throw error;
   }
+}
+
+/** What a separate-UID worker's supervisor reports about it. */
+export interface IdentityWorkerStatus { exited: boolean; code: number | null; failure?: string }
+
+/**
+ * A separate-UID worker's exit code, as its supervisor reports it. The
+ * supervisor is asked every 100 ms for the worker's whole life, so each
+ * request waits through the asynchronous step driver (#2790): a synchronous
+ * broker request would hold the server's event loop for as long as a loaded
+ * host takes to answer it, every time. One request is in flight at a time,
+ * and the supervisor's own exit ends the polling as before.
+ */
+export function identityWorkerExit(status: () => WorkerSteps<IdentityWorkerStatus>, supervisor: Promise<number>,
+  supervision: { finished(): boolean; finish(): void; release(): void }): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = () => {
+      timer = setTimeout(() => {
+        timer = undefined;
+        runWorkerStepsAsync(status()).then(result => {
+          if (supervision.finished()) return;
+          if (!result.exited) { poll(); return; }
+          supervision.finish();
+          if (result.failure) reject(new WorkerHostError(`worker_identity_supervision_failed: ${result.failure}`));
+          else resolve(result.code !== null && result.code < 0 ? 128 - result.code : result.code ?? 1);
+          supervision.release();
+        }, error => {
+          if (supervision.finished()) return;
+          supervision.finish(); reject(error);
+        });
+      }, 100);
+    };
+    poll();
+    void supervisor.then(code => {
+      if (!supervision.finished()) { clearTimeout(timer); supervision.finish(); reject(new WorkerHostError(`worker_identity_supervisor_lost (${code})`)); }
+    });
+  });
 }
 
 export type WorkerHostProbe = { ok: true; identity?: "separate_uid"; workerUid?: number } | { ok: false; requirement: string };

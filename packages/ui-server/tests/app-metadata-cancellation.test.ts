@@ -24,10 +24,10 @@ test("admitted metadata drains its real worker, publication and cleanup within t
   const events: string[] = [];
   let pending: Promise<Response> | undefined, closing: Promise<void> | undefined;
   let pid = 0, start = "";
-  const originalLaunch = maintenanceWorker.launchMaintenanceWorker;
-  const launch = spyOn(maintenanceWorker, "launchMaintenanceWorker").mockImplementation(input => {
+  const originalLaunch = maintenanceWorker.launchMaintenanceWorkerAsync;
+  const launch = spyOn(maintenanceWorker, "launchMaintenanceWorkerAsync").mockImplementation(async input => {
     expect(workerIdentityHelper(), "ACTIVE_CONTROL_USES_ORDINARY_NATIVE_LAUNCHER").toBeUndefined();
-    const worker = originalLaunch(input);
+    const worker = await originalLaunch(input);
     pid = worker.pid;
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     start = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;

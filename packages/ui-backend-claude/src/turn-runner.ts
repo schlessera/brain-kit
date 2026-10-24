@@ -15,7 +15,7 @@ import {
   BackendRequestError,
   subscriptionAuthAction,
 } from "@schlessera/brain-ui-sdk/server";
-import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHost, VERSION_PROBE_TIMEOUT_MS,
+import { NativeFileVersions, createLimitTracker, limitFailureMessage, WorkerHostError, requireWorkerHostAsync, VERSION_PROBE_TIMEOUT_MS,
   type WorkerLimitReport, startInferenceRelay, ANTHROPIC_INFERENCE_ROUTES, type InferenceRelay } from "@schlessera/brain-ui-sdk/internal";
 
 import type { ClaudeBackendOptions, BackendLogFn } from "./options.js";
@@ -120,15 +120,49 @@ export function createClaudeTurnRunner(options: {
     // Before anything is claimed or emitted: a refused posture rejects, per
     // the startTurn contract, and leaves no turn behind.
     assertTurnPosture(req, true, true);
-    const workerHost = requireWorkerHost(options.backend.brainPath);
-    const profile = resolveProfile(options.resolveProfiles(), req.profileId);
     if (req.sessionId !== undefined && activeTurns.has(req.sessionId)) {
       throw new BackendBusyError(BACKEND_ID, req.sessionId);
     }
 
-    const abortController = new AbortController();
-    let yielded = false;
+    // The session is claimed the moment startTurn is called (#1063): a live
+    // follow-up offered meanwhile joins this turn's input, which is held until
+    // the SDK first pulls the turn's own prompt. Only then is the per-turn
+    // host probe awaited, so the event loop keeps answering while a loaded
+    // host starts its worker (#2790). Its refusal, or the profile's, rejects
+    // and takes the claim back, leaving no turn behind.
     const turn: RunningTurn = { pendingReleases: new Map(), ended: false };
+    // Placeholder key for a new session; the real id (a resume's requested id,
+    // or the SDK-minted id for a new session) replaces it below.
+    let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
+    let sdkPrompt: string | AsyncIterable<SDKUserMessage> | undefined;
+    const input = createTurnInput(() => {
+      if (sdkPrompt === undefined) throw new Error("The turn's prompt was pulled before it was prepared.");
+      return sdkPrompt;
+    });
+    if (!req.autonomous) turn.input = input;
+    activeTurns.set(turnKey, turn);
+
+    // The host owns cancellation. Mirror its signal onto an internal
+    // AbortController that the SDK query listens to; from before the probe,
+    // so a cancel accepted while it runs still stops the turn.
+    const abortController = new AbortController();
+    const onHostAbort = () => abortController.abort();
+    if (req.signal.aborted) abortController.abort();
+    else req.signal.addEventListener("abort", onHostAbort, { once: true });
+
+    let workerHost: Awaited<ReturnType<typeof requireWorkerHostAsync>>;
+    let profile: InferenceProfile;
+    try {
+      workerHost = await requireWorkerHostAsync(options.backend.brainPath);
+      profile = resolveProfile(options.resolveProfiles(), req.profileId);
+    } catch (error) {
+      req.signal.removeEventListener("abort", onHostAbort);
+      input.close();
+      activeTurns.delete(turnKey);
+      throw error;
+    }
+
+    let yielded = false;
     const turnLock = createTurnLockBinding({
       turn,
       writeLock: req.workerLock ?? options.writeLock,
@@ -147,9 +181,6 @@ export function createClaudeTurnRunner(options: {
         } : undefined,
       },
     });
-    // Placeholder key for a new session; the real id (a resume's requested id,
-    // or the SDK-minted id for a new session) replaces it below.
-    let turnKey = req.sessionId ?? `new:${crypto.randomUUID()}`;
     const turnEnvironment = req.autonomous ? undefined : turnEnv(profile);
     const observationStorage = !req.autonomous && existsSync(options.backend.brainPath)
       ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
@@ -157,13 +188,6 @@ export function createClaudeTurnRunner(options: {
     const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
       ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
     if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
-    activeTurns.set(turnKey, turn);
-
-    // The host owns cancellation. Mirror its signal onto an internal
-    // AbortController that the SDK query listens to.
-    const onHostAbort = () => abortController.abort();
-    if (req.signal.aborted) abortController.abort();
-    else req.signal.addEventListener("abort", onHostAbort, { once: true });
 
     const adapter = new StreamAdapter(req.bridge.activity, {
       subscriptionAuth: profile.billing !== "api",
@@ -245,8 +269,6 @@ export function createClaudeTurnRunner(options: {
     let sawResult = false;
     /** Bounds how long a held result waits for a follow-up's read report. */
     let ackGraceTimer: ReturnType<typeof setTimeout> | undefined;
-    /** Every turn's input, autonomous or not, so cleanup always ends it. */
-    let turnInput: TurnInput | undefined;
     let archiveEnv: Record<string, string | undefined> | undefined;
     let finishWorker: (() => Promise<void>) | undefined;
     let hostRelay: InferenceRelay | undefined;
@@ -255,6 +277,7 @@ export function createClaudeTurnRunner(options: {
     let relayBaseUrl = "http://localhost";
     let routeInputs: Awaited<ReturnType<typeof retainNativeRouteInputs>> | undefined;
     let workerFailure: (() => TurnFailure | undefined) | undefined;
+    let workerStartFailure: (() => unknown) | undefined;
     /**
      * A worker whose runtime state refused or stopped the turn (#1625) ends it
      * with that named class rather than the runtime's own error.
@@ -436,13 +459,13 @@ export function createClaudeTurnRunner(options: {
       });
       finishWorker = sdkTurn.finishWorker;
       workerFailure = sdkTurn.workerFailure;
+      workerStartFailure = sdkTurn.workerStartFailure;
       workerStateRoom = sdkTurn.workerStateRoom;
       archiveEnv = sdkTurn.options.env;
       workerLimits = sdkTurn.workerLimits;
       observeAnswerText = sdkTurn.observeAnswerText;
       // Always a stream that stays open, so follow-ups can join the turn.
-      const input = (turnInput = createTurnInput(sdkTurn.prompt));
-      if (!req.autonomous) turn.input = input;
+      sdkPrompt = sdkTurn.prompt;
       if (runtimeRequirements.length) {
         // Replaceable overrides are probed anew for BOTH new and resumed turns,
         // before query() sees any user input. Capture uses the SDK's resolver.
@@ -710,6 +733,8 @@ export function createClaudeTurnRunner(options: {
         }
       }
       await releaseTerminal();
+      // A worker that never started ends the turn with its own error (#2790).
+      if (!sawResult && workerStartFailure?.() !== undefined) throw workerStartFailure();
       // Stream ended without its terminal result: aborted → cancelled; not
       // aborted → an abnormal end the client must still be released from.
       if (!sawResult && !refused && !abortController.signal.aborted) refused = await limitFailure();
@@ -729,7 +754,10 @@ export function createClaudeTurnRunner(options: {
           });
         }
       }
-    } catch (err) {
+    } catch (caught) {
+      // The SDK reports a worker's deferred start failure as its own process
+      // error; the worker's error names the turn, as when its spawn threw it (#2790).
+      const err = workerStartFailure?.() ?? caught;
       // error/cancelled frames are diagnostics; the terminal frame is the
       // result with an outcome (for turns that have a session identity — a
       // turn that died before any session id ends on the bare error).
@@ -768,7 +796,8 @@ export function createClaudeTurnRunner(options: {
         () => hostRelay?.stop(),
         () => { if (hostRelayLink) rmSync(hostRelayLink, { force: true }); },
         () => clearTimeout(ackGraceTimer),
-        () => turnInput?.close(),
+        // Every turn's input, autonomous or not, so cleanup always ends it.
+        () => input.close(),
         () => req.signal.removeEventListener("abort", onHostAbort),
         () => fileVersions?.cancelPending(),
         () => { if (!sessionId) fileVersionsBySession.delete(turnKey); },
