@@ -4,6 +4,8 @@ import { join } from "path";
 
 import type { Logger } from "@opentelemetry/api-logs";
 
+import { attachJournalDatabase, JOURNAL_MIGRATIONS_TABLE, JOURNAL_SPLIT_MIGRATION, journalMigrationReceipts, moveJournalTables } from "./journal-database.js";
+
 /**
  * The UI's OWN SQLite database (sessions, passkeys, settings, cron runs) —
  * distinct from the brain database, which is opened read-only via
@@ -32,7 +34,12 @@ export function createUiDb(dbPath: string, options: CreateUiDbOptions = {}): Dat
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
+  // The journal has its own file (#2789). Migrations still create its tables
+  // unqualified here; each start then moves whatever they created into it.
+  attachJournalDatabase(db, dbPath);
   runMigrations(db, options.log);
+  const moved = moveJournalTables(db);
+  if (moved) options.log?.emit({ severityText: "INFO", body: "moved journal tables into the journal database", attributes: { tables: moved } });
   return db;
 }
 
@@ -66,18 +73,28 @@ function runMigrations(database: Database, log?: Logger) {
       .all()
       .map((r: any) => r.filename)
   );
+  const journalApplied = journalMigrationReceipts(database);
 
+  let moved = false;
   for (const file of files) {
-    if (applied.has(file)) continue;
+    if (applied.has(file) || journalApplied.has(file)) continue;
+    // Later migrations find the journal tables in the journal file (#2789).
+    if (!moved && file.slice(0, JOURNAL_SPLIT_MIGRATION.length) > JOURNAL_SPLIT_MIGRATION) { moveJournalTables(database); moved = true; }
+    const journal = file.endsWith(".journal.sql");
 
     log?.emit({ severityText: "INFO", body: "applying migration", attributes: { file } });
     const sql = readFileSync(join(migrationsDir, file), "utf-8");
 
     try {
       database.transaction(() => {
+        const uiSchema = (database.query("PRAGMA main.schema_version").get() as { schema_version: number }).schema_version;
         database.exec(sql);
+        // A journal migration commits with its receipt only if it stays in the journal file.
+        if (journal && (database.query("PRAGMA main.schema_version").get() as { schema_version: number }).schema_version !== uiSchema)
+          throw new Error(`Journal migration ${file} changed the UI database; create journal objects as journal.<name>.`);
+        // Each receipt commits in the file its migration changed.
         database
-          .prepare("INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)")
+          .prepare(journal ? `INSERT INTO ${JOURNAL_MIGRATIONS_TABLE} (filename, applied_at) VALUES (?, ?)` : "INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)")
           .run(file, Date.now());
       })();
     } catch (err) {
@@ -86,11 +103,11 @@ function runMigrations(database: Database, log?: Logger) {
       // ran). If the file is now recorded as applied, treat it as such and
       // move on; anything else is a real migration failure.
       const nowApplied = database
-        .query("SELECT 1 FROM _migrations WHERE filename = ?")
+        .query(journal ? `SELECT 1 FROM ${JOURNAL_MIGRATIONS_TABLE} WHERE filename = ?` : "SELECT 1 FROM _migrations WHERE filename = ?")
         .get(file);
       const uniqueViolation =
         err instanceof Error &&
-        err.message.includes("UNIQUE constraint failed: _migrations.filename");
+        err.message.includes(journal ? `UNIQUE constraint failed: ${JOURNAL_MIGRATIONS_TABLE}.filename` : "UNIQUE constraint failed: _migrations.filename");
       if (!nowApplied && !uniqueViolation) throw err;
       log?.emit({
         severityText: "INFO",

@@ -226,7 +226,7 @@ Stated before the requirements because five of them derive from it.
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:860`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:861`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -239,7 +239,7 @@ Stated before the requirements because five of them derive from it.
 - R21. The generated crontab gains the five-minute poke line (the deployment's
   entrypoint, owned by brain-hosting-template).
 - R22. Claiming is `BEGIN IMMEDIATE`. WAL and `busy_timeout = 5000` are already set for
-  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`), so no posture change is
+  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:27-44`), so no posture change is
   needed — but the invariant is explicit: **an immediate transaction covers the claim or the
   settlement, never a model call or filesystem work.** A writer holding the lock past five
   seconds still yields `SQLITE_BUSY`. Test a cron heartbeat racing an inbox claim.

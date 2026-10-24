@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { createUiDb } from "../src/db/client.js";
 import { createJournalAccounting } from "../src/brain/journal-accounting.js";
 import { JournalCapacityError } from "../src/brain/journal-objects.js";
+import { journalDatabasePath } from "../src/db/journal-database.js";
+
+const journalWal = (path: string) => `${journalDatabasePath(path)}-wal`;
 
 const turn = (db: Database, id: string, summary: string) => db.query("INSERT INTO turn_journal_turns (turn_id,actor,profile,started_at,state,summary) VALUES (?,'interactive','governed',0,'active',?)").run(id, summary);
 function fixture(prefix: string) {
@@ -14,7 +17,7 @@ function fixture(prefix: string) {
 }
 const reserved = (db: Database) => (db.query("SELECT wal_reserved FROM turn_journal_allocation WHERE id=1").get() as { wal_reserved: number }).wal_reserved;
 
-test("a journal write after startup takes no WAL checkpoint", () => {
+test("a journal write after startup takes no WAL checkpoint and walks no b-tree", () => {
   const f = fixture("path");
   let checkpoints = 0;
   const ledger = createJournalAccounting(f.db, f.path, { afterCheckpoint() { checkpoints++; } });
@@ -29,9 +32,10 @@ test("a journal write after startup takes no WAL checkpoint", () => {
     }
     const reservation = ledger.reserveTemporary(4096); reservation.release();
     expect(statements.filter(sql => /wal_checkpoint/i.test(sql)), "JOURNAL_WRITE_RUNS_NO_CHECKPOINT").toEqual([]);
+    expect(statements.filter(sql => /dbstat/i.test(sql)), "JOURNAL_WRITE_WALKS_NO_BTREE").toEqual([]);
     expect(checkpoints - startup, "JOURNAL_WRITE_TAKES_NO_CHECKPOINT").toBe(0);
     expect(startup, "JOURNAL_STARTUP_ESTABLISHES_EMPTY_WAL").toBe(1);
-    expect(reserved(f.db), "JOURNAL_WAL_DEBT_STAYS_RESERVED").toBeGreaterThanOrEqual(statSync(`${f.path}-wal`).size);
+    expect(reserved(f.db), "JOURNAL_WAL_DEBT_STAYS_RESERVED").toBeGreaterThanOrEqual(statSync(journalWal(f.path)).size);
   } finally { query.mockRestore(); f.close(f.db); }
 });
 
@@ -39,7 +43,7 @@ test("a journal row changed outside accounting is refused on every journal table
   const f = fixture("escape");
   const ledger = createJournalAccounting(f.db, f.path);
   try {
-    const tables = (f.db.query("SELECT name FROM sqlite_schema WHERE type='table' AND name GLOB 'turn_journal_*' AND name != 'turn_journal_allocation'").all() as { name: string }[]).map(row => row.name);
+    const tables = (f.db.query("SELECT name FROM journal.sqlite_schema WHERE type='table' AND name GLOB 'turn_journal_*' AND name NOT IN ('turn_journal_allocation','turn_journal_migrations')").all() as { name: string }[]).map(row => row.name);
     const guarded = new Set((f.db.query("SELECT tbl_name,sql FROM sqlite_temp_schema WHERE type='trigger' AND sql LIKE '%outside capacity accounting%'").all() as { tbl_name: string; sql: string }[])
       .map(row => `${row.tbl_name}:${/BEFORE (INSERT|UPDATE|DELETE)/.exec(row.sql)![1]}`));
     expect(tables.length).toBeGreaterThanOrEqual(10);
@@ -76,7 +80,7 @@ test("WAL debt alone never refuses a write: it truncates and admits as before", 
   const ledger = createJournalAccounting(f.db, f.path, { afterCheckpoint() { checkpoints++; } });
   try {
     for (let index = 0; index < 20; index++) ledger.write(() => turn(f.db, `odysseus-${index}`, "Ithaca".repeat(300)));
-    const debt = statSync(`${f.path}-wal`).size;
+    const debt = statSync(journalWal(f.path)).size;
     expect(debt, "JOURNAL_COMMITS_ACCUMULATE_WAL").toBeGreaterThan(20 * 4_096);
     expect(reserved(f.db), "JOURNAL_WAL_DEBT_STAYS_RESERVED").toBeGreaterThanOrEqual(debt);
     const standing = ledger.usage();
@@ -87,37 +91,42 @@ test("WAL debt alone never refuses a write: it truncates and admits as before", 
     expect(checkpoints - startup, "JOURNAL_DEBT_TRUNCATES_ONLY_WHEN_IT_REFUSES").toBeGreaterThan(0);
     expect(checkpoints - startup, "JOURNAL_DEBT_TRUNCATION_IS_AMORTIZED").toBeLessThan(10);
     expect(bounded.usage(), "JOURNAL_DEBT_WITHIN_CAP").toBeLessThanOrEqual(standing);
-    expect(reserved(f.db)).toBeGreaterThanOrEqual(statSync(`${f.path}-wal`).size);
+    expect(reserved(f.db)).toBeGreaterThanOrEqual(statSync(journalWal(f.path)).size);
   } finally { f.close(f.db); }
 });
 
-test("the charge never falls below formerly-owned journal pages still free, whoever reuses free pages", () => {
+test("the charge never falls below the journal's page-identity truth, and other components cannot move it", () => {
   const f = fixture("identity");
   const ledger = createJournalAccounting(f.db, f.path);
   const ever = new Set<number>();
-  /** The page-identity truth from a full database walk, kept by the test only. */
+  /**
+   * The page-identity truth from full walks of both files, kept by the test
+   * only: the journal's b-tree pages plus pages it once owned that are now in
+   * no b-tree. No journal b-tree may sit in the UI database, and no other b-tree in the journal's.
+   */
   const truth = () => {
-    const rows = f.db.query("SELECT pageno,name FROM dbstat").all() as { pageno: number; name: string }[];
-    const names = new Set((f.db.query("SELECT name FROM sqlite_schema WHERE tbl_name GLOB 'turn_journal_*'").all() as { name: string }[]).map(row => row.name));
-    const inTree = new Set(rows.map(row => row.pageno)), owned = rows.filter(row => names.has(row.name));
+    const journal = f.db.query("SELECT pageno,name FROM dbstat('journal')").all() as { pageno: number; name: string }[];
+    const main = f.db.query("SELECT DISTINCT name FROM dbstat('main') WHERE name GLOB 'turn_journal_*'").all();
+    expect(main, "JOURNAL_NO_B_TREE_LEFT_IN_UI_DATABASE").toEqual([]);
+    expect(journal.filter(row => !row.name.startsWith("turn_journal_") && !row.name.startsWith("sqlite_")).map(row => row.name), "JOURNAL_FILE_HOLDS_ONLY_JOURNAL").toEqual([]);
+    const inTree = new Set(journal.map(row => row.pageno)), owned = journal.filter(row => row.name.startsWith("turn_journal_"));
     for (const row of owned) ever.add(row.pageno);
     return owned.length + [...ever].filter(page => !inTree.has(page)).length;
   };
-  const charged = () => (JSON.parse((f.db.query("SELECT pages FROM turn_journal_allocation WHERE id=1").get() as { pages: string }).pages) as number[]).length;
-  const check = (label: string) => { expect(charged(), `JOURNAL_CHARGE_COVERS_RELEASED_PAGES_${label}`).toBeGreaterThanOrEqual(truth()); };
+  const stored = () => (f.db.query("SELECT (SELECT coalesce(sum(bytes),0) FROM turn_journal_objects WHERE state='present') + (SELECT coalesce(sum(bytes),0) FROM turn_journal_reservations) AS n").get() as { n: number }).n;
+  // The standing charge is every page of the file plus one commit's WAL headroom over those pages.
+  const check = (label: string) => expect(ledger.usage() - stored(), `JOURNAL_CHARGE_COVERS_RELEASED_PAGES_${label}`).toBeGreaterThanOrEqual(2 * truth() * 4096);
   try {
     f.db.exec("CREATE TABLE fixture_activity (value TEXT)");
     f.db.query("INSERT INTO fixture_activity VALUES (?)").run("Penelope".repeat(60_000));
     ledger.write(() => turn(f.db, "odysseus", "Ithaca".repeat(80_000))); check("GROWN");
     ledger.write(() => f.db.query("UPDATE turn_journal_turns SET summary='Journal detail expired' WHERE turn_id='odysseus'").run()); check("RELEASED");
+    const released = ledger.usage();
     f.db.query("DELETE FROM fixture_activity").run(); check("OTHER_RELEASED");
-    // The journal grows into free pages that may be the other component's.
-    ledger.write(() => turn(f.db, "athena", "Ithaca".repeat(40_000))); check("JOURNAL_REUSED");
-    // Non-journal rows removed inside a journal transaction, like governance expiry.
-    f.db.query("INSERT INTO fixture_activity VALUES (?)").run("Telemachus".repeat(30_000));
-    ledger.write(() => { f.db.query("DELETE FROM fixture_activity").run(); turn(f.db, "telemachus", "Ithaca"); }); check("FOREIGN_DELETE");
     f.db.query("INSERT INTO fixture_activity VALUES (?)").run("Eumaeus".repeat(120_000));
-    ledger.write(() => turn(f.db, "eumaeus", "Ithaca")); check("OTHER_REUSED");
+    expect(ledger.usage(), "JOURNAL_CHARGE_IGNORES_OTHER_COMPONENTS").toBe(released);
+    ledger.write(() => turn(f.db, "athena", "Ithaca".repeat(40_000))); check("JOURNAL_REUSED");
+    ledger.write(() => { f.db.query("DELETE FROM fixture_activity").run(); turn(f.db, "telemachus", "Ithaca"); }); check("FOREIGN_DELETE");
   } finally { f.close(f.db); }
 });
 
@@ -140,7 +149,7 @@ test("a large write onto a large WAL truncates first, so the store and the WAL i
   try {
     ledger.write(() => turn(f.db, "odysseus", "Ithaca"));
     const cap = ledger.usage() + 600 * 1024, bounded = createJournalAccounting(f.db, f.path, { capBytes: cap, afterCheckpoint() { checkpoints++; } });
-    for (let index = 0; statSync(`${f.path}-wal`).size < 400 * 1024; index++) bounded.write(() => f.db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id='odysseus'").run(`penelope-${index}`));
+    for (let index = 0; index < 500 && statSync(journalWal(f.path)).size < 400 * 1024; index++) bounded.write(() => f.db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id='odysseus'").run(`penelope-${index}`));
     const before = checkpoints;
     bounded.write(() => turn(f.db, "athena", "Ithaca".repeat(42_000)));
     expect(checkpoints - before, "JOURNAL_LARGE_WRITE_TRUNCATES_A_LARGE_WAL").toBe(1);

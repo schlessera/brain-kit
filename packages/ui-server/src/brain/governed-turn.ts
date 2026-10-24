@@ -6,7 +6,7 @@ import { isManagedWorkerStartupView, prepareNativeWorkerStartupView, createNativ
 import type { HostExecution } from "./host-execution.js";
 import { assertReconciled, type Reconciliation } from "./governed-manifest.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
-import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedInBoth, ProviderContinuationRefusedError, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, rememberProviderTypeFolders, retainedFolderRoots, uncoveredFolders, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
+import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedInBoth, ProviderContinuationRefusedError, ProviderPolicyRefusedError, ProviderRecipientRefusedError, providerDeniedFolders, providerMaskedFolders, providerTypeSelectors, retainedFolderRoots, uncoveredFolders, unsupportedProviderSelectors, type ProviderExposure, type TurnGovernancePolicy } from "./governance-policy.js";
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory, updatePrivateIndex } from "./private-index.js";
@@ -151,7 +151,9 @@ export function createGovernedTurns(options: {
         }
         if (refused.length) throw new ProviderPolicyRefusedError(refused);
         const typeFolderList = [...new Set(Object.values(typeFolders).flat())].sort();
-        if (types.length) rememberProviderTypeFolders(options.brainPath, policy.hash, typeFolderList);
+        // Writers admitted later, by any process and after a restart, plan
+        // these folders while the policy is unchanged (#2836).
+        if (types.length) gate.rememberTypeFolders(policy.hash, typeFolderList);
         const providerFolders = providerMaskedFolders(policy.policy, typeFolders);
         const maskedFolders = providerDeniedFolders(policy.policy, typeFolders, recipient);
         // A conversation's provider history keeps what its earlier turns, or a

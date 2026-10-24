@@ -76,12 +76,12 @@ test("authority, item-intent storage and missing retained bytes each stop before
     f.removal.start("odysseus",review.review.id,review.review.fingerprint); f.revoke(); hold.release(); await f.removal.idle(); f.allow();
     expect(readFileSync(join(f.brain,"attachments/chart.pdf")), "STORAGE_REMOVAL_CURRENT_AUTHORITY").toEqual(f.original);
     const blocked = await f.removal.review("odysseus","odysseus-intent-001",["attachments/chart.pdf"]);
-    f.db.exec("CREATE TRIGGER refuse_removal_intent BEFORE UPDATE ON turn_journal_storage_operations WHEN json_extract(NEW.receipt,'$.items[0].state')='applying' BEGIN SELECT RAISE(ABORT,'SQLITE_FULL'); END");
+    f.db.exec("CREATE TRIGGER journal.refuse_removal_intent BEFORE UPDATE ON turn_journal_storage_operations WHEN json_extract(NEW.receipt,'$.items[0].state')='applying' BEGIN SELECT RAISE(ABORT,'SQLITE_FULL'); END");
     f.removal.start("odysseus",blocked.review.id,blocked.review.fingerprint); await f.removal.idle();
     expect(readFileSync(join(f.brain,"attachments/chart.pdf")), "STORAGE_REMOVAL_DURABLE_ITEM_INTENT").toEqual(f.original);
     f.db.exec("DROP TRIGGER refuse_removal_intent");
     const unavailable = await f.removal.review("odysseus","odysseus-retain-001",["attachments/chart.pdf"]);
-    f.db.exec("CREATE TRIGGER refuse_original BEFORE INSERT ON turn_journal_reservations WHEN NEW.kind='copy' BEGIN SELECT RAISE(ABORT,'SQLITE_FULL'); END");
+    f.db.exec("CREATE TRIGGER journal.refuse_original BEFORE INSERT ON turn_journal_reservations WHEN NEW.kind='copy' BEGIN SELECT RAISE(ABORT,'SQLITE_FULL'); END");
     f.removal.start("odysseus",unavailable.review.id,unavailable.review.fingerprint); await f.removal.idle();
     expect(existsSync(join(f.brain,"attachments/chart.pdf")), "STORAGE_REMOVAL_RETAIN_BEFORE_UNLINK").toBe(true);
     expect(readFileSync(join(f.brain,"attachments/chart.pdf"))).toEqual(f.original);
