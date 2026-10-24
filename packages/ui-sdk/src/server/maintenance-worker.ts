@@ -14,7 +14,7 @@ import { Readable } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
-import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
+import { createWorkerPipes, createWorkerPipesSteps, fifoStream } from "./worker-pipes.js";
 import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
 import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
@@ -293,7 +293,7 @@ function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<M
       };
     }
     const boot = workerBootstrap(launch);
-    pipes = createWorkerPipes();
+    pipes = yield* createWorkerPipesSteps();
     child = Bun.spawn(boot.command, { cwd: "/", env: boot.env,
       stdin: pipes.child[0], stdout: pipes.child[1], stderr: pipes.child[2] });
     pipes.closeChild();
@@ -507,7 +507,7 @@ function* runMaintenanceWorkerSteps(input: MaintenanceCommand & { timeoutMs: num
     // workerCommand refuses that stage before any payload or helper starts.
     preparedMaintenanceCommands.delete(input);
     const boot = workerBootstrap(launch);
-    pipes = createWorkerPipes();
+    pipes = yield* createWorkerPipesSteps();
     const child = yield* workerStepSpawn(boot.command, { cwd: "/", env: boot.env, stdin: pipes.child[0],
       stdout: pipes.child[1], stderr: pipes.child[2], timeout: input.timeoutMs });
     pipes.closeChild(); pipes.closeInput();

@@ -39,6 +39,18 @@ export function workerStepSpawn(command: string[], options: WorkerStepSpawnOptio
   });
 }
 
+/** Run a short command to its end, keeping what it wrote to stderr; its stdout is discarded. */
+export function workerStepRun(command: string[]): WorkerSteps<{ exitCode: number | null; stderr: string }> {
+  return workerStep(() => {
+    const ran = Bun.spawnSync(command, { stdout: "ignore", stderr: "pipe" });
+    return { exitCode: ran.exitCode, stderr: ran.stderr.toString() };
+  }, async () => {
+    const ran = Bun.spawn(command, { stdout: "ignore", stderr: "pipe" });
+    const [stderr] = await Promise.all([new Response(ran.stderr).text(), ran.exited]);
+    return { exitCode: ran.exitCode, stderr };
+  });
+}
+
 export function workerStepSleep(ms: number): WorkerSteps<void> {
   return workerStep(() => { Bun.sleepSync(ms); }, () => Bun.sleep(ms));
 }

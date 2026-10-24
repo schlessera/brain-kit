@@ -2,20 +2,25 @@
 import { closeSync, constants, mkdtempSync, openSync, readFileSync, readlinkSync, readSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runWorkerStepsSync, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsSync, workerStepRun, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 const MAX_STATUS_BYTES = 4096;
 
 /** Unlinked FIFO, opened by the fixed trusted launch shell after descriptor filtering. */
 export function createWorkerStatusPipe() {
+  return runWorkerStepsSync(createWorkerStatusPipeSteps());
+}
+
+/** The same channel as steps, so an asynchronous launch awaits its `mkfifo` (#2799). */
+export function* createWorkerStatusPipeSteps() {
   const directory = mkdtempSync(join(tmpdir(), "brain-worker-status-"));
   const path = join(directory, "status"), gate = join(directory, "gate");
   let hold: number | undefined, reader: number | undefined, writer: number | undefined, gateReader: number | undefined, gateWriter: number | undefined;
   try {
     const mkfifo = Bun.which("mkfifo");
     if (!mkfifo) throw new Error("mkfifo is required for worker status");
-    const result = Bun.spawnSync([mkfifo, "-m", "600", path, gate], { stdout: "ignore", stderr: "pipe" });
-    if (result.exitCode !== 0) throw new Error(`Worker status pipe creation failed: ${result.stderr.toString()}`);
+    const result = yield* workerStepRun([mkfifo, "-m", "600", path, gate]);
+    if (result.exitCode !== 0) throw new Error(`Worker status pipe creation failed: ${result.stderr}`);
     hold = openSync(path, constants.O_RDWR);
     reader = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
     writer = openSync(path, constants.O_WRONLY);
