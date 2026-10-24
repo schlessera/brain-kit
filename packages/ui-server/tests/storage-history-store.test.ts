@@ -77,12 +77,22 @@ test("186 four-capacity observations charge serialized history separately from a
   const f = fixture();
   const physical = () => ([f.path, f.path + "-wal", f.path + "-shm"] as const).map(path => { try { const value = statSync(path); return { file: path.slice(f.root.length + 1), logical: value.size, allocated: value.blocks * 512 }; } catch { return { file: path.slice(f.root.length + 1), logical: 0, allocated: 0 }; } });
   const before = physical();
-  for (let index = 0; index < 230 * 4; index++) {
-    const at = start + index * RECENT, input = aggregate(at);
-    input.capacities = Array.from({ length: 4 }, (_, slot) => ({ descriptor: [hashScope(`Odysseus ${slot}`), scope], values: [...input.capacities[0]!.values] }));
-    f.advance(at); f.history.offer(input);
-  }
+  // Every observation still runs the real store's transaction and retention
+  // logic. Batch this fixture's commits: its oracle is retained payload versus
+  // physical allocation, not 920 independent durability barriers under load.
+  f.db.transaction(() => {
+    for (let index = 0; index < 230 * 4; index++) {
+      const at = start + index * RECENT, input = aggregate(at);
+      input.capacities = Array.from({ length: 4 }, (_, slot) => ({ descriptor: [hashScope(`Odysseus ${slot}`), scope], values: [...input.capacities[0]!.values] }));
+      f.advance(at); f.history.offer(input);
+    }
+  }).immediate();
+  expect((f.db.query("SELECT revision FROM storage_history").get() as { revision: number }).revision,
+    "STORAGE_HISTORY_ALL_920_OFFERS_PERSISTED").toBe(230 * 4);
   const result = f.history.status(), after = physical();
+  const reopened = createUiDb(f.path); databases.push(reopened);
+  expect(JSON.parse((reopened.query("SELECT payload_json FROM storage_history").get() as { payload_json: string }).payload_json),
+    "STORAGE_HISTORY_BATCH_COMMITTED_TO_DISK").toEqual(result.history);
   expect(result.history!.samples.length, "STORAGE_HISTORY_SQLITE_186_RECORDS").toBe(186);
   expect(result.payloadBytes).toBeLessThanOrEqual(262144);
   expect(after.reduce((sum, row) => sum + row.allocated, 0)).toBeGreaterThan(result.payloadBytes!);
