@@ -14,6 +14,8 @@ import {
   REQUEST_IMAGE_MASK_CONTRACT,
   SHOW_BLOCK_CONTRACT,
   TURN_TEMP_CONTRACT,
+  REFERENCE_SOURCE_CONTRACT,
+  REFERENCE_WORKTREE_CONTRACT,
   bridgeContractForToolName,
   parseToolPayload,
   toolBriefLines,
@@ -56,6 +58,8 @@ describe("the contract list is the single source", () => {
         inboxList: "inbox_list", inboxGet: "inbox_get", inboxAdd: "inbox_add", resolveAction: "resolve_action", completeShare: "complete_share",
         block: SHOW_BLOCK_CONTRACT.name,
         turnTemp: TURN_TEMP_CONTRACT.name,
+        referenceSource: REFERENCE_SOURCE_CONTRACT.name,
+        referenceWorktree: REFERENCE_WORKTREE_CONTRACT.name,
       },
     });
     for (const contract of BRIDGE_TOOL_CONTRACTS) {
@@ -93,6 +97,8 @@ describe("the contract list is the single source", () => {
       REQUEST_IMAGE_MASK_CONTRACT.brief(REQUEST_IMAGE_MASK_CONTRACT.name),
       SHOW_BLOCK_CONTRACT.brief(SHOW_BLOCK_CONTRACT.name),
       TURN_TEMP_CONTRACT.brief(TURN_TEMP_CONTRACT.name),
+      REFERENCE_SOURCE_CONTRACT.brief(REFERENCE_SOURCE_CONTRACT.name),
+      REFERENCE_WORKTREE_CONTRACT.brief(REFERENCE_WORKTREE_CONTRACT.name),
     ]);
   });
 });

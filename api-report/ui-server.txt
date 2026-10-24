@@ -1588,6 +1588,10 @@ signatures (every public export and the types it is made of)
             removed: boolean;
             view: string;
         }>;
+        poolView: (view: string, signal?: AbortSignal) => Promise<{
+            path: string;
+            view: string;
+        }>;
         poolWithdraw: (id: string, signal?: AbortSignal) => Promise<NativePoolRecord>;
         prepareStage: (id: string, checkpointId: string, allowanceBytes: number, signal?: AbortSignal) => Promise<NativeStage>;
         readCheckpoint: (id: string, path: string, maximum: number, expectedWorkerUid: number, signal?: AbortSignal) => Promise<NativeCheckpointFile>;

@@ -1,5 +1,5 @@
 import { PROPOSE_POLICY_CHANGE_CONTRACT, PROPOSE_POLICY_CHANGE_INPUT_SCHEMA } from "@schlessera/brain-ui-sdk/tool-contracts";
-import { INBOX_TOOL_CONTRACTS, handleInboxTool } from "@schlessera/brain-ui-sdk/server";
+import { INBOX_TOOL_CONTRACTS, REFERENCE_TOOL_CONTRACTS, handleInboxTool, handleReferenceTool } from "@schlessera/brain-ui-sdk/server";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   ASK_USER_DESCRIPTION,
@@ -91,6 +91,8 @@ export interface PiBridgeToolOptions {
     mask?: boolean;
     policyChange?: boolean;
     turnTemp?: boolean;
+    /** Shared reference source and managed worktrees (#2432). */
+    reference?: boolean;
   };
   reverseGeocodeConfig?: ReverseGeocodeConfig;
   reverseGeocode?: LocationHandlerOptions["reverseGeocode"];
@@ -318,6 +320,15 @@ export function createPiBridgeTools(options: PiBridgeToolOptions): ToolDefinitio
     async execute(_id: string, input: unknown) {
       if (!turn.bridge) throw new Error("No current bridge");
       return textResult(await handleInboxTool(contract.name, input, turn.bridge));
+    },
+  });
+  // The host binds principal, turn and generation; a refusal is a tool error.
+  if (capabilities?.reference) for (const contract of REFERENCE_TOOL_CONTRACTS) tools.push({
+    name: contract.name, label: contract.name, description: contract.description, parameters: toPiParameters(contract),
+    async execute(_id: string, input: unknown) {
+      const result = await handleReferenceTool(contract.name, input, turn.bridge ?? {});
+      if (result.isError) throw new Error(result.text);
+      return textResult(result.text);
     },
   });
   return tools;

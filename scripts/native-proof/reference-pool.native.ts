@@ -1,6 +1,6 @@
 /** Real reference-pool qualification on owned Btrfs loop volumes (#2428). Runs only inside reference-pool-fixture.py. */
 import { expect } from "bun:test";
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync, writeSync, chmodSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createNativeBrainManager, serveNativeBrainManager, type NativeBrainManagerConfig } from "../../packages/ui-sdk/src/server/native-brain-manager.js";
@@ -438,6 +438,7 @@ const shapes = await create("staging", 32 * MIB);
     poolSeal: (id: string) => seal(id),
     poolRelease: (id: string) => release(id),
     poolPublish: (id: string, view: string, name: string) => call<NativePoolRecord>({ operation: "poolPublish", id, view, name }),
+    poolView: (view: string) => call<{ view: string; path: string }>({ operation: "poolView", view }),
     poolUnpublish: (view: string, name: string) => call<{ view: string; name: string; removed: boolean }>({ operation: "poolUnpublish", view, name }),
     poolWithdraw: (id: string) => call<NativePoolRecord>({ operation: "poolWithdraw", id }),
     listPoolRecovery: (after: string | null = null) => call<{ records: NativePoolRecord[]; next: string | null }>({ operation: "listPoolRecovery", after }),
@@ -709,9 +710,77 @@ const shapes = await create("staging", 32 * MIB);
     const sourceRoot = (await records()).find(record => record.id === keptRecord.from)!;
     expect({ source: sourceRoot.state, commit: command(["git", "--git-dir", join(srv, "ithaca.git"), "rev-parse", "main"]).trim() }, "REFERENCE_WORKTREE_NATIVE_SOURCE_UNTOUCHED")
       .toEqual({ source: "sealed", commit });
+    // #2432: the agent tools over the real services. A view opens empty before
+    // anything is published there, and a production-launched worker reads
+    // shared source and edits its worktree only at the paths the tools return.
+    const { createReferenceTools } = await import("../../packages/ui-server/src/brain/reference-tools.js");
+    const tools = createReferenceTools({ sources, worktrees });
+    const telemachus = createPrincipal(db, { authMethod: "password", label: "Telemachus", ttlSeconds: 86_400 });
+    const empty = (await sources.bindable(telemachus.id)).private, emptyInfo = statSync(empty);
+    expect({ entries: readdirSync(empty), uid: emptyInfo.uid, mode: emptyInfo.mode & 0o7777 }, "REFERENCE_VIEW_OPENED_BEFORE_PUBLICATION").toEqual({ entries: [], uid: 0, mode: 0o755 });
+    const toolTurn = await turn("turn-18-tools");
+    const views = (await tools.begin("turn-18-tools", { principalId: penelope.id, posture: "interactive", generation: toolTurn }))!;
+    const shared = await tools.call("turn-18-tools", penelope.id, { tool: "reference_source", input: { repository, revision: "main" } });
+    const asked = await tools.call("turn-18-tools", penelope.id, { tool: "reference_worktree", input: { action: "request", repository, revision: "main" } });
+    note("reference-tools", { read: shared, asked });
+    if (!shared.ok || !("source" in shared) || !asked.ok || !("worktree" in asked)) throw new Error(`REFERENCE_TOOLS_NATIVE_RESULTS ${JSON.stringify({ read: shared, asked })}`);
+    expect({ source: shared.source.path?.startsWith("/tmp/brain-reference/private/"), worktree: asked.worktree.path, commit: asked.worktree.startingCommit },
+      "REFERENCE_TOOLS_NATIVE_PATHS").toEqual({ source: true, worktree: `/tmp/brain-worktrees/${asked.worktree.id}`, commit });
+    const toolLaunch = workerCommand({ brainPath: "/brain-fixture/brain", env: { PATH: "/usr/bin:/bin" },
+      sandbox: { ...prepareWorkerSandbox("/brain-fixture/brain", { profile: "strict", areas: [], maskPaths: masks }), worktrees: { source: toolTurn.path }, references: views },
+      command: ["/bin/sh", "-c", `find ${shared.source.path}/odyssey -type f | wc -l; { printf x > ${shared.source.path}/odyssey/raft.md && echo SOURCE_WRITTEN || echo SOURCE_READ_ONLY; } 2>/dev/null; `
+        // The view itself: only a read-only bind refuses this to a root worker.
+        + `{ mkdir /tmp/brain-reference/private/raft && echo VIEW_WRITTEN || echo VIEW_READ_ONLY; } 2>/dev/null; `
+        + `printf 'Penelope weaves.\\n' > ${asked.worktree.path}/odyssey/loom.md && echo WORKTREE_WRITTEN; for d in roots views access; do ls -A ${POOL}/$d 2>/dev/null | wc -l; done`] });
+    const toolRun = Bun.spawnSync(toolLaunch, { stdout: "pipe", stderr: "pipe", env: {} });
+    note("reference-tools-production-launch", { code: toolRun.exitCode, stdout: toolRun.stdout.toString(), stderr: toolRun.stderr.toString().slice(-2000) });
+    expect({ code: toolRun.exitCode, stdout: toolRun.stdout.toString() }, "REFERENCE_TOOLS_NATIVE_WORKER_READS_SOURCE_AND_EDITS_WORKTREE")
+      .toEqual({ code: 0, stdout: "1200\nSOURCE_READ_ONLY\nVIEW_READ_ONLY\nWORKTREE_WRITTEN\n0\n0\n0\n" });
+    await journal.observe();
+    expect(rows("turn-18-tools").map(row => row.path), "REFERENCE_TOOLS_NATIVE_ONLY_WORKTREE_EDIT_JOURNALED").toEqual([referenceWorktreeJournalPath(asked.worktree.id, "odyssey/loom.md")]);
+    expect(facts.get("turn-18-tools"), "REFERENCE_TOOLS_NATIVE_READS_DO_NOT_COUNT").toMatchObject({ changedPaths: 1, partial: false });
+    const renewed = await tools.call("turn-18-tools", penelope.id, { tool: "reference_worktree", input: { action: "renew", worktreeId: asked.worktree.id } });
+    expect(renewed, "REFERENCE_TOOLS_NATIVE_RENEW").toMatchObject({ ok: true, action: "renew" });
+    tools.end("turn-18-tools");
+    await worktrees.retireGeneration(toolTurn.id);
+    await journal.finish("turn-18-tools");
+    await worktrees.closeGeneration(toolTurn.id);
+    expect((await worktrees.release({ worktreeId: asked.worktree.id, principalId: penelope.id })).cleanup, "REFERENCE_TOOLS_NATIVE_EDIT_RETAINED")
+      .toMatchObject({ work: "unpreserved", eligible: false });
+    // #2432 option 1: a bind validates a held lapsed source again through the real
+    // transport, and withholds it once the check fails. A two-second lifetime lapses
+    // between binds yet outlasts a check; a separate catalog keeps its own views.
+    {
+      const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
+      const lapsedDb = createUiDb(join(state, "lapsed.db"));
+      try {
+        const ithacan = createPrincipal(lapsedDb, { authMethod: "password", label: "Eurycleia", ttlSeconds: 86_400 });
+        createReferenceGrant(lapsedDb, { brain: "ithaca", principalId: ithacan.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: ithacan.id, now: Date.now() });
+        const lapsing = createReferenceSources({ db: lapsedDb, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca",
+          credentials: {}, limits: { validationMs: 2_000 } });
+        const held = await lapsing.request({ principalId: ithacan.id, repository, revision: "main" });
+        await Bun.sleep(2_100);
+        const view = (await lapsing.bindable(ithacan.id)).private;
+        const before = (lapsedDb.query("SELECT validated_at FROM reference_sources").get() as { validated_at: number }).validated_at;
+        expect({ bound: readdirSync(view).includes(held.name), revalidated: before > held.validatedAt }, "REFERENCE_TOOLS_NATIVE_HELD_SOURCE_REVALIDATED_AT_BIND")
+          .toEqual({ bound: true, revalidated: true });
+        renameSync(join(srv, "ithaca.git"), join(srv, "ithaca.git.away"));
+        try {
+          await Bun.sleep(2_100);
+          await lapsing.bindable(ithacan.id);
+          expect(readdirSync(view), "REFERENCE_TOOLS_NATIVE_FAILED_REVALIDATION_WITHHELD").toEqual([]);
+        } finally { renameSync(join(srv, "ithaca.git.away"), join(srv, "ithaca.git")); }
+        held.release();
+        // Its roots go as in the other cases: revoking the grant withdraws what is left, and storage follows.
+        lapsedDb.query("UPDATE reference_grants SET revoked_at = 1").run();
+        await lapsing.revoke({ grantIds: [], principalIds: [ithacan.id] });
+        for (let attempt = 0; attempt < 200 && (lapsedDb.query("SELECT count(*) AS n FROM reference_roots").get() as { n: number }).n; attempt++) await Bun.sleep(10);
+        await lapsing.close();
+      } finally { lapsedDb.close(); }
+    }
     // The proof releases the roots review left.
     for (const record of await records()) if (record.purpose === "checkpoint" && (record.state === "sealed")) await client.poolRelease(record.id);
-    for (const id of [edited.id, read.id, swapped.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
+    for (const id of [edited.id, read.id, swapped.id, asked.worktree.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);
     db.query("DELETE FROM reference_worktrees").run();
     await worktrees.close(); await journal.close();
     db.query("UPDATE reference_grants SET revoked_at = 1").run();

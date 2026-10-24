@@ -199,6 +199,9 @@ export interface SurfaceTools {
   block?: string | false;
   /** Name of the turn-temp tool (#1703), or false when the turn has no turn temp. */
   turnTemp?: string | false;
+  /** Names of the shared reference source and managed worktree tools (#2432), or false when absent. */
+  referenceSource?: string | false;
+  referenceWorktree?: string | false;
 }
 
 /**
@@ -218,6 +221,7 @@ const SURFACE_TOOL_KEYS: Record<BridgeToolName, keyof SurfaceTools> = {
   [QUERY_ACTIVITY_CONTRACT.name]: "activity",
   [SHOW_BLOCK_CONTRACT.name]: "block",
   [TURN_TEMP_CONTRACT.name]: "turnTemp",
+  reference_source: "referenceSource", reference_worktree: "referenceWorktree",
 };
 
 /**

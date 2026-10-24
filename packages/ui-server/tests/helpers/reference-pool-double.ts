@@ -74,6 +74,11 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       note({ operation: "publish", id, view, name });
       return record!;
     },
+    async poolView(view) {
+      mkdirSync(join(views, view), { recursive: true });
+      note({ operation: "view", view });
+      return { view, path: join(views, view) };
+    },
     async poolUnpublish(view, name) {
       const path = join(views, view, name);
       let removed = false;
@@ -86,6 +91,8 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       if (!record || record.purpose !== "source") fail("unknown", "Only a recorded reference source root can be withdrawn.");
       note({ operation: "withdraw", id });
       if (!record!.view) return record!;
+      // Like the manager: a released root keeps its view in its record, and is never withdrawn.
+      if (record!.state !== "sealed") fail("released", "Only a sealed published root can be withdrawn; release it instead.");
       for (const entry of readdirSync(join(views, record!.view))) {
         const path = join(views, record!.view, entry);
         if (lstatSync(path).isSymbolicLink() && readlinkSync(path) === id) unlinkSync(path);

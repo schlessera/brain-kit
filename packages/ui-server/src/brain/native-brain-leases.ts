@@ -176,6 +176,11 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       return record;
     }); },
     poolUnpublish(view, name, signal) { return operation(() => raw.poolUnpublish(view, name, signal)); },
+    poolView(view, signal) { return operation(async () => {
+      const opened = await raw.poolView(view, signal);
+      if (opened.view !== view) throw new NativeBrainManagerError("unknown", "Reference view reply does not match the requested view.");
+      return opened;
+    }); },
     poolCheckpoint(id, from, signal) { return operation(async () => {
       signal?.throwIfAborted();
       // A worktree whose release never committed is assessable again (#2431).

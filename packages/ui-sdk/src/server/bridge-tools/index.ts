@@ -36,5 +36,8 @@ export { handleAskUserForm } from "./ask-user-form.js";
 export { handleInboxTool } from "./inbox.js";
 export type { InboxToolName } from "./inbox.js";
 
+export { handleReferenceTool } from "./reference.js";
+export type { ReferenceToolName } from "./reference.js";
+
 export { handleTurnTemp } from "./turn-temp.js";
 export type { TurnTempPurgeRecord } from "./turn-temp.js";

@@ -108,6 +108,11 @@ Unmanaged checkouts are not the supported bypass. Intentional worktree edits
 remain journaled, reviewable and scope-accounted as editable workspace work.
 Deterministic execution belongs in CLI/host code; skills orchestrate it.
 
+> **2026-10-24 — Tools (#2432).** The [agent tools](managed-worktrees.md#agent-tools)
+> `reference_source` and `reference_worktree` reach both services on both
+> backends with the turn's own authority, and workers read shared source through
+> read-only views of their principal's domains.
+
 Tool and configuration changes follow the additive integration-contract rules,
 including same-commit documentation, a `CONTRACT:` prefix and a minor changeset.
 This policy record introduces no tool name or schema. Guidance and tools must

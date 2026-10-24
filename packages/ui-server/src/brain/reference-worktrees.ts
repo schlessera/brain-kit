@@ -556,8 +556,10 @@ export function createReferenceWorktrees(options: {
       return view(worktree(row.id)!);
     });
   }
-  function renew(input: { worktreeId: string; principalId: string }): Promise<ReferenceWorktree> {
+  /** `live`, when given, is read where the effect runs: a caller whose turn ended changes nothing (#2432). */
+  function renew(input: { worktreeId: string; principalId: string; live?: () => boolean }): Promise<ReferenceWorktree> {
     return serial(input.worktreeId, async () => {
+      if (input.live && !input.live()) throw new ReferenceWorktreeError("unavailable", "The turn that asked for this ended first; nothing changed.");
       const row = owned(input.worktreeId, input.principalId);
       if (cleanupOf(row.id)) throw new ReferenceWorktreeError("released", "This worktree was released.");
       if (row.state !== "active") throw new ReferenceWorktreeError(row.state === "released" ? "released" : "unavailable",
@@ -566,8 +568,9 @@ export function createReferenceWorktrees(options: {
       return view(worktree(row.id)!);
     });
   }
-  function release(input: { worktreeId: string; principalId: string; signal?: AbortSignal }): Promise<ReferenceWorktree> {
+  function release(input: { worktreeId: string; principalId: string; signal?: AbortSignal; live?: () => boolean }): Promise<ReferenceWorktree> {
     return serial(input.worktreeId, async () => {
+      if (input.live && !input.live()) throw new ReferenceWorktreeError("unavailable", "The turn that asked for this ended first; nothing changed.");
       let row = owned(input.worktreeId, input.principalId);
       if (row.state === "released") return view(row);
       db.query("UPDATE reference_worktrees SET state = 'released', released_at = ? WHERE id = ?").run(now(), row.id);

@@ -299,6 +299,7 @@ export function createNativeBrainManagerClient(input: { socketPath: string; time
     poolUnpublish: async (view: string, name: string, signal?: AbortSignal): Promise<{ view: string; name: string; removed: boolean }> =>
       control({ operation: "poolUnpublish", view, name }, signal),
     poolWithdraw: async (id: string, signal?: AbortSignal): Promise<NativePoolRecord> => control({ operation: "poolWithdraw", id }, signal),
+    poolView: async (view: string, signal?: AbortSignal): Promise<{ view: string; path: string }> => control({ operation: "poolView", view }, signal),
     poolCheckpoint: async (id: string, from: string, signal?: AbortSignal): Promise<NativePoolCheckpoint> => control({ operation: "poolCheckpoint", id, from }, signal),
     poolDelta: async (from: string, to: string, signal?: AbortSignal): Promise<NativeDeltaStream> => {
       const response = await call({ operation: "poolDelta", from, to }, signal);

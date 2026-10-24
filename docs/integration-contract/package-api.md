@@ -3350,6 +3350,37 @@ No call accepts a host path, UID or mount. Worker masks now include the pool's
 The mechanism is recorded in the
 [pool decision](../decisions/reference-pool-accounting.md#worktree-checkpoints-and-access-generations-2430).
 
+<a id="reference-and-worktree-tools-additive-0440-2432"></a>
+
+### Reference and worktree tools (additive, 0.44.0, #2432)
+
+`@schlessera/brain-ui-sdk/tool-contracts` (re-exported from `/server`) gains
+`REFERENCE_SOURCE_CONTRACT`, `REFERENCE_WORKTREE_CONTRACT`,
+`REFERENCE_TOOL_CONTRACTS`, their tool names and strict input schemas,
+`REFERENCE_WORKTREE_ACTIONS`, `REFERENCE_WORKTREE_LIST_LIMIT` (20) and the types
+`ReferenceToolCall`, `ReferenceToolResult`, `ReferenceToolRefusalCode`,
+`ReferenceSourceView` and `ReferenceWorktreeView`. Both contracts join
+`BRIDGE_TOOL_CONTRACTS`, after `turn_temp`, so `BRIDGE_TOOL_POSTURE.names` and
+`allowedTools(adapter)` end with `reference_source` and `reference_worktree`.
+`SurfaceTools` gains `referenceSource` and `referenceWorktree`. `/server` gains
+`handleReferenceTool(name, input, bridge)`, which validates the input and
+returns `{ text, isError }`, and `BackendBridge.referenceAccess?(call)`, through
+which a backend hands the host only the tool name and parsed input. The
+tools themselves are specified in the
+[MCP contract](mcp.md#reference-source-and-managed-worktree-tools-additive-0440-2432).
+
+The native manager client and lease owner gain `poolView(view)`, which opens
+one view's root-owned `0755` directory before its first publication and returns
+`{ view, path }`; it accepts no host path and publishes nothing.
+`/internal` gains `WORKER_REFERENCE_ROOT` (`/tmp/brain-reference`), and the
+internal `WorkerSandbox.references?: { public?, private? }` binds those view
+directories read-only at `public/` and `private/` beneath it. The launcher
+refuses a view that is not a root-owned `0755` directory outside the brain, and
+any view in a restricted, maintenance or transport launch.
+`createApp` sets `referenceWorktreeAccess` whenever a reference pool exists.
+Pi's internal `TOOL_RISK` classifies `reference_source` as `read` and
+`reference_worktree` as `mutate`.
+
 Hosted admission state (`WsHost.governedTurns`) and the server's contention lock
 (`WsHost.workerLock`) are internal wiring. They do not extend the supported
 embedder surface of `WsHost`; generated API reports retain that classification.

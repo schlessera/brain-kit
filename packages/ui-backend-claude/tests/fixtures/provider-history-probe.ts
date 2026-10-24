@@ -9,11 +9,15 @@ import { createFixtureWorkerStartupView, prepareFixtureWorkerSandbox } from "../
 import { replaceNativeStartupAcquisitionForFixture } from "../../../ui-server/tests/helpers/fixture-native-startup.js";
 import { changeRepository, fixtureBrain } from "../../../../tests/fixtures/provider-history-brain.js";
 import type { Captures, HistoryCapture } from "../../../../tests/helpers/provider-history.js";
+import type { ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 const scratch = process.argv[2]!;
 const captures: Captures = {};
 let capture: HistoryCapture;
-let turnIndex = 0, sequence = 0;
+let turnIndex = 0, sequence = 0, turnOpen = false;
+/** The reference lifecycle (#2432): each turn calls the worktree tool, and the host's answer changes between turns. */
+const REFERENCE_ACTIONS = [{ action: "request", repository: "https://github.com/odysseus/ithaca", revision: "main" },
+  { action: "renew", worktreeId: "raft-worktree" }, { action: "release", worktreeId: "raft-worktree" }];
 let scenario = "";
 let brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -21,8 +25,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read") === true;
-  const tool = main && sequence++ === 0;
-  const content = tool ? [{ type: "tool_use", id: "toolu_odysseus", name: scenario === "promotion" ? "Bash" : "Read",
+  const tool = main && (scenario === "reference" ? turnOpen : sequence++ === 0);
+  if (main) turnOpen = false;
+  const content = tool ? [scenario === "reference"
+    ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_worktree", input: REFERENCE_ACTIONS[turnIndex] }
+    : { type: "tool_use", id: "toolu_odysseus", name: scenario === "promotion" ? "Bash" : "Read",
     input: scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { file_path: join(brain, "notes/raft.md") } }]
     : [{ type: "text", text: !main ? JSON.stringify({ title: "Odysseus checks the mast" }) : scenario === "promotion" ? "[Raft plan](/tmp/raft.txt)" : "Odysseus checks the mast." }];
   capture.exchanges.push({ turn: turnIndex, path, raw, main, answer: { role: "assistant", content } });
@@ -37,7 +44,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -45,6 +52,7 @@ try {
     let sessionId: string | undefined;
     sequence = 0;
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
+      turnOpen = true;
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
       const controller = new AbortController();
@@ -56,7 +64,20 @@ try {
         client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
         ...(scenario === "posture" && turnIndex === 1 ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" as const }; },
-          async proposePolicyChange() { throw new Error("Unused fixture capability"); } },
+          async proposePolicyChange() { throw new Error("Unused fixture capability"); },
+          // The local CLI replays turn 0's MCP roster on resume, so the assembled roster is held as well.
+          ...(scenario === "reference" ? { activity(event: { kind: string; prefix?: { tools: string | null } }) {
+            if (event.kind === "prompt_prefix") (capture.rosters ??= []).push(event.prefix!.tools);
+          } } : {}),
+          // The second turn has no host handler: the tool refuses, and the roster must not change.
+          ...(scenario === "reference" && turnIndex !== 1 ? { async referenceAccess(call: ReferenceToolCall) {
+            (capture.calls ??= []).push(call);
+            const worktree = { id: "raft-worktree", repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,
+              startingCommit: "1".repeat(40), state: turnIndex === 2 ? "released" as const : "active" as const, path: turnIndex === 2 ? null : "/tmp/brain-worktrees/raft-worktree",
+              lastActivityAt: new Date(Date.UTC(2026, 6, 12, turnIndex)).toISOString(), expiresAt: new Date(Date.UTC(2026, 6, 15, turnIndex)).toISOString(),
+              releasedAt: turnIndex === 2 ? new Date(Date.UTC(2026, 6, 12, 2)).toISOString() : null, allowanceBytes: 2 ** 31 };
+            return { ok: true as const, action: REFERENCE_ACTIONS[turnIndex]!.action as "request", worktree, guidance: "Fixture lifecycle step." };
+          } } : {}) },
       }, profile: { id: "fixture", label: "Fixture", model: "claude-sonnet-4-6", billing: "api", requiredEnvKeys: [], buildEnv: () => ({
         HOME: home, CLAUDE_CONFIG_DIR: join(home, ".claude"), ANTHROPIC_BASE_URL: server.url.origin, ANTHROPIC_API_KEY: "offline-odysseus",
         ...(scenario === "title" ? {} : { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }), CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",

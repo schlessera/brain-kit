@@ -1,4 +1,5 @@
 import { createInboxTools } from "../packages/ui-backend-claude/src/inbox-tools.js";
+import { createReferenceTools } from "../packages/ui-backend-claude/src/reference-tools.js";
 import * as claudeAskForm from "../packages/ui-backend-claude/src/ask-user-form-tool";
 import { describe, expect, test } from "bun:test";
 import {
@@ -61,6 +62,8 @@ const VALID_INPUTS: Record<ToolName, unknown> = {
   inbox_list: { view: "queue" }, inbox_get: { itemId: "harbor" }, inbox_add: { text: "Odysseus", idempotencyKey: "harbor" },
   resolve_action: { sessionId: "harbor", itemId: "harbor", optionId: "approve", expectedVersion: 1 },
   complete_share: { receiptIds: ["harbor-receipt"], files: [] },
+  reference_source: { repository: "https://git.example/ithaca/charts.git", revision: "main" },
+  reference_worktree: { action: "request", repository: "https://git.example/ithaca/charts.git", revision: "main" },
   ask_user: {
     questions: [
       {
@@ -143,6 +146,7 @@ function makeAdapters(root: string) {
     requestMask: async () => new Uint8Array([1, 2, 3]),
     queryActivity: async () => ({ running: [] }),
     inboxList: async () => ({ items: [], threads: [] }), inboxGet: async () => ({}), inboxAdd: async () => ({}), resolveAction: async () => ({}), completeShare: async () => ({ itemId: "harbor", status: "done", replay: false }),
+    referenceAccess: async () => ({ ok: true as const, action: "list" as const, worktrees: [], truncated: false, guidance: "Fixture host" }),
   };
   const noGeocode = {
     enabled: false,
@@ -162,13 +166,14 @@ function makeAdapters(root: string) {
       claudeMask.createMaskTool(bridge.requestMask, root, application),
       claudeActivity.createActivityQueryTool(bridge.queryActivity),
       ...createInboxTools(bridge as never),
+      ...createReferenceTools(bridge),
       claudeBlock.createShowBlockTool(),
       claudeTurnTemp.createTurnTempTool(turnTemp(root)),
     ] as any[],
     pi: pi.createPiBridgeTools({
       brainPath: root,
       turn: { bridge, turnTemp: turnTemp(root) } as never,
-      capabilities: { location: true, activity: true, mask: true, inbox: true, turnTemp: true },
+      capabilities: { location: true, activity: true, mask: true, inbox: true, turnTemp: true, reference: true },
       reverseGeocodeConfig: noGeocode,
     }) as any[],
   };
@@ -319,7 +324,7 @@ describe("bridge tool adapter identity", () => {
         const claude = adapters.claude.find((item) => item.name === name)!;
         const piTool = adapters.pi.find((item) => item.name === name)!;
         const { $schema: _schema, ...jsonSchema } = z.toJSONSchema(
-          shared.INBOX_TOOL_CONTRACTS.find(contract => contract.name === name)?.input ?? z.object(claude.inputSchema),
+          [...shared.INBOX_TOOL_CONTRACTS, ...shared.REFERENCE_TOOL_CONTRACTS].find(contract => contract.name === name)?.input ?? z.object(claude.inputSchema),
           { io: "input" }
         );
         expect(piTool.parameters).toEqual(jsonSchema);
@@ -479,6 +484,10 @@ describe("bridge tool adapter validation", () => {
     inbox_add: [{ text: "Odysseus", idempotencyKey: "k", origin: "trusted" }],
     resolve_action: [{ sessionId: "harbor", itemId: "harbor", optionId: "approve" }],
     complete_share: [{ receiptIds: [], files: [] }, { receiptIds: ["harbor-receipt"], files: [], itemId: "unrelated" }],
+    // Principal, path and generation are never inputs; each action takes exactly its own fields.
+    reference_source: [{ repository: "https://git.example/ithaca/charts.git" }, { repository: "https://git.example/ithaca/charts.git", revision: "main", principalId: "penelope" }],
+    reference_worktree: [{ action: "request", repository: "https://git.example/ithaca/charts.git" }, { action: "renew" },
+      { action: "list", worktreeId: "raft" }, { action: "access", worktreeId: "raft", path: "/tmp/brain-worktrees/raft" }, { action: "delete", worktreeId: "raft" }],
     ask_user: [
       {
         questions: [
@@ -795,6 +804,7 @@ describe("bridge tool loading posture", () => {
       requestMask: unreachable as never,
       queryActivity: unreachable as never,
       inbox: { inboxList: unreachable as never, inboxGet: unreachable as never, inboxAdd: unreachable as never, resolveAction: unreachable as never, completeShare: unreachable as never },
+      reference: { referenceAccess: unreachable as never },
       turnTemp: claudeTurnTemp.createTurnTempTool(turnTemp("/nonexistent")),
       brainPath: "/nonexistent",
     });
