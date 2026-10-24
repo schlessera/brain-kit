@@ -25,10 +25,11 @@ const grant = (principalId: string) => createReferenceGrant(db, { brain: BRAIN, 
 
 function host() {
   const tips = new Map([[PUBLIC, "1".repeat(40)], [PRIVATE, "2".repeat(40)]]);
-  const state = { failFetch: false, resolves: 0, fetches: 0, unavailable: false, failResolves: 0, gate: null as Promise<void> | null };
+  const state = { failFetch: false, resolves: 0, fetches: 0, unavailable: false, failResolves: 0, gate: null as Promise<void> | null, onResolve: null as null | (() => void) };
   const transport: ReferenceTransport = {
     async resolve({ repository, token }) {
       state.resolves++;
+      state.onResolve?.();
       await state.gate;
       if (state.unavailable) return { ok: false, reason: "unavailable", detail: "fixture network unavailable" };
       if (state.failResolves > 0) { state.failResolves--; return { ok: false, reason: "unavailable", detail: "fixture network unavailable" }; }
@@ -139,7 +140,7 @@ describe("shared reference source", () => {
 });
 
 /** What the public view holds: names and root identities alike. */
-const publicEntries = (views: { public: string } | null) => readdirSync(views!.public).sort();
+const publicEntries = (views: { public: string } | null) => views ? readdirSync(views.public).sort() : null;
 const nameOf = (result: ReferenceToolResult) => ok<Extract<ReferenceToolResult, { source: unknown }>>(result).source.path!.split("/").at(-1)!;
 
 describe("binding a view is a new mount (#2432, option 1)", () => {
@@ -168,7 +169,7 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     const next = await turn(telemachus.id);
     expect(publicEntries(next.views), "REFERENCE_TOOLS_FAILED_CHECK_WITHHELD").toEqual([]);
     expect(nameOf(await next.call(source(PUBLIC))), "REFERENCE_TOOLS_WITHHELD_SOURCE_REPUBLISHED").toBe(name);
-    expect(publicEntries(next.views)).toContain(name);
+    expect(publicEntries(next.views) ?? []).toContain(name);
   });
 
   test("a lapsed source a running turn reads is validated again before another turn binds the view", async () => {
@@ -179,7 +180,7 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     clock += 301_000;
     const checks = state.resolves, fetches = state.fetches;
     const next = await turn(telemachus.id);
-    expect({ checked: state.resolves - checks, fetched: state.fetches - fetches, bound: publicEntries(next.views).includes(name) }, "REFERENCE_TOOLS_HELD_SOURCE_REVALIDATED_AT_BIND")
+    expect({ checked: state.resolves - checks, fetched: state.fetches - fetches, bound: (publicEntries(next.views) ?? []).includes(name) }, "REFERENCE_TOOLS_HELD_SOURCE_REVALIDATED_AT_BIND")
       .toEqual({ checked: 1, fetched: 0, bound: true });
     // The check renewed its validation: a bind right after needs none.
     await turn(telemachus.id);
@@ -209,7 +210,7 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     const next = await turn(telemachus.id);
     expect({ entries: publicEntries(next.views), fetched: state.fetches - fetches }, "REFERENCE_TOOLS_MOVED_REVISION_WITHHELD_WITHOUT_FETCH").toEqual({ entries: [], fetched: 0 });
     const refreshed = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC)));
-    expect({ commit: refreshed.source.commit, bound: publicEntries(next.views).includes(name) }).toEqual({ commit: "3".repeat(40), bound: true });
+    expect({ commit: refreshed.source.commit, bound: (publicEntries(next.views) ?? []).includes(name) }).toEqual({ commit: "3".repeat(40), bound: true });
   });
 
   test("a source with less than a minute of validation left is checked before a bind", async () => {
@@ -220,8 +221,8 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     tools.end(first.turnId);
     clock += 270_000;
     const checks = state.resolves;
-    await turn(telemachus.id);
-    expect(state.resolves - checks, "REFERENCE_TOOLS_BIND_MARGIN").toBe(1);
+    const next = await turn(telemachus.id);
+    expect({ checked: state.resolves - checks, admitted: publicEntries(next.views)?.length ?? null }, "REFERENCE_TOOLS_BIND_MARGIN").toEqual({ checked: 1, admitted: 2 });
   });
 
   test("a cancelled bind stops waiting for another request's acquisition, which goes on", async () => {
@@ -237,12 +238,79 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
     const refreshing = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
     while (state.resolves === resolves) await Bun.sleep(1);
     const controller = new AbortController();
-    const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", () => "cancelled");
-    await Bun.sleep(5);
-    controller.abort();
-    expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_RETURNS").toBe("cancelled");
+    const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", (error: Error) => error.message);
+    expect(await Promise.race([binding, Bun.sleep(20).then(() => "waiting")])).toBe("waiting");
+    controller.abort(new Error("turn cancelled"));
+    expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_RETURNS").toBe("turn cancelled");
     open();
     (await refreshing).release();
+  });
+});
+
+describe("admission (#2432 review)", () => {
+  const lapsedSources = (views: { public: string }) => (db.query("SELECT name, validated_at FROM reference_sources WHERE domain = 'public'").all() as { name: string; validated_at: number }[])
+    .filter(row => readdirSync(views.public).includes(row.name) && row.validated_at + 300_000 <= clock + 60_000).map(row => row.name);
+  async function thirteen() {
+    const h = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await h.turn(penelope.id);
+    for (let index = 0; index < 13; index++) nameOf(await first.call(source(`${PUBLIC}-${index}`)));
+    h.tools.end(first.turnId);
+    clock += 301_000;
+    return { ...h, telemachus };
+  }
+
+  test("no source a bind admits has lapsed while later checks ran", async () => {
+    const { sources, state, telemachus } = await thirteen();
+    // The first round of checks takes half a minute each, so the first batch nears
+    // its margin before the last finishes; the bind checks those again before admitting.
+    let slow = 13;
+    const checks = state.resolves;
+    state.onResolve = () => { if (slow-- > 0) clock += 30_000; };
+    const views = await sources.bindable(telemachus.id);
+    state.onResolve = null;
+    expect({ admitted: readdirSync(views.public).length, lapsed: lapsedSources(views), rechecked: state.resolves - checks > 13 }, "REFERENCE_TOOLS_NO_LAPSED_SOURCE_AT_ADMISSION")
+      .toEqual({ admitted: 26, lapsed: [], rechecked: true });
+  });
+
+  test("a bind whose sources keep lapsing while it checks them is refused", async () => {
+    const { sources, state, telemachus } = await thirteen();
+    state.onResolve = () => { clock += 110_000; };
+    await expect(sources.bindable(telemachus.id), "REFERENCE_TOOLS_ADMISSION_REFUSES_WHEN_LAPSING").rejects.toMatchObject({ code: "unavailable" });
+    state.onResolve = null;
+  });
+
+  test("a released root whose reply was lost is settled, not refused forever", async () => {
+    const { turn, pool, sources } = host();
+    const penelope = principal();
+    const publish = pool.poolPublish, release = pool.poolRelease;
+    pool.poolPublish = async (id, view, entry, signal) => { await publish(id, view, entry, signal); throw new Error("publication reply lost"); };
+    let lost = 1;
+    pool.poolRelease = async (id, signal) => { const record = await release(id, signal); if (lost-- > 0) throw new Error("release reply lost"); return record; };
+    await expect(sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" })).rejects.toThrow();
+    pool.poolPublish = publish;
+    const next = await turn(penelope.id);
+    expect({ bound: next.views !== null, entries: next.views ? publicEntries(next.views) : null }, "REFERENCE_TOOLS_RELEASED_ORPHAN_SETTLED").toEqual({ bound: true, entries: [] });
+  });
+
+  test("a cancelled bind stops waiting for a suspension in progress", async () => {
+    const { turn, pool, sources, tools, state } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await turn(penelope.id);
+    nameOf(await first.call(source(PUBLIC)));
+    tools.end(first.turnId);
+    clock += 301_000;
+    state.failResolves = 1;
+    const withdraw = pool.poolWithdraw;
+    let open!: () => void, paused = false;
+    const gate = new Promise<void>(resolve => { open = resolve; });
+    pool.poolWithdraw = async (id, signal) => { if (!paused) { paused = true; await gate; } return withdraw(id, signal); };
+    const controller = new AbortController();
+    const binding = sources.bindable(telemachus.id, controller.signal).then(() => "bound", (error: Error) => error.message);
+    while (!paused) await Bun.sleep(1);
+    controller.abort(new Error("turn cancelled"));
+    expect(await Promise.race([binding, Bun.sleep(500).then(() => "waiting")]), "REFERENCE_TOOLS_CANCELLED_BIND_DURING_SUSPENSION").toBe("turn cancelled");
+    open();
   });
 });
 
@@ -319,7 +387,7 @@ describe("exposure changes are serialized (#2432 review)", () => {
     const publish = pool.poolPublish;
     pool.poolPublish = async (id, view, entry, signal) => { if (id !== previous) { await publish(id, view, entry, signal); throw new Error("publication reply lost"); } return publish(id, view, entry, signal); };
     expect((await later.call(source(PUBLIC))).ok).toBe(false);
-    expect(publicEntries(later.views).filter(entry => entry === name || entry === previous), "REFERENCE_TOOLS_ROLLBACK_KEEPS_LAPSED_HIDDEN").toEqual([]);
+    expect((publicEntries(later.views) ?? []).filter(entry => entry === name || entry === previous), "REFERENCE_TOOLS_ROLLBACK_KEEPS_LAPSED_HIDDEN").toEqual([]);
   });
 
   test("a first publication whose reply was lost and whose staging was not released leaves no orphan in a bound view", async () => {
@@ -350,7 +418,7 @@ describe("exposure changes are serialized (#2432 review)", () => {
     expect(bound, "REFERENCE_TOOLS_BIND_WAITS_FOR_INITIAL_PUBLICATION").toBe(false);
     open();
     const held = await acquiring;
-    expect(publicEntries(await binding)).toContain(held.name);
+    expect(publicEntries(await binding) ?? []).toContain(held.name);
     held.release();
   });
 
@@ -364,7 +432,7 @@ describe("exposure changes are serialized (#2432 review)", () => {
     tips.set(PUBLIC, "3".repeat(40));
     ok(await reading.call(source(PUBLIC)));
     const after = readlinkSync(join(reading.views!.public, name));
-    expect({ moved: after !== before, superseded: publicEntries(reading.views).includes(before), retained: pool.records.get(before)?.state }, "REFERENCE_TOOLS_SUPERSEDED_ROOT_NOT_IN_VIEW")
+    expect({ moved: after !== before, superseded: (publicEntries(reading.views) ?? []).includes(before), retained: pool.records.get(before)?.state }, "REFERENCE_TOOLS_SUPERSEDED_ROOT_NOT_IN_VIEW")
       .toEqual({ moved: true, superseded: false, retained: "sealed" });
   });
 
@@ -407,7 +475,7 @@ describe("exposure changes are serialized (#2432 review)", () => {
     const withheld = await turn(telemachus.id);
     expect(publicEntries(withheld.views)).toEqual([]);
     await sources.recover();
-    expect(publicEntries(withheld.views), "REFERENCE_TOOLS_RECOVERY_REPUBLISHES").toContain(name);
+    expect(publicEntries(withheld.views) ?? [], "REFERENCE_TOOLS_RECOVERY_REPUBLISHES").toContain(name);
     state.failResolves = 1;
     expect(publicEntries((await turn(telemachus.id)).views), "REFERENCE_TOOLS_RECOVERY_THEN_BIND_SUSPENDS").toEqual([]);
   });
