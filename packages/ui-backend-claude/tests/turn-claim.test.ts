@@ -81,10 +81,13 @@ test("a cancel accepted while the probe runs stops the turn before its prompt re
   const probe = spyOn(workerHostBoundary, "probeAsync").mockImplementation(() => pending.promise);
   const prompts: string[] = [];
   const queryFn = ((params: { prompt: AsyncIterable<SDKUserMessage>; options: { abortController: AbortController } }) => ({
-    async *[Symbol.asyncIterator]() {
-      if (params.options.abortController.signal.aborted) throw new Error("aborted before start");
-      for await (const message of params.prompt) { prompts.push(String(message.message.content)); break; }
-    },
+    [Symbol.asyncIterator]: () => ({
+      async next(): Promise<IteratorResult<never>> {
+        if (params.options.abortController.signal.aborted) throw new Error("aborted before start");
+        for await (const message of params.prompt) { prompts.push(String(message.message.content)); break; }
+        return { done: true, value: undefined };
+      },
+    }),
   })) as unknown as typeof query;
   const backend = createClaudeBackend({ brainPath: "/brain", profiles, queryFn, log: () => {} });
   const frames: ServerMessage[] = [];

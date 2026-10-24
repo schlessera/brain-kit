@@ -97,7 +97,7 @@ mock.module("fs", () => ({ ...real,
 // The mask uses a server-owned maintenance worker to ask git about ignore
 // policy. This control isolates filesystem races, so it supplies the fixture's
 // known directory-ignore answer and never starts a runtime or network client.
-mock.module(new URL("../src/server/maintenance-worker.ts", import.meta.url).pathname, () => ({ brainGitSteps: function* () { return 0; } }));
+mock.module(new URL("../src/server/maintenance-worker.ts", import.meta.url).pathname, () => ({ brainGitSteps: () => ({ next: () => ({ done: true, value: 0 }) }) }));
 test("isolated mask filesystem race control", async () => {
 try {
   const masks = await import("../src/server/bridge-tools/mask.ts");
