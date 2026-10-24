@@ -3117,6 +3117,37 @@ stale. Interrupted dispositions are verified against CLI log state and their
 exact due instant. An uncertain inverse remains `check_failed`; it is not
 reapplied. Neither leaving nor disconnecting stops an already confirmed effect.
 
+#### Managed worktree findings in the review (additive, 0.44.0, #2431)
+
+When the host runs managed reference worktrees and core's hygiene functions
+load, the same review also selects host-only findings about those worktrees.
+They are never written to `context/hygiene/` and never appear in
+`brain hygiene list` or any other CLI output; their findings and dispositions
+live in the host's operational database
+([decision](../decisions/managed-worktrees.md#hygiene-and-cleanup)).
+
+- A worktree is at most one finding, with `category: "managed-worktree"`, `path:
+  "reference-worktree://<worktree id>"`, an ID and fingerprint from core's
+  `canonicalFindings`, and an additive `worktree` object (`id`, `domain`,
+  `state`, `changedPaths`, `removal`; a public worktree adds `repository`,
+  `revision`, `commit` and `sample`). A private worktree's card names no
+  repository, revision, commit, changed path or principal.
+- Its repair handler is `delete-worktree` (input `none`), offered for retained
+  unfinished work and for a failed removal, never for a worktree whose holder,
+  owner or work is unknown. Its preview `path` is the logical
+  `reference-worktree/<worktree id>`, with an empty `after`.
+- `start`/`resume` pick across both backlogs by the CLI's ordinal rules and
+  report summed counts; every operation on a worktree finding is answered by
+  the host and never sent to the CLI. Dismiss, snooze and check keep the CLI's
+  result shapes and fingerprint semantics; a dismissal or snooze never removes
+  a worktree.
+- A confirmed removal is revalidated by the worktree service immediately before
+  it deletes: the reviewer's authority, the exact native identity, no live or
+  unknown holder, the reviewed fingerprint and preview against a fresh
+  assessment. Any change returns `stale`. A removal that fails returns
+  `check_failed` with `code: "cleanup-failed"` and a fixed `reason`; the same
+  finding then reappears with a new fingerprint.
+
 ## Governed hosted workers (additive, 0.42.0, #1649)
 
 Ordinary interactive and voice hosted turns default to the governed writable

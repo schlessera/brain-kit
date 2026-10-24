@@ -82,8 +82,13 @@ export "./internal" (./src/internal.ts)
   type GovernancePolicyCheck
   type GovernancePolicyInput
   GovernancePolicySchema
+  type HygieneCandidate
+  type HygieneFinding
+  type HygieneLogEntry
   type IngestInput
   type IngestOutcome
+  REVIEW_SEVERITY
+  REVIEW_URGENCY
   type ResolvedModuleRenderer
   SCRATCH_DIR
   SEARCH_SORTS
@@ -95,6 +100,7 @@ export "./internal" (./src/internal.ts)
   assembleContext
   assertScratchWritable
   buildTaxonomy
+  canonicalFindings
   checkGovernancePolicy
   collectModuleRenderers
   collectStats
@@ -122,10 +128,12 @@ export "./internal" (./src/internal.ts)
   resolveEmbeddingProvider
   resolveGovernancePolicy
   resolveWritable
+  reviewUrgency
   rewriteGeneratedRegion
   runRegistry
   safeResolve
   scratchName
+  selectHygieneNext
   splitFrontmatterBlock
   updateDocument
   writeFileSafely
