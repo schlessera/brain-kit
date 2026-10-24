@@ -1,6 +1,6 @@
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { expect, test } from "bun:test";
-import { writeFileSync, truncateSync, chmodSync, readdirSync, mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { writeFileSync, truncateSync, chmodSync, readdirSync, mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchAgentWorker, prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
@@ -111,6 +111,51 @@ test("repeated ignored 100 MB observations count once per path while hashed rewr
     expect(facts.at(-1), "HASHED_REWRITE_RETAINS_EACH_VERSION_SIZE").toBe(size + 10 + 6 + 4 + 4 + 6);
     await f.journal.finish("voyage"); f.scope.finish("voyage");
     expect(f.journal.summary("voyage").scope!.observedBytes, "IGNORED_SCOPE_COUNTER_RETAINED_AFTER_FINISH").toBe(facts.at(-1)!);
+  } finally { await f.close(); }
+});
+
+test("the disposable index counts once at its largest size, ignored or not, and a removed publication copy counts nothing (#2831)", async () => {
+  const size = 4096;
+  const f = scopeFixture({ max_bytes_written: size * 100 });
+  const facts: { changedPaths: number; observedBytes: number }[] = [];
+  f.journal.onObservation((turnId, { changedPaths, observedBytes }) => { if (turnId === "voyage") facts.push({ changedPaths, observedBytes }); });
+  const bytes = (fill: number, length = size) => Buffer.alloc(length, fill);
+  const copy = (name: string) => join(f.brain, ".brain-index", `.maintenance-${name}`);
+  try {
+    mkdirSync(join(f.brain, ".brain-index")); mkdirSync(join(f.brain, "workspaces/raft/.brain-index"), { recursive: true });
+    writeFileSync(join(f.brain, ".gitignore"), ".brain-index/brain.db-shm\n");
+    await f.begin();
+    // Each host refresh rewrites the whole database and its sidecars with new content.
+    for (let refresh = 0; refresh < 10; refresh++) {
+      writeFileSync(join(f.brain, ".brain-index/brain.db"), bytes(refresh));
+      writeFileSync(join(f.brain, ".brain-index/brain.db-wal"), bytes(refresh, 8));
+      writeFileSync(join(f.brain, ".brain-index/brain.db-shm"), bytes(refresh, refresh === 3 ? 32 : 16));
+      await f.journal.observe();
+    }
+    expect(f.journal.details("ithaca", "voyage")!.changes.filter(change => change.path === ".brain-index/brain.db"), "INDEX_TEN_HASHED_VERSIONS_JOURNALED").toHaveLength(10);
+    expect(facts.at(-1), "INDEX_FAMILY_COUNTS_ONCE_PER_PATH").toEqual({ changedPaths: 3, observedBytes: size + 8 + 32 });
+    writeFileSync(join(f.brain, ".brain-index/brain.db"), bytes(1, size * 2)); await f.journal.observe();
+    writeFileSync(join(f.brain, ".brain-index/brain.db"), bytes(2, 1)); await f.journal.observe();
+    const base = size * 2 + 8 + 32;
+    expect(facts.at(-1), "INDEX_USES_ITS_LARGEST_OBSERVED_SIZE").toEqual({ changedPaths: 3, observedBytes: base });
+    // A publication copy caught mid-refresh counts while it exists, and nothing once it is gone.
+    writeFileSync(copy("41b2dd7f-9913-4151-b5bf-53aad064cd96"), bytes(3)); await f.journal.observe();
+    expect(facts.at(-1), "INDEX_PUBLICATION_COPY_COUNTS_WHILE_PRESENT").toEqual({ changedPaths: 4, observedBytes: base + size });
+    rmSync(copy("41b2dd7f-9913-4151-b5bf-53aad064cd96")); await f.journal.observe();
+    expect(f.journal.details("ithaca", "voyage")!.changes.some(change => change.path.startsWith(".brain-index/.maintenance-")), "INDEX_PUBLICATION_COPY_STILL_JOURNALED").toBe(true);
+    expect(facts.at(-1), "INDEX_PUBLICATION_COPY_GONE_IS_NOT_A_TURN_WRITE").toEqual({ changedPaths: 3, observedBytes: base });
+    // Controls: a copy name that stays, other names and other roots keep their version bytes.
+    writeFileSync(copy("5f662634-1c32-494b-9a6c-d6dc995a8d63"), "Mast"); writeFileSync(copy("raft"), "Raft");
+    writeFileSync(join(f.brain, ".brain-index/sail.bin"), "Sail"); writeFileSync(join(f.brain, "notes-.maintenance-41b2dd7f-9913-4151-b5bf-53aad064cd96"), "Loom");
+    // Removed files outside the exact copy name keep their bytes too.
+    const removed = [copy("raft-41b2dd7f-9913-4151-b5bf-53aad064cd96"), join(f.brain, "workspaces/raft/.brain-index/.maintenance-41b2dd7f-9913-4151-b5bf-53aad064cd96")];
+    for (const path of removed) writeFileSync(path, "Oar");
+    for (const fill of [4, 5]) { writeFileSync(join(f.brain, "workspaces/raft/.brain-index/brain.db"), bytes(fill, 16)); await f.journal.observe(); }
+    for (const path of removed) rmSync(path);
+    await f.journal.observe();
+    expect(facts.at(-1), "OTHER_PATHS_AND_STAYING_COPIES_KEEP_THEIR_VERSION_BYTES").toEqual({ changedPaths: 10, observedBytes: base + 4 * 4 + 16 * 2 + 3 * 2 });
+    await f.journal.finish("voyage"); f.scope.finish("voyage");
+    expect(f.journal.summary("voyage").scope, "INDEX_SCOPE_COUNTER_RETAINED_AFTER_FINISH").toMatchObject({ observedBytes: facts.at(-1)!.observedBytes, receipts: [] });
   } finally { await f.close(); }
 });
 
