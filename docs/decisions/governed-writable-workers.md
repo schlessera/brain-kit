@@ -1890,11 +1890,11 @@ every turn without a proven recipient:
   build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
   build as a base and reuses it while it provably equals a clean build of the
   turn's final startup view (`createPrivateIndexCache`,
-  `packages/ui-server/src/brain/private-index-cache.ts:209-326`):
+  `packages/ui-server/src/brain/private-index-cache.ts:239-356`):
   - *Identity.* A base is keyed by the brain's canonical path, the policy
     hash, the masked folders, the proven recipient, the operational mask paths
     and the build's argv (`privateIndexCacheKey`,
-    `packages/ui-server/src/brain/private-index-cache.ts:65-68`). Any change
+    `packages/ui-server/src/brain/private-index-cache.ts:67-70`). Any change
     to one is another base.
   - *Freshness.* A base retains the native checkpoint it was built from. The
     turn's final view is compared with it through the manager's `--no-data`
@@ -1909,7 +1909,7 @@ every turn without a proven recipient:
     or deleted, and becomes the next base. Anything else (a file changed,
     removed, moved into a masked folder, given a second name, or any other
     new file) takes a clean build (`classifyPrivateIndexChanges`,
-    `packages/ui-server/src/brain/private-index-cache.ts:133-168`).
+    `packages/ui-server/src/brain/private-index-cache.ts:163-198`).
     Nothing is ever deleted from a base: a deleted row's bytes survive in
     SQLite free pages, FTS5 segments and the WAL, so text that leaves the
     masked view only ever leaves through a clean build. Physical
