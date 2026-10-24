@@ -448,7 +448,7 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1271-1507`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1272-1498`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
@@ -591,7 +591,7 @@ result is held until the worker has exited and its state has been copied out,
 and the state is checked again then. A `statfs` of the tmpfs with no whole page
 free at either point, or a write error the worker reported, names the turn
 `worker_state_exceeded` (`const unsaved`,
-`packages/ui-backend-claude/src/turn-runner.ts:295-302`). A result, success or
+`packages/ui-backend-claude/src/turn-runner.ts:301-308`). A result, success or
 error, becomes an error result with that class and keeps its usage, so the
 client never presents unsaved output as saved; what was written before the
 limit is persisted with the usual checks, and if that copy-out is refused the
@@ -602,9 +602,9 @@ the worker prints after it, and a refusal is recognized by its class from any
 copy of the module. A host cancellation outranks it. Cancellation is checked
 again after worker settlement, so a buffered SDK success or error cannot
 replace an accepted cancellation while exit or copy-out is pending
-(`releaseTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:306-324`).
+(`releaseTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:312-330`).
 Generated terminals also await worker settlement before emission
-(`emitTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:368-408`).
+(`emitTerminal`, `packages/ui-backend-claude/src/turn-runner.ts:374-414`).
 **Residual:** a turn that fills the tmpfs and frees space again between those
 two checks is named only if the runtime printed the write error.
 
