@@ -61,7 +61,7 @@ test("writes reach the database in submission order across channels, and refusal
   } finally { await f.close(); }
 });
 
-test("an app-connection transaction that reads, then writes, waits for the worker instead of failing", async () => {
+test("an app-connection transaction that reads, then writes, waits for its turn instead of failing", async () => {
   const f = fixture();
   try {
     const voyage = f.writer.channel(probe, { table: "odysseus_log" }); await voyage.ready;
@@ -75,7 +75,23 @@ test("an app-connection transaction that reads, then writes, waits for the worke
       f.db.query("INSERT INTO odysseus_harbour VALUES ('Ithaca')").run();
     })();
     await commit;
-    expect(f.db.query("SELECT port FROM odysseus_harbour").all(), "WRITE_WORKER_APP_TRANSACTION_TAKES_LOCK_UP_FRONT").toEqual([{ port: "Ithaca" }]);
+    expect(f.db.query("SELECT port FROM odysseus_harbour").all(), "WRITE_WORKER_APP_TRANSACTION_TAKES_ITS_TURN").toEqual([{ port: "Ithaca" }]);
+  } finally { await f.close(); }
+});
+
+test("a read-only app snapshot keeps its deferred mode and never holds the write lock", async () => {
+  const f = fixture();
+  try {
+    const voyage = f.writer.channel(probe, { table: "odysseus_log" }); await voyage.ready;
+    const other = new Database(f.path); other.exec("PRAGMA busy_timeout = 0");
+    try {
+      // Another connection still writes while the app connection reads its snapshot.
+      f.db.transaction(() => {
+        f.db.query("SELECT count(*) FROM odysseus_log").get();
+        other.query("INSERT INTO odysseus_log (label) VALUES ('Penelope')").run();
+      })();
+      expect(f.log(), "WRITE_WORKER_READ_SNAPSHOT_STAYS_DEFERRED").toEqual(["Penelope"]);
+    } finally { other.close(); }
   } finally { await f.close(); }
 });
 

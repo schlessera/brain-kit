@@ -5,13 +5,21 @@
  */
 import { Database } from "bun:sqlite";
 
-import { encodeError, type WriteModule, type WriteProcedures } from "./write-worker.js";
+import { encodeError, WORKER_TURN, type WriteModule, type WriteProcedures } from "./write-worker.js";
 
 declare const self: Worker;
 
 
 const FULL = 2;
 let db: Database | undefined;
+/** Shared with the app connection: see `takeTurns` in write-worker.ts. */
+let turn: Int32Array | undefined;
+/** Runs `work` while the app connection is outside any transaction; a waiting app transaction goes first. */
+function inTurn<T>(work: () => T): T {
+  if (!turn) return work();
+  while (Atomics.load(turn, 1) !== 0 || Atomics.compareExchange(turn, 0, 0, WORKER_TURN) !== 0) Atomics.wait(turn, 0, Atomics.load(turn, 0), 10);
+  try { return work(); } finally { Atomics.store(turn, 0, 0); Atomics.notify(turn, 0); }
+}
 const channels = new Map<number, WriteProcedures | { failed: unknown }>();
 
 /** Every database file this connection writes: `main` and each attached schema. */
@@ -54,7 +62,8 @@ function open(path: string, attach: { schema: string; path: string }[]): Databas
 async function handle(message: { id: number; kind: string; [key: string]: unknown }): Promise<unknown> {
   switch (message.kind) {
     case "open":
-      db = open(message.path as string, (message.attach as { schema: string; path: string }[] | undefined) ?? []);
+      turn = message.turn as Int32Array | undefined;
+      db = inTurn(() => open(message.path as string, (message.attach as { schema: string; path: string }[] | undefined) ?? []));
       return undefined;
     case "register": {
       try {
@@ -62,7 +71,8 @@ async function handle(message: { id: number; kind: string; [key: string]: unknow
         const module = await import(message.module as string) as { default?: WriteModule<unknown> } & Partial<WriteModule<unknown>>;
         const setup = module.setup ?? module.default?.setup;
         if (typeof setup !== "function") throw new Error("A write procedure module must export setup().");
-        channels.set(message.channel as number, setup(db, message.options));
+        const connection = db;
+        channels.set(message.channel as number, inTurn(() => setup(connection, message.options)));
       } catch (error) { channels.set(message.channel as number, { failed: error }); throw error; }
       return undefined;
     }
@@ -73,7 +83,7 @@ async function handle(message: { id: number; kind: string; [key: string]: unknow
       const name = message.name as string, procedure = (procedures as WriteProcedures)[name];
       if (typeof procedure !== "function" || name === "close") throw new Error(`Unknown write procedure ${name}.`);
       let value: unknown, failure: { error: unknown } | undefined;
-      try { value = (procedure as (...args: unknown[]) => unknown)(...(message.args as unknown[])); }
+      try { value = inTurn(() => (procedure as (...args: unknown[]) => unknown)(...(message.args as unknown[]))); }
       catch (error) { failure = { error }; }
       // An autocommit statement has no transaction wrapper to check; a
       // procedure that lowered the level fails and the next call is FULL again.

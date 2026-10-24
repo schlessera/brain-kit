@@ -78,39 +78,42 @@ export interface AttachedDatabase { schema: string; path: string }
 export function openSqliteWriter(db: Database, options: { attach?: readonly AttachedDatabase[] } = {}): SqliteWriter {
   const path = db.filename;
   if (!path || path === ":memory:") return inlineWriter(db);
-  writeLockUpFront(db);
-  return workerWriter(path, options.attach ?? []);
+  const turn = new Int32Array(new SharedArrayBuffer(8));
+  takeTurns(db, turn);
+  return workerWriter(path, options.attach ?? [], turn);
 }
 
+/** `turn[0]`: who is inside SQLite now. `turn[1]`: transactions on the app connection waiting for their turn. */
+const FREE = 0, APP = 1;
+export const WORKER_TURN = 2;
+
 /**
- * With the worker as a second writer on the same file, a deferred transaction
- * on `db` that reads and then writes can lose its snapshot upgrade to a worker
- * commit and fail at once with SQLITE_BUSY, which no busy timeout retries. So
- * every transaction on `db` takes the write lock when it begins, and waits its
- * turn like any other writer. In the native hosted proof under fsync load, a
- * BEGIN IMMEDIATE beside a committing worker also returned SQLITE_BUSY after
- * about 37 ms with a 5 s busy timeout; nothing has run at that point, so the
- * BEGIN is retried until the connection's busy timeout has passed.
+ * The app connection and the worker never run a transaction at the same time
+ * (#2814). Two connections in one process, both writing one WAL file, were
+ * measured failing an app `BEGIN IMMEDIATE` with SQLITE_BUSY after about
+ * 37 ms despite a 5 s busy timeout, and a deferred transaction that reads and
+ * then writes can lose its snapshot upgrade to a worker commit. So each
+ * outermost transaction on `db` waits until the worker is between procedures,
+ * then holds the turn until it ends; the worker waits for its turn the same
+ * way, and lets a waiting app transaction go first. A transaction keeps its
+ * own mode: a read-only deferred snapshot never takes the write lock.
  */
-function writeLockUpFront(db: Database) {
+function takeTurns(db: Database, turn: Int32Array) {
   const transaction = db.transaction.bind(db);
-  const timeout = (db.query("PRAGMA busy_timeout").get() as { timeout: number }).timeout;
+  const enter = () => {
+    Atomics.add(turn, 1, 1);
+    try { while (Atomics.compareExchange(turn, 0, FREE, APP) !== FREE) Atomics.wait(turn, 0, WORKER_TURN, 50); }
+    finally { Atomics.sub(turn, 1, 1); }
+  };
+  const leave = () => { Atomics.store(turn, 0, FREE); Atomics.notify(turn, 0); };
   db.transaction = ((run: (...args: never[]) => unknown) => {
-    let entered = false;
-    const modes = transaction(function (this: unknown, ...args: never[]) { entered = true; return run.apply(this, args); });
-    const immediate = (...args: unknown[]) => {
-      const deadline = performance.now() + timeout;
-      for (let delay = 1; ; delay = Math.min(delay * 2, 50)) {
-        entered = false;
-        try { return Reflect.apply(modes.immediate, modes, args); }
-        catch (error) {
-          const busy = String((error as { code?: unknown }).code ?? "").startsWith("SQLITE_BUSY") || (error as { errno?: unknown }).errno === 5;
-          if (!busy || entered || db.inTransaction || performance.now() + delay > deadline) throw error;
-          Bun.sleepSync(delay);
-        }
-      }
+    const modes = transaction(run);
+    const taking = (mode: (...args: never[]) => unknown) => (...args: unknown[]) => {
+      if (db.inTransaction) return Reflect.apply(mode, modes, args);
+      enter();
+      try { return Reflect.apply(mode, modes, args); } finally { leave(); }
     };
-    return Object.assign(immediate, { deferred: immediate, immediate, exclusive: modes.exclusive });
+    return Object.assign(taking(modes), { deferred: taking(modes.deferred), immediate: taking(modes.immediate), exclusive: taking(modes.exclusive) });
   }) as Database["transaction"];
 }
 
@@ -150,7 +153,7 @@ function inlineWriter(db: Database): SqliteWriter {
 
 type Pending = { resolve(value: unknown): void; reject(error: Error): void; revive?: (error: WireError) => Error | undefined };
 
-function workerWriter(path: string, attach: readonly AttachedDatabase[]): SqliteWriter {
+function workerWriter(path: string, attach: readonly AttachedDatabase[], turn: Int32Array): SqliteWriter {
   const worker = new Worker(THREAD) as Worker & { ref(): void; unref(): void };
   const pending = new Map<number, Pending>();
   let next = 0, channels = 0, closed = false, stopped: Error | undefined;
@@ -179,7 +182,7 @@ function workerWriter(path: string, attach: readonly AttachedDatabase[]): Sqlite
     reference();
     return result;
   }
-  const opened = send<void>({ kind: "open", path, attach: [...attach] });
+  const opened = send<void>({ kind: "open", path, attach: [...attach], turn });
   opened.catch(() => {});
   return {
     offloop: true,
