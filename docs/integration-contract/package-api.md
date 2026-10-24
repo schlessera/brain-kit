@@ -110,6 +110,17 @@ passes its origin to `startInferenceRelay` as the new internal
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
 
+## Inbox provenance (additive, #2741)
+
+The intake `createInboxIntake` returns adds `person(input, key, principal)`:
+queue intake for a person's arrival through an authenticated route, outside
+any turn. It records that provenance with a digest of the staged bytes, so a
+provider-masked autonomous turn may admit the thread; `share(...)` records the
+same, and `cli(...)` records none. `InboxBridgeContext` adds optional
+`qualifyOrigin(): void`, run in each `inbox_list` and `inbox_get` transaction
+before any payload is built; it throws to refuse the read. The server's
+autonomous turns pass one that revalidates their origin thread's admission.
+
 **Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
 adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
 glyph and accessible label remain outside the truncating summary label, before

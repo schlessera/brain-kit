@@ -1,25 +1,22 @@
 /** Bounded, accounted routing, invoked only by the gated #689 dispatcher. */
 import type { Database } from "bun:sqlite";
-import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
 import type { ClassificationRequest } from "@schlessera/brain-ui-sdk/internal";
 import type { InboxQueueItem } from "@schlessera/brain-ui-sdk/protocol";
-import { SHARE_STAGING_DIR, SHARE_MAX_TEXT_BYTES } from "@schlessera/brain-ui-sdk/protocol";
 import { createJevClient, type FetchLike, type JevResult } from "../classification/jev-client.js";
 import { createActivityStore } from "../activity/store.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
-import { safeResolve } from "../files/walker.js";
 import { createInboxStore } from "./store.js";
 import { createInboxBudget, acquireInboxBudgetRun } from "./budget.js";
 import { acquireInboxRunLifetime } from "./lifetime.js";
 import { insertInboxAction, enforceInboxActionCap, inboxActionContext } from "./actions.js";
 import { TRIAGE_RUBRIC } from "./triage-rubric.js";
+import { stagedArrival, TRIAGE_ITEM_BYTES, type StagedArrival } from "./arrival.js";
+import { recordInboxProvenance } from "./provenance.js";
+
+export { TRIAGE_ITEM_BYTES };
 
 export const TRIAGE_MODEL = "jev-1.13.0";
 export const TRIAGE_FLOOR = 0.4;
-// UTF-8 bytes conservatively overcount text tokens, including escaped JSON,
-// question overhead and the rubric. No guessed characters/token multiplier.
-export const TRIAGE_ITEM_BYTES = 4_000;
 export const TRIAGE_BATCH_BYTES = 40_000;
 export const TRIAGE_STATE_BYTES = 32_000;
 const ROUTES = ["drop", "rule", "needs_agent", "needs_user"] as const;
@@ -37,44 +34,14 @@ const unit = (v: unknown): v is number => typeof v === "number" && Number.isFini
 const bytes = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
 const resultId = (id: string) => `triage-result:${id}`;
 
-/** Read a bounded prefix through a non-symlink handle, inside this staging area. */
-async function stagedText(root: string, directory: string, path: string, cap: number) {
-  if (!path.startsWith(`${directory}/`) || path.slice(directory.length + 1).includes("/")) throw Error("Invalid staging child");
-  const base = await safeResolve(directory, root), resolved = await safeResolve(path, root);
-  if (await realpath(resolved) !== `${base}/${path.slice(directory.length + 1)}`) throw Error("Redirected staging child");
-  const file = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const stat = await file.stat();
-    if (!stat.isFile()) throw Error("Not a staging file");
-    const buffer = Buffer.alloc(Math.min(stat.size, cap));
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    return { text: new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead)), truncated: stat.size > bytesRead };
-  } finally { await file.close(); }
-}
-
-/** Bounded staged evidence, also the dispatcher's agent-tier item context. */
-export async function inboxEvidence(db: Database, root: string, item: TriageItem): Promise<InboxEvidence> {
-  if (!/^[a-zA-Z0-9-]+$/.test(item.payload.stagingId)) throw Error("Invalid staging identity");
-  const directory = `${SHARE_STAGING_DIR}/${item.payload.stagingId}`;
-  const meta = await stagedText(root, directory, `${directory}/meta.json`, SHARE_MAX_TEXT_BYTES + 64_000);
-  if (meta.truncated) throw Error("Oversized staging manifest");
-  const manifest: unknown = JSON.parse(meta.text);
-  if (!record(manifest) || manifest.id !== item.payload.stagingId || manifest.dir !== directory || !Array.isArray(manifest.files)) throw Error("Invalid staging manifest");
+/**
+ * Bounded staged evidence, also the dispatcher's agent-tier item context.
+ * `arrival` is a read the caller already verified (#2741); absent, it is read.
+ */
+export async function inboxEvidence(db: Database, root: string, item: TriageItem, arrival?: StagedArrival): Promise<InboxEvidence> {
+  const { title, body, incomplete, binary } = arrival ?? await stagedArrival(root, item.payload.stagingId);
   const thread = createInboxStore(db).getThread(item.threadId)!;
-  const title = typeof manifest.title === "string" ? manifest.title : "";
-  const parts = [manifest.text, manifest.url].filter((v): v is string => typeof v === "string");
-  let incomplete = Array.isArray(manifest.skipped) && manifest.skipped.length > 0, binary = false;
-  for (const entry of manifest.files) {
-    if (!record(entry) || typeof entry.path !== "string" || typeof entry.mediaType !== "string") throw Error("Invalid staging attachment");
-    // Validated structured binary extraction (e.g. imported track summaries)
-    // has the same final bound as text. No unaccounted vision/OCR invocation.
-    if (record(entry.summary)) { parts.push(JSON.stringify(entry.summary)); binary = true; }
-    else if (/^(text\/|application\/(json|xml)(;|$))/.test(entry.mediaType)) {
-      const content = await stagedText(root, directory, entry.path, TRIAGE_ITEM_BYTES + 4);
-      parts.push(content.text); incomplete ||= content.truncated;
-    } else { binary = true; parts.push("A binary attachment needs extraction by the agent tier."); }
-  }
-  const value: InboxEvidence = { id: item.id, source: thread.source, title, body: parts.join("\n"), trust: thread.trustClass, incomplete, binary };
+  const value: InboxEvidence = { id: item.id, source: thread.source, title, body, trust: thread.trustClass, incomplete, binary };
   // Clip on Unicode code points and on the serialized payload, preserving
   // incomplete=true so a buried obligation can never be dropped by clipping.
   if (bytes(value) > TRIAGE_ITEM_BYTES) {
@@ -151,6 +118,9 @@ export function createInboxTriage(db: Database, deps: {
       store.commit([{ kind: "checkpoint", id: resultId(item.id), threadId: item.threadId, itemId: item.id,
         stateMd: `Triage ${result.tier}: ${result.route} (${result.reason}). Routing data only; no authority granted.`,
         facts: { decisions: [JSON.stringify(result)], operations: [], capabilities: [], paths: [], questions: [] } }]);
+      // The server composes this from closed route and reason vocabularies, never
+      // the classifier's or an arrival's free text (#2741).
+      recordInboxProvenance(db, { checkpoint: resultId(item.id) }, { origin: "server" }, now());
       if (result.route === "needs_user") {
         const id = `triage-action:${item.id}`;
         const action = { id, dedupKey: id, threadId: item.threadId, queue: "actions" as const, type: "choose" as const, status: "pending" as const, version: 1,
@@ -158,6 +128,7 @@ export function createInboxTriage(db: Database, deps: {
           payload: { title: "A queued arrival needs your review", detail: `Triage stopped at ${result.reason}. Review the staged arrival before choosing further work.` },
           options: [{ id: "cancel", label: "Cancel queued work", effect: { kind: "cancel_blocked" as const } }] };
         insertInboxAction(db, action, [], { ...inboxActionContext(action), sourceItemId: item.id }, now());
+        recordInboxProvenance(db, { item: id }, { origin: "server" }, now());
         // T0 errors must acquire a deterministic lease before blocking, without
         // creating a model reservation or an Activity run.
         let claimed = current;
@@ -286,9 +257,12 @@ export function createInboxTriage(db: Database, deps: {
       const prior = read(itemId), item = store.getItem(itemId);
       if (!prior || !item || !ROUTES.includes(actual)) throw Error("Unknown triage result");
       authorize();
-      store.commit([{ kind: "checkpoint", id: `triage-contradiction:${itemId}:${actual}`, threadId: item.threadId, itemId,
-        stateMd: `Later route ${actual}; T1 proposed ${prior.proposedRoute ?? prior.route}.`,
-        facts: { decisions: [JSON.stringify({ itemId, proposedRoute: prior.proposedRoute, actual })], operations: [], capabilities: [], paths: [], questions: [] } }]);
+      db.transaction(() => {
+        store.commit([{ kind: "checkpoint", id: `triage-contradiction:${itemId}:${actual}`, threadId: item.threadId, itemId,
+          stateMd: `Later route ${actual}; T1 proposed ${prior.proposedRoute ?? prior.route}.`,
+          facts: { decisions: [JSON.stringify({ itemId, proposedRoute: prior.proposedRoute, actual })], operations: [], capabilities: [], paths: [], questions: [] } }]);
+        recordInboxProvenance(db, { checkpoint: `triage-contradiction:${itemId}:${actual}` }, { origin: "server" }, now());
+      }).immediate();
     },
     summary() {
       const rows = db.query("SELECT facts_json FROM inbox_checkpoints WHERE id LIKE 'triage-result:%'").all() as { facts_json: string }[];

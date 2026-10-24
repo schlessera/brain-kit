@@ -28,6 +28,8 @@ import { translateProviderTypesInView } from "../brain/provider-types.js";
 import { providerHardlinks } from "../brain/provider-hardlinks.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "../brain/private-index.js";
 import { ensureIndexDirectory } from "../brain/index-directory.js";
+import { ProviderThreadRefusedError } from "../brain/provider-mask-refusal.js";
+import { admitOriginThread, type OriginThreadAdmission } from "./provenance.js";
 
 export type AutonomousEscalation = {
   runId: string;
@@ -37,15 +39,28 @@ export type AutonomousEscalation = {
 } & ({ kind: "permission"; request: PermissionRequest } |
   { kind: "question"; requestId: string; questions: AskUserQuestion[] });
 
-export interface AutonomousTurnInput {
+/** The turn's first message and its system prompt addition. */
+export interface AutonomousTurnContext { prompt: string; systemPromptAppend: string }
+
+export type AutonomousTurnInput = AutonomousTurnOptions & (AutonomousTurnContext & { compose?: never } | {
+  /**
+   * Builds the context from the origin thread (#2741). It runs only once the
+   * thread is admitted for the turn's provider masks, so a refused turn reads
+   * no thread text; it reads arrivals from the admission and revalidates it in
+   * the transaction that reads the thread.
+   */
+  compose(admission: OriginThreadAdmission): Promise<AutonomousTurnContext>;
+  prompt?: never;
+  systemPromptAppend?: never;
+});
+
+export interface AutonomousTurnOptions {
   turnId: string;
   principalId: string;
-  prompt: string;
   profileId?: string;
   billingMode?: BillingMode;
   pricingRoute?: PricingRoute;
   allowedTools: readonly string[];
-  systemPromptAppend: string;
   signal: AbortSignal;
   yieldAfterMs?: number;
   /**
@@ -170,6 +185,7 @@ async function executeAutonomousTurn(
   let stateMd = "";
   let outcome: AutonomousTurnResult["outcome"] = "error";
   let terminal = false;
+  let failureReason: string | undefined;
   const checkPrincipal = (): boolean => {
     if (closed || revoked) return false;
     if (usable()) return true;
@@ -203,8 +219,8 @@ async function executeAutonomousTurn(
     recorder.observeFrame(frame);
     deps.emit?.({ ...frame, turnId: input.turnId } as ServerMessage);
   };
-  const mode = Object.freeze({ origin: "autonomous" as const, persistence: "none" as const, containment: "restricted" as const,
-    allowedTools: Object.freeze([...input.allowedTools]), systemPromptAppend: input.systemPromptAppend,
+  const modeFor = (systemPromptAppend: string) => Object.freeze({ origin: "autonomous" as const, persistence: "none" as const, containment: "restricted" as const,
+    allowedTools: Object.freeze([...input.allowedTools]), systemPromptAppend,
     completedToolCalls: Object.freeze(completedCallsForRun(deps.db, input.turnId)),
     yieldAfterMs: input.yieldAfterMs ?? 20_000,
     onYield: (key: string): void => {
@@ -235,11 +251,18 @@ async function executeAutonomousTurn(
       controller.abort();
     }
   };
+  // The origin thread's provider admission (#2741), decided once the turn's
+  // masks are exact. Until then no read of the thread is served.
+  let admission: OriginThreadAdmission | undefined;
   const intake = createInboxIntake(deps.db, deps.brainPath ?? process.cwd());
   const inbox = createInboxBridgeTools(deps.db, intake, createInboxResolver(deps.db, { allowedOperations: () => [] })).forTurn({
     principalId, turnId: input.turnId, origin: { threadId: origin.thread_id }, membership: "restricted",
     allowedReads: (["inbox_list", "inbox_get"] as const).filter(name => input.allowedTools.includes(deps.backend.id === "claude" ? `mcp__brain-ui__${name}` : name)),
     isCurrent: () => !closed && !controller.signal.aborted && checkPrincipal(), sessionId: () => undefined,
+    qualifyOrigin: () => {
+      if (!admission) throw new ProviderThreadRefusedError(origin.thread_id, [], [], "unadmitted");
+      admission.revalidate();
+    },
   });
   const bridge: BackendBridge = {
     ...inbox,
@@ -263,11 +286,9 @@ async function executeAutonomousTurn(
           payload: { ...refusal, policyHash: policy.hash } }); }
         catch (error) { deps.log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` }); }
       } }) : undefined;
-  const request: StartTurnRequest = { prompt: input.prompt, profileId: input.profileId,
-    signal: controller.signal, bridge, autonomous: mode, enforceAllowedTools: true, noGrantSurface: true };
-  const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
   // Installed once the turn's masks are resolved, before the backend starts.
-  const installApplication = (maskGuard: ProviderMaskGuard | undefined): void => {
+  const installApplication = (request: StartTurnRequest, maskGuard: ProviderMaskGuard | undefined): void => {
+    const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
     if (!input.application || !deps.brainPath || !lock) return;
     const root = deps.brainPath, approved = input.application.approved;
     let consumed = false;
@@ -324,7 +345,11 @@ async function executeAutonomousTurn(
       typeFolders = translated.folders;
     }
     const maskedFolders = providerMaskedFolders(policy.policy, typeFolders);
-    installApplication(guardFor(maskedFolders, typeFolders));
+    // Option C (#2741): the origin thread must be shown compatible with the
+    // masks before any of its text is read into the prompt. Refuses by name.
+    admission = await admitOriginThread(deps.db, brainPath, { runId: input.turnId, threadId: origin.thread_id, masked: maskedFolders, policyHash: policy.hash });
+    controller.signal.throwIfAborted();
+    let workerProviderMasks: StartTurnRequest["workerProviderMasks"];
     if (maskedFolders.length) {
       // A mask hides names, not inodes (#2700). The envelope sees the startup
       // view; the live brain is checked too, as the view is taken from it.
@@ -337,9 +362,16 @@ async function executeAutonomousTurn(
         signal: controller.signal, ...(deps.privateIndex!.command ? { command: deps.privateIndex!.command } : {}) });
       if (!built.ok) deps.log?.emit({ severityText: "WARN", body: `autonomous turn ${input.turnId} starts with an incomplete private search index: ${built.detail}` });
       controller.signal.throwIfAborted();
-      request.workerProviderMasks = Object.freeze({ folders: Object.freeze([...maskedFolders]), index: privateIndex });
+      workerProviderMasks = Object.freeze({ folders: Object.freeze([...maskedFolders]), index: privateIndex });
     }
-    request.workerStartupView = startupView;
+    // The thread is read last, under a revalidated admission.
+    admission.revalidate();
+    const context = input.compose ? await input.compose(admission) : { prompt: input.prompt, systemPromptAppend: input.systemPromptAppend };
+    controller.signal.throwIfAborted();
+    const request: StartTurnRequest = { prompt: context.prompt, profileId: input.profileId,
+      signal: controller.signal, bridge, autonomous: modeFor(context.systemPromptAppend), enforceAllowedTools: true, noGrantSurface: true,
+      workerStartupView: startupView, ...(workerProviderMasks ? { workerProviderMasks } : {}) };
+    installApplication(request, guardFor(maskedFolders, typeFolders));
     await deps.backend.startTurn(request);
     if (!terminal) {
       outcome = failed ? "error" : controller.signal.aborted ? "cancelled" : "error";
@@ -355,6 +387,8 @@ async function executeAutonomousTurn(
     }
     outcome = "error";
     emit({ type: "error", code: "AUTONOMOUS_TURN_FAILED", message: error instanceof Error ? error.message : String(error) });
+    // The run's record says why its thread was refused (#2741); it names folders and ids, no thread text.
+    if (error instanceof ProviderThreadRefusedError) failureReason = error.message;
     throw error;
   } finally {
     closed = true;
@@ -367,7 +401,7 @@ async function executeAutonomousTurn(
       deps.db.transaction(() => {
         lifetime.release();
         if ((escalated || yielded) && !failed && !revoked && outcome === "cancelled") recorder.recordAutonomousStop();
-        recorder.finish(outcome);
+        recorder.finish(outcome, failureReason);
         if (yielded) finishYield(deps.db, input.turnId);
       }).immediate();
     } finally { try { await startupView?.cleanup(); } finally { if (privateIndex) removePrivateIndexDirectory(privateIndex); } }

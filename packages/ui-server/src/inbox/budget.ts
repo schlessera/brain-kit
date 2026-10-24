@@ -134,7 +134,7 @@ function notice(db: Database, itemId: string, classKey: string, title: string, d
     id, threadId: owner.threadId, dedupKey: id, queue: "actions", type: action ? "choose" : "fyi",
     status: "pending", version: 1, createdAt: now, updatedAt: now, expiresAt: now + 30 * DAY_MS,
     payload: { title, detail }, options: action ? [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] : [],
-  }, [], { now, context: { classKey, evidenceBoundary: classKey, suppressionUntil: Number.MAX_SAFE_INTEGER,
+  }, [], { now, provenance: { origin: "server" }, context: { classKey, evidenceBoundary: classKey, suppressionUntil: Number.MAX_SAFE_INTEGER,
     reraiseCondition: "A different model or budget day has a different class key." } });
   store.commit([{ kind: "suppress", classKey, evidenceBoundary: classKey, expiresAt: Number.MAX_SAFE_INTEGER,
     reraiseCondition: "A different model or budget day has a different class key." }]);
