@@ -7,7 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { providerFolderRoots, providerMaskedFolders, providerTypeSelectors, rememberedProviderTypeFolders, rememberProviderTypeFolders,
+import { providerFolderRoots, providerMaskedFolders, providerTypeSelectors,
   retainedFolderRoots, translateProviderTypes, unsupportedProviderSelectors, type ProviderTaxonomy } from "../src/brain/governance-policy";
 import { strayTypedDocuments } from "../src/brain/provider-types";
 
@@ -55,7 +55,9 @@ test("a type maps onto its folders only when no other type's territory lies insi
   expect(translateProviderTypes(["constructor"], TAXONOMY).refused).toEqual(["type constructor (not a type this brain defines)"]);
 });
 
-test("one matched set feeds masks and retention, and the gate reuses the last translation for the same policy version", () => {
+// The gate's reuse of a recorded translation is proven across real processes
+// in writer-gate.test.ts (#2836).
+test("one matched set feeds masks and retention", () => {
   const selected = policy({ paths: ["ithaca/**"], types: ["identity"] });
   expect(providerTypeSelectors(selected)).toEqual(["identity"]);
   expect(providerMaskedFolders(selected, { identity: ["me"] }), "MASKED_SET_IS_FOLDERS_PLUS_TYPE_FOLDERS").toEqual(["ithaca", "me"]);
@@ -68,11 +70,6 @@ test("one matched set feeds masks and retention, and the gate reuses the last tr
   expect(providerMaskedFolders(nested, { place: ["ithaca"], vault: ["me/vault"] }), "NESTED_FOLDERS_DROPPED_FROM_THE_MASKED_SET")
     .toEqual(["ithaca", "me", "mean"]);
   expect(retainedFolderRoots(nested, ["ithaca", "me/vault"]), "NESTED_FOLDERS_DROPPED_FROM_RETENTION").toEqual([".brain-index", "ithaca", "me", "mean"]);
-  const brain = mkdtempSync(join(tmpdir(), "odysseus-provider-types-"));
-  cleanup.push(() => rmSync(brain, { recursive: true, force: true }));
-  rememberProviderTypeFolders(brain, "v1", ["me"]);
-  expect(rememberedProviderTypeFolders(brain, "v1"), "SAME_POLICY_VERSION_REUSED").toEqual(["me"]);
-  expect(rememberedProviderTypeFolders(brain, "v2"), "OTHER_POLICY_VERSION_IGNORED").toEqual([]);
 });
 
 test("a document declaring a translated type outside its folders is found wherever the turn can read it", () => {
