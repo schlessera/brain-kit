@@ -290,18 +290,15 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       if (sandbox?.profile === "governed" || !areas.length) {
         // The probe and launch are awaited behind the facade (#2790). The
         // worker keeps the SDK's own signal, and the facade passes the SDK's
-        // kill to it, as when it was spawned synchronously. The turn's own
-        // abort still stops preparation (`spawnNow` checks it), but never
-        // kills a started worker directly: the SDK's interrupt runs first, as
-        // before, so a cancelled tool call is recorded as interrupted.
+        // kill to it, as when it was spawned synchronously.
         let launched = false;
         const deferred = deferredWorkerSpawn(async preparation => {
           try {
             const started = await spawnNow(options, preparation);
             launched = true;
             return started;
-          } catch (error) { if (!preparation.aborted && !immediateSignal.aborted) startFailure ??= error; throw error; }
-        }, [options.signal]);
+          } catch (error) { if (!preparation.aborted) startFailure ??= error; throw error; }
+        }, [immediateSignal, options.signal]);
         // Only a started worker's lifecycle is owned, as before: a refusal
         // reaches the turn through the SDK and `startFailure`.
         const completion = deferred.settled.catch(error => { if (launched) throw error; });
