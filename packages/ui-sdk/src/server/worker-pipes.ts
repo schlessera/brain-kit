@@ -2,6 +2,7 @@ import { closeSync, mkdtempSync, openSync, rmSync, constants, createWriteStream 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
+import { runWorkerStepsSync, workerStepRun } from "./worker-steps.js";
 
 /**
  * Reads a worker's FIFO end with Bun's own file stream, which polls the
@@ -32,6 +33,16 @@ const nodeReadable = (stream: ReadableStream<Uint8Array>): Readable =>
 
 /** Bun's "pipe" channels are sockets. Use owned, unlinked real FIFO endpoints. */
 export function createWorkerPipes() {
+  return runWorkerStepsSync(createWorkerPipesSteps());
+}
+
+/**
+ * The same pipes as steps (#2799): the asynchronous probe, launch and
+ * maintenance forms await `mkfifo` instead of blocking the event loop while
+ * a loaded host starts it. Every descriptor and the FIFO paths are released
+ * when any step fails; the paths are gone before the caller can start a worker.
+ */
+export function* createWorkerPipesSteps() {
   const root = mkdtempSync(join(tmpdir(), "brain-worker-pipes-"));
   const owned = new Set<number>();
   const close = (fd: number): void => { if (owned.delete(fd)) closeSync(fd); };
@@ -40,8 +51,8 @@ export function createWorkerPipes() {
     const paths = ["stdin", "stdout", "stderr"].map(name => join(root, name));
     const mkfifo = Bun.which("mkfifo");
     if (!mkfifo) throw new Error("mkfifo is required for pipe-only worker stdio");
-    const result = Bun.spawnSync([mkfifo, "-m", "600", ...paths], { stdout: "pipe", stderr: "pipe" });
-    if (result.exitCode !== 0) throw new Error(`mkfifo failed: ${result.stderr.toString()}`);
+    const result = yield* workerStepRun([mkfifo, "-m", "600", ...paths]);
+    if (result.exitCode !== 0) throw new Error(`mkfifo failed: ${result.stderr}`);
     const channel = (path: string): [number, number] => {
       const hold = openSync(path, constants.O_RDWR); owned.add(hold);
       const reader = openSync(path, constants.O_RDONLY); owned.add(reader);

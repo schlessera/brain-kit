@@ -1,6 +1,6 @@
 import { maintenanceEnvMasks } from "./maintenance-env-masks.js";
 import { registerWorkerRtk } from "./worker-rtk.js";
-import { createWorkerStatusPipe } from "./worker-status.js";
+import { createWorkerStatusPipe, createWorkerStatusPipeSteps } from "./worker-status.js";
 import { prepareWorkerIdentity, WorkerIdentityCleanupError, workerIdentityHelper } from "./worker-identity.js";
 import { registerIdentityReadRoot } from "./worker-identity-reader.js";
 import { chmodSync, chownSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, readSync,
@@ -10,7 +10,7 @@ import { dirname, isAbsolute, join, normalize } from "node:path";
 import { BackendRequestError } from "./backend.js";
 import { createWorkerFreezer } from "./worker-freezer.js";
 import { createWorkerFileObserver, type ObservedWorkerFile } from "./worker-file-observer.js";
-import { createWorkerPipes } from "./worker-pipes.js";
+import { createWorkerPipes, createWorkerPipesSteps } from "./worker-pipes.js";
 import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSleep, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerStateLimits, validWorkerStateBytes } from "./worker-state-limits.js";
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
@@ -1331,9 +1331,9 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
       areas: (input.sandbox?.areas ?? []).flatMap(area => area.mount.writable ? [{ rel: area.rel,
         worker: input.sandbox?.profile === "governed" ? join(brain, area.rel) : join(WORKER_AREA_ROOT, area.name),
         host: input.areaOutput ? join(input.areaOutput.source, area.rel) : area.mount.path }] : []), maskPaths: input.sandbox?.maskPaths });
-    pipes = createWorkerPipes();
+    pipes = yield* createWorkerPipesSteps();
     const helper = workerIdentityHelper();
-    if (!helper) status = createWorkerStatusPipe();
+    if (!helper) status = yield* createWorkerStatusPipeSteps();
     if (input.maintenance?.output?.storage && !input.maintenance.credentials) {
       // Bind before bootstrap or spawn: setup failures must also settle the
       // existing stage owner's drain through confirmed broker cleanup.
@@ -1715,7 +1715,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
       ...(options.stateBytes !== undefined ? { stateBytes: options.stateBytes } : {}),
       ...(options.turnTempBytes !== undefined ? { turnTempBytes: options.turnTempBytes } : {}) });
 
-    const pipes = createWorkerPipes();
+    const pipes = yield* createWorkerPipesSteps();
     let broker: ReturnType<typeof prepareWorkerIdentity> | undefined;
     try {
       // Opens the start gate up front; the probe has nothing to copy in.

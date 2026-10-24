@@ -9,16 +9,18 @@
 import { createFixtureMaintenanceHost, createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { expect, spyOn, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, fstatSync, mkdirSync, mkdtempSync, readFileSync, readSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { identityWorkerExit, launchAgentWorkerAsync, prepareWorkerSandbox, prepareWorkerSandboxAsync, probeWorkerHost, probeWorkerHostAsync,
+import { identityWorkerExit, launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, prepareWorkerSandboxAsync, probeWorkerHost, probeWorkerHostAsync,
   requireWorkerHostAsync, workerHostBoundary, WorkerHostError, type IdentityWorkerStatus, type LaunchedWorker } from "../src/server/worker-launcher";
 import * as launcher from "../src/server/worker-launcher";
 import * as identity from "../src/server/worker-identity";
-import { launchMaintenanceWorkerAsync, runMaintenanceWorker } from "../src/server/maintenance-worker";
+import { launchMaintenanceWorker, launchMaintenanceWorkerAsync, runMaintenanceWorker } from "../src/server/maintenance-worker";
 import { claudeMaskFilename, claudeReportedMaskPath, handleRequestImageMask } from "../src/server/bridge-tools/mask";
 import type { BackendBridge } from "../src/server/backend";
-import { workerStep } from "../src/server/worker-steps";
+import { runWorkerStepsAsync, workerStep } from "../src/server/worker-steps";
+import { createWorkerPipes, createWorkerPipesSteps } from "../src/server/worker-pipes";
+import { mkfifoShim, mkfifoSpawns } from "./helpers/mkfifo-shim.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 
@@ -245,4 +247,74 @@ test("an abort accepted while a separate-UID maintenance launch is awaited still
     expect(child?.signalCode, "ABORT_DURING_MAINTENANCE_LAUNCH_KILLS_WORKER").toBe("SIGKILL");
     expect(performance.now() - startedAt).toBeLessThan(10_000);
   } finally { child?.kill("SIGKILL"); launch.mockRestore(); helper.mockRestore(); startupView.cleanup(); f.cleanup(); }
+});
+
+// #2799: the FIFOs each of those forms creates for its worker.
+
+test("a worker's FIFOs are created by an awaited mkfifo with the event loop free, with the synchronous form's modes", async () => {
+  const slow = mkfifoShim(real => `sleep 0.2; exec "${real}" "$@"`);
+  const made: ReturnType<typeof createWorkerPipes>[] = [];
+  try {
+    const awaited = await ticksDuring(() => runWorkerStepsAsync(createWorkerPipesSteps()));
+    made.push(awaited.result);
+    const blocked = await ticksDuring(async () => createWorkerPipes());
+    made.push(blocked.result);
+    expect(awaited.ticks, "ASYNC_FIFO_CREATION_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    // The measure can fail: the synchronous form still blocks for the same wait.
+    expect(blocked.ticks, "SYNC_FIFO_CREATION_BLOCKS").toBe(0);
+    for (const pipes of made) for (const fd of [...pipes.child, ...pipes.parent]) {
+      const stat = fstatSync(fd);
+      expect(stat.isFIFO(), "FIFO_ENDS_ARE_FIFOS").toBe(true);
+      expect(stat.mode & 0o777, "FIFO_MODE_0600").toBe(0o600);
+    }
+    const pipes = awaited.result;
+    writeSync(pipes.parent[0], "ithaca");
+    const buffer = Buffer.alloc(16);
+    expect(buffer.subarray(0, readSync(pipes.child[0], buffer)).toString(), "ASYNC_FIFO_CARRIES_INPUT").toBe("ithaca");
+  } finally { for (const pipes of made) { pipes.closeChild(); pipes.cleanup(); } slow.restore(); }
+});
+
+test("the asynchronous probe, launch and maintenance forms run no synchronous mkfifo, and the synchronous forms still do", async () => {
+  const f = fixture();
+  const maintenance = createFixtureMaintenanceHost(f.brain);
+  const views = [createFixtureWorkerStartupView(f.brain), createFixtureWorkerStartupView(f.brain), createFixtureWorkerStartupView(f.brain)];
+  const runs = async (work: () => Promise<unknown>) => {
+    const spawns = mkfifoSpawns();
+    try { await work(); return spawns.counts(); } finally { spawns.restore(); }
+  };
+  const agent = async (worker: LaunchedWorker) => {
+    worker.stdin.end();
+    const [code, output] = await Promise.all([worker.exited, collect(worker.stdout)]);
+    worker.turnTemp?.close();
+    expect({ code, output }).toEqual({ code: 0, output: "ithaca" });
+  };
+  const agentLaunch = (startupView: (typeof views)[number]) =>
+    ({ brainPath: f.brain, startupView, turnTempBytes: 1024 * 1024, command: ["/bin/sh", "-c", "printf ithaca"], env: {} });
+  const maintenanceLaunch = { brainPath: f.brain, startupView: views[2]!, command: ["/bin/sh", "-c", "printf ithaca"],
+    env: { PATH: "/usr/bin:/bin" }, credentials: false, tempDomain: { statePath: join(f.root, "maintenance-state.db") } };
+  try {
+    const awaited = {
+      probe: await runs(() => probeWorkerHostAsync(f.brain)),
+      maintenanceRun: await runs(() => prepareWorkerSandboxAsync(f.brain, { maintenance })),
+      agentLaunch: await runs(async () => agent(await launchAgentWorkerAsync(agentLaunch(views[0]!)))),
+      maintenanceLaunch: await runs(async () => expect((await runMaintenanceWorker(maintenanceLaunch)).stdout).toBe("ithaca")),
+    };
+    const blocking = {
+      probe: await runs(async () => probeWorkerHost(f.brain)),
+      maintenanceRun: await runs(async () => prepareWorkerSandbox(f.brain, { maintenance })),
+      agentLaunch: await runs(() => agent(launchAgentWorker(agentLaunch(views[1]!)))),
+      maintenanceLaunch: await runs(async () => {
+        const worker = launchMaintenanceWorker(maintenanceLaunch);
+        const output = new Response(worker.stdout).text();
+        await worker.input("");
+        expect(await output).toBe("ithaca");
+        expect(await worker.exited).toBe(0);
+      }),
+    };
+    // An agent launch creates its stdio and, without the identity helper, its status channel.
+    for (const [form, { sync, async }] of Object.entries(awaited))
+      expect({ form, sync, awaited: async > 0 }, "ASYNC_FORM_AWAITS_MKFIFO").toEqual({ form, sync: 0, awaited: true });
+    for (const [form, { sync, async }] of Object.entries(blocking))
+      expect({ form, blocked: sync > 0, async }, "SYNC_FORM_KEEPS_MKFIFO").toEqual({ form, blocked: true, async: 0 });
+  } finally { for (const view of views) view.cleanup(); maintenance.cleanup(); f.cleanup(); }
 });
