@@ -28,6 +28,7 @@ to touch `process.env`.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Default API key for the built-in Anthropic completion provider (default name only — a config `apiKeyEnv` can point elsewhere). | — |
 | `BRAIN_CHROME_NO_SANDBOX` | "1" launches the render Chrome without its sandbox (required when running as root). | sandbox on |
+| `BRAIN_PROVIDER_RELAY_SOCKET` | Internal: absolute path of the server's provider relay socket in a governed or strict agent worker or a relayed maintenance worker. A built-in Gemini, Anthropic or OpenAI image provider whose key the server withheld sends its native request there, and the server adds the key, meters the request and refuses it once a budget is blocked; set by the worker launcher, not an operator input. | no relay; a provider uses its key from the environment |
 | `BRAIN_RERANK_MODE` | Search reranker mode: "jev", "heuristic" or "none". Overrides the configured `reranker.provider`; an explicit --rerank still wins. Cannot enable model reranking: reranker.enabled must be true. | the configured provider when enabled and available, else heuristic |
 | `BRAIN_ROOT` | Brain repository root, overriding cwd-based discovery. | nearest ancestor with brain.config.* or .git, else cwd |
 | `BRAIN_STORAGE_GIT_ROOTS` | Trusted storage inventory allowlist: JSON array of up to 16 absolute external Git store roots. Request flags cannot expand it. | no external Git stores |

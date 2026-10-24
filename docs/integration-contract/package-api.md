@@ -64,6 +64,22 @@ Cleanup attempts every owned resource and reports any failure.
 
 This member is first-party implementation sharing, with the internal-entry
 classification below; it does not add a supported public proxy extension API.
+
+## CLI provider relay (internal #1673)
+
+`@schlessera/brain-ui-sdk/internal` adds `startProviderRelay`,
+`parseCliProviderOrigins`, `relayedProviderKeys`, `providerUsage`,
+`hostProviderCredential` and their types, and the turn proxy gains `relayed()`
+beside `inference()`. They are first-party implementation sharing with no
+compatibility promise. The server starts one relay per governed or strict turn
+that has a turn proxy, and one per credentialed maintenance run where the host
+has managed native storage. A relay sends a key only to that key's built-in
+first-party origin (`GEMINI_API_KEY` to `https://generativelanguage.googleapis.com`,
+`ANTHROPIC_API_KEY` to `https://api.anthropic.com`, `OPENAI_API_KEY` to
+`https://api.openai.com`) or to an exact origin the server's
+`BRAIN_UI_CLI_PROVIDER_ORIGINS` (`KEY=origin[,origin];...`) lists for that key.
+A custom endpoint or a custom key variable is refused unless listed. The
+public protocol adds the `TurnBudgetCoverage` type ([wire](wire.md#completed-inference-usage-and-budgets-additive-1669)).
 The server supplies it automatically for governed and strict Claude turns,
 and the internal `WorkerNoteFacts` gains optional `egress`. A backend sets it
 only when it actually routed the worker through that proxy, so the

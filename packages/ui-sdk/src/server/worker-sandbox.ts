@@ -490,7 +490,9 @@ export interface WorkerNoteFacts {
 }
 
 /** What the worker can read of the brain's secrets and the host's provider keys (#1666). */
-const secretsNote = (kept: readonly string[]) => `**Secrets.** The brain's \`.env*\` files cannot be read here, and this worker holds no provider keys${kept.length ? ` except ${kept.map(name => `\`${name}\``).join(", ")}` : ""}. A \`brain\` command that needs ${kept.length ? "another" : "an"} embedding, completion, reranking or image provider key reports the provider as unavailable (\`provider_unavailable\`), and \`brain search\` then falls back to keyword results. Do not look for keys elsewhere; say which provider was unavailable.`;
+const secretsNote = (kept: readonly string[], relayed: boolean) => `**Secrets.** The brain's \`.env*\` files cannot be read here, and this worker holds no provider keys${kept.length ? ` except ${kept.map(name => `\`${name}\``).join(", ")}` : ""}. ${relayed ? RELAY_NOTE : `A \`brain\` command that needs ${kept.length ? "another" : "an"} embedding, completion, reranking or image provider key reports the provider as unavailable (\`provider_unavailable\`), and \`brain search\` then falls back to keyword results.`} Do not look for keys elsewhere; say which provider was unavailable.`;
+/** What the CLI provider relay meters (#1673). Fixed text: it names no live fact. */
+const RELAY_NOTE = "The `brain` CLI's Gemini embeddings and completions, Anthropic completions, and OpenAI and Gemini images go through the host's metered provider relay: the host adds their keys, records their usage on this turn and counts it toward its budgets, and refuses a request with `budget_exceeded` once a budget is blocked. Video and the JeV reranker are not relayed and report `provider_unavailable`, and `brain search` falls back to keyword results when its provider is unavailable.";
 
 const SHARED_UID_NOTE = "The worker shares the server's uid; server state is protected by masks only. A read-only brain does not prevent access to other host paths available to that uid.";
 
@@ -509,7 +511,7 @@ const WORKTREE_GUIDANCE = [
   "- Release a worktree once you no longer need it; a released worktree cannot be resumed. When a request is refused, say why instead of working around it.",
 ];
 const PROFILE_LINES: Record<Exclude<WorkerProfile, "restricted">, (sandbox: WorkerSandbox, identityNote: string, egress: boolean) => string> = {
-  governed: (sandbox, identityNote, egress) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} ${egress ? EGRESS_NOTE : "Egress is unrecorded."} Maintenance workers may receive provider credentials until the \`brain\` CLI's providers are relayed.`,
+  governed: (sandbox, identityNote, egress) => `**Profile: \`governed\`.** The brain is writable, except the protected paths below. Direct Markdown changes are indexed after the turn.\n${(sandbox.protection?.paths ?? []).map(path => `- \`${path.rel}\`: ${path.reason} (${path.mode === "absent" ? "quarantined if created" : path.mode === "read_only" ? "read-only" : "masked"}).`).join("\n")}\nHost runtime and home directories are masked. ${identityNote} ${egress ? `${EGRESS_NOTE} Maintenance workers hold no provider keys either: they use the same metered relay.` : "Egress is unrecorded. Maintenance workers receive provider credentials unless the host relays the `brain` CLI's providers."}`,
   strict: (sandbox, identityNote, egress) => `**Profile: \`strict\`.** ${sandbox.fallbackReason ? `Governed was unavailable: ${sandbox.fallbackReason}. ` : ""}${READ_ONLY_BRAIN_RULE} Any other write, \`git commit\` or index command in the brain fails with \`EROFS\` (\`Read-only file system\`), and so do hard links, renames and symlinks from the writable areas into it: that is the sandbox, not something to work around.\n${identityNote}${egress ? ` ${EGRESS_NOTE}` : ""}`,
 };
 
@@ -576,7 +578,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
       ...(!existsSync(join(sandbox.brain, "node_modules", ".bin", "brain"))
         ? ["The packaged `brain` CLI is missing. Install `@schlessera/brain` in the brain repository and run `bun install` there before using `brain` commands."] : []),
       "",
-      secretsNote(resolvedFacts.providerKeys ?? []),
+      secretsNote(resolvedFacts.providerKeys ?? [], resolvedFacts.egress === true),
     );
   }
   if (profile !== "restricted" && sandbox.providerMasks?.folders.length) {

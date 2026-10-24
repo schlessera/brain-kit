@@ -369,3 +369,10 @@ describe("pinning", () => {
     expect(d.kind).toBe("impossible");
   });
 });
+
+test("a key the host withholds but relays keeps its provider's models available (#1673)", () => {
+  const relayed = availableModels(cfg, { BRAIN_PROVIDER_RELAY_SOCKET: "/run/brain-egress/providers.sock",
+    BRAIN_WITHHELD_KEYS: "OPENAI_API_KEY" } as NodeJS.ProcessEnv);
+  expect(relayed.map(model => model.id), "RELAYED_IMAGE_PROVIDER_AVAILABLE").toEqual(OPENAI_ONLY.map(model => model.id));
+  expect(availableModels(cfg, { BRAIN_WITHHELD_KEYS: "OPENAI_API_KEY" } as NodeJS.ProcessEnv)).toEqual([]);
+});
