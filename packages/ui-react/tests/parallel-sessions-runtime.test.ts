@@ -291,10 +291,16 @@ async function terminalRecovery(sessionId: string, turnId: string): Promise<Sess
   throw new Error(`PARALLEL_DURABLE_TERMINAL_NOT_OBSERVED: ${sessionId} ${turnId}`);
 }
 
-async function release(prompt: string, how: "ok" | "fail" = "ok") {
+/** Until the backend holds the turn on `prompt`: a Hold turn's opening has streamed and is in its history. */
+async function held(prompt: string): Promise<(how: "ok" | "fail") => void> {
   for (let i = 0; i < 200 && !gates.has(prompt); i++) await Bun.sleep(25);
   const gate = gates.get(prompt);
   if (!gate) throw new Error(`No turn is waiting on ${prompt}`);
+  return gate;
+}
+
+async function release(prompt: string, how: "ok" | "fail" = "ok") {
+  const gate = await held(prompt);
   gates.delete(prompt);
   gate(how);
 }
@@ -680,7 +686,11 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await neverDone(run, a.page, [A]);
 
         // Watching A behind a panel: it finishes, and is not seen until the
-        // panel goes and its latest turn is on screen.
+        // panel goes and its latest turn is on screen. The follow-up reaches
+        // the backend only after its host checks, which no longer block the
+        // server (#2416): A opens on its streamed opening, rather than taking
+        // it live in Chat, where it would rightly be seen.
+        await held(draftA);
         await openTracker(run, a.page, A);
         await until(a.page, `p.activeSessionId() === ${JSON.stringify(A)}`);
         await press(run, a.page.getByRole("tab", { name: /^Files/ }).locator("visible=true").first());
