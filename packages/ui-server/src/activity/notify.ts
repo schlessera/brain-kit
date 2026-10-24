@@ -25,7 +25,7 @@ import { isFailureOutcome } from "@schlessera/brain-ui-sdk/protocol";
 
 import { getSetting, setSetting } from "../db/settings.js";
 import { LABEL_RUN_NAME } from "../labels/labeller.js";
-import type { ActivityStore, SpanRow } from "./store.js";
+import type { AwaitableActivityStore, SpanRow } from "./store.js";
 
 export type IntentKind = "failure" | "completion" | "stuck";
 
@@ -44,7 +44,7 @@ export interface NotificationIntent {
 
 export interface ActivityNotifierDeps {
   db: Database;
-  store: ActivityStore;
+  store: AwaitableActivityStore;
   /** Was anyone watching this run/session when the event was recorded? */
   isWatched: (scope: { runId?: string; sessionId?: string }) => boolean;
   log?: Logger;

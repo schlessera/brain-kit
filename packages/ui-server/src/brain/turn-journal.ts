@@ -1,8 +1,11 @@
 /** Concrete host journal: observations, durable ownership and completed-turn collection. */
-import type { Database } from "bun:sqlite";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
-import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
+import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
+import { installEscapeGuard, JournalStorageUnavailable } from "./journal-accounting.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
+import * as journalStore from "./journal-store.js";
+import { reviveJournalError, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
@@ -13,13 +16,14 @@ import { constants, lstatSync, realpathSync } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
-import { queryGovernanceEvents, recordGovernanceEvent } from "../governance/events.js";
+import { queryGovernanceEvents } from "../governance/events.js";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
 type ChangeRow = { sequence: number; path: string; scope: string; before_json: string | null; after_json: string | null; class: "content" | "steering" | "policy"; actor: "agent" | "user"; taint_source_event_id: number | null; conflict_observations: string; overlaps: string };
+const statement = (sql: string, ...params: SQLQueryBindings[]): JournalStatement => ({ sql, params });
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
   kind: entry.kind, mode: entry.mode, bytes: entry.bytes, ignored: entry.ignored,
   ...(entry.hash ? { hash: entry.hash } : {}), ...(entry.target !== undefined ? { target: entry.target } : {}),
@@ -34,25 +38,52 @@ export function createTurnJournal(db: Database, options: {
   /** Owner records for worktree observation checkpoints, so startup recovery releases only an ended process's. */
   referenceCheckpoints?: ReferenceWorktreeCheckpointLedger;
   changed?: (turnId: string, sessionId: string, summary: TurnJournalSummary) => void;
+  /** The app's write worker; absent, the journal opens its own for `db`'s file. */
+  writer?: SqliteWriter;
 }) {
   const now = options.now ?? Date.now;
-  const accounting = createJournalAccounting(db, options.dbPath, { capBytes: options.capBytes });
-  const objects = createJournalObjects(options.objectsRoot, accounting);
-  accounting.recover(objects);
-  for (const row of db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[]) {
-    if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
+  // Every journal write is an accounted transaction on the write worker's
+  // connection, committed at synchronous=FULL off the event loop and in
+  // submission order (#2814). This connection only reads; its own guard
+  // refuses any journal row it would change.
+  const writer = options.writer ?? openSqliteWriter(db);
+  const ownWriter = !options.writer;
+  const ledger = writer.channel<JournalStoreOptions>(journalStore, { dbPath: options.dbPath, objectsRoot: options.objectsRoot, ...(options.capBytes !== undefined ? { capBytes: options.capBytes } : {}) }, reviveJournalError);
+  if (writer.offloop) installEscapeGuard(db);
+  /** Startup recovery commits before any later write; `ready` reports its refusal. */
+  const ready = (async () => {
+    await ledger.ready;
+    await ledger.call("recover");
+    const interrupted = (db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[])
+      .filter(row => !processAlive(row.pid, row.pid_start));
+    for (const row of interrupted) await ledger.call("statements", [statement("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?", now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id)]);
+  })();
+  ready.catch(() => {});
+  // Every later call passes through `ready` the same way, so calls reach the
+  // worker, and commit, in the order they were made.
+  const call = <T>(name: string, ...args: unknown[]): Promise<T> => ready.then(() => ledger.call<T>(name, ...args));
+  const write = (statements: JournalStatement[]) => call<number[]>("statements", statements);
+  const objects = createJournalObjects(options.objectsRoot, { async reserve(bytes, hash) {
+    const id = await call<string>("reserve", bytes, hash);
+    return { id, finish: (actual: string, size: number, duplicate: boolean) => call<void>("finishReservation", id, actual, size, duplicate), cancel: () => call<void>("cancelReservation", id) };
+  } });
+  /** Writes no admission awaits; `idle()` waits for them too. */
+  const unserialized = new Set<Promise<unknown>>();
+  function tracked<T>(work: Promise<T>): Promise<T> {
+    unserialized.add(work); void work.finally(() => unserialized.delete(work)).catch(() => {});
+    return work;
   }
-  const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number }>();
+  /** Active turns; `sessionId` is the binding their record holds once earlier writes commit. */
+  const active = new Map<string, { policy: NativeJournalPolicy; stop: (error: Error) => void; sequence: number; sessionId: string | null }>();
   const retainVersion = async (source: number, bytes: number, signal?: AbortSignal) => {
-    const hash = await retainAsync(() => objects.putFileAsync(source, bytes, signal));
+    const hash = await retain(() => objects.putFileAsync(source, bytes, signal));
     // Pin the shared observation before another admission can collect objects.
-    retain(() => accounting.write(() => {
-      for (const turnId of active.keys()) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, hash);
-    }));
+    await retain(() => write([...active.keys()].map(turnId => statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, hash))));
     return hash;
   };
   const readIdentity = { brainPath: options.brainPath, async createTemporary(maximum: number) {
-    const reservation = await retainAsync(async () => accounting.reserveTemporary(maximum));
+    const id = await retain(() => call<string>("reserveTemporary", maximum));
+    const reservation = { id, release: () => call<void>("releaseTemporary", id) };
     const path = join(options.objectsRoot, `pending-${reservation.id}`);
     let file: Awaited<ReturnType<typeof open>> | undefined;
     const discard = async () => {
@@ -69,7 +100,7 @@ export function createTurnJournal(db: Database, options: {
         await file.close();
         await discard();
       }
-      reservation.release(); throw error;
+      await reservation.release(); throw error;
     }
   } };
   const capture = createNativeJournalCapture(options.nativeManager, retainVersion, {}, readIdentity);
@@ -88,10 +119,12 @@ export function createTurnJournal(db: Database, options: {
     tail = work.catch(() => {});
     return work;
   }
-  async function retainAsync<T>(operation: () => Promise<T>): Promise<T> {
+  /** A capacity refusal collects the oldest ended turn and retries, until none is left. */
+  async function retain<T>(operation: () => Promise<T>): Promise<T> {
+    await ready;
     for (;;) {
       try { return await operation(); }
-      catch (error) { if (!(error instanceof JournalCapacityError) || !collectOne()) throw error; }
+      catch (error) { if (!(error instanceof JournalCapacityError) || !await collectOne()) throw error; }
     }
   }
   const periodicObservers = new Set<{ before(): void; after(completed: boolean): void }>();
@@ -122,18 +155,20 @@ export function createTurnJournal(db: Database, options: {
       }
     });
   }
-  function fail(turnId: string, error: unknown) {
+  /** The turn is partial at once; its durable marker commits after. */
+  async function fail(turnId: string, error: unknown) {
     const reason = error instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable";
     failures.set(turnId, reason);
     // Admission preallocates this fixed-size terminal slot. It never needs a
     // larger row when an observation has exhausted available capacity.
-    try { accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?").run(reason.padEnd(64), turnId)); }
+    try { await write([statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", reason.padEnd(64), turnId)]); }
     catch { /* Busy storage remains recording on disk; restart marks it interrupted, never complete. */ }
     publish(turnId);
   }
-  function releaseReads() {
-    for (const id of pendingReadReleases) { accounting.releaseRead(id); pendingReadReleases.delete(id); }
+  async function releaseReads() {
+    for (const id of pendingReadReleases) { await call("releaseRead", id); pendingReadReleases.delete(id); }
   }
+  const releaseRead = (lease: string) => call<void>("releaseRead", lease).catch(() => { pendingReadReleases.add(lease); });
 
   function summary(turnId: string): TurnJournalSummary {
     const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow | null;
@@ -152,67 +187,57 @@ export function createTurnJournal(db: Database, options: {
     const row = db.query("SELECT session_id FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null } | null;
     if (row?.session_id) options.changed?.(turnId, row.session_id, summary(turnId));
   }
-  function collectObjects() {
-    releaseReads();
-    accounting.write(() => {
-      const unused = db.query("SELECT hash FROM turn_journal_objects WHERE state='present' AND NOT EXISTS(SELECT 1 FROM turn_journal_object_refs r WHERE r.hash=turn_journal_objects.hash) AND NOT EXISTS(SELECT 1 FROM turn_journal_reservations r WHERE r.hash=turn_journal_objects.hash)").all() as { hash: string }[];
-      for (const row of unused) {
-        if (objects.has(row.hash)) objects.remove(row.hash);
-        db.query("DELETE FROM turn_journal_objects WHERE hash=?").run(row.hash);
-      }
-    });
+  async function collectObjects() {
+    await releaseReads();
+    await call("collectObjects");
   }
-  function expire(turnId: string, removeSummary = false) {
+  async function expire(turnId: string, removeSummary = false) {
     const before = summary(turnId);
-    accounting.write(() => {
-      db.query("DELETE FROM turn_journal_changes WHERE turn_id=?").run(turnId);
-      db.query("DELETE FROM turn_journal_claude_memory WHERE turn_id=?").run(turnId);
-      db.query("DELETE FROM turn_journal_manifests WHERE turn_id=?").run(turnId);
-      db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=?").run(turnId);
-      if (removeSummary) db.query("DELETE FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL").run(turnId);
-      else db.query("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL").run(JSON.stringify({ changedFiles: before.changedFiles, steeringFiles: before.steeringFiles, sharedAttribution: before.sharedAttribution }), turnId);
-    });
-    failures.delete(turnId); collectObjects(); publish(turnId);
+    await write([
+      statement("DELETE FROM turn_journal_changes WHERE turn_id=?", turnId),
+      statement("DELETE FROM turn_journal_claude_memory WHERE turn_id=?", turnId),
+      statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
+      statement("DELETE FROM turn_journal_object_refs WHERE turn_id=?", turnId),
+      removeSummary ? statement("DELETE FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL", turnId)
+        : statement("UPDATE turn_journal_turns SET state='expired',summary=? WHERE turn_id=? AND ended_at IS NOT NULL", JSON.stringify({ changedFiles: before.changedFiles, steeringFiles: before.steeringFiles, sharedAttribution: before.sharedAttribution }), turnId),
+    ]);
+    failures.delete(turnId); await collectObjects(); publish(turnId);
   }
-  function collectOne(): boolean {
+  async function collectOne(): Promise<boolean> {
     const row = db.query("SELECT turn_id,state FROM turn_journal_turns WHERE ended_at IS NOT NULL ORDER BY (state='expired'),ended_at LIMIT 1").get() as { turn_id: string; state: string } | null;
     if (!row) return false;
-    expire(row.turn_id, row.state === "expired"); return true;
+    await expire(row.turn_id, row.state === "expired"); return true;
   }
-  function retain<T>(operation: () => T): T {
-    for (;;) {
-      try { return operation(); }
-      catch (error) { if (!(error instanceof JournalCapacityError) || !collectOne()) throw error; }
-    }
-  }
-  function finalizeRefusedAdmission(turnId: string) {
-    retain(() => accounting.write(() => {
+  async function finalizeRefusedAdmission(turnId: string) {
+    await retain(() => write([
       // The preallocated terminal slot shrinks more than ended_at grows.
       // A refused worker made no changes, so initial-only CAS pins are unneeded.
-      db.query("UPDATE turn_journal_turns SET state='partial',failure=?,ended_at=? WHERE turn_id=?").run(failures.get(turnId) ?? "journal_unavailable", now(), turnId);
-      db.query("DELETE FROM turn_journal_manifests WHERE turn_id=?").run(turnId);
-      db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=?").run(turnId);
-    }));
-    failedAdmissions.delete(turnId); collectObjects(); publish(turnId);
+      statement("UPDATE turn_journal_turns SET state='partial',failure=?,ended_at=? WHERE turn_id=?", failures.get(turnId) ?? "journal_unavailable", now(), turnId),
+      statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
+      statement("DELETE FROM turn_journal_object_refs WHERE turn_id=?", turnId),
+    ]));
+    failedAdmissions.delete(turnId); await collectObjects(); publish(turnId);
   }
-  function pin(turnId: string, entry: JournalVersion | null) {
-    if (entry?.hash) db.query("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)").run(turnId, entry.hash);
-  }
+  const pin = (turnId: string, entry: JournalVersion | null): JournalStatement[] =>
+    entry?.hash ? [statement("INSERT OR IGNORE INTO turn_journal_object_refs VALUES (?,?)", turnId, entry.hash)] : [];
 
   async function observe(userPolicy: boolean = false): Promise<void> {
-    releaseReads();
+    await releaseReads();
     const overlaps = [...active.keys()];
     const changed = new Map<string, { path: string; scope: string; before: JournalVersion | null; after: JournalVersion | null }>();
-    const stopActive = (error: unknown) => {
+    const stopActive = async (error: unknown) => {
+      const recorded: Promise<void>[] = [];
       for (const [id, turn] of active) {
         // One failed notification must not leave another participant running.
-        try { fail(id, error); } catch { /* Existing partial slot remains authoritative. */ }
+        // Existing partial slot remains authoritative if the marker cannot be recorded.
+        recorded.push(fail(id, error).catch(() => {}));
         try { turn.stop(error instanceof Error ? error : new Error(String(error))); } catch { /* Continue stopping every participant. */ }
       }
+      await Promise.all(recorded);
     };
     let observation: Awaited<ReturnType<typeof capture.observe>>;
     try { observation = await capture.observe(new Map([...active].map(([id, turn]) => [id, turn.policy]))); }
-    catch (error) { observationFailures++; const failure = storageError(error); stopActive(failure); throw failure; }
+    catch (error) { observationFailures++; const failure = storageError(error); await stopActive(failure); throw failure; }
     // Each managed worktree is observed through its own checkpoints, for the one turn that holds it.
     const separate: { worktreeId: string; turnId: string; observation: Awaited<ReturnType<typeof capture.observe>> }[] = [];
     for (const [worktreeId, root] of [...worktrees]) {
@@ -223,8 +248,9 @@ export function createTurnJournal(db: Database, options: {
         // Only the holding turn depends on this root: it stops, and its record stays partial.
         worktrees.delete(worktreeId); void root.capture.close().catch(() => {});
         const failure = storageError(error);
-        try { fail(root.turnId, failure); } catch { /* The partial slot remains authoritative. */ }
+        const recorded = fail(root.turnId, failure).catch(() => { /* The partial slot remains authoritative. */ });
         try { holder.stop(failure); } catch { /* Continue with the other participants. */ }
+        await recorded;
       }
     }
     try {
@@ -235,60 +261,14 @@ export function createTurnJournal(db: Database, options: {
       }
       const steering = observation.steering;
       for (const [turnId, turn] of active) {
-        const metadata = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
-        const taint = db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1")
-          .get(turnId, metadata.session_id, metadata.session_id) as { id: number } | null;
-        retain(() => accounting.write(() => {
-          for (const item of changed.values()) {
-            const sequence = ++turn.sequence;
-            const approvedPolicy = userPolicy && item.path === "context/policies/governance.md";
-            const classification = approvedPolicy ? "policy" : steering.paths.has(item.path) ? "steering" : "content";
-            const actor = approvedPolicy || metadata.kind === "revert" ? "user" : "agent";
-            const source = classification === "steering" && actor === "agent" && taint ? taint.id : null;
-            const overlappingTurnIds = overlaps.filter(id => id !== turnId);
-            db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
-              .run(turnId, sequence, item.path, item.scope, item.before ? JSON.stringify(item.before) : null, item.after ? JSON.stringify(item.after) : null, classification, actor, JSON.stringify(overlappingTurnIds), source);
-            if (classification === "steering") recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId,
-              actor: actor === "user" ? "user" : metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
-              payload: { path: item.path, sequence, beforeHash: item.before?.hash ?? null, afterHash: item.after?.hash ?? null, taintSourceEventId: source, overlappingTurnIds } });
-            pin(turnId, item.before); pin(turnId, item.after);
-            const observed = db.query("SELECT sequence,after_json,overlaps FROM turn_journal_changes WHERE turn_id=? AND path=? ORDER BY sequence").all(turnId, item.path) as {sequence:number;after_json:string|null;overlaps:string}[];
-            const participants = new Set(observed.flatMap(row => JSON.parse(row.overlaps) as string[]));
-            const conflicting = new Map<number, JournalObservationReference>();
-            for (const other of participants) {
-              const shared = observed.filter(row => (JSON.parse(row.overlaps) as string[]).includes(other));
-              if (new Set(shared.map(row => row.after_json ?? "null")).size < 2) continue;
-              for (const row of shared) conflicting.set(row.sequence, {turnId, sequence:row.sequence, side:"after"});
-            }
-            if (conflicting.size) db.query("UPDATE turn_journal_changes SET conflict_observations=? WHERE turn_id=? AND path=?")
-              .run(JSON.stringify([...conflicting.values()].sort((a,b)=>a.sequence-b.sequence)),turnId,item.path);
-          }
-          // Intentional worktree edits are editable workspace content of their holding turn only.
-          for (const root of separate) if (root.turnId === turnId) for (const change of root.observation.changes.get(turnId) ?? []) {
-            if (identity(change.before) === identity(change.after)) continue;
-            const before = version(change.before), after = version(change.after), sequence = ++turn.sequence;
-            db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,?,?,?,?)")
-              .run(turnId, sequence, referenceWorktreeJournalPath(root.worktreeId, change.path), REFERENCE_WORKTREE_JOURNAL_SCOPE, before ? JSON.stringify(before) : null,
-                after ? JSON.stringify(after) : null, "content", metadata.kind === "revert" ? "user" : "agent", "[]", null);
-            pin(turnId, before); pin(turnId, after);
-          }
-          db.query("UPDATE turn_journal_turns SET steering_inventory_missing=? WHERE turn_id=?").run(JSON.stringify([...new Set([...(JSON.parse(metadata.steering_inventory_missing) as string[]), ...steering.unavailable])]), turnId);
-          const unreadable = [...observation.unreadable, ...separate.filter(root => root.turnId === turnId).flatMap(root => root.observation.unreadable
-            .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
-          if (unreadable.length) {
-            const missing = new Map<string, object>((JSON.parse(metadata.missing) as { path: string; reason: string }[]).map(item => [item.path, item]));
-            for (const item of unreadable) {
-              const { ms, ...known } = item;
-              missing.set(item.path, known);
-              const signature = `journal_reader:${item.kind ?? "unknown"}:${item.bytes ?? "unknown"}:${item.path}`.slice(0, 1000);
-              recordGovernanceEvent(db, { kind: "roadblock", sessionId: metadata.session_id, turnId, actor: metadata.actor,
-                model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `journal-reader:${turnId}:${item.path}`,
-                payload: { category: "permission_denied", family: "journal_reader", signature,
-                  failures: [{ toolCallId: null, signature, category: "permission_denied" }], resolution: null,
-                  remedy: "capability", waste: { tokens: null, costUsd: null, ms }, eventIds: [] } });
-            }
-            db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify([...missing.values()]), turnId);
-          }
+        const worktree = separate.filter(root => root.turnId === turnId).flatMap(root => (root.observation.changes.get(turnId) ?? [])
+          .filter(change => identity(change.before) !== identity(change.after))
+          .map(change => ({ path: referenceWorktreeJournalPath(root.worktreeId, change.path), scope: REFERENCE_WORKTREE_JOURNAL_SCOPE, before: version(change.before), after: version(change.after) })));
+        const unreadable = [...observation.unreadable, ...separate.filter(root => root.turnId === turnId).flatMap(root => root.observation.unreadable
+          .map(item => ({ ...item, path: referenceWorktreeJournalPath(root.worktreeId, item.path === "." ? "" : item.path) })))];
+        turn.sequence = await retain(() => call<number>("recordObservation", {
+          turnId, sequence: turn.sequence, at: now(), userPolicy, changed: [...changed.values()], steeringPaths: [...steering.paths],
+          overlaps, worktree, steeringUnavailable: [...steering.unavailable], unreadable,
         }));
         publish(turnId);
         // Ignored versions have metadata but no content hash: count their largest
@@ -308,7 +288,7 @@ export function createTurnJournal(db: Database, options: {
     } catch (error) {
       observationFailures++;
       const failure = storageError(error);
-      stopActive(failure);
+      await stopActive(failure);
       await observation.abort().catch(() => {});
       for (const root of separate) await root.observation.abort().catch(() => {});
       throw failure;
@@ -324,23 +304,21 @@ export function createTurnJournal(db: Database, options: {
       signal?.throwIfAborted();
       try { await capture.initialize(signal); }
       catch (error) { if (signal?.aborted) throw error; throw storageError(error); }
-      for (const refused of failedAdmissions) finalizeRefusedAdmission(refused);
+      for (const refused of failedAdmissions) await finalizeRefusedAdmission(refused);
       await observe();
       signal?.throwIfAborted();
       const expired = db.query("SELECT turn_id FROM turn_journal_turns WHERE ended_at IS NOT NULL AND ended_at<?").all(now() - RETENTION_MS) as { turn_id: string }[];
-      for (const row of expired) expire(row.turn_id, true);
-      retain(() => accounting.write(() => {
-        db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL")
-          .run(turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now());
-      }));
+      for (const row of expired) await expire(row.turn_id, true);
+      await retain(() => write([statement("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state) VALUES (?,?,?,?,?,?,?,?,?,'recording') ON CONFLICT(turn_id) DO UPDATE SET started_at=excluded.started_at WHERE turn_journal_turns.kind='revert' AND turn_journal_turns.ended_at IS NULL",
+        turnId, metadata.sessionId, metadata.actor, metadata.model, metadata.profile, metadata.policyHash, SELF.pid, SELF.start, now())]));
       try {
       const policy = await capture.policy(metadata.coveredPaths);
       signal?.throwIfAborted();
-      active.set(turnId, { policy, stop, sequence: 0 }); publish(turnId);
+      active.set(turnId, { policy, stop, sequence: 0, sessionId: metadata.sessionId }); publish(turnId);
       if (!scopeTimer) {
         scopeTimer = setInterval(() => {
           void held(() => observe()).catch(error => {
-            for (const [id, turn] of active) { fail(id, error); turn.stop(error instanceof Error ? error : new Error(String(error))); }
+            for (const [id, turn] of active) { void fail(id, error).catch(() => {}); turn.stop(error instanceof Error ? error : new Error(String(error))); }
           });
         }, 15_000);
         scopeTimer.unref?.();
@@ -348,19 +326,27 @@ export function createTurnJournal(db: Database, options: {
       } catch (error) {
         failures.set(turnId, error instanceof JournalCapacityError ? "journal_capacity" : "journal_unavailable");
         failedAdmissions.add(turnId);
-        try { finalizeRefusedAdmission(turnId); } catch { /* finish/next admission retries without reviving the worker. */ }
+        try { await finalizeRefusedAdmission(turnId); } catch { /* finish/next admission retries without reviving the worker. */ }
         publish(turnId);
         throw error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
           ? error : new JournalStorageUnavailable("native journal admission could not be prepared");
       }
     }, true); },
-    bindSession(turnId: string, sessionId: string) { if (!active.has(turnId)) return; accounting.write(() => db.query("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?").run(sessionId, turnId)); publish(turnId); },
+    async bindSession(turnId: string, sessionId: string): Promise<void> {
+      const turn = active.get(turnId);
+      if (!turn) return;
+      turn.sessionId = sessionId;
+      await tracked(write([statement("UPDATE turn_journal_turns SET session_id=? WHERE turn_id=?", sessionId, turnId)])); publish(turnId);
+    },
+    /**
+     * Decided at once from the active turn's binding, so the caller adopts the
+     * model before its next event; the record commits after every earlier write.
+     */
     bindModel(turnId: string, sessionId: string | null, model: string): boolean {
-      if (!model || !active.has(turnId)) return false;
-      const row = db.query("SELECT session_id,ended_at FROM turn_journal_turns WHERE turn_id=?").get(turnId) as { session_id: string | null; ended_at: number | null } | null;
-      if (!row || row.ended_at !== null || row.session_id !== sessionId) return false;
-      accounting.write(() => db.query("UPDATE turn_journal_turns SET model=? WHERE turn_id=? AND ended_at IS NULL").run(model, turnId));
-      publish(turnId); return true;
+      const turn = active.get(turnId);
+      if (!model || !turn || turn.sessionId !== sessionId) return false;
+      void tracked(call<boolean>("bindModel", turnId, sessionId, model)).then(bound => { if (bound) publish(turnId); }, () => {});
+      return true;
     },
     observe(): Promise<void> { return held(() => observe()); },
     /**
@@ -383,33 +369,39 @@ export function createTurnJournal(db: Database, options: {
     /** Worktrees an active turn's journal observes. */
     worktrees(turnId: string): string[] { return [...worktrees].filter(([, root]) => root.turnId === turnId).map(([id]) => id); },
     isHeld(): boolean { return holds > 0; },
-    async idle(): Promise<void> { let waiting: Promise<unknown>; do { waiting = tail; await waiting; } while (waiting !== tail); },
+    async idle(): Promise<void> {
+      let waiting: Promise<unknown>;
+      do { waiting = tail; await waiting; } while (waiting !== tail);
+      await Promise.allSettled([...unserialized]);
+    },
+    /** Settles once startup recovery has run; rejects with its refusal. */
+    ready,
     /** @internal Only the authenticated history service selects generated sibling coverage. */
     coverPaths(turnId: string, paths: readonly string[]): void {
       const turn=active.get(turnId); if(!turn)throw new JournalStorageUnavailable("history coverage requires an active observation window");
       turn.policy.cover(paths);
     },
     /** The caller retains approval/current-principal authority; this never revives a completed turn. */
-    observeUserPolicy(turnId: string, approvedWrite: () => void): Promise<void> { return held(async () => {
+    observeUserPolicy(turnId: string, approvedWrite: () => void | Promise<void>): Promise<void> { return held(async () => {
       if (!active.has(turnId) || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("approved policy write requires an active complete observation window");
       await observe();
       if (summary(turnId).state !== "recording") throw new JournalStorageUnavailable("policy observation became incomplete before the approved write");
-      try { approvedWrite(); } finally { await observe(true); }
+      try { await approvedWrite(); } finally { await observe(true); }
     }); },
     finish(turnId: string) { return held(async () => {
-      if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) finalizeRefusedAdmission(turnId); return; }
+      if (!active.has(turnId)) { if (failedAdmissions.has(turnId)) await finalizeRefusedAdmission(turnId); return; }
       try { await observe(); }
       finally {
         active.delete(turnId);
         await dropWorktrees(turnId);
         if (!active.size) { clearInterval(scopeTimer); scopeTimer = undefined; }
-        accounting.write(() => {
-          if (failures.has(turnId)) db.query("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?").run(failures.get(turnId)!.padEnd(64), turnId);
-          db.query("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' THEN state ELSE 'complete' END WHERE turn_id=?").run(now(), turnId);
-          db.query("DELETE FROM turn_journal_manifests WHERE turn_id=?").run(turnId);
-          db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))").run(turnId, turnId, turnId);
-        });
-        collectObjects(); publish(turnId);
+        await write([
+          ...(failures.has(turnId) ? [statement("UPDATE turn_journal_turns SET state='partial',failure=? WHERE turn_id=?", failures.get(turnId)!.padEnd(64), turnId)] : []),
+          statement("UPDATE turn_journal_turns SET ended_at=?,failure=trim(failure),state=CASE WHEN state='partial' THEN state ELSE 'complete' END WHERE turn_id=?", now(), turnId),
+          statement("DELETE FROM turn_journal_manifests WHERE turn_id=?", turnId),
+          statement("DELETE FROM turn_journal_object_refs WHERE turn_id=? AND NOT EXISTS (SELECT 1 FROM turn_journal_changes c WHERE c.turn_id=? AND (json_extract(c.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(c.after_json,'$.hash')=turn_journal_object_refs.hash)) AND NOT EXISTS (SELECT 1 FROM turn_journal_claude_memory m WHERE m.turn_id=? AND m.state!='saved' AND (json_extract(m.before_json,'$.hash')=turn_journal_object_refs.hash OR json_extract(m.after_json,'$.hash')=turn_journal_object_refs.hash))", turnId, turnId, turnId),
+        ]);
+        await collectObjects(); publish(turnId);
       }
     }); },
     /** Ordinary current coverage only; never adds selected paths to ignored content. */
@@ -425,7 +417,7 @@ export function createTurnJournal(db: Database, options: {
       if (!turn || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("A complete active journal is required before removal.");
       const before = version(await capture.retainBefore(path, turn.policy, signal));
       if (!before || before.ignored || before.kind !== "file" || !before.hash) return null;
-      accounting.write(() => pin(turnId, before));
+      await write(pin(turnId, before));
       if (!objects.verify(before.hash, before.bytes)) throw new JournalStorageUnavailable("The retained original could not be verified.");
       return before;
     }); },
@@ -434,8 +426,11 @@ export function createTurnJournal(db: Database, options: {
       if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
       try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
     },
-    /** Validated copy-out is the only native source of an external destination. */
-    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): void {
+    /**
+     * Validated copy-out is the only native source of an external destination.
+     * Every retained object and record commits before `save()` runs.
+     */
+    async persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): Promise<void> {
       if (!active.has(turnId)) throw new JournalStorageUnavailable("memory persistence requires an active turn");
       const path = change ? `claude-memory://${change.note}` : "claude-memory://";
       try {
@@ -443,31 +438,26 @@ export function createTurnJournal(db: Database, options: {
         if (!change.note.endsWith(".md") || /[\\/\u0000-\u001f\u007f]/u.test(change.note) || [".", ".."].includes(change.note)) throw new Error("invalid memory note");
         const directory = realpathSync(change.directory), info = lstatSync(directory);
         if (directory !== change.directory || !info.isDirectory() || directory === options.brainPath || directory.startsWith(`${options.brainPath}/`)) throw new Error("invalid external memory store");
-        const retained = (bytes: Uint8Array | null, mode: number): JournalVersion | null => bytes === null ? null : {
-          kind: "file", mode, bytes: bytes.length, hash: retain(() => objects.putBytes(bytes)), ignored: false,
+        const retained = async (bytes: Uint8Array | null, mode: number): Promise<JournalVersion | null> => bytes === null ? null : {
+          kind: "file", mode, bytes: bytes.length, hash: await retain(() => objects.putBytes(bytes)), ignored: false,
         };
-        const before = retained(change.before, change.beforeMode);
+        const before = await retained(change.before, change.beforeMode);
         // Pin the first object before a second admission can collect under pressure.
-        retain(() => accounting.write(() => pin(turnId, before)));
-        const after = retained(change.after, 0o600);
-        retain(() => accounting.write(() => pin(turnId, after)));
-        retain(() => accounting.write(() => db.query("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)")
-          .run(turnId, path, directory, String(info.dev), String(info.ino), change.note, before ? JSON.stringify(before) : null, JSON.stringify(after), "pending")));
+        await retain(() => write(pin(turnId, before)));
+        const after = await retained(change.after, 0o600);
+        await retain(() => write(pin(turnId, after)));
+        await retain(() => write([statement("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)",
+          turnId, path, directory, String(info.dev), String(info.ino), change.note, before ? JSON.stringify(before) : null, JSON.stringify(after), "pending")]));
         save();
-        this.recordClaudeMemory(turnId, path, { directory, device: String(info.dev), inode: String(info.ino), note: change.note }, before, after);
+        await this.recordClaudeMemory(turnId, path, { directory, device: String(info.dev), inode: String(info.ino), note: change.note }, before, after);
       } catch (error) {
         // A note-specific refusal does not erase other successfully retained
         // changes. If even this bounded missing receipt cannot fit, use the
         // admission's preallocated partial terminal slot instead.
         try {
-          retain(() => accounting.write(() => {
-            const row = db.query("SELECT missing FROM turn_journal_turns WHERE turn_id=?").get(turnId) as {missing:string} | null;
-            if (!row) throw error;
-            const missing = (JSON.parse(row.missing) as {path:string;reason:string}[]).filter(item => item.path !== path);
-            missing.push({path,reason:"memory_persistence_unconfirmed"});
-            db.query("UPDATE turn_journal_turns SET state='partial',missing=? WHERE turn_id=?").run(JSON.stringify(missing),turnId);
-          })); publish(turnId);
-        } catch { fail(turnId, error); }
+          if (!await retain(() => call<boolean>("markMemoryUnconfirmed", turnId, path))) throw error;
+          publish(turnId);
+        } catch { await fail(turnId, error); }
         if (change) throw error;
       }
     },
@@ -476,55 +466,43 @@ export function createTurnJournal(db: Database, options: {
       return db.query("SELECT directory,device,inode,note FROM turn_journal_claude_memory WHERE turn_id=? AND path=?").get(turnId, path) as { directory: string; device: string; inode: string; note: string } | null;
     },
     /** @internal Record a successful native save or authenticated recovery with existing retained objects. */
-    recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null) {
+    async recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
       const turn = active.get(turnId); if (!turn) throw new JournalStorageUnavailable("memory observation requires an active turn");
-      const metadata = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=?").get(turnId) as TurnRow;
-      const actor = metadata.actor === "user" ? "user" : "agent";
-      const taint = actor === "agent" ? db.query("SELECT id FROM governance_events WHERE kind='taint' AND (turn_id=? OR (? IS NOT NULL AND session_id=?)) ORDER BY id LIMIT 1").get(turnId, metadata.session_id, metadata.session_id) as { id: number } | null : null;
       const sequence = ++turn.sequence;
-      retain(() => accounting.write(() => {
-        db.query("INSERT INTO turn_journal_changes (turn_id,sequence,path,scope,before_json,after_json,class,actor,overlaps,taint_source_event_id) VALUES (?,?,?,?,?,?,'steering',?,'[]',?)")
-          .run(turnId, sequence, path, "claude_memory", before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, actor, taint?.id ?? null);
-        db.query("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)").run(turnId, path, target.directory, target.device, target.inode, target.note, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null, "saved");
-        pin(turnId, before); pin(turnId, after);
-        recordGovernanceEvent(db, { kind: "steering_change", sessionId: metadata.session_id, turnId, actor: metadata.actor, model: metadata.model, profile: metadata.profile, at: now(), dedupeKey: `${turnId}:${sequence}`,
-          payload: { path, sequence, beforeHash: before?.hash ?? null, afterHash: after?.hash ?? null, taintSourceEventId: taint?.id ?? null, overlappingTurnIds: [] } });
-      }));
+      await retain(() => call("recordClaudeMemory", turnId, sequence, path, target, before, after, now()));
       publish(turnId);
     },
-    /** All operation metadata uses the journal's existing physical allocation owner. */
-    writeOperation<T>(write: () => T): T { return accounting.write(write); },
-    reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]) {
+    /** All operation metadata uses the journal's existing physical allocation owner: one accounted write of these statements. */
+    writeOperation(statements: readonly JournalStatement[]): Promise<number[]> { return write([...statements]); },
+    async reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void> {
       const source = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND ended_at IS NOT NULL AND state IN ('complete','partial')").get(sourceTurnId) as TurnRow | null;
       if (!source) throw new JournalStorageUnavailable("source journal is unavailable");
-      accounting.write(() => {
-        db.query("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state,kind,source_turn_id) VALUES (?,?,'user',NULL,?,?,?,?,?,'recording','revert',?)")
-          .run(turnId, source.session_id, source.profile, source.policy_hash, SELF.pid, SELF.start, now(), sourceTurnId);
-        for (const entry of versions) pin(turnId, entry);
-      });
+      await write([
+        statement("INSERT INTO turn_journal_turns (turn_id,session_id,actor,model,profile,policy_hash,pid,pid_start,started_at,state,kind,source_turn_id) VALUES (?,?,'user',NULL,?,?,?,?,?,'recording','revert',?)",
+          turnId, source.session_id, source.profile, source.policy_hash, SELF.pid, SELF.start, now(), sourceTurnId),
+        ...versions.flatMap(entry => pin(turnId, entry)),
+      ]);
     },
-    finishReserved(turnId: string) {
+    async finishReserved(turnId: string): Promise<void> {
       if (active.has(turnId)) throw new Error("active revert must finish its observation");
-      accounting.write(() => {
-        db.query("UPDATE turn_journal_turns SET ended_at=?,state='partial',failure='revert_not_observed' WHERE turn_id=? AND ended_at IS NULL").run(now(), turnId);
-        db.query("DELETE FROM turn_journal_object_refs WHERE turn_id=?").run(turnId);
-      }); collectObjects();
+      await write([
+        statement("UPDATE turn_journal_turns SET ended_at=?,state='partial',failure='revert_not_observed' WHERE turn_id=? AND ended_at IS NULL", now(), turnId),
+        statement("DELETE FROM turn_journal_object_refs WHERE turn_id=?", turnId),
+      ]); await collectObjects();
     },
     /** Acquire the read lease while the selected source still owns its original. */
-    withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): T {
+    async withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): Promise<T> {
       if (!selected.hash || selected.ignored || selected.kind !== "file") throw new JournalStorageUnavailable("retained original is unavailable");
-      const lease = accounting.openRead(selected.hash, () => {
-        if (!db.query("SELECT 1 FROM turn_journal_object_refs r JOIN turn_journal_turns t ON t.turn_id=r.turn_id WHERE r.turn_id=? AND r.hash=? AND t.state IN ('complete','partial') AND t.ended_at IS NOT NULL").get(turnId, selected.hash!)) throw new JournalStorageUnavailable("original retention ownership expired before admission");
-      });
-      try { return objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
-      finally { try { accounting.releaseRead(lease); } catch { pendingReadReleases.add(lease); } }
+      const lease = await call<string>("openRead", selected.hash, turnId);
+      try { return await objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
+      finally { await releaseRead(lease); }
     },
-    withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): T {
+    async withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): Promise<T> {
       if (!selected || selected.kind === "symlink") return apply(() => {});
       if (!selected.hash || selected.ignored || selected.kind !== "file") throw new JournalStorageUnavailable("retained version is unavailable");
-      const lease = accounting.openRead(selected.hash);
-      try { return objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
-      finally { try { accounting.releaseRead(lease); } catch { pendingReadReleases.add(lease); } }
+      const lease = await call<string>("openRead", selected.hash);
+      try { return await objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
+      finally { await releaseRead(lease); }
     },
     summary,
     details(sessionId: string, turnId: string): TurnJournalDetails | null {
@@ -545,13 +523,17 @@ export function createTurnJournal(db: Database, options: {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
       const selected = change?.[side];
       if (!selected?.hash || details?.summary.state === "expired") return null;
-      return { selected, bytes: (maxBytes: number) => objects.read(selected.hash!, maxBytes), stream() {
-        const lease = accounting.openRead(selected.hash!);
-        const release = () => { try { accounting.releaseRead(lease); } catch { pendingReadReleases.add(lease); } };
+      return { selected, bytes: (maxBytes: number) => objects.read(selected.hash!, maxBytes), async stream() {
+        const lease = await call<string>("openRead", selected.hash!);
+        const release = () => releaseRead(lease);
         try { return objects.stream(selected.hash!, release); } catch (error) { release(); throw error; }
       } };
     },
-    async close() { clearInterval(scopeTimer); try { await tail; await dropWorktrees(); await capture.close(); } finally { objects.close(); } },
+    async close() {
+      clearInterval(scopeTimer);
+      try { await tail; await Promise.allSettled([...unserialized]); await dropWorktrees(); await capture.close(); }
+      finally { objects.close(); await ledger.close(); if (ownWriter) await writer.close(); }
+    },
   };
 }
 

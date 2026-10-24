@@ -14,11 +14,11 @@ import type { ActivityQuery, ActivityQueryResult } from "@schlessera/brain-ui-sd
 import { queryRoadblockReport } from "../governance/roadblock-report.js";
 import { latestActivityDigest } from "./digest.js";
 import type { ActivityNotifier } from "./notify.js";
-import { rowToRunRollup, summarizeRollups, type ActivityStore, type SpanRow } from "./store.js";
+import { rowToRunRollup, summarizeRollups, type AwaitableActivityStore, type SpanRow } from "./store.js";
 
 export function runActivityQuery(
   db: Database,
-  store: ActivityStore,
+  store: AwaitableActivityStore,
   query: ActivityQuery,
   notifier?: ActivityNotifier
 ): ActivityQueryResult {

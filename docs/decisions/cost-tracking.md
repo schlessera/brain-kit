@@ -128,7 +128,7 @@ math and authoritative backend cost remain available independently; aggregates
 exclude unknown effective costs from their sum and count the runs as unpriced.
 Explicit valid subscription/API classifications keep their existing behavior.
 The rollup reads the root attribute and prices child usage for cron locally
-(`const attrBilling`, `packages/ui-server/src/activity/store.ts:537-538`).
+(`const attrBilling`, `packages/ui-server/src/activity/store.ts:554-555`).
 
 This is a change to the evidence used for new computations, not a historical
 backfill. First non-null billing, list cost, effective cost and estimate values
@@ -156,7 +156,7 @@ still satisfies the interface. The host declares the billing mode with
 `CreateAppOptions.labeller.billing`; nothing infers it.
 
 The run is written so the existing rollup prices it without a rule of its
-own (`const endRun`, `packages/ui-server/src/labels/labeller.ts:235-251`). The
+own (`const endRun`, `packages/ui-server/src/labels/labeller.ts:242-257`). The
 reported usage and model become the root's `gen_ai.usage.per_model`, and the
 declared billing is written as `brain.billing_mode` **only beside usage and a
 model**. The rollup prices a subscription run at $0 whatever its tokens, so a

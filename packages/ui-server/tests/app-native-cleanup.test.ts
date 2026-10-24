@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import { expectRejection, rejection } from "./helpers/expect-rejection.js";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -28,10 +29,10 @@ test("app shutdown closes operational state even after journal cleanup rejects, 
   const journal = app.wsHost.journal!, close = journal.close.bind(journal), failure = Error("Fixture journal cleanup failed after settling roots");
   journal.close = async () => { await close(); throw failure; };
   try {
-    await expect(app.close()).rejects.toBe(failure);
+    expect(await rejection(app.close())).toBe(failure);
     expect(() => app.db.query("SELECT 1").get(), "APP_CLEANUP_FAILURE_STILL_CLOSES_UI_DATABASE").toThrow();
     expect(app.wsHost.closing).toBe(true);
-    await expect(app.close()).rejects.toBe(failure);
+    expect(await rejection(app.close())).toBe(failure);
   } finally { await f.close(); }
 });
 
@@ -42,7 +43,7 @@ test("unknown native deletion stays durable while app shutdown still closes UI s
   try {
     await app.wsHost.journal!.begin("cleanup-turn", { actor: "interactive", sessionId: "ithaca", model: null, profile: "governed", policyHash: "fixture" }, () => {});
     f.native.client.release = async () => { throw Error("Fixture unknown native deletion receipt"); };
-    await expect(app.close()).rejects.toBeInstanceOf(AggregateError);
+    await expectRejection(app.close(), AggregateError);
     expect(() => app.db.query("SELECT 1").get(), "APP_UNKNOWN_NATIVE_RELEASE_STILL_CLOSES_UI_DATABASE").toThrow();
     ledger = new Database(f.leasePath);
     const rows = ledger.query("SELECT id,state FROM native_root_leases").all() as { id: string; state: string }[];
@@ -63,7 +64,7 @@ test("late app boot failure drains acquired runtimes and closes its UI database 
   const observability = createRecordingObservability(), meter = observability.meter.bind(observability), failure = Error("Fixture late boot auth meter refusal");
   observability.meter = name => { if (name === "auth") throw failure; return meter(name); };
   try {
-    await expect(createApp({ config: f.config, registry: f.registry, observability })).rejects.toBe(failure);
+    expect(await rejection(createApp({ config: f.config, registry: f.registry, observability }))).toBe(failure);
     expect(handles.length, "APP_LATE_BOOT_FAILURE_EXERCISES_OPEN_UI_STATE").toBeGreaterThan(0);
     for (const db of handles) expect(() => db.query("SELECT 1").get(), "APP_LATE_BOOT_FAILURE_CLOSES_EVERY_UI_HANDLE").toThrow();
   } finally { capture.mockRestore(); await f.close(); }

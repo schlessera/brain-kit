@@ -15,7 +15,7 @@ export class JournalStorageUnavailable extends Error {
  * Connection-local triggers: a journal row changed outside an accounted
  * write is refused, so no journal storage reaches the disk unadmitted.
  */
-function installEscapeGuard(db: Database) {
+export function installEscapeGuard(db: Database) {
   const tables = (db.query("SELECT name FROM sqlite_schema WHERE type='table' AND name GLOB 'turn_journal_*' AND name != 'turn_journal_allocation'").all() as { name: string }[]).map(row => row.name);
   for (const table of tables) for (const event of ["INSERT", "UPDATE", "DELETE"]) {
     db.exec(`CREATE TEMP TRIGGER IF NOT EXISTS ${table}_accounted_${event.toLowerCase()} BEFORE ${event} ON main.${table}

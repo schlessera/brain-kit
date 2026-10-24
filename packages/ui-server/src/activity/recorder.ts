@@ -44,10 +44,11 @@ import { redactCredentials, type RuntimeStatus } from "./runtime-status.js";
 import { inputTaintSource, outputTaintSource, type IngestionSource } from "./ingestion-taint.js";
 import { recordFirstTaint } from "../governance/session-taint.js";
 import { MAX_PROVIDER_UNAVAILABLE_PER_TURN, providerUnavailablePayloads } from "../governance/provider-unavailable.js";
-import type { ActivityStore, SpanOutcome, SpanUsage } from "./store.js";
+import type { AwaitableActivityStore, SpanOutcome, SpanUsage } from "./store.js";
+import { orderedWrites } from "./store-writes.js";
 
 export interface TurnRecorderDeps {
-  store: ActivityStore;
+  store: AwaitableActivityStore;
   /** Where the runtime a turn reported, and its auth failures, are kept for /api/status. */
   runtime?: Pick<RuntimeStatus, "observe" | "authFailure"> & Partial<Pick<RuntimeStatus, "subscriptionProven" | "recordWorkerHost">>;
   /** Called after any committed write so the live stream can pump. */
@@ -68,6 +69,8 @@ export interface TurnRecorderDeps {
 }
 
 export interface TurnRecorder {
+  /** Settles once every write this recorder has submitted has committed or failed. */
+  settled(): Promise<void>;
   setMainModel(model: string): void;
   setWorkerProfile(profile: GovernanceProfile): void;
   /** The run id (one run per turn). */
@@ -135,7 +138,7 @@ export function createTurnRecorder(
     profile?: GovernanceProfile | null;
   }
 ): TurnRecorder {
-  const { store, onWrite, log, runtime } = deps;
+  const { onWrite: wrote, log, runtime } = deps;
   const runId = turn.turnId;
   const rootSpanId = `${runId}:turn`;
   let sessionId = turn.sessionId ?? undefined;
@@ -189,17 +192,25 @@ export function createTurnRecorder(
     call.endedAt = Date.now();
   };
 
+  const dropped = (err: unknown) => {
+    log?.emit({
+      severityText: "WARN",
+      body: "activity recording failed; dropping",
+      attributes: { error: err instanceof Error ? err.message : String(err) },
+    });
+  };
   const guard = (fn: () => void) => {
     try {
       fn();
     } catch (err) {
-      log?.emit({
-        severityText: "WARN",
-        body: "activity recording failed; dropping",
-        attributes: { error: err instanceof Error ? err.message : String(err) },
-      });
+      dropped(err);
     }
   };
+  // The hosted store commits off the event loop (#2814): this turn's writes
+  // stay in call order, and the live stream pumps only after they commit.
+  const writes = orderedWrites(deps.store, dropped);
+  const store = writes.store;
+  const onWrite = wrote ? () => writes.after(wrote) : undefined;
 
   function ensureRoot() {
     if (rootStarted) return;
@@ -242,6 +253,7 @@ export function createTurnRecorder(
   }
 
   return {
+    settled: () => writes.settled(),
     setMainModel(model) { if (!finished) mainModel = model; },
     setWorkerProfile(profile) { turn.profile = profile; },
     runId,
@@ -393,13 +405,17 @@ export function createTurnRecorder(
             if (prefixRecorded || turn.origin === "autonomous" || typeof event.resumed !== "boolean" || !validPrefix(event.prefix)) break;
             ensureRoot();
             prefixRecorded = true;
-            const prior = sessionId ? store.previousSessionRoot?.(rootSpanId, sessionId) : null;
-            store.patchSpan(rootSpanId, { attrs: {
-              "brain.cache.prefix": { tools: event.prefix.tools, system: event.prefix.system, model: event.prefix.model,
-                thinking: event.prefix.thinking, gitStatusIncluded: event.prefix.gitStatusIncluded, coverage: event.prefix.coverage },
-              "brain.cache.resumed": event.resumed,
-              "brain.cache.changed": event.resumed ? changedPrefix(event.prefix, prior?.attrs["brain.cache.prefix"] as typeof event.prefix | undefined) : "unknown",
-            } });
+            // The prior root is read in this turn's write order, once its own root has committed.
+            const session = sessionId;
+            writes.after(() => {
+              const prior = session ? deps.store.previousSessionRoot?.(rootSpanId, session) : null;
+              return deps.store.patchSpan(rootSpanId, { attrs: {
+                "brain.cache.prefix": { tools: event.prefix.tools, system: event.prefix.system, model: event.prefix.model,
+                  thinking: event.prefix.thinking, gitStatusIncluded: event.prefix.gitStatusIncluded, coverage: event.prefix.coverage },
+                "brain.cache.resumed": event.resumed,
+                "brain.cache.changed": event.resumed ? changedPrefix(event.prefix, prior?.attrs["brain.cache.prefix"] as typeof event.prefix | undefined) : "unknown",
+              } });
+            });
             onWrite?.();
             break;
           }
@@ -676,8 +692,10 @@ export function createTurnRecorder(
             "brain.usage.completed_responses": true, "brain.usage.at_tool_boundary": atToolBoundary,
             ...(reportedCost != null ? { "brain.usage.reported_cost_usd": reportedCost } : {}) };
         }
+        const endedAt = Date.now();
         store.endSpan(rootSpanId, {
           outcome,
+          endedAt,
           usage: resultUsage,
           attrs: { ...resultAttrs, ...(budgetStop ? {"brain.failure.class":budgetStop.errorClass} : {}) },
           ...((outcome === "error" || outcome === "timeout") && (reason ?? budgetStop?.reason ?? resultFailureReason) !== undefined
@@ -688,10 +706,7 @@ export function createTurnRecorder(
         store.cascadeClose(runId, "cancelled", `turn ${outcome}`);
         store.rollupRun(runId);
         // Kept now, not only when the status is next read (#254).
-        if (outcome === "success" && observedBilling === "subscription") {
-          const endedAt = store.getSpan(rootSpanId)?.endedAt;
-          if (typeof endedAt === "number") runtime?.subscriptionProven?.(endedAt);
-        }
+        if (outcome === "success" && observedBilling === "subscription") runtime?.subscriptionProven?.(endedAt);
         onWrite?.();
       });
       // Separately guarded: a classification or storage failure loses the

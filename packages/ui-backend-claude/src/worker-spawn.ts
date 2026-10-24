@@ -232,9 +232,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
           if (promoter && recovered) await state.prepareCopyOut?.(handle.root, text => promoter.prepareRecovery(text, signal), signal);
           if (recovered) signal.throwIfAborted();
           persistenceAttempted = true;
-          state.persist(handle.root, promoter?.rewrite, persistMemory);
+          await state.persist(handle.root, promoter?.rewrite, persistMemory);
         } catch (error) {
-          if (!persistenceAttempted) persistMemory?.(null, () => {});
+          if (!persistenceAttempted) await persistMemory?.(null, () => {});
           // The exhaustion message must not claim what the copy-out refused.
           if (failure?.errorClass === FIRST_PARTY_FAILURE_CLASSES.worker_state_exceeded) failure = exceededFailure(state.bytes, error);
           else if (!failure) failure = workerStateSaveFailure(error);

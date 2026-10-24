@@ -14,13 +14,13 @@ const f=storageRemovalFixture(root);
 const full=()=>{const fd=openSync(root+"/"+volume+"/occupied","wx");let refused=false;try{for(let i=0;i<4096;i++)writeSync(fd,Buffer.alloc(4096));}catch(error){if(error.code!=="ENOSPC")throw error;refused=true;}finally{closeSync(fd);}if(!refused||statfsSync(root+"/"+volume).bavail!==0)throw Error("STORAGE_SPACE_CONTROL_NOT_FULL");};
 try{
 if(volume==="objects")full();
-const review=await f.removal.review("odysseus","odysseus-space-0001",["attachments/chart.pdf"]);f.removal.start("odysseus",review.review.id,review.review.fingerprint);await f.removal.idle();
+const review=await f.removal.review("odysseus","odysseus-space-0001",["attachments/chart.pdf"]);await f.removal.start("odysseus",review.review.id,review.review.fingerprint);await f.removal.idle();
 if(volume==="objects"){
 if(!readFileSync(target).equals(original))throw Error("STORAGE_ENOSPC_ORIGINAL_MUST_SURVIVE");
 if(f.removal.receipt("odysseus",review.review.id).items[0].state!=="failed")throw Error("STORAGE_ENOSPC_MUST_REFUSE");
 }else{
 if(existsSync(target))throw Error("STORAGE_UNDO_SPACE_CONTROL_NOT_REMOVED");full();
-const undo=await f.removal.review("odysseus","odysseus-space-undo",["attachments/chart.pdf"],review.review.id);f.removal.start("odysseus",undo.review.id,undo.review.fingerprint);await f.removal.idle();
+const undo=await f.removal.review("odysseus","odysseus-space-undo",["attachments/chart.pdf"],review.review.id);await f.removal.start("odysseus",undo.review.id,undo.review.fingerprint);await f.removal.idle();
 if(existsSync(target))throw Error("STORAGE_UNDO_ENOSPC_PARTIAL_MUST_NOT_SURVIVE");
 if(!f.removal.receipt("odysseus",review.review.id).items[0].undoAvailable)throw Error("STORAGE_UNDO_ENOSPC_RETAINED_ORIGINAL_MUST_SURVIVE");
 }

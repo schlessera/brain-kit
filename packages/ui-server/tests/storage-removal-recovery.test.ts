@@ -22,11 +22,11 @@ for(const phase of ["after-retain","after-intent","after-unlink","after-ack"])te
       expect(result.items[0]?.undoAvailable).toBe(phase==="after-ack");
       if(phase==="after-ack"){
         const undo=await recovered.removal.review("odysseus","odysseus-crash-undo",["attachments/chart.pdf"],id);
-        recovered.removal.start("odysseus",undo.review.id,undo.review.fingerprint);await recovered.removal.idle();
+        await recovered.removal.start("odysseus",undo.review.id,undo.review.fingerprint);await recovered.removal.idle();
         expect(readFileSync(target),"STORAGE_CRASH_RETAINED_ORIGINAL_UNDO").toEqual(f.original);
       }
       writeFileSync(target,"Penelope's later replacement");
-      expect(recovered.removal.start("odysseus",id,result.review.fingerprint).state).toBe("unknown");await recovered.removal.idle();
+      expect((await recovered.removal.start("odysseus",id,result.review.fingerprint)).state).toBe("unknown");await recovered.removal.idle();
       expect(readFileSync(target,"utf8"),"STORAGE_CRASH_NO_REPLAY_ON_REPLACEMENT").toBe("Penelope's later replacement");
     } finally{await recovered.close();}
   }finally{child.kill("SIGKILL");await child.exited;await f.close();}
@@ -37,7 +37,7 @@ test("an actual other-process writer finishes before removal validation while ne
   const reviewed=await f.removal.review("odysseus",id,["attachments/chart.pdf"]);
   const child=Bun.spawn([process.execPath,entry,f.root,"writer",id,marker],{stdout:"pipe",stderr:"pipe"});
   try {
-    await reached(marker,child);f.removal.start("odysseus",id,reviewed.review.fingerprint);
+    await reached(marker,child);await f.removal.start("odysseus",id,reviewed.review.fingerprint);
     for(let i=0;i<500&&!(f.db.query("SELECT count(*) AS n FROM writer_gate_turn_waiters").get() as {n:number}).n;i++)await Bun.sleep(5);
     expect((f.db.query("SELECT count(*) AS n FROM writer_gate_turn_waiters").get() as {n:number}).n,"STORAGE_REMOVAL_QUEUED_EXCLUSIVE").toBe(1);
     expect(readFileSync(join(f.brain,"attachments/chart.pdf")),"STORAGE_REMOVAL_WAITS_FOR_LIVE_WRITER").toEqual(f.original);

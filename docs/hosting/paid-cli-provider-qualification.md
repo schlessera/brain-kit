@@ -135,7 +135,7 @@ usage stay unknown; never infer tokens from payload bytes or vector length.
 The current shared inference/egress counter measures application or opaque
 transport bytes. These units stay separate from provider token, character,
 image or time units. Activity's current token pricing uses input/output/cache
-classes (`priceUsage`, `packages/ui-server/src/activity/store.ts:1058-1088`);
+classes (`priceUsage`, `packages/ui-server/src/activity/store.ts:1075-1105`);
 it cannot silently price image modalities or enterprise billable characters as
 ordinary tokens. Image model-table costs remain estimates; unknown model/rate
 combinations remain unknown. No live invoice or price validation is implied by

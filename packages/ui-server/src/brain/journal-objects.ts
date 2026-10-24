@@ -7,11 +7,12 @@ import { promisify } from "node:util";
 export interface JournalObjectReservation {
   readonly id?: string;
   /** Convert an in-flight reservation to one retained object, or release a deduplicated copy. */
-  finish(hash: string, bytes: number, alreadyPresent: boolean): void;
-  cancel(): void;
+  finish(hash: string, bytes: number, alreadyPresent: boolean): void | Promise<void>;
+  cancel(): void | Promise<void>;
 }
+/** A ledger may commit off the event loop (#2814): every step is awaited. */
 export interface JournalObjectAccounting {
-  reserve(bytes: number, hash: string): JournalObjectReservation;
+  reserve(bytes: number, hash: string): JournalObjectReservation | Promise<JournalObjectReservation>;
 }
 
 const DIRECTORY = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
@@ -34,12 +35,14 @@ export class JournalCapacityError extends Error {
 export function createJournalObjects(root: string, accounting: JournalObjectAccounting): {
   has(hash: string): boolean;
   putFileAsync(source: number, size: number, signal?: AbortSignal): Promise<string>;
-  putBytes(bytes: Uint8Array): string;
+  putBytes(bytes: Uint8Array): Promise<string>;
   read(hash: string, maxBytes: number): Buffer;
   verify(hash: string, bytes: number): boolean;
-  withVerifiedCopy<T>(hash: string, bytes: number, apply: (copy: (destination: number) => void) => T): T;
+  /** The object stays open and verified until `apply` settles. */
+  withVerifiedCopy<T>(hash: string, bytes: number, apply: (copy: (destination: number) => void) => T | Promise<T>): Promise<T>;
   discardPending(id: string): void;
-  stream(hash: string, released: () => void): { body: ReadableStream<Uint8Array>; bytes: number };
+  /** The body ends only after `released` settles, so a finished reader holds no lease. */
+  stream(hash: string, released: () => void | Promise<void>): { body: ReadableStream<Uint8Array>; bytes: number };
   remove(hash: string): void;
   close(): void;
 } {
@@ -64,10 +67,10 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
   };
   return {
     has,
-    putBytes(bytes) {
+    async putBytes(bytes) {
       assertOpen();
       const digest = createHash("sha256").update(bytes).digest("hex");
-      const reservation = accounting.reserve(bytes.length, digest);
+      const reservation = await accounting.reserve(bytes.length, digest);
       const temporary = `pending-${reservation.id ?? crypto.randomUUID()}`;
       let output: number | undefined, created = false, published = false;
       try {
@@ -81,12 +84,12 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         try { fs.linkSync(path(temporary), path(digest)); published = true; }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !has(digest)) throw error; duplicate = true; }
         unlinkSync(path(temporary)); created = false; fsyncSync(directory);
-        reservation.finish(digest, bytes.length, duplicate);
+        await reservation.finish(digest, bytes.length, duplicate);
         return digest;
       } catch (error) {
         if (output !== undefined) closeSync(output);
         if (created) unlinkSync(path(temporary));
-        if (!published) reservation.cancel(); throw error;
+        if (!published) await reservation.cancel(); throw error;
       }
     },
     async putFileAsync(source, size, signal) {
@@ -122,7 +125,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       }
       const expectedHash = await digestSource();
       signal?.throwIfAborted();
-      const reservation = accounting.reserve(size, expectedHash);
+      const reservation = await accounting.reserve(size, expectedHash);
       const name = `pending-${reservation.id ?? crypto.randomUUID()}`;
       let output: number | undefined, present = false, published = false;
       try {
@@ -136,12 +139,12 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
         catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !has(digest)) throw error; duplicate = true; }
         await unlinkAsync(path(name)); present = false;
         await syncAsync(directory);
-        reservation.finish(digest, size, duplicate);
+        await reservation.finish(digest, size, duplicate);
         return digest;
       } catch (error) {
         if (output !== undefined) await closeAsync(output);
         if (present) await unlinkAsync(path(name));
-        if (!published) reservation.cancel();
+        if (!published) await reservation.cancel();
         throw error;
       }
     },
@@ -181,7 +184,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       try { unlinkSync(path(`pending-${id}`)); fsyncSync(directory); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     },
-    withVerifiedCopy(hash, bytes, apply) {
+    async withVerifiedCopy(hash, bytes, apply) {
       const fd = openObject(hash);
       try {
         if (fstatSync(fd).size !== bytes) throw new Error("Retained version size changed.");
@@ -192,7 +195,7 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
           digest.update(buffer.subarray(0, count)); position += count;
         }
         if (digest.digest("hex") !== hash) throw new Error("Retained version checksum changed.");
-        return apply(destination => {
+        return await apply(destination => {
           let position = 0;
           while (position < bytes) {
             const count = readSync(fd, buffer, 0, Math.min(buffer.length, bytes - position), position);
@@ -208,21 +211,21 @@ export function createJournalObjects(root: string, accounting: JournalObjectAcco
       const fd = openObject(hash), bytes = fstatSync(fd).size;
       let position = 0, ended = false;
       const digest = createHash("sha256");
-      const finish = () => { if (!ended) { ended = true; closeSync(fd); released(); } };
+      const finish = async () => { if (!ended) { ended = true; closeSync(fd); await released(); } };
       const body = new ReadableStream<Uint8Array>({
-        pull(controller) {
+        async pull(controller) {
           try {
             if (position === bytes) {
               if (digest.digest("hex") !== hash) throw new Error("Journal object integrity check failed.");
-              finish(); controller.close(); return;
+              await finish(); controller.close(); return;
             }
             const chunk = Buffer.alloc(Math.min(64 * 1024, bytes - position));
             const count = readSync(fd, chunk, 0, chunk.length, position);
             if (!count) throw new Error("Journal object ended before its recorded size.");
             const observed = chunk.subarray(0, count); digest.update(observed); position += count; controller.enqueue(observed);
-          } catch (error) { finish(); controller.error(error); }
+          } catch (error) { await finish(); controller.error(error); }
         },
-        cancel() { finish(); },
+        async cancel() { await finish(); },
       });
       return { body, bytes };
     },

@@ -3795,6 +3795,12 @@ change only after the save succeeds. Failed or interrupted finalization remains
 partial/unconfirmed. Other backends need not implement Claude native-memory
 persistence; this adds no agent history authority or new public request route.
 
+The callback may return a promise (additive, #2814): the first-party server
+commits its journal records on a write worker, off its event loop, and invokes
+the save closure only after they commit. A backend awaits the returned value
+before it persists the next note or ends the turn; a callback that returns
+nothing behaves exactly as before.
+
 ### Late Activity session association
 
 `ActivityStore.patchSpan` accepts an optional `sessionId` to bind an unnamed
