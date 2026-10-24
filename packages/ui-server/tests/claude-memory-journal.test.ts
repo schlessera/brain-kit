@@ -104,7 +104,7 @@ test("interruption after memory commit retains staged versions and reports uncon
     // Model abrupt owner loss before the exception handler could finalize the
     // turn. The staged receipt and raw file are the already-durable facts;
     // successor initialization must not infer whether the save committed.
-    f.db.query("UPDATE turn_journal_turns SET state='recording',missing='[]',failure='',pid=2147483647,pid_start='',ended_at=NULL WHERE turn_id='return'").run();
+    f.journal.writeOperation(() => f.db.query("UPDATE turn_journal_turns SET state='recording',missing='[]',failure='',pid=2147483647,pid_start='',ended_at=NULL WHERE turn_id='return'").run());
     await f.reopen();
     const details = f.journal.details("ithaca", "return")!;
     expect(details.summary.state).toBe("partial");
