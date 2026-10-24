@@ -17,7 +17,7 @@ import type {
   TurnFailure,
 } from "@schlessera/brain-ui-sdk/server";
 import { buildSystemPromptAppend } from "@schlessera/brain-ui-sdk/server";
-import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
+import { RTK_WORKER_ENV, workerOutwardNote, workerCommandPolicyNote, prepareWorkerSandbox, prepareWorkerSandboxAsync, workerSandboxNote, workerSandboxWarnings, WORKER_SCRATCH, WORKER_STATE, WORKER_XDG_DIRS,
   outputStagingLimit, turnTempLimit, type TurnTempAccess } from "@schlessera/brain-ui-sdk/internal";
 import { isThinkingLevel, stateRoomCopy, stateRoomWarning } from "@schlessera/brain-ui-sdk/protocol";
 import { QUERY_ACTIVITY_TOOL_NAME } from "./activity-tool.js";
@@ -572,4 +572,18 @@ async function* buildAttachmentPrompt(
   attachments: ChatImageAttachment[]
 ): AsyncIterable<SDKUserMessage> {
   yield userMessage(text, attachments);
+}
+
+/**
+ * The sandbox an ordinary turn prepares for itself when its host supplied
+ * none (#2796), awaiting the scratch area's git check instead of blocking the
+ * event loop while a loaded host starts its maintenance worker. The inputs
+ * are `assembleClaudeSdkTurn`'s own fallback's: without a relayed transport
+ * or the restricted envelope, its `childEnv` is the turn's environment.
+ * Undefined when the host supplied one or the assembly prepares its own.
+ */
+export async function prepareClaudeTurnSandbox(options: Pick<ClaudeSdkTurnOptions, "backend" | "req" | "profile" | "turnEnvironment" | "hostInference">) {
+  const { backend, req } = options;
+  if (req.workerSandbox || options.hostInference || req.autonomous?.containment === "restricted") return undefined;
+  return prepareWorkerSandboxAsync(backend.brainPath, { home: (options.turnEnvironment ?? turnEnv(options.profile)).HOME, maintenance: backend.maintenance });
 }
