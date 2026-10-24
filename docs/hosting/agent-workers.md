@@ -227,7 +227,9 @@ memory folder. Other saved sessions are untouched. Copy-out refuses links,
 hardlinks, special files and anything past the allowance; a memory note another
 conversation changed during the turn is not overwritten and is named in the
 error, the other notes still persist, and nothing is deleted. An autonomous
-turn copies nothing in and writes nothing back. If the server process dies, its
+turn copies nothing in and writes nothing back. A turn whose provider rules
+mask a folder (#2726) copies no `memory/` notes in and saves none back, new or
+replacing; its transcript still saves, and the saved notes stay as they were. If the server process dies, its
 workers and their tmpfs mounts go with it; nothing is left to clean up.
 
 The allowance does not cover the worker's other writable places (`/tmp` and
@@ -1414,6 +1416,17 @@ Listing an origin in `BRAIN_UI_CLAUDE_OAUTH_ORIGINS` or
 storage no relay runs, so no recipient is proven and every provider folder
 stays masked. The table and the rules are in
 [supported inputs](../supported-inputs.md#governance-policy).
+
+**Continuing a conversation under provider rules (#2726).** A turn whose
+provider rules mask a folder continues an existing conversation only if the
+server recorded that the conversation was born with that folder masked and
+kept it masked on every turn since. A conversation started before the rule,
+on a route that could see the folder, or on a server that kept no such record
+is refused with a request to start a new conversation, before any of its
+history is copied to a worker or sent; the saved transcript is not changed.
+The same holds for a handoff from such a conversation, and drafting its
+handoff summary is refused. Expect existing conversations to need a fresh start
+the first time you add a provider rule.
 
 ### Untrusted input (#1667)
 

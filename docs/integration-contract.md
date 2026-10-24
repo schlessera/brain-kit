@@ -124,6 +124,27 @@ them, with `ProviderRecipientRefusedError`. The optional
 supplies the origin. No schema, CLI `--json` shape, MCP tool or HTTP route
 changes.
 
+## Provider-denied auto-memory and continuation (availability, 0.44.0, #2726)
+
+A hosted interactive or voice turn whose admitted masks hide at least one
+provider folder no longer receives the brain project's saved Claude
+auto-memory (`memory/`), and saves no note to it, new or replacing. It
+continues an existing conversation, or the source of a handoff, only when the
+server's lineage proves every folder it masks was masked from every turn of
+that conversation since it began; a fresh conversation born under the masks
+qualifies, and its later turns narrow what it qualifies for. Every other
+continuation is refused before any history is copied or sent, in the existing
+turn error envelope. Unless the earlier `ProviderRecipientRefusedError` (#2695)
+applies first, the refusal is `ProviderContinuationRefusedError`; its message
+starts `This turn cannot start: the governance policy's provider rules
+hide` and ends with `Start a new conversation; the saved one is kept
+unchanged.` A `handoff_prepare` for such a chat fails in the existing
+`handoff_draft` envelope, as it does whenever the policy has a type selector. Saved memory and transcripts stay byte-identical.
+The lineage is host-internal (migration 063); no schema, CLI `--json` shape,
+MCP tool, wire frame or HTTP route changes. This is a maintainer-ruled
+availability reduction for provider-denied turns, recorded in the
+[G2 decision](decisions/governed-writable-workers.md#data-to-provider-routing-g2).
+
 ## Authoritative surfaces
 
 - [Package API and extensions](integration-contract/package-api.md).
