@@ -96,13 +96,13 @@ Both reviewers verified every row below against the source.
 | Cookie verify | `auth.ts:265-296` | strict `^(\d+)\.(\d+)$`, safe integers, future/expired rejection, `cookieEpoch === sessionsEpoch(db)` |
 | Global epoch | `auth.ts:302-318` | `settings` row; missing = 0; non-integer **throws** |
 | Global revoke | `auth.ts:321-330` | `setSetting` (overflow-guarded) + `clients.closeAll(1008, …)` |
-| Auth routes | `authRoutes`, `app.ts:853` | mounted **before** the guard at `authGuard(authMode`, `app.ts:868`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:808`) |
-| Passkey management | `passkeyManagementRoutes`, `app.ts:878` | mounted **after** the guard ("Mount AFTER the auth guard") |
-| WS guard | `"/ws"`, `app.ts:1051-1068` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
+| Auth routes | `authRoutes`, `app.ts:846` | mounted **before** the guard at `authGuard(authMode`, `app.ts:861`; logout guards itself (`resolveCookiePrincipal(c, auth, deps.db)`, `auth.ts:808`) |
+| Passkey management | `passkeyManagementRoutes`, `app.ts:871` | mounted **after** the guard ("Mount AFTER the auth guard") |
+| WS guard | `"/ws"`, `app.ts:1048-1065` | origin → `isWsAuthorized` (returns a boolean, `auth.ts:221-237`) → capacity → upgrade |
 | WS upgrade | `ws/connection.ts:262-264` | `createWsUpgrade` ignores the request context |
 | WS admission | `ws/connection.ts:84` | `clients.add(ws)` — the socket's identity is unknown |
 | Turn record | `ws/run-session.ts:136-144` | recorder built from `{turnId, sessionId, billing}`; `RunningTurn` (`ws/turns.ts:55-77`) has no actor |
-| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:1080` | queued entries re-mint `turnId` in the same slot and may come from another socket |
+| Follow-up queue | `QueuedFollowUp`, `ws/turns.ts:61-103`; `slot.queue.push(entry)`, `run-session.ts:1077` | queued entries re-mint `turnId` in the same slot and may come from another socket |
 | Password login | `acquirePasswordVerification(key)`, `auth.ts:749` | argon2id verify, failure counting, in-flight reservation, then `issueSessionCookie` |
 | Passkey login | `issueLoginSession`, `packages/ui-server/src/middleware/passkeys.ts:448` | assertion verified, then `issueSessionCookie`; `row.id` is in scope |
 | Passkey **registration** | `INSERT INTO passkey_credentials`, `passkeys.ts:547` | inserts a credential; calls **neither** helper |
@@ -130,8 +130,8 @@ Two findings that are true today, independent of this plan:
   `ClientSet` keys on `ws.raw`. Entries outlive the socket and keep the poller
   awake. U5 fixes the keying; worth a standalone fix if this plan slips.
 - **`docs/integration-contract.md` covers the WebSocket and activity surfaces**
-  (`Revision negotiation`, `docs/integration-contract/wire.md:167-181`;
-  `Activity stream`, `:517-531`), so how attribution reaches a client is a
+  (`Revision negotiation`, `docs/integration-contract/wire.md:173-187`;
+  `Activity stream`, `:523-537`), so how attribution reaches a client is a
   contract decision (Key decision 7), not an implementation detail.
 
 ## Key technical decisions
@@ -204,7 +204,7 @@ credentials, not people.
 (`upsertRollup`, `activity/sql.ts:19-24`) — the rollup is what survives span
 pruning, so cost-by-actor dies at prune time without it. The precedent is
 profile/billing: a root-span attr that the rollup reads (`spanId: rootSpanId`,
-`activity/recorder.ts:220-235`). Nullable for cron (`origin: "cron"`,
+`activity/recorder.ts:209-224`). Nullable for cron (`origin: "cron"`,
 `activity/span-sink.ts:102`, `cron/run-job.ts:113`) and for pre-migration rows;
 nothing is backfilled.
 

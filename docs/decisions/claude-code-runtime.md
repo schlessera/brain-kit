@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:549-549`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1132`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:550-550`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1133`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
@@ -59,7 +59,7 @@ next to it.
   spawned it directly at this baseline. #1037 subsequently made worker execution
   unconditional; #1808 retired this unused adapter. The optional exec wrapper
   now runs inside the worker (`createWorkerSpawn`,
-  `packages/ui-backend-claude/src/worker-spawn.ts:93-331`).
+  `packages/ui-backend-claude/src/worker-spawn.ts:93-334`).
 - **Updated.** Nothing in the tree installs, updates, pins or reads the version
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,

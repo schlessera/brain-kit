@@ -251,21 +251,6 @@ export function uncoveredFolders(masked: readonly string[], always: readonly str
   return masked.filter(folder => !always.some(covered => within(folder, covered)));
 }
 
-// The writer gate plans retention when it is acquired, before a turn can run
-// the worker that reads the taxonomy. It reuses the folders the last admission
-// under the same policy version translated, so peers acquired meanwhile retain
-// them too. A stale entry only retains an extra folder; admission still
-// refuses a peer lacking what it actually masks.
-const lastTypeFolders = new Map<string, { hash: string | null; folders: readonly string[] }>();
-const brainKey = (brainPath: string) => { try { return realpathSync(brainPath); } catch { return brainPath; } };
-export function rememberProviderTypeFolders(brainPath: string, hash: string | null, folders: readonly string[]): void {
-  lastTypeFolders.set(brainKey(brainPath), { hash, folders: Object.freeze([...folders].sort()) });
-}
-export function rememberedProviderTypeFolders(brainPath: string, hash: string | null): readonly string[] {
-  const entry = lastTypeFolders.get(brainKey(brainPath));
-  return entry && entry.hash === hash ? entry.folders : [];
-}
-
 /**
  * Turn admission refused because earlier turns of the conversation showed
  * provider folders to a recipient, and this turn's recipient may not see

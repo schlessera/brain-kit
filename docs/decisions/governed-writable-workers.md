@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:114-263`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:114-265`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:601-606`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:600-605`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-265`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-267`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1411,7 +1411,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:311`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:299`).
 
 **What changes:**
 
@@ -1777,9 +1777,13 @@ Unknown checking capability refuses. Existing peers continue, nested shared
 maintenance stays admissible, and strict consumers keep their existing path.
 A peer whose plan only lacks a root is waited for, up to
 `PEER_FOLDER_PLAN_WAIT_MS`, before it refuses (#2832): a type selector's folders
-are planned only once a turn has translated it, so writers admitted with the
-server predate them, and every later writer inherits them from the held plan
-(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:235-246`).
+are planned only once a turn has translated it under the current policy hash,
+so writers admitted before that translation predate them, and every later
+writer inherits them from the held plan
+(`waitForPeerFolderPlans`, `packages/ui-server/src/brain/writer-gate.ts:262-273`).
+The translation is recorded in the UI database, so after the first one under a
+policy hash, writers in every process, the cron runner's and a restarted
+server's included, plan its folders without waiting (#2836).
 Successful plan checks remain nonattestation and cannot authorize a protected
 reader; complete active-writer provenance remains required.
 
@@ -1992,7 +1996,7 @@ every turn without a proven recipient:
   - **Auto-memory.** A denied Claude worker gets no saved project
     `memory/`, and no note it writes is saved, neither a new name nor a
     replacement of an existing one (`omitMemory`,
-    `packages/ui-backend-claude/src/worker-state.ts:285-285`). Its notes stay
+    `packages/ui-backend-claude/src/worker-state.ts:284-284`). Its notes stay
     in its tmpfs and are discarded with it, so no note can collide with a
     saved one and refuse the turn's transcript. The decision is taken from
     the host's actual masks (`sandbox.providerMasks.folders`), never from a
@@ -2002,7 +2006,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:160-169`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:162-171`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2230,9 +2234,17 @@ files as masked.
 The writer gate plans retention when a writer is admitted, before any
 taxonomy is read. It reuses the folders the last admission translated for the
 same policy hash, so a writer admitted between turns, such as the post-turn
-index refresh, retains them and the next turn's peer check passes. A stale
-entry only retains an extra folder. Admission still refuses a peer lacking
-what it actually masks.
+index refresh or a cron job, retains them and the next turn's peer check
+passes. Admission records that translation in the UI database, one row per
+canonical brain holding the exact policy hash and its folders, so it reaches
+the cron runner's process and survives a restart (#2836;
+`function recordedTypeFolders`, `packages/ui-server/src/brain/writer-gate.ts:162-171`).
+The host never translates it itself: only admission does, under its worker
+boundary. A missing, unreadable or other-hash record plans no type folder, and
+a stale one only retains an extra folder. Admission still refuses a peer
+lacking what it actually masks. Until the first turn under a new policy hash
+has translated it, writers plan without its type folders, and that turn waits
+for them as above.
 
 When admission refreshes the startup view before the turn starts (a strict
 turn whose writable roots appeared after the first checkpoint), it reads the
@@ -3016,7 +3028,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:226-298`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:222-285`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3039,8 +3051,8 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:435-465`; destination-bound recovery
-is `const target`, `packages/ui-server/src/brain/turn-revert.ts:108-118`.
+`packages/ui-server/src/brain/turn-journal.ts:462-497`; destination-bound recovery
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:106-116`.
 
 ### Concurrent edits
 
@@ -3073,7 +3085,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:50-73`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:49-72`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name

@@ -43,7 +43,7 @@ session. Three consequences:
 
 1. **Background work cannot ask.** Cron runs (`sync`, `validate`, `maintain`, module jobs)
    have no human attached. `bridge.requestPermission` parks a promise that nobody will
-   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:298-392`), so autonomous work is confined to
+   resolve (`requestPermission: (req) => {`, `packages/ui-server/src/ws/bridge.ts:297-391`), so autonomous work is confined to
    whatever is pre-approved, and anything requiring judgment is not attempted.
 2. **Inbound material has no path.** A forwarded email, a shared link, a captured note has
    nowhere to land that the agent will act on later. The PWA share target stages into
@@ -150,7 +150,7 @@ Stated before the requirements because five of them derive from it.
   thread_id, item_id, seq)` **carries `thread_id` explicitly** — activity stores its scope
   in the change row for exactly this reason
   ((`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`),
-  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:894-923`)), and deriving scope through a join on a
+  (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:877-906`)), and deriving scope through a join on a
   mutable item is weaker and breaks tombstones. `change_id` is the global cursor, `seq` is
   per-thread order. Append-only checkpoints, unique resolution records, scheduler
   heartbeats and budget reservations also need explicit durable storage. The four
@@ -221,12 +221,12 @@ Stated before the requirements because five of them derive from it.
 
 ### Execution
 
-- R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:11-14`) owns only manual triggers and
-  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:57-196`) already runs an interval tick with a boot sweep —
+- R18. **The drain ticks in-server.** (`// manual triggers (triggerJob)`, `packages/ui-server/src/cron/scheduler.ts:10-13`) owns only manual triggers and
+  history, but (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:55-194`) already runs an interval tick with a boot sweep —
   that is the shape to copy, including its `close()` lifecycle.
 - R19. **The cron backstop has independent authorization before the general guard.**
   Mount it on the existing listener before
-  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:868`).
+  (`app.use("/api/*", authGuard(`, `packages/ui-server/src/app.ts:861`).
   Authorize a boot-minted ephemeral token, rotated each boot and stored in a
   0600 runtime file, with the actual socket address as an additional check.
   Proxy headers cannot authorize it. The poke succeeds in every auth mode
@@ -239,7 +239,7 @@ Stated before the requirements because five of them derive from it.
 - R21. The generated crontab gains the five-minute poke line (the deployment's
   entrypoint, owned by brain-hosting-template).
 - R22. Claiming is `BEGIN IMMEDIATE`. WAL and `busy_timeout = 5000` are already set for
-  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:25-37`), so no posture change is
+  two-process writes (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:27-44`), so no posture change is
   needed — but the invariant is explicit: **an immediate transaction covers the claim or the
   settlement, never a model call or filesystem work.** A writer holding the lock past five
   seconds still yields `SQLITE_BUSY`. Test a cron heartbeat racing an inbox claim.
@@ -253,17 +253,17 @@ Stated before the requirements because five of them derive from it.
   `persistSession: false`; pi provides `SessionManager.inMemory`. Drive this mode
   with a synthetic checkpoint bridge and server-selected authority; the
   recorder accepts autonomous origin and keeps runtime identity separate from an interactive session
-  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:113-191`).
+  (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:110-188`).
 - R25. **Autonomous work gets its own pool** (`MAX_AUTONOMOUS_RUNS`, default 2) — but a second
   counter alone does not deliver "interactive always wins". The host cap applies only when
-  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1290-1302`), and an autonomous
+  starting WS sessions (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1287-1299`), and an autonomous
   turn can hold a path write lock while an interactive turn waits or is denied at 30 seconds
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`). Required: an admission controller
   with reserved interactive capacity and hybrid yield at an explicit denial-risk
   threshold (~20s of the 30s lock budget). Below it nothing yields; above it the
   holder checkpoints/unwinds/releases. Test both edges and independent paths.
 - R26. **Abort-and-redo needs a checkpoint primitive.** `requestPermission` parks a bare
-  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:342-400`) — while blocked on it the model cannot write anything, so
+  promise (`return new Promise<PermissionDecision>((resolve) => {`, `packages/ui-server/src/ws/bridge.ts:341-399`) — while blocked on it the model cannot write anything, so
   "writes its findings, then aborts" has nowhere to run. The autonomous bridge must, in one
   server-side step: capture the checkpoint, create the Action and block the item, unwind without a live approval promise, preserving the tested timeout
   path's abort-then-drain order (`abortController.abort();`, `packages/ui-server/src/ws/run-session.ts:393-399`). Aborting does **not** undo completed tool side
@@ -343,7 +343,7 @@ Stated before the requirements because five of them derive from it.
   policy proposals, and discuss-session digest construction when those v2 features ship. Revision 1's "T2 is the entire
   bill" was false.
 - R41. **Budgets are enforced by reservation at claim time, not by summing history.**
-  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:707`), so cost exists only after a
+  `rollupRun` runs in `finish()` (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:689`), so cost exists only after a
   run ends: two runs can both start under the cap and finish over it, and unknown effective
   costs are excluded from the sum (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) so the query **fails open**.
   Required: transactional reservations on claim, in-flight reservations counted, settlement at

@@ -92,6 +92,7 @@ import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
 import { openSqliteWriter } from "./db/write-worker.js";
+import { JOURNAL_SCHEMA, journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
@@ -447,7 +448,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   const db = createUiDb(config.dbPath, { log: dbLog });
   bootCleanup.push(() => db.close());
   // Journal and Activity commits run on this worker's connection, off the event loop (#2814).
-  const writer = openSqliteWriter(db);
+  // It owns the journal's own file too (#2789), attached as it is here.
+  const writer = openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(config.dbPath) }] });
   bootCleanup.push(() => writer.close());
   reconciled(hostExecution.attach(db));
   // Shared reference source (#2429) runs only where the native manager owns a reference pool.
@@ -937,6 +939,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   for (const [path, label] of [[config.dbPath, "Operational database"], [nativeLeasePath, "Native lease database"]] as const) {
     if (!path || path === ":memory:") continue;
     for (const suffix of ["", "-wal", "-shm", "-journal"]) storageStores.push({ path: resolve(path + suffix), label: label + suffix, category: "database", owner: "app", recursive: false, optional: suffix !== "" });
+  }
+  // The journal's metadata has its own file since #2789; it is retained file history, like its objects.
+  if (!ephemeralJournal) for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+    storageStores.push({ path: journalDatabasePath(config.dbPath) + suffix, label: "Retained file history database" + suffix, category: "journal", owner: "app", recursive: false, optional: suffix !== "" });
   }
   for (const [index, path] of (config.storage?.backupRoots ?? []).entries()) storageStores.push({ path, label: `Backup store ${index + 1}`, category: "backup", owner: "operator", recursive: true });
   const storage = createStorageCoordinator({ salt: storageHistory.salt, shared: storageShared,
