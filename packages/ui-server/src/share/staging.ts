@@ -300,7 +300,9 @@ export async function stageShareAt(
   input: ShareInput,
   id: string,
   log?: Logger,
-  source: "web-share-target" | "cli" = "web-share-target"
+  source: "web-share-target" | "cli" = "web-share-target",
+  /** Receives every staged file's bytes, by brain-relative path, before they are published. */
+  onPublish?: (files: ReadonlyMap<string, Uint8Array>) => void
 ): Promise<ShareIntakeResult> {
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error("Invalid staging id");
   input.signal?.throwIfAborted();
@@ -344,6 +346,7 @@ export async function stageShareAt(
     // meta.json is reserved: a shared file called that must not overwrite it.
     const used = new Set<string>(["meta.json"]);
     const staged: SharedFileMeta[] = [];
+    const published = new Map<string, Uint8Array>();
     const skipped: string[] = [];
     let total = 0;
 
@@ -387,6 +390,7 @@ export async function stageShareAt(
         // freshly minted directory nothing can pre-exist, so this is a loud
         // assertion rather than a fix — which is the point.
         await writeFile(join(partialDir, name), bytes, { flag: "wx" });
+        published.set(path, bytes);
       } catch (err) {
         // One unwritable file (ENOSPC, a stricter filesystem) must not throw
         // away the other four. Record it and carry on; the share is only lost
@@ -424,11 +428,10 @@ export async function stageShareAt(
       files: staged,
       ...(skipped.length ? { skipped } : {}),
     };
-    await writeFile(
-      join(partialDir, "meta.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf-8"
-    );
+    const meta = `${JSON.stringify(manifest, null, 2)}\n`;
+    await writeFile(join(partialDir, "meta.json"), meta, "utf-8");
+    published.set(`${dir}/meta.json`, new TextEncoder().encode(meta));
+    onPublish?.(published);
 
     // The share becomes visible here, whole, in one operation.
     input.signal?.throwIfAborted();

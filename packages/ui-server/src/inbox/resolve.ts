@@ -5,6 +5,7 @@ import { clientInboxResolveSchema, inboxOptionSchema, validateResolutionEffect }
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxStore } from "./store.js";
 import { enqueueInboxCleanup, inboxIdentity } from "./actions.js";
+import { recordInboxProvenance } from "./provenance.js";
 
 const DAY = 86_400_000;
 /** Calendar rule uses one configured timezone; persisted times remain UTC. */
@@ -115,6 +116,8 @@ export function createInboxResolver(db: Database, deps: {
           id: followUpId!, dedupKey: followUpId!, threadId: action.threadId, queue: "queue", type: "execute", status: "ready",
           version: 1, attempts: 0, maxAttempts: 3, createdAt: now(), updatedAt: now(), expiresAt: action.expiresAt, payload: effect.payload,
         } }]);
+        // The instruction is the decision's own option, so it carries the decision's provenance (#2741).
+        if (effect.kind === "enqueue") recordInboxProvenance(db, { item: followUpId! }, { derivedFrom: { item: action.id } }, now());
         enqueueInboxCleanup(db, action.threadId, now());
         return { replay: false, followUpId };
       }).immediate();

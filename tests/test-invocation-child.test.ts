@@ -1,9 +1,65 @@
-import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { invocationChild } from "../scripts/test-invocation-child";
 import { processIdentity } from "../scripts/workspace-lease.mjs";
+
+test("a process disappearing during a procfs read cannot fail a completed invocation", async () => {
+  // Linux returns ESRCH when an opened /proc/<pid>/stat loses its process
+  // before read(2), rather than ENOENT from opening an already absent path.
+  const transient = Bun.spawn([process.execPath, "-e", "setInterval(()=>{},1000)"], { stdout: "ignore", stderr: "ignore" });
+  const stat = openSync(`/proc/${transient.pid}/stat`, "r");
+  transient.kill("SIGKILL");
+  await transient.exited;
+  const nativeRead = fs.readFileSync;
+  const child = invocationChild([process.execPath, "-e", 'console.log("Odysseus completed");process.exitCode=21;']);
+  let reader: ReturnType<typeof spyOn> | undefined;
+  try {
+    expect(() => nativeRead(stat, "utf8"), "THE_KERNEL_SUPPLIES_THE_REAL_PROCFS_RACE").toThrow(expect.objectContaining({ code: "ESRCH" }));
+    await child.ready;
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code).toBe(21);
+    expect(stdout).toBe("Odysseus completed\n");
+    expect(stderr).toBe("");
+    let raced = 0;
+    // Interpose only the cleanup scan's first procfs read. Every other read
+    // stays native, and the error itself comes from the dead process's FD.
+    reader = spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
+      if (typeof path === "string" && /^\/proc\/\d+\/stat$/.test(path) && raced++ === 0) return Reflect.apply(nativeRead, fs, [stat, options]);
+      return Reflect.apply(nativeRead, fs, [path, options]);
+    }) as typeof fs.readFileSync);
+    await expect(child.finish(), "VANISHED_PROCESS_CANNOT_FAIL_COMPLETED_INVOCATION").resolves.toBeUndefined();
+    expect(raced, "THE_CLEANUP_SCAN_EXERCISED_THE_RACE").toBeGreaterThan(0);
+    expect(await child.exited, "COMMAND_STATUS_SURVIVES_CLEANUP").toBe(21);
+    expect(child.signalCode).toBeNull();
+  } finally {
+    reader?.mockRestore();
+    await child.finish().catch(() => {});
+    closeSync(stat);
+  }
+});
+
+test("an unexpected procfs read failure still refuses invocation cleanup", async () => {
+  const child = invocationChild([process.execPath, "-e", 'console.log("Penelope completed");']);
+  const nativeRead = fs.readFileSync;
+  let reader: ReturnType<typeof spyOn> | undefined;
+  try {
+    await child.ready;
+    expect(await child.exited).toBe(0);
+    await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const failure = Object.assign(new Error("procfs access refused"), { code: "EACCES" });
+    reader = spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, options?: Parameters<typeof fs.readFileSync>[1]) => {
+      if (typeof path === "string" && /^\/proc\/\d+\/stat$/.test(path)) throw failure;
+      return Reflect.apply(nativeRead, fs, [path, options]);
+    }) as typeof fs.readFileSync);
+    await expect(child.finish(), "UNEXPECTED_PROCFS_ERRORS_STILL_FAIL_CLOSED").rejects.toBe(failure);
+  } finally {
+    reader?.mockRestore();
+    await child.finish().catch(() => {});
+  }
+});
 
 test("cancellation before the anchor handshake never launches the command", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-anchor-start-"));

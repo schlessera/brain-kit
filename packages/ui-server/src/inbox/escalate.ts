@@ -3,6 +3,7 @@ import type { InboxActionItem, InboxOperation } from "@schlessera/brain-ui-sdk/p
 import type { AutonomousEscalation } from "./autonomous-turn.js";
 import { inboxOperationSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
 import { createInboxStore } from "./store.js";
+import { recordInboxProvenance } from "./provenance.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { enforceInboxActionCap, inboxActionContext, inboxActionSuppressed, inboxIdentity, insertInboxAction, retireInboxAction, type InboxActionContext } from "./actions.js";
 
@@ -48,6 +49,9 @@ export function escalateInbox(db: Database, input: InboxEscalationInput): void {
     // The validated live turn is blocked on this decision. Models supply the
     // captured intent, but cannot select this immutable notification fact.
     insertInboxAction(db, input.action, input.allowedOperations, context, now, false, true);
+    // Both are the run's own text, produced under its admitted masks (#2741).
+    for (const subject of [{ checkpoint: inboxIdentity("escalation", item.id, input.escalation.runId) }, { item: input.action.id }])
+      recordInboxProvenance(db, subject, { origin: "autonomous", runId: input.escalation.runId }, now);
     store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "blocked", blockedByItemId: input.action.id }]);
     if (suppressed) retireInboxAction(db, input.action, "dropped", now, false);
     enforceInboxActionCap(db, input.cap, now);

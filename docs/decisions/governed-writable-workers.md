@@ -458,7 +458,7 @@ stage (`createScratchIgnoreQuery`,
 directory is not ignored. Launch failure, another exit or timeout means the
 rule could not be verified; the mask remains refused without forwarding worker
 stderr or claiming that the ignore file needs repair (`assertScratchMaskAsync`,
-`packages/ui-sdk/src/server/bridge-tools/mask.ts:217-228`).
+`packages/ui-sdk/src/server/bridge-tools/mask.ts:224-235`).
 
 **Credentials never reach a process that evaluates repository inputs.** A
 read-only host does not stop sandboxed code from stealing a credential it was
@@ -1137,7 +1137,7 @@ classification:
   `strict`.
 - **Native tools return under `governed`.** In Claude the
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
-  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:339`). In
+  (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:341`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
   return (`const bash`, `packages/ui-backend-pi/src/tools.ts:546`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
@@ -1523,7 +1523,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1805`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1837`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1582,7 +1582,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:239-303`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:239-316`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -2056,7 +2056,7 @@ every turn without a proven recipient:
     roadblock signatures (`scope=roadblocks`). `running` and `rollups`
     return labels and counts that may also name documents.
   - `inbox_list` and `inbox_get` (`inboxList`,
-    `packages/ui-server/src/inbox/bridge-tools.ts:51-72`): each item's stored
+    `packages/ui-server/src/inbox/bridge-tools.ts:57-78`): each item's stored
     payload, titles, details and option labels, and its thread.
 
   None of these fields records which documents its text came from. A run from
@@ -2071,6 +2071,73 @@ every turn without a proven recipient:
   traced to its source. Such a turn loses the agent's diagnostics over
   earlier runs (failures, cost, roadblocks) and its inbox reads; the user
   still reads both in the app, and turns without masked folders keep them.
+- **Autonomous origin threads (audit and maintainer ruling, 2026-10-24,
+  #2741 option C).** #2698 left autonomous turns out. Their bridge still
+  serves `inbox_list` and `inbox_get` when the exact roster allows them,
+  scoped to the turn's origin thread (`inboxList: async`,
+  `packages/ui-server/src/inbox/bridge-tools.ts:57-78`), and the dispatcher
+  embeds the thread's text in the first message (`async function context`,
+  `packages/ui-server/src/inbox/dispatcher.ts:163-185`). Source inspection
+  finds these retained thread inputs:
+  - the triggering arrival's staged title, text and text attachments, read
+    from `.brain-ui/inbox/<staging id>/` (`stagedArrival`), which a governed
+    worker can write after intake;
+  - a follow-up's instruction, copied from the decision option a person chose,
+    and the thread's latest non-triage checkpoint state (model-authored);
+  - through the reads, every item's payload, title, detail and option labels
+    (escalated decisions, notices), and the thread's state projection, which
+    concatenates every checkpoint's state.
+
+  The ruling: a turn with masked folders starts only when trusted host
+  provenance shows every item and checkpoint of its origin thread compatible
+  with those masks, checked once the masks are exact and before any thread
+  text is read into the prompt (`admission = await admitOriginThread`,
+  `packages/ui-server/src/inbox/autonomous-turn.ts:350`). The dispatcher's
+  context is built afterwards, from the admission's arrival read and in the
+  transaction that revalidates it, and both reads revalidate in their own
+  transaction before building any payload (`function authorizeRead`,
+  `packages/ui-server/src/inbox/bridge-tools.ts:47-51`). Host code records
+  the evidence in `inbox_provenance`, in the transaction that writes the item
+  or checkpoint, bound to a digest of its text (`export function
+  recordInboxProvenance`, `packages/ui-server/src/inbox/provenance.ts:78-97`).
+  Compatible evidence is exactly: a person's arrival through the
+  authenticated share or queue route, outside any turn, also bound to a
+  digest of the staged bytes intake read (`const evidence = person`,
+  `packages/ui-server/src/inbox/intake.ts:107`); text the server composed
+  from no brain content or model output (schedule instructions, cleanup and
+  lifecycle notices); and text an autonomous run wrote (escalations, yields)
+  whose admitted masks hid every folder now masked. Triage results count as
+  server text: the server composes them from closed route and reason
+  vocabularies. A copy (follow-ups, a retired decision's notice) carries its
+  source's record. Intake digests the bytes it is about to publish, never a
+  re-read of the published directory, which a governed worker could rewrite.
+  Admission records the masks, policy hash and qualifying evidence on the
+  run's budget reservation (`provider_admission`), which is where the run's
+  own records take their hidden folders from
+  (`export async function admitOriginThread`,
+  `packages/ui-server/src/inbox/provenance.ts:138-168`).
+
+  Everything else is refused, never assumed compatible: a legacy item or
+  checkpoint with no record, an arrival a conversation added through
+  `inbox_add` (that conversation's earlier history is #2726's scope), text
+  from a run that saw a folder now masked (including every run before the
+  rule), a record whose digest no longer matches, rewritten staging bytes,
+  and any read after the policy hash changed. A timestamp, the latest policy
+  hash, the trigger role or a thread id grants nothing. The refusal is the
+  `provider_masked` error `ProviderThreadRefusedError`, recorded as the run's
+  failure reason; it names the thread, the masked folders and the unqualified
+  records, never their text. The attempt fails into backoff and, once
+  exhausted, dead-letters as any failed attempt: stored items and staging are
+  kept, the work is not completed, rewritten or sent to another provider, and
+  no sanitized history is invented. The refusal itself removes nothing.
+  Afterwards the work follows the lifecycle of any failed work: it expires
+  with its retention, and its dead-letter decision counts against the Actions
+  cap, which can retire it and journal its staging cleanup. Legacy or unverifiable queued work may
+  therefore be refused under a provider rule; compatibility is a proof
+  obligation, not presumed from creation time. Tool names, schemas, rosters,
+  principal and scope checks are unchanged, and turns without masked folders
+  are unaffected. The scheduled task's approved definition is not thread
+  history and keeps its own approval.
 
 
 **Selectors that map onto folders (maintainer, 2026-10-23, #2694 option C).**
@@ -2284,9 +2351,10 @@ neither is text a turn copied into an unselected document. Host-side helpers
 that read a user's own messages, such as pill labels and titles, are not
 inference over brain content and are not judged.
 
-Still open under #1668: state written before a policy existed (#2726) and
-what the activity record and inbox items retain (#2698). Each restricted turn
-also pays one keyword index build at admission.
+Still open under #1668: state written before a policy existed (#2726). What
+the activity record and inbox items retain is settled for hosted turns (#2698)
+and autonomous origin threads (#2741). Each restricted turn also pays one
+keyword index build at admission.
 
 **Indexing.** The same rule feeds [embedding eligibility](embedding-eligibility.md):
 a path that may not reach the configured embeddings provider keeps keyword
@@ -2523,7 +2591,7 @@ current launcher opens mounts directly (`function openPrivateState`,
 `function* openPrivateTurnTempSteps`,
 `packages/ui-sdk/src/server/worker-launcher.ts:1111-1137`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1284-1357`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1285-1358`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2840,7 +2908,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
   [module resolution](https://bun.sh/docs/runtime/module-resolution) and
   [startup configuration](https://bun.sh/docs/runtime/bunfig) rules.
 - Claude's project MCP location is root `.mcp.json`; its cwd is the selected
-  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:306-323`).
+  brain (`const sdkOptions`, `packages/ui-backend-claude/src/sdk-options.ts:308-325`).
   Existing instruction, skills, `.claude/`, `.agents/`, `.pi/` and scheduled-task
   surfaces remain unchanged. Their retained module references can likewise
   identify package metadata within that same scope.

@@ -47,7 +47,7 @@ export { DEFAULT_MAINTENANCE_TEMP_BYTES, DEFAULT_MAINTENANCE_TEMP_BUDGET_BYTES, 
 export { hostMaintenanceTempLimits } from "./server/maintenance-temp-limits.js";
 export { workerHostProven, HOST_MASKS, MAINTENANCE_HOME, WORKER_PROVIDER_RELAY_DIR } from "./server/worker-launcher.js";
 export type { MaintenanceEnvelope } from "./server/worker-launcher.js";
-export { brainGitSync, CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
+export { brainGitSync, CREDENTIAL_FREE_ENV, prepareMaintenanceGitInput, prepareMaintenanceWorker, launchMaintenanceWorker, launchMaintenanceWorkerAsync, maintenanceLaunch, probeMaintenanceWorker, probeNativeMaintenanceWorker, runMaintenanceWorker, runMaintenanceWorkerSync } from "./server/maintenance-worker.js";
 export type { MaintenanceHost, MaintenanceCommand, MaintenanceResult, MaintenanceWorker } from "./server/maintenance-worker.js";
 export { createWorkerStartupView, prepareNativeWorkerStartupView, retainWorkerStartupView, nativeWorkerStartupInput, isManagedWorkerStartupView, hasManagedNativeStorage } from "./server/worker-startup-view.js";
 export type { WorkerStartupView } from "./server/worker-startup-view.js";

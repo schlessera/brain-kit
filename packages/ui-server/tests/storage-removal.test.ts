@@ -109,7 +109,7 @@ test("expired detail hides Undo and changed ignore policy cannot expand recovery
     writeFileSync(join(f.brain,".gitignore"),"attachments/chart.pdf\n");f.removal.start("odysseus",undo.review.id,undo.review.fingerprint);await f.removal.idle();
     expect(existsSync(join(f.brain,"attachments/chart.pdf")),"STORAGE_UNDO_CURRENT_IGNORE_POLICY").toBe(false);
     expect(f.removal.receipt("odysseus",undo.review.id).items[0]?.state).toBe("protected");
-    f.db.query("UPDATE turn_journal_turns SET state='expired' WHERE turn_id=?").run(`storage_${id}`);
+    f.journal.writeOperation(() => f.db.query("UPDATE turn_journal_turns SET state='expired' WHERE turn_id=?").run(`storage_${id}`));
     expect(f.removal.receipt("odysseus",id).items[0],"STORAGE_UNDO_EXPIRY_VISIBLE").toMatchObject({undoAvailable:false,undoReason:"retained_detail_expired_or_unavailable"});
   }finally{await f.close();}
 });
@@ -133,7 +133,7 @@ test("Undo leases only originals still owned at the atomic retention admission b
     const review=await f.removal.review("odysseus",id,["attachments/chart.pdf"]);f.removal.start("odysseus",id,review.review.fingerprint);await f.removal.idle();
     const undo=await f.removal.review("odysseus","odysseus-lease-undo",["attachments/chart.pdf"],id),write=f.journal.writeOperation.bind(f.journal);let expired=false;
     f.journal.writeOperation=<T>(apply:()=>T):T=>{const result=write(apply);const row=f.db.query("SELECT receipt FROM turn_journal_storage_operations WHERE id=?").get(undo.review.id) as {receipt:string}|null;
-      if(!expired&&row&&JSON.parse(row.receipt).items[0].state==="applying"){expired=true;f.db.query("UPDATE turn_journal_turns SET state='expired' WHERE turn_id=?").run(`storage_${id}`);}return result;};
+      if(!expired&&row&&JSON.parse(row.receipt).items[0].state==="applying"){expired=true;write(()=>f.db.query("UPDATE turn_journal_turns SET state='expired' WHERE turn_id=?").run(`storage_${id}`));}return result;};
     f.removal.start("odysseus",undo.review.id,undo.review.fingerprint);await f.removal.idle();
     expect(existsSync(join(f.brain,"attachments/chart.pdf")),"STORAGE_UNDO_RETENTION_CHECK_AT_LEASE").toBe(false);
   }finally{await f.close();}

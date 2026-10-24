@@ -9,7 +9,8 @@ import type {
 } from "../../tool-contracts/index.js";
 import type { BackendBridge } from "../backend.js";
 import { resolveInRepo } from "./resolve-in-repo.js";
-import { brainGitSync } from "../maintenance-worker.js";
+import { brainGitSteps } from "../maintenance-worker.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, type WorkerSteps } from "../worker-steps.js";
 
 /**
  * Options for `handleRequestImageMask`; the adapter owns the mask filename.
@@ -84,8 +85,8 @@ export async function handleRequestImageMask(
   } else if (maskInScratch(rootReal, maskRel, maskAbs)) {
     // Beside a draft in the scratch area: the scratch rules, then the host's
     // prune, the way the CLI's own writers prune after a write (#310).
-    assertScratchMask(rootReal, maskRel, maskAbs, options.maintenance);
-    writeScratchMask(rootReal, maskAbs, png, options.maintenance);
+    await runWorkerStepsAsync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, options.maintenance));
+    await runWorkerStepsAsync(writeScratchMaskSteps(rootReal, maskAbs, png, options.maintenance));
     await bridge.pruneScratch?.([relative(rootReal, maskAbs).split(sep).join("/")]);
   } else {
     writeMaskFile(maskAbs, png);
@@ -136,8 +137,10 @@ function isSymlink(path: string): boolean {
  * Whether git excludes the scratch DIRECTORY (the only exclusion nothing
  * below it can re-include): `check-ignore` on the directory path, which has
  * to exist, and outside a repository the same question through an empty one.
+ * As steps, so a tool call awaits the maintenance worker instead of holding
+ * the server's event loop while a loaded host starts it (#2790).
  */
-function scratchIgnored(rootReal: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): boolean {
+function* scratchIgnoredSteps(rootReal: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): WorkerSteps<boolean> {
   requireScratchDescriptors();
   // Creating the directory is a write too: a scratch/.brain replacement must
   // not redirect even this setup step outside the held directory chain.
@@ -147,9 +150,9 @@ function scratchIgnored(rootReal: string, maintenance?: import("../maintenance-w
   // a maintenance worker (#1648); one that cannot run refuses the mask.
   const inRepo =
     existsSync(join(rootReal, ".git")) ||
-    brainGitSync(rootReal, ["rev-parse", "--git-dir"], maintenance) === 0;
+    (yield* brainGitSteps(rootReal, ["rev-parse", "--git-dir"], maintenance)) === 0;
   const query = ["check-ignore", "-q", "--no-index", "--", SCRATCH_DIR];
-  return scratchIgnoreResult({ exitCode: brainGitSync(rootReal, query, { ...maintenance, ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
+  return scratchIgnoreResult({ exitCode: yield* brainGitSteps(rootReal, query, { ...maintenance, ...(!inRepo ? { emptyRepository: true } : {}) }), killed: false });
 }
 
 function scratchIgnoreUnavailable(): Error {
@@ -200,8 +203,12 @@ export function maskInScratch(rootReal: string, maskRel: string, maskAbs: string
  * it, is not its business.
  */
 export function assertScratchMask(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): void {
+  runWorkerStepsSync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, maintenance));
+}
+
+function* assertScratchMaskSteps(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost): WorkerSteps<void> {
   if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs)) return;
-  if (!scratchIgnored(rootReal, maintenance)) refuseNonignoredScratch();
+  if (!(yield* scratchIgnoredSteps(rootReal, maintenance))) refuseNonignoredScratch();
 }
 
 function assertScratchMaskDirectory(rootReal: string, maskRel: string, maskAbs: string): boolean {
@@ -216,7 +223,7 @@ function assertScratchMaskDirectory(rootReal: string, maskRel: string, maskAbs: 
 /** Hosted queries await their own complete native input; fallback hosts retain their synchronous reader. */
 export async function assertScratchMaskAsync(rootReal: string, maskRel: string, maskAbs: string, maintenance?: import("../maintenance-worker.js").MaintenanceHost, signal?: AbortSignal): Promise<void> {
   if (!assertScratchMaskDirectory(rootReal, maskRel, maskAbs)) return;
-  if (!maintenance?.scratchIgnoreQuery) return assertScratchMask(rootReal, maskRel, maskAbs, maintenance);
+  if (!maintenance?.scratchIgnoreQuery) return runWorkerStepsAsync(assertScratchMaskSteps(rootReal, maskRel, maskAbs, maintenance));
   let result: { exitCode: number; killed: boolean };
   try { result = await maintenance.scratchIgnoreQuery(signal); }
   catch { throw scratchIgnoreUnavailable(); }
@@ -382,9 +389,13 @@ export function writeMaskFile(maskAbs: string, png: Uint8Array): void {
  * earlier mask of the same name, as it always did.
  */
 export function writeScratchMask(rootReal: string, maskAbs: string, png: Uint8Array, maintenance?: import("../maintenance-worker.js").MaintenanceHost): void {
+  runWorkerStepsSync(writeScratchMaskSteps(rootReal, maskAbs, png, maintenance));
+}
+
+function* writeScratchMaskSteps(rootReal: string, maskAbs: string, png: Uint8Array, maintenance?: import("../maintenance-worker.js").MaintenanceHost): WorkerSteps<void> {
   requireScratchDescriptors();
   const dir = scratchDir(rootReal);
-  if (!scratchIgnored(rootReal, maintenance)) {
+  if (!(yield* scratchIgnoredSteps(rootReal, maintenance))) {
     throw new Error(`${SCRATCH_DIR}/ is not gitignored as a directory; run \`brain doctor --fix\`.`);
   }
   const absolute = resolve(maskAbs);

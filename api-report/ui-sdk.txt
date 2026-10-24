@@ -1130,6 +1130,7 @@ export "./internal" (./src/internal.ts)
   launchAgentWorkerAsync
   launchLimits
   launchMaintenanceWorker
+  launchMaintenanceWorkerAsync
   limitFailureMessage
   linkedTurnTempPaths
   loadedSdkIdentity

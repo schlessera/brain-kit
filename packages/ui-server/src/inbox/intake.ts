@@ -8,6 +8,8 @@ import { safeResolve } from "../files/walker.js";
 import { isUsablePrincipal, resolvePrincipal, type Principal } from "../db/principals.js";
 import { createInboxStore } from "./store.js";
 import { shareContentHash, stageShareAt, type ShareInput } from "../share/staging.js";
+import { publishedArrival, stagedArrivalDigest } from "./arrival.js";
+import { recordInboxProvenance } from "./provenance.js";
 
 export class IntakeAuthorizationError extends Error {}
 export class IntakeKeyConflictError extends Error {}
@@ -73,7 +75,12 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
       return { result, created: work.created, threadId: work.thread.id, itemId: work.item.id };
     }).immediate();
   }
-  async function ingest(source: "share" | "cli", input: ShareInput, principal: Principal, explicitKey?: string, isCurrent?: () => boolean) {
+  /**
+   * `person` marks an arrival a person made through an authenticated route,
+   * outside any turn: its provenance is recorded with the staged bytes read
+   * here (#2741). A turn's arrival records none.
+   */
+  async function ingest(source: "share" | "cli", input: ShareInput, principal: Principal, explicitKey?: string, isCurrent?: () => boolean, person = false) {
     if (closed) throw new Error("Intake is closed");
     authorize(principal, isCurrent);
     await reconcile();
@@ -92,8 +99,12 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     active.add(id);
     let accepted = false;
     try {
-      const result = await stageShareAt(brainRoot, input, id, log, source === "cli" ? "cli" : "web-share-target");
+      let published: ReadonlyMap<string, Uint8Array> | undefined;
+      const result = await stageShareAt(brainRoot, input, id, log, source === "cli" ? "cli" : "web-share-target", files => { published = files; });
       const binaryHashes = result.skipped?.length ? [] : await Promise.all(input.files.map(async (file, index) => ({ path: result.files[index]?.path, sha256: createHash("sha256").update(new Uint8Array(await file.arrayBuffer())).digest("hex") })));
+      // Evidence of the bytes this process wrote, never a re-read of the
+      // published directory; unreadable staging records none.
+      const evidence = person && published ? await publishedArrival(id, published).then(stagedArrivalDigest, () => null) : null;
       const outcome = db.transaction(() => {
         authorize(principal, isCurrent); // revocation may occur during decoding or staging
         const owned = db.query("SELECT state FROM inbox_intake_receipts WHERE staging_id = ?").get(id) as { state: string } | null;
@@ -109,6 +120,7 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
         if (!work.created) throw new Error("Intake receipt is missing for an existing item");
         db.query("UPDATE inbox_intake_receipts SET state = 'committed', item_id = ?, result_json = ?, binary_hashes_json = ? WHERE staging_id = ?")
           .run(work.item.id, JSON.stringify(result), JSON.stringify(binaryHashes), id);
+        if (evidence) recordInboxProvenance(db, { item: work.item.id }, { origin: "person", evidence });
         return { result, created: true, threadId: work.thread.id, itemId: work.item.id };
       }).immediate();
       accepted = outcome.result.id === id;
@@ -130,8 +142,11 @@ export function createInboxIntake(db: Database, brainRoot: string, log?: Logger)
     return task;
   }
   return {
-    share: (input: ShareInput, principal: Principal) => tracked(() => ingest("share", input, principal)),
+    /** A person's share through the authenticated share route. */
+    share: (input: ShareInput, principal: Principal) => tracked(() => ingest("share", input, principal, undefined, undefined, true)),
     cli: (input: ShareInput, key: string, principal: Principal, isCurrent?: () => boolean) => tracked(() => ingest("cli", input, principal, key, isCurrent)),
+    /** A person's arrival through the authenticated queue route, outside any turn. */
+    person: (input: ShareInput, key: string, principal: Principal) => tracked(() => ingest("cli", input, principal, key, undefined, true)),
     reconcile,
     protectedIds: () => new Set((db.query("SELECT staging_id FROM inbox_intake_receipts WHERE state != 'cleanup'").all() as { staging_id: string }[]).map(row => row.staging_id)),
     close: async () => { closed = true; await Promise.allSettled([...pending]); },

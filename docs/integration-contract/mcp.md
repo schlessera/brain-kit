@@ -149,7 +149,7 @@ Application results are `{ ok: boolean, message: string, changes:
 indexed?: boolean, outcome?: object }`. A null result hash denotes a removed
 source. `changes` names only committed effects. A refused result is visible to
 the agent and recorded as a server-authored `brain_application` activity event;
-policy denial, provider-mask refusal (`provider_masked`, #2690; whole-tool for `query_activity`, `inbox_list` and `inbox_get`, #2698), alias denial, topology change, stale base, revoked authority,
+policy denial, provider-mask refusal (`provider_masked`, #2690; whole-tool for `query_activity`, `inbox_list` and `inbox_get`, #2698; an autonomous origin thread without compatible provenance, #2741), alias denial, topology change, stale base, revoked authority,
 membership, permission, invalid request, unsupported kind/host, payload and
 cancellation errors never silently merge or replay. Error codes are additive;
 consumers tolerate unknown codes. Claude wraps the result in MCP text with
@@ -791,7 +791,10 @@ Every executor rechecks the durable principal and current turn. Interactive
 reads use the authenticated UI's scope; autonomous reads are restricted to the
 server-selected origin thread from the admitted budget item and cannot widen
 it with a tool argument. An activity-linked item sharing a run ID cannot
-select the origin or grant read scope.
+select the origin or grant read scope. Under provider folder masks an
+autonomous read first revalidates its origin thread's provenance admission
+(#2741) and refuses with `provider_masked` when the thread or policy no longer
+qualifies.
 `inbox_add` reuses compensated CLI intake for authenticated interactive
 origins, and refuses an untrusted origin thread. Its key is scoped to principal
 and turn: retries with identical text return the same item; different text

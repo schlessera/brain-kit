@@ -15,6 +15,11 @@ caller's event loop. `workerHostBoundary` gains `probeAsync`, which answers
 through a replaced `probe`, so one test double still stands in for both.
 The synchronous exports are unchanged.
 
+Its `launchMaintenanceWorkerAsync` (#2790) likewise drives
+`launchMaintenanceWorker`'s steps: a separate-UID helper worker's setup is
+awaited instead of blocking. Everything before that first wait, the
+maintenance admission included, still runs when it is called.
+
 This is internal compatibility wiring under the internal-entry classification
 below. It changes no ordinary package signature, CLI/MCP/HTTP envelope,
 frontmatter meaning or credential authority, and requires a patch changeset.
@@ -109,6 +114,17 @@ passes its origin to `startInferenceRelay` as the new internal
 `recipientOrigin` option. The relay then refuses to start toward any other
 origin, and a turn without a relay refuses to start. The first-party
 Claude and pi backends implement all three.
+
+## Inbox provenance (additive, #2741)
+
+The intake `createInboxIntake` returns adds `person(input, key, principal)`:
+queue intake for a person's arrival through an authenticated route, outside
+any turn. It records that provenance with a digest of the staged bytes, so a
+provider-masked autonomous turn may admit the thread; `share(...)` records the
+same, and `cli(...)` records none. `InboxBridgeContext` adds optional
+`qualifyOrigin(): void`, run in each `inbox_list` and `inbox_get` transaction
+before any payload is built; it throws to refuse the read. The server's
+autonomous turns pass one that revalidates their origin thread's admission.
 
 **Disclosure coverage badge (additive, #1846).** The kit's `DisclosureProps`
 adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral

@@ -99,6 +99,24 @@ quote a masked document. The tools stay registered with the same names and
 schemas; a turn without masked folders and the owner's UI read them as before.
 No governance event is recorded for these refusals.
 
+Additive (#2741, maintainer ruling C): an autonomous turn whose provider rules
+mask a folder starts only when host provenance shows every item and checkpoint
+of its origin thread was written without those folders: a person's arrival
+through the authenticated share or queue route (bound to the staged bytes
+intake read), server-composed text, or an autonomous run that masked them, as
+its budget reservation records. Otherwise it refuses before its prompt is
+built or any provider is reached, with an error whose message starts
+`provider_masked: inbox thread <id> is unavailable to this autonomous turn`;
+the run's activity record keeps that reason as its failure reason. Its
+`inbox_list` and `inbox_get` revalidate the same evidence and the policy hash
+in the read's transaction and refuse with the same message otherwise. Legacy
+threads, items a conversation added through `inbox_add`, and any thread
+changed incompatibly or under a changed policy are refused, not assumed
+compatible. Refused work stays stored and queued (retried with backoff, then
+dead-lettered as any failed attempt), never completed, rewritten or moved to
+another provider. Tool names, schemas and refusal codes are unchanged; turns
+without masked folders are unaffected.
+
 ## Separate-UID provider folder turns (additive, 0.44.0, #2696)
 
 The host identity helper protocol (`--brain-worker-identity-v1`) gains a

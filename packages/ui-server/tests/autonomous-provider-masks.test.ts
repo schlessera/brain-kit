@@ -19,7 +19,7 @@ import { createUiDb } from "../src/db/client.js";
 import { createPrincipal } from "../src/db/principals.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createInboxBudget } from "../src/inbox/budget.js";
-import { createInboxStore } from "../src/inbox/store.js";
+import { createInboxIntake } from "../src/inbox/intake.js";
 import { runAutonomousTurn } from "../src/inbox/autonomous-turn.js";
 import { queryGovernanceEvents } from "../src/governance/events.js";
 import { governancePolicyReaderFor } from "../src/brain/governance-policy.js";
@@ -48,7 +48,7 @@ function search(brain: string, query: string): string[] {
   return (Array.isArray(parsed) ? parsed : parsed.results ?? []).map(result => result.path);
 }
 
-function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]") {
+async function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]") {
   // Inside the repository: the corpus config imports @schlessera/brain, which
   // resolves through the workspace install the restricted envelope restores.
   mkdirSync(join(REPO, "tmp"), { recursive: true });
@@ -73,10 +73,13 @@ function fixture(providers = "[{ paths: [me/**], allow: [anthropic] }]") {
   const input = { turnId: "autonomous-masked", principalId: principal.id, prompt: "Odysseus reviews his notes", allowedTools: ["read"],
     systemPromptAppend: "Server selected instructions", signal: new AbortController().signal, application: {} };
   const now = Date.now();
-  createInboxStore(db).ingest({ threadId: "odysseus", itemId: "odysseus", dedupKey: "odysseus", stagingId: "odysseus", source: "share", stakes: 2, expiresAt: now + 86_400_000 });
+  // A person's arrival through authenticated intake: provenance the masked turn can admit (#2741).
+  const intake = createInboxIntake(db, brain);
+  const { itemId } = await intake.person({ text: "Odysseus asks for a review of his notes.", files: [] }, "odysseus", principal);
+  await intake.close();
   createInboxBudget(db, { config: { spendUsd: 5, turns: 100, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 },
     pricing: { resolve: () => ({ input: 0.003, output: 0.003, cacheRead: 0.003, cacheWrite: 0.003, estimate: false, source: "snapshot" }) } })
-    .claim("odysseus", { runId: input.turnId, principalId: principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000);
+    .claim(itemId, { runId: input.turnId, principalId: principal.id, model: "fixture", billingMode: "subscription", purpose: "execute" }, now + 600_000);
   return { root, brain, db, input, deps: { db, store: createActivityStore(db, { writer: "autonomous-masks" }), brainPath: brain, nativeManager: native.client,
     privateIndex: { maskPaths: [], command: CLI }, applicationPlanner: { planAdd: async () => { throw new Error("NO_PLANNING"); }, index: async () => {} },
     checkpoint() {} } };
@@ -107,7 +110,7 @@ function restrictedBackend(brainPath: string, script: (request: StartTurnRequest
 }
 
 test("a restricted autonomous worker reads a masked folder as empty and searches a private index without it", async () => {
-  const f = fixture();
+  const f = await fixture();
   expect(search(f.brain, SENTINEL), "REAL_INDEX_HOLDS_THE_MASKED_DOCUMENT").toContain("me/oath.md");
   let shell = "", results: string[] = [], index: string | undefined, read: unknown, write: Record<string, unknown> | undefined;
   const backend = restrictedBackend(f.brain, async (request, run) => {
@@ -141,7 +144,7 @@ test("a restricted autonomous worker reads a masked folder as empty and searches
 }, 120_000);
 
 test("an autonomous turn under a selector that cannot map onto folders refuses by name before any worker starts", async () => {
-  const f = fixture("[{ paths: [me/*.md], allow: [anthropic] }]");
+  const f = await fixture("[{ paths: [me/*.md], allow: [anthropic] }]");
   let started = 0;
   const acquisitions = (startup.prepareNativeWorkerStartupView as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
   const backend = restrictedBackend(f.brain, async () => { started++; });
@@ -155,7 +158,7 @@ test("an autonomous turn under a selector that cannot map onto folders refuses b
 
 test("an autonomous turn translates a type selector as hosted turns do: a mapping type masks its folder, the inbox type refuses", async () => {
   // `identity` (dir: me) maps exactly onto me/ in the Odysseus corpus (#2694).
-  const mapped = fixture("[{ types: [identity], allow: [anthropic] }]");
+  const mapped = await fixture("[{ types: [identity], allow: [anthropic] }]");
   let shell = "", folders: readonly string[] | undefined, results: string[] = [], read: unknown;
   await runAutonomousTurn({ ...mapped.deps, backend: restrictedBackend(mapped.brain, async (request, run) => {
     folders = request.workerProviderMasks?.folders;
@@ -171,7 +174,7 @@ test("an autonomous turn translates a type selector as hosted turns do: a mappin
   expect(queryGovernanceEvents(mapped.db, { kinds: ["provider_mask_refusal"], limit: 10 }).map(event => event.payload.rule), "AUTONOMOUS_REFUSAL_NAMES_THE_TYPE")
     .toEqual([{ list: "providers", index: 0, pattern: "type identity" }]);
   // `note` is the inbox type, which covers every path outside the others.
-  const inbox = fixture("[{ types: [note], allow: [anthropic] }]");
+  const inbox = await fixture("[{ types: [note], allow: [anthropic] }]");
   let started = 0, refusal: unknown;
   try { await runAutonomousTurn({ ...inbox.deps, backend: restrictedBackend(inbox.brain, async () => { started++; }) }, inbox.input); } catch (error) { refusal = error; }
   expect((refusal as Error | undefined)?.name, "AUTONOMOUS_UNTRANSLATABLE_TYPE_REFUSED").toBe("ProviderPolicyRefusedError");
@@ -180,7 +183,7 @@ test("an autonomous turn translates a type selector as hosted turns do: a mappin
 }, 180_000);
 
 test("an autonomous turn under a provider folder rule refuses without the host's private index masks", async () => {
-  const f = fixture();
+  const f = await fixture();
   let started = 0;
   const { privateIndex: _privateIndex, ...deps } = f.deps;
   await expect(runAutonomousTurn({ ...deps, backend: restrictedBackend(f.brain, async () => { started++; }) }, f.input), "UNCONFIGURED_PRIVATE_INDEX_FAILS_CLOSED")
@@ -189,7 +192,7 @@ test("an autonomous turn under a provider folder rule refuses without the host's
 }, 60_000);
 
 test("an autonomous turn on a brain without an index directory still mounts its private index", async () => {
-  const f = fixture();
+  const f = await fixture();
   // A brain whose index was never built: the host creates the empty directory the private index is mounted over.
   rmSync(join(f.brain, ".brain-index"), { recursive: true, force: true });
   let shell = "";
@@ -199,7 +202,7 @@ test("an autonomous turn on a brain without an index directory still mounts its 
 }, 120_000);
 
 test("an invalid policy edit keeps the hosted turns' last-valid masks for an autonomous turn on any spelling of the brain", async () => {
-  const f = fixture();
+  const f = await fixture();
   // Hosted admission read the valid policy through an alias that is gone by
   // the time an edit breaks the policy.
   const alias = join(f.root, "brain-alias"); symlinkSync(f.brain, alias);
@@ -213,7 +216,7 @@ test("an invalid policy edit keeps the hosted turns' last-valid masks for an aut
 }, 120_000);
 
 test("an autonomous turn refuses a hardlink out of a masked folder before its worker starts", async () => {
-  const f = fixture();
+  const f = await fixture();
   // A mask hides names, not inodes (#2700): the same file under another name.
   linkSync(join(f.brain, "me/oath.md"), join(f.brain, "notes/oath-copy.txt"));
   let started = 0, refusal: unknown;
@@ -224,7 +227,7 @@ test("an autonomous turn refuses a hardlink out of a masked folder before its wo
 }, 120_000);
 
 test("a restricted autonomous worker reads the committed generated-text caches as empty", async () => {
-  const f = fixture();
+  const f = await fixture();
   writeFileSync(join(f.brain, ".context-cache.jsonl"), `${JSON.stringify({ key: "oath", context: `${SENTINEL} context of me/oath.md` })}\n`);
   writeFileSync(join(f.brain, ".asset-cache.jsonl"), `${JSON.stringify({ key: "avatar", description: `${SENTINEL} description of me/avatar.png` })}\n`);
   let shell = "";

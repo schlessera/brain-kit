@@ -57,6 +57,8 @@ export interface ClaudeSdkTurn {
   workerLimits: { current(): WorkerLimitReport; settled(): Promise<WorkerLimitReport> };
   /** A worker-state refusal or stop (#1625), reported as the turn's failure. */
   workerFailure(): TurnFailure | undefined;
+  /** Why an ordinary worker did not start (#2790): the error its spawn once threw to the SDK. */
+  workerStartFailure(): unknown;
   workerStateRoom(): import("@schlessera/brain-ui-sdk/protocol").StateRoomObservation | undefined;
   /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
   observeAnswerText(text: string): void;
@@ -499,6 +501,7 @@ function assembleClaudeSdkTurn(
       },
     workerLimits: { current: worker.limits, settled: worker.settledLimits },
     workerFailure: worker.failure,
+    workerStartFailure: worker.startFailure,
     workerStateRoom: worker.stateRoom,
     /** Each streamed piece of the answer, for the turn-temp purge's linked-file guard (#1703). */
     observeAnswerText: (text: string) => { answerText += text; },
