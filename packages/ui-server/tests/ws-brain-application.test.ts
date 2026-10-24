@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createKeyedLock, type BackendBridge, type BrainApplicationResult } from "@schlessera/brain-ui-sdk/server";
 import { createActivityStore } from "../src/activity/store.js";
+import { createOffloopActivityStore } from "../src/activity/store-writes.js";
+import { openSqliteWriter } from "../src/db/write-worker.js";
 import { createActivityStream } from "../src/activity/stream.js";
 import { createTurnRecorder } from "../src/activity/recorder.js";
 import { createUiDb } from "../src/db/client.js";
@@ -73,14 +75,17 @@ test("history retains every maximum-length named effect without event truncation
 // #2835: the real session bridge waits index readers for queued application
 // updates, and the end of the turn flushes what is still queued, before its
 // Activity terminal, with each outcome appended after the application it follows.
-async function deferredSession(options: { failIndex?: () => string | undefined; shared?: boolean; turn: (bridge: BackendBridge, index: { runs: string[][] }, search: (query: string) => Promise<string[]>) => Promise<void> }) {
+async function deferredSession(options: { failIndex?: () => string | undefined; shared?: boolean; worker?: boolean; turn: (bridge: BackendBridge, index: { runs: string[][] }, search: (query: string) => Promise<string[]>) => Promise<void> }) {
   const root = mkdtempSync(join(tmpdir(), "ws-brain-index-"));
   cpSync(resolve("packages/core/fixtures/corpus"), root, { recursive: true });
   const config = join(root, "brain.config.ts");
   writeFileSync(config, readFileSync(config, "utf8").replace('"@schlessera/brain"', JSON.stringify(resolve("packages/core/src/index.ts"))));
   await inProcessPlanner.index(root, undefined);
-  const db = createUiDb(":memory:");
-  const store = createActivityStore(db, { writer: "application-index-test" });
+  // With `worker`, Activity commits on the write worker as the hosted server's do (#2814).
+  const dbRoot = options.worker ? mkdtempSync(join(tmpdir(), "ws-brain-index-db-")) : undefined;
+  const db = createUiDb(dbRoot ? join(dbRoot, "ui.db") : ":memory:");
+  const writer = dbRoot ? openSqliteWriter(db) : undefined;
+  const store = writer ? createOffloopActivityStore(db, writer, { writer: "application-index-test" }) : createActivityStore(db, { writer: "application-index-test" });
   const stream = createActivityStream(store);
   const index = { runs: [] as string[][] };
   const real = boundaryPlanner(createFixtureHostBoundary({ brainPath: root }));
@@ -101,7 +106,7 @@ async function deferredSession(options: { failIndex?: () => string | undefined; 
   authorization.release(); await running;
   const events = (db.query("SELECT event_type, payload AS payload_json FROM activity_events WHERE event_type LIKE 'brain_application%' ORDER BY rowid").all() as { event_type: string; payload_json: string }[])
     .map(e => ({ type: e.event_type, ...JSON.parse(e.payload_json).v }));
-  return { root, events, search, host, index, close: () => { host.close(); stream.close(); db.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { root, events, search, host, index, close: async () => { host.close(); stream.close(); await writer?.close(); db.close(); rmSync(root, { recursive: true, force: true }); if (dbRoot) rmSync(dbRoot, { recursive: true, force: true }); } };
 }
 const scheria = (path: string, word: string) => ({ operation: "write" as const, path, content: `---\ntitle: ${path}\ntype: note\n---\nOdysseus meets ${word}.\n`, expectedBaseHash: null });
 
@@ -131,7 +136,29 @@ test("the real session bridge waits index readers and flushes the rest at turn e
     // after the run's terminal, so the second outcome proves the flush came first.
     const order = session.events.map(e => e.type);
     expect(order.lastIndexOf("brain_application_index")).toBeGreaterThan(order.lastIndexOf("brain_application"));
-  } finally { session.close(); }
+  } finally { await session.close(); }
+});
+
+test("turn-end index outcomes commit on the write worker before the turn's terminal (#2814, #2835)", async () => {
+  let failure: string | undefined = "maintenance worker timed out";
+  const session = await deferredSession({ worker: true, failIndex: () => failure, turn: async bridge => {
+    expect((await bridge.applyBrain!(scheria("notes/scheria-games.md", "Laodamas"))).ok).toBe(true);
+    failure = undefined;
+    expect((await bridge.applyBrain!(scheria("notes/scheria-palace.md", "Arete"))).ok).toBe(true);
+    failure = "maintenance worker timed out";
+  } });
+  try {
+    // Every row was read from the database after the session returned: the
+    // flush's outcomes reached the worker after their applications and before
+    // the terminal, which the recorder would otherwise have dropped them behind.
+    const applications = session.events.filter(e => e.type === "brain_application");
+    const indexes = session.events.filter(e => e.type === "brain_application_index");
+    expect(applications).toHaveLength(2);
+    expect(indexes.map(e => e.applicationId), "ACTIVITY_INDEX_OUTCOME_COMMITTED_OFF_LOOP").toEqual(applications.map(e => e.applicationId));
+    expect(indexes.every(e => e.indexed === false && e.indexError === "maintenance worker timed out")).toBe(true);
+    const order = session.events.map(e => e.type);
+    expect(order.indexOf("brain_application_index")).toBeGreaterThan(order.lastIndexOf("brain_application"));
+  } finally { await session.close(); }
 });
 
 test("a failed index update refuses the reader, is on the Activity record, and stays queued past turn end (#2835)", async () => {
@@ -155,5 +182,5 @@ test("a failed index update refuses the reader, is on the Activity record, and s
     failure = undefined;
     await session.host.indexBatch!.barrier();
     expect(await session.search("Laodamas")).toEqual(["notes/scheria-games.md"]);
-  } finally { session.close(); }
+  } finally { await session.close(); }
 });
