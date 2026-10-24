@@ -1,12 +1,120 @@
 import { expect, mock, spyOn } from "bun:test";
 import { ScrapeClient } from "../../packages/scrape/src/fetch/http";
 import { RobotsCache } from "../../packages/scrape/src/politeness/robots";
+import net from "node:net";
+import tls from "node:tls";
 
 const external = "https://escape.example.invalid/data";
 const client = () => new ScrapeClient({ respectRobots: false, defaultDelayMs: 0 });
 
 export async function runProbe(scenario: string): Promise<void> {
-  if (scenario === "partial") {
+  if (scenario === "net-connect") {
+    const server = net.createServer(socket => socket.end("Ithaca"));
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as net.AddressInfo).port;
+    process.env.PROBE_SOCKET_PORT = String(port);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = net.connect({ host: "escape.example.invalid", port });
+        socket.on("error", reject);
+        socket.on("data", data => { console.log(`SOCKET_REACHED=${data}`); socket.destroy(); resolve(); });
+      }).catch(() => {});
+    } finally {
+      delete process.env.PROBE_SOCKET_PORT;
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  } else if (scenario === "net-forms" || scenario === "tls-forms" || scenario === "bun-connect" || scenario === "socket-exit-zero") {
+    for (const host of ["escape.example.invalid", "203.0.113.1", "2001:db8::1", "localhost.example.invalid", "127.0.0.1.example.invalid", "0.0.0.0"]) {
+      const calls = scenario === "tls-forms" ? [
+        () => tls.connect({ host, port: 443 }), () => tls.connect(443, host), () => tls.connect(443, { host }),
+        () => new tls.TLSSocket(new net.Socket()).connect({ host, port: 443 }),
+      ] : scenario === "bun-connect" ? [
+        () => Bun.connect({ hostname: host, port: 443, socket: { data() {} } }),
+        () => Bun.connect({ hostname: host, port: 443, tls: true, socket: { data() {} } }),
+      ] : [
+        () => net.connect(443, host), () => net.createConnection({ host, port: 443 }),
+        () => new net.Socket().connect({ host, port: 443 }),
+        () => Reflect.apply(net.Socket.prototype.connect, new net.Socket(), ["443", host]),
+      ];
+      for (const call of calls) try { await call(); } catch { /* Hooks must catch swallowed errors. */ }
+    }
+    if (scenario === "socket-exit-zero") process.exit(0);
+  } else if (scenario === "socket-mocks") {
+    const socketDescriptor = Object.getOwnPropertyDescriptor(net.Socket.prototype, "connect")!;
+    const bunDescriptor = Object.getOwnPropertyDescriptor(Bun, "connect")!;
+    try {
+      Object.defineProperty(net.Socket.prototype, "connect", { ...socketDescriptor, value: function () { return this; } });
+      const socket = new net.Socket();
+      expect(socket.connect({ host: "escape.example.invalid", port: 443 })).toBe(socket);
+      Object.defineProperty(Bun, "connect", { ...bunDescriptor, value: async () => "fixture" });
+      expect(await Bun.connect({ hostname: "escape.example.invalid", port: 443, socket: { data() {} } }) as unknown).toBe("fixture");
+    } finally {
+      Object.defineProperty(net.Socket.prototype, "connect", socketDescriptor);
+      Object.defineProperty(Bun, "connect", bunDescriptor);
+    }
+    spyOn(net.Socket.prototype, "connect").mockImplementation(function (this: net.Socket) { return this; });
+    spyOn(Bun, "connect").mockResolvedValue("fixture" as unknown as Awaited<ReturnType<typeof Bun.connect>>);
+    mock.restore();
+    expect(Object.getOwnPropertyDescriptor(net.Socket.prototype, "connect")).toEqual(socketDescriptor);
+    expect(Object.getOwnPropertyDescriptor(Bun, "connect")).toEqual(bunDescriptor);
+    try { net.connect({ host: "escape.example.invalid", port: 443 }); } catch {}
+    await Bun.connect({ hostname: "escape.example.invalid", port: 443, socket: { data() {} } }).catch(() => {});
+  } else if (scenario === "local-sockets") {
+    const receive = (socket: net.Socket) => new Promise<string>((resolve, reject) => {
+      let text = "";
+      socket.on("data", data => { text += data; }); socket.on("error", reject); socket.on("end", () => resolve(text));
+    });
+    const bunReceive = async (address: { hostname: string; port: number } | { unix: string }) => {
+      let text = "", done!: (text: string) => void, fail!: (error: Error) => void;
+      const result = new Promise<string>((resolve, reject) => { done = resolve; fail = reject; });
+      const handlers: Bun.SocketHandler<undefined> = { data(_socket, data) { text += data.toString(); }, end() { done(text); }, error(_socket, error) { fail(error); } };
+      const socket = await ("hostname" in address ? Bun.connect({ ...address, socket: handlers }) : Bun.connect({ ...address, socket: handlers }));
+      try { return await result; } finally { socket.end(); }
+    };
+    for (const host of ["127.0.0.1", "127.0.0.2", "::1"]) {
+      const server = net.createServer(socket => socket.end("Ithaca"));
+      await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, host, resolve); });
+      const port = (server.address() as net.AddressInfo).port;
+      try {
+        expect(await receive(net.connect(port, host))).toBe("Ithaca");
+        expect(await receive(net.createConnection({ host, port }))).toBe("Ithaca");
+        expect(await receive(new net.Socket().connect(port, host))).toBe("Ithaca");
+        expect(await bunReceive({ hostname: host, port })).toBe("Ithaca");
+        if (host === "127.0.0.1") {
+          expect(await receive(net.connect({ port }))).toBe("Ithaca");
+          expect(await receive(net.connect(port, "localhost"))).toBe("Ithaca");
+          expect(await bunReceive({ hostname: "localhost", port })).toBe("Ithaca");
+        }
+      } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+    }
+    const path = `${process.env.PROBE_DIR}/ithaca.sock`;
+    const server = net.createServer(socket => socket.end("Ithaca"));
+    await new Promise<void>(resolve => server.listen(path, resolve));
+    try {
+      expect(await receive(net.connect(path))).toBe("Ithaca");
+      expect(await receive(net.createConnection({ path }))).toBe("Ithaca");
+      expect(await receive(new net.Socket().connect(path))).toBe("Ithaca");
+      expect(await bunReceive({ unix: path })).toBe("Ithaca");
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  } else if (scenario === "local-tls") {
+    const key = `${process.env.PROBE_DIR}/key.pem`, cert = `${process.env.PROBE_DIR}/cert.pem`;
+    const generated = Bun.spawnSync(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-days", "1",
+      "-subj", "/CN=Odysseus fixture", "-keyout", key, "-out", cert], { stdout: "pipe", stderr: "pipe" });
+    expect(generated.exitCode, generated.stderr.toString()).toBe(0);
+    const server = tls.createServer({ key: await Bun.file(key).text(), cert: await Bun.file(cert).text() }, socket => socket.end("Ithaca"));
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as net.AddressInfo).port;
+    const read = (socket: tls.TLSSocket) => new Promise<string>((resolve, reject) => {
+      let text = ""; socket.on("data", data => { text += data; }); socket.on("error", reject); socket.on("end", () => resolve(text));
+    });
+    try {
+      expect(await read(tls.connect({ host: "127.0.0.1", port, rejectUnauthorized: false }))).toBe("Ithaca");
+      expect(await read(tls.connect(port, "localhost", { rejectUnauthorized: false }))).toBe("Ithaca");
+      // An adopted stream keeps its actual local destination even with external SNI.
+      const socket = net.connect(port, "127.0.0.1");
+      expect(await read(tls.connect({ socket, servername: "escape.example.invalid", rejectUnauthorized: false }))).toBe("Ithaca");
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  } else if (scenario === "partial") {
     class PartialClient extends ScrapeClient {
       override async getText() { return "fixture"; }
     }

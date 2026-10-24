@@ -15,7 +15,10 @@ inspecting CI on a PR live in the `work-issue` skill's
   `packages/core/tests/eval-corpus.test.ts`) make any ranking change a
   reviewed diff. Never add a test that needs an API key or the network.
 - The test preload in root/package `bunfig.toml` and `scripts/test.ts` wraps
-  real `fetch`, `Bun.spawn` and `Bun.spawnSync`. Real HTTP(S) fetches permit
+  real `fetch`, `Socket#connect` (shared by Bun's `node:net` factories and
+  `node:tls`), `Bun.connect`, `Bun.spawn` and `Bun.spawnSync`. Socket connections
+  permit `localhost`, IPv4 loopback addresses in `127.0.0.0/8`, IPv6 `::1`,
+  Unix sockets and adoption of existing sockets. Real HTTP(S) fetches permit
   only the parsed hosts `localhost`, `127.0.0.1` and `[::1]`; every followed
   redirect is checked before dispatch, and explicit proxies are refused. Real
   curl execution is refused, including absolute executable paths and both
@@ -36,14 +39,16 @@ inspecting CI on a PR live in the `work-issue` skill's
   different cwd or replaced environment. Child test hooks and ordinary child
   exit checks reject swallowed escapes; callers must assert child exit codes.
   This covers Bun executables named `bun` or matching `process.execPath`.
-  Bun's `node:child_process` delegates to the patched spawn path too. Node
-  transports, subprocess APIs in a Node runtime, shell commands, arbitrary
+  Bun's `node:child_process` delegates to the patched spawn path too. Separate
+  Node runtimes, shell commands, arbitrary
   executables, browser egress and deliberate replacement of the guard are not
   instrumented: use an explicitly offline harness for those, not a claim of
   sandboxing. Intentional measurement scripts launched outside tests retain
   normal transports. Guard regression probes use controlled native sentinels
   so failing-first and mutation runs cannot send external requests or start
-  curl.
+  curl. A socket sentinel redirects the deliberate non-loopback TCP attempt
+  to an owned loopback listener, retaining real connection evidence without
+  allowing the failing-first or mutated guard to dispatch externally.
 - The shared preload disables fixture Git auto-maintenance with command-scope
   `maintenance.auto=false` and `gc.auto=0`. Guarded spawns carry those settings
   even when callers replace the environment, preserving their other Git
