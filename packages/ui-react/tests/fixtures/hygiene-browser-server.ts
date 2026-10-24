@@ -33,6 +33,8 @@ let mode = "",
   hold: (() => void) | undefined;
 const calls: string[][] = [];
 let holdNext = false;
+/** A host reason override, for long inert worktree reasons (#2837). */
+let hostReason: string | undefined;
 let releaseNext: (() => void) | undefined;
 const reads: Array<{ status: string; pending: boolean }> = [];
 const diff = {
@@ -236,6 +238,10 @@ const brain = {
           }
         : { id, status: "undone" };
     if (op === "check") {
+      if (mode === "hold")
+        await new Promise<void>((resolve) => {
+          hold = resolve;
+        });
       if (mode === "check_clear") {
         remaining--;
         return { id, status: "not_detected" };
@@ -250,7 +256,9 @@ const brain = {
       if (mode === "unknown") throw new Error("receipt unavailable");
       // The host's failed removal: no undo, and its fixed code (#2431).
       if (mode === "check_failed" && category.startsWith("managed-worktree"))
-        return { id, status: mode, reason: "The worktree could not be removed; it is kept for review.", code: "cleanup-failed" };
+        return { id, status: mode, reason: hostReason ?? "The worktree could not be removed; it is kept for review.", code: "cleanup-failed" };
+      if (mode === "check_failed_other") return { id, status: "check_failed", reason: "The finding is still detected after removal." };
+      if (mode === "refused" && category.startsWith("managed-worktree")) return { id, status: "refused", reason: hostReason ?? "No such repair for this finding." };
       if (["stale", "refused", "check_failed"].includes(mode))
         return {
           id,
@@ -326,6 +334,7 @@ app.post("/fixture", async (c) => {
   if (p.releaseNext) { holdNext = false; releaseNext?.(); releaseNext = undefined; }
   if (p.longPreview !== undefined) longPreview = p.longPreview;
   if (p.mode !== undefined) mode = p.mode;
+  if (p.hostReason !== undefined) hostReason = p.hostReason;
   if (p.category) category = p.category;
   if (p.nextCategory) nextCategory = p.nextCategory;
   if (p.remaining !== undefined) remaining = p.remaining;

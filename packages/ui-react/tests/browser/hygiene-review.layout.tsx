@@ -884,3 +884,97 @@ test("a refusal collapses, removes the toggle on the next review read and return
   await expect.poll(() => current().querySelector("[data-hygiene-private-details]"), { message: "toggle removed" }).toBeNull();
   noPrivateBytes("after refusal");
 });
+// #2837: a managed worktree is host state, not a file. Its card names the
+// removal or the check, claims only what the outcome shows, and keeps inert
+// host reasons. Markdown findings keep their file wording above.
+const FILE_WORDING = ["file", "written", "validation", "Couldn't write", "Done, check again"];
+function noFileWording(where: string) {
+  const text = current().textContent ?? "";
+  for (const word of FILE_WORDING) expect(text.includes(word), `${where}: no "${word}"`).toBe(false);
+  // The logical identity appears once, as the card's identifier, never in a sentence.
+  expect(text.split("reference-worktree://").length - 1, `${where}: identity only in its PathRef`).toBe(1);
+}
+/** The state callout's own sentence, without its recovery controls. */
+const stateText = () => current().querySelector("[data-hygiene-state]")?.firstElementChild?.textContent ?? "";
+const REMOVAL_CHECK = "Before removing it, the host checks the worktree again and refuses if it changed since this preview.";
+const CHECK_EXPLANATION = "Checks its current state. A worktree verified clean and unused may be reclaimed automatically.";
+for (const theme of ["dark", "light"])
+  for (const width of [320, 1280]) {
+    test(`${theme} ${width}: a worktree removal's states name the removal and keep their reasons inert`, async () => {
+      const long = "The worktree could not be removed; it is kept for review. [x](http://e.test)<b>y</b> " + "ithaca-harbour-".repeat(8);
+      await scene({ category: "managed-worktree-retained", hostReason: long }, width, theme);
+      expect(current().textContent, "removal post-check").toContain(REMOVAL_CHECK);
+      noFileWording("fresh removal card");
+      const id = current().dataset.hygieneId!;
+      for (const [mode, expected] of [
+        ["stale", "This worktree changed since the finding was shown. Refresh the finding to review it again."],
+        ["refused", `The host refused the removal: ${long}`],
+        ["check_failed", `The removal didn't finish: ${long}`],
+        ["check_failed_other", "The removal couldn't be confirmed: The finding is still detected after removal."],
+      ] as const) {
+        await set({ mode });
+        await apply();
+        const focused = document.activeElement;
+        await expect.poll(() => stateText(), { message: `${mode} copy`, timeout: 5000 }).toBe(expected);
+        await expect.poll(() => ui!.stores.inbox.getState().inFlight[id]).toBeUndefined();
+        expect(current().dataset.hygieneId, `same card after ${mode}`).toBe(id);
+        expect(document.activeElement, `focus stays put after ${mode}`).toBe(focused);
+        noFileWording(mode);
+        if (mode === "check_failed") {
+          expect(current().querySelector("[data-hygiene-state] b"), "a reason is never interpreted").toBeNull();
+          expect(current().scrollWidth <= current().clientWidth, "a long reason wraps").toBe(true);
+          await commands.hygieneServer({ op: "capture", selector: ".bg-background.text-foreground", name: `c2837-${theme}-${width}-cleanup-failed.png` });
+        }
+      }
+      // Applying, then an unconfirmed reply.
+      await set({ mode: "hold" });
+      await apply();
+      await expect.poll(() => stateText(), { timeout: 5000 }).toBe("Removing… checking the worktree first");
+      expect(current().querySelector("[data-disposition-bar]")?.textContent, "busy label").toContain("Removing… checking the worktree first");
+      noFileWording("applying");
+      await set({ mode: "unknown", release: true });
+      await expect.poll(() => stateText(), { timeout: 5000 }).toContain("The outcome wasn't confirmed. Check again.");
+      noFileWording("unknown reply");
+    });
+    test(`${theme} ${width}: a worktree with no repair offers Check again, which may reclaim it, and a confirmed removal reads as removed`, async () => {
+      await scene({ category: "managed-worktree" }, width, theme);
+      const check = page.getByRole("button", { name: "Check again", exact: true });
+      await expect.element(check).toBeVisible();
+      expect(current().textContent, "approved check explanation").toContain(CHECK_EXPLANATION);
+      expect(current().textContent, "never a no-removal promise").not.toContain("never removes");
+      noFileWording("no-repair card");
+      await commands.hygieneServer({ op: "capture", selector: ".bg-background.text-foreground", name: `c2837-${theme}-${width}-check-again.png` });
+      // Keyboard: the commit control is reachable and answers once.
+      (check.element() as HTMLButtonElement).focus();
+      await set({ mode: "hold" });
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => stateText(), { timeout: 5000 }).toBe("Checking the worktree again…");
+      await set({ mode: "", release: true });
+      await expect.poll(() => stateText(), { timeout: 5000 }).toBe("Still needs review.");
+      noFileWording("still detected");
+      expect(frames.filter((f) => f.type === "inbox_resolve" && f.optionId === "check"), "one check sent").toHaveLength(1);
+      // A check that clears the finding claims no removal.
+      const id = current().dataset.hygieneId!;
+      await set({ mode: "check_clear" });
+      await check.click();
+      await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("resolved");
+      await page.getByRole("tab", { name: /^done / }).click();
+      await expect.poll(() => host!.querySelector("[data-hygiene-fixed]")?.textContent).toBe("No longer needs review");
+    });
+  }
+test("a confirmed removal from this device reads Worktree removed; the Done list claims only that the finding cleared", async () => {
+  await scene({ category: "managed-worktree-retained" });
+  const id = current().dataset.hygieneId!;
+  const seen: string[] = [];
+  const observer = new MutationObserver(() => { const t = host!.querySelector('[data-hygiene-card][role="status"]')?.textContent; if (t) seen.push(t); });
+  observer.observe(host!, { subtree: true, childList: true, characterData: true });
+  try {
+    await apply();
+    await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("resolved");
+  } finally { observer.disconnect(); }
+  // The transient fixed callout, whenever it paints, names only the confirmed removal.
+  expect([...new Set(seen)], "the fixed callout, while it paints, names the confirmed removal").toEqual(["Worktree removed"]);
+  await page.getByRole("tab", { name: /^done / }).click();
+  await expect.poll(() => host!.querySelector("[data-hygiene-fixed]")?.textContent).toBe("No longer needs review");
+  expect(host!.textContent).not.toContain("Finding no longer detected in reference-worktree://");
+});

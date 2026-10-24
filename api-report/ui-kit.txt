@@ -1237,6 +1237,8 @@ signatures (every public export and the types it is made of)
         state?: "applying" | "stale" | "refused" | "check_failed" | "still_detected" | "unknown" | "fixed" | "undone";
         reason?: string;
         code?: string;
+        stateText?: Partial<Record<NonNullable<HygieneCardProps["state"]>, string>>;
+        busyLabel?: string;
         recovery?: ReactNode;
         commit?: DispositionControl;
         later?: DispositionControl;
