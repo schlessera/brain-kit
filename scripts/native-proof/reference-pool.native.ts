@@ -748,8 +748,8 @@ const shapes = await create("staging", 32 * MIB);
     expect((await worktrees.release({ worktreeId: asked.worktree.id, principalId: penelope.id })).cleanup, "REFERENCE_TOOLS_NATIVE_EDIT_RETAINED")
       .toMatchObject({ work: "unpreserved", eligible: false });
     // #2432 option 1: a bind validates a held lapsed source again through the real
-    // transport, and withholds it once the check fails. A one-millisecond lifetime
-    // makes every source lapse before each bind; a separate catalog keeps its own views.
+    // transport, and withholds it once the check fails. A two-second lifetime lapses
+    // between binds yet outlasts a check; a separate catalog keeps its own views.
     {
       const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
       const lapsedDb = createUiDb(join(state, "lapsed.db"));
@@ -757,16 +757,16 @@ const shapes = await create("staging", 32 * MIB);
         const ithacan = createPrincipal(lapsedDb, { authMethod: "password", label: "Eurycleia", ttlSeconds: 86_400 });
         createReferenceGrant(lapsedDb, { brain: "ithaca", principalId: ithacan.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: ithacan.id, now: Date.now() });
         const lapsing = createReferenceSources({ db: lapsedDb, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca",
-          credentials: {}, limits: { validationMs: 1 } });
+          credentials: {}, limits: { validationMs: 2_000 } });
         const held = await lapsing.request({ principalId: ithacan.id, repository, revision: "main" });
-        await Bun.sleep(5);
+        await Bun.sleep(2_100);
         const view = (await lapsing.bindable(ithacan.id)).private;
         const before = (lapsedDb.query("SELECT validated_at FROM reference_sources").get() as { validated_at: number }).validated_at;
         expect({ bound: readdirSync(view).includes(held.name), revalidated: before > held.validatedAt }, "REFERENCE_TOOLS_NATIVE_HELD_SOURCE_REVALIDATED_AT_BIND")
           .toEqual({ bound: true, revalidated: true });
         renameSync(join(srv, "ithaca.git"), join(srv, "ithaca.git.away"));
         try {
-          await Bun.sleep(5);
+          await Bun.sleep(2_100);
           await lapsing.bindable(ithacan.id);
           expect(readdirSync(view), "REFERENCE_TOOLS_NATIVE_FAILED_REVALIDATION_WITHHELD").toEqual([]);
         } finally { renameSync(join(srv, "ithaca.git.away"), join(srv, "ithaca.git")); }
