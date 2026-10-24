@@ -9,6 +9,7 @@ async function reached(marker:string,child:ReturnType<typeof Bun.spawn>) {
 }
 for(const phase of ["after-retain","after-intent","after-unlink","after-ack"])test(`SIGKILL ${phase} preserves the original identity and never replays a removal`,async()=>{
   const f=storageRemovalFixture(),id=`odysseus-crash-${phase}`,marker=join(f.root,`reached-${phase}`),target=join(f.brain,"attachments/chart.pdf");
+  await f.journal.ready;
   const child=Bun.spawn([process.execPath,entry,f.root,phase,id,marker],{stdout:"pipe",stderr:"pipe"});
   try {
     await reached(marker,child);child.kill("SIGKILL");await child.exited;

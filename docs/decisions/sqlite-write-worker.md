@@ -92,9 +92,11 @@ thread waits for it.
   app's refresh replaces it. A refresh whose cache write failed leaves the
   worker on the previous table until the next successful write.
 - **Other app-connection writers stay on the loop**: governance events written
-  outside a journal transaction, the writer gate, inbox and settings. A commit
-  there can also wait for the worker's write lock. Those classes are tracked
-  separately ([#2807](https://github.com/schlessera/brain-kit/issues/2807)).
+  outside a journal transaction, the writer gate, turn budgets and scope, the
+  session catalog, inbox and settings. Each commits at FULL on the loop, and
+  while a worker procedure holds its turn, such a write also waits there for
+  the worker's commit to finish. Those writers are tracked separately
+  ([#2850](https://github.com/schlessera/brain-kit/issues/2850)).
 
 ## Rejected
 

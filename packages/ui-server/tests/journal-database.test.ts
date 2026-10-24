@@ -159,6 +159,7 @@ test("the turn journal replays a missing steering event when it starts", async (
   const native = createNativeJournalFixture(brain, f.root);
   const journal = createTurnJournal(db, { nativeManager: native.manager, brainPath: brain, dbPath: f.path, objectsRoot: join(f.root, "objects") });
   try {
+    await journal.ready;
     expect(db.query("SELECT dedupe_key FROM governance_events WHERE kind='steering_change'").all(), "JOURNAL_STARTUP_REPLAYS_STEERING").toEqual([{ dedupe_key: "voyage:1" }]);
   } finally { await journal.close(); await native.close(); f.close(db); }
 });
