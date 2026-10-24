@@ -676,16 +676,19 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         await neverDone(run, a.page, [A]);
         await until(a.page, `${state(B)}?.cleared === true`);
 
+        // Open A while its latest request is still queued: it has no turn
+        // to see yet. Start the follow-up only once Files covers Chat; if
+        // it streams first, opening A may legitimately show its latest
+        // line before the Files click, and the panel cannot undo that proof.
+        await openTracker(run, a.page, A);
+        await until(a.page, `p.activeSessionId() === ${JSON.stringify(A)}`);
+        await press(run, a.page.getByRole("tab", { name: /^Files/ }).locator("visible=true").first());
         // A's first turn ends and the follow-up runs: running again, not done.
         await release(pa);
         await until(a.page, `${state(A)}?.state === "running"`);
         await neverDone(run, a.page, [A]);
-
-        // Watching A behind a panel: it finishes, and is not seen until the
-        // panel goes and its latest turn is on screen.
-        await openTracker(run, a.page, A);
-        await until(a.page, `p.activeSessionId() === ${JSON.stringify(A)}`);
-        await press(run, a.page.getByRole("tab", { name: /^Files/ }).locator("visible=true").first());
+        // It finishes behind the panel, and is not seen until the panel
+        // goes and its latest turn is on screen.
         await release(draftA);
         await until(a.page, `${state(A)}?.state === "done"`);
         await a.page.waitForTimeout(400);
