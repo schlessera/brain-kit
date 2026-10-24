@@ -35,8 +35,8 @@ import { runEmbeddingPhase } from "./embeddings.js";
 import { acquireEmbeddingLock } from "./embedding-lock.js";
 import { parseMarkdownFiles } from "./parse.js";
 import { persistMarkdown } from "./persist.js";
-import { getAssetFiles, getMarkdownFiles, loadExistingDocs } from "./scan.js";
-import type { AssetEmbedTask, IndexOptions, IndexRun, IndexStats } from "./types.js";
+import { completeCorpusMaps, getAssetFiles, getMarkdownFiles, loadExistingDocs, targetedScan } from "./scan.js";
+import type { AssetEmbedTask, IndexOptions, IndexRun, IndexStats, ParseResult } from "./types.js";
 import { carryMarkdownVectors, dropIneligibleVectors, dropMarkdownVectors, dropOrphanedVectors, syncVectorFilters } from "./vectors.js";
 
 function emptyStats(): IndexStats {
@@ -184,20 +184,30 @@ async function runIndex(db: Database, options: IndexOptions): Promise<IndexStats
 async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexStats> {
 
   // --- scan ---------------------------------------------------------------
-  const markdownFiles = getMarkdownFiles(run.root, run.taxonomy);
-  run.stats.total = markdownFiles.length;
-  // Assets are scanned once and reused three times: deletion detection, the
-  // asset phase, and the embedding backfill.
-  const assetFiles = getAssetFiles(run.root, run.taxonomy);
-  const assetsOnDisk = new Set(assetFiles.map((a) => a.path));
   const existingDocs = loadExistingDocs(run.db);
-
   // The full-text table follows search.language; a rebuild has every
   // document written again below, in the persist transaction.
   planFtsTokenizer(run);
+  const targeted = targetedScan(run, options, existingDocs);
+  // Assets are scanned once and reused three times: deletion detection, the
+  // asset phase, and the embedding backfill. A targeted run reads no asset:
+  // the ones the index holds stay as they are.
+  const assetFiles = targeted ? [] : getAssetFiles(run.root, run.taxonomy);
+  const assetsOnDisk = targeted ? targeted.assetsIndexed : new Set(assetFiles.map((a) => a.path));
 
   // --- parse --------------------------------------------------------------
-  const parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);
+  let parsed: ParseResult, markdownOnDisk: Set<string>;
+  if (targeted) {
+    parsed = completeCorpusMaps(run, parseMarkdownFiles(run, targeted.present, existingDocs), targeted.unnamed);
+    // A named path that is no longer a valid document leaves the index, as a
+    // fresh build would never have written it.
+    markdownOnDisk = new Set([...targeted.unnamed, ...targeted.present.filter((path) => parsed.fileMap.has(path))]);
+  } else {
+    const markdownFiles = getMarkdownFiles(run.root, run.taxonomy);
+    parsed = parseMarkdownFiles(run, markdownFiles, existingDocs);
+    markdownOnDisk = new Set(markdownFiles);
+  }
+  run.stats.total = markdownOnDisk.size;
 
   // Drop vectors while their old markdown chunk IDs still exist, before the
   // persist phase replaces those chunks. Whatever the embedding phase can
@@ -212,7 +222,7 @@ async function runPipeline(run: IndexRun, options: IndexOptions): Promise<IndexS
     run,
     parsed,
     existingDocs,
-    new Set(markdownFiles),
+    markdownOnDisk,
     assetsOnDisk
   );
 

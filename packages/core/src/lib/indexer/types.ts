@@ -51,6 +51,17 @@ export interface IndexOptions {
   enrichment?: Enrichment;
   /** Rebuild the derived graph tables at the end of the run. Default: true. */
   graph?: boolean;
+  /**
+   * Exact repo-relative markdown paths that changed since the index was last
+   * complete. Only these files are read and written; every corpus-wide
+   * structure (link resolution, the link graph, supersedes, the graph tables)
+   * is still rebuilt from the whole index, so the result matches a fresh
+   * build of the same Markdown. A path that is gone, excluded or no longer a
+   * valid document loses its row. Ignored, for a complete run, when the index
+   * has no markdown yet, a full-text rebuild or chunker change is due, or the
+   * run is `force` or embeds.
+   */
+  paths?: readonly string[];
 }
 
 /** Shared, read-mostly state threaded through every phase of one index run. */
