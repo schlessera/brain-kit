@@ -11,7 +11,7 @@ import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server"
 import { GIT_LOCK_KEY } from "@schlessera/brain-ui-sdk/internal";
 import { MAINTENANCE_ENTRY, type HostBoundary } from "../brain/host-boundary.js";
 import type { TurnJournal } from "../brain/turn-journal.js";
-import { journalStatement, JournalStatementRefused } from "../brain/journal-store.js";
+import { journalCheck, journalStatement, JournalStatementRefused } from "../brain/journal-store.js";
 import { SELF, processAlive, type WriterGate } from "../brain/writer-gate.js";
 import { StorageUnavailable, type StorageCoordinator } from "./coordinator.js";
 import { readRemovalFacts } from "./removal-facts.js";
@@ -155,7 +155,7 @@ export function createStorageRemoval(db: Database, options: {
         items: files.map(file => ({ path: file.path, state: file.eligible ? "not-started" : "protected", reason: file.reason, undoAvailable: false, undoReason: "no_confirmed_removal" })),
         before: null, after: null, index: "not-requested", commit: "not-requested", sync: "not-requested", retained: { journal: "subject-to-retention", git: "unchanged-by-operation", backups: "not-measured" } };
       if (persist) await journal.writeOperation([
-        { check: "SELECT 1 WHERE (SELECT count(*) FROM turn_journal_storage_operations WHERE brain=?) < ?", params: [brain, STORAGE_REMOVAL_LIMITS.receipts], refusal: "Attachment receipt capacity reached; existing receipts remain readable." },
+        journalCheck("SELECT 1 WHERE (SELECT count(*) FROM turn_journal_storage_operations WHERE brain=?) < ?", "Attachment receipt capacity reached; existing receipts remain readable.", brain, STORAGE_REMOVAL_LIMITS.receipts),
         journalStatement("INSERT INTO turn_journal_storage_operations (id,brain,principal_id,action,source_id,selection,fingerprint,journal_turn_id,state,pid,pid_start,requested_at,receipt,private_versions) VALUES (?,?,?,?,?,?,?,?,'review',?,?,?,?,?)",
           id, brain, principal, action, sourceId, selection, reviewed.fingerprint, `storage_${id}`, SELF.pid, SELF.start, now, encode(result), encode(versions)),
       ]).catch(error => { throw error instanceof JournalStatementRefused ? new StorageUnavailable(503, error.message) : error; });
@@ -263,7 +263,7 @@ export function createStorageRemoval(db: Database, options: {
       if (!capability(principal).available || Date.now() >= result.review.expiresAt || !result.review.files.some(file => file.eligible)) throw new StorageUnavailable(409, "Refresh the attachment review before removal.");
       const waiting = { ...result, state: "waiting" as const };
       const [, changed] = await journal.writeOperation([
-        { check: "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM turn_journal_storage_operations WHERE brain=? AND state IN ('waiting','running'))", params: [brain], refusal: "Another attachment operation is active." },
+        journalCheck("SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM turn_journal_storage_operations WHERE brain=? AND state IN ('waiting','running'))", "Another attachment operation is active.", brain),
         journalStatement("UPDATE turn_journal_storage_operations SET state='waiting',pid=?,pid_start=?,receipt=? WHERE id=? AND state='review'", SELF.pid, SELF.start, encode(waiting), id),
       ]).catch(error => { throw error instanceof JournalStatementRefused ? new StorageUnavailable(409, error.message) : error; });
       if (changed !== 1) throw new StorageUnavailable(409, "Attachment operation already admitted.");

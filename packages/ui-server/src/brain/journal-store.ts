@@ -29,6 +29,8 @@ export type JournalStatement = { sql: string; params?: SQLQueryBindings[] } | { 
 export class JournalStatementRefused extends Error {}
 
 export const journalStatement = (sql: string, ...params: SQLQueryBindings[]): JournalStatement => ({ sql, params });
+/** A `check` statement: the whole write is refused with `refusal` unless `sql` returns a row. */
+export const journalCheck = (sql: string, refusal: string, ...params: SQLQueryBindings[]): JournalStatement => ({ check: sql, params, refusal });
 
 /** Journal refusals keep their class and message across the worker boundary. */
 export function reviveJournalError(wire: WireError): Error | undefined {
