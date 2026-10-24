@@ -61,13 +61,17 @@ function logBytes(root: string) {
 }
 
 function fillActions(f: ReturnType<typeof setup>, at: number, count = INBOX_ACTION_CAP) {
-  for (let i = 0; i < count; i++) {
-    const id = `ordinary-${i}-${at}`, threadId = `ordinary-thread-${i}-${at}`;
-    f.store.openReviewThread(threadId);
-    createInboxAction(f.db, { id, dedupKey: id, threadId, queue: "actions", type: "choose", status: "pending", version: 1,
-      createdAt: at + i, updatedAt: at + i, expiresAt: Number.MAX_SAFE_INTEGER, payload: { title: "Review the voyage", detail: "Choose the next harbor." },
-      options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] }, [], { now: at + i });
-  }
+  // This is fixture construction, with no observer between admissions. Keep
+  // every real cap/retirement operation, committing the complete seed once.
+  f.db.transaction(() => {
+    for (let i = 0; i < count; i++) {
+      const id = `ordinary-${i}-${at}`, threadId = `ordinary-thread-${i}-${at}`;
+      f.store.openReviewThread(threadId);
+      createInboxAction(f.db, { id, dedupKey: id, threadId, queue: "actions", type: "choose", status: "pending", version: 1,
+        createdAt: at + i, updatedAt: at + i, expiresAt: Number.MAX_SAFE_INTEGER, payload: { title: "Review the voyage", detail: "Choose the next harbor." },
+        options: [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] }, [], { now: at + i });
+    }
+  })();
 }
 
 for (const status of ["pending", "snoozed"] as const) test(`Actions production cap retires ${status} review atomically; reload, backup and explicit concurrent Resume preserve one fresh finding`, async () => {

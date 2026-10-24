@@ -1,0 +1,1245 @@
+{
+  "schemaVersion": 1,
+  "issue": 2793,
+  "date": "2026-10-24",
+  "runtime": "Bun 1.4.2",
+  "browser": "Google Chrome 140.0.7339.127",
+  "platform": "Linux",
+  "logicalCpus": 32,
+  "memoryGiB": 47.04215621948242,
+  "startingBase": "7d16f93bfe070eefe663cc47497ff573531f8f83",
+  "candidateSourceSha256": {
+    "packages/ui-react/tests/connection-continuity-runtime.test.ts": "36a61f6f6b6543823c6114abfd22ca9e311fd4c009bf0fbad94e53be890338da",
+    "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "b731053d553b1b956c56c885efe7b83055c11d85fb136a7ecf1ca9453690c58a",
+    "packages/ui-react/tests/fixtures/reconnect-clock.ts": "6c840d637c70e783aeb4d5c55afd40a981024264eb35f3245e375a4533dbed44",
+    "packages/ui-server/tests/hygiene-review.test.ts": "d04d5fd3057645f203abc4faddcec6b18edb0861dadd3fb7927b94b554bc7703"
+  },
+  "reviewedTimingTableSha256": "f2578562e36a7ea1f4e30499aa48a2b125cd62efbde20e35fbe8fead655c2bcf",
+  "topCostBasis": {
+    "referenceHead": "ada2e1767626ef6f4e8fa7ef50784998988eaa5c",
+    "referenceBase": "f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162",
+    "referenceReceipt": "docs/process/evidence/rollback-writer-readiness-2747.json",
+    "referenceRunPassed": false,
+    "referenceWallSeconds": 1289.7180034180055,
+    "referenceFileCount": 626,
+    "topTenFiles": [
+      "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "packages/ui-server/tests/hygiene-review.test.ts",
+      "packages/ui-server/tests/http-supported-mounts.test.ts",
+      "packages/ui-react/tests/association-signout-runtime.test.ts",
+      "packages/ui-server/tests/inbox-snapshot.test.ts",
+      "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+      "packages/ui-react/tests/turn-journal-runtime.test.ts",
+      "packages/ui-react/tests/auth-expiry-runtime.test.ts",
+      "packages/ui-server/tests/external-speech.test.ts"
+    ],
+    "meaning": "Largest completed-file costs in the prior eight-worker reference replay; its two exact-note failures are not a passing qualification."
+  },
+  "runs": {
+    "baseline": {
+      "totals": {
+        "total": 363,
+        "failed": 0,
+        "skipped": 0
+      },
+      "junitSha256": "51e5bf80e6a44b2eeb2abd30d51ae31f925057cebaa6b090d3c4cc840e223a69",
+      "execution": {
+        "code": 0,
+        "wallSeconds": 1318.9187087389873,
+        "loadEnd": [
+          5.6416015625,
+          5.32177734375,
+          3.7255859375
+        ]
+      },
+      "logSha256": "f14af6cdb5a99353ced5255183583596efd88bfa3a2b66be3574092fdd5c4d5a",
+      "freshInvocationBuildMs": 37408.866905999996,
+      "command": "scripts/test-offline.sh -- bun run test <11 recorded files> --reporter=junit",
+      "reportedFileCount": 11
+    },
+    "changedPackageSuite": {
+      "totals": {
+        "total": 6193,
+        "failed": 0,
+        "skipped": 0
+      },
+      "junitSha256": "0d2001f171ee3ff772c7f383526508f56829766476f346b48e67ed8236ec6835",
+      "execution": {
+        "code": 0,
+        "wallSeconds": 4391.308163588983,
+        "loadEnd": [
+          10.94189453125,
+          10.53955078125,
+          11.40283203125
+        ]
+      },
+      "logSha256": "a72aad6e5a12ba4f763de1af8e38f28af6b62e8b1dd7d3bbe065a0ac42c8cd95",
+      "freshInvocationBuildMs": 49145.921712,
+      "command": "scripts/test-offline.sh -- bun run test ./packages/ui-react ./packages/ui-server --reporter=junit --timings=<private> --update-timings",
+      "reportedFileCount": 472
+    },
+    "restoredFocused": {
+      "totals": {
+        "total": 51,
+        "failed": 0,
+        "skipped": 0
+      },
+      "junitSha256": "42f9ec5efe65766d1cf2d0bdb18e9dd91e7be27b19f1db7d268a1f0e1e64d157",
+      "execution": {
+        "code": 0,
+        "wallSeconds": 407.7545775400067,
+        "loadEnd": [
+          10.615234375,
+          11.51123046875,
+          11.1953125
+        ]
+      },
+      "logSha256": "b892e1a1bada5d924fb06faa7920a1ee6feb32b0af71e42845e5adc4ed27e025",
+      "freshInvocationBuildMs": 57087.251329,
+      "command": "scripts/test-offline.sh -- bun run test ./packages/ui-react/tests/connection-continuity-runtime.test.ts ./packages/ui-server/tests/hygiene-review.test.ts --reporter=junit --timings=<private> --update-timings",
+      "reportedFileCount": 2
+    },
+    "finalCleanupControls": {
+      "totals": {
+        "total": 15,
+        "failed": 0,
+        "skipped": 13
+      },
+      "junitSha256": "2f388f61b9cfc14d57011f2544df9ac464d727e7792b87e6d305acab27ab81a2",
+      "execution": {
+        "code": 0,
+        "wallSeconds": 62.53667896898696,
+        "sourceSha256": "36a61f6f6b6543823c6114abfd22ca9e311fd4c009bf0fbad94e53be890338da"
+      },
+      "logSha256": "cb1f683357fbba704cfb531efe88e05ad34a705e5eb44ba2013e76e86eac116a",
+      "freshInvocationBuildMs": 59145.142243,
+      "command": "scripts/test-offline.sh -- bun run test ./packages/ui-react/tests/connection-continuity-runtime.test.ts -t <cleanup/render controls> --reporter=junit",
+      "reportedFileCount": 1
+    }
+  },
+  "profiles": [
+    {
+      "file": "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+      "sourceSha256": "1d0eacaff7e3de3af0d12332353f25ddea3eadf805c1cefc8a6a25bd0ccc3e6d",
+      "analysis": "46 independent real-Chrome scenario bodies dominate; browser, bundle and host startup are shared. The long draft/entry-point/reload/restart cases and the approval/question/touch matrix retain native interactions. Remaining fixed observations and native pointer holds are small relative to scenario time.",
+      "historicalEightWorkerBunFileSeconds": 561.466,
+      "baseline": {
+        "fileSeconds": 336.060890611,
+        "caseSeconds": 334.965784,
+        "hooksAndRunnerRemainderSeconds": 1.0951066110000056,
+        "cases": 46,
+        "slowestCases": [
+          {
+            "name": "1279 desktop, dark, fine pointer: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+            "seconds": 22.7287
+          },
+          {
+            "name": "390 phone, light, coarse pointer, reduced motion: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+            "seconds": 19.840486
+          },
+          {
+            "name": "1440 desktop, light, fine pointer, reduced motion: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+            "seconds": 19.593916
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 446.574112907,
+        "caseSeconds": 444.390872,
+        "hooksAndRunnerRemainderSeconds": 2.1832409070000267,
+        "cases": 46,
+        "slowestCases": [
+          {
+            "name": "1279 desktop, dark, fine pointer: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+            "seconds": 26.424739
+          },
+          {
+            "name": "1440 desktop, light, fine pointer, reduced motion: each session keeps its own draft through every entry point, a reload, a host restart and another device; refused saves keep the words",
+            "seconds": 26.398572
+          },
+          {
+            "name": "1440 desktop, light, fine pointer, reduced motion: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+            "seconds": 24.572927
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "sourceSha256": "36a61f6f6b6543823c6114abfd22ca9e311fd4c009bf0fbad94e53be890338da",
+      "analysis": "33 drops each await three real failed handshakes after 1000/2000/4000 ms reconnect backoffs. A native call trace measures about 70 seconds in ten offline-status waits. File startup is shared; the original 45.5 seconds of requested native observation horizons are retained. Only the registered backoff callbacks now advance logically.",
+      "historicalEightWorkerBunFileSeconds": 417.387,
+      "baseline": {
+        "fileSeconds": 338.538887451,
+        "caseSeconds": 336.64743500000003,
+        "hooksAndRunnerRemainderSeconds": 1.8914524509999637,
+        "cases": 15,
+        "slowestCases": [
+          {
+            "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+            "seconds": 90.160418
+          },
+          {
+            "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+            "seconds": 87.876167
+          },
+          {
+            "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+            "seconds": 23.958797
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 144.518085524,
+        "caseSeconds": 140.065018,
+        "hooksAndRunnerRemainderSeconds": 4.453067524000005,
+        "cases": 15,
+        "slowestCases": [
+          {
+            "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+            "seconds": 25.631329
+          },
+          {
+            "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+            "seconds": 22.471813
+          },
+          {
+            "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+            "seconds": 14.210969
+          }
+        ]
+      },
+      "restoredFocused": {
+        "fileSeconds": 160.371820191,
+        "caseSeconds": 157.006241,
+        "hooksAndRunnerRemainderSeconds": 3.3655791910000232,
+        "cases": 15,
+        "slowestCases": [
+          {
+            "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+            "seconds": 27.326837
+          },
+          {
+            "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+            "seconds": 25.516002
+          },
+          {
+            "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+            "seconds": 15.47313
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-server/tests/hygiene-review.test.ts",
+      "sourceSha256": "d04d5fd3057645f203abc4faddcec6b18edb0861dadd3fb7927b94b554bc7703",
+      "analysis": "36 scenarios dispatch the real offline core CLI through native boundaries, rebuild disposable files/SQLite and exercise durable backup/restore. The synchronous cap-fixture loop was committing each admission separately. One outer fixture transaction retains every real admission/retirement and reduces seed I/O. Whole-file times remain load-dependent.",
+      "historicalEightWorkerBunFileSeconds": 260.076,
+      "baseline": {
+        "fileSeconds": 137.061247694,
+        "caseSeconds": 137.056019,
+        "hooksAndRunnerRemainderSeconds": 0.005228694000010137,
+        "cases": 36,
+        "slowestCases": [
+          {
+            "name": "same-identity refresh supersedes the old Action with current evidence without advancing or writing Markdown",
+            "seconds": 8.388422
+          },
+          {
+            "name": "real post-check failure offers a confirmed inverse only after write; undo stays pending and check alone completes",
+            "seconds": 6.596357
+          },
+          {
+            "name": "simultaneous refreshes across connections admit one replacement and refresh never retires other capped decisions",
+            "seconds": 6.104003
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 205.319769375,
+        "caseSeconds": 205.317301,
+        "hooksAndRunnerRemainderSeconds": 0.0024683750000065174,
+        "cases": 36,
+        "slowestCases": [
+          {
+            "name": "same-identity refresh supersedes the old Action with current evidence without advancing or writing Markdown",
+            "seconds": 12.137623
+          },
+          {
+            "name": "simultaneous refreshes across connections admit one replacement and refresh never retires other capped decisions",
+            "seconds": 12.08809
+          },
+          {
+            "name": "refresh targets the current finding even when another finding would win next, and returning evidence never revives an old Action",
+            "seconds": 8.239825
+          }
+        ]
+      },
+      "restoredFocused": {
+        "fileSeconds": 190.095449597,
+        "caseSeconds": 190.0897,
+        "hooksAndRunnerRemainderSeconds": 0.005749597000004769,
+        "cases": 36,
+        "slowestCases": [
+          {
+            "name": "simultaneous refreshes across connections admit one replacement and refresh never retires other capped decisions",
+            "seconds": 11.392771
+          },
+          {
+            "name": "same-identity refresh supersedes the old Action with current evidence without advancing or writing Markdown",
+            "seconds": 11.111824
+          },
+          {
+            "name": "refresh targets the current finding even when another finding would win next, and returning evidence never revives an old Action",
+            "seconds": 8.12997
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-server/tests/http-supported-mounts.test.ts",
+      "sourceSha256": "be840206bc2443b8f6ed7e9c21fb5c734147704c6b2617b12415b7c429d22242",
+      "analysis": "109 handler/control cases. Immutable readers already share bounded pools; mutable/auth/storage/maintenance cases require independent app state under the audited mount lifetimes. A real fixture micro-profile measures 1.976s startup, 0.005s handler and 0.045s cleanup. Startup includes real native worker/probe/SQLite work. Schema-image seeding showed no reliable whole-file improvement and was reverted.",
+      "historicalEightWorkerBunFileSeconds": 237.177,
+      "baseline": {
+        "fileSeconds": 100.882474885,
+        "caseSeconds": 100.861886,
+        "hooksAndRunnerRemainderSeconds": 0.020588884999995116,
+        "cases": 109,
+        "slowestCases": [
+          {
+            "name": "a dirty failed mount discards its resources before the next independent case",
+            "seconds": 8.459267
+          },
+          {
+            "name": "shared mount readers keep their responses in repeated and permuted order",
+            "seconds": 2.702007
+          },
+          {
+            "name": "mounted supported handler: POST /api/storage/removals",
+            "seconds": 2.261848
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 260.815983151,
+        "caseSeconds": 260.790192,
+        "hooksAndRunnerRemainderSeconds": 0.025791151000021273,
+        "cases": 109,
+        "slowestCases": [
+          {
+            "name": "a dirty failed mount discards its resources before the next independent case",
+            "seconds": 11.182215
+          },
+          {
+            "name": "shared mount readers keep their responses in repeated and permuted order",
+            "seconds": 7.773808
+          },
+          {
+            "name": "mounted supported handler: GET /api/brain/stats/history",
+            "seconds": 4.252184
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/association-signout-runtime.test.ts",
+      "sourceSha256": "28aaefc1a2bce9f6fd8e00c065fe9e69bc12b5a1139c972be3c092c62f104da9",
+      "analysis": "66 native browser/account/storage scenarios dominate; browser, bundle and initial host are shared. Host replacements, fresh contexts, IndexedDB/lock recovery and actual media capture remain real. Explicit capture waits and negative sign-out/storage windows are retained.",
+      "historicalEightWorkerBunFileSeconds": 192.289,
+      "baseline": {
+        "fileSeconds": 156.50764673,
+        "caseSeconds": 155.153694,
+        "hooksAndRunnerRemainderSeconds": 1.3539527300000032,
+        "cases": 66,
+        "slowestCases": [
+          {
+            "name": "explicit associate recovers survivors of a failed unassigned clear without reviving old writers",
+            "seconds": 6.349118
+          },
+          {
+            "name": "another tab cannot resurrect deleted drafts or write through a stale account handle",
+            "seconds": 5.786688
+          },
+          {
+            "name": "explicit discard recovers survivors of a failed unassigned clear without reviving old writers",
+            "seconds": 5.596456
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 175.063805225,
+        "caseSeconds": 172.49812,
+        "hooksAndRunnerRemainderSeconds": 2.56568522500001,
+        "cases": 66,
+        "slowestCases": [
+          {
+            "name": "explicit transcript recovers survivors of a failed unassigned clear without reviving old writers",
+            "seconds": 6.198074
+          },
+          {
+            "name": "explicit discard recovers survivors of a failed unassigned clear without reviving old writers",
+            "seconds": 6.083525
+          },
+          {
+            "name": "explicit associate recovers survivors of a failed unassigned clear without reviving old writers",
+            "seconds": 6.013291
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
+      "sourceSha256": "e0993877a2a0ec1d7faf030b5dcfbdf97c428f140c2e75a75044b8ec6451e936",
+      "analysis": "51 durable SQLite/staging/recovery cases build populated operational state, restore copies and kill real child processes at restore boundaries. Native child readiness/exit polling and the 250ms exclusive-lock observation are retained. Async filesystem/transaction boundaries cannot be replaced by a synchronous seed batch.",
+      "historicalEightWorkerBunFileSeconds": 121.243,
+      "changedPackageSuite": {
+        "fileSeconds": 106.895616724,
+        "caseSeconds": 106.89129,
+        "hooksAndRunnerRemainderSeconds": 0.004326724000009108,
+        "cases": 51,
+        "slowestCases": [
+          {
+            "name": "SIGKILL at reconcile with complete readiness leaves a usable backup or a resumable closed restore",
+            "seconds": 4.233078
+          },
+          {
+            "name": "a populated UI target and an edited pending database are both preserved on refusal",
+            "seconds": 3.923676
+          },
+          {
+            "name": "SIGKILL at reconcile with empty readiness leaves a usable backup or a resumable closed restore",
+            "seconds": 3.794022
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/answer-delivery-runtime.test.ts",
+      "sourceSha256": "cf3e14a61c79f5f18817fefd00a67bc5b6839ea4d1f30481a09ed4707375e53a",
+      "analysis": "24 mounted browser cases dominate; bundle, host and Chrome are shared. Receipt/liveness policy timers already use controlled clocks. Native persistence, cross-tab ownership, real receipt delivery and input/Other-form scenarios remain real; residual negative windows are retained.",
+      "historicalEightWorkerBunFileSeconds": 106.522,
+      "baseline": {
+        "fileSeconds": 61.188646513,
+        "caseSeconds": 58.982554,
+        "hooksAndRunnerRemainderSeconds": 2.2060925130000015,
+        "cases": 24,
+        "slowestCases": [
+          {
+            "name": "two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once",
+            "seconds": 4.670328
+          },
+          {
+            "name": "1887: Other has explicit current-text Submit at 320px in light",
+            "seconds": 3.456953
+          },
+          {
+            "name": "1887: multi-select Other retains predefined picks and refuses composing Enter",
+            "seconds": 3.15086
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 88.073339235,
+        "caseSeconds": 85.558849,
+        "hooksAndRunnerRemainderSeconds": 2.514490235000011,
+        "cases": 24,
+        "slowestCases": [
+          {
+            "name": "two tabs: one owns the queued answer, the other mirrors it read-only; the host settles it once",
+            "seconds": 7.817033
+          },
+          {
+            "name": "ask_user_list: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+            "seconds": 5.312674
+          },
+          {
+            "name": "ask_user_form: submitted offline, reloaded, then reconnected: restored, revalidated and accepted once",
+            "seconds": 4.311915
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/turn-journal-runtime.test.ts",
+      "sourceSha256": "98b55ccec73e1df5009264c444fd815dfc1f3c40b24c98bc567f7feccc54db18",
+      "analysis": "Native browser turn/configuration/replay/conflict/undo cases dominate with shared setup. Real retained-version reads, index refresh, worker observations and late HTTP responses remain exercised. Short 50/100ms observations and bounded condition polls do not explain the main file cost.",
+      "historicalEightWorkerBunFileSeconds": 83.452,
+      "changedPackageSuite": {
+        "fileSeconds": 55.344957078,
+        "caseSeconds": 51.581229,
+        "hooksAndRunnerRemainderSeconds": 3.7637280779999998,
+        "cases": 24,
+        "slowestCases": [
+          {
+            "name": "shared conflict reader chooses retained versions, keeps both and Undo light 1280",
+            "seconds": 4.267059
+          },
+          {
+            "name": "shared conflict reader chooses retained versions, keeps both and Undo dark 320",
+            "seconds": 4.139289
+          },
+          {
+            "name": "steering skill review and existing per-file revert dark 320",
+            "seconds": 3.779142
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/auth-expiry-runtime.test.ts",
+      "sourceSha256": "03e4bbdcc66df26c1b844dd2168c0d3250047c46844cb1ce27da42ebe63a6c41",
+      "analysis": "Shared host/browser/password setup; repeated real account lock/recovery, native IndexedDB, media capture, decode and staged-attachment scenarios dominate. Login entrances and explicit post-restoration/media/negative observation windows are retained.",
+      "historicalEightWorkerBunFileSeconds": 79.242,
+      "changedPackageSuite": {
+        "fileSeconds": 71.726318363,
+        "caseSeconds": 69.719277,
+        "hooksAndRunnerRemainderSeconds": 2.007041362999999,
+        "cases": 10,
+        "slowestCases": [
+          {
+            "name": "different account navigates and cannot read or restore prior drafts or audio",
+            "seconds": 10.719154
+          },
+          {
+            "name": "capture ends; snapshot commits before unmount; same account restores all context without navigation",
+            "seconds": 8.968376
+          },
+          {
+            "name": "uploaded references in every inactive staged view survive same-account restoration",
+            "seconds": 8.127002
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-server/tests/external-speech.test.ts",
+      "sourceSha256": "97fa1c9746a0ca37200beb50d575c46170d41e7933c5b9954787725a2dad5d20",
+      "analysis": "Mounted provider validation/session cases repeatedly compose independent real apps with different provider definitions, capabilities and failures. App/native startup dominates the small route assertions. Sharing the mutable provider/configuration/route lifetime would require additional isolation proof.",
+      "historicalEightWorkerBunFileSeconds": 72.914,
+      "changedPackageSuite": {
+        "fileSeconds": 65.887273426,
+        "caseSeconds": 65.885909,
+        "hooksAndRunnerRemainderSeconds": 0.0013644259999949782,
+        "cases": 23,
+        "slowestCases": [
+          {
+            "name": "a supplied provider wins over automatic Deepgram discovery but never an explicit mismatch",
+            "seconds": 11.945084
+          },
+          {
+            "name": "selection without an external value preserves opt-in browser speech and fails closed otherwise",
+            "seconds": 9.921307
+          },
+          {
+            "name": "supported keyterms reach the supplied provider and false capabilities skip the builder",
+            "seconds": 4.662656
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/artifact-recovery-runtime.test.ts",
+      "sourceSha256": "eeb64741988e19541204cc6e945f383e9eb77eb7c30f10ee469b9956f4c1d8b0",
+      "analysis": "32 real viewer/status/navigation/SVG/PDF/print cases dominate. Bundle, host and browser startup are already shared; each scene owns its context and authenticated page. No large fixed sleep was found in the inspected file.",
+      "historicalEightWorkerBunFileSeconds": 52.515,
+      "baseline": {
+        "fileSeconds": 47.931054696,
+        "caseSeconds": 46.77347,
+        "hooksAndRunnerRemainderSeconds": 1.1575846959999936,
+        "cases": 32,
+        "slowestCases": [
+          {
+            "name": "artifact account switch cannot inherit old bytes, path or opener identity",
+            "seconds": 4.334729
+          },
+          {
+            "name": "artifact full state matrix dark 320 preserves named static loading and truthful controls",
+            "seconds": 2.232079
+          },
+          {
+            "name": "artifact real401 invokes existing gate, drops bytes/opener and requires manual reopen",
+            "seconds": 2.216159
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 47.248461198,
+        "caseSeconds": 44.729126,
+        "hooksAndRunnerRemainderSeconds": 2.5193351980000003,
+        "cases": 32,
+        "slowestCases": [
+          {
+            "name": "artifact account switch cannot inherit old bytes, path or opener identity",
+            "seconds": 4.631669
+          },
+          {
+            "name": "artifact real401 invokes existing gate, drops bytes/opener and requires manual reopen",
+            "seconds": 2.254748
+          },
+          {
+            "name": "artifact secondary png404 is confirmed without a false download",
+            "seconds": 1.93907
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/draft-runtime.test.ts",
+      "sourceSha256": "b2b8e4c6eff47a9050672d1aa7d7c03c68dc657e58c1de201e5abd2fb7220d5e",
+      "analysis": "Three long integrated draft scenarios repeat real host-save acknowledgements, reload/restart, second-device conflicts and revision consumption at distinct responsive inputs. Setup is shared. Polls exit on acknowledged state; debounce/persistence/native flows dominate the bodies.",
+      "historicalEightWorkerBunFileSeconds": 56.402,
+      "baseline": {
+        "fileSeconds": 44.407859064,
+        "caseSeconds": 42.911891,
+        "hooksAndRunnerRemainderSeconds": 1.495968064000003,
+        "cases": 3,
+        "slowestCases": [
+          {
+            "name": "390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "seconds": 14.486901
+          },
+          {
+            "name": "900 desktop, light, reduced motion: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "seconds": 14.27468
+          },
+          {
+            "name": "1440 desktop, dark: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "seconds": 14.15031
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 52.581981433,
+        "caseSeconds": 50.201785,
+        "hooksAndRunnerRemainderSeconds": 2.380196433000002,
+        "cases": 3,
+        "slowestCases": [
+          {
+            "name": "1440 desktop, dark: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "seconds": 16.922317
+          },
+          {
+            "name": "900 desktop, light, reduced motion: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "seconds": 16.650262
+          },
+          {
+            "name": "390 phone, dark, coarse pointer: saved on the host, restored after reload and on another device, conflicts kept, sends consume their revision",
+            "seconds": 16.629206
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/scratch-links-runtime.test.ts",
+      "sourceSha256": "06ae64c73ca458cc0fafc8e783537b908640496d9c174b8a7841c55237c8367e",
+      "analysis": "19 actual rendered-reference, expired-file and route-guard cases. Shared setup includes real generated assets/client bundling. No unconditional settling sleep appears in the inspected file; native navigation/painting dominates the bodies.",
+      "historicalEightWorkerBunFileSeconds": 22.477,
+      "baseline": {
+        "fileSeconds": 14.871448521,
+        "caseSeconds": 11.226161,
+        "hooksAndRunnerRemainderSeconds": 3.645287521,
+        "cases": 19,
+        "slowestCases": [
+          {
+            "name": "pdf prose opens without File not found (dark, 320px)",
+            "seconds": 0.782571
+          },
+          {
+            "name": "keyboard activation opens the same generated PDF",
+            "seconds": 0.764707
+          },
+          {
+            "name": "pdf code opens without File not found (light, 1280px)",
+            "seconds": 0.753467
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 18.206922088,
+        "caseSeconds": 13.622973,
+        "hooksAndRunnerRemainderSeconds": 4.583949087999999,
+        "cases": 19,
+        "slowestCases": [
+          {
+            "name": "pdf prose opens without File not found (dark, 320px)",
+            "seconds": 1.011108
+          },
+          {
+            "name": "pdf code opens without File not found (light, 1280px)",
+            "seconds": 1.006641
+          },
+          {
+            "name": "pdf markdown opens without File not found (light, 1280px)",
+            "seconds": 0.929898
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/tracker-runtime.test.ts",
+      "sourceSha256": "db723dcf2f1856d265e7f53beffcdbb7e98200fcb505f68ffef79130ea128d42",
+      "analysis": "12 native tracker lifecycle/layout cases with shared browser/host. Real running/finished/reloaded state, accessible announcements and responsive entry points dominate. Small native 150/300ms absence observations are retained.",
+      "historicalEightWorkerBunFileSeconds": 69.594,
+      "baseline": {
+        "fileSeconds": 37.507457919,
+        "caseSeconds": 36.427807,
+        "hooksAndRunnerRemainderSeconds": 1.0796509189999952,
+        "cases": 12,
+        "slowestCases": [
+          {
+            "name": "1280 desktop, dark: drawn in the strip or the pane, announced once, opened and cleared from there",
+            "seconds": 3.497211
+          },
+          {
+            "name": "480 tablet, dark, coarse pointer: drawn in the strip or the pane, announced once, opened and cleared from there",
+            "seconds": 3.429502
+          },
+          {
+            "name": "1440 desktop, light, reduced motion: drawn in the strip or the pane, announced once, opened and cleared from there",
+            "seconds": 3.427065
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 54.218138163,
+        "caseSeconds": 52.670879,
+        "hooksAndRunnerRemainderSeconds": 1.5472591629999997,
+        "cases": 12,
+        "slowestCases": [
+          {
+            "name": "1440 desktop, light, reduced motion: drawn in the strip or the pane, announced once, opened and cleared from there",
+            "seconds": 5.163887
+          },
+          {
+            "name": "1280 desktop, dark: drawn in the strip or the pane, announced once, opened and cleared from there",
+            "seconds": 5.045574
+          },
+          {
+            "name": "480 tablet, dark, coarse pointer: drawn in the strip or the pane, announced once, opened and cleared from there",
+            "seconds": 4.914021
+          }
+        ]
+      }
+    },
+    {
+      "file": "packages/ui-react/tests/external-speech-runtime.test.ts",
+      "sourceSha256": "e84d3d1f450b2485531ae25c06513039d54d723d8269b51f9f59255e5f57d468",
+      "analysis": "An isolated outer case delegates two real-Chrome microphone/session cases to a fresh Bun child to avoid contaminated DOM/transport globals. Same-invocation build attestation already avoids duplicate package builds. Real media production and session drain/abort remain native.",
+      "historicalEightWorkerBunFileSeconds": 10.012,
+      "baseline": {
+        "fileSeconds": 6.201285492,
+        "caseSeconds": 6.200209,
+        "hooksAndRunnerRemainderSeconds": 0.001076492000000151,
+        "cases": 1,
+        "slowestCases": [
+          {
+            "name": "external speech: actual browser audio drains and unmount hard-stops capture in an isolated process",
+            "seconds": 6.200209
+          }
+        ]
+      },
+      "changedPackageSuite": {
+        "fileSeconds": 7.511828125,
+        "caseSeconds": 7.313128,
+        "hooksAndRunnerRemainderSeconds": 0.19870012500000023,
+        "cases": 1,
+        "slowestCases": [
+          {
+            "name": "external speech: actual browser audio drains and unmount hard-stops capture in an isolated process",
+            "seconds": 7.313128
+          }
+        ]
+      }
+    }
+  ],
+  "nativeContinuity": {
+    "before": {
+      "renderCalls": 55,
+      "renderMs": 6903.504348000095,
+      "observationCalls": 87,
+      "observationMs": 45618.20216199999,
+      "retainedFrameCalls": 87,
+      "retainedFrameMs": 2147.8551820000466,
+      "pollCalls": 6,
+      "pollMs": 60.70209700000851,
+      "sites": {
+        "sceneScroll": {
+          "calls": 10,
+          "requestedMs": 5000,
+          "observationMs": 5004.394961999935,
+          "frameMs": 323.474542999953
+        },
+        "sceneDrop": {
+          "calls": 30,
+          "requestedMs": 15000,
+          "observationMs": 15074.97804100005,
+          "frameMs": 742.9941820001222
+        },
+        "sceneRecovery": {
+          "calls": 30,
+          "requestedMs": 15000,
+          "observationMs": 15026.595348000032,
+          "frameMs": 796.7599989999708
+        },
+        "recoveredTurn": {
+          "calls": 10,
+          "requestedMs": 5000,
+          "observationMs": 5009.679254000024,
+          "frameMs": 125.7259900000081
+        },
+        "releasedSnapshot": {
+          "calls": 3,
+          "requestedMs": 1500,
+          "observationMs": 1501.2276630000051,
+          "frameMs": 65.35427500000515
+        },
+        "imeStart": {
+          "calls": 2,
+          "requestedMs": 2000,
+          "observationMs": 2000.6531099999556,
+          "frameMs": 49.53002499998547
+        },
+        "imeCommit": {
+          "calls": 2,
+          "requestedMs": 2000,
+          "observationMs": 2000.6737839999842,
+          "frameMs": 44.016168000001926
+        }
+      }
+    },
+    "after": {
+      "renderCalls": 55,
+      "renderMs": 6180.916669999996,
+      "observationCalls": 87,
+      "observationMs": 45832.563724999985,
+      "retainedFrameCalls": 87,
+      "retainedFrameMs": 2197.3656560000363,
+      "pollCalls": 7,
+      "pollMs": 71.77926399999706,
+      "sites": {
+        "sceneScroll": {
+          "calls": 10,
+          "requestedMs": 5000,
+          "observationMs": 5008.4793150000405,
+          "frameMs": 316.95123300001706
+        },
+        "sceneDrop": {
+          "calls": 30,
+          "requestedMs": 15000,
+          "observationMs": 15079.190878999972,
+          "frameMs": 822.2535200000302
+        },
+        "sceneRecovery": {
+          "calls": 30,
+          "requestedMs": 15000,
+          "observationMs": 15233.484642999927,
+          "frameMs": 760.0029769999892
+        },
+        "recoveredTurn": {
+          "calls": 10,
+          "requestedMs": 5000,
+          "observationMs": 5008.072056000028,
+          "frameMs": 130.52833200000896
+        },
+        "releasedSnapshot": {
+          "calls": 3,
+          "requestedMs": 1500,
+          "observationMs": 1501.5305599999992,
+          "frameMs": 77.42214700001205
+        },
+        "imeStart": {
+          "calls": 2,
+          "requestedMs": 2000,
+          "observationMs": 2000.8154660000146,
+          "frameMs": 42.297913000002154
+        },
+        "imeCommit": {
+          "calls": 2,
+          "requestedMs": 2000,
+          "observationMs": 2000.9908060000016,
+          "frameMs": 47.9095339999767
+        }
+      }
+    },
+    "requestedNativeHorizonMsBefore": 45500,
+    "requestedNativeHorizonMsAfter": 45500,
+    "backoffDrops": 33,
+    "logicalBackoffMsPerDrop": 7000,
+    "tracedTenDropOfflineWaitMs": 70382.198886,
+    "tracedOfflineWaits": 10,
+    "traceLogSha256": "f2cf13278c314431dd07b70948105f5d40437687b9edf34147469592d59ab83e",
+    "contract": "Registered 1000/2000/4000 ms policy is checked before and at each boundary; each real failed handshake completes before the next advance. One shared original 20000 ms drop cap. Date, animation frames, media, other timers and native observation horizons are not advanced."
+  },
+  "hygieneSeedMicroControl": {
+    "realActions": 60,
+    "ordinaryTransactionsMs": 1130.355315,
+    "oneOuterTransactionMs": 40.293185,
+    "retainedActionsBothArms": 60,
+    "scope": "Actual createInboxStore/createInboxAction against independent real on-disk SQLite databases. This fixture phase is faster; no controlled whole-file speedup is claimed from the differing-load runs."
+  },
+  "assertionAudit": [
+    {
+      "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "originalSha256": "1744171e8f9c72a9513a822212bf3fdc64c985b0c22aeb7c5808930dc94fadde",
+      "candidateSha256": "36a61f6f6b6543823c6114abfd22ca9e311fd4c009bf0fbad94e53be890338da",
+      "originalAssertions": 87,
+      "candidateAssertions": 95,
+      "missingAssertions": [],
+      "originalTestDeclarations": 7,
+      "candidateTestDeclarations": 7,
+      "missingTestDeclarations": [],
+      "addedTestDeclarations": []
+    },
+    {
+      "file": "packages/ui-server/tests/hygiene-review.test.ts",
+      "originalSha256": "f7f445426db669e3e4ba7a78bef49c3a1eeac5cc3636fcb256ed8cdba2debc25",
+      "candidateSha256": "d04d5fd3057645f203abc4faddcec6b18edb0861dadd3fb7927b94b554bc7703",
+      "originalAssertions": 247,
+      "candidateAssertions": 247,
+      "missingAssertions": [],
+      "originalTestDeclarations": 30,
+      "candidateTestDeclarations": 30,
+      "missingTestDeclarations": [],
+      "addedTestDeclarations": []
+    }
+  ],
+  "mutations": [
+    {
+      "name": "final-replay-node-identity",
+      "mutatedFile": "packages/ui-react/src/stores/chat-state.ts",
+      "originalSourceSha256": "c7406c8db76d73a1dd5c9358cadb61f04775ae2a34d930aa701a5c72690fab86",
+      "change": {
+        "old": "  // Another client can start a turn whose user message this page learns only",
+        "new": "  if (!previous.isStreaming && previous.messages.length >= 4 && messages[1]?.role === \"assistant\") messages[1] = { ...messages[1], id: crypto.randomUUID() };\n  // Another client can start a turn whose user message this page learns only"
+      },
+      "exitCode": 1,
+      "wallSeconds": 110.40793076797854,
+      "junitSha256": "b00ea959c2fa0e3ee324ee89c81a1bac946d739de5eb69fbb8db227b7ef35a5c",
+      "logSha256": "f8d33b821ef77d167c0544a75ab2259b7baf3c310d80529292a21e51e4ae3f14",
+      "cases": [
+        {
+          "name": "320 phone, dark: a stale late history read retains the settled queued reply",
+          "seconds": 11.411487,
+          "failed": true,
+          "assertion": "recovered text and the terminal replay kept the original answer node\n\nExpected: true\nReceived: false\n"
+        },
+        {
+          "name": "320 phone, dark: a fresh late history read retains the settled queued reply",
+          "seconds": 12.466999,
+          "failed": true,
+          "assertion": "recovered text and the terminal replay kept the original answer node\n\nExpected: true\nReceived: false\n"
+        },
+        {
+          "name": "1280 desktop, light: a stale late history read retains the settled queued reply",
+          "seconds": 12.269192,
+          "failed": true,
+          "assertion": "recovered text and the terminal replay kept the original answer node\n\nExpected: true\nReceived: false\n"
+        },
+        {
+          "name": "1280 desktop, light: a fresh late history read retains the settled queued reply",
+          "seconds": 11.262078,
+          "failed": true,
+          "assertion": "recovered text and the terminal replay kept the original answer node\n\nExpected: true\nReceived: false\n"
+        }
+      ]
+    },
+    {
+      "name": "final-snapshot-result-guard",
+      "mutatedFile": "packages/ui-server/src/ws/connection.ts",
+      "originalSourceSha256": "b79855983007b932e2cd6e0a0e31da97181ea1823e6dcb9c9c562110cd21aef6",
+      "change": {
+        "old": "...(current && current.lastResult === null",
+        "new": "...(current && current.lastResult !== null"
+      },
+      "exitCode": 1,
+      "wallSeconds": 82.9264907540055,
+      "junitSha256": "e64e33ad267465fc9d1f610e97279b29c3141ae3a96022e7ca72007997d46f9a",
+      "logSha256": "177497191657393c4a6b43f35221616fead910a89d4ae1950d9251874d77dec7",
+      "cases": [
+        {
+          "name": "single running session: a captured empty history snapshot cannot end a newer turn",
+          "seconds": 6.862781,
+          "failed": true,
+          "assertion": "the delayed snapshot cannot end the newer answer\n\nExpected: true\nReceived: false\n"
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end a newer turn",
+          "seconds": 11.105042,
+          "failed": true,
+          "assertion": "the snapshot reports the current turn after its asynchronous read\n\nExpected: true\nReceived: false\n"
+        },
+        {
+          "name": "single running session: a captured failed history snapshot cannot end its quiet turn",
+          "seconds": 5.022519,
+          "failed": true,
+          "assertion": "a quiet failed history read cannot end the actual running answer\n\nExpected: true\nReceived: false\n"
+        }
+      ]
+    },
+    {
+      "name": "final-queue-pill-identity",
+      "mutatedFile": "packages/ui-react/src/stores/follow-up-state.ts",
+      "originalSourceSha256": "e7fae99f7c3256e45605500903c1be22f20b65b43aef2786daa5e8563d4f6503",
+      "change": {
+        "old": "write(sessionId, frame.followUps, local, announcement);",
+        "new": "write(sessionId, frame.followUps.map(entry => ({ ...entry, id: crypto.randomUUID() })), local, announcement);"
+      },
+      "exitCode": 1,
+      "wallSeconds": 126.54535334001412,
+      "junitSha256": "bbdb5088ea05217b13a2ff474d9abe0aec5f9fba0da0e7c322e9d9d3afcbb7f5",
+      "logSha256": "d1d8bcbf3e536feef6b4c7e3d7ebd1899e87108a7504bb5d7fb7c62368fa5109",
+      "cases": [
+        {
+          "name": "320 phone, dark: progress missed during the outage rejoins the original answer",
+          "seconds": 9.109103,
+          "failed": true,
+          "assertion": "the recovered interior gap: no pending pill was removed during recovery\n\nExpected: 0\nReceived: 1\n"
+        },
+        {
+          "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "seconds": 11.458743,
+          "failed": true,
+          "assertion": "cycle 1, reconnected: no pending pill was removed during recovery\n\nExpected: 0\nReceived: 1\n"
+        },
+        {
+          "name": "320 phone, dark: an IME composition started before a drop is still active after two drops and commits normally",
+          "seconds": 11.408318,
+          "failed": true,
+          "assertion": "IME cycle 1, reconnected: no pending pill was removed during recovery\n\nExpected: 0\nReceived: 1\n"
+        },
+        {
+          "name": "1280 desktop, light: progress missed during the outage rejoins the original answer",
+          "seconds": 10.600164,
+          "failed": true,
+          "assertion": "the recovered interior gap: no pending pill was removed during recovery\n\nExpected: 0\nReceived: 1\n"
+        },
+        {
+          "name": "1280 desktop, light: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "seconds": 10.312283,
+          "failed": true,
+          "assertion": "cycle 1, reconnected: no pending pill was removed during recovery\n\nExpected: 0\nReceived: 1\n"
+        },
+        {
+          "name": "1280 desktop, light: an IME composition started before a drop is still active after two drops and commits normally",
+          "seconds": 14.037654,
+          "failed": true,
+          "assertion": "IME cycle 1, reconnected: no pending pill was removed during recovery\n\nExpected: 0\nReceived: 1\n"
+        }
+      ]
+    },
+    {
+      "name": "hygiene-cap",
+      "mutatedFile": "packages/ui-server/src/inbox/actions.ts",
+      "originalSourceSha256": "4b58a2bbf355fce2b1429a097ee561b284adbf4f48a45a44602f799de945d025",
+      "change": {
+        "old": "export function enforceInboxActionCap(db: Database, cap = INBOX_ACTION_CAP, now = Date.now()): void {",
+        "new": "export function enforceInboxActionCap(db: Database, cap = INBOX_ACTION_CAP, now = Date.now()): void { return;"
+      },
+      "exitCode": 1,
+      "wallSeconds": 25.373423379991436,
+      "junitSha256": "00fd101cbcebed3ec83e1a65f082f11f629f2bcee6137a7f00e68ab2a795292d",
+      "logSha256": "7fb4f3b573c4b9b5801e81fbb18f1781578e4800a42af4ab16de509c42e9a28f",
+      "cases": [
+        {
+          "name": "Actions production cap retires pending review atomically; reload, backup and explicit concurrent Resume preserve one fresh finding",
+          "seconds": 2.861616,
+          "failed": true,
+          "assertion": "expect(received).toBe(expected)\n\nExpected: \"dropped\"\nReceived: \"pending\"\n"
+        },
+        {
+          "name": "Actions production cap retires snoozed review atomically; reload, backup and explicit concurrent Resume preserve one fresh finding",
+          "seconds": 2.906673,
+          "failed": true,
+          "assertion": "expect(received).toBe(expected)\n\nExpected: \"dropped\"\nReceived: \"snoozed\"\n"
+        },
+        {
+          "name": "an immediately retired admission pauses again with a fresh receipt and never auto-retries",
+          "seconds": 2.743062,
+          "failed": true,
+          "assertion": "expect(received).toBeUndefined()\n\nReceived: \"hygiene-927fb05d50df406baecd0571d949f822b6933aaceca83b7bd435a63fd1e80b86\"\n"
+        },
+        {
+          "name": "Resume re-admits the retired canonical finding even when next would select another eligible finding",
+          "seconds": 3.60604,
+          "failed": true,
+          "assertion": "expect(received).toContain(expected)\n\nExpected to contain: \"The crew waits.\"\nReceived: \"---\\ntitle: Circe palace\\ntype: note\\ncreated: 2026-07-12\\nupdated: 2026-07-12\\ntags: [voyage]\\n---\\nOdysseus sees [[Aeolus island]].\\n\"\n"
+        },
+        {
+          "name": "failed or unauthorized Resume preserves the retirement; configuration recovery requires another explicit Resume",
+          "seconds": 4.109051,
+          "failed": true,
+          "assertion": "expect(received).rejects.toThrow(expected)\n\nExpected promise that rejects\nReceived promise that resolved: Promise { <resolved> }\n"
+        },
+        {
+          "name": "cap retirement during confirmed CLI dispatch retains a valid backup and settles the receipt without resurrecting the card",
+          "seconds": 5.096614,
+          "failed": true,
+          "assertion": "expect(received).toBeUndefined()\n\nReceived: \"hygiene-927fb05d50df406baecd0571d949f822b6933aaceca83b7bd435a63fd1e80b86\"\n"
+        },
+        {
+          "name": "cap retirement with a lost CLI receipt keeps the journal recoverable without repeating the write",
+          "seconds": 3.788546,
+          "failed": true,
+          "assertion": "expect(received).toEqual(expected)\n\n@@ -67,11 +67,12 @@\n          \"urgency\": null,\n        },\n        \"findingId\": \"broken-link-journeys-circe-palace-5357\",\n        \"fingerprint\": \"bb834af4e638\",\n        \"outcome\": {\n-         \"status\": \"applying\",\n+         \"code\": \"receipt-unknown\",\n+         \"status\": \"check_failed\",\n          \"version\": 1,\n        },\n      },\n      \"id\": \"hygiene-927fb05d50df406baecd0571d949f822b6933aaceca83b7bd435a63fd1e80b86\",\n      \"options\": [\n@@ -174,12 +175,12 @@\n     "
+        }
+      ]
+    },
+    {
+      "name": "hygiene-pause-generation",
+      "mutatedFile": "packages/ui-server/src/inbox/hygiene-review.ts",
+      "originalSourceSha256": "b58699ea98054a764bdc8621ea900b8cd7feef0141962be267495b298738ea02",
+      "change": {
+        "old": "if (operation === \"pause\") pauseGeneration++;",
+        "new": "if (operation === \"pause\") void pauseGeneration;"
+      },
+      "exitCode": 1,
+      "wallSeconds": 4.615094045992009,
+      "junitSha256": "f3f838461b0515da84841af3375f11d2c812eb1359c918966f4f3309be5dd90b",
+      "logSha256": "fdf9f5df7848ac622b1b3ac94b4cee224fcb04a4c4a03d6423b715d614d5ae59",
+      "cases": [
+        {
+          "name": "Pause during retired-card Resume cancels its pending admission",
+          "seconds": 4.344776,
+          "failed": true,
+          "assertion": "expect(received).toHaveLength(expected)\n\nExpected length: 0\nReceived length: 1\n"
+        }
+      ]
+    },
+    {
+      "name": "reconnect-policy",
+      "mutatedFile": "packages/ui-sdk/src/client/ws-client.ts",
+      "originalSourceSha256": "5531987a8620ecb05acd1df87359c910707b7feadf8bc472d56473fbc6234024",
+      "change": {
+        "old": "const BASE_RECONNECT_MS = 1000;",
+        "new": "const BASE_RECONNECT_MS = 500;"
+      },
+      "exitCode": 1,
+      "wallSeconds": 59.26957281000796,
+      "junitSha256": "a43a8ff91f86f951870c3f855c31a22b5a34f5c57f040a35753b53f487f7ea3d",
+      "logSha256": "56acfa93930b0f9649813416d888605a1c4ffa6316c1d6de0c4c17b1426cb0d9",
+      "cases": [
+        {
+          "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "seconds": 6.198727,
+          "failed": true,
+          "assertion": "the registered production backoff\n\nExpected: 1000\nReceived: 500\n"
+        }
+      ]
+    },
+    {
+      "name": "clock-descriptor-restore",
+      "mutatedFile": "packages/ui-react/tests/fixtures/reconnect-clock.ts",
+      "originalSourceSha256": "5f64fd2aa9587467a1195b97b6030c24c7c66dc2d8382ee122fbddc1ad2cc317",
+      "change": {
+        "old": "        owners.forEach(([owner, key], index) => Object.defineProperty(owner, key, descriptors[index]!));",
+        "new": "        // MUTATION: leave the browser timer replacements installed."
+      },
+      "exitCode": 1,
+      "wallSeconds": 59.49621004899382,
+      "junitSha256": "7f18eddd60e008685174f9a614dc0da3eb3c3ea6843720c9da58f0ba31ba666b",
+      "logSha256": "07461850e065cd48951242ef88817ff1ef2220da4bd6a63a2846cf69767fd9ae",
+      "cases": [
+        {
+          "name": "320 phone, dark: a stale late history read retains the settled queued reply",
+          "seconds": 8.171248,
+          "failed": true,
+          "assertion": "reconnect clock restores complete timer descriptors\n\n  {\n    \"errors\": 0,\n-   \"restored\": true,\n+   \"restored\": false,\n  }\n\n- Expected  - 1\n+ Received  + 1\n"
+        }
+      ]
+    },
+    {
+      "name": "clock-socket-descriptor-restore",
+      "mutatedFile": "packages/ui-react/tests/fixtures/reconnect-clock.ts",
+      "originalSourceSha256": "6c840d637c70e783aeb4d5c55afd40a981024264eb35f3245e375a4533dbed44",
+      "change": {
+        "old": "        for (const restore of restorers.reverse()) restore();",
+        "new": "        // MUTATION: retain the per-socket close wrappers."
+      },
+      "exitCode": 1,
+      "wallSeconds": 68.02648836400476,
+      "junitSha256": "dd18f5de5f0f3f78bbcfd7d8ad7f42968e60641abff66f61167e079b8b1d3bb8",
+      "logSha256": "8a755e9ab2ef1f32308b91687bfc6321506f401c3dcb4ac32e9f9e23b02b2567",
+      "cases": [
+        {
+          "name": "320 phone, dark: a stale late history read retains the settled queued reply",
+          "seconds": 14.147312,
+          "failed": true,
+          "assertion": "reconnect clock restores complete timer descriptors\n\n  {\n    \"errors\": 0,\n-   \"restored\": true,\n+   \"restored\": false,\n  }\n\n- Expected  - 1\n+ Received  + 1\n"
+        }
+      ]
+    },
+    {
+      "name": "clock-early-callback",
+      "mutatedFile": "packages/ui-react/tests/fixtures/reconnect-clock.ts",
+      "originalSourceSha256": "6c840d637c70e783aeb4d5c55afd40a981024264eb35f3245e375a4533dbed44",
+      "change": {
+        "old": "      now += ms;",
+        "new": "      now += ms + 1;"
+      },
+      "exitCode": 1,
+      "wallSeconds": 65.66137513099238,
+      "junitSha256": "9822537433100596f2d89c3797ef4a5362d73db31773cfe010a68ca989e2f991",
+      "logSha256": "39b1e51d99d61465b205dceec4d8b44983ecde50337c100f1a7a700a1122022c",
+      "cases": [
+        {
+          "name": "320 phone, dark: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing",
+          "seconds": 8.807421,
+          "failed": true,
+          "assertion": "no reconnect before its full backoff\n\nExpected: 1\nReceived: 2\n"
+        }
+      ]
+    },
+    {
+      "name": "scene-cleanup-error",
+      "mutatedFile": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
+      "originalSourceSha256": "36a61f6f6b6543823c6114abfd22ca9e311fd4c009bf0fbad94e53be890338da",
+      "change": {
+        "old": "throw new AggregateError([error, cleanupError], \"Native scene preparation and cleanup failed\");",
+        "new": "throw cleanupError;"
+      },
+      "exitCode": 1,
+      "wallSeconds": 58.81420261101448,
+      "junitSha256": "5d725344c81ee31a067a44162257c220089a860bf981d9bef29391b2c409417d",
+      "logSha256": "de5dae454d67582829340d038d3fdc587cfb51d579853515ad20c0f2c62d1ceb",
+      "cases": [
+        {
+          "name": "failed native scene preparation closes its browser context",
+          "seconds": 0.271315,
+          "failed": true,
+          "assertion": "expect(received).toBeInstanceOf(expected)\n\nExpected constructor: [class AggregateError extends Error]\nReceived value: 855 |           page = await nativeOnlinePage(context);\n856 |           throw failure;\n857 |         });\n858 |       } catch (error) { observed = error; }\n859 |       expect(observed, \"scene rethrows its original preparation failure\").toBe(failure);\n860 |       const cleanupFailure = new Error(\"fixture context cleanup failure\");\n                                       ^\nerror: fix"
+        }
+      ]
+    }
+  ],
+  "mutatedRuntimeScenarioCount": 13,
+  "mutatedHygieneScenarioCount": 8,
+  "rejectedExperiments": [
+    {
+      "variant": "full-page Playwright clock",
+      "exitCode": 1,
+      "fileRunnerSeconds": 148.03,
+      "reason": "Motion finite-render observations took 88.795s and the Connection lost banner did not detach within 30s. Global Date/animation timing is not used by the delivered clock.",
+      "logSha256": "9b3259073b1f89a37ef1676f1c90fbe1a63cc71553e80e0a1ce06090483c7fc8"
+    },
+    {
+      "variant": "schema-image fixture initialization",
+      "passed": 145,
+      "hygieneFileSeconds": 130.371310725,
+      "httpMountFileSeconds": 107.491036181,
+      "reason": "No reliable whole-file gain over baseline under different load; implementation was removed."
+    },
+    {
+      "variant": "snapshot-unconditional-idle mutation",
+      "reason": "Initial constant-false form failed TypeScript preparation; excluded as a behavioral receipt. The corrected result-guard inversion is recorded above."
+    }
+  ],
+  "limits": [
+    "Shared host, sequential observations rather than a randomized speedup estimate; package proof and isolated diagnostic builds overlapped some focused measurements.",
+    "The full changed-package run preceded the final shared-cap, independent descriptor-readback and prepare/cleanup-error refinements; restored focused/control runs and the wide replay bind their final behavior.",
+    "JUnit file times, summed case body times, invocation builds and command wall times are distinct measurements.",
+    "Output-only report paths are kept private. No local timing value updates the qualified hosted cost table.",
+    "Long wall-time outage endurance is not inferred from logical backoff progression; the original explicit native horizons and all behavior oracles remain."
+  ]
+}

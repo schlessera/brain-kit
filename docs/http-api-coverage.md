@@ -153,8 +153,8 @@ cover start refusal, mid-turn partial work, overlapping observations and leases.
 
 **HY — Human-started hygiene review.**
 
-- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:463-485`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
-- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:377-385`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
+- `createApp mounts authenticated review operations and invokes no backend through start, pause or resume` ([source](../packages/ui-server/tests/hygiene-review.test.ts)). (`createApp mounts authenticated review operations and invokes no backend through start, pause or resume`, `packages/ui-server/tests/hygiene-review.test.ts:467-489`). This runs the real core CLI through the mounted application and proves repeated resume identity without backend inference.
+- `HTTP review and preview reject extra authority/input fields and expose the same persisted read` ([source](../packages/ui-server/tests/hygiene-review.test.ts)) (`HTTP review and preview reject extra authority/input fields and expose the same persisted read`, `packages/ui-server/tests/hygiene-review.test.ts:381-389`) and the typed-field/picker tests cover strict inputs, current preview versions and fingerprint-bound repairs.
 
 
 **H — Liveness.**

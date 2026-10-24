@@ -21,7 +21,7 @@ import { createFixtureBrain } from "../../../scripts/captures/core-fixture.ts";
 // and the `offline`/`online` events are Chromium's own) and the host's
 // listener stops with every socket it holds, so the WebSocket closes and the
 // connectivity probe fails until it listens again. An upload in flight fails
-// the way a dropped network fails it. Nothing is mocked in the page.
+// the way a dropped network fails it. Reconnect backoffs use a fixture clock.
 //
 // The scene is everything a drop may disturb: a long transcript scrolled
 // away from both ends, a turn still running in it with a follow-up the host
@@ -257,6 +257,9 @@ afterAll(async () => {
 });
 
 type Probe = {
+  backoff: ReturnType<typeof import("./fixtures/reconnect-clock").reconnectClock>;
+  connectionAttempts(): number;
+  handshakeFailures(): number;
   connected(): boolean;
   received(type: string, sessionId: string): number;
   queueOnlyUpdate(message: string): boolean;
@@ -428,7 +431,8 @@ async function scene(cell: Cell, prepare = prepareScene): Promise<Scene> {
     return await prepare(context, cell);
   } catch (error) {
     // Callers cannot enter their finally until scene preparation returns.
-    await context.close();
+    try { await closeContext(context); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], "Native scene preparation and cleanup failed"); }
     throw error;
   }
 }
@@ -626,10 +630,30 @@ async function drop(s: Pick<Scene, "net" | "context" | "page">, preparation: "sc
   const uploading = s.net.held.splice(0);
   for (const route of uploading) await route.abort("connectionreset").catch(() => {});
   if (uploading.length) await s.page.waitForFunction(() => !/uploading/.test(document.querySelector("[data-track-chip]")?.getAttribute("aria-label") ?? ""));
+  await probe(s.page, p => p.backoff.pause());
   server!.stop(true);
   const beforeOffline = await connectivity(s.page);
   await s.context.setOffline(true);
-  await until(s.page, "p.wsStatus() !== 'connected' && p.vpnStatus() === 'unreachable'");
+  const deadline = performance.now() + 20_000;
+  const untilDrop = (predicate: string) => until(s.page, predicate, Math.max(1, deadline - performance.now()));
+  try {
+    await untilDrop("p.wsStatus() !== 'connected' && !p.backoff.snapshot().delivering && p.backoff.snapshot().pending.length > 0");
+    const attempts = await probe(s.page, p => p.connectionAttempts());
+    // Independent policy expectations: the real client registers 1s/2s/4s
+    // backoffs. Await each native failed handshake before advancing again.
+    // Date, Motion, storage/media timers and every native horizon stay real.
+    for (const [index, delay] of [1_000, 2_000, 4_000].entries()) {
+      const registered = await probe(s.page, p => p.backoff.snapshot());
+      expect(registered.errors).toBe(0);
+      expect(registered.pending, "one unambiguous socket-close backoff").toHaveLength(1);
+      expect(registered.pending[0]!.delay, "the registered production backoff").toBe(delay);
+      await s.page.evaluate(`window.__continuity.backoff.advance(${delay - 1})`);
+      expect(await probe(s.page, p => p.connectionAttempts()), "no reconnect before its full backoff").toBe(attempts + index);
+      await probe(s.page, p => p.backoff.advance(1));
+      await untilDrop(`p.connectionAttempts() === ${attempts + index + 1} && p.handshakeFailures() === ${index + 1} && !p.backoff.snapshot().delivering && p.backoff.snapshot().pending.length > 0`);
+    }
+    await untilDrop("p.wsStatus() !== 'connected' && p.vpnStatus() === 'unreachable'");
+  } finally { await probe(s.page, p => p.backoff.resume()); }
   await s.page.locator('[role="status"]', { hasText: "Connection lost" }).waitFor();
   const offline = await connectivity(s.page);
   expect(offline.online, "native drop reports offline").toBe(false);
@@ -812,7 +836,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       } finally {
         held.release();
         historyWaiters.delete(s.A);
-        await s.context.close();
+        await closeContext(s.context);
       }
     }, 300_000);
   }
@@ -833,11 +857,25 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         });
       } catch (error) { observed = error; }
       expect(observed, "scene rethrows its original preparation failure").toBe(failure);
+      const cleanupFailure = new Error("fixture context cleanup failure");
+      try {
+        await scene(cells[0]!, async context => {
+          const close = context.close.bind(context);
+          context.close = async () => { await close(); throw cleanupFailure; };
+          await nativeOnlinePage(context);
+          throw failure;
+        });
+        throw new Error("Scene preparation unexpectedly succeeded");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AggregateError);
+        expect((error as AggregateError).errors[0], "cleanup cannot hide the preparation failure").toBe(failure);
+        expect((error as AggregateError).errors[1]).toBe(cleanupFailure);
+      }
       expect(page, "the failure happened after real native page preparation").toBeDefined();
       expect(page!.isClosed(), "failed scene closes its page and observers").toBe(true);
       expect(browser!.contexts(), "failed scene owns no surviving browser context").toEqual(existing);
     } finally {
-      await created?.close();
+      await closeContext(created);
     }
   });
 
@@ -862,7 +900,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       expect(await page.evaluate(() => (window as unknown as { __entrance: Animation }).__entrance.playState),
         "FINITE_ANIMATION_FINISHED_BEFORE_GEOMETRY").toBe("finished");
       expect(await page.locator("textarea").evaluate(el => el.getBoundingClientRect().top)).toBe(20);
-    } finally { await context.close(); }
+    } finally { await closeContext(context); }
   });
 
   for (const { mode, newer } of [{ mode: "empty", newer: true }, { mode: "failed", newer: true }, { mode: "failed", newer: false }] as const) test(`single running session: a captured ${mode} history snapshot cannot end ${newer ? "a newer" : "its quiet"} turn`, async () => {
@@ -977,7 +1015,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         release?.(); peer?.close(); historyWaiters.delete(sessionId);
         if (appLoaded) expect(await page!.evaluate<{ sendRestored: boolean; recording: boolean } | undefined>("window.__disposeContinuityPreparation?.()"), "preparation observer restores its fixture send method")
           .toEqual({ sendRestored: true, recording: false });
-      } finally { await context.close(); }
+      } finally { await closeContext(context); }
     }
   }, 120_000);
 
@@ -1013,7 +1051,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
       } finally {
         release();
         historyWaiters.delete(s.A);
-        await s.context.close();
+        await closeContext(s.context);
       }
     }, 120_000);
     test(`${cell.name}: ten drops and reconnects move nothing, keep the draft, resume the upload and send nothing`, async () => {
@@ -1090,7 +1128,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         await hostUntil((d) => d.some((x) => x.sessionId === A && x.attachmentCount === 1 && x.preview === draft));
         await finishRecoveredTurn(s, cell);
       } finally {
-        await s.context.close();
+        await closeContext(s.context);
       }
     }, 300_000);
 
@@ -1148,7 +1186,7 @@ describe.skipIf(!executablePath)("repeated connection drops in the mounted app",
         await finishRecoveredTurn(s, cell);
       } finally {
         await cdp.detach().catch(() => {});
-        await s.context.close();
+        await closeContext(s.context);
       }
     }, 300_000);
   }
@@ -1160,4 +1198,14 @@ async function hostPoll(ms: number) {
   waitMetrics.pollCalls++;
   await Bun.sleep(ms);
   waitMetrics.pollMs += performance.now() - started;
+}
+
+async function closeContext(context: BrowserContext | undefined) {
+  if (!context) return;
+  try {
+    for (const page of context.pages()) {
+      const disposal = await page.evaluate(() => (window as unknown as { __continuity?: Probe }).__continuity?.backoff.dispose());
+      if (disposal) expect(disposal, "reconnect clock restores complete timer descriptors").toEqual({ restored: true, errors: 0 });
+    }
+  } finally { await context.close(); }
 }
