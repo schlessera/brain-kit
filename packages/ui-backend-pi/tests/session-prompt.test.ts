@@ -11,7 +11,7 @@ test("resumed real Pi requests retain system and prior bytes while changed facts
       { cwd: root, env: { PATH: process.env.PATH!, LANG: "C.UTF-8", TMPDIR: tmpdir() }, stdout: "pipe", stderr: "pipe" });
     const [out, err, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect(exit, err || out).toBe(0);
-    const { requests, history, original, unsupportedVoice } = JSON.parse(readFileSync(join(scratch, "requests.json"), "utf8"));
+    const { requests, legacy, history, original, unsupportedVoice } = JSON.parse(readFileSync(join(scratch, "requests.json"), "utf8"));
     expect(requests).toHaveLength(5);
     const [first, second, third, noGrant, missing] = requests;
     expect(JSON.stringify(second.input[0]), "PI_SYSTEM_BYTES_STABLE").toBe(JSON.stringify(first.input[0]));
@@ -38,6 +38,12 @@ test("resumed real Pi requests retain system and prior bytes while changed facts
     const missingText = missing.input.at(-1).content.filter((part: any) => part.type === "input_text").map((part: any) => part.text).join("");
     const missingFacts = JSON.parse(missingText.split("\n").find((line: string) => line.startsWith("capabilities: ")).slice("capabilities: ".length));
     expect(missingFacts, "MISSING_HANDLER_FACTS_MATCH_AUTHORITY").toMatchObject({ askUser: false, location: false, activity: false, askUserList: false, askUserRank: false, askUserForm: false, mask: false, policyChange: false, inbox: { list: false, get: false, add: false, resolveAction: false, completeShare: false } });
+    // #2800: new sessions name ask_user for the picker; a session that retained the old brief keeps its exact bytes.
+    expect(JSON.stringify(first.input[0]), "PI_NEW_SESSION_ASK_USER_LINE").toContain("call `ask_user` — it renders");
+    expect(legacy, "PI_LEGACY_SESSION_ONE_REQUEST").toHaveLength(1);
+    expect(JSON.stringify(legacy[0].input[0]), "PI_RETAINED_LEGACY_SYSTEM_BYTES")
+      .toBe(JSON.stringify(first.input[0]).replace("call `ask_user` — it renders", "call `inbox_list` — it renders"));
+    expect(contentBytes(legacy[0].input.slice(1, missing.input.length)), "PI_LEGACY_PRIOR_MESSAGES_UNCHANGED").toBe(contentBytes(missing.input.slice(1)));
     expect(history.filter((entry: any) => entry.role === "user").map((entry: any) => entry.content), "PI_OWNED_REPLAY_USER_TEXT").toEqual(original);
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }, 180000);

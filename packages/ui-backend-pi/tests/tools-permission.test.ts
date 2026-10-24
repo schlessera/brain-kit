@@ -9,7 +9,7 @@ import { DEFAULT_CONFIRM_BASH_PATTERNS } from "@schlessera/brain-ui-sdk/server";
 
 import { createBrainAccess } from "../src/brain-access";
 import { approvalReason, createPermissionGate } from "../src/permission-gate";
-import { createBrainTools, DEFAULT_PI_ALLOWED_TOOLS, TOOL_RISK, toolLockFromKeyed } from "../src/tools";
+import { createBrainTools, DEFAULT_PI_ALLOWED_TOOLS, TOOL_RISK, toolLockFromKeyed, type BrainToolDeps } from "../src/tools";
 import { createTurnContext } from "../src/turn-context";
 import { makeEmptyBrain, makeIndexedBrain, resultText, type TempBrain } from "./helpers";
 import { makeMockBridge } from "./mock-bridge";
@@ -746,12 +746,15 @@ describe("bridge-capability tool registration", () => {
         brain: createBrainAccess(brain.root),
         turn,
         lock: toolLockFromKeyed(createKeyedLock()),
-        capabilities: { location: true, activity: true, mask: true },
+        // Every capability the toolkit accepts: a new one fails to typecheck here until it is enabled.
+        capabilities: { location: true, activity: true, mask: true, inbox: true, policyChange: true, turnTemp: true } satisfies Required<NonNullable<BrainToolDeps["capabilities"]>>,
       });
       expect(tools.length).toBeGreaterThan(0);
       for (const t of tools) {
-        expect(TOOL_RISK[t.name]).toBeDefined();
+        expect(TOOL_RISK[t.name], `TOOL_RISK_CLASSIFIES ${t.name}`).toBeDefined();
       }
+      // A turn-temp purge reaches only the worker's own /tmp; an approved policy proposal writes governance.md (#2801).
+      expect({ turnTemp: TOOL_RISK.turn_temp, policy: TOOL_RISK.propose_policy_change }, "TOOL_RISK_BRIDGE").toEqual({ turnTemp: "read", policy: "mutate" });
       expect(TOOL_RISK.read_file).toBe("read");
       expect(TOOL_RISK.write_file).toBe("mutate");
       expect(TOOL_RISK.bash).toBe("mutate");
