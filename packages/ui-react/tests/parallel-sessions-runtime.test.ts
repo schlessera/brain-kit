@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { deflateSync } from "node:zlib";
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type Request as BrowserRequest } from "playwright";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page, type Route, type Request as BrowserRequest } from "playwright";
 import { createRecordingObservability, createStaticBackendRegistry, resolveServerConfig } from "@schlessera/brain-ui-server";
 import { createFixtureApp as createApp } from "../../ui-server/tests/helpers/native-app-fixture.js";
 import { requireTurnFreeSpace } from "../../ui-server/tests/helpers/turn-free-space.js";
@@ -256,6 +256,8 @@ afterAll(async () => {
 type View = { sessionId: string; state: string; pendingKind: string | null; cleared: boolean; turnId: string | null; settled: boolean };
 type Probe = {
   connected(): boolean;
+  socketOpens(): number;
+  recoveryReads(): Record<string, { socket: number; complete: boolean }>;
   draftsSupported(): boolean | null;
   activeSessionId(): string | null;
   view(): string;
@@ -388,7 +390,7 @@ async function device(run: Run, opts: { clock?: boolean; update?: boolean } = {}
     const socket = sockets.push(ws.url()) - 1;
     const record = (event: ApprovalFrame["event"], payload: string | Buffer) => {
       const frame = JSON.parse(String(payload)) as ClientMessage | ServerMessage;
-      if (["tool_approval_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error", "session_history", "session_resume", "status"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
+      if (["server_hello", "session_info", "tool_approval_request", "ask_user_request", "ask_user_list_request", "ask_user_rank_request", "ask_user_form_request", "tool_approval", "tool_denial", "tool_resolution", "tool_result", "result", "error", "session_history", "session_resume", "status"].includes(frame.type)) approvals.push({ event, socket, at: Date.now(), frame });
     };
     ws.on("framesent", ({ payload }) => record("framesent", payload));
     ws.on("framereceived", ({ payload }) => record("framereceived", payload));
@@ -746,6 +748,13 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
         const asks = (Object.keys(ASKS) as AskKind[]).map((kind) => `${kind}: Plan the raft, ${kind.toLowerCase()} ${tag}`);
         const hold = `Hold: Keep watch on the cliffs ${tag}`;
         const ids: Record<string, string> = {};
+        // Reproduce a leave-read lost during the socket drop and a slower
+        // native reconnect response. This one responsive case owns the fault;
+        // every response still comes from the real host, with real Chrome.
+        const delayedRecovery = run.name === "1279 desktop, dark, fine pointer";
+        let interruptedRead: Route | undefined;
+        let recoveryAttempt = 0;
+        const recoveryEvidence: Array<{ attempt: number; status: number; body: SessionRecovery }> = [];
         try {
           // Six sessions, each left by New chat while it waits on the reader
           // or still runs.
@@ -756,6 +765,16 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
             if (prompt === approve) await a.page.locator("[data-approval-card]").waitFor();
             else if (prompt !== hold) await a.page.locator("[data-ask-waiting]").first().waitFor();
             else await a.page.getByText("Setting out: Keep watch on the cliffs").first().waitFor();
+            if (prompt === hold && delayedRecovery) {
+              await a.context.route(`**/api/sessions/${ids[hold]}/recovery`, async route => {
+                const attempt = ++recoveryAttempt;
+                const response = await route.fetch();
+                recoveryEvidence.push({ attempt, status: response.status(), body: await response.json() as SessionRecovery });
+                if (attempt === 1) { interruptedRead = route; return; }
+                if (attempt === 2) await Bun.sleep(750);
+                await route.fulfill({ response });
+              });
+            }
             await newChat(run, a.page);
           }
           const all = Object.values(ids);
@@ -791,13 +810,26 @@ describe.skipIf(!executablePath)("mounted parallel sessions", () => {
 
           // A dropped connection: the same six, still unfinished.
           const opened = a.sockets.length;
+          if (delayedRecovery) {
+            await until(a.page, `p.recoveryReads()[${JSON.stringify(ids[hold])}]?.complete === false`);
+            const preparedBy = Date.now() + 15_000;
+            while (!interruptedRead && Date.now() < preparedBy) await Bun.sleep(25);
+            expect(interruptedRead, "the old socket's native recovery response is held").toBeDefined();
+          }
           await dropConnections();
+          if (interruptedRead) await interruptedRead.abort("connectionreset");
           // The page notices and opens a new socket to the host.
           const end = Date.now() + 30_000;
           while (a.sockets.length === opened && Date.now() < end) await Bun.sleep(100);
           expect(a.sockets.length, "a new socket after the drop").toBeGreaterThan(opened);
           await until(a.page, "p.connected()", 30_000);
           await until(a.page, "p.views().length === 6 && p.views().every((v) => v.settled)");
+          // `settled` can still describe the previous connection, including
+          // its failed leave-read. Await each actual read started by this
+          // socket's hello; a completed unavailable result must still fail
+          // the unchanged needs-you/running assertions below.
+          await until(a.page, `${JSON.stringify(all)}.every(id => { const read = p.recoveryReads()[id]; return read?.socket === p.socketOpens() && read.complete; })`);
+          console.log("PARALLEL_RECONNECT_READ_RECEIPT", JSON.stringify({ reads: await probe(a.page, p => p.recoveryReads()), views: await states(), recoveryEvidence, frames: a.approvals.filter(entry => entry.socket >= opened) }));
           for (const v of await states()) expect(expected(v), `after reconnect, ${v.sessionId}: ${v.state} ${v.pendingKind}`).toBe(true);
           await neverDone(run, a.page, all);
 
