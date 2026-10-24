@@ -56,6 +56,12 @@
       "logSha256": "f14af6cdb5a99353ced5255183583596efd88bfa3a2b66be3574092fdd5c4d5a",
       "freshInvocationBuildMs": 37408.866905999996,
       "command": "scripts/test-offline.sh -- bun run test <11 recorded files> --reporter=junit",
+      "head": "7d16f93bfe070eefe663cc47497ff573531f8f83",
+      "loadStart": [
+        0.578125,
+        0.37939453125,
+        0.2158203125
+      ],
       "reportedFileCount": 11
     },
     "changedPackageSuite": {
@@ -77,6 +83,12 @@
       "logSha256": "a72aad6e5a12ba4f763de1af8e38f28af6b62e8b1dd7d3bbe065a0ac42c8cd95",
       "freshInvocationBuildMs": 49145.921712,
       "command": "scripts/test-offline.sh -- bun run test ./packages/ui-react ./packages/ui-server --reporter=junit --timings=<private> --update-timings",
+      "sourceSha256": {
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts": "fa87fcdbf64ad91117fd9a7f7093c481dc29f6d2647cbfb639ebc3280e7282a5",
+        "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "feaf44191af3f7112a4bbbfa527f56c56fe68dd4670d02c67bbd3e4436fa39df",
+        "packages/ui-react/tests/fixtures/reconnect-clock.ts": "5f64fd2aa9587467a1195b97b6030c24c7c66dc2d8382ee122fbddc1ad2cc317",
+        "packages/ui-server/tests/hygiene-review.test.ts": "3748b6fb9887e9da5d2a838e74304d425c0095cb2fd03ef15ebe46f3acb3a36d"
+      },
       "reportedFileCount": 472
     },
     "restoredFocused": {
@@ -98,6 +110,12 @@
       "logSha256": "b892e1a1bada5d924fb06faa7920a1ee6feb32b0af71e42845e5adc4ed27e025",
       "freshInvocationBuildMs": 57087.251329,
       "command": "scripts/test-offline.sh -- bun run test ./packages/ui-react/tests/connection-continuity-runtime.test.ts ./packages/ui-server/tests/hygiene-review.test.ts --reporter=junit --timings=<private> --update-timings",
+      "sourceSha256": {
+        "packages/ui-react/tests/connection-continuity-runtime.test.ts": "efa84a8abc933ad512ba55cd2d42b65e393d859599f8029c6195d11da840eb11",
+        "packages/ui-react/tests/fixtures/connection-continuity-client.tsx": "feaf44191af3f7112a4bbbfa527f56c56fe68dd4670d02c67bbd3e4436fa39df",
+        "packages/ui-react/tests/fixtures/reconnect-clock.ts": "6c840d637c70e783aeb4d5c55afd40a981024264eb35f3245e375a4533dbed44",
+        "packages/ui-server/tests/hygiene-review.test.ts": "d04d5fd3057645f203abc4faddcec6b18edb0861dadd3fb7927b94b554bc7703"
+      },
       "reportedFileCount": 2
     },
     "finalCleanupControls": {
@@ -163,7 +181,8 @@
             "seconds": 24.572927
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 617.426328672
     },
     {
       "file": "packages/ui-react/tests/connection-continuity-runtime.test.ts",
@@ -229,7 +248,8 @@
             "seconds": 15.47313
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 229.934908277
     },
     {
       "file": "packages/ui-server/tests/hygiene-review.test.ts",
@@ -387,7 +407,8 @@
             "seconds": 6.013291
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 214.122611165
     },
     {
       "file": "packages/ui-server/tests/inbox-snapshot.test.ts",
@@ -459,7 +480,8 @@
             "seconds": 4.311915
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 127.237547117
     },
     {
       "file": "packages/ui-react/tests/turn-journal-runtime.test.ts",
@@ -485,7 +507,8 @@
             "seconds": 3.779142
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 100.505643675
     },
     {
       "file": "packages/ui-react/tests/auth-expiry-runtime.test.ts",
@@ -511,7 +534,8 @@
             "seconds": 8.127002
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 91.839423549
     },
     {
       "file": "packages/ui-server/tests/external-speech.test.ts",
@@ -583,7 +607,8 @@
             "seconds": 1.93907
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 70.583202212
     },
     {
       "file": "packages/ui-react/tests/draft-runtime.test.ts",
@@ -629,7 +654,8 @@
             "seconds": 16.629206
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 63.537170985
     },
     {
       "file": "packages/ui-react/tests/scratch-links-runtime.test.ts",
@@ -675,7 +701,8 @@
             "seconds": 0.929898
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 23.57566441
     },
     {
       "file": "packages/ui-react/tests/tracker-runtime.test.ts",
@@ -721,7 +748,8 @@
             "seconds": 4.914021
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 72.475845672
     },
     {
       "file": "packages/ui-react/tests/external-speech-runtime.test.ts",
@@ -751,7 +779,8 @@
             "seconds": 7.313128
           }
         ]
-      }
+      },
+      "wideJunitFileSeconds": 10.650771982
     }
   ],
   "nativeContinuity": {
@@ -1237,9 +1266,760 @@
   ],
   "limits": [
     "Shared host, sequential observations rather than a randomized speedup estimate; package proof and isolated diagnostic builds overlapped some focused measurements.",
-    "The full changed-package run preceded the final shared-cap, independent descriptor-readback and prepare/cleanup-error refinements; restored focused/control runs and the wide replay bind their final behavior.",
+    "The full changed-package run preceded the final shared-cap, independent descriptor-readback prepare/cleanup-error and nested teardown refinements; restored focused/control runs and the wide replay bind their final behavior.",
     "JUnit file times, summed case body times, invocation builds and command wall times are distinct measurements.",
     "Output-only report paths are kept private. No local timing value updates the qualified hosted cost table.",
     "Long wall-time outage endurance is not inferred from logical backoff progression; the original explicit native horizons and all behavior oracles remain."
-  ]
+  ],
+  "wide": {
+    "head": "9a827915f35c1a74a18bebc34d4e0a885b785ece",
+    "base": "f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162",
+    "command": [
+      "bun",
+      "scripts/unit-workers.ts",
+      "--changed=f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162",
+      "--workers=8",
+      "--reports=<private>"
+    ],
+    "code": 1,
+    "wallSeconds": 857.653883994004,
+    "minimumAvailableGiB": 23.319374084472656,
+    "hostCpuPercent": 26.97107045742268,
+    "childCpuSeconds": 1972.6395099999997,
+    "loadStart": [
+      7.32373046875,
+      8.60009765625,
+      9.7099609375
+    ],
+    "loadEnd": [
+      13.24609375,
+      16.83935546875,
+      15.0166015625
+    ],
+    "fileCount": 324,
+    "fileSetSha256": "9660fbd7fd265e12cf56d7d5d7df92f1f582c1f948dffb98d8548b1d7774dcb3",
+    "referenceFileCount": 464,
+    "missingReferenceFiles": [
+      "packages/ui-server/tests/boot-probe-deadline.test.ts",
+      "packages/ui-server/tests/brain-application-adapters.test.ts",
+      "packages/ui-server/tests/brain-application.test.ts",
+      "packages/ui-server/tests/brain-client.test.ts",
+      "packages/ui-server/tests/brain-mask-application.test.ts",
+      "packages/ui-server/tests/brain-sse-terminal.test.ts",
+      "packages/ui-server/tests/bundled-claude.test.ts",
+      "packages/ui-server/tests/capture-outcome.test.ts",
+      "packages/ui-server/tests/classification.test.ts",
+      "packages/ui-server/tests/claude-cancellation.test.ts",
+      "packages/ui-server/tests/claude-memory-journal.test.ts",
+      "packages/ui-server/tests/claude-title-accounting.test.ts",
+      "packages/ui-server/tests/claude-usage-accounting.test.ts",
+      "packages/ui-server/tests/cli-inventory.test.ts",
+      "packages/ui-server/tests/close-cancels-shared-runs.test.ts",
+      "packages/ui-server/tests/credential-maintenance-exclusion.test.ts",
+      "packages/ui-server/tests/cron-activity.test.ts",
+      "packages/ui-server/tests/cron-bin.test.ts",
+      "packages/ui-server/tests/cron-run-job.test.ts",
+      "packages/ui-server/tests/cron-scheduler.test.ts",
+      "packages/ui-server/tests/cron-scratch-prune.test.ts",
+      "packages/ui-server/tests/cron-sync.test.ts",
+      "packages/ui-server/tests/drafts-http.test.ts",
+      "packages/ui-server/tests/drafts-send.test.ts",
+      "packages/ui-server/tests/external-speech.test.ts",
+      "packages/ui-server/tests/files-html-preview.test.ts",
+      "packages/ui-server/tests/files-raw-range.test.ts",
+      "packages/ui-server/tests/files-walker.test.ts",
+      "packages/ui-server/tests/form-limits-config.test.ts",
+      "packages/ui-server/tests/frame-headers.test.ts",
+      "packages/ui-server/tests/gemini-conversation.test.ts",
+      "packages/ui-server/tests/governance-events-http.test.ts",
+      "packages/ui-server/tests/governance-policy-application.test.ts",
+      "packages/ui-server/tests/governance-policy.test.ts",
+      "packages/ui-server/tests/governance-roadblock-report.test.ts",
+      "packages/ui-server/tests/governance-roadblocks.test.ts",
+      "packages/ui-server/tests/governed-manifest.test.ts",
+      "packages/ui-server/tests/gpt-live-conversation.test.ts",
+      "packages/ui-server/tests/graph-routes.test.ts",
+      "packages/ui-server/tests/helpers/test-app.test.ts",
+      "packages/ui-server/tests/host-capability-note.test.ts",
+      "packages/ui-server/tests/host-execution-boundary.test.ts",
+      "packages/ui-server/tests/host-fallback-folder-policy.test.ts",
+      "packages/ui-server/tests/host-fallback-gates.test.ts",
+      "packages/ui-server/tests/host-fallback-transition.test.ts",
+      "packages/ui-server/tests/host-git-credentials.test.ts",
+      "packages/ui-server/tests/host-unpinned-folder-plan.test.ts",
+      "packages/ui-server/tests/host-version-requirements.test.ts",
+      "packages/ui-server/tests/http-cli-errors.test.ts",
+      "packages/ui-server/tests/http-discovery-voice.test.ts",
+      "packages/ui-server/tests/http-index-queries.test.ts",
+      "packages/ui-server/tests/http-internal-mounts.test.ts",
+      "packages/ui-server/tests/http-inventory.test.ts",
+      "packages/ui-server/tests/http-object-bodies.test.ts",
+      "packages/ui-server/tests/http-principal-boundaries.test.ts",
+      "packages/ui-server/tests/http-supported-mounts.test.ts",
+      "packages/ui-server/tests/http-validation.test.ts",
+      "packages/ui-server/tests/http-websocket-admission.test.ts",
+      "packages/ui-server/tests/hygiene-review.test.ts",
+      "packages/ui-server/tests/inbox-bridge-tools.test.ts",
+      "packages/ui-server/tests/inbox-dispatch-ae.test.ts",
+      "packages/ui-server/tests/inbox-dispatcher.test.ts",
+      "packages/ui-server/tests/inbox-escalate.test.ts",
+      "packages/ui-server/tests/inbox-intake.test.ts",
+      "packages/ui-server/tests/inbox-runtime.test.ts",
+      "packages/ui-server/tests/inbox-snapshot.test.ts",
+      "packages/ui-server/tests/inbox-stream.test.ts",
+      "packages/ui-server/tests/inbox-unwind.test.ts",
+      "packages/ui-server/tests/index-directory.test.ts",
+      "packages/ui-server/tests/integration/brain-db-schema-contract.test.ts",
+      "packages/ui-server/tests/integration/inbox-bridge-host.test.ts",
+      "packages/ui-server/tests/integration/inbox-dispatch-app.test.ts",
+      "packages/ui-server/tests/integration/inbox-socket.test.ts",
+      "packages/ui-server/tests/integration/real-socket-answers.test.ts",
+      "packages/ui-server/tests/integration/real-socket.test.ts",
+      "packages/ui-server/tests/interactive-share.test.ts",
+      "packages/ui-server/tests/jobs-board-defaults-http.test.ts",
+      "packages/ui-server/tests/jobs-board-selection-http.test.ts",
+      "packages/ui-server/tests/journal-accounting.test.ts",
+      "packages/ui-server/tests/journal-objects-async.test.ts",
+      "packages/ui-server/tests/journal-snapshot.test.ts",
+      "packages/ui-server/tests/keyterm-builder.test.ts",
+      "packages/ui-server/tests/maintenance-probe-admission.test.ts",
+      "packages/ui-server/tests/maintenance-startup-view.test.ts",
+      "packages/ui-server/tests/maintenance-temp-config.test.ts",
+      "packages/ui-server/tests/maintenance-temp-schedule.test.ts",
+      "packages/ui-server/tests/module-settings-http.test.ts",
+      "packages/ui-server/tests/native-app-fixture.test.ts",
+      "packages/ui-server/tests/native-brain-leases.test.ts",
+      "packages/ui-server/tests/native-host-inputs.test.ts",
+      "packages/ui-server/tests/native-journal-observer.test.ts",
+      "packages/ui-server/tests/native-journal-steering.test.ts",
+      "packages/ui-server/tests/native-worker-startup-order.test.ts",
+      "packages/ui-server/tests/operational-state-layout.test.ts",
+      "packages/ui-server/tests/origin-policy.test.ts",
+      "packages/ui-server/tests/outward-governance.test.ts",
+      "packages/ui-server/tests/policy-command-governance.test.ts",
+      "packages/ui-server/tests/policy-proposal.test.ts",
+      "packages/ui-server/tests/private-index.test.ts",
+      "packages/ui-server/tests/provider-hardlinks.test.ts",
+      "packages/ui-server/tests/provider-types.test.ts",
+      "packages/ui-server/tests/push.test.ts",
+      "packages/ui-server/tests/qualified-identity-helper.test.ts",
+      "packages/ui-server/tests/reference-source.test.ts",
+      "packages/ui-server/tests/reference-transport.test.ts",
+      "packages/ui-server/tests/reference-worktree-journal.test.ts",
+      "packages/ui-server/tests/reference-worktrees.test.ts",
+      "packages/ui-server/tests/revert-gate.test.ts",
+      "packages/ui-server/tests/run-session.test.ts",
+      "packages/ui-server/tests/runtime-boot.test.ts",
+      "packages/ui-server/tests/saved-transcription.test.ts",
+      "packages/ui-server/tests/schedule-admission.test.ts",
+      "packages/ui-server/tests/schedule-cli.test.ts",
+      "packages/ui-server/tests/schedule-definition.test.ts",
+      "packages/ui-server/tests/schedule-ignore-admission.test.ts",
+      "packages/ui-server/tests/schedule-recovery.test.ts",
+      "packages/ui-server/tests/schedule-service.test.ts",
+      "packages/ui-server/tests/scratch-mask-query.test.ts",
+      "packages/ui-server/tests/session-recovery-http.test.ts",
+      "packages/ui-server/tests/session-start-reliability.test.ts",
+      "packages/ui-server/tests/session-taint.test.ts",
+      "packages/ui-server/tests/software-status.test.ts",
+      "packages/ui-server/tests/state-room-warning.test.ts",
+      "packages/ui-server/tests/storage-collection.test.ts",
+      "packages/ui-server/tests/storage-guidance.test.ts",
+      "packages/ui-server/tests/storage-history-model.test.ts",
+      "packages/ui-server/tests/storage-history-store.test.ts",
+      "packages/ui-server/tests/storage-maintenance-owners.test.ts",
+      "packages/ui-server/tests/storage-maintenance-routes.test.ts",
+      "packages/ui-server/tests/storage-maintenance.test.ts",
+      "packages/ui-server/tests/storage-metadata.test.ts",
+      "packages/ui-server/tests/storage-notify.test.ts",
+      "packages/ui-server/tests/storage-pressure.test.ts",
+      "packages/ui-server/tests/storage-removal-journal.test.ts",
+      "packages/ui-server/tests/storage-removal-recovery.test.ts",
+      "packages/ui-server/tests/storage-removal-routes.test.ts",
+      "packages/ui-server/tests/storage-removal-worker.test.ts",
+      "packages/ui-server/tests/storage-removal.test.ts",
+      "packages/ui-server/tests/storage-routes.test.ts",
+      "packages/ui-server/tests/storage-shared-scan.test.ts",
+      "packages/ui-server/tests/storage-tree.test.ts",
+      "packages/ui-server/tests/subscription-login.test.ts",
+      "packages/ui-server/tests/subscription-status.test.ts",
+      "packages/ui-server/tests/sync-mirror.test.ts",
+      "packages/ui-server/tests/sync-reservation.test.ts",
+      "packages/ui-server/tests/sync-runtime.test.ts",
+      "packages/ui-server/tests/turn-egress-composition.test.ts",
+      "packages/ui-server/tests/turn-egress.test.ts",
+      "packages/ui-server/tests/turn-free-space.test.ts",
+      "packages/ui-server/tests/turn-journal.test.ts",
+      "packages/ui-server/tests/turn-lifecycle.test.ts",
+      "packages/ui-server/tests/turn-revert.test.ts",
+      "packages/ui-server/tests/turn-scope-headroom.test.ts",
+      "packages/ui-server/tests/turn-scope.test.ts",
+      "packages/ui-server/tests/worker-host-gate.test.ts",
+      "packages/ui-server/tests/worker-host-status.test.ts",
+      "packages/ui-server/tests/worker-probe-placement.test.ts",
+      "packages/ui-server/tests/writer-gate.test.ts",
+      "packages/ui-server/tests/ws-activity.test.ts",
+      "packages/ui-server/tests/ws-allowlist-enforcement.test.ts",
+      "packages/ui-server/tests/ws-approval-channel.test.ts",
+      "packages/ui-server/tests/ws-approval-persistence.test.ts",
+      "packages/ui-server/tests/ws-ask-receipts.test.ts",
+      "packages/ui-server/tests/ws-ask-user-form.test.ts",
+      "packages/ui-server/tests/ws-ask-user-list.test.ts",
+      "packages/ui-server/tests/ws-ask-user-rank.test.ts",
+      "packages/ui-server/tests/ws-backend-routing.test.ts",
+      "packages/ui-server/tests/ws-brain-application.test.ts",
+      "packages/ui-server/tests/ws-capacity-route.test.ts",
+      "packages/ui-server/tests/ws-claude-effects.test.ts",
+      "packages/ui-server/tests/ws-client-environment.test.ts",
+      "packages/ui-server/tests/ws-conversation.test.ts",
+      "packages/ui-server/tests/ws-effort.test.ts",
+      "packages/ui-server/tests/ws-follow-up-queue.test.ts",
+      "packages/ui-server/tests/ws-follow-up-startup.test.ts",
+      "packages/ui-server/tests/ws-governance-binding.test.ts",
+      "packages/ui-server/tests/ws-handoff.test.ts",
+      "packages/ui-server/tests/ws-history-freshness.test.ts",
+      "packages/ui-server/tests/ws-interactive-admission.test.ts",
+      "packages/ui-server/tests/ws-legacy-budget-replay.test.ts",
+      "packages/ui-server/tests/ws-local-exchange.test.ts",
+      "packages/ui-server/tests/ws-main-model.test.ts",
+      "packages/ui-server/tests/ws-message-source.test.ts",
+      "packages/ui-server/tests/ws-native-acquisition-cancellation.test.ts",
+      "packages/ui-server/tests/ws-observability.test.ts",
+      "packages/ui-server/tests/ws-parallel-sessions.test.ts",
+      "packages/ui-server/tests/ws-pill-labels.test.ts",
+      "packages/ui-server/tests/ws-promoted-block-replay.test.ts",
+      "packages/ui-server/tests/ws-queue-budget.test.ts",
+      "packages/ui-server/tests/ws-rate-limit.test.ts",
+      "packages/ui-server/tests/ws-reference-worktrees.test.ts",
+      "packages/ui-server/tests/ws-retry-turn.test.ts",
+      "packages/ui-server/tests/ws-revocation.test.ts",
+      "packages/ui-server/tests/ws-runtime-status.test.ts",
+      "packages/ui-server/tests/ws-scope-caps.test.ts",
+      "packages/ui-server/tests/ws-session-recovery.test.ts",
+      "packages/ui-server/tests/ws-tool-permissions.test.ts",
+      "packages/ui-server/tests/ws-tool-resolution.test.ts",
+      "packages/ui-server/tests/ws-track-files.test.ts",
+      "packages/ui-server/tests/ws-turn-budgets.test.ts",
+      "packages/ui-server/tests/ws-turn-failure-replay.test.ts",
+      "packages/ui-server/tests/ws-turn-id.test.ts",
+      "packages/ui-server/tests/ws-turn-journal.test.ts",
+      "packages/ui-server/tests/ws-turn-temp-promotion.test.ts",
+      "tests/audit-fix-provider-claims.test.ts",
+      "tests/audit-fix.test.ts",
+      "tests/audit-provider-completions.test.ts",
+      "tests/audit-shipped-capabilities.test.ts",
+      "tests/brain-db-contract.test.ts",
+      "tests/bridge-tools.test.ts",
+      "tests/candidate-admission.test.ts",
+      "tests/candidate-proof.test.ts",
+      "tests/changed-unit-workers.test.ts",
+      "tests/ci-plan.test.ts",
+      "tests/ci-runner.test.ts",
+      "tests/collector-inventory-variant.test.ts",
+      "tests/content-index-queries.test.ts",
+      "tests/diagram-export-boundary.test.ts",
+      "tests/docker-bind-stability.test.ts",
+      "tests/document-render.test.ts",
+      "tests/experiment-tier.test.ts",
+      "tests/geo-render.test.ts",
+      "tests/hosted-proof.test.ts",
+      "tests/hygiene-failed-check-retention.test.ts",
+      "tests/hygiene-reconcile-shipped.test.ts",
+      "tests/inbox-actions-stream.test.ts",
+      "tests/index-query-consumers.test.ts",
+      "tests/installed-turn-surface.test.ts",
+      "tests/local-checks.test.ts",
+      "tests/measurement-isolation.test.ts",
+      "tests/module-hygiene-queries.test.ts",
+      "tests/opportunity-cli-agreement.test.ts",
+      "tests/process-command-proposals.test.ts",
+      "tests/proof-inventory.test.ts",
+      "tests/proof-reuse.test.ts",
+      "tests/runtime-build-selection.test.ts",
+      "tests/search-result-tags-adapters.test.ts",
+      "tests/shipped-skills-lint.test.ts",
+      "tests/tag-alias-writer.test.ts",
+      "tests/template-eval.test.ts",
+      "tests/test-invocation-workers.test.ts",
+      "tests/test-script.test.ts",
+      "tests/turn-temp-backends.test.ts",
+      "tests/unit-proof-report.test.ts",
+      "tests/unit-test-consumers.test.ts",
+      "tests/unit-workers.test.ts",
+      "tests/worker-areas-core.test.ts",
+      "tests/worker-sandbox-note.test.ts"
+    ],
+    "additionalFiles": [
+      "packages/common/tests/provider-unavailable.test.ts",
+      "packages/core/tests/agent-runner-contracts.test.ts",
+      "packages/core/tests/claude-runner-binary.test.ts",
+      "packages/core/tests/claude-runner-protocol.test.ts",
+      "packages/core/tests/claude-runner-rejected-token.test.ts",
+      "packages/core/tests/claude-runner-subscription.test.ts",
+      "packages/core/tests/cli-withheld-providers.test.ts",
+      "packages/core/tests/data-only-frontmatter.test.ts",
+      "packages/core/tests/env.test.ts",
+      "packages/core/tests/jev-client.test.ts",
+      "packages/core/tests/jev-reranker.test.ts",
+      "packages/core/tests/module-loader-containment.test.ts",
+      "packages/core/tests/module-mcp-tools.test.ts",
+      "packages/core/tests/module-renderers.test.ts",
+      "packages/core/tests/registry.test.ts",
+      "packages/core/tests/reranker-helpers.test.ts",
+      "packages/core/tests/reranker.test.ts",
+      "packages/core/tests/skills-index-emitters.test.ts",
+      "packages/core/tests/skills-installation.test.ts",
+      "packages/core/tests/storage-attachment-facts.test.ts",
+      "packages/core/tests/storage-host-reader.test.ts",
+      "packages/core/tests/sync-merge-golden.test.ts",
+      "packages/core/tests/sync-merge-hidden.test.ts",
+      "packages/core/tests/sync-merge-plan.test.ts",
+      "packages/core/tests/taxonomy.test.ts",
+      "packages/core/tests/video-completions.test.ts",
+      "packages/module-images/tests/cli.test.ts",
+      "packages/module-images/tests/routing.test.ts",
+      "packages/module-images/tests/scratch.test.ts",
+      "packages/module-images/tests/shape.test.ts",
+      "packages/module-travel/tests/foundation.test.ts",
+      "packages/ui-backend-claude/tests/allowlist-enforcement.test.ts",
+      "packages/ui-backend-claude/tests/api-failure.test.ts",
+      "packages/ui-backend-claude/tests/ask-tool-request-id.test.ts",
+      "packages/ui-backend-claude/tests/autonomous-envelope.test.ts",
+      "packages/ui-backend-claude/tests/autonomous-yield.test.ts",
+      "packages/ui-backend-claude/tests/backend-contract.test.ts",
+      "packages/ui-backend-claude/tests/backend.test.ts",
+      "packages/ui-backend-claude/tests/cache-fingerprint.test.ts",
+      "packages/ui-backend-claude/tests/characterization-history.test.ts",
+      "packages/ui-backend-claude/tests/characterization-permissions.test.ts",
+      "packages/ui-backend-claude/tests/characterization-stream-usage.test.ts",
+      "packages/ui-backend-claude/tests/claude-code-path.test.ts",
+      "packages/ui-backend-claude/tests/confirm-archive.test.ts",
+      "packages/ui-backend-claude/tests/confirm-bash.test.ts",
+      "packages/ui-backend-claude/tests/edited-approval.test.ts",
+      "packages/ui-backend-claude/tests/effort.test.ts",
+      "packages/ui-backend-claude/tests/env.test.ts",
+      "packages/ui-backend-claude/tests/follow-up.test.ts",
+      "packages/ui-backend-claude/tests/history-api-failure.test.ts",
+      "packages/ui-backend-claude/tests/history-task-notifications.test.ts",
+      "packages/ui-backend-claude/tests/history.test.ts",
+      "packages/ui-backend-claude/tests/host-exec.test.ts",
+      "packages/ui-backend-claude/tests/interactive-git-settings.test.ts",
+      "packages/ui-backend-claude/tests/maintenance-module-plumbing.test.ts",
+      "packages/ui-backend-claude/tests/model-discovery.test.ts",
+      "packages/ui-backend-claude/tests/module-tool-lock.test.ts",
+      "packages/ui-backend-claude/tests/module.test.ts",
+      "packages/ui-backend-claude/tests/native-hosted-permission.test.ts",
+      "packages/ui-backend-claude/tests/native-restart-versions.test.ts",
+      "packages/ui-backend-claude/tests/native-route-qualification.test.ts",
+      "packages/ui-backend-claude/tests/native-stale-write.test.ts",
+      "packages/ui-backend-claude/tests/no-grant-surface.test.ts",
+      "packages/ui-backend-claude/tests/profiles.test.ts",
+      "packages/ui-backend-claude/tests/replayed-user-text.test.ts",
+      "packages/ui-backend-claude/tests/rtk-warning.test.ts",
+      "packages/ui-backend-claude/tests/runtime-probe.test.ts",
+      "packages/ui-backend-claude/tests/runtime-report.test.ts",
+      "packages/ui-backend-claude/tests/sdk-options-mcp.test.ts",
+      "packages/ui-backend-claude/tests/stable-roster.test.ts",
+      "packages/ui-backend-claude/tests/subscription-gate.test.ts",
+      "packages/ui-backend-claude/tests/taint-note.test.ts",
+      "packages/ui-backend-claude/tests/terminal-cancellation.test.ts",
+      "packages/ui-backend-claude/tests/transcript-archive-lifecycle.test.ts",
+      "packages/ui-backend-claude/tests/transcript-archive.test.ts",
+      "packages/ui-backend-claude/tests/version-requirements.test.ts",
+      "packages/ui-backend-claude/tests/voice-posture-selection.test.ts",
+      "packages/ui-backend-claude/tests/voice-posture.test.ts",
+      "packages/ui-backend-claude/tests/worker-failure.test.ts",
+      "packages/ui-backend-claude/tests/worker-state-budget.test.ts",
+      "packages/ui-backend-claude/tests/worker-state.test.ts",
+      "packages/ui-backend-pi/tests/autonomous-envelope.test.ts",
+      "packages/ui-backend-pi/tests/autonomous-provider-masks.test.ts",
+      "packages/ui-backend-pi/tests/completed-response-usage.test.ts",
+      "packages/ui-backend-pi/tests/host-relay.test.ts",
+      "packages/ui-backend-pi/tests/policy-membership.test.ts",
+      "packages/ui-backend-pi/tests/stable-roster.test.ts",
+      "packages/ui-react/tests/haiku-model-runtime.test.ts",
+      "packages/ui-react/tests/render/activity-report.test.tsx",
+      "packages/ui-sdk/tests/backend-conformance.test.ts",
+      "packages/ui-sdk/tests/exec-wrapper.test.ts",
+      "packages/ui-sdk/tests/maintenance-temp-budget.test.ts",
+      "packages/ui-sdk/tests/provider-cache-masks.test.ts",
+      "packages/ui-sdk/tests/provider-mask-mounts.test.ts",
+      "packages/ui-sdk/tests/version-probe.test.ts",
+      "packages/ui-sdk/tests/worker-provider-keys.test.ts",
+      "packages/ui-sdk/tests/worker-var-sockets.test.ts",
+      "packages/ui-server/tests/activity-digest.test.ts",
+      "packages/ui-server/tests/activity-notify.test.ts",
+      "packages/ui-server/tests/activity-recorder.test.ts",
+      "packages/ui-server/tests/activity-rollup-rounding.test.ts",
+      "packages/ui-server/tests/activity-runtime.test.ts",
+      "packages/ui-server/tests/activity-stats.test.ts",
+      "packages/ui-server/tests/activity-store.test.ts",
+      "packages/ui-server/tests/activity-sweep.test.ts",
+      "packages/ui-server/tests/auth.test.ts",
+      "packages/ui-server/tests/autonomous-provider-masks.test.ts",
+      "packages/ui-server/tests/backend-registry.test.ts"
+    ],
+    "duplicateFiles": [],
+    "totals": {
+      "total": 4438,
+      "passed": 4433,
+      "failed": 1,
+      "skipped": 4
+    },
+    "failures": [
+      {
+        "file": "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+        "name": "1279 desktop, dark, fine pointer: an approval, all four question forms and running work fold into a summary; a reconnect, a reload and a host restart keep them, and none reads done",
+        "seconds": 16.383584,
+        "failed": true,
+        "skipped": false,
+        "failure": "after reconnect, odysseus-parallel-59: cant_check null\n\nExpected: true\nReceived: false\n"
+      }
+    ],
+    "providerCredentialEnvironmentOmitted": [
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "OPENROUTER_API_KEY",
+      "GEMINI_API_KEY",
+      "TYPESAFE_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "processCountRanges": {
+      "check-pr.ts": {
+        "minimum": 0,
+        "maximum": 2
+      },
+      "unit-workers.ts": {
+        "minimum": 0,
+        "maximum": 2
+      },
+      "scripts/test.ts": {
+        "minimum": 12,
+        "maximum": 80
+      },
+      "scripts/build.ts": {
+        "minimum": 0,
+        "maximum": 5
+      },
+      "native-proof": {
+        "minimum": 0,
+        "maximum": 3
+      }
+    },
+    "inputsUnchanged": true,
+    "queue": {
+      "workers": 8,
+      "head": "9a827915f35c1a74a18bebc34d4e0a885b785ece",
+      "preparedInvocation": "d65d3756-8b1e-4c2f-bd90-7bb13d312074",
+      "selectedFiles": 626,
+      "proofPassed": false,
+      "cleanupPassed": true,
+      "elapsedMs": 856763.945636,
+      "checkoutMs": 10249.95801100001,
+      "dependencyCopyMs": 0.46232700000109617,
+      "preparationMs": 121.431966,
+      "selections": [
+        {
+          "selected": 626,
+          "assigned": 113,
+          "shard": "1/8",
+          "exitCode": 0,
+          "elapsedMs": 496661.431585,
+          "preparationMs": 116.804164,
+          "testMs": 496453.626796
+        },
+        {
+          "selected": 626,
+          "assigned": 124,
+          "shard": "2/8",
+          "exitCode": 0,
+          "elapsedMs": 667225.2214739999,
+          "preparationMs": 114.99270000000001,
+          "testMs": 667015.036615
+        },
+        {
+          "selected": 626,
+          "assigned": 3,
+          "shard": "3/8",
+          "exitCode": 0,
+          "elapsedMs": 354894.79392900004,
+          "preparationMs": 116.56991099999999,
+          "testMs": 354685.865864
+        },
+        {
+          "selected": 626,
+          "assigned": 7,
+          "shard": "4/8",
+          "exitCode": 1,
+          "elapsedMs": 759063.256042,
+          "preparationMs": 121.431966,
+          "testMs": 758857.918974
+        },
+        {
+          "selected": 626,
+          "assigned": 77,
+          "shard": "5/8",
+          "exitCode": 0,
+          "elapsedMs": 498967.663368,
+          "preparationMs": 120.29573599999999,
+          "testMs": 498755.117013
+        },
+        {
+          "selected": 626,
+          "assigned": 67,
+          "shard": "6/8",
+          "exitCode": 143,
+          "elapsedMs": 759641.448833,
+          "preparationMs": 106.74722899999999,
+          "testMs": 759437.914452
+        },
+        {
+          "selected": 626,
+          "assigned": 70,
+          "shard": "7/8",
+          "exitCode": 143,
+          "elapsedMs": 759459.822927,
+          "preparationMs": 121.31906899999998,
+          "testMs": 759249.321872
+        },
+        {
+          "selected": 626,
+          "assigned": 165,
+          "shard": "8/8",
+          "exitCode": 143,
+          "elapsedMs": 759971.531084,
+          "preparationMs": 99.83171999999999,
+          "testMs": 759766.95483
+        }
+      ],
+      "workerPhases": [
+        {
+          "worker": 1,
+          "checkoutMs": 1200.0135840000003,
+          "dependencyCopyMs": 0,
+          "preparationMs": 116.804164,
+          "testMs": 496453.626796,
+          "invocationMs": 496661.431585
+        },
+        {
+          "worker": 2,
+          "checkoutMs": 1195.7278319999896,
+          "dependencyCopyMs": 0,
+          "preparationMs": 114.99270000000001,
+          "testMs": 667015.036615,
+          "invocationMs": 667225.2214739999
+        },
+        {
+          "worker": 3,
+          "checkoutMs": 1340.5673450000031,
+          "dependencyCopyMs": 0,
+          "preparationMs": 116.56991099999999,
+          "testMs": 354685.865864,
+          "invocationMs": 354894.79392900004
+        },
+        {
+          "worker": 4,
+          "checkoutMs": 1230.686422999992,
+          "dependencyCopyMs": 0,
+          "preparationMs": 121.431966,
+          "testMs": 758857.918974,
+          "invocationMs": 759063.256042
+        },
+        {
+          "worker": 5,
+          "checkoutMs": 1271.203819000002,
+          "dependencyCopyMs": 0,
+          "preparationMs": 120.29573599999999,
+          "testMs": 498755.117013,
+          "invocationMs": 498967.663368
+        },
+        {
+          "worker": 6,
+          "checkoutMs": 1203.6013160000002,
+          "dependencyCopyMs": 0,
+          "preparationMs": 106.74722899999999,
+          "testMs": 759437.914452,
+          "invocationMs": 759641.448833
+        },
+        {
+          "worker": 7,
+          "checkoutMs": 1387.2952339999902,
+          "dependencyCopyMs": 0,
+          "preparationMs": 121.31906899999998,
+          "testMs": 759249.321872,
+          "invocationMs": 759459.822927
+        },
+        {
+          "worker": 8,
+          "checkoutMs": 1210.5318549999938,
+          "dependencyCopyMs": 0,
+          "preparationMs": 99.83171999999999,
+          "testMs": 759766.95483,
+          "invocationMs": 759971.531084
+        }
+      ],
+      "preparedTree": {
+        "checkoutMs": 649.13846,
+        "dependencyCopyMs": 2979.155651,
+        "preparationMs": 78370.389959
+      }
+    },
+    "completePassingQualification": false,
+    "classification": "Failed, incomplete attempt; elapsed time is time to failure/cancellation, not a completed wide runtime.",
+    "reportedFileSetMeaning": "fileCount/fileSetSha256 describe completed JUnit reports, not the complete selected inventory.",
+    "unreportedSelectedFileCount": 302,
+    "cancelledWorkers": [
+      6,
+      7,
+      8
+    ],
+    "workerReportCoverage": [
+      {
+        "worker": 1,
+        "assignedFiles": 113,
+        "exitCode": 0,
+        "completedJUnitPresent": true,
+        "selectionSha256": "4e55b16f6a68f338416fc345684a51354e492b9e6936fe0b209e96233ebc5587",
+        "timingsSha256": "e1f9be010340e2f758cfc28198794b69b0e462dee9518ac75d9388d54735eff9",
+        "reportedFiles": 113,
+        "junitSha256": "197ef2f98e95bbd6e2cef4b3170023728c4073f44773f346eb80e62dbc7a3ed6",
+        "junitAndTimingsAgree": true,
+        "logSha256": "0b121933d1cf1fa7bc7d3e2c2baa8c6110617fb36b7996f9c48c45fa0ac8c8bd"
+      },
+      {
+        "worker": 2,
+        "assignedFiles": 124,
+        "exitCode": 0,
+        "completedJUnitPresent": true,
+        "selectionSha256": "1d5cab342467495803908a51d37a851837e6898b032b3f8eb2c97e74423422ec",
+        "timingsSha256": "ec9039022537feae518515dc2559e04c3b00e3284cc670f481f7738199c581fd",
+        "reportedFiles": 124,
+        "junitSha256": "6fdd31115fa03545e0f032f8c284ba1ddb802a63bb01bac3ab47b2595400e6b2",
+        "junitAndTimingsAgree": true,
+        "logSha256": "2a6ba27ed145fc10f42f36c984192ef7e03a0d5018e8796fa6f59a62d413069b"
+      },
+      {
+        "worker": 3,
+        "assignedFiles": 3,
+        "exitCode": 0,
+        "completedJUnitPresent": true,
+        "selectionSha256": "6fbe206831a21b5f697b5f51907c55b573ba1894bdab343ea373512b3b189aac",
+        "timingsSha256": "9b3ad30b56d7484a363077e1f14837f4b9f14706766746f9844207ad477dc7a3",
+        "reportedFiles": 3,
+        "junitSha256": "33b8e7538f8e754d40cff97edb54fb2bda02b9ab7998bc824b2617f4a65e136b",
+        "junitAndTimingsAgree": true,
+        "logSha256": "39cb5e8e19ec2ee4d75cd26dfdfe75a3016cfb00b253b43d726eeb2df364e35d"
+      },
+      {
+        "worker": 4,
+        "assignedFiles": 7,
+        "exitCode": 1,
+        "completedJUnitPresent": true,
+        "selectionSha256": "5005151a2b10433a0de47660eceac4090ea7b21660c110fabc1b97420721e8b1",
+        "timingsSha256": "6214bc52f7362037febf496c4df6a7dd0ac2b15496b5530f1cc24967aea3ded6",
+        "reportedFiles": 7,
+        "junitSha256": "d470a9e4d75b7455f909213d65dc1313dd9f77bb8c1a3941b2a2fd03459f3a5f",
+        "junitAndTimingsAgree": true,
+        "logSha256": "4035cd5c7fe07595cefcebd163638b52f0feed66343a7f90c6ebe387a138093f"
+      },
+      {
+        "worker": 5,
+        "assignedFiles": 77,
+        "exitCode": 0,
+        "completedJUnitPresent": true,
+        "selectionSha256": "4b85dd3f5b75f77b94b08cafa1f38c3d77f796d92dbffd897ca3e96b7af8b452",
+        "timingsSha256": "f66fb1548e8dc9be3d15c6f38aec2c498d7b459bd5f42a0e58a7fe445dc17b63",
+        "reportedFiles": 77,
+        "junitSha256": "9dc821faca8e10511ad91f1870eb9ede574ddb14033447e84481e32bd8e0e3c5",
+        "junitAndTimingsAgree": true,
+        "logSha256": "1df39a07acc0205d9f78491846d6dbb76f2c77a67c26acd8fa6abfa8c8fc39d4"
+      },
+      {
+        "worker": 6,
+        "assignedFiles": 67,
+        "exitCode": 143,
+        "completedJUnitPresent": false,
+        "selectionSha256": "ada2b3bc77c88aa942a58629dbdda49061cc0d03b91a84c058776cb5fb9d8e42",
+        "timingsSha256": "5aa42d2591aa7778c8534d59ff186a7b6196a359e691e58e912af87e3dd3b2d4",
+        "logSha256": "f7bf175862a9f57fc07191a26483a19e9348baeb79d823c72689ea98b8564c3b"
+      },
+      {
+        "worker": 7,
+        "assignedFiles": 70,
+        "exitCode": 143,
+        "completedJUnitPresent": false,
+        "selectionSha256": "9f5643c33fe2fc3a6d10c78ed68653956555074ccf532c38cf5b764e4d614752",
+        "timingsSha256": "5aa42d2591aa7778c8534d59ff186a7b6196a359e691e58e912af87e3dd3b2d4",
+        "logSha256": "724cfb96f499907147d41b11bb84fa991a57493d763b92a552a8000ff147b660"
+      },
+      {
+        "worker": 8,
+        "assignedFiles": 165,
+        "exitCode": 143,
+        "completedJUnitPresent": false,
+        "selectionSha256": "9d478e9602f458e1b99191db0673a425cad948b9670b741e4d9a125d376d543b",
+        "timingsSha256": "5aa42d2591aa7778c8534d59ff186a7b6196a359e691e58e912af87e3dd3b2d4",
+        "logSha256": "543aae163c16b96fcce4068f6ad2ad1e47efd98bf013949f7e2a70c1d6026352"
+      }
+    ],
+    "observedFailures": [
+      {
+        "file": "packages/ui-react/tests/parallel-sessions-runtime.test.ts",
+        "case": "1279 desktop, dark, fine pointer: approval/four question forms/running-work recovery",
+        "assertion": "after reconnect, odysseus-parallel-59: cant_check null; expected true, received false",
+        "caseMs": 16383.58,
+        "reportedInJUnit": true,
+        "issue": "https://github.com/schlessera/brain-kit/issues/2806"
+      },
+      {
+        "file": "packages/ui-server/tests/storage-history-store.test.ts",
+        "case": "186 four-capacity observations charge serialized history separately from actual database and WAL allocation",
+        "assertion": "timed out after 30000ms",
+        "caseMs": 34938.63,
+        "reportedInJUnit": false,
+        "issue": "https://github.com/schlessera/brain-kit/issues/2805"
+      },
+      {
+        "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+        "case": "mounted internal poke > none: actual listener success without cookie; token and actual socket guard refusals",
+        "assertion": "timed out after 30000ms",
+        "caseMs": 31573.34,
+        "reportedInJUnit": false,
+        "issue": "https://github.com/schlessera/brain-kit/issues/2803"
+      },
+      {
+        "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+        "case": "mounted internal poke > password: actual listener success without cookie; token and actual socket guard refusals",
+        "assertion": "timed out after 30000ms",
+        "caseMs": 31077.96,
+        "reportedInJUnit": false,
+        "issue": "https://github.com/schlessera/brain-kit/issues/2803"
+      },
+      {
+        "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+        "case": "mounted internal poke > tailscale: actual listener success without cookie; token and actual socket guard refusals",
+        "assertion": "timed out after 30000ms",
+        "caseMs": 30978.94,
+        "reportedInJUnit": false,
+        "issue": "https://github.com/schlessera/brain-kit/issues/2803"
+      },
+      {
+        "file": "packages/ui-server/tests/inbox-runtime.test.ts",
+        "case": "mounted internal poke > proxy: actual listener success without cookie; token and actual socket guard refusals",
+        "assertion": "timed out after 30000ms",
+        "caseMs": 31054.98,
+        "reportedInJUnit": false,
+        "issue": "https://github.com/schlessera/brain-kit/issues/2803"
+      }
+    ],
+    "failureAccounting": "One failure is in a completed worker JUnit. Five more failures appear in output before their workers were cancelled; no completed JUnit was flushed for those workers. Raw log pass-line counts include child summaries and are not used as case totals.",
+    "allHistoricalReferenceFilesPresentOnDisk": true,
+    "artifactSha256": {
+      "unit-worker-summary.json": "a3604d8e715cbf8f3eb567781fc909a675bf646aa32b88fb4e925f21ba61b162",
+      "inventory.json": "223ea6ab4f5387a1ecfeb36f46266ae0e8e411aa41554de2eb05a6630f9218f7",
+      "samples.jsonl": "b9f8dbdfb9bc0658ece4a42a56dc51cc5b49307812f9cbf4ff5d55c9202ab6b5",
+      "output.log": "01f071d6bf88055e871834efff92502b1864bdf0abed4e0cb6f2795a859eaeac"
+    }
+  }
 }
