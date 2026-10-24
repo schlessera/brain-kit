@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { mountPointsUnder, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import type { GovernedUnavailableReason } from "@schlessera/brain-ui-sdk/protocol";
+import { journalDatabasePath } from "../db/journal-database.js";
 
 /** Follow filesystem components in order: link/.. must traverse the link first. */
 function canonical(path: string, links = 0): string {
@@ -107,6 +108,8 @@ export interface OperationalStateLayout {
 function statePaths(input: OperationalStateLayout): { setting: string; path: string }[] {
   const database = input.dbPath && input.dbPath !== ":memory:" ? canonical(input.dbPath) : undefined;
   return [...(database ? [input.dbPath!, `${database}-wal`, `${database}-shm`].map(path => ({ setting: "DB_PATH", path })) : []),
+    // The journal's own database file and its sidecars (#2789).
+    ...(database ? ["", "-wal", "-shm"].map(suffix => ({ setting: "DB_PATH", path: canonical(`${journalDatabasePath(input.dbPath!)}${suffix}`) })) : []),
     ...(input.dbPath === ":memory:" ? [{ setting: "TMPDIR", path: `${tmpdir()}/brain-ui-quarantine` }] : []),
     ...(input.dbPath !== undefined && input.dbPath !== ":memory:" ? [{ setting: "DB_PATH quarantine", path: join(dirname(resolve(input.dbPath)), "brain-ui-quarantine") }] : []),
     ...(input.privateStatePaths ?? [])];

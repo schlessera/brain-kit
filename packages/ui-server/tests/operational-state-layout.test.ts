@@ -37,7 +37,7 @@ function fixture() {
 
 describe("operational state boot refusal (#1649)", () => {
   for (const profile of ["governed", "strict"] as const) {
-    for (const layout of ["existing database", "new nested directory", "linked parent", "linked parent traversal", "linked database", "linked new database", "linked quarantine", "hardlinked database", "hardlinked WAL", "hardlinked SHM", "private token"] as const) {
+    for (const layout of ["existing database", "new nested directory", "linked parent", "linked parent traversal", "linked database", "linked new database", "linked quarantine", "hardlinked database", "hardlinked WAL", "hardlinked SHM", "hardlinked journal database", "private token"] as const) {
       test(`${profile}: refuses ${layout} before opening state or executing the brain`, async () => {
         const f = fixture();
         let dbPath = join(f.brain, "brain-ui.db");
@@ -51,7 +51,7 @@ describe("operational state boot refusal (#1649)", () => {
           mkdirSync(join(f.brain, "sub")); symlinkSync(join(f.brain, "sub"), join(f.state, "traversal"));
           dbPath = `${f.state}/traversal/../brain-ui.db`;
         }
-        if (layout === "hardlinked database" || layout === "hardlinked WAL" || layout === "hardlinked SHM") dbPath = join(f.state, "brain-ui.db");
+        if (layout === "hardlinked database" || layout === "hardlinked WAL" || layout === "hardlinked SHM" || layout === "hardlinked journal database") dbPath = join(f.state, "brain-ui.db");
         if (layout === "existing database" || layout === "linked database" || layout === "hardlinked database") {
           const db = new Database(dbPath, { create: true });
           db.exec("CREATE TABLE private_probe (value TEXT); INSERT INTO private_probe VALUES ('Odysseus UI-private row')");
@@ -62,6 +62,10 @@ describe("operational state boot refusal (#1649)", () => {
         if (layout === "hardlinked WAL" || layout === "hardlinked SHM") {
           writeFileSync(`${dbPath}-${layout === "hardlinked WAL" ? "wal" : "shm"}`, "Odysseus private sidecar");
           linkSync(`${dbPath}-${layout === "hardlinked WAL" ? "wal" : "shm"}`, join(f.brain, "harbor-private-sidecar"));
+        }
+        if (layout === "hardlinked journal database") {
+          writeFileSync(`${dbPath}.journal.db`, "Odysseus private journal");
+          linkSync(`${dbPath}.journal.db`, join(f.brain, "harbor-private-journal"));
         }
         if (layout === "linked new database") { symlinkSync(dbPath, join(f.state, "new-link.db")); dbPath = join(f.state, "new-link.db"); }
         if (layout === "linked quarantine") { dbPath = join(f.state, "brain-ui.db"); symlinkSync(f.brain, join(f.state, "brain-ui-quarantine")); }

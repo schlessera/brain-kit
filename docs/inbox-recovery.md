@@ -25,7 +25,11 @@ sequences, claims/leases/attempts/blocked links, intake receipts, completed-tool
 receipts, frozen budget reservations and settlement, and scheduler heartbeats.
 Activity spans/rollups preserve observed spend; principal records preserve
 identity attribution. Other UI state, including sessions, authentication
-records and settings, travels with the same image.
+records and settings, travels with the same image. The turn journal keeps its
+tables in its own file beside the database (`DB_PATH.journal.db`); the image
+carries them inside the UI database, as earlier releases kept them, and a
+restored installation moves them out again on its first start. Restore needs
+no journal file at the target.
 
 Session drafts (#979) are in the same image: their text, image bytes,
 revisions, tombstones, idempotency receipts and accepted-send records.

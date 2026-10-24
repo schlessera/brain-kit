@@ -2,6 +2,7 @@
 import type { Database } from "bun:sqlite";
 import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { createJournalAccounting, JournalStorageUnavailable } from "./journal-accounting.js";
+import { replaySteeringEvents } from "./journal-governance.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
@@ -57,6 +58,7 @@ export function createTurnJournal(db: Database, options: {
   const accounting = createJournalAccounting(db, options.dbPath, { capBytes: options.capBytes });
   const objects = createJournalObjects(options.objectsRoot, accounting);
   accounting.recover(objects);
+  replaySteeringEvents(db);
   for (const row of db.query("SELECT turn_id,pid,pid_start FROM turn_journal_turns WHERE ended_at IS NULL").all() as { turn_id: string; pid: number; pid_start: string }[]) {
     if (!processAlive(row.pid, row.pid_start)) accounting.write(() => db.query("UPDATE turn_journal_turns SET state='partial',ended_at=?,missing=? WHERE turn_id=?").run(now(), JSON.stringify([{ path: ".", reason: "interrupted_observation" }]), row.turn_id));
   }

@@ -197,6 +197,7 @@ export const ENV_VARS: readonly EnvVarDescriptor[] = [
     name: "DB_PATH",
     description:
       "SQLite file for the UI's own database (sessions, passkeys, settings). " +
+      "The turn journal keeps its own database beside it, DB_PATH.journal.db, with the same permissions. " +
       "Must resolve outside the brain; an in-brain operational-state layout refuses boot with migration guidance. " +
       "The server factory defaults to ./brain-ui.db; brain-ui-cron defaults " +
       "to the container path /data/db/brain-ui.db.",
