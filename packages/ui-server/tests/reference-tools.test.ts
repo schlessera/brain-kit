@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
@@ -25,16 +25,18 @@ const grant = (principalId: string) => createReferenceGrant(db, { brain: BRAIN, 
 
 function host() {
   const tips = new Map([[PUBLIC, "1".repeat(40)], [PRIVATE, "2".repeat(40)]]);
-  const state = { failFetch: false, resolves: 0, gate: null as Promise<void> | null };
+  const state = { failFetch: false, resolves: 0, fetches: 0, unavailable: false, gate: null as Promise<void> | null };
   const transport: ReferenceTransport = {
     async resolve({ repository, token }) {
       state.resolves++;
       await state.gate;
+      if (state.unavailable) return { ok: false, reason: "unavailable", detail: "fixture network unavailable" };
       const tip = tips.get(repository.canonical) ?? (repository.canonical.startsWith(`${PUBLIC}-`) ? "4".repeat(40) : undefined);
       if (!tip || (repository.canonical === PRIVATE && token !== TOKEN)) return { ok: false, reason: "denied", detail: "fatal: repository not found" };
       return { ok: true, commit: tip, ref: "refs/heads/main" };
     },
     async fetch({ repository, root: target }) {
+      state.fetches++;
       if (state.failFetch) throw new Error(`fetch failed under ${join(root, "pool")}/roots`);
       writeFileSync(join(target, "odyssey.md"), `${repository.canonical}: Sing, Muse, of the man of many ways.\n`);
       return { commit: tips.get(repository.canonical) ?? "4".repeat(40) };
@@ -151,14 +153,163 @@ describe("binding a view is a new mount", () => {
     expect(views()).toContain(name);
   });
 
-  test("a running turn's source stays while another turn binds after its validation lapsed", async () => {
-    const { turn, views } = host();
+  test("a lapsed source a running turn reads is validated again before another turn binds the view", async () => {
+    const { turn, state, views } = host();
     const penelope = principal(), telemachus = principal("Telemachus");
     const reading = await turn(penelope.id);
     const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
     clock += 301_000;
+    const checks = state.resolves, fetches = state.fetches;
     await turn(telemachus.id);
-    expect(views(), "REFERENCE_TOOLS_RUNNING_READER_KEEPS_SOURCE").toContain(name);
+    expect({ checked: state.resolves - checks, fetched: state.fetches - fetches, bound: views().includes(name) }, "REFERENCE_TOOLS_HELD_SOURCE_REVALIDATED_AT_BIND")
+      .toEqual({ checked: 1, fetched: 0, bound: true });
+    // The check renewed its validation: a bind right after needs none.
+    await turn(telemachus.id);
+    expect(state.resolves - checks, "REFERENCE_TOOLS_REVALIDATION_RENEWS_LIFETIME").toBe(1);
+  });
+
+  test("a held source whose revalidation fails is withheld from the new bind, and the running reader keeps its lease", async () => {
+    const { turn, state, views, released } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const reading = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    clock += 301_000;
+    state.unavailable = true;
+    await turn(telemachus.id);
+    expect({ bound: views().includes(name), releases: released.length }, "REFERENCE_TOOLS_FAILED_REVALIDATION_WITHHELD").toEqual({ bound: false, releases: 0 });
+    // Nothing serves it again without a successful check.
+    expect(await reading.call(source(PUBLIC)), "REFERENCE_TOOLS_WITHHELD_UNTIL_VALIDATED").toMatchObject({ ok: false, code: "unavailable" });
+    state.unavailable = false;
+    ok(await reading.call(source(PUBLIC)));
+    expect(views()).toContain(name);
+  });
+
+  test("a held source whose revision moved is withheld at bind without fetching, and a request refreshes it", async () => {
+    const { turn, state, tips, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const reading = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    clock += 301_000;
+    tips.set(PUBLIC, "3".repeat(40));
+    const fetches = state.fetches;
+    await turn(telemachus.id);
+    expect({ bound: views().includes(name), fetched: state.fetches - fetches }, "REFERENCE_TOOLS_MOVED_REVISION_WITHHELD_WITHOUT_FETCH").toEqual({ bound: false, fetched: 0 });
+    const refreshed = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC)));
+    expect({ commit: refreshed.source.commit, bound: views().includes(name) }).toEqual({ commit: "3".repeat(40), bound: true });
+  });
+});
+
+describe("exposure changes are serialized (#2432 review)", () => {
+  test("a restoration waits for a suspension in progress, so a leased source never ends up out of its view", async () => {
+    const { turn, pool, sources, tools, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await first.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    clock += 301_000;
+    const withdraw = pool.poolWithdraw;
+    let open!: () => void, paused = false;
+    const gate = new Promise<void>(resolve => { open = resolve; });
+    pool.poolWithdraw = async (id, signal) => { if (!paused) { paused = true; await gate; } return withdraw(id, signal); };
+    // No reader holds it, so the bind suspends; a request validates and restores meanwhile.
+    tools.end(first.turnId);
+    const binding = sources.bindable(telemachus.id);
+    while (!paused) await Bun.sleep(1);
+    const lease = sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    await Bun.sleep(5);
+    open();
+    await binding;
+    const held = await lease;
+    expect({ name: views().includes(name), root: existsSync(join(held.viewPath, held.name, "odyssey.md")) }, "REFERENCE_TOOLS_SUSPEND_RESTORE_SERIALIZED").toEqual({ name: true, root: true });
+    held.release();
+  });
+
+  test("a suspension the pool did not confirm refuses the bind, and the next bind retries it", async () => {
+    const { turn, pool, sources, tools, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await first.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    tools.end(first.turnId);
+    clock += 301_000;
+    const unpublish = pool.poolUnpublish;
+    let failures = 1;
+    pool.poolUnpublish = async (view, entry, signal) => { if (failures-- > 0) throw new Error("manager reply lost"); return unpublish(view, entry, signal); };
+    await expect(sources.bindable(telemachus.id), "REFERENCE_TOOLS_FAILED_SUSPENSION_FAILS_CLOSED").rejects.toMatchObject({ code: "unavailable" });
+    await sources.bindable(telemachus.id);
+    expect(views(), "REFERENCE_TOOLS_FAILED_SUSPENSION_RETRIED").not.toContain(name);
+  });
+
+  test("a failed publication never exposes a suspended previous root again", async () => {
+    const { turn, pool, tools, tips, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await turn(penelope.id);
+    const shared = ok<Extract<ReferenceToolResult, { source: unknown }>>(await first.call(source(PUBLIC))).source;
+    const name = shared.path!.split("/").at(-1)!;
+    const previous = readlinkSync(join(first.views!.public, name));
+    tools.end(first.turnId);
+    clock += 301_000;
+    const later = await turn(telemachus.id);
+    expect(views()).not.toContain(name);
+    tips.set(PUBLIC, "3".repeat(40));
+    const publish = pool.poolPublish;
+    pool.poolPublish = async (id, view, entry, signal) => { if (id !== previous) { await publish(id, view, entry, signal); throw new Error("publication reply lost"); } return publish(id, view, entry, signal); };
+    expect((await later.call(source(PUBLIC))).ok).toBe(false);
+    expect({ name: views().includes(name), previous: views().includes(previous) }, "REFERENCE_TOOLS_ROLLBACK_KEEPS_LAPSED_HIDDEN").toEqual({ name: false, previous: false });
+  });
+
+  test("a refresh takes the superseded root out of the view at once, while its reader keeps the source", async () => {
+    const { turn, pool, tips, views } = host();
+    const penelope = principal();
+    const reading = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    const before = readlinkSync(join(reading.views!.public, name));
+    clock += 61_000;
+    tips.set(PUBLIC, "3".repeat(40));
+    ok(await reading.call(source(PUBLIC)));
+    const after = readlinkSync(join(reading.views!.public, name));
+    expect({ moved: after !== before, superseded: views().includes(before), retained: pool.records.get(before)?.state }, "REFERENCE_TOOLS_SUPERSEDED_ROOT_NOT_IN_VIEW")
+      .toEqual({ moved: true, superseded: false, retained: "sealed" });
+  });
+
+  test("a revocation that lands during a restoration still withdraws the source", async () => {
+    const { turn, pool, sources, tools, views, worktrees } = host();
+    const penelope = principal();
+    const issued = grant(penelope.id);
+    const first = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await first.call(source(PRIVATE))).source.path!.split("/").at(-1)!;
+    // A worktree keeps the source root after revocation, so only its exposure shows whether the withdrawal won.
+    await worktrees.allocate({ principalId: penelope.id, repository: PRIVATE, revision: "main" });
+    tools.end(first.turnId);
+    clock += 301_000;
+    await turn(penelope.id);
+    expect(views()).not.toContain(name);
+    const publish = pool.poolPublish;
+    let open!: () => void, paused = false;
+    const gate = new Promise<void>(resolve => { open = resolve; });
+    pool.poolPublish = async (...args) => { if (!paused) { paused = true; await gate; } return publish(...args); };
+    const restoring = sources.request({ principalId: penelope.id, repository: PRIVATE, revision: "main" });
+    while (!paused) await Bun.sleep(1);
+    revokeReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, id: issued.id, now: Date.now() });
+    const revoking = sources.revoke({ grantIds: [issued.id], principalIds: [] });
+    await Bun.sleep(5);
+    open();
+    await Promise.allSettled([restoring, revoking]);
+    (await restoring.catch(() => null))?.release();
+    expect(readdirSync(first.views!.private), "REFERENCE_TOOLS_REVOCATION_WINS_OVER_RESTORE").toEqual([]);
+  });
+
+  test("after recovery republishes everything, the next bind takes lapsed sources out again", async () => {
+    const { turn, sources, tools, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await first.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    tools.end(first.turnId);
+    clock += 301_000;
+    await turn(telemachus.id);
+    expect(views()).not.toContain(name);
+    await sources.recover();
+    expect(views(), "REFERENCE_TOOLS_RECOVERY_REPUBLISHES").toContain(name);
+    await turn(telemachus.id);
+    expect(views(), "REFERENCE_TOOLS_RECOVERY_THEN_BIND_SUSPENDS").not.toContain(name);
   });
 });
 

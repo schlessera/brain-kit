@@ -107,12 +107,27 @@ export function createReferenceSources(options: {
   /** In-flight withdrawals; an acquisition of the same source waits for its withdrawal to finish. */
   const withdrawals = new Map<string, Promise<void>>();
   /**
-   * Sources taken out of their view because their validation lapsed while no
-   * reader held them (#2432). Their roots stay charged and cached; the next
-   * request that validates them publishes them again. In memory only: startup
-   * recovery republishes every source, and the next bind suspends again.
+   * Sources out of their view because a bind found their validation lapsed and
+   * it was not renewed (#2432). Their roots stay charged and cached; the next
+   * request that validates them publishes them again. `unsettled` holds those
+   * whose suspension did not finish: a bind retries it and refuses until it
+   * does. In memory only: startup recovery republishes every source, and the
+   * next bind suspends again.
    */
-  const suspended = new Set<string>();
+  const suspended = new Set<string>(), unsettled = new Set<string>();
+  /** Root identities already moved out of their view: superseded, withdrawn or suspended. */
+  const hiddenRoots = new Set<string>();
+  /** Bind-time revalidations in flight, joined by concurrent binds. */
+  const revalidations = new Map<string, Promise<boolean>>();
+  /** One change at a time to a source's exposure: suspension, restoration, withdrawal and publication. */
+  const exposing = new Map<string, Promise<unknown>>();
+  function exclusive<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const next = (exposing.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
+    const settled = next.catch(() => {});
+    exposing.set(key, settled);
+    void settled.then(() => { if (exposing.get(key) === settled) exposing.delete(key); });
+    return next;
+  }
   /** Anonymous refusals, cached for one validation lifetime so private requests skip the probe. */
   const notPublic = new Map<string, number>();
   const queue: { start: () => void; signal: AbortSignal }[] = [];
@@ -329,16 +344,17 @@ export function createReferenceSources(options: {
     // Fence in this turn, before any await: no new reader may lease the source,
     // and only the roots it holds now are withdrawn, never a later acquisition's.
     withdrawn.add(key);
-    suspended.delete(key);
+    suspended.delete(key); unsettled.delete(key);
     db.query("UPDATE reference_sources SET root_id = NULL WHERE domain = ? AND repository = ? AND revision = ?").run(domain, repository, revision);
     const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
     db.query("UPDATE reference_roots SET state = 'superseded' WHERE domain = ? AND repository = ? AND revision = ? AND state = 'published'").run(domain, repository, revision);
     const view = viewFor(domain);
-    const work = (async () => {
+    // After any publication in progress, so a restoration can never land after it.
+    const work = exclusive(key, async () => {
       await pool.poolUnpublish(view.id, source.name);
       // Every root leaves the view at once, so no reader reaches it by identity; storage waits for readers.
-      for (const root of roots) await pool.poolWithdraw(root.id);
-    })().finally(() => { withdrawals.delete(key); });
+      for (const root of roots) { await pool.poolWithdraw(root.id); hiddenRoots.add(root.id); }
+    }).finally(() => { withdrawals.delete(key); });
     withdrawals.set(key, work);
     return work.then(() => settle(domain, repository, revision));
   }
@@ -363,6 +379,7 @@ export function createReferenceSources(options: {
       // Authority is read again immediately before the only step readers can observe.
       recheck();
       signal.throwIfAborted();
+      await exclusive(key, async () => {
       publishing = true;
       const published = await pool.poolPublish(staging.id, view.id, name, signal);
       const at = now(), grantId = domain === PUBLIC ? null : (input.grant && isLiveReferenceGrant(db, input.grant.id, at) ? input.grant.id : authorize(domain, input.principalId, repository)!.id);
@@ -377,15 +394,29 @@ export function createReferenceSources(options: {
           .run(domain, repository.canonical, revision, repository.url, name, staging.id, commit, input.ref, grantId, at, at, at);
       }).immediate();
       withdrawn.delete(key);
+      // A newly validated commit is exposed; the superseded roots leave the view at
+      // once, so a later bind reaches only the commit this request validated.
+      suspended.delete(key); unsettled.delete(key);
+      for (const { id } of db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state = 'superseded'").all(domain, repository.canonical, revision) as { id: string }[]) {
+        if (hiddenRoots.has(id)) continue;
+        try { await pool.poolWithdraw(id); hiddenRoots.add(id); } catch (error) { warn("superseded reference root stays in its view until the next bind hides it", error); }
+      }
+      });
     } catch (error) {
       // Staging is never published; its reservation is released through the pool only now that the workers stopped.
       const id = staging.id;
       const state = (db.query("SELECT state FROM reference_roots WHERE id = ?").get(id) as { state: string } | null)?.state;
       if (state === "staging") await releaseRoot(id).catch(cleanup => warn("reference staging release failed; startup recovery retries it", cleanup));
-      // A publication whose reply was lost may have moved the name to the released root: point it back, or fence the source.
-      if (publishing && previousRoot) await pool.poolPublish(previousRoot, view.id, name).catch(async () => {
-        await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("reference source could not be fenced after a lost publication", cleanup));
-      });
+      // A publication whose reply was lost may have moved the name to the released root.
+      // Point it back only to a previous root that is exposed under live validation;
+      // a suspended or lapsed one stays hidden and its name goes. Otherwise fence the source.
+      if (publishing && previousRoot) {
+        const previous = row(domain, repository.canonical, revision);
+        const exposed = !suspended.has(key) && previous?.root_id === previousRoot && validationLive(previous);
+        await exclusive(key, async () => { if (exposed) await pool.poolPublish(previousRoot, view.id, name); else await pool.poolUnpublish(view.id, name); }).catch(async () => {
+          await withdraw(domain, repository.canonical, revision).catch(cleanup => warn("reference source could not be fenced after a lost publication", cleanup));
+        });
+      }
       throw error;
     }
   }
@@ -423,23 +454,98 @@ export function createReferenceSources(options: {
   }
 
   /**
-   * Take every source of a domain whose validation lapsed, and that no reader,
-   * operation or withdrawal holds, out of the domain's view: its names go and
-   * its roots return to the masked roots, so a worker that binds the view next
-   * reaches only sources validated within their lifetime. Readers of a running
-   * turn keep theirs.
+   * Take one source out of its view: its name goes and every root it holds
+   * returns to the masked roots. Marked before any await, so a request in the
+   * meantime validates and publishes it again after this finishes; marked
+   * unsettled until the pool confirms, so a bind retries it and refuses until
+   * it does.
    */
-  async function suspend(domain: string) {
-    const view = viewFor(domain);
+  function suspendSource(domain: string, repository: string, revision: string): Promise<void> {
+    const key = sourceKey(domain, repository, revision);
+    return exclusive(key, async () => {
+      const source = row(domain, repository, revision);
+      if (!source?.root_id || withdrawn.has(key) || (suspended.has(key) && !unsettled.has(key))) return;
+      suspended.add(key); unsettled.add(key);
+      const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(domain, repository, revision) as { id: string }[];
+      await pool.poolUnpublish(viewFor(domain).id, source.name);
+      for (const root of roots) { await pool.poolWithdraw(root.id); hiddenRoots.add(root.id); }
+      unsettled.delete(key);
+    });
+  }
+  /**
+   * Validate a lapsed source a running turn reads, before a new bind exposes it
+   * (option 1 of the #2432 ruling). Only the exact published commit can be
+   * validated: a moved revision fails here, and a request refreshes it. A
+   * denied or missing revision is lost authority, as in a request.
+   */
+  function revalidate(source: SourceRow & { root_id: string }, signal?: AbortSignal): Promise<boolean> {
+    const key = sourceKey(source.domain, source.repository, source.revision);
+    const running = revalidations.get(key);
+    if (running) return running;
+    const work = (async () => {
+      try {
+        const repository = referenceRepository(source.repository);
+        const principalId = source.domain === PUBLIC ? null : source.domain.slice("private:".length);
+        const grant = principalId === null ? null : coveringReferenceGrant(db, { brain: options.brain, principalId, repository, now: now() });
+        if (principalId !== null && !grant) return false;
+        const check = await transport.resolve({ repository, revision: source.revision, token: token(grant), signal });
+        if (!check.ok) {
+          if (check.reason !== "unavailable") {
+            if (source.domain === PUBLIC) notPublic.set(`${repository.canonical}\u0000${source.revision}`, now() + limits.validationMs);
+            await withdraw(source.domain, source.repository, source.revision);
+          }
+          return false;
+        }
+        const current = row(source.domain, source.repository, source.revision);
+        if (!usable(current) || current.root_id !== source.root_id || current.commit_id !== check.commit || withdrawn.has(key)) return false;
+        if (principalId !== null && !coveringReferenceGrant(db, { brain: options.brain, principalId, repository, now: now() })) return false;
+        const at = now();
+        db.query("UPDATE reference_sources SET validated_at = ?, refreshed_at = ?, last_error = NULL WHERE domain = ? AND repository = ? AND revision = ? AND root_id = ?")
+          .run(at, at, source.domain, source.repository, source.revision, source.root_id);
+        return true;
+      } catch (error) { warn("reference source revalidation failed; the source is withheld from this bind", error); return false; }
+    })().finally(() => revalidations.delete(key));
+    revalidations.set(key, work);
+    return work;
+  }
+  /**
+   * Before a worker binds a domain's view, everything in it was validated
+   * within its lifetime (#2432, option 1): a lapsed source a running turn reads
+   * is validated again, any other lapsed source leaves the view, and one that
+   * fails is withheld. A running reader keeps its open files and its bind of
+   * the view. Superseded roots never stay. A suspension the pool did not
+   * confirm refuses the bind.
+   */
+  async function prepare(domain: string, signal?: AbortSignal) {
+    try { await settleView(domain, signal); }
+    catch (error) {
+      if (error instanceof ReferenceSourceError || signal?.aborted) throw error;
+      warn("a reference view could not be prepared for a bind", error);
+      throw new ReferenceSourceError("unavailable", "A reference source could not be taken out of its view; the view is not bound this turn.");
+    }
+  }
+  async function settleView(domain: string, signal?: AbortSignal) {
     for (const source of db.query("SELECT * FROM reference_sources WHERE domain = ? AND root_id IS NOT NULL").all(domain) as SourceRow[]) {
       const key = sourceKey(source.domain, source.repository, source.revision);
-      if (validationLive(source) || leases.get(key) || operations.has(key) || withdrawals.has(key) || withdrawn.has(key) || suspended.has(key)) continue;
-      // Marked before any await, so a concurrent request validates and publishes it again.
-      suspended.add(key);
-      const roots = db.query("SELECT id FROM reference_roots WHERE domain = ? AND repository = ? AND revision = ? AND state != 'staging'").all(source.domain, source.repository, source.revision) as { id: string }[];
-      await pool.poolUnpublish(view.id, source.name);
-      for (const root of roots) await pool.poolWithdraw(root.id);
+      // A withdrawal or an operation decides first; then the source is judged as it is now.
+      await withdrawals.get(key);
+      await operations.get(key)?.promise.catch(() => {});
+      await exposing.get(key);
+      signal?.throwIfAborted();
+      const current = row(source.domain, source.repository, source.revision);
+      if (!usable(current) || withdrawn.has(key)) continue;
+      if (unsettled.has(key)) { await suspendSource(current.domain, current.repository, current.revision); continue; }
+      if (suspended.has(key) || validationLive(current)) continue;
+      if (leases.get(key) && await revalidate(current, signal)) continue;
+      if (withdrawn.has(key)) continue;
+      await suspendSource(current.domain, current.repository, current.revision);
     }
+    for (const { id, repository, revision } of db.query("SELECT id, repository, revision FROM reference_roots WHERE domain = ? AND state = 'superseded'").all(domain) as { id: string; repository: string; revision: string }[]) {
+      if (hiddenRoots.has(id)) continue;
+      await exclusive(sourceKey(domain, repository, revision), async () => { await pool.poolWithdraw(id); hiddenRoots.add(id); });
+    }
+    for (const key of unsettled) if (key.startsWith(`${domain}\u0000`))
+      throw new ReferenceSourceError("unavailable", "A reference source could not be taken out of its view; the view is not bound this turn.");
   }
   /**
    * The lease is taken first, in the same turn as the outcome, so eviction can
@@ -448,12 +554,24 @@ export function createReferenceSources(options: {
   async function restored(held: ReferenceSourceLease, source: SourceRow): Promise<ReferenceSourceLease> {
     try { await restore(source); return held; } catch (error) { held.release(); throw error; }
   }
-  /** Publish a source a validated request returned, if a lapsed validation suspended it. */
+  /**
+   * Publish a source a validated request returned, if it was suspended. Under
+   * the source's exposure lock, and only if nothing withdrew, replaced or
+   * outlived it meanwhile.
+   */
   async function restore(source: SourceRow) {
     const key = sourceKey(source.domain, source.repository, source.revision);
-    if (!suspended.has(key) || !source.root_id) return;
-    await pool.poolPublish(source.root_id, viewFor(source.domain).id, source.name);
-    suspended.delete(key);
+    if (!suspended.has(key)) return;
+    await exclusive(key, async () => {
+      if (!suspended.has(key)) return;
+      const current = row(source.domain, source.repository, source.revision);
+      if (withdrawn.has(key) || withdrawals.has(key) || !usable(current) || current.root_id !== source.root_id || !validationLive(current))
+        throw new ReferenceSourceError("unavailable", "The reference source changed while it was being published again; request it again.");
+      if (current.domain !== PUBLIC) authorize(current.domain, current.domain.slice("private:".length), referenceRepository(current.repository));
+      await pool.poolPublish(current.root_id, viewFor(current.domain).id, current.name);
+      hiddenRoots.delete(current.root_id);
+      suspended.delete(key); unsettled.delete(key);
+    });
   }
 
   /**
@@ -519,6 +637,10 @@ export function createReferenceSources(options: {
       if (!keep.has(id) && !retained.includes(id)) db.query("DELETE FROM reference_roots WHERE id = ?").run(id);
     db.query("UPDATE reference_roots SET state = 'published' WHERE id IN (SELECT root_id FROM reference_sources WHERE root_id IS NOT NULL)").run();
     db.query("DELETE FROM reference_sources WHERE root_id IS NULL").run();
+    // Every kept source is published again: the next bind judges each afresh.
+    suspended.clear(); unsettled.clear(); hiddenRoots.clear();
+    // A root kept only for a worktree is never left where a bound view reaches it.
+    for (const id of retained) await pool.poolWithdraw(id).then(() => { hiddenRoots.add(id); }, error => warn("retained reference root stays in its view until the next bind hides it", error));
     return { released, retained };
   }
 
@@ -539,14 +661,14 @@ export function createReferenceSources(options: {
     /**
      * The public view and this principal's private view, opened if nothing was
      * published there yet, for a worker to bind whole at its start (#2432).
-     * A bind is a new mount of everything the view holds, so first every source
-     * whose validation lapsed and that no running turn reads leaves the view;
-     * a request that validates it again publishes it again.
+     * A bind is a new mount of everything the view holds, so each view is
+     * prepared first: nothing stays whose validation lapsed without a fresh
+     * check. A view that cannot be prepared is refused.
      */
     async bindable(principalId: string, signal?: AbortSignal): Promise<{ public: string; private: string }> {
       if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
       const open = async (domain: string) => {
-        await suspend(domain);
+        await prepare(domain, signal);
         signal?.throwIfAborted();
         const view = viewFor(domain);
         if (view.hostPath) return view.hostPath;

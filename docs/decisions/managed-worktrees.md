@@ -215,7 +215,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:853-864`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:546-557`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:668-680`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -249,16 +249,34 @@ so no earlier system prompt, tool or message changes
 
 **A bind is a new mount.** Binding a view exposes every source the domain has
 published there, not only those this turn asks for, so the Q4 rule (a fresh
-check before a new mount) applies to the bind itself. Before a turn's workers
-bind a view, every source of that domain whose validation lifetime lapsed, and
-that no running turn's reader, operation or withdrawal holds, leaves the view:
-its name goes and its roots return to the masked roots, so neither name nor
-identity is reachable. Its cache and charge stay. The next request validates it
-under its own clocks and publishes it again
-(`async function suspend`, `packages/ui-server/src/brain/reference-source.ts:432-443`).
-A source a running turn already requested keeps its place until that turn ends,
-as Q4 allows for source already being read. Revocation and anonymous denial
-still withdraw a source at once, as
+check before a new mount) applies to the bind itself. The maintainer ruled on
+2026-10-24 how ([option 1](https://github.com/schlessera/brain-kit/issues/2432)):
+before a turn's workers bind a view, every source in it whose validation
+lifetime lapsed is either checked again or taken out
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:527-549`):
+
+- a source a running turn reads is validated again, for its exact published
+  commit and under its domain's authority. A revision that moved, a failed or
+  impossible check, or a lost grant withholds it; a denial or a missing
+  revision withdraws it, as a request would. The check never fetches;
+- any other lapsed source leaves the view without a network check;
+- superseded roots leave the view as soon as their source refreshes, and roots
+  kept only for a worktree leave it at recovery and before every bind.
+
+Withholding takes a source's name and roots out of the view
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:463-474`).
+Its cache and charge stay, and the next request that validates it publishes it
+again. A running reader keeps its bind of the view and the files it has open;
+its later lookups of a withheld name fail until a request validates the source.
+A suspension the pool does not confirm refuses the bind, and the next bind
+retries it.
+
+Suspension, restoration, withdrawal and publication of one source run one at a
+time, and a bind waits for any of them in progress. A restoration publishes
+only a source that nothing withdrew, replaced or let lapse meanwhile. A failed
+publication points the name back only at a previous root that is exposed under
+live validation; otherwise the name goes. Revocation and anonymous denial still
+withdraw a source at once, as
 [acquisition](reference-source-acquisition.md#revocation-and-recovery) records.
 
 **Turn limits.** A turn keeps at most 32 distinct sources protected; a 33rd is

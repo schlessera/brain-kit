@@ -747,6 +747,37 @@ const shapes = await create("staging", 32 * MIB);
     await worktrees.closeGeneration(toolTurn.id);
     expect((await worktrees.release({ worktreeId: asked.worktree.id, principalId: penelope.id })).cleanup, "REFERENCE_TOOLS_NATIVE_EDIT_RETAINED")
       .toMatchObject({ work: "unpreserved", eligible: false });
+    // #2432 option 1: a bind validates a held lapsed source again through the real
+    // transport, and withholds it once the check fails. A one-millisecond lifetime
+    // makes every source lapse before each bind; a separate catalog keeps its own views.
+    {
+      const { createUiDb } = await import("../../packages/ui-server/src/db/client.js");
+      const lapsedDb = createUiDb(join(state, "lapsed.db"));
+      try {
+        const ithacan = createPrincipal(lapsedDb, { authMethod: "password", label: "Eurycleia", ttlSeconds: 86_400 });
+        createReferenceGrant(lapsedDb, { brain: "ithaca", principalId: ithacan.id, repositoryPrefix: `file://${srv}`, credential: null, createdBy: ithacan.id, now: Date.now() });
+        const lapsing = createReferenceSources({ db: lapsedDb, pool: client, transport: createReferenceTransport({ brainPath: "/brain-fixture/brain" }), brain: "ithaca",
+          credentials: {}, limits: { validationMs: 1 } });
+        const held = await lapsing.request({ principalId: ithacan.id, repository, revision: "main" });
+        await Bun.sleep(5);
+        const view = (await lapsing.bindable(ithacan.id)).private;
+        const before = (lapsedDb.query("SELECT validated_at FROM reference_sources").get() as { validated_at: number }).validated_at;
+        expect({ bound: readdirSync(view).includes(held.name), revalidated: before > held.validatedAt }, "REFERENCE_TOOLS_NATIVE_HELD_SOURCE_REVALIDATED_AT_BIND")
+          .toEqual({ bound: true, revalidated: true });
+        renameSync(join(srv, "ithaca.git"), join(srv, "ithaca.git.away"));
+        try {
+          await Bun.sleep(5);
+          await lapsing.bindable(ithacan.id);
+          expect(readdirSync(view), "REFERENCE_TOOLS_NATIVE_FAILED_REVALIDATION_WITHHELD").toEqual([]);
+        } finally { renameSync(join(srv, "ithaca.git.away"), join(srv, "ithaca.git")); }
+        held.release();
+        // Its roots go as in the other cases: revoking the grant withdraws what is left, and storage follows.
+        lapsedDb.query("UPDATE reference_grants SET revoked_at = 1").run();
+        await lapsing.revoke({ grantIds: [], principalIds: [ithacan.id] });
+        for (let attempt = 0; attempt < 200 && (lapsedDb.query("SELECT count(*) AS n FROM reference_roots").get() as { n: number }).n; attempt++) await Bun.sleep(10);
+        await lapsing.close();
+      } finally { lapsedDb.close(); }
+    }
     // The proof releases the roots review left.
     for (const record of await records()) if (record.purpose === "checkpoint" && (record.state === "sealed")) await client.poolRelease(record.id);
     for (const id of [edited.id, read.id, swapped.id, asked.worktree.id]) expect(["deleted", "reclaimed"], "REFERENCE_WORKTREE_NATIVE_RELEASED").toContain((await client.poolRelease(id)).state);

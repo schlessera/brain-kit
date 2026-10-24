@@ -895,9 +895,10 @@ refreshedAt, validatedAt, error }`. `freshness` is `fresh` or `stale`; a stale
 source carries the refresh `error` and its unchanged `refreshedAt`. `path` is
 `/tmp/brain-reference/<public|private>/<name>` when this turn's workers bind
 that view, else `null`. The source is read-only and moves: a later read of the
-same path may see a newer commit. A path stays readable for the rest of the
-turn that requested it; a later turn reaches a source whose five-minute
-validation lapsed only after requesting it again. One turn keeps at most 32
+same path may see a newer commit. Before a turn's workers bind a view, every
+source in it whose five-minute validation lapsed is validated again if a running
+turn reads it, and otherwise taken out until a request validates it; one that
+fails is withheld, and a running reader's later lookups of it fail until then. One turn keeps at most 32
 distinct sources; a further one is refused as `busy`.
 
 `worktree` is `{ id, repository, revision, domain, startingCommit, state,
