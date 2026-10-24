@@ -60,6 +60,20 @@ test("a probe refusal after the claim rejects, takes the claim back and emits no
   expect(prompts[0]).toStartWith("Return to Ithaca.\n");
 });
 
+test("a setup refusal after the probe takes the claim back too", async () => {
+  const [declared] = profiles;
+  const broken = { ...declared!, buildEnv: () => { throw new Error("Odysseus: the profile's environment could not be built"); } };
+  const queryFn = (() => { throw new Error("the provider is not reached"); }) as unknown as typeof query;
+  const backend = createClaudeBackend({ brainPath: "/brain", profiles: [broken], queryFn, log: () => {} });
+  const frames: ServerMessage[] = [];
+  const start = () => backend.startTurn({ prompt: "Sail past the Sirens.", sessionId: "voyage", signal: new AbortController().signal, bridge: bridge(frames) });
+  await expect(start()).rejects.toThrow("environment could not be built");
+  await expect(backend.followUp!({ sessionId: "voyage", prompt: "Mind the Cyclops." }), "SETUP_REFUSAL_RELEASES_INPUT").rejects.toThrow("No running turn");
+  // Not busy: the same refusal again, rather than a stranded claim.
+  await expect(start(), "SETUP_REFUSAL_RELEASES_CLAIM").rejects.toThrow("environment could not be built");
+  expect(frames).toEqual([]);
+});
+
 test("a cancel accepted while the probe runs stops the turn before its prompt reaches the provider", async () => {
   const pending = deferred<WorkerHostProbe>();
   const probe = spyOn(workerHostBoundary, "probeAsync").mockImplementation(() => pending.promise);

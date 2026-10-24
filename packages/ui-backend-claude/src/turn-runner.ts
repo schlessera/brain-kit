@@ -150,44 +150,50 @@ export function createClaudeTurnRunner(options: {
     if (req.signal.aborted) abortController.abort();
     else req.signal.addEventListener("abort", onHostAbort, { once: true });
 
+    // Everything up to here preceded the claim before it moved forward; a
+    // refusal anywhere in it takes the claim back.
     let workerHost: Awaited<ReturnType<typeof requireWorkerHostAsync>>;
     let profile: InferenceProfile;
+    let turnLock: ReturnType<typeof createTurnLockBinding> | undefined;
+    let turnEnvironment: ReturnType<typeof turnEnv> | undefined;
+    let observationStorage: { directory: string; brainPath: string } | undefined;
+    let fileVersions: NativeFileVersions | undefined;
+    let yielded = false;
     try {
       workerHost = await requireWorkerHostAsync(options.backend.brainPath);
       profile = resolveProfile(options.resolveProfiles(), req.profileId);
+      turnLock = createTurnLockBinding({
+        turn,
+        writeLock: req.workerLock ?? options.writeLock,
+        lockWaitMs: options.lockWaitMs,
+        log: options.log,
+        admission: {
+          signal: abortController.signal,
+          priority: req.autonomous ? "autonomous" : "interactive",
+          yieldAfterMs: req.autonomous?.yieldAfterMs,
+          onYield: req.autonomous?.onYield ? (key) => {
+            if (yielded || abortController.signal.aborted) return;
+            yielded = true;
+            try { req.autonomous!.onYield!(key); }
+            catch { req.bridge.emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
+            finally { abortController.abort(); }
+          } : undefined,
+        },
+      });
+      turnEnvironment = req.autonomous ? undefined : turnEnv(profile);
+      observationStorage = !req.autonomous && existsSync(options.backend.brainPath)
+        ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
+        : undefined;
+      fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
+        ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
+      if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
     } catch (error) {
       req.signal.removeEventListener("abort", onHostAbort);
       input.close();
+      turnLock?.close();
       activeTurns.delete(turnKey);
       throw error;
     }
-
-    let yielded = false;
-    const turnLock = createTurnLockBinding({
-      turn,
-      writeLock: req.workerLock ?? options.writeLock,
-      lockWaitMs: options.lockWaitMs,
-      log: options.log,
-      admission: {
-        signal: abortController.signal,
-        priority: req.autonomous ? "autonomous" : "interactive",
-        yieldAfterMs: req.autonomous?.yieldAfterMs,
-        onYield: req.autonomous?.onYield ? (key) => {
-          if (yielded || abortController.signal.aborted) return;
-          yielded = true;
-          try { req.autonomous!.onYield!(key); }
-          catch { req.bridge.emit({ type: "error", code: "AUTONOMOUS_YIELD_FAILED", message: "Autonomous yield checkpoint failed." }); }
-          finally { abortController.abort(); }
-        } : undefined,
-      },
-    });
-    const turnEnvironment = req.autonomous ? undefined : turnEnv(profile);
-    const observationStorage = !req.autonomous && existsSync(options.backend.brainPath)
-      ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
-      : undefined;
-    const fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
-      ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
-    if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
 
     const adapter = new StreamAdapter(req.bridge.activity, {
       subscriptionAuth: profile.billing !== "api",

@@ -15,7 +15,7 @@ import { identityWorkerExit, launchAgentWorkerAsync, prepareWorkerSandbox, prepa
   requireWorkerHostAsync, workerHostBoundary, WorkerHostError, type IdentityWorkerStatus, type LaunchedWorker } from "../src/server/worker-launcher";
 import * as launcher from "../src/server/worker-launcher";
 import * as identity from "../src/server/worker-identity";
-import { launchMaintenanceWorkerAsync } from "../src/server/maintenance-worker";
+import { launchMaintenanceWorkerAsync, runMaintenanceWorker } from "../src/server/maintenance-worker";
 import { claudeMaskFilename, claudeReportedMaskPath, handleRequestImageMask } from "../src/server/bridge-tools/mask";
 import type { BackendBridge } from "../src/server/backend";
 import { workerStep } from "../src/server/worker-steps";
@@ -163,6 +163,21 @@ test("a separate-UID worker's exit is polled with the event loop free and maps t
   } finally { failed.stop(); }
 });
 
+test("a broker release that cannot confirm cleanup after the exit stays handled, as when the poll caught it", async () => {
+  const requests = statusRequests([{ exited: true, code: 0 }], 1);
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", record);
+  let finished = false;
+  try {
+    const code = await identityWorkerExit(requests.status, new Promise<number>(() => {}), { finished: () => finished,
+      finish: () => { finished = true; }, release: () => { throw new Error("worker_identity_cleanup_unconfirmed: fixture"); } });
+    expect(code).toBe(0);
+    await Bun.sleep(20);
+    expect(unhandled, "IDENTITY_RELEASE_FAILURE_HANDLED").toEqual([]);
+  } finally { process.off("unhandledRejection", record); requests.stop(); }
+});
+
 test("a supervisor lost while a status request is outstanding refuses once and ignores the late answer", async () => {
   const requests = statusRequests([{ exited: true, code: 0 }], 150);
   const owner = supervision();
@@ -206,4 +221,28 @@ test("a separate-UID maintenance launch waits for its helper worker with the eve
     expect(await output).toBe("ithaca");
     expect(await worker.exited).toBe(0);
   } finally { launch.mockRestore(); helper.mockRestore(); startupView.cleanup(); f.cleanup(); }
+});
+
+test("an abort accepted while a separate-UID maintenance launch is awaited still stops its worker", async () => {
+  const f = fixture();
+  const startupView = createFixtureWorkerStartupView(f.brain);
+  const controller = new AbortController();
+  let child: ReturnType<typeof spawn> | undefined;
+  const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue("/usr/lib/odysseus/identity-helper");
+  const launch = spyOn(launcher, "launchAgentWorkerSteps").mockImplementation(function* () {
+    // Cancelled while the helper's setup is awaited; the worker would otherwise run for 30 s.
+    yield* workerStep(() => { controller.abort(); }, async () => { controller.abort(); await Bun.sleep(20); });
+    const started = child = spawn("/bin/sh", ["-c", "exec sleep 30"], { stdio: ["pipe", "pipe", "pipe"] });
+    return { stdin: started.stdin, stdout: started.stdout, stderr: started.stderr, pid: started.pid!,
+      exited: new Promise<number>(resolve => started.once("exit", (code, signal) => resolve(code ?? (signal ? 137 : 1)))),
+      kill: (signal?: NodeJS.Signals) => { started.kill(signal); } } as unknown as LaunchedWorker;
+  });
+  try {
+    const startedAt = performance.now();
+    const refusal = await runMaintenanceWorker({ brainPath: f.brain, startupView, command: ["/bin/sh"], env: { PATH: "/usr/bin:/bin" },
+      credentials: false, tempDomain: { statePath: join(f.root, "maintenance-state.db") }, signal: controller.signal }).catch((error: unknown) => error);
+    expect(refusal, "ABORT_DURING_MAINTENANCE_LAUNCH_REJECTS").toBeInstanceOf(DOMException);
+    expect(child?.signalCode, "ABORT_DURING_MAINTENANCE_LAUNCH_KILLS_WORKER").toBe("SIGKILL");
+    expect(performance.now() - startedAt).toBeLessThan(10_000);
+  } finally { child?.kill("SIGKILL"); launch.mockRestore(); helper.mockRestore(); startupView.cleanup(); f.cleanup(); }
 });

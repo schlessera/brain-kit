@@ -4,10 +4,11 @@
  * fire during synchronous work, so each test counts its ticks while the real
  * worker starts.
  */
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { query } from "@anthropic-ai/claude-agent-sdk";
+import * as internal from "@schlessera/brain-ui-sdk/internal";
 import { prepareWorkerSandbox } from "@schlessera/brain-ui-sdk/internal";
 import { createClaudeBackend } from "../src/backend";
 import { defineProfiles } from "../src/profiles";
@@ -36,35 +37,48 @@ function ticker() {
 test.skipIf(!native)("startTurn claims, then awaits its real host probe with the event loop free before the SDK starts", async () => {
   const f = fixture();
   const clock = ticker();
-  let atQuery: number | undefined;
+  const probe = measured("requireWorkerHostAsync", clock);
+  let reached = false;
   const queryFn = (() => {
-    atQuery = clock.ticks();
+    reached = true;
     throw new Error("Odysseus: the provider is not reached in this test");
   }) as unknown as typeof query;
   try {
     const backend = createClaudeBackend({ brainPath: f.brain, profiles, queryFn, log: () => {} });
     const workerSandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
-    const start = clock.ticks();
     await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal, workerSandbox,
       bridge: { emit: () => {}, requestPermission: async () => ({ behavior: "allow" }) } });
-    expect(atQuery, "TURN_REACHED_SDK_AFTER_REAL_PROBE").toBeDefined();
-    expect(atQuery! - start, "CLAUDE_TURN_PROBE_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
-  } finally { clock.stop(); f.cleanup(); }
+    expect(reached, "TURN_REACHED_SDK_AFTER_REAL_PROBE").toBe(true);
+    expect(probe.seen.calls, "CLAUDE_TURN_PROBE_AWAITED").toBe(1);
+    expect(probe.seen.ticks, "CLAUDE_TURN_PROBE_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+  } finally { probe.restore(); clock.stop(); f.cleanup(); }
 });
 
-test.skipIf(!native)("a Claude worker's real probe and launch run with the event loop free behind the deferred spawn", async () => {
+/** Ticks that fire while one awaited form runs; a synchronous form never calls it, or lets none fire. */
+function measured<K extends "requireWorkerHostAsync" | "launchAgentWorkerAsync">(name: K, clock: ReturnType<typeof ticker>) {
+  const original = internal[name] as (...args: unknown[]) => Promise<unknown>;
+  const seen = { calls: 0, ticks: 0 };
+  const spy = spyOn(internal, name).mockImplementation((async (...args: unknown[]) => {
+    seen.calls++;
+    const before = clock.ticks();
+    try { return await original(...args); } finally { seen.ticks += clock.ticks() - before; }
+  }) as never);
+  return { seen, restore: () => spy.mockRestore() };
+}
+
+test.skipIf(!native)("a Claude worker's real probe and launch each run with the event loop free behind the deferred spawn", async () => {
   const f = fixture();
   const clock = ticker();
-  let atStart: number | undefined;
+  const probe = measured("requireWorkerHostAsync", clock), launch = measured("launchAgentWorkerAsync", clock);
+  let started = false;
   const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
   const spawner = createWorkerSpawn(f.brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined, {}, undefined,
-    () => { atStart = clock.ticks(); });
+    () => { started = true; });
   try {
-    const start = clock.ticks();
     const child = spawner.spawn({ command: "/bin/sh", args: ["-c", "printf ithaca"], env: { CLAUDE_CONFIG_DIR: f.config, HOME: f.home },
       signal: new AbortController().signal } as never);
     // The SDK's synchronous callback returns before any worker exists.
-    expect(atStart, "SPAWN_RETURNS_BEFORE_PROBE").toBeUndefined();
+    expect(started, "SPAWN_RETURNS_BEFORE_WORKER").toBe(false);
     let output = "";
     child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
     child.stdin.end();
@@ -72,6 +86,9 @@ test.skipIf(!native)("a Claude worker's real probe and launch run with the event
     await spawner.finish();
     expect(code).toBe(0);
     expect(output, "DEFERRED_WORKER_RUNS_COMMAND").toBe("ithaca");
-    expect(atStart! - start, "CLAUDE_WORKER_START_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
-  } finally { clock.stop(); await spawner.finish().catch(() => {}); f.cleanup(); }
+    expect(probe.seen.calls, "CLAUDE_WORKER_PROBE_AWAITED").toBe(1);
+    expect(probe.seen.ticks, "CLAUDE_WORKER_PROBE_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    expect(launch.seen.calls, "CLAUDE_WORKER_LAUNCH_AWAITED").toBe(1);
+    expect(launch.seen.ticks, "CLAUDE_WORKER_LAUNCH_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+  } finally { probe.restore(); launch.restore(); clock.stop(); await spawner.finish().catch(() => {}); f.cleanup(); }
 });

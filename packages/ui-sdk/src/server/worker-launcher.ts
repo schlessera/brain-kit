@@ -1460,6 +1460,9 @@ export function identityWorkerExit(status: () => WorkerSteps<IdentityWorkerStatu
         }, error => {
           if (supervision.finished()) return;
           supervision.finish(); reject(error);
+        }).catch(error => {
+          // A release that cannot confirm cleanup, as when the poll caught it synchronously.
+          supervision.finish(); reject(error);
         });
       }, 100);
     };

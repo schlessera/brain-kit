@@ -299,7 +299,10 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         }, [immediateSignal, options.signal]);
         // Only a started worker's lifecycle is owned, as before: a refusal
         // reaches the turn through the SDK and `startFailure`.
-        completions.push(deferred.settled.catch(error => { if (launched) throw error; }));
+        const completion = deferred.settled.catch(error => { if (launched) throw error; });
+        // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
+        void completion.catch(() => {});
+        completions.push(completion);
         return deferred.process;
       }
       const deferred = deferredWorkerSpawn(async signal => {
