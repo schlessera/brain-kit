@@ -480,7 +480,7 @@ function bench(options: { entries?: number; idleMs?: number; report?: (message: 
   privateTmp();
   const root = mkdtempSync(join(tmpdir(), "odysseus-private-index-bound-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "brain/notes"), { recursive: true }); writeFileSync(join(root, "brain/notes/eagle.md"), "x");
-  const state = { gate: Promise.resolve() };
+  const state = { gate: Promise.resolve(), holdRuns: false, acquired: 0, failAcquire: false };
   const cache = createPrivateIndexCache({ report: options.report ?? (() => {}), entries: options.entries ?? 2, idleMs: options.idleMs ?? 200,
     differ: async (from, to, signal) => {
       // A held delta still ends when the cache closes, as the native one does.
@@ -489,9 +489,13 @@ function bench(options: { entries?: number; idleMs?: number; report?: (message: 
     } });
   cleanup.push(() => cache.close());
   const views: startup.WorkerStartupView[] = [];
-  const runner = (stdout: string) => (_view: startup.WorkerStartupView, index: string) => ({
+  const runner = (stdout: string) => (_view: startup.WorkerStartupView, index: string, signal: AbortSignal) => ({
     build: async () => { writeFileSync(join(index, "brain.db"), "rebuilt"); return { ok: true as const }; },
-    update: async () => { appendFileSync(join(index, "brain.db"), "+added"); return { ok: true as const, stdout }; } });
+    update: async () => {
+      // A held run ends only when its signal does, as a killed worker would.
+      if (state.holdRuns) { await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true })); return { ok: false as const, detail: "killed" }; }
+      appendFileSync(join(index, "brain.db"), "+added"); return { ok: true as const, stdout };
+    } });
   const prepare = async (policyHash: string, input: { partial?: boolean; maskPaths?: string[]; stdout?: string } = {}) => {
     const view = retainableFixtureView(join(root, "brain")); views.push(view);
     const index = mkdtempSync(join(root, "index-"));
@@ -504,7 +508,11 @@ function bench(options: { entries?: number; idleMs?: number; report?: (message: 
   };
   const live = (view: startup.WorkerStartupView) => existsSync(view.root);
   const bases = () => readdirSync(tmpdir()).filter(name => name.startsWith(`brain-private-index-base-${process.pid}-`));
-  const advance = () => cache.advance(async signal => { signal.throwIfAborted(); const view = retainableFixtureView(join(root, "brain")); views.push(view); return view; });
+  const advance = () => cache.advance(async signal => {
+    signal.throwIfAborted(); state.acquired++;
+    if (state.failAcquire) throw new Error("the manager is busy");
+    const view = retainableFixtureView(join(root, "brain")); views.push(view); return view;
+  });
   return { root, cache, views, prepare, live, bases, state, advance };
 }
 
@@ -612,6 +620,49 @@ test("an advance whose update rewrote rows keeps the old base, and close stops a
   expect(await stuck, "CLOSE_ENDS_THE_ADVANCE").toMatchObject([{ kind: "kept", reason: "closing" }]);
   expect(b.views.map(b.live), "CLOSE_RELEASES_EVERY_CHECKPOINT").toEqual(b.views.map(() => false));
   expect(b.bases(), "CLOSE_REMOVES_EVERY_BASE_AND_STAGING").toEqual([]);
+});
+
+test("advances share one checkpoint, move bases without renewing them, and fail safe without one", async () => {
+  const reports: string[] = [];
+  const b = bench({ idleMs: 1500, report: message => reports.push(message) });
+  expect((await b.prepare("one")).kind).toBe("built");
+  expect((await b.prepare("two")).kind).toBe("built");
+  expect((await b.advance()).map(result => result.kind), "BOTH_BASES_ADVANCE").toEqual(["rebound", "rebound"]);
+  expect(b.state.acquired, "ONE_CHECKPOINT_FOR_EVERY_BASE").toBe(1);
+  expect(b.views.slice(0, 2).map(b.live), "A_REBOUND_BASE_RELEASES_ITS_OLD_CHECKPOINT_AT_ONCE").toEqual([false, false]);
+  // Advancing is not using: a base no turn uses still expires, rebound or
+  // promoted just before its time.
+  await Bun.sleep(900);
+  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+  expect((await b.advance()).map(result => result.kind), "PROMOTED_TOO").toEqual(["updated", "updated"]);
+  await Bun.sleep(800);
+  await b.advance();
+  expect(b.bases(), "UNUSED_BASES_EXPIRE_THROUGH_ADVANCES").toEqual([]);
+  expect(b.views.map(b.live).filter(Boolean), "AND_RELEASE_THEIR_CHECKPOINTS").toEqual([]);
+  expect((await b.prepare("four")).kind).toBe("built");
+  await Bun.sleep(900);
+  expect((await b.advance()).map(result => result.kind)).toEqual(["rebound"]);
+  await Bun.sleep(800);
+  await b.advance();
+  expect(b.bases(), "A_REBOUND_BASE_IS_NOT_RENEWED").toEqual([]);
+  // No checkpoint: the bases stay as they are, bound to their own.
+  expect((await b.prepare("three")).kind).toBe("built");
+  b.state.failAcquire = true;
+  expect(await b.advance(), "NO_CHECKPOINT_NO_ADVANCE").toEqual([]);
+  expect(reports.some(report => report.includes("the manager is busy")), "REPORTED").toBe(true);
+  expect(b.bases().length, "THE_BASE_STAYS").toBe(1);
+});
+
+test("close stops an advance whose build is running", async () => {
+  const b = bench();
+  expect((await b.prepare("one")).kind).toBe("built");
+  writeFileSync(join(b.root, "brain/notes/scheria.md"), "x");
+  b.state.holdRuns = true;
+  const running = b.advance();
+  await Bun.sleep(100);
+  await b.cache.close();
+  expect(await running, "THE_RUN_IS_STOPPED").toMatchObject([{ kind: "kept", reason: "the incremental index failed: killed" }]);
+  expect(b.bases(), "NOTHING_IS_KEPT").toEqual([]);
 });
 
 test("an external build command is identified by its files, not only its name", () => {

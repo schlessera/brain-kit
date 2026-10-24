@@ -1894,7 +1894,7 @@ every turn without a proven recipient:
   build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
   build as a base and reuses it while it provably equals a clean build of the
   turn's final startup view (`createPrivateIndexCache`,
-  `packages/ui-server/src/brain/private-index-cache.ts:319-587`):
+  `packages/ui-server/src/brain/private-index-cache.ts:319-591`):
   - *Identity.* A base is keyed by the brain's canonical path, the policy
     hash, the masked folders, the proven recipient, the operational mask
     paths, the build's argv, the runtime version and the change stamps of any
@@ -1947,7 +1947,7 @@ every turn without a proven recipient:
     After each post-turn index refresh, every kept base is brought to a fresh
     checkpoint of the live brain, in its key's chain, so a turn admitted
     meanwhile waits for it and then reuses it (`advanceBase`,
-    `packages/ui-server/src/brain/private-index-cache.ts:493-544`). It
+    `packages/ui-server/src/brain/private-index-cache.ts:495-546`). It
     reconciles exactly as admission does, with the same classifier and stamp
     check: an unchanged view rebinds the base; new notes are added by the
     incremental index in a staging directory beside the bases, which must
@@ -1962,7 +1962,8 @@ every turn without a proven recipient:
     built with a document that has a selected type outside its folders is
     never served: every later view either still holds that document, which
     admission refuses, or changed it, which rebuilds. Closing the server
-    aborts an advance in flight.
+    aborts an advance in flight. Advancing is not use: a base no turn has
+    used for 30 minutes still expires, and an advance never renews it.
   - *Cost.* The first restricted turn after start, or after a change that
     drops the base, pays the full build plus one copy of the index. A warm
     turn whose base has advanced pays the delta and one copy, also after

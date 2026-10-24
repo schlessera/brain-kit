@@ -351,12 +351,14 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
       await dropQuietly(candidates[0]!);
     }
   }
-  function touch(base: Base): void {
-    base.used = Date.now();
+  /** Expire `base` `idleMs` after a turn last used it. */
+  function schedule(base: Base): void {
     clearTimeout(base.timer);
-    base.timer = setTimeout(() => void trim(), idleMs + 1);
+    base.timer = setTimeout(() => void trim(), Math.max(0, base.used + idleMs - Date.now()) + 1);
     base.timer.unref?.();
   }
+  /** A turn used `base`; an advance never does, so an unused base still expires. */
+  function touch(base: Base): void { base.used = Date.now(); schedule(base); }
   function intact(base: Base): boolean {
     try {
       const names = readdirSync(base.dir).sort();
@@ -368,7 +370,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
   /** Replace the base for `key`, dropping the one it supersedes. */
   async function install(base: Base): Promise<void> {
     const old = bases.get(base.key);
-    bases.set(base.key, base); touch(base);
+    bases.set(base.key, base); schedule(base);
     if (old && old !== base) await dropQuietly(old);
   }
 
@@ -484,7 +486,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
     if (!names) return false;
     chmodSync(dir, 0o700);
     const stamps = new Map(names.map(name => [name, stampOf(lstatSync(join(dir, name), { bigint: true }))] as const));
-    await install({ dir, stamps, view: retainWorkerStartupView(view), key: previous.key, used: Date.now(), folders: previous.folders,
+    await install({ dir, stamps, view: retainWorkerStartupView(view), key: previous.key, used: previous.used, folders: previous.folders,
       ...(previous.runner ? { runner: previous.runner } : {}) });
     return true;
   }
@@ -510,7 +512,7 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
       await dropQuietly(base); return done("dropped", `the delta could not be read: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (changes.kind === "unchanged") {
-      const old = base.view; base.view = retainWorkerStartupView(view); touch(base);
+      const old = base.view; base.view = retainWorkerStartupView(view);
       await old.cleanup();
       return done("rebound");
     }
@@ -544,6 +546,8 @@ export function createPrivateIndexCache(options: { differ?: PrivateIndexDiffer; 
   }
 
   async function advanceOnce(acquire: (signal: AbortSignal) => Promise<WorkerStartupView>): Promise<PrivateIndexAdvance[]> {
+    // Expired bases go first: an advance is no use, and never a renewal.
+    await trim();
     const keys = [...bases.keys()];
     if (!keys.length || closed) return [];
     let view: WorkerStartupView;
