@@ -64,7 +64,13 @@ function turn(script: string, resume?: string, limits = DEFAULT, turnTempLimits?
     });
     child.stdout.on("end", done); child.stdout.on("close", done);
   });
-  return { worker, refused,
+  return { worker,
+    /**
+     * Why the turn did not start. Claude's probe and launch are awaited behind
+     * the deferred facade (#2790), so a refusal is the worker's start failure,
+     * known once the turn settles, rather than a throw from `spawn`.
+     */
+    refused: () => { const start = worker.startFailure(); return refused ?? (start === undefined ? undefined : start instanceof Error ? start.message : String(start)); },
     ready: () => Promise.race([holding, exited.then(() => { throw new Error(`Worker exited before its release gate: ${out}`); })]),
     release: () => child?.stdin.end("release\n"),
     async settle() { const exit = await exited; await drained; await worker.finish().catch(() => {}); await view.cleanup(); return { exit, out: out.replaceAll("waiting-for-release\n", "").trim(), failure: failureOf(worker) }; } };
@@ -83,13 +89,14 @@ if (scenario === "contend") {
   const first = turn(`${append(TROY, "{\"text\":\"The horse is inside the walls\"}")}; ${hold}`, TROY, one);
   await first.ready();
   const second = turn(append(ITHACA, "{\"text\":\"Home at last\"}"), ITHACA, one);
-  receipt.secondRefused = second.refused; receipt.secondClass = failureOf(second.worker)?.errorClass;
+  await second.settle();
+  receipt.secondRefused = second.refused(); receipt.secondClass = failureOf(second.worker)?.errorClass;
   receipt.heldDuringFirst = processStateLedger().held;
   first.release();
   receipt.first = await first.settle();
   const again = turn(append(ITHACA, "{\"text\":\"Home at last\"}"), ITHACA, one);
-  receipt.againRefused = again.refused ?? null;
   receipt.again = await again.settle();
+  receipt.againRefused = again.refused() ?? null;
   receipt.tails = [tail(TROY), tail(ITHACA)];
 } else if (scenario === "fit") {
   // Two 30 MiB conversations at once: impossible on a shared 64 MiB /dev/shm.
@@ -97,7 +104,7 @@ if (scenario === "contend") {
   const a = turn(`${mount}; ${append(AEAEA, "{\"text\":\"Circe\"}")}; ${hold}`, AEAEA);
   const b = turn(`${mount}; ${append(OGYGIA, "{\"text\":\"Calypso\"}")}; ${hold}`, OGYGIA);
   await Promise.all([a.ready(), b.ready()]);
-  receipt.refused = [a.refused ?? null, b.refused ?? null];
+  receipt.refused = [a.refused() ?? null, b.refused() ?? null];
   receipt.held = processStateLedger().held;
   a.release(); b.release();
   receipt.results = await Promise.all([a.settle(), b.settle()]);
@@ -119,7 +126,8 @@ if (scenario === "contend") {
   const small: WorkerStateLimits = { allowanceBytes: 8 * MiB, budgetBytes: 16 * MiB };
   session(TROY, 10); session(ITHACA, 4);
   const tooLarge = turn(append(TROY, "{\"text\":\"never\"}"), TROY, small);
-  receipt.tooLargeRefused = tooLarge.refused;
+  await tooLarge.settle();
+  receipt.tooLargeRefused = tooLarge.refused();
   receipt.tooLargeClass = failureOf(tooLarge.worker)?.errorClass ?? null;
   const fits = turn(`${mount}; head -c ${8 * MiB} /dev/zero > "$CLAUDE_CONFIG_DIR/flood" 2>/dev/null; echo flood=$?`, ITHACA, small);
   receipt.fits = await fits.settle();
@@ -163,14 +171,15 @@ if (scenario === "contend") {
   receipt.turnTempHeldDuringFirst = processStateLedger().turnTempHeld;
   receipt.stateHeldDuringFirst = processStateLedger().held;
   const second = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
-  receipt.secondRefused = second.refused ?? null; receipt.secondClass = failureOf(second.worker)?.errorClass ?? null;
+  await second.settle();
+  receipt.secondRefused = second.refused() ?? null; receipt.secondClass = failureOf(second.worker)?.errorClass ?? null;
   // A refusal holds nothing, runtime state included.
   receipt.heldAfterRefusal = { state: processStateLedger().held, turnTemp: processStateLedger().turnTempHeld };
   first.release();
   receipt.first = await first.settle();
   const again = turn(append(ITHACA, "{\"text\":\"Charybdis\"}"), ITHACA, DEFAULT, one);
-  receipt.againRefused = again.refused ?? null;
   receipt.again = await again.settle();
+  receipt.againRefused = again.refused() ?? null;
   receipt.tails = [tail(TROY), tail(ITHACA)];
 } else if (scenario === "crash") {
   // The test kills this server process mid-turn; the worker must not outlive it.
