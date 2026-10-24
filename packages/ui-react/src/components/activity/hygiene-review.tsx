@@ -527,6 +527,9 @@ export function HygieneFinding({
     if (key === "a") send(selected);
     else if (!locked) setMode(key === "l" ? "later" : "dismiss");
   }
+  // A host-only finding's path is a logical identity, such as a managed
+  // worktree's `reference-worktree://<id>` (#2431), never a brain file to open.
+  const brainFile = !f.path.includes("://");
   function openFile() {
     root.stores.ui.getState().openPanel("files");
     void root.stores.file.getState().openFile(f.path);
@@ -708,9 +711,9 @@ export function HygieneFinding({
     </>
   ) : (
     <>
-      <TextButton label="Open file ›" onClick={openFile} />
+      {brainFile ? <TextButton label="Open file ›" onClick={openFile} /> : null}
       <p className="text-xs text-muted-foreground">
-        {f.handlers?.[0]?.explanation ?? "Edit this finding in the file, then check again."}
+        {f.handlers?.[0]?.explanation ?? (brainFile ? "Edit this finding in the file, then check again." : "Check again later.")}
       </p>
     </>
   );
@@ -741,7 +744,7 @@ export function HygieneFinding({
       ) : null}
       {cardState === "check_failed" ? (
         <>
-          <TextButton label="Open file ›" onClick={openFile} />
+          {brainFile ? <TextButton label="Open file ›" onClick={openFile} /> : null}
           {inverse?.preview ? (
             <TextButton label="Undo change" disabled={locked} onClick={() => setMode("undo")} />
           ) : null}

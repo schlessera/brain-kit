@@ -35,7 +35,50 @@ const diff = {
   after: "Eumaios hut",
   changes: [{ line: 14, before: "[[Eumaios hut]]", after: "Eumaios hut" }],
 };
+// A host-only managed-worktree finding (#2431) as the host's review display
+// shapes it: its path is a logical identity, never a brain file.
+const worktreeId = "7c1e4a52-3d9b-4f0e-9a61-2b8d5e0c9f13";
+function worktreeFinding(n: number) {
+  const unknown = category === "managed-worktree";
+  return {
+    id: `finding-${n}`,
+    fingerprint,
+    category: "managed-worktree",
+    path: `reference-worktree://${worktreeId}`,
+    title: unknown
+      ? "A managed worktree's work or owner cannot be established"
+      : "A released managed worktree still holds unfinished work",
+    severity: "warning",
+    urgency: null,
+    field: null,
+    line: null,
+    excerpt: `private source · ${unknown ? "work not established" : "3 changed paths"} · released`,
+    sources: [{ source: "hygiene", name: "managed-worktree", severity: "warning" }],
+    priorityReason: { severity: "warning", urgency: "unknown", ageDays: 4, newerWithSameRank: 0, tieBreak: "identity" },
+    invalidation: null,
+    handlers: unknown
+      ? [
+          {
+            name: "manual",
+            kind: "manual",
+            input: { type: "none" },
+            effect: "Keep it until its state can be established",
+            explanation: "Its owner or work could not be established, so it is kept and stays charged. Check again later.",
+          },
+        ]
+      : [
+          {
+            name: "delete-worktree",
+            kind: "choice",
+            input: { type: "none" },
+            effect: "Delete this worktree and the work it retains",
+            explanation: "Removes the worktree, its unfinished files and local commits after rechecking that nothing changed since this preview. Dismissing or snoozing keeps it.",
+          },
+        ],
+  };
+}
 function finding(n = remaining) {
+  if (category.startsWith("managed-worktree")) return worktreeFinding(n);
   return {
     id: `finding-${n}`,
     fingerprint,
@@ -154,7 +197,16 @@ const brain = {
         id,
         status: "preview",
         previewToken: "fixture-preview",
-        diff: longPreview
+        diff: category.startsWith("managed-worktree")
+          ? {
+              path: `reference-worktree/${worktreeId}`,
+              before: `worktree ${worktreeId}\nprivate source\n3 changed paths since its starting commit\n`,
+              after: "",
+              changes: [`worktree ${worktreeId}`, "private source", "3 changed paths since its starting commit"].map(
+                (line, index) => ({ line: index + 1, before: line, after: "" })
+              ),
+            }
+          : longPreview
           ? {
               ...diff,
               changes: [
@@ -189,6 +241,9 @@ const brain = {
           hold = resolve;
         });
       if (mode === "unknown") throw new Error("receipt unavailable");
+      // The host's failed removal: no undo, and its fixed code (#2431).
+      if (mode === "check_failed" && category.startsWith("managed-worktree"))
+        return { id, status: mode, reason: "The worktree could not be removed; it is kept for review.", code: "cleanup-failed" };
       if (["stale", "refused", "check_failed"].includes(mode))
         return {
           id,
