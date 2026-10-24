@@ -92,3 +92,22 @@ test.skipIf(!native)("a Claude worker's real probe and launch each run with the 
     expect(launch.seen.ticks, "CLAUDE_WORKER_LAUNCH_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
   } finally { probe.restore(); launch.restore(); clock.stop(); await spawner.finish().catch(() => {}); f.cleanup(); }
 });
+
+test.skipIf(!native)("a started worker's failed lifecycle stays handled until the turn awaits it", async () => {
+  const f = fixture();
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", record);
+  const sandbox = prepareWorkerSandbox(f.brain, { home: f.home, profile: "governed", areas: [] });
+  const spawner = createWorkerSpawn(f.brain, {}, new AbortController().signal, undefined, sandbox, undefined, undefined, {}, undefined,
+    () => { throw new Error("Odysseus scope freezer refused"); });
+  try {
+    const child = spawner.spawn({ command: "/bin/sh", args: ["-c", "while :; do sleep 1; done"], env: { CLAUDE_CONFIG_DIR: f.config, HOME: f.home },
+      signal: new AbortController().signal } as never);
+    child.on("error", () => {}); child.stdout.resume(); child.stdin.end();
+    await new Promise(done => child.once("exit", done));
+    await Bun.sleep(50);
+    expect(unhandled, "WORKER_LIFECYCLE_FAILURE_HANDLED_BEFORE_FINISH").toEqual([]);
+    await expect(spawner.finish()).rejects.toThrow("scope freezer refused");
+  } finally { process.off("unhandledRejection", record); await spawner.finish().catch(() => {}); f.cleanup(); }
+});

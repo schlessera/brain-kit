@@ -45,8 +45,10 @@ test("a probe refusal after the claim rejects, takes the claim back and emits no
     const turn = backend.startTurn({ prompt: "Sail past the Sirens.", sessionId: "voyage", signal: new AbortController().signal, bridge: bridge(frames) });
     turn.catch(() => {});
     // Claimed before the probe answered: a second turn on the session is busy.
-    await expect(backend.startTurn({ prompt: "Again.", sessionId: "voyage", signal: new AbortController().signal, bridge: bridge([]) }),
-      "CLAIM_PRECEDES_PROBE").rejects.toThrow("already has an active turn");
+    const second = backend.startTurn({ prompt: "Again.", sessionId: "voyage", signal: new AbortController().signal, bridge: bridge([]) })
+      .then(() => "started", (error: unknown) => (error as Error).message);
+    expect(await Promise.race([second, Bun.sleep(1_000).then(() => "waiting on the probe")]), "CLAIM_PRECEDES_PROBE")
+      .toContain("already has an active turn");
     pending.resolve({ ok: false, requirement: "bubblewrap is missing" });
     await expect(turn, "PROBE_REFUSAL_REJECTS").rejects.toThrow("bubblewrap is missing");
     expect(frames, "PROBE_REFUSAL_EMITS_NOTHING").toEqual([]);
@@ -117,8 +119,10 @@ test("a worker whose deferred probe refuses names the turn's failure as when its
   const frames: ServerMessage[] = [];
   try {
     const backend = createClaudeBackend({ brainPath: brain, profiles, queryFn, log: () => {} });
-    await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal,
-      workerSandbox: prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] }), bridge: bridge(frames) });
+    const outcome = await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal,
+      workerSandbox: prepareWorkerSandbox(brain, { home, profile: "governed", areas: [] }), bridge: bridge(frames) }).then(() => "resolved", (error: unknown) => error);
+    // A start refusal is the turn's terminal error, never a failed worker lifecycle for cleanup to reject on.
+    expect(outcome, "DEFERRED_SPAWN_REFUSAL_LEAVES_CLEANUP_CLEAN").toBe("resolved");
     const error = frames.find(frame => frame.type === "error") as Extract<ServerMessage, { type: "error" }> | undefined;
     expect(error?.message, "DEFERRED_SPAWN_REFUSAL_KEEPS_ORIGINAL_ERROR").toStartWith("Agent worker boundary unavailable: a 64 MiB runtime-state tmpfs.");
     expect(error?.failure, "DEFERRED_SPAWN_REFUSAL_KEEPS_FAILURE_CLASS").toEqual({ errorClass: "worker_host_unsupported", message: error!.message });
