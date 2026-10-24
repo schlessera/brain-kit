@@ -5126,6 +5126,7 @@ signatures (every public export and the types it is made of)
             expectedBaseHash: string;
         }>;
         applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
+        awaitIndex?(toolName: string): Promise<void>;
         applyImageMask?(input: import("./brain-mask.js").BrainMaskInput): Promise<import("./brain-application.js").BrainApplicationResult>;
         emit(msg: ServerMessage): void;
         checkpointPermission?(req: PermissionRequest): void;
@@ -5361,6 +5362,7 @@ signatures (every public export and the types it is made of)
         }[];
         outcome?: Record<string, unknown>;
         indexed?: boolean;
+        indexStatus?: "pending";
     }
   BrainMaskInput (packages/ui-sdk/src/server/brain-mask.ts)
     export interface BrainMaskInput {

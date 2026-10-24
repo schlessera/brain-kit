@@ -1086,8 +1086,9 @@ A credentialed maintenance worker holds it exclusively.
 
 **No deadlock.** A turn never awaits a credentialed maintenance worker, because
 the turn's own shared hold would block it forever. Maintenance that a running
-turn waits for is credential-free; for example, the synchronous index after a
-curated application. The automatic plain `brain index` command is keyword-only
+turn waits for is credential-free; for example, the batched index update a
+turn's curated applications queue, which its next index read or its end awaits
+(#2835). The automatic plain `brain index` command is keyword-only
 and uses that same credential-free shared path. Flagged index operations,
 including embedding and on-commit passes, retain the credentialed exclusive
 path. Git transport and other credentialed work remain queued until no shared

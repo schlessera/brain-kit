@@ -30,7 +30,7 @@ export interface InboxDispatchSelection {
   maximumTokens?: InboxBudgetOperation["maximumTokens"];
 }
 
-export interface InboxDispatcherDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "applicationPlanner" | "identitySentinelDirectory"> {
+export interface InboxDispatcherDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "applicationPlanner" | "indexBatch" | "identitySentinelDirectory"> {
   nativeManager?: AutonomousTurnDeps["nativeManager"];
   privateIndex?: AutonomousTurnDeps["privateIndex"];
   brainRoot: string;
@@ -207,7 +207,7 @@ export function createInboxDispatcher(db: Database, deps: InboxDispatcherDeps) {
     let result: Awaited<ReturnType<typeof runAutonomousTurn>> | null = null;
     try {
       result = await runAutonomousTurn({ db, backend: chosen.backend, brainPath: deps.brainRoot, identitySentinelDirectory: deps.identitySentinelDirectory, nativeManager: deps.nativeManager, privateIndex: deps.privateIndex, store: deps.store, runtime: deps.runtime,
-        onWrite: deps.onWrite, log: deps.log, applicationPlanner: deps.applicationPlanner,
+        onWrite: deps.onWrite, log: deps.log, applicationPlanner: deps.applicationPlanner, indexBatch: deps.indexBatch,
         checkpoint: (escalation) => {
           const current = store.getItem(item.id)!;
           const { action, allowed } = decision(item, backendId, escalation);

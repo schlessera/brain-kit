@@ -32,7 +32,14 @@ export interface BrainApplicationResult {
   /** Only effects actually committed to authoritative Markdown or PNG masks. */
   changes: { path: string; contentHash: string | null }[];
   outcome?: Record<string, unknown>;
+  /**
+   * True only once the index covers this result's committed changes. A host
+   * that defers the update (#2835) reports false with `indexStatus: "pending"`
+   * and delivers the outcome later; pending is not a failure.
+   */
   indexed?: boolean;
+  /** `"pending"` while the index update for committed changes is queued, not failed. */
+  indexStatus?: "pending";
 }
 /** Trusted parent-side backend policy; never supplied over a worker pipe. */
 export interface BrainApplicationPolicy {

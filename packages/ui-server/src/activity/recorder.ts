@@ -85,7 +85,9 @@ export interface TurnRecorder {
   /** Record who answered an ask-user interaction. */
   recordAskUserResponse(principalId: string): void;
   /** Server-authored effect/refusal receipt; worker claims never supply this event. */
-  recordApplication?(result: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult): void;
+  recordApplication?(result: import("@schlessera/brain-ui-sdk/server").BrainApplicationResult): string | void;
+  /** A deferred index outcome for an application this turn recorded (#2835). */
+  recordApplicationIndex?(outcome: import("../brain/application.js").BrainApplicationIndexOutcome): void;
   /**
    * The user's approval decision arrived for a gated tool call. `channel` is
    * how it arrived, when the client said; absent is stored as absent.
@@ -594,6 +596,7 @@ export function createTurnRecorder(
     },
 
     recordApplication(result) {
+      let recordedId: string | undefined;
       guard(() => {
         if (finished) return;
         ensureRoot();
@@ -602,7 +605,20 @@ export function createTurnRecorder(
         // 32-file application with maximum-length targets.
         for (const change of result.changes) store.appendEvent(rootSpanId, "brain_application_change", { applicationId, ...change });
         store.appendEvent(rootSpanId, "brain_application", { applicationId, ok: result.ok, code: result.code,
-          message: result.message, indexed: result.indexed, changeCount: result.changes.length });
+          message: result.message, indexed: result.indexed, ...(result.indexStatus ? { indexStatus: result.indexStatus } : {}), changeCount: result.changes.length });
+        recordedId = applicationId;
+        onWrite?.();
+      });
+      return recordedId;
+    },
+
+    recordApplicationIndex(outcome) {
+      guard(() => {
+        if (finished) return;
+        ensureRoot();
+        // Appended after the application it follows; that record is never rewritten.
+        store.appendEvent(rootSpanId, "brain_application_index", { ...(outcome.applicationId ? { applicationId: outcome.applicationId } : {}),
+          indexed: outcome.indexed, ...(outcome.indexError ? { indexError: outcome.indexError.slice(0, 2000) } : {}), changeCount: outcome.changes.length });
         onWrite?.();
       });
     },

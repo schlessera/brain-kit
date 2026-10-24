@@ -34,7 +34,7 @@ export interface AdmissionTimers {
   clearTimeout(timer: Timer): void;
 }
 
-export interface ScheduleAdmissionDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "nativeManager" | "privateIndex" | "brainPath" | "applicationPlanner" | "identitySentinelDirectory"> {
+export interface ScheduleAdmissionDeps extends Pick<AutonomousTurnDeps, "store" | "runtime" | "onWrite" | "log" | "nativeManager" | "privateIndex" | "brainPath" | "applicationPlanner" | "indexBatch" | "identitySentinelDirectory"> {
   service: ScheduleService;
   /** The backend the approved execution policy names. */
   backend: AgentBackend;
@@ -409,7 +409,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
     try {
       result = await runAutonomousTurn({
         db, backend: deps.backend, store: deps.store, runtime: deps.runtime, onWrite: deps.onWrite, log: deps.log,
-        identitySentinelDirectory: deps.identitySentinelDirectory, nativeManager: deps.nativeManager, privateIndex: deps.privateIndex, brainPath: deps.brainPath, applicationPlanner: deps.applicationPlanner,
+        identitySentinelDirectory: deps.identitySentinelDirectory, nativeManager: deps.nativeManager, privateIndex: deps.privateIndex, brainPath: deps.brainPath, applicationPlanner: deps.applicationPlanner, indexBatch: deps.indexBatch,
         // No durable decision path is wired for scheduled work yet: a run that
         // needs one fails closed instead of waiting on a live promise.
         checkpoint: () => { throw new Error("Scheduled work cannot request a decision."); },

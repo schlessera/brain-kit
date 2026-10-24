@@ -19,6 +19,7 @@ import { WorkerHostError, prepareNativeWorkerStartupView, type WorkerStartupView
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
 import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, type ApplicationPlanner } from "../brain/application.js";
+import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 import { recordGovernanceEvent } from "../governance/events.js";
@@ -78,6 +79,8 @@ export interface AutonomousTurnDeps extends TurnRecorderDeps {
   /** Owned host manager; restricted workers still require immutable native inputs. */
   nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1];
   applicationPlanner?: ApplicationPlanner;
+  /** The host's deferred index updates after applications (#2835); absent, the turn's route keeps its own. */
+  indexBatch?: IndexBatch;
   /** Authoritative brain; standalone callers default to their working directory. */
   brainPath?: string;
   /**
@@ -286,6 +289,8 @@ async function executeAutonomousTurn(
           payload: { ...refusal, policyHash: policy.hash } }); }
         catch (error) { deps.log?.emit({ severityText: "WARN", body: `governance event not recorded: ${error instanceof Error ? error.message : String(error)}` }); }
       } }) : undefined;
+  // Index updates this turn's applications queued (#2835).
+  let turnIndex: IndexBatch | undefined;
   // Installed once the turn's masks are resolved, before the backend starts.
   const installApplication = (request: StartTurnRequest, maskGuard: ProviderMaskGuard | undefined): void => {
     const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
@@ -318,7 +323,11 @@ async function executeAutonomousTurn(
         return false;
       },
       record: result => recorder.recordApplication?.(result),
+      ...(deps.indexBatch ? { indexBatch: deps.indexBatch } : {}),
+      recordIndex: outcome => recorder.recordApplicationIndex?.(outcome),
     });
+    turnIndex = apply.indexBatch;
+    bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await apply.indexBatch.barrier(controller.signal); };
     bridge.readBrainBase = async (path) => {
       if (!current()) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(root, path, maskGuard
@@ -372,6 +381,9 @@ async function executeAutonomousTurn(
       signal: controller.signal, bridge, autonomous: modeFor(context.systemPromptAppend), enforceAllowedTools: true, noGrantSurface: true,
       workerStartupView: startupView, ...(workerProviderMasks ? { workerProviderMasks } : {}) };
     installApplication(request, guardFor(maskedFolders, typeFolders));
+    // Without its own route, the turn's readers still wait for the host's queued updates.
+    const hostIndex = deps.indexBatch;
+    if (!bridge.awaitIndex && hostIndex) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await hostIndex.barrier(controller.signal); };
     await deps.backend.startTurn(request);
     if (!terminal) {
       outcome = failed ? "error" : controller.signal.aborted ? "cancelled" : "error";
@@ -396,6 +408,9 @@ async function executeAutonomousTurn(
     input.signal.removeEventListener("abort", abort);
     try {
       await intake.close();
+      // Flushed after the backend returns, before the terminal record. A failed
+      // update is on each application's record; its paths stay queued.
+      if (turnIndex?.pending()) await turnIndex.barrier().catch(() => {});
       // The backend has returned. Release its kernel lock under the operational
       // write lock, then settle before another connection can claim cleanup.
       deps.db.transaction(() => {

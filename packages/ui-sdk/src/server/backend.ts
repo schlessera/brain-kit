@@ -170,6 +170,14 @@ export interface BackendBridge {
   /** Host-owned, turn-bound application. Absent means no authoritative route. */
   readBrainBase?(path: string): Promise<{ content: string; expectedBaseHash: string }>;
   applyBrain?(input: import("./brain-application.js").BrainApplicationInput): Promise<import("./brain-application.js").BrainApplicationResult>;
+  /**
+   * Await before admitting any tool, by its name as the runtime calls it.
+   * Resolves once the host's queued index updates cover every application
+   * committed before this call, at once for a tool that does not read the
+   * index. Rejects when that update failed: the backend refuses the tool with
+   * the rejection's message, and the read never runs against a stale index.
+   */
+  awaitIndex?(toolName: string): Promise<void>;
   /** Narrow, turn-bound PNG mask application; never a general binary writer. */
   applyImageMask?(input: import("./brain-mask.js").BrainMaskInput): Promise<import("./brain-application.js").BrainApplicationResult>;
   emit(msg: ServerMessage): void;

@@ -1,7 +1,7 @@
 /**
  * The program a credential-free maintenance worker runs for the application
- * route (#1648): capture planning and the index refresh after an applied
- * change. Both evaluate the brain's config and whatever it imports, so they
+ * route (#1648): capture planning and the index refresh after applied
+ * changes, batched over their exact paths (#2835). Both evaluate the brain's config and whatever it imports, so they
  * run here, inside the worker, never in the server.
  *
  * One JSON request arrives on stdin; one JSON line answers on stdout. The
@@ -16,7 +16,7 @@ import { maintenanceDataRoot } from "../config/env.js";
 import { isProviderMasked } from "./provider-mask-refusal.js";
 
 interface PlanRequest { op: "plan-add"; root: string; input: Record<string, unknown>; masked?: string[] }
-interface IndexRequest { op: "index"; root: string }
+interface IndexRequest { op: "index"; root: string; paths?: string[] }
 interface StorageRequest { op: "storage-facts"; root: string; paths: string[] }
 
 const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
@@ -53,7 +53,10 @@ async function main(): Promise<unknown> {
         { root, taxonomy: context.taxonomy, readDocument: path => isProviderMasked(path, request.masked ?? []) ? null : readDocument(root, path) });
       return { ok: true, plan: { path: plan.path, content: plan.content, baseContent: plan.baseContent, outcome: plan.outcome } };
     }
-    await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false });
+    // Named paths are untrusted data: core reads only markdown documents it
+    // would scan anyway, and a complete run replaces a targeted one it cannot trust.
+    const paths = Array.isArray(request.paths) && request.paths.every(path => typeof path === "string") ? request.paths : undefined;
+    await core.indexAll(db, { root, taxonomy: context.taxonomy, quiet: true, force: false, ...(paths ? { paths } : {}) });
     return { ok: true };
   } finally { db.close(); }
 }
