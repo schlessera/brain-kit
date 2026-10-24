@@ -126,7 +126,8 @@ import {
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
-import { createIndexBatch, IndexFlushError } from "./brain/index-batch.js";
+import { createIndexBatch } from "./brain/index-batch.js";
+import { INDEX_READ_ROUTES, indexReadBarrier } from "./routes/index-barrier.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
 import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
@@ -916,18 +917,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       },
     })
   );
-  // Host readers of the index wait for application updates queued before
-  // them, as turn readers do; a failed update answers 503, never stale (#2835).
-  for (const path of ["/api/brain/search", "/api/brain/list", "/api/brain/stats", "/api/brain/stats/history", "/api/brain/briefing", "/api/graph/*"]) {
-    app.use(path, async (c, next) => {
-      try { await indexBatch.barrier(c.req.raw.signal); }
-      catch (error) {
-        if (error instanceof IndexFlushError) return c.json({ error: error.message, code: "index_stale" }, 503);
-        throw error;
-      }
-      return next();
-    });
-  }
+  // Host readers of the index wait for application updates queued before them (#2835).
+  for (const path of INDEX_READ_ROUTES) app.use(path, indexReadBarrier(indexBatch));
   app.route(
     "/api",
     createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })

@@ -309,7 +309,7 @@ test("governed voice retains native registration, refuses its authority and capt
   expect(r.receipt.posture).toBe("voice");
   const capture = calls(r, "mcp__brain-ui__brain_add", input => input.title === "Voice raft")[0]!;
   expect(capture.result.isError, capture.result.output).toBe(false);
-  expect(JSON.parse(capture.result.output)).toMatchObject({ ok: true, indexed: true, changes: [{ path: "notes/voice-raft.md" }] });
+  expect(JSON.parse(capture.result.output)).toMatchObject({ ok: true, indexed: false, indexStatus: "pending", changes: [{ path: "notes/voice-raft.md" }] });
   expect(r.added, "GOVERNED_VOICE_CAPTURE").toContain("notes/voice-raft.md");
   expect(r.after.policy).toBe(POLICY);
 }, TIMEOUT);

@@ -93,7 +93,7 @@ describe("ordinary pi isolated worker", () => {
     expect(r.applicationReceipts.filter((v: any) => !v.ok)).toHaveLength(8);
     const application = r.applicationReceipts.find((v: any) => v.ok);
     expect(application.changes[0].path).toBe("notes/worker-positive.md");
-    expect(application.indexed).toBe(true);
+    expect(application).toMatchObject({ indexed: false, indexStatus: "pending" });
     expect(r.positive).toContain("Odysseus sails to Ithaca.");
     expect(r.approvals, "only the custom tool asks; the ordinary permitted write has no extra confirmation").toBe(1);
     expect(r.frames.filter((f: any) => f.type === "tool_result").some((f: any) => f.output.includes("read_only_brain") && f.output.includes("brain_add"))).toBe(true);
@@ -104,7 +104,7 @@ describe("ordinary pi isolated worker", () => {
     expect(inside.descriptors.filter((d: any) => d.fd <= 2).every((d: any) => d.pipe)).toBe(true);
     expect(inside.descriptors.filter((d: any) => d.fd > 2 && d.target.startsWith("/") && !d.pipe
       && d.target !== "/dev/urandom" && !/^\/proc\/\d+\/statm$/.test(d.target))).toEqual([]);
-    expect(r.histories[0].some((m: any) => m.toolCalls.some((t: any) => t.output?.includes('"indexed":true')))).toBe(true);
+    expect(r.histories[0].some((m: any) => m.toolCalls.some((t: any) => t.output?.includes('"indexStatus":"pending"')))).toBe(true);
   });
   test.each(["forge-bridge", "forge-policy", "forge-answer", "forge-malformed", "forge-revoked", "forge-replay", "forge-identity", "forge-overflow", "forge-transcript"])("refuses %s from a real extension inside the worker", async scenario => {
     const r = await probe(scenario);
