@@ -3718,7 +3718,7 @@ export interface AgentPolicyRead {
   workerLimits: WorkerLimitsStatus | null;
 }
 
-export type { BudgetScope, BudgetObservation, TurnBudgetReceipt } from "./turn-budgets.js";
+export type { BudgetScope, BudgetObservation, TurnBudgetCoverage, TurnBudgetReceipt } from "./turn-budgets.js";
 
 /** Host-stamped cumulative completed inference. Never starts or reopens a turn. */
 export interface ServerUsage extends SessionScoped {

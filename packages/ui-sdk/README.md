@@ -353,6 +353,7 @@ Reads whose variable *name* is configuration rather than code:
 | egress worker subprocess environment | The trusted loopback bootstrap preserves only the worker environment already cleared and selected by the launcher, replacing proxy routing before its child starts. It admits no host environment or new operator setting. |
 | maintenance Git subprocess environment | Inherits the already-cleared maintenance worker environment at call time. This internal transport admits no additional operator configuration or host credential. |
 | provider credential presence | Whether each provider credential in the subprocess descriptor is set on the server, so a governed or strict turn worker's BRAIN_WITHHELD_KEYS names the keys the host withheld. Names only; no value leaves the server. |
+| provider relay credential | The value of the provider key a relayed CLI request names, read when the CLI provider relay dispatches it: a built-in provider's own key variable, or one BRAIN_UI_CLI_PROVIDER_ORIGINS lists. Placed on the upstream request only, never returned to a worker. |
 
 Generated from `packages/ui-sdk/src/config/env.ts` by `bun run env-docs`. Edit the descriptor, not this table.
 <!-- env:end -->

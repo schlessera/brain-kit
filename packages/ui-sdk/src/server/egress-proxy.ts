@@ -227,17 +227,24 @@ export async function startEgressProxy(options: EgressProxyOptions) {
   if (options.signal?.aborted) stop();
   return { dir, socketPath, stop, usedBytes: () => usedBytes,
     /** The existing inference relay shares this turn's admission, counter and audit. */
-    inference(method: string, target: URL, signal: AbortSignal) {
-      const op = operation(method, new URL(target), true);
-      const abort = () => op.finish("cancelled", "client_disconnected");
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) abort();
-      return { charge: op.charge, signal: op.signal, outcome: op.outcome,
-        admit: async () => !op.signal.aborted && await op.admit(),
-        finish(outcome: EgressRecord["outcome"], reason?: string) {
-          signal.removeEventListener("abort", abort); op.finish(outcome, reason);
-        },
-      };
-    },
+    inference(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, true); },
+    /**
+     * The CLI provider relay's requests (#1673): ordinary egress to the
+     * provider (G5), with the turn's deny/allow and taint rules, byte ceiling
+     * and connection record, sent by the host so the key stays there.
+     */
+    relayed(method: string, target: URL, signal: AbortSignal) { return relayedOperation(method, target, signal, false); },
   };
+  function relayedOperation(method: string, target: URL, signal: AbortSignal, inference: boolean) {
+    const op = operation(method, new URL(target), inference);
+    const abort = () => op.finish("cancelled", "client_disconnected");
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    return { charge: op.charge, signal: op.signal, outcome: op.outcome,
+      admit: async () => !op.signal.aborted && await op.admit(),
+      finish(outcome: EgressRecord["outcome"], reason?: string) {
+        signal.removeEventListener("abort", abort); op.finish(outcome, reason);
+      },
+    };
+  }
 }

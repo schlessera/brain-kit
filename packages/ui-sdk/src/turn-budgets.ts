@@ -14,11 +14,20 @@ export interface BudgetObservation {
   warning: boolean;
   blocked: boolean;
 }
+/**
+ * What a receipt's scopes meter. Since 0.44.0 (#1673) they include the `brain`
+ * CLI's provider requests through the host relay; a receipt stored before then
+ * keeps the earlier statement. `listPriceCostUsd` and `tokens` stay the
+ * agent's own completed inference.
+ */
+export type TurnBudgetCoverage =
+  | "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered"
+  | "Built-in inference only; provider and tool spend is not metered";
 export interface TurnBudgetReceipt {
   listPriceCostUsd: number | null;
   listPriceIsEstimate?: boolean | null;
   tokens: number | null;
   observedAt: number;
-  coverage: "Built-in inference only; provider and tool spend is not metered";
+  coverage: TurnBudgetCoverage;
   scopes: BudgetObservation[];
 }

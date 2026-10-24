@@ -7,11 +7,11 @@
  * retry/backoff are preserved verbatim.
  */
 
-import { readEnvVar } from "../../config/env.js";
 import type { EmbeddingProvider } from "../../lib/seams.js";
 import { withRetry } from "../../lib/llm-util.js";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "../../lib/llm-defaults.js";
 import { missingKeyMessage } from "@schlessera/brain-common/internal/provider-unavailable";
+import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 
 const TEXT_BATCH_SIZE = 100;
 const installedProviders = new WeakMap<object, { initialize(): Promise<unknown>; recipient(): string | undefined }>();
@@ -65,7 +65,10 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
 
   async function getClient() {
     if (!client) {
-      const apiKey = readEnvVar(apiKeyEnv);
+      // A worker without the key sends the native request through the host's
+      // metered relay, which adds the key on the host (#1673).
+      const relay = providerRelayFetch("gemini", apiKeyEnv);
+      const apiKey = relay ? PROVIDER_RELAY_PLACEHOLDER : providerCredential(apiKeyEnv);
       if (!apiKey) {
         throw new Error(missingKeyMessage(apiKeyEnv, "gemini", "embeddings",
           `${apiKeyEnv} environment variable is required for Gemini embeddings`));
@@ -84,7 +87,7 @@ export function geminiEmbeddings(config: GeminiEmbeddingConfig = {}): EmbeddingP
       // (verified against @google/genai 2.17.1: getApiKeyFromEnv() runs
       // unconditionally). Cosmetic, so we accept it — the old delete/restore
       // of GOOGLE_API_KEY was a process-global mutation spanning an await.
-      client = new GoogleGenAI({ apiKey });
+      client = new GoogleGenAI({ apiKey, ...(relay ? { httpOptions: { fetch: relay } } : {}) });
     }
     return client;
   }

@@ -1,12 +1,16 @@
 # Paid CLI provider transport and accounting
 
 This is the finite offline qualification behind
-[#2277](https://github.com/schlessera/brain-kit/issues/2277) and a proposed next
-integration contract for [#1673](https://github.com/schlessera/brain-kit/issues/1673).
-The proposal is unimplemented. It adds no supported option, provider interface,
-credential recipient permission or default activation. #1673 still depends on
-#1666 and the complete ordinary inference boundary in #1665. The delivered relay
-and SDK consumer slices do not satisfy that chain by themselves.
+[#2277](https://github.com/schlessera/brain-kit/issues/2277) and the integration
+contract proposed for [#1673](https://github.com/schlessera/brain-kit/issues/1673).
+#1673 implemented it as the
+[metered provider relay](agent-workers.md#metered-provider-relay-1673), under
+the maintainer's 2026-10-23 rulings on that issue: first-party recipients by
+default plus `BRAIN_UI_CLI_PROVIDER_ORIGINS`, a socket the CLI finds through
+`BRAIN_PROVIDER_RELAY_SOCKET`, per-attempt rows with no reservation, maintenance
+charged to its turn or day, and no relay for video or JeV. The sections below
+keep the audit's evidence and requirements; where the relay settles one, it
+says so.
 
 ## Measured boundary
 
@@ -51,7 +55,7 @@ SDK conversion without adding a public embedding-provider seam.
 
 The image CLI preserves `bytes`, `costIsEstimate`, `costUsd`, `model`, `note`,
 `output`, `outputs`, `provider`, `reason` and `renamed`
-(`const payload`, `packages/module-images/src/cli.ts:406-418`). Its help example
+(`const payload`, `packages/module-images/src/cli.ts:407-419`). Its help example
 is abbreviated; it is not the complete machine contract. Internal image raw
 usage does not imply that this envelope exposes it.
 
@@ -86,9 +90,9 @@ providers refused rather than treated as first-party evidence.
 
 The current inference relay already strips inbound credentials, selects its
 fixed origin/routes and invokes host credentials for each dispatch
-(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:70-252`).
+(`startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71-253`).
 Its event has outcome/status, not provider usage
-(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:46-52`).
+(`InferenceRelayEvent`, `packages/ui-sdk/src/server/inference-relay.ts:47-53`).
 For these CLI consumers, the host would supply a non-secret transport projection
 and keep real keys outside the worker. A fixture key reaching a loopback upstream
 is not proof of that credential-free projection.
@@ -105,7 +109,7 @@ missing usage means unknown spend, not zero spend.
 Embedding and generation routes can be constrained to known methods and model
 paths. Video requires more: the native Files lifecycle follows a provider upload
 URL, sends bytes, polls an owned handle and deletes it with a fresh cleanup
-deadline (`withVideoFiles`, `packages/core/src/providers/completions/video.ts:16-83`).
+deadline (`withVideoFiles`, `packages/core/src/providers/completions/video.ts:16-76`).
 The host must validate upload destinations and retain a private registry of
 handles created by that turn. It must not accept worker-selected arbitrary
 upload URLs or general GET/DELETE access. The existing POST-only relay cannot be
@@ -131,7 +135,7 @@ usage stay unknown; never infer tokens from payload bytes or vector length.
 The current shared inference/egress counter measures application or opaque
 transport bytes. These units stay separate from provider token, character,
 image or time units. Activity's current token pricing uses input/output/cache
-classes (`priceUsage`, `packages/ui-server/src/activity/store.ts:1058-1091`);
+classes (`priceUsage`, `packages/ui-server/src/activity/store.ts:1058-1088`);
 it cannot silently price image modalities or enterprise billable characters as
 ordinary tokens. Image model-table costs remain estimates; unknown model/rate
 combinations remain unknown. No live invoice or price validation is implied by
@@ -146,14 +150,17 @@ single attempt; distinct upstream attempts must not collapse into one. Choose a
 concrete durable owner and transaction point in the later implementation, with
 restart/retry controls, rather than relying on a worker-supplied counter.
 
-Current budget coverage explicitly excludes provider/tool spend
-(`createTurnBudgets`, `packages/ui-server/src/brain/turn-budgets.ts:43-194`).
+Budget coverage excluded provider/tool spend until #1673; it now names the
+relayed CLI providers and nothing else
+(`TURN_BUDGET_COVERAGE`, `packages/ui-server/src/brain/turn-budgets.ts:45`).
 Only qualified recorded units may advance that disclosure. Before activation,
 prove refusal before the next dispatch once the applicable known budget is
 exhausted, alongside native cancellation/cleanup and deduplication. Exact advance
 USD guarantees for concurrent/in-flight requests, unknown usage or unavailable
 rates need an explicit reservation/unknown-spend policy; this audit does not
-choose one or claim abort reverses a provider charge.
+choose one or claim abort reverses a provider charge. #1673's ruling chose none:
+nothing is reserved, missing usage is unknown and never blocks by itself, and
+in-flight requests can overshoot a stop.
 
 ## Limits and next integration evidence
 

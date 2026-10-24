@@ -97,8 +97,8 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:558-570`;
-`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:776-787`).
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:561-573`;
+`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:841-852`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
 restricted worker never binds a generation. Nothing returns a host path to the
@@ -154,7 +154,7 @@ Ordinary brain and workspace journaling is unchanged.
 ## Guidance
 
 Workers with a bound generation receive fixed guidance in the existing sandbox
-note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:504-510`):
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:506-512`):
 shared source is read-only and moves, a worktree starts at a reported commit
 that never moves, where to work, that edits are journaled and scope-counted,
 that only explicit access or renewal resets the three-day clock, that expiry

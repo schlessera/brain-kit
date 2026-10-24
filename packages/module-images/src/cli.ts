@@ -16,10 +16,10 @@ import {
 } from "@schlessera/brain/module";
 import type { CommandContext, CommandModule } from "@schlessera/brain";
 
-import { readEnvVar } from "./config/env.js";
 import type { ImagesConfig } from "./module.js";
 import { availableModels, providerFor, PROVIDERS } from "./providers/index.js";
 import { isWithheldKey, providerUnavailableNotice } from "@schlessera/brain-common/internal/provider-unavailable";
+import { PROVIDER_RELAY_PLACEHOLDER, providerCredential, relayedKey } from "@schlessera/brain-common/internal/provider-relay";
 import { estimateOpenAiOutputCost, openAiRequestSize } from "./providers/openai.js";
 import { isRetiredModel, retiredModelMessage } from "./retired.js";
 import { route, type RoutingDecision } from "./routing.js";
@@ -334,7 +334,8 @@ export const imageCommand: CommandModule<ImagesConfig> = {
     }
 
     const provider = providerFor(model.provider);
-    const apiKey = readEnvVar(provider.apiKeyEnv);
+    // A worker without the key reaches the provider through the host's metered relay (#1673).
+    const apiKey = providerCredential(provider.apiKeyEnv) ?? (relayedKey(provider.apiKeyEnv) ? PROVIDER_RELAY_PLACEHOLDER : undefined);
     if (!apiKey) {
       console.error(isWithheldKey(provider.apiKeyEnv)
         ? providerUnavailableNotice({ provider: provider.id, capability: "image", key: provider.apiKeyEnv, degradedTo: null })

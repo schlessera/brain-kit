@@ -8,8 +8,11 @@ Its [shared scope and versioning policy](../integration-contract.md) apply to ev
 A governed or strict agent worker may lack provider keys the server holds. Its
 launcher names them, never their values, in `BRAIN_WITHHELD_KEYS`
 (comma-separated environment names). A key counts as withheld only while it is
-named there and unset. Without the variable, or for a key it does not name, the
-CLI keeps its ordinary keyless behaviour and messages.
+named there and unset, or holds only the inference relay's placeholder
+`brain-inference-relay-placeholder` (additive in 0.44.0, #1673: a relayed
+Claude API-key turn keeps that placeholder under `ANTHROPIC_API_KEY`, and the
+CLI never sends it to a provider). Without the variable, or for a key it does
+not name, the CLI keeps its ordinary keyless behaviour and messages.
 
 A command that needs a withheld key says so in a sentence that ends in one
 token:
@@ -20,7 +23,9 @@ token:
 
 - `provider` is the configured provider name (`gemini`, `gemini-flash`,
   `anthropic-haiku`, `jev`, `openai`), `[A-Za-z0-9][A-Za-z0-9._:-]*`.
-- `capability` is `embeddings`, `completions`, `reranking` or `image`.
+- `capability` is `embeddings`, `completions`, `reranking`, `image` or `video`
+  (`video` additive in 0.44.0, #1673: a relayed Gemini completion refuses a
+  video part, because the relay does not carry the Files upload lifecycle).
 - `key` is the withheld variable.
 - `degraded_to` is the fallback used: `keyword_search`, `keyword_index`,
   `lifecycle_order`, or `none` when the command refused or had nothing to fall
@@ -35,6 +40,42 @@ exit codes. The server records each distinct token in a tool result as a
 `provider_unavailable` governance event ([HTTP](../http-api.md#governance-event-kinds)).
 The wording before the token is prose and may change; the token's grammar and
 values are the contract. New capabilities or fallbacks are additive.
+
+## Provider relay (additive, 0.44.0, #1673)
+
+`BRAIN_PROVIDER_RELAY_SOCKET` is the absolute path of a Unix socket the server
+gives a governed or strict turn worker, and a credentialed maintenance worker,
+on hosts it relays. The worker launcher sets it and drops any value the host
+environment carries. A built-in provider whose key is withheld from the process
+(see above) sends its native request to that socket instead of the network:
+
+| Provider | Family | Requests relayed |
+| --- | --- | --- |
+| Gemini embeddings | `gemini` | `POST /v1beta/models/<model>:embedContent`, `:batchEmbedContents` |
+| Gemini completions (no video) | `gemini` | `POST /v1beta/models/<model>:generateContent` |
+| Anthropic completions | `anthropic` | `POST /v1/messages` |
+| OpenAI images | `openai` | `POST /v1/images/generations`, `/v1/images/edits` (multipart) |
+| Gemini images | `gemini` | `POST /v1beta/interactions` |
+
+The request keeps its method, path, body and content headers. The CLI drops
+every credential header and adds three headers that are names, never values:
+`x-brain-provider` (the family), `x-brain-provider-key` (the key variable the
+provider reads) and `x-brain-provider-origin` (the origin it would have
+called, from its built-in default or its existing endpoint override). The
+server decides whether that key may go to that origin, adds the key and
+forwards the request; the response comes back unchanged except that any copy
+of the key in it is replaced by `[redacted]`. A streamed request (`"stream":
+true`) is refused. A refusal is a `403` JSON error whose `error.type` is
+`budget_exceeded` once a budget scope is blocked, or `brain_provider_refused`
+otherwise. Neither is retried. A relay that is busy answers `503`, which the
+built-in providers retry as a transient error.
+
+A seam that is only available through the relay counts as configured: hybrid
+`brain search` embeds its query, `brain process` completes, `brain image` lists
+the provider's models. Without the variable, or for a key that is set or never
+withheld, a provider behaves as before. A video part and the `jev` reranker are
+not relayed and keep the `provider_unavailable` notice. Existing JSON envelopes
+are unchanged.
 
 ## Storage packing (additive, 0.44.0, #2011)
 
