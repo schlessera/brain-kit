@@ -43,8 +43,11 @@ test("wire dispatch echoes the correct draft ids to both clients", async () => {
   handlers.onMessage(new MessageEvent("message", { data: JSON.stringify({ type: "chat_message", text: "one", draftId: "draft-one" }) }), ws);
   handlers.onMessage(new MessageEvent("message", { data: JSON.stringify({ type: "chat_message", text: "two", draftId: "draft-two" }) }), second);
   await until(() => sent.filter(f => f.type === "session_info").length === 2);
+  // Two new sessions await their own host checks concurrently (#2416), so
+  // either may start first; each must echo its own draft id to both clients.
   for (const frames of [sent, other]) {
-    expect(frames.filter(f => f.type === "session_info").map(f => [f.sessionId, f.draftId])).toEqual([["one", "draft-one"], ["two", "draft-two"]]);
+    expect(frames.filter(f => f.type === "session_info").map(f => [f.sessionId, f.draftId]).sort(([a], [b]) => String(a).localeCompare(String(b))))
+      .toEqual([["one", "draft-one"], ["two", "draft-two"]]);
   }
 });
 
