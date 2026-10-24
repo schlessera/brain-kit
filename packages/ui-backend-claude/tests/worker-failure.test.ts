@@ -36,13 +36,19 @@ test("a worker-state refusal the runtime reports as its own failure still ends t
   try {
     const frames: ServerMessage[] = [];
     let spawnError: unknown;
-    const queryFn = (({ options }: { options: { spawnClaudeCodeProcess: (spawn: unknown) => unknown } }) => {
-      try {
-        options.spawnClaudeCodeProcess({ command: "/bin/true", args: [], env: { CLAUDE_CONFIG_DIR: config },
-          signal: new AbortController().signal });
-      } catch (error) { spawnError = error; }
-      throw new Error("Claude Code process exited with code 1");
-    }) as never;
+    // The worker starts behind the deferred spawn (#2790): like the SDK, the
+    // double sees its refusal as the process's error event, then fails with
+    // the runtime's own error.
+    const queryFn = (({ options }: { options: { spawnClaudeCodeProcess: (spawn: unknown) => NodeJS.EventEmitter } }) => ({
+      [Symbol.asyncIterator]: () => ({
+        async next(): Promise<IteratorResult<never>> {
+          const child = options.spawnClaudeCodeProcess({ command: "/bin/true", args: [], env: { CLAUDE_CONFIG_DIR: config },
+            signal: new AbortController().signal });
+          spawnError = await new Promise(resolve => child.once("error", resolve));
+          throw new Error("Claude Code process exited with code 1");
+        },
+      }),
+    })) as never;
     const backend = createClaudeBackend({ brainPath: brain, queryFn, workerState: LIMITS });
     await backend.startTurn({ prompt: "Return to Ithaca", sessionId: "11111111-1111-4111-8111-111111111111",
       signal: new AbortController().signal,

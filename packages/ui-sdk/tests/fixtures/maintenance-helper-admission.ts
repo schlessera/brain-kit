@@ -15,7 +15,7 @@ const storage = { root: brain, retain() { refs++; }, release() { refs--; } };
 const view = { brain, root: brain, storage, cleanup() { if (!originalReleased) { originalReleased = true; storage.release(); } } };
 mock.module("../../src/server/worker-identity.js", () => ({ ...identity, workerIdentityHelper: () => "/fixture-only-helper" }));
 mock.module("../../src/server/worker-startup-view.js", () => ({ ...views, createWorkerStartupView: () => view }));
-mock.module("../../src/server/worker-launcher.js", () => ({ ...launcher, launchAgentWorker(input: launcher.WorkerLaunch) {
+mock.module("../../src/server/worker-launcher.js", () => ({ ...launcher, *launchAgentWorkerSteps(input: launcher.WorkerLaunch) {
   if (mode === "unconfirmed") throw new identity.WorkerIdentityCleanupError("fixture cleanup unconfirmed");
   if (mode === "ordinary") throw Error("fixture confirmed refusal");
   const stdout = new PassThrough(), stderr = new PassThrough(); stdout.end(); stderr.end();

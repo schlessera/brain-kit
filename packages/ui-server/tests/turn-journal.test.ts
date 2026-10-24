@@ -78,8 +78,8 @@ test("configuration coverage summary follows retained inventory, independently o
     await f.journal.finish("coverage");
     for (const state of ["complete", "recording", "partial", "expired"] as const) {
       for (const incomplete of [false, true]) {
-        f.db.query("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'")
-          .run(state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }]));
+        f.journal.writeOperation(() => f.db.query("UPDATE turn_journal_turns SET state=?,steering_inventory_missing=?,missing=? WHERE turn_id='coverage'")
+          .run(state, JSON.stringify(incomplete ? ["workspaces/412/brain.config.ts"] : []), JSON.stringify([{ path: "notes/odysseus.md", reason: "journal_capacity" }])));
         expect(f.journal.summary("coverage"), "COVERAGE_COMES_FROM_CONFIGURATION_INVENTORY")
           .toHaveProperty("configurationCoverage", incomplete ? "incomplete" : state === "complete" ? "complete" : "unknown");
         expect(f.journal.summary("coverage").changedFiles, "COVERAGE_NEVER_CHANGES_PATH_ACCOUNTING").toBe(state === "partial" ? null : 0);

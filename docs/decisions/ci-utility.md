@@ -411,6 +411,63 @@ records phase timings, per-worker reports, reference coverage, load and limits.
 The earlier failed #2736 receipt remains unchanged; local observations never
 replace the reviewed hosted timing weights.
 
+#### Runtime test costs and the incomplete eight-worker replay
+
+The [#2793 profile](https://github.com/schlessera/brain-kit/issues/2793)
+examines fifteen files, including the ten largest completed-file costs in the
+preceding wide run. Real scenario bodies dominate the browser files; their
+browser, bundle and initial host setup was already shared. A native trace of
+ten continuity drops attributes 70.382 seconds to offline-status waits that
+cross the client's 1000/2000/4000 ms reconnect backoffs.
+
+The continuity fixture now advances only those registered callbacks, checking
+the original delays before and at each boundary and awaiting each actual
+failed Chrome handshake. It retains all scenarios, original assertions, the
+shared 20-second drop cap and all 45.5 seconds of requested native observation
+horizons. Independent readback checks complete timer/socket descriptor
+restoration. A synchronous cap-fixture transaction retains every real
+admission/retirement and reduces a sixty-action seed phase from 1130.355 ms
+to 40.293 ms. Differing-load whole-file hygiene timings do not establish a
+causal speedup. The continuity file takes 338.539 seconds in the initial
+serial profile and 160.372 seconds in the restored focused run; in the wide
+attempt it completes all fifteen cases in 229.935 seconds.
+
+The single eight-worker queue attempt at implementation commit
+`9a827915f35c1a74a18bebc34d4e0a885b785ece`, against historical base
+`f321d986cc6dcf522885a5e7cf3d4c8f0cf3f162`, exits after **857.654 seconds**.
+This is time to failure and cancellation, not a completed wide runtime or a
+successful sub-900-second qualification. Bun selects 626 files. Five workers
+produce reconciled JUnit/timing reports for 324 files; 302 selected files have
+no completed report. Of the 464 historical reference files, 216 appear in
+completed reports and 248 remain unreported. The runner cancels workers six,
+seven and eight after worker four exits nonzero. Cleanup passes and source
+inputs remain unchanged.
+
+Worker four's unchanged parallel-session file fails its original assertion:
+one of six settled views is `cant_check` after reconnect
+([#2806](https://github.com/schlessera/brain-kit/issues/2806)). Before
+cancellation, output also records the unchanged storage-history allocation
+case exceeding its 30-second deadline
+([#2805](https://github.com/schlessera/brain-kit/issues/2805)) and four
+internal-poke socket-guard timeouts already tracked in
+[#2803](https://github.com/schlessera/brain-kit/issues/2803). Those five
+failures have no flushed JUnit; they are recorded separately from the one
+reported failure. No unrelated assertion or deadline is changed to complete
+this run.
+
+The preceding changed-package suites pass 6,193 cases across 472 files.
+Their source epoch predates the final clock-cap/readback/cleanup refinements;
+restored focused/control runs and the completed continuity wide report cover
+those refinements. Mutations fail every sped-up scenario on its business
+assertions, plus independent backoff-boundary, restoration and cleanup
+controls. Minimum available RAM is 23.319 GiB and whole-host CPU is 26.971%.
+Provider credential variable names are omitted only from the replay command's
+environment to isolate the separate #2769 assumption; offline guards remain
+unchanged. The [source-bound evidence](../process/evidence/runtime-test-costs-2793.json)
+records source epochs, per-file measurements, mutations, partial coverage,
+phase timings and shared-host limits. **Feedback remains opt-in.** Local
+measurements do not update hosted weights.
+
 ## Scheduling and selection
 
 Under the maintainer's 2026-10-14 ruling in #1849/#1854, drafts run cheap

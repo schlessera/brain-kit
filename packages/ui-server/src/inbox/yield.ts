@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { CompletedAutonomousToolCall, InboxQueueItem } from "@schlessera/brain-ui-sdk/server";
 import { createInboxStore } from "./store.js";
 import { failInboxWork } from "./actions.js";
+import { recordInboxProvenance } from "./provenance.js";
 
 const digest = (...parts: string[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 // Named first-party reads may be repeated to inspect current state. Unknown
@@ -50,6 +51,7 @@ export function checkpointYield(db: Database, runId: string, key: string, stateM
       stateMd, facts: { decisions: [`Yielded to interactive contention on ${key}.`],
         operations: [], capabilities: [], paths: [], questions: [] },
     })));
+    for (const item of items) recordInboxProvenance(db, { checkpoint: `yield-${digest(runId, item.id)}` }, { origin: "autonomous", runId }, now);
   }).immediate();
 }
 

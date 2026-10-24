@@ -190,3 +190,25 @@ test("a live owner hidden by procfs is held rather than mistaken for a crashed r
   try { expect(()=>reserveMaintenanceTemp({allowanceBytes:DEFAULT,budgetBytes:DEFAULT}),"UNVERIFIED_LIVE_OWNER_RETAINED").toThrow("busy"); }
   finally { hidden.mockRestore(); first.release(); }
 });
+
+test("server admission keeps its validated ledger open and reopens a replaced ledger file", () => {
+  const root=mkdtempSync("/tmp/odysseus-maintenance-held-");roots.push(root);
+  const statePath=join(root,"ui.db"),limits={allowanceBytes:DEFAULT,budgetBytes:2*DEFAULT};
+  const close=spyOn(Database.prototype,"close");
+  try {
+    for(let index=0;index<3;index++){const reservation=reserveMaintenanceTemp(limits,{statePath});reservation.release();}
+    expect(close,"MAINTENANCE_LEDGER_HELD_OPEN").not.toHaveBeenCalled();
+    const ledger=fs.readdirSync(root).find(name=>/^\.brain-maintenance-[a-f0-9]{24}\.db$/.test(name))!;
+    const held=reserveMaintenanceTemp(limits,{statePath});
+    for(const suffix of ["","-wal","-shm"]) rmSync(join(root,ledger+suffix),{force:true});
+    const replaced=reserveMaintenanceTemp(limits,{statePath});
+    expect(close,"MAINTENANCE_REPLACED_LEDGER_REOPENED").toHaveBeenCalledTimes(1);
+    const db=new Database(join(root,ledger));
+    try { expect(db.query("SELECT id FROM reservations").all(),"MAINTENANCE_ADMISSION_USES_CURRENT_LEDGER").toEqual([{id:replaced.id}]); }
+    finally { db.close(); }
+    fs.chmodSync(join(root,ledger),0o000);
+    try { expect(()=>reserveMaintenanceTemp(limits,{statePath}),"MAINTENANCE_REVOKED_LEDGER_NOT_REUSED").toThrow("EACCES"); }
+    finally { fs.chmodSync(join(root,ledger),0o600); }
+    replaced.release();held.release();
+  } finally { close.mockRestore(); }
+});

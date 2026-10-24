@@ -18,7 +18,7 @@ export function createQueueRoutes(intake: InboxIntake) {
     if (!parsed.success) return c.json({ error: "invalid_request" }, 400);
     try {
       const { key, ...content } = parsed.data;
-      const outcome = await intake.cli({ ...content, files: [] }, key, principal);
+      const outcome = await intake.person({ ...content, files: [] }, key, principal);
       return c.json(queueAddResultSchema.parse({ queued: true, created: outcome.created,
         threadId: outcome.threadId, itemId: outcome.itemId, stagingId: outcome.result.id }), 201);
     } catch (error) {

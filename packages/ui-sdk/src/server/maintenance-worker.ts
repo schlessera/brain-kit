@@ -15,7 +15,7 @@ import { basename, dirname, join } from "node:path";
 import { prepareWorkerOutput } from "./worker-output.js";
 import { prepareNativeMaintenanceIndex, authorizeNativeMaintenanceIndex, finishNativeMaintenanceIndex, prepareNativeMaintenanceGit, authorizeNativeMaintenanceGitWriter, finishNativeMaintenanceGit, type NativeMaintenanceGitPreparation, prepareNativeMaintenanceMasks, transferNativeMaintenanceMasks, prepareNativeWorkerOutput, type WorkerOutputStorage } from "./worker-native-output.js";
 import { createWorkerPipes, fifoStream } from "./worker-pipes.js";
-import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorker, workerBootstrap, WorkerHostError, type WorkerLaunch } from "./worker-launcher.js";
+import { MAINTENANCE_HOME, MAINTENANCE_XDG_DIRS, launchAgentWorkerSteps, workerBootstrap, WorkerHostError, type LaunchedWorker, type WorkerLaunch } from "./worker-launcher.js";
 import { workerCleanupUnconfirmed, workerIdentityHelper } from "./worker-identity.js";
 import { createWorkerStartupView, retainWorkerStartupView, type WorkerStartupView } from "./worker-startup-view.js";
 import { hostMaintenanceTempLimits } from "./maintenance-temp-limits.js";
@@ -23,7 +23,7 @@ import { reserveMaintenanceTemp, type MaintenanceTempDomain } from "./maintenanc
 import { resolveMaintenanceTempLimits, type WorkerStateLimits } from "./worker-state-limits.js";
 import { WorkerStateError } from "./worker-state-budget.js";
 import { HOST_GIT_CREDENTIAL_ENV } from "./subprocess-env.js";
-import { runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsAsync, runWorkerStepsSync, workerStepSpawn, type WorkerSteps } from "./worker-steps.js";
 
 /** Environment names a credential-free maintenance worker keeps: plain settings, never a key or a token. */
 export const CREDENTIAL_FREE_ENV = ["PATH", "BRAIN_PATH", "BRAIN_ROOT", "NODE_ENV", "TZ", "LANG", "LC_ALL", "NO_COLOR",
@@ -237,12 +237,25 @@ function tempDomain(input: MaintenanceCommand): MaintenanceTempDomain | undefine
  * reaches the launcher process either.
  */
 export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceWorker {
+  return runWorkerStepsSync(launchMaintenanceWorkerSteps(input));
+}
+
+/**
+ * The same launch, awaiting a separate-UID helper worker's setup instead of
+ * blocking the event loop while a loaded host performs it (#2790). Everything
+ * before the first wait, admission included, still runs when it is called.
+ */
+export function launchMaintenanceWorkerAsync(input: MaintenanceCommand): Promise<MaintenanceWorker> {
+  return runWorkerStepsAsync(launchMaintenanceWorkerSteps(input));
+}
+
+function* launchMaintenanceWorkerSteps(input: MaintenanceCommand): WorkerSteps<MaintenanceWorker> {
   const limits = input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits();
   const reservation = reserveMaintenanceTemp(limits, tempDomain(input));
   let startupView: WorkerStartupView | undefined;
   let pipes: ReturnType<typeof createWorkerPipes> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
-  let helperWorker: ReturnType<typeof launchAgentWorker> | undefined;
+  let helperWorker: LaunchedWorker | undefined;
   let executionView: WorkerStartupView | undefined;
   let helperCompletion: Promise<number> | undefined;
   try {
@@ -256,7 +269,7 @@ export function launchMaintenanceWorker(input: MaintenanceCommand): MaintenanceW
       executionView = retainWorkerStartupView(startupView!);
       const helperLaunch = { ...launch, startupView: executionView };
       transferNativeMaintenanceMasks(launch, helperLaunch);
-      const running = helperWorker = launchAgentWorker(helperLaunch);
+      const running = helperWorker = yield* launchAgentWorkerSteps(helperLaunch);
       const complete = async () => {
         if (!input.startupView) await startupView?.cleanup();
         reservation.release();
@@ -364,10 +377,12 @@ export async function runMaintenanceWorker(input: MaintenanceCommand & {
   // The host revalidates current authority and records entry only after all
   // asynchronous preparation; its synchronous refusal must precede launch.
   beforeLaunch?.();
-  const worker = launchMaintenanceWorker(input);
+  const worker = await launchMaintenanceWorkerAsync(input);
   let killed = false;
   const kill = () => { killed = true; worker.kill("SIGKILL"); };
   input.signal?.addEventListener("abort", kill, { once: true });
+  // An abort accepted while the launch was awaited still stops the worker.
+  if (input.signal?.aborted) kill();
   const timer = input.timeoutMs ? setTimeout(kill, input.timeoutMs) : undefined;
   let bytes = 0;
   const collect = async (stream: ReadableStream<Uint8Array>) => {

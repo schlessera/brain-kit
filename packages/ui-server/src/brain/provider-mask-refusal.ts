@@ -43,6 +43,25 @@ export class ProviderRecordsRefusedError extends Error {
   }
 }
 
+/**
+ * An autonomous turn's origin thread that cannot be qualified for the turn's
+ * masked folders (#2741, option C): refused before its prompt is built, and
+ * on every inbox read after a change. Nothing of the thread was sent; its
+ * items and queued work stay stored.
+ */
+export class ProviderThreadRefusedError extends Error {
+  readonly code = PROVIDER_MASKED;
+  constructor(readonly threadId: string, folders: readonly string[], readonly subjects: readonly string[], reason: "provenance" | "policy_changed" | "unadmitted") {
+    const hidden = folders.map(folder => `\`${folder}/\``).join(", ");
+    super(`${PROVIDER_MASKED}: inbox thread ${threadId} is unavailable to this autonomous turn, because the governance policy's provider rules hide `
+      + `${hidden || "provider folders"} from it and ${reason === "policy_changed" ? "the policy changed after the turn was admitted"
+        : reason === "unadmitted" ? "the turn has not been admitted for them"
+        : `the thread holds text that predates those rules or cannot be qualified under them (${subjects.join(", ")})`}; nothing from the thread was read or sent. `
+      + "The queued work stays stored and is not completed; the user can handle it in the app.");
+    this.name = "ProviderThreadRefusedError";
+  }
+}
+
 export interface ProviderMaskGuard {
   /** The admitted turn's masked roots, as its worker mounts them. */
   readonly folders: readonly string[];
