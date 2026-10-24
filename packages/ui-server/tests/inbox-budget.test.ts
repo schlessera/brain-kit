@@ -486,7 +486,7 @@ test("budget migration preserves populated reservations and recovery retains leg
     const before = db.query("SELECT * FROM inbox_budget_reservations").get() as Record<string, unknown>;
     expect(before.reserved_cost_usd).toBe(3);
     db.close(); db = createUiDb(path);
-    expect(db.query("SELECT * FROM inbox_budget_reservations").get()).toEqual({ ...before, pricing_json: null, runtime_acquired_at: null, observed_billing_mode: null });
+    expect(db.query("SELECT * FROM inbox_budget_reservations").get()).toEqual({ ...before, pricing_json: null, runtime_acquired_at: null, observed_billing_mode: null, provider_admission: null });
     const budget = createInboxBudget(db, { config: { spendUsd: 5, turns: 10, emergencySpendUsd: 0, emergencyTurns: 0, timeZone: "UTC", unpricedUsdPerToken: 0.01 }, pricing: { resolve: () => rates }, now: () => start + 1 });
     expect(budget.recover()).toBe(1);
     expect(db.query("SELECT status, charged_cost_usd, charged_turns FROM inbox_budget_reservations").get()).toEqual({ status: "released", charged_cost_usd: 3, charged_turns: 1 });
