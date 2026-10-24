@@ -18,6 +18,11 @@ let turnIndex = 0, sequence = 0, turnOpen = false;
 /** The reference lifecycle (#2432): each turn calls the worktree tool, and the host's answer changes between turns. */
 const REFERENCE_ACTIONS = [{ action: "request", repository: "https://github.com/odysseus/ithaca", revision: "main" },
   { action: "renew", worktreeId: "raft-worktree" }, { action: "release", worktreeId: "raft-worktree" }];
+/** #2751: shared source moves to a newer commit, then a failed refresh reports the same commit as stale. */
+const SOURCE_FRESHNESS = [{ commit: "1".repeat(40), freshness: "fresh", hour: 0, error: null }, { commit: "2".repeat(40), freshness: "fresh", hour: 1, error: null },
+  { commit: "2".repeat(40), freshness: "stale", hour: 1, error: "The Ithaca remote did not answer." }] as const;
+/** Scenarios whose every turn calls a reference tool: `reference` withholds the handler on turn 1, the others answer every turn. */
+const REFERENCE_SCENARIOS = ["reference", "renewal", "freshness"];
 let scenario = "";
 let brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -25,9 +30,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
   if (path !== "/v1/messages") return Response.json({});
   const raw = await request.text(), body = JSON.parse(raw);
   const main = body.tools?.some((tool: any) => tool.name === "Read") === true;
-  const tool = main && (scenario === "reference" ? turnOpen : sequence++ === 0);
+  const tool = main && (REFERENCE_SCENARIOS.includes(scenario) ? turnOpen : sequence++ === 0);
   if (main) turnOpen = false;
-  const content = tool ? [scenario === "reference"
+  const content = tool ? [scenario === "freshness"
+    ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_source", input: { repository: "https://github.com/odysseus/ithaca", revision: "main" } }
+    : REFERENCE_SCENARIOS.includes(scenario)
     ? { type: "tool_use", id: `toolu_odysseus_${turnIndex}`, name: "mcp__brain-ui__reference_worktree", input: REFERENCE_ACTIONS[turnIndex] }
     : { type: "tool_use", id: "toolu_odysseus", name: scenario === "promotion" ? "Bash" : "Read",
     input: scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { file_path: join(brain, "notes/raft.md") } }]
@@ -44,7 +51,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 } });
 const restore = replaceNativeStartupAcquisitionForFixture();
 try {
-  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference"]) {
+  for (scenario of ["control", "repository", "facts", "posture", "promotion", "title", "reference", "renewal", "freshness"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const home = join(scratch, `home-${scenario}`);
@@ -66,12 +73,18 @@ try {
         bridge: { emit() {}, checkpointPermission() {}, async requestPermission() { return { behavior: "allow" as const }; },
           async proposePolicyChange() { throw new Error("Unused fixture capability"); },
           // The local CLI replays turn 0's MCP roster on resume, so the assembled roster is held as well.
-          ...(scenario === "reference" ? { activity(event: { kind: string; prefix?: { tools: string | null } }) {
+          ...(REFERENCE_SCENARIOS.includes(scenario) ? { activity(event: { kind: string; prefix?: { tools: string | null } }) {
             if (event.kind === "prompt_prefix") (capture.rosters ??= []).push(event.prefix!.tools);
           } } : {}),
           // The second turn has no host handler: the tool refuses, and the roster must not change.
-          ...(scenario === "reference" && turnIndex !== 1 ? { async referenceAccess(call: ReferenceToolCall) {
+          ...(REFERENCE_SCENARIOS.includes(scenario) && (scenario !== "reference" || turnIndex !== 1) ? { async referenceAccess(call: ReferenceToolCall) {
             (capture.calls ??= []).push(call);
+            if (scenario === "freshness") {
+              const step = SOURCE_FRESHNESS[turnIndex]!;
+              return { ok: true as const, guidance: "Fixture source step.", source: { repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,
+                commit: step.commit, path: "/tmp/brain-reference/public/ithaca", freshness: step.freshness, refreshedAt: new Date(Date.UTC(2026, 6, 12, step.hour)).toISOString(),
+                validatedAt: new Date(Date.UTC(2026, 6, 12, turnIndex)).toISOString(), error: step.error } };
+            }
             const worktree = { id: "raft-worktree", repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,
               startingCommit: "1".repeat(40), state: turnIndex === 2 ? "released" as const : "active" as const, path: turnIndex === 2 ? null : "/tmp/brain-worktrees/raft-worktree",
               lastActivityAt: new Date(Date.UTC(2026, 6, 12, turnIndex)).toISOString(), expiresAt: new Date(Date.UTC(2026, 6, 15, turnIndex)).toISOString(),

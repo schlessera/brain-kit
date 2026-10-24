@@ -258,6 +258,34 @@ checkpoints and grants it to a running non-root bubblewrap worker through an
 access generation, then parks it, adopts an interrupted grant on restart and
 closes the generation.
 
+### Integrated app proof
+
+`bun scripts/prove-reference-pool.ts --integrated [--backend=claude|--backend=pi]`
+runs `reference-integration.native.ts` in the same container on the same owned
+volumes, with a 4 GiB store so the app's 2 GiB free-space floor holds
+([#2751](https://github.com/schlessera/brain-kit/issues/2751)). For each
+backend, the real app runs as UID 1000 against the native manager and its
+reference pool. The owner grants a local Odysseus repository of 1,200 files
+through the principal route. A scripted offline model then drives three turns
+through the backend's own reference tools. Pi uses its actual SDK session and
+`bash` tool. Claude calls its adapter's in-process MCP server and runs each
+turn's commands in one production-launched worker; the Claude CLI itself is not
+executed. The steps are in `reference-integration-steps.ts`:
+
+1. Acquire and inspect shared source, request two worktrees, release one unused.
+2. After the remote's `main` moves, access the kept worktree, read the moved
+   source, edit the worktree and renew it.
+3. After the remote fails with a transport error, read the stale fallback and
+   release the edited worktree.
+
+The proof asserts each result, the turn journal and scope facts, automatic
+removal of the clean worktree, and the owner's removal of the retained one
+through the host-only hygiene review. A user-owned `workspaces/` repository
+must be left untouched. For Pi it holds every provider request's tools, system
+and earlier messages byte-identical. For Claude it holds the system-prompt
+option and the assembled MCP roster. It is not part of the default runtime
+cell.
+
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and
 `SETFCAP`. It deliberately omits

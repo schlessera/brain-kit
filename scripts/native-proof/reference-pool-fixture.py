@@ -1,10 +1,17 @@
 """Own a brain store and a separate sparse reference pool volume, run the pool proof, release only them."""
 import ctypes, fcntl, json, os, pathlib, signal, stat, struct, subprocess, sys, time
 
+# The pool qualification by default; the integrated app proof (#2751) on request.
+PROOFS = {"reference-pool.native.ts": 600, "reference-integration.native.ts": 1200}
+PROOF = sys.argv[1] if len(sys.argv) > 1 else "reference-pool.native.ts"
+if PROOF not in PROOFS: raise RuntimeError("Unknown reference pool proof selection")
+
 ROOT = pathlib.Path("/proof")
 BACKING = pathlib.Path("/native-backing")
 STORE, POOL = pathlib.Path("/brain-fixture"), pathlib.Path("/reference-pool")
-LOOPS = {"store": (2428, BACKING / "store.img", 1024 ** 3, True), "pool": (2429, BACKING / "pool.img", 2 * 1024 ** 3, False)}
+# The integrated app proof keeps the hosted store size, above the app's 2 GiB free-space floor.
+LOOPS = {"store": (2428, BACKING / "store.img", (4 if PROOF == "reference-integration.native.ts" else 1) * 1024 ** 3, True),
+         "pool": (2429, BACKING / "pool.img", 2 * 1024 ** 3, False)}
 receipts = []
 
 def interrupted(signum, _frame):
@@ -72,7 +79,7 @@ try:
     record("provisioned", store=str(STORE), pool=str(POOL), mode=pathlib.Path("/sys/fs/btrfs").joinpath(
         subprocess.check_output(["btrfs", "filesystem", "show", "--raw", str(POOL)]).decode().split("uuid: ")[1].split()[0], "qgroups/mode").read_text().strip())
     env = dict(os.environ, BRAIN_REFERENCE_POOL_ARTIFACTS=str(ROOT))
-    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/reference-pool.native.ts"], timeout=600, env=env)
+    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/" + PROOF], timeout=PROOFS[PROOF], env=env)
 except BaseException as error:
     failure = error
     record("failure", detail=str(error))
