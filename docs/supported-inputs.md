@@ -118,7 +118,11 @@ Before admitting a governed live writer with retained folders, the gate refuses
 an active peer with an unaccounted plan or a plan missing a required root pin.
 A peer's descendant root also retains its ancestors; retaining an ancestor alone
 does not retain each child inside it. An unknown peer-plan checker refuses too.
-This check does not wait for or stop an older writer and does not block nested
+A peer missing a root waits rather than refusing, for up to 30 seconds: every
+writer admitted after the turn retained its folders inherits them, so only an
+older one can lack them, such as a writer started with the server before any
+turn translated a type selector. A peer still active at that bound refuses.
+This check does not stop an older writer and does not block nested
 shared maintenance, explicitly strict turns or strict inspection fallback.
 
 The gate stores planned root sets, not proof of mounted namespace identities;
