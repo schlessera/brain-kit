@@ -7,7 +7,7 @@
  */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { availableParallelism } from "node:os";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -130,20 +130,27 @@ test("an asynchronous launch whose FIFOs cannot be created starts no worker", as
 test("an abort accepted while a maintenance launch awaits its FIFOs stops the worker and releases every pipe", async () => {
   const f = brainFixture();
   const startupView = createFixtureWorkerStartupView(f.brain);
-  const marker = join(f.root, "mkfifo-started");
-  const slow = mkfifoShim(real => `: > "${marker}"; sleep 0.3; exec "${real}" "$@"`);
+  // mkfifo waits for the test: the abort lands while the FIFOs are being created.
+  const started = join(f.root, "mkfifo-started"), release = join(f.root, "mkfifo-release");
+  const held = mkfifoShim(real => `: > "${started}"; while [ ! -e "${release}" ]; do sleep 0.01; done; exec "${real}" "$@"`);
   const tmp = ownedTmp();
   const controller = new AbortController();
+  let run: Promise<Error | undefined> | undefined;
   try {
     const startedAt = performance.now();
-    const run = refusal(() => runMaintenanceWorker({ brainPath: f.brain, startupView, command: ["/bin/sh", "-c", "exec sleep 30"],
+    run = refusal(() => runMaintenanceWorker({ brainPath: f.brain, startupView, command: ["/bin/sh", "-c", "exec sleep 30"],
       env: { PATH: "/usr/bin:/bin" }, credentials: false, tempDomain: { statePath: join(f.root, "maintenance-state.db") }, signal: controller.signal }));
-    while (!existsSync(marker) && performance.now() - startedAt < 10_000) await Bun.sleep(5);
-    expect(existsSync(marker), "ABORT_LANDS_DURING_MKFIFO").toBe(true);
+    while (!existsSync(started) && performance.now() - startedAt < 10_000) await Bun.sleep(5);
+    expect(existsSync(started), "ABORT_LANDS_DURING_MKFIFO").toBe(true);
     controller.abort();
+    writeFileSync(release, "");
     const refused = await run;
     expect(refused, "ABORT_DURING_FIFOS_REJECTS").toBeInstanceOf(DOMException);
     expect(performance.now() - startedAt, "ABORT_DURING_FIFOS_STOPS_WORKER").toBeLessThan(10_000);
     expect(tmp.remains(), "ABORT_DURING_FIFOS_RELEASES_PIPES").toEqual({ directories: [], descriptors: [] });
-  } finally { tmp.restore(); slow.restore(); startupView.cleanup(); f.cleanup(); }
+  } finally {
+    // A failed assertion still settles the launch before its fixture goes.
+    controller.abort(); writeFileSync(release, ""); await run;
+    tmp.restore(); held.restore(); startupView.cleanup(); f.cleanup();
+  }
 });

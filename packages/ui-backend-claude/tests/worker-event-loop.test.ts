@@ -182,18 +182,46 @@ test("a refused fallback sandbox fails the turn by its named refusal and never p
   const frames: ServerMessage[] = [];
   try {
     const backend = createClaudeBackend({ brainPath: f.brain, profiles, queryFn, log: () => {} });
-    const outcome = await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal, bridge: bridge(frames) })
+    const outcome = await backend.startTurn({ prompt: "Return to Ithaca", sessionId: "odysseus-voyage", signal: new AbortController().signal, bridge: bridge(frames) })
       .then(() => "resolved", (error: unknown) => error);
     expect(outcome, "FALLBACK_REFUSAL_IS_THE_TURNS_RESULT").toBe("resolved");
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(blocking, "FALLBACK_REFUSAL_NO_UNPREPARED_SANDBOX").not.toHaveBeenCalled();
     expect(reached, "FALLBACK_REFUSAL_NEVER_REACHES_SDK").toBe(false);
-    // No session yet, so the turn ends on the bare error frame, carrying its failure.
+    // The turn ends on its result, carrying the refusal's failure.
     const refusal = new WorkerHostError("Odysseus: the scratch check could not start").message;
-    expect(frames, "FALLBACK_REFUSAL_NAMED").toEqual([{ type: "error", code: "CLAUDE_ERROR", message: refusal,
-      failure: { errorClass: "worker_host_unsupported", message: refusal } }]);
-    // The claim is released: the next turn starts and reaches its own preparation.
-    await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal, bridge: bridge() });
+    const failure = (seen: ServerMessage[]) => seen.flatMap(frame => frame.type === "result" ? [{ outcome: frame.outcome, failure: frame.failure }] : []);
+    expect(failure(frames), "FALLBACK_REFUSAL_NAMED").toEqual([{ outcome: "error", failure: { errorClass: "worker_host_unsupported", message: refusal } }]);
+    // The claim is released: the session's next turn starts and reaches its own preparation.
+    const again: ServerMessage[] = [];
+    await backend.startTurn({ prompt: "Return to Ithaca", sessionId: "odysseus-voyage", signal: new AbortController().signal, bridge: bridge(again) });
     expect(prepare, "FALLBACK_REFUSAL_RELEASES_TURN").toHaveBeenCalledTimes(2);
+    expect(failure(again), "FALLBACK_REFUSAL_RELEASES_TURN").toEqual(failure(frames));
   } finally { blocking.mockRestore(); prepare.mockRestore(); probe.mockRestore(); f.cleanup(); }
+});
+
+test("Claude's own sandbox and its options share one resolved environment, for an ordinary and an unrestricted autonomous turn", async () => {
+  const f = fixture();
+  let builds = 0;
+  // A profile whose environment differs on every resolution: a second one would show.
+  const shifting = [{ ...profiles[0]!, buildEnv: () => ({ HOME: `/odysseus/home-${++builds}` }) }];
+  const probe = spyOn(workerHostBoundary, "probeAsync").mockResolvedValue({ ok: true });
+  const homes: { prepared?: string; sdk?: string }[] = [];
+  const prepare = spyOn(internal, "prepareWorkerSandboxAsync").mockImplementation(async (brain, options) => {
+    homes.push({ prepared: options?.home });
+    return { brain, restricted: false, areas: [], scratchAliasesRemoved: [], home: { mode: "xdg" } };
+  });
+  const queryFn = (({ options }: Parameters<typeof query>[0]) => {
+    homes.at(-1)!.sdk = options?.env?.HOME;
+    throw new Error("Odysseus: the provider is not reached in this test");
+  }) as typeof query;
+  try {
+    const backend = createClaudeBackend({ brainPath: f.brain, profiles: shifting, queryFn, log: () => {} });
+    await backend.startTurn({ prompt: "Return to Ithaca", signal: new AbortController().signal, bridge: bridge() });
+    await backend.startTurn({ prompt: "Summarize the voyage", signal: new AbortController().signal, enforceAllowedTools: true, noGrantSurface: true,
+      bridge: { ...bridge(), checkpointPermission: () => {} },
+      autonomous: { origin: "autonomous", persistence: "none", allowedTools: [], systemPromptAppend: "Summarize the voyage." } });
+    expect(homes, "OWN_SANDBOX_SAME_ENVIRONMENT_AS_OPTIONS").toEqual([
+      { prepared: "/odysseus/home-1", sdk: "/odysseus/home-1" }, { prepared: "/odysseus/home-2", sdk: "/odysseus/home-2" }]);
+  } finally { prepare.mockRestore(); probe.mockRestore(); f.cleanup(); }
 });

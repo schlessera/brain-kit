@@ -577,13 +577,15 @@ async function* buildAttachmentPrompt(
 /**
  * The sandbox an ordinary turn prepares for itself when its host supplied
  * none (#2796), awaiting the scratch area's git check instead of blocking the
- * event loop while a loaded host starts its maintenance worker. The inputs
- * are `assembleClaudeSdkTurn`'s own fallback's: without a relayed transport
- * or the restricted envelope, its `childEnv` is the turn's environment.
- * Undefined when the host supplied one or the assembly prepares its own.
+ * event loop while a loaded host starts its maintenance worker. Without a
+ * relayed transport or the restricted envelope, `assembleClaudeSdkTurn`'s
+ * `childEnv` is the turn's environment: it is resolved once here and returned,
+ * so the turn's options are built from the same one. Undefined when the host
+ * supplied a sandbox or the assembly prepares its own.
  */
 export async function prepareClaudeTurnSandbox(options: Pick<ClaudeSdkTurnOptions, "backend" | "req" | "profile" | "turnEnvironment" | "hostInference">) {
   const { backend, req } = options;
   if (req.workerSandbox || options.hostInference || req.autonomous?.containment === "restricted") return undefined;
-  return prepareWorkerSandboxAsync(backend.brainPath, { home: (options.turnEnvironment ?? turnEnv(options.profile)).HOME, maintenance: backend.maintenance });
+  const turnEnvironment = options.turnEnvironment ?? turnEnv(options.profile);
+  return { turnEnvironment, workerSandbox: await prepareWorkerSandboxAsync(backend.brainPath, { home: turnEnvironment.HOME, maintenance: backend.maintenance }) };
 }
