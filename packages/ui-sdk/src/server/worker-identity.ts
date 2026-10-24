@@ -4,7 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { workerIdentityHelperInput } from "../config/env.js";
 import { WORKER_IDENTITY_CLIENT, WORKER_IDENTITY_FALLBACK, WORKER_IDENTITY_STOP, WORKER_IDENTITY_SUPERVISOR } from "./worker-identity-program.js";
-import { runWorkerStepsSync, workerStep, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
+import { runWorkerStepsSync, workerStep, workerStepRun, workerStepSleep, type WorkerSteps } from "./worker-steps.js";
 
 export const WORKER_IDENTITY_HELPER_ENV = "BRAIN_UI_WORKER_IDENTITY_HELPER";
 export class WorkerIdentityCleanupError extends Error {
@@ -49,28 +49,30 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
   const launch = crypto.randomUUID(), server = { ...processIdentity(process.pid), uid: process.getuid?.() };
   let open = true;
   let supervisorIdentity: { pid: number; start: string } | undefined;
-  const supervisionLost = () => {
-    if (supervisorIdentity !== undefined) {
-      // This is our same-UID supervisor. Its kernel-bound launch death path
-      // terminates the different-UID worker even when control RPC is lost.
-      const stop = Bun.spawnSync([python, "-I", "-S", "-c", WORKER_IDENTITY_STOP, String(supervisorIdentity.pid), supervisorIdentity.start],
-        { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 2_000 });
-      if (stop.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_supervisor_stop_unconfirmed: ${stop.stderr.toString().slice(0, 300)}`);
-    }
+  const supervisionLostSteps = function* (): WorkerSteps<void> {
+    if (supervisorIdentity === undefined) return;
+    // This is our same-UID supervisor. Its kernel-bound launch death path
+    // terminates the different-UID worker even when control RPC is lost.
+    const stop = yield* workerStepRun([python, "-I", "-S", "-c", WORKER_IDENTITY_STOP, String(supervisorIdentity.pid), supervisorIdentity.start],
+      { env: {}, stdin: "ignore", timeout: 2_000 });
+    if (stop.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_supervisor_stop_unconfirmed: ${stop.stderr.slice(0, 300)}`);
   };
-  const fallback = (operations: ("signal" | "cleanup")[]) => {
+  const supervisionLost = () => runWorkerStepsSync(supervisionLostSteps());
+  const fallbackSteps = function* (operations: ("signal" | "cleanup")[]): WorkerSteps<void> {
     if (!supervisorIdentity) throw new Error("worker_identity_supervisor_identity_lost");
+    const supervisor = supervisorIdentity;
     try {
       const receipt = JSON.parse(readFileSync(`${readyPath}.cleanup`, "utf8")) as { ok?: boolean; complete?: boolean; launch?: string; supervisor?: { pid: number; start: string } };
       if (receipt.ok === true && receipt.complete === true && receipt.launch === launch
-        && receipt.supervisor?.pid === supervisorIdentity.pid && receipt.supervisor.start === supervisorIdentity.start) return;
+        && receipt.supervisor?.pid === supervisor.pid && receipt.supervisor.start === supervisor.start) return;
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    supervisionLost();
-    const cleanup = Bun.spawnSync([python, "-I", "-S", "-c", WORKER_IDENTITY_FALLBACK, JSON.stringify({
-      helper, base: { version: 1, launch, server, supervisor: supervisorIdentity }, operations,
-    })], { env: {}, stdin: "ignore", stdout: "ignore", stderr: "pipe", timeout: 12_000 });
-    if (cleanup.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_cleanup_unconfirmed: ${cleanup.stderr.toString().slice(0, 300)}`);
+    yield* supervisionLostSteps();
+    const cleanup = yield* workerStepRun([python, "-I", "-S", "-c", WORKER_IDENTITY_FALLBACK, JSON.stringify({
+      helper, base: { version: 1, launch, server, supervisor }, operations,
+    })], { env: {}, stdin: "ignore", timeout: 12_000 });
+    if (cleanup.exitCode !== 0) throw new WorkerIdentityCleanupError(`worker_identity_cleanup_unconfirmed: ${cleanup.stderr.slice(0, 300)}`);
   };
+  const fallback = (operations: ("signal" | "cleanup")[]) => runWorkerStepsSync(fallbackSteps(operations));
   const requestSteps = function* <T extends object>(operation: string, input: object = {}): WorkerSteps<T> {
     if (!open) throw new Error("worker_identity_control_closed");
     const command = [python, "-I", "-S", "-c", WORKER_IDENTITY_CLIENT, socket, JSON.stringify({ secret, operation, ...input })];
@@ -81,7 +83,7 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
       return { exitCode: child.exitCode, stdout: Buffer.from(stdout), stderr: Buffer.from(stderr) };
     });
     if (result.exitCode !== 0) {
-      supervisionLost();
+      yield* supervisionLostSteps();
       throw new Error(`worker_identity_control_lost: ${result.stderr.toString().slice(0, 300)}`);
     }
     const reply: unknown = JSON.parse(result.stdout.toString());
@@ -150,6 +152,17 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
       yield* workerStepSleep(1);
     }
   }
+  const closeSteps = function* (): WorkerSteps<void> {
+    if (!open) return;
+    try { yield* requestSteps("close"); }
+    catch (error) {
+      if (!supervisorIdentity) throw error;
+      yield* fallbackSteps(["signal", "cleanup"]);
+    }
+    // Failed cleanup retains authority and accounting. A later close may
+    // obtain a fresh authenticated receipt after outstanding IO has drained.
+    open = false; rmSync(directory, { recursive: true, force: true });
+  };
   return {
     command: [python, "-I", "-S", "-c", WORKER_IDENTITY_SUPERVISOR, JSON.stringify({
       helper, argv, roots, cgroup, socket, ready: readyPath, secret, ...(view ? { view } : {}),
@@ -164,13 +177,16 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
     /** `request`, with the same deadline and failures, as a step (#2416). */
     requestSteps,
     requestAsync,
-    /** The gated worker's own view of the launch's authorized path (#2696); close it before release. */
+    /**
+     * The gated worker's own view of the launch's authorized path (#2696); close it before release.
+     * Both waits are steps, so an asynchronous launch keeps its event loop (#2844).
+     */
     brainView() {
       let held = false;
       return {
-        open: () => {
+        *open(): WorkerSteps<number> {
           if (!supervisorIdentity) throw new Error("worker_identity_supervisor_identity_lost");
-          const receipt = request<{ fd: number; dev: number; ino: number }>("view");
+          const receipt = yield* requestSteps<{ fd: number; dev: number; ino: number }>("view");
           held = true;
           if (!Number.isSafeInteger(receipt.fd) || receipt.fd < 3) throw new Error("worker_identity_missing_view_handle");
           // This alias belongs to our same-uid coordinator, not the cross-UID payload.
@@ -179,24 +195,16 @@ export function prepareWorkerIdentity(helper: string, argv: string[], roots: Ide
           if (info.dev !== receipt.dev || info.ino !== receipt.ino) { closeSync(descriptor); throw new Error("worker_identity_substituted_view"); }
           return descriptor;
         },
-        close: () => { if (held) { held = false; request("unview"); } },
+        *close(): WorkerSteps<void> { if (held) { held = false; yield* requestSteps("unview"); } },
       };
     },
     terminate() {
       try { request("signal", { signal: "KILL" }); }
       catch { fallback(["signal"]); }
     },
-    close() {
-      if (!open) return;
-      try { request("close"); }
-      catch (error) {
-        if (!supervisorIdentity) throw error;
-        fallback(["signal", "cleanup"]);
-      }
-      // Failed cleanup retains authority and accounting. A later close may
-      // obtain a fresh authenticated receipt after outstanding IO has drained.
-      open = false; rmSync(directory, { recursive: true, force: true });
-    },
+    close() { runWorkerStepsSync(closeSteps()); },
+    /** `close`, with the same refusal and fallback cleanup, as steps (#2844). */
+    closeSteps,
     discard() { open = false; rmSync(directory, { recursive: true, force: true }); },
   };
 }

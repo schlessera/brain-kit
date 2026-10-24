@@ -9,7 +9,7 @@
 import { createFixtureMaintenanceHost, createFixtureWorkerStartupView } from "./helpers/worker-startup-view-fixture.js";
 import { expect, spyOn, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, fstatSync, mkdirSync, mkdtempSync, readFileSync, readSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { identityWorkerExit, launchAgentWorker, launchAgentWorkerAsync, prepareWorkerSandbox, prepareWorkerSandboxAsync, probeWorkerHost, probeWorkerHostAsync,
   requireWorkerHostAsync, workerHostBoundary, WorkerHostError, type IdentityWorkerStatus, type LaunchedWorker } from "../src/server/worker-launcher";
@@ -18,9 +18,10 @@ import * as identity from "../src/server/worker-identity";
 import { launchMaintenanceWorker, launchMaintenanceWorkerAsync, runMaintenanceWorker } from "../src/server/maintenance-worker";
 import { claudeMaskFilename, claudeReportedMaskPath, handleRequestImageMask } from "../src/server/bridge-tools/mask";
 import type { BackendBridge } from "../src/server/backend";
-import { runWorkerStepsAsync, workerStep } from "../src/server/worker-steps";
+import { runWorkerStepsAsync, workerStep, workerStepSleep, type WorkerSteps } from "../src/server/worker-steps";
 import { createWorkerPipes, createWorkerPipesSteps } from "../src/server/worker-pipes";
 import { mkfifoShim, mkfifoSpawns } from "./helpers/mkfifo-shim.js";
+import { identityControl, identityControlSpawns } from "./helpers/identity-control-fixture.js";
 
 const ROOT = resolve(import.meta.dir, "../../..");
 
@@ -317,4 +318,165 @@ test("the asynchronous probe, launch and maintenance forms run no synchronous mk
     for (const [form, { sync, async }] of Object.entries(blocking))
       expect({ form, blocked: sync > 0, async }, "SYNC_FORM_KEEPS_MKFIFO").toEqual({ form, blocked: true, async: 0 });
   } finally { for (const view of views) view.cleanup(); maintenance.cleanup(); f.cleanup(); }
+});
+
+// #2844: a separate-UID worker's broker close, and the brain view, on those forms.
+
+const IDENTITY_HELPER = "/usr/lib/odysseus/identity-helper";
+
+/** A real broker whose ready file names `supervisor` as its same-UID supervisor. */
+function readyBroker(supervisor: number) {
+  const broker = identity.prepareWorkerIdentity(IDENTITY_HELPER, ["/bin/true"], []);
+  const { ready } = JSON.parse(broker.command.at(-1)!) as { ready: string };
+  writeFileSync(ready, JSON.stringify({ ok: true, workerUid: process.getuid!() + 1, worker: { pid: 2, start: "1" }, roots: {} }));
+  broker.ready(supervisor, Date.now() + 5_000);
+  return broker;
+}
+
+test("a separate-UID broker's close is awaited with the event loop free, and the synchronous close still blocks", async () => {
+  const awaitedBroker = identity.prepareWorkerIdentity(IDENTITY_HELPER, ["/bin/true"], []);
+  const blockingBroker = identity.prepareWorkerIdentity(IDENTITY_HELPER, ["/bin/true"], []);
+  const controls = [identityControl(awaitedBroker, { delayMs: 200 }), identityControl(blockingBroker, { delayMs: 200 })];
+  try {
+    while (!controls.every(control => control.ready())) await Bun.sleep(5);
+    const spawns = identityControlSpawns();
+    let awaited, blocked;
+    try {
+      awaited = { ...await ticksDuring(() => runWorkerStepsAsync(awaitedBroker.closeSteps())), spawns: spawns.counts() };
+      blocked = { ...await ticksDuring(async () => blockingBroker.close()), spawns: spawns.counts() };
+    } finally { spawns.restore(); }
+    expect(awaited.spawns, "ASYNC_BROKER_CLOSE_SPAWNS_NO_SYNC_CONTROL_CLIENT").toEqual({ sync: 0, async: 1 });
+    expect(awaited.ticks, "ASYNC_BROKER_CLOSE_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    // The measure can fail: the synchronous close still blocks for the same reply.
+    expect(blocked.spawns, "SYNC_BROKER_CLOSE_KEEPS_SYNC_CONTROL_CLIENT").toEqual({ sync: 1, async: 1 });
+    expect(blocked.ticks, "SYNC_BROKER_CLOSE_BLOCKS").toBe(0);
+    expect(controls.map(control => control.operations())).toEqual([["close"], ["close"]]);
+    // A closed broker is closed once: neither form asks again.
+    await runWorkerStepsAsync(awaitedBroker.closeSteps());
+    blockingBroker.close();
+    expect(controls.map(control => control.operations())).toEqual([["close"], ["close"]]);
+  } finally { for (const control of controls) await control.stop(); }
+});
+
+test("an awaited close that loses control stops the supervisor and refuses unconfirmed cleanup as before, retaining authority", async () => {
+  const forms = { awaited: (broker: ReturnType<typeof readyBroker>) => runWorkerStepsAsync(broker.closeSteps()),
+    blocking: async (broker: ReturnType<typeof readyBroker>) => broker.close() };
+  for (const [form, close] of Object.entries(forms)) {
+    // No control socket: the client fails, the supervisor is stopped, and the
+    // fallback's helper (absent here) cannot confirm the cleanup.
+    const supervisor = Bun.spawn(["/bin/sh", "-c", "exec sleep 30"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    const broker = readyBroker(supervisor.pid);
+    const { ready } = JSON.parse(broker.command.at(-1)!) as { ready: string };
+    const spawns = identityControlSpawns();
+    let refusal: unknown, counts;
+    try { refusal = await close(broker).catch((error: unknown) => error); counts = spawns.counts(); } finally { spawns.restore(); }
+    try {
+      expect({ form, unconfirmed: identity.workerCleanupUnconfirmed(refusal) }, "CLOSE_REFUSES_UNCONFIRMED_CLEANUP").toEqual({ form, unconfirmed: true });
+      expect({ form, message: String((refusal as Error).message).split(":")[0] }).toEqual({ form, message: "worker_identity_cleanup_unconfirmed" });
+      expect({ form, signal: (await supervisor.exited, supervisor.signalCode) }, "CONTROL_LOSS_STOPS_SUPERVISOR").toEqual({ form, signal: "SIGKILL" });
+      // Control client, supervisor stop (twice: on the lost request and before the fallback) and the fallback itself.
+      expect({ form, spawns: counts }, "CLOSE_FORM_RUNS_ITS_CONTROL_SUBPROCESSES").toEqual(form === "awaited"
+        ? { form, spawns: { sync: 0, async: 4 } } : { form, spawns: { sync: 4, async: 0 } });
+      // Authority and its files are retained for a later close that can confirm cleanup.
+      expect({ form, retained: existsSync(ready) }, "UNCONFIRMED_CLOSE_RETAINS_AUTHORITY").toEqual({ form, retained: true });
+    } finally { supervisor.kill("SIGKILL"); broker.discard(); }
+  }
+});
+
+test("the brain view's broker requests are awaited with the event loop free", async () => {
+  const f = fixture();
+  const holder = Bun.spawn(["/usr/bin/python3", "-I", "-S", "-c", "import os,sys,time\nfd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY)\nprint(fd,flush=True)\ntime.sleep(30)", f.brain],
+    { env: {}, stdin: "ignore", stdout: "pipe", stderr: "inherit" });
+  const reader = holder.stdout.getReader();
+  let control: ReturnType<typeof identityControl> | undefined;
+  try {
+    let line = "";
+    while (!line.includes("\n")) { const next = await reader.read(); if (next.done) throw new Error("view holder exited"); line += new TextDecoder().decode(next.value); }
+    const info = statSync(f.brain);
+    const broker = readyBroker(holder.pid);
+    control = identityControl(broker, { delayMs: 100, replies: { view: { ok: true, fd: Number(line.trim()), dev: info.dev, ino: info.ino } } });
+    while (!control.ready()) await Bun.sleep(5);
+    const view = broker.brainView();
+    const spawns = identityControlSpawns();
+    let opened;
+    try {
+      opened = await ticksDuring(async () => {
+        const handle = await runWorkerStepsAsync(view.open());
+        try { return fstatSync(handle).ino; } finally { closeSync(handle); await runWorkerStepsAsync(view.close()); }
+      });
+      expect(spawns.counts(), "ASYNC_BRAIN_VIEW_SPAWNS_NO_SYNC_CONTROL_CLIENT").toEqual({ sync: 0, async: 2 });
+    } finally { spawns.restore(); }
+    expect(opened.result, "BRAIN_VIEW_IS_THE_HELD_DIRECTORY").toBe(info.ino);
+    expect(opened.ticks, "ASYNC_BRAIN_VIEW_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    expect(control.operations()).toEqual(["view", "unview"]);
+  } finally { await control?.stop(); holder.kill("SIGKILL"); reader.releaseLock(); f.cleanup(); }
+});
+
+/**
+ * `prepareWorkerIdentity` at the launcher's seam: the real broker, whose
+ * close runs its real control client against a stand-in socket, with the
+ * supervisor's setup and status answered in place of a root-owned helper.
+ */
+function seamBroker(answers: { ready?: () => never; status?: IdentityWorkerStatus }) {
+  const prepare = identity.prepareWorkerIdentity;
+  const controls: ReturnType<typeof identityControl>[] = [];
+  const spy = spyOn(identity, "prepareWorkerIdentity").mockImplementation((...args: Parameters<typeof prepare>) => {
+    const real = prepare(...args);
+    const control = identityControl(real);
+    controls.push(control);
+    return { ...real, command: ["/bin/sh", "-c", "exit 0"],
+      *readySteps() {
+        while (!control.ready()) yield* workerStepSleep(1);
+        if (answers.ready) answers.ready();
+        return { ok: true as const, workerUid: process.getuid!() + 1, worker: { pid: 2, start: "1" }, roots: {} };
+      },
+      *requestSteps<T extends object>(operation: string): WorkerSteps<T> {
+        yield* workerStepSleep(1);
+        return (operation === "status" ? answers.status : { ok: true }) as T;
+      } };
+  });
+  return { operations: () => controls.map(control => control.operations()),
+    restore: async () => { spy.mockRestore(); for (const control of controls) await control.stop(); } };
+}
+
+test("the asynchronous probe closes a separate-UID broker through awaited steps, and the synchronous probe still blocks", async () => {
+  const f = fixture();
+  const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue(IDENTITY_HELPER);
+  const runs = async (status: IdentityWorkerStatus, probe: () => Promise<unknown>) => {
+    const seam = seamBroker({ status });
+    const spawns = identityControlSpawns();
+    try { await probe(); return { spawns: spawns.counts(), operations: seam.operations() }; }
+    finally { spawns.restore(); await seam.restore(); }
+  };
+  try {
+    // An exited probe worker closes its broker inline; a failed supervision closes it on the way out.
+    for (const status of [{ exited: true, code: 0 }, { exited: true, code: 0, failure: "the worker could not be confined" }]) {
+      const awaited = await runs(status, () => probeWorkerHostAsync(f.brain));
+      const blocking = await runs(status, async () => probeWorkerHost(f.brain));
+      expect({ status, ...awaited }, "ASYNC_PROBE_AWAITS_BROKER_CLOSE").toEqual({ status, spawns: { sync: 0, async: 1 }, operations: [["close"]] });
+      expect({ status, ...blocking }, "SYNC_PROBE_KEEPS_BLOCKING_BROKER_CLOSE").toEqual({ status, spawns: { sync: 1, async: 0 }, operations: [["close"]] });
+    }
+  } finally { helper.mockRestore(); f.cleanup(); }
+});
+
+test("a failed asynchronous launch closes its separate-UID broker through awaited steps before it refuses", async () => {
+  const f = fixture();
+  const views = [createFixtureWorkerStartupView(f.brain), createFixtureWorkerStartupView(f.brain)];
+  const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue(IDENTITY_HELPER);
+  const launch = (startupView: (typeof views)[number]) => ({ brainPath: f.brain, startupView, command: ["/bin/true"], env: {} });
+  const ready = () => { throw new Error("worker_identity_setup_timed_out"); };
+  const runs = async (work: () => Promise<unknown>) => {
+    const seam = seamBroker({ ready });
+    const spawns = identityControlSpawns();
+    try {
+      const refusal = await work().then(() => undefined, (error: unknown) => error);
+      return { refusal: (refusal as WorkerHostError).requirement, spawns: spawns.counts(), operations: seam.operations() };
+    } finally { spawns.restore(); await seam.restore(); }
+  };
+  try {
+    const awaited = await runs(() => launchAgentWorkerAsync(launch(views[0]!)));
+    const blocking = await runs(async () => launchAgentWorker(launch(views[1]!)));
+    expect(awaited, "ASYNC_LAUNCH_AWAITS_BROKER_CLOSE").toEqual({ refusal: "worker_identity_setup_timed_out", spawns: { sync: 0, async: 1 }, operations: [["close"]] });
+    expect(blocking, "SYNC_LAUNCH_KEEPS_BLOCKING_BROKER_CLOSE").toEqual({ refusal: "worker_identity_setup_timed_out", spawns: { sync: 1, async: 0 }, operations: [["close"]] });
+  } finally { helper.mockRestore(); for (const view of views) view.cleanup(); f.cleanup(); }
 });

@@ -1482,7 +1482,7 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     identityFinished = false;
     for (const handle of identityHandles) handle.close();
     let cleanupFailure: unknown;
-    try { if (child) identityBroker?.close(); else identityBroker?.discard(); } catch (failure) { cleanupFailure = failure; }
+    try { if (child) { if (identityBroker) yield* identityBroker.closeSteps(); } else identityBroker?.discard(); } catch (failure) { cleanupFailure = failure; }
     if (!cleanupFailure) for (const reader of identityReaders) reader.confirmCleanup();
     child?.kill("SIGKILL");
     status?.close();
@@ -1747,7 +1747,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
           if (Date.now() >= deadline) throw new WorkerHostError("worker_identity_probe_timed_out");
           yield* workerStepSleep(10);
         }
-        broker.close(); broker = undefined;
+        yield* broker.closeSteps(); broker = undefined;
       } else {
         if (gated(options)) writeSync(pipes.parent[0], STATE_GATE_OPEN);
         child = yield* workerStepSpawn(boot.command, { env: boot.env, stdin: pipes.child[0],
@@ -1777,7 +1777,7 @@ function* probeWorkerHostSteps(brainPath: string, options: WorkerHostProbeOption
           : "bubblewrap namespaces, read-only brain, writable scratch or pipe/descriptor validation";
         throw new Error(`${what} failed (${detail})`);
       }
-    } finally { try { broker?.close(); } finally { pipes.cleanup(); } }
+    } finally { try { if (broker) yield* broker.closeSteps(); } finally { pipes.cleanup(); } }
     if (!options.restricted) proven.add(brainPath);
     if (identityHelper && verifiedWorkerUid !== undefined) verifiedIdentities.set(brainPath, { helper: identityHelper, workerUid: verifiedWorkerUid });
     return { ok: true, ...(verifiedWorkerUid === undefined ? {} : { identity: "separate_uid" as const, workerUid: verifiedWorkerUid }) };

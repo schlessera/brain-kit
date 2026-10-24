@@ -7,6 +7,7 @@ import { createFixtureWorkerStartupView as createWorkerStartupView, launchFixtur
 import { workerSandboxNote } from "../src/server/worker-sandbox.js";
 import { resolveWorkerProtection, verifyWorkerFolderMounts } from "../src/server/worker-protection.js";
 import { protectedPaths } from "../src/server/protected-paths.js";
+import { workerStep } from "../src/server/worker-steps.js";
 
 async function collectLaunched(stream: NodeJS.ReadableStream): Promise<string> {
   let text = "";
@@ -351,8 +352,9 @@ test("a broker brain view qualifies mounts only as the worker's own brain mount"
     expect(pid, "BRAIN_VIEW_FIXTURE_SANDBOX_PID").toBeGreaterThan(0);
     const qualify = (path: string) => {
       let closed = 0;
+      const open = () => openSync(path, constants.O_RDONLY | constants.O_DIRECTORY), close = () => { closed++; };
       const run = () => verifyWorkerFolderMounts(brain, sandbox.protection, sandbox.retainedFolders, pid, Date.now() + 5_000, undefined,
-        { open: () => openSync(path, constants.O_RDONLY | constants.O_DIRECTORY), close: () => { closed++; } });
+        { open: () => workerStep(open, async () => open()), close: () => workerStep(close, async () => close()) });
       return { run, closed: () => closed };
     };
     const own = qualify(`/proc/${pid}/root${brain}`);
