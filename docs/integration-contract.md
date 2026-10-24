@@ -685,3 +685,11 @@ fixed-reader checkpoint reads, plus access generations that move a writable
 worktree into or out of one worker-bound directory; `NativePoolRecord` gains
 the `checkpoint` purpose and `access`. Described in
 [the package API](integration-contract/package-api.md#managed-worktree-storage-additive-2430).
+
+## Managed worktree hygiene review (additive, #2431)
+
+The human-started hygiene review (`/api/hygiene/review`) also selects host-only
+`managed-worktree` findings, with a `delete-worktree` repair revalidated by the
+worktree service before it removes anything; described in
+[the package API](integration-contract/package-api.md#managed-worktree-findings-in-the-review-additive-0440-2431).
+

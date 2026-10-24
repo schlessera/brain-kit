@@ -17,6 +17,7 @@ import { createPolicyProposals } from "./brain/policy-proposal.js";
 import { createAgentPolicyRoutes } from "./routes/agent-policy.js";
 import { createPolicyProposalRoutes } from "./routes/policy-proposals.js";
 import { createTurnBudgets } from "./brain/turn-budgets.js";
+import { maintenanceProviderMeter } from "./brain/provider-meter.js";
 import { createTrackRoutes } from "./routes/tracks.js";
 import { createAccountPartitionKeys } from "./middleware/account-partition.js";
 import { Hono } from "hono";
@@ -147,6 +148,7 @@ import type { AppEnv } from "./app-env.js";
 import { createNativeBrainLeaseManager } from "./brain/native-brain-leases.js";
 import { createReferenceSources } from "./brain/reference-source.js";
 import { createReferenceTransport } from "./brain/reference-transport.js";
+import { createReferenceWorktreeHygiene } from "./brain/reference-worktree-hygiene.js";
 import { createReferenceWorktrees, forgetReferenceWorktreeCheckpoint, recordReferenceWorktreeCheckpoint, referenceWorktreeDependents, referenceWorktreeOwner } from "./brain/reference-worktrees.js";
 import { assertOperationalStateOutsideBrain, operationalStateMasks } from "./brain/operational-state.js";
 
@@ -402,7 +404,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     if (recorded) return recorded.available ? { ok: true, ...(recorded.identity ? { identity: recorded.identity, workerUid: recorded.workerUid } : {}) } : { ok: false, requirement: recorded.requirement };
     return bootOrdinary ??= probeWorkerHostRecorded(config.brainPath, "ordinary", undefined, "boot", workerStateBytes, turnTempBytes, probeState);
   };
-  const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
+  // Credentialed maintenance reaches the CLI's providers through a metered
+  // relay where the host has managed native storage (#1673); the budgets it
+  // charges are created below.
+  let relayBudgets: ReturnType<typeof createTurnBudgets> | undefined;
+  const providerRelay = nativeManager ? maintenanceProviderMeter({ brainPath: config.brainPath,
+    ...(config.cliProviderOrigins ? { origins: config.cliProviderOrigins } : {}), budgets: () => relayBudgets,
+    report: message => brainLog.emit({ severityText: "WARN", body: message }) }) : undefined;
+  const hostExecution = createHostExecution({ nativeManager, nativeMaskPaths, ...(providerRelay ? { providerRelay } : {}), profile: options.workerProfile, brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, privateStatePaths,
     ...(subprocessEnv("brainCli").HOME ? { home: subprocessEnv("brainCli").HOME! } : {}), log: brainLog, workerHost: latestOrdinary });
   bootCleanup.push(() => hostExecution.release());
   const boundary = hostExecution.boundary;
@@ -506,7 +515,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // A migrating brain rebuilds its index in the new directory once, at boot.
   if (legacyIndex.removed.length) keyedReindex();
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
-  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone,
+  // Managed worktree findings (#2431) reuse core's hygiene rules; without core there is no review to join.
+  const hygieneCore = referenceWorktrees ? await import("@schlessera/brain/internal").catch(() => undefined) : undefined;
+  const worktreeHygiene = referenceWorktrees && hygieneCore
+    ? createReferenceWorktreeHygiene({ db, worktrees: referenceWorktrees, core: async () => hygieneCore, brainPath: config.brainPath }) : undefined;
+  const hygieneReview = createHygieneReview(db, { brain, timeZone: config.inbox?.budget?.timeZone, ...(worktreeHygiene ? { worktrees: worktreeHygiene } : {}),
     // Exact-operation approval stays fail-closed unless the gated engine runs.
     ...(dispatchFixture ? { allowedOperations: createInboxOperationEnvelope(db) } : {}) });
   await hygieneReview.recover();
@@ -579,6 +592,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}) });
   bootCleanup.push(() => governedTurns.close());
   const budgets = createTurnBudgets(db, pricing);
+  relayBudgets = budgets;
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot,
     ...(referencePoolConfigured ? { referencePool: nativeManager, referenceCheckpoints: (() => {
@@ -606,6 +620,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     sessionProfiles,
     maintenance: boundary.maintenance,
     budgets,
+    ...(config.cliProviderOrigins ? { cliProviderOrigins: config.cliProviderOrigins } : {}),
     applicationPlanner,
     drafts,
     brainPath: config.brainPath,

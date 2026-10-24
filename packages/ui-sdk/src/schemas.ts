@@ -1014,7 +1014,7 @@ const turnRetrySchema = z.looseObject({
 
 export const turnBudgetReceiptSchema = z.looseObject({
   listPriceCostUsd: z.number().finite().nonnegative().nullable(), listPriceIsEstimate:z.boolean().nullable().optional(), tokens: z.number().int().nonnegative().nullable(),
-  observedAt: z.number().int().nonnegative(), coverage: z.literal("Built-in inference only; provider and tool spend is not metered"),
+  observedAt: z.number().int().nonnegative(), coverage: z.enum(["Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered", "Built-in inference only; provider and tool spend is not metered"]),
   scopes: z.array(z.looseObject({ scope:z.enum(["turn","session","day"]), legacyRuns:z.number().int().nonnegative().optional(), costUsd:z.number().finite().nonnegative().nullable(),
     tokens:z.number().int().nonnegative().nullable(), unknownRuns:z.number().int().nonnegative(),
     warnUsd:z.number().finite().nonnegative(), blockUsd:z.number().finite().nonnegative(), blockTokens:z.number().int().nonnegative(),

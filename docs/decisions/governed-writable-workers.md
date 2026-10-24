@@ -478,7 +478,7 @@ in host-owned transports instead:
 Host Git tokens are stripped from maintenance and agent worker environments,
 including provider-credentialed maintenance. Every strip site uses the same
 credential names (`HOST_GIT_CREDENTIAL_ENV`,
-`packages/ui-sdk/src/server/subprocess-env.ts:224-228`). The mirror transport
+`packages/ui-sdk/src/server/subprocess-env.ts:227-231`). The mirror transport
 and host skills installer retain their dedicated credentials and generic fallback.
 
 **Interim exposure.** Until the mirror and the relays land, a maintenance
@@ -486,6 +486,16 @@ worker that needs a credential receives it directly. Code the agent can write,
 such as a helper the config imports, could then read it. That is the same
 exposure as before 0.41, it is listed in the capabilities status, and closing
 it is a p1 sub-issue of #1636.
+
+**What #1673 closed.** On a host with managed native storage, a credentialed
+maintenance worker no longer receives the keys the provider relay carries
+(`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
+lists for it), and the brain's `.env*` files are masked as they are for a
+credential-free worker. Its `brain` CLI reaches those providers through its own
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:408-415`).
+What remains is narrower and stated in the status: keys the relay does not
+carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
+key on a host without managed native storage, where there is no relay.
 
 The protected list below keeps the policy intact, keeps secrets out of workers,
 and stops a turn from steering later turns' permissions or start-up code.
@@ -535,7 +545,7 @@ lists the keys each first-party command reads. The launcher withholds every
 provider credential in the subprocess descriptor from a governed or strict
 turn worker, except what its backend declares for its own inference and what
 an operator admits (`const turnProfile`,
-`packages/ui-sdk/src/server/worker-launcher.ts:613-623`). A relayed turn keeps no
+`packages/ui-sdk/src/server/worker-launcher.ts:669-679`). A relayed turn keeps no
 key. An unrelayed one keeps only its runtime's own inference credential, under
 the 2026-10-22 ruling that hosts without managed native storage keep today's
 inference credentials; pi resolves its own credentials there, so it keeps all
@@ -551,6 +561,19 @@ ordinary behaviour. The token is text in tool output, so the event is a
 diagnostic and grants nothing, and the recorder caps it at 20 per turn. The
 metered relays (#1673) return the CLI's providers to turn workers and take the
 keys out of maintenance workers.
+
+**How #1673 built it.** A turn with a turn proxy gets a provider relay beside
+it, which the launcher names in `BRAIN_PROVIDER_RELAY_SOCKET`. A built-in
+provider whose key is withheld sends its native request there; the host adds
+the key and forwards it as the turn's own egress (G5). A key goes only to its
+built-in first-party origin, or to an exact origin the operator lists for that
+key in `BRAIN_UI_CLI_PROVIDER_ORIGINS`, under the 2026-10-23 ruling on #1673;
+the backends' origin rulings grant the CLI nothing by analogy
+(`startProviderRelay`, `packages/ui-sdk/src/server/provider-relay.ts:252-257`).
+The inference relay's placeholder is not a key: the launcher names a key that
+holds it as withheld, so a relayed Claude API-key turn's `anthropic-haiku`
+reaches the host's key instead of failing authentication. Video and the `jev`
+reranker are not relayed and keep the named roadblock.
 
 **Why tier B is protected by default.** Allow rules in project settings would
 skip the server's approval prompts. Releasing one is a policy choice the user
@@ -819,7 +842,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1033-1061`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1098-1126`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -1228,6 +1251,27 @@ Until a provider has a relay, the budget covers the agent's own inference only.
 The capabilities note and the budget UI say so, rather than implying that G3
 covers everything.
 
+**How #1673 built it.** One relay serves the CLI's Gemini embeddings and
+non-video completions, Anthropic completions, and OpenAI and Gemini images.
+Each upstream attempt is recorded once, with the units the provider reported,
+and counts toward the turn, conversation and UTC-day scopes
+(`observeProvider`, `packages/ui-server/src/brain/turn-budgets.ts:236-253`).
+The receipt's coverage names the relayed providers. Pricing follows the
+[cost-tracking rules](cost-tracking.md#relayed-cli-provider-requests-1673):
+unpriced tokens count toward the token stops, and missing usage is unknown and
+never blocks by itself. An attempt is recorded as unknown spend just before it
+leaves and completed when it settles, so a crash leaves it disclosed. Before
+each request, and again just before dispatch, the relay asks whether any scope
+is blocked and refuses with `budget_exceeded` if one is
+(`providerAdmission`, `packages/ui-server/src/brain/turn-budgets.ts:224-228`).
+A request that crosses a block does not stop the turn by itself, under the
+ruling: each further relayed request is refused, and the agent's next
+completed response, which sees the same scopes, stops the turn as any usage
+over a block does. Nothing is reserved, so requests already in flight complete and
+are counted; a scope can end above its stop by those requests. A credentialed
+maintenance run is charged to the turn whose tool started it, otherwise to its
+UTC day alone, under the brain's current policy.
+
 **Warnings.** Crossing a warn limit is recorded as a governance event. It
 appears once, beside the existing cost display. It is also added to the
 agent's next turn context.
@@ -1259,7 +1303,7 @@ rows remain historical inputs with explicit legacy attribution. Completed
 responses contribute once to their server-observed UTC day; legacy history
 uses its recorded start day. A terminal rollup never adds the live ledger a
 second time. The concrete ledger is (`createTurnBudgets`,
-`packages/ui-server/src/brain/turn-budgets.ts:43-193`).
+`packages/ui-server/src/brain/turn-budgets.ts:64-252`).
 Known priced lower bounds survive an unpriced model joining;
 unknown usage alone never blocks. A token fallback remains enforceable.
 
@@ -1387,7 +1431,7 @@ so nothing in them can be recorded or limited.
 **The design.** A `governed` or `strict` worker gets `--unshare-net` and a
 server-owned egress proxy, bind-mounted as a Unix socket in the same way as
 the inference relay. The relay's `observe` hook already exists but is not
-connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:37`).
+connected (`observe?(event`, `packages/ui-sdk/src/server/inference-relay.ts:38`).
 Inside the worker, a small loopback listener forwards to the socket, and
 `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` point at it.
 
@@ -1461,7 +1505,7 @@ a filesystem socket that is visible through the read-only host root: a Docker
 socket, a session bus, an SSH agent or a host proxy. Each of those is an
 unrecorded way out, and some reach privileged host effects. The launcher
 already masks `.git` in restricted workers for exactly this reason
-(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:210`).
+(`function maskedGit`, `packages/ui-sdk/src/server/worker-launcher.ts:224`).
 
 `governed` and `strict` workers therefore mask the host's runtime and state
 directories with empty read-only tmpfs mounts. Maintenance workers share the
@@ -1479,7 +1523,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1727`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1792`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1503,7 +1547,7 @@ such ancestor with empty tmpfs instead; it never binds that ancestor's real
 contents. Search permission uses the helper's primary shared group class when
 that group owns the directory, including when only the other class has execute
 permission. Existing canonical aliases and nested masks fold into that cover
-(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:347-406`).
+(`maintenanceMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:383-442`).
 
 This supports disjoint private-state layouts, including a nested operational
 database below a server-owned `0700` parent. New ancestor coverage that would
@@ -1538,7 +1582,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:233-297`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:239-303`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1546,7 +1590,7 @@ inside the existing attested stage. Each consumer sees the fixed Git target
 read-only; its writable stage alias is concealed and the control directory is
 excluded even from default-scope publication. This changes no source modes,
 manager reader authority or helper protocol (`prepareMaintenanceGitInput`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:92-110`). Required lower Git
+`packages/ui-sdk/src/server/maintenance-worker.ts:96-114`). Required lower Git
 metadata must still support the actual consumer operations; safe.directory is
 an exact host-selected-root check, not permission to write an unmapped inode.
 For the three fixed Git mask targets, originally absent directories are created
@@ -1579,9 +1623,9 @@ and subdirectories through retained aliases. It does not restore unrelated
 host-temp siblings or make runtime bytes writable.
 
 The concrete checks and mounts are in (`validateRuntimePlacement`,
-`packages/ui-sdk/src/server/worker-launcher.ts:667-673`),
-(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:674-713`)
-and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:714-732`).
+`packages/ui-sdk/src/server/worker-launcher.ts:603-609`),
+(`temporaryRuntimeMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:630-669`)
+and (`runtimeMaskOverlays`, `packages/ui-sdk/src/server/worker-launcher.ts:779-797`).
 Alias restoration recognizes names already supplied by a read-only bind or an
 explicit system-view symlink. It does not mount a canonical executable over an
 existing alias such as `/bin/sh`; missing owned temporary paths still receive
@@ -2189,7 +2233,7 @@ recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
 `packages/ui-server/src/brain/governed-turn.ts:113-114`). The turn's relay is
 then held to that origin: it refuses to start toward any other
-(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:78-80`),
+(`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
 has a recipient but no relay refuses to start. A model change inside a turn
 cannot leave the one relay socket the worker has.
@@ -2319,7 +2363,7 @@ group, with setgid directories. Setgid sets only the group, though, and the kit
 creates its per-turn objects with private modes today. Runtime state
 (`export function createClaudeWorkerState`, `packages/ui-backend-claude/src/worker-state.ts:136`)
 and the inference relay
-(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:70`)
+(`export function startInferenceRelay`, `packages/ui-sdk/src/server/inference-relay.ts:71`)
 both use `0700` directories and `0600` files or sockets. With a helper configured,
 the kit therefore creates these with explicit group ownership and group modes:
 
@@ -2332,7 +2376,7 @@ before mounting them: both belong to the server, helper mode uses its primary
 GID and exact `0750`/`0660` modes, and no-helper mode retains exact
 `0700`/`0600`. Missing endpoints, aliases, non-sockets, foreign ownership and
 wider modes refuse before payload execution
-(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:234-268`).
+(`function restrictedMounts`, `packages/ui-sdk/src/server/worker-launcher.ts:248-282`).
 This compatibility check does not change default autonomous admission or add
 another route.
 
@@ -2470,11 +2514,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:996-1024`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1061-1089`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1033-1059`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1098-1124`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1206-1279`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1271-1344`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2782,7 +2826,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:447-458`).
+  `packages/ui-server/src/brain/host-boundary.ts:493-504`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
@@ -2978,7 +3022,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:542-607`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:544-609`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

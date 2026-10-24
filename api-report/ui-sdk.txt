@@ -361,6 +361,7 @@ export "." (./src/index.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetCoverage
   type TurnBudgetReceipt
   type TurnFailure
   type TurnHistoryAction
@@ -871,6 +872,7 @@ export "./client" (./src/client/index.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetCoverage
   type TurnBudgetReceipt
   type TurnFailure
   type TurnHistoryAction
@@ -945,6 +947,7 @@ export "./internal" (./src/internal.ts)
   DEFAULT_WORKER_STATE_BYTES
   type EgressProxyOptions
   type EgressRecord
+  FIRST_PARTY_PROVIDER_RECIPIENTS
   GIT_LOCK_KEY
   HOST_GIT_CREDENTIAL_ENV
   HOST_MASKS
@@ -959,6 +962,7 @@ export "./internal" (./src/internal.ts)
   MAINTENANCE_TEMP_BUDGET_ENV
   MAINTENANCE_TEMP_BYTES_ENV
   MAX_INFERENCE_REQUEST_BYTES
+  MAX_PROVIDER_REQUEST_BYTES
   type MaintenanceCommand
   type MaintenanceEnvelope
   type MaintenanceHost
@@ -991,8 +995,16 @@ export "./internal" (./src/internal.ts)
   PROTECTED_ENV_PREFIX
   PROTECTED_TIER_A
   PROTECTED_TIER_B
+  PROVIDER_RELAY_KEYS_NAME
+  PROVIDER_RELAY_SOCKET_NAME
   type PrepareWorkerSandboxOptions
   type PreparedWorkerOutput
+  type ProviderOperation
+  type ProviderRelay
+  type ProviderRelayOptions
+  type ProviderRelayReceipt
+  type ProviderRelayRefusal
+  type ProviderUsage
   type QuestionObservation
   REFERENCE_POOL_CHECKPOINT_BYTES
   RTK_WORKER_ENV
@@ -1027,6 +1039,8 @@ export "./internal" (./src/internal.ts)
   WORKER_INFERENCE_SOCKET
   WORKER_LIMITS_ENV
   WORKER_PROVIDER_CREDENTIAL_ENV
+  WORKER_PROVIDER_RELAY_DIR
+  WORKER_PROVIDER_RELAY_SOCKET
   WORKER_SCRATCH
   WORKER_STATE
   WORKER_STATE_BUDGET_ENV
@@ -1088,8 +1102,10 @@ export "./internal" (./src/internal.ts)
   handleTurnTemp
   hasManagedNativeStorage
   hasWebSearchCredential
+  heldCustomProviderKeys
   hostMaintenanceTempLimits
   hostOutputStagingLimits
+  hostProviderCredential
   isEnvName
   isManagedWorkerStartupView
   launchAgentWorker
@@ -1110,6 +1126,7 @@ export "./internal" (./src/internal.ts)
   observeOutwardPlan
   outputStagingLimit
   outwardTarget
+  parseCliProviderOrigins
   parseNativeBrainDelta
   parseWorkerStateBytes
   piMaskFilename
@@ -1131,11 +1148,13 @@ export "./internal" (./src/internal.ts)
   processStateLedger
   promptPrefixFingerprint
   protectedPaths
+  providerUsage
   purgeTurnTemp
   readWebSearchOverride
   readWebSearchRouting
   recoveredWorkerFile
   recoveredWorkerFiles
+  relayedProviderKeys
   requestPolicyPermission
   requireWorkerHost
   requireWorkerHostAsync
@@ -1154,6 +1173,7 @@ export "./internal" (./src/internal.ts)
   sessionReplay
   startEgressProxy
   startInferenceRelay
+  startProviderRelay
   turnTempFullMessage
   turnTempLimit
   turnTempPath
@@ -1553,6 +1573,7 @@ export "./protocol" (./src/protocol.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetCoverage
   type TurnBudgetReceipt
   type TurnFailure
   type TurnHistoryAction
@@ -2302,6 +2323,7 @@ export "./server" (./src/server/index.ts)
   type TranscriptionErrorResponse
   type TranscriptionFailure
   type TranscriptionFailureReason
+  type TurnBudgetCoverage
   type TurnBudgetReceipt
   type TurnFailure
   type TurnHistoryAction
@@ -10373,13 +10395,15 @@ signatures (every public export and the types it is made of)
     }
   TranscriptionFailureReason (packages/ui-sdk/src/protocol.ts)
     export type TranscriptionFailureReason = "provider_error" | "rate_limit" | "provider_timeout" | "media" | "parameters" | "validation" | "authentication" | "outcome_unknown";
+  TurnBudgetCoverage (packages/ui-sdk/src/turn-budgets.ts)
+    export type TurnBudgetCoverage = "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered" | "Built-in inference only; provider and tool spend is not metered";
   TurnBudgetReceipt (packages/ui-sdk/src/turn-budgets.ts)
     export interface TurnBudgetReceipt {
         listPriceCostUsd: number | null;
         listPriceIsEstimate?: boolean | null;
         tokens: number | null;
         observedAt: number;
-        coverage: "Built-in inference only; provider and tool spend is not metered";
+        coverage: TurnBudgetCoverage;
         scopes: BudgetObservation[];
     }
   TurnFailure (packages/ui-sdk/src/protocol.ts)
@@ -15213,7 +15237,10 @@ signatures (every public export and the types it is made of)
                 voice: "voice";
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-                coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                    "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
@@ -15320,7 +15347,10 @@ signatures (every public export and the types it is made of)
         type: z.ZodLiteral<"turn_journal">;
     }, z.core.$loose>, z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-            coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+            coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+            }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
@@ -15983,7 +16013,10 @@ signatures (every public export and the types it is made of)
                     voice: "voice";
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-                    coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                    coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                        "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
@@ -18275,7 +18308,10 @@ signatures (every public export and the types it is made of)
                     voice: "voice";
                 }>>;
                 budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-                    coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                    coverage: z.ZodEnum<{
+                        "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                        "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                    }>;
                     listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                     listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                     observedAt: z.ZodNumber;
@@ -18669,7 +18705,10 @@ signatures (every public export and the types it is made of)
                 voice: "voice";
             }>>;
             budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-                coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+                coverage: z.ZodEnum<{
+                    "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                    "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+                }>;
                 listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
                 listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
                 observedAt: z.ZodNumber;
@@ -18778,7 +18817,10 @@ signatures (every public export and the types it is made of)
   serverUsageSchema (packages/ui-sdk/src/schemas.ts)
     const serverUsageSchema: z.ZodObject<{
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-            coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+            coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+            }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;
@@ -18919,7 +18961,10 @@ signatures (every public export and the types it is made of)
     export function toolInputJsonSchema(contract: ToolContract | z.ZodObject): Record<string, unknown>;
   turnBudgetReceiptSchema (packages/ui-sdk/src/schemas.ts)
     const turnBudgetReceiptSchema: z.ZodObject<{
-        coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+        coverage: z.ZodEnum<{
+            "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+            "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+        }>;
         listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
         listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         observedAt: z.ZodNumber;
@@ -18951,7 +18996,10 @@ signatures (every public export and the types it is made of)
             voice: "voice";
         }>>;
         budget: z.ZodCatch<z.ZodOptional<z.ZodObject<{
-            coverage: z.ZodLiteral<"Built-in inference only; provider and tool spend is not metered">;
+            coverage: z.ZodEnum<{
+                "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered": "Built-in inference and relayed brain CLI providers; other provider and tool spend is not metered";
+                "Built-in inference only; provider and tool spend is not metered": "Built-in inference only; provider and tool spend is not metered";
+            }>;
             listPriceCostUsd: z.ZodNullable<z.ZodNumber>;
             listPriceIsEstimate: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             observedAt: z.ZodNumber;

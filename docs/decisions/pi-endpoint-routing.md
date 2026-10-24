@@ -137,7 +137,8 @@ How the implementation holds to these rulings
   provider's credential stay on the host, including `$NAME` templates. So do
   the inference keys only agent runtimes read, unless the operator admits one
   to tools explicitly (`BRAIN_UI_SUBPROCESS_ENV_EXTRA`). Keys the brain CLI's
-  own providers read stay until #1673 relays them. A brain CLI configured to
+  own providers read stay on the host; the CLI reaches them through the
+  metered provider relay (#1673). A brain CLI configured to
   read an agent-only name by alias loses it in a relayed worker. pi's
   host `auth.json` and `models.json` are masked in the worker wherever the
   host masks do not already hide them, unless `models.json` lives in the

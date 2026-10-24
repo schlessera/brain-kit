@@ -4,7 +4,10 @@
 import { statSync, realpathSync } from "fs";
 import { join, resolve } from "path";
 
-import { resolveCronConfig, type CronConfig } from "../config/env.js";
+import { resolveCronConfig, resolveStandalonePricingConfig, type CronConfig } from "../config/env.js";
+import { createTurnBudgets } from "../brain/turn-budgets.js";
+import { maintenanceProviderMeter } from "../brain/provider-meter.js";
+import { createModelPricing } from "../pricing/model-pricing.js";
 import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { createNativeBrainLeaseManager } from "../brain/native-brain-leases.js";
 import { assertOperationalStateOutsideBrain } from "../brain/operational-state.js";
@@ -116,7 +119,12 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
   try {
   const recovered = await leases.recoverDeadOwners();
   if (recovered.unknown.length || recovered.retainedUnverifiable) process.stderr.write(`[brain-ui-cron] native ownership recovery retained ${recovered.unknown.length} unknown outcomes and ${recovered.retainedUnverifiable} unverifiable PID namespaces.\n`);
-  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: ready.privatePaths, privateStatePaths,
+  // A credentialed job reaches the CLI's providers through a metered relay,
+  // charged to its UTC day on the database the server shares (#1673).
+  let relayBudgets: ReturnType<typeof createTurnBudgets> | undefined;
+  const providerRelay = maintenanceProviderMeter({ brainPath: config.brainPath, origins: config.cliProviderOrigins, budgets: () => relayBudgets,
+    report: message => process.stderr.write(`[brain-ui-cron] ${message}\n`) });
+  const execution = createHostExecution({ nativeManager: leases.client, nativeMaskPaths: ready.privatePaths, privateStatePaths, providerRelay,
     brainPath: config.brainPath, dbPath: config.dbPath, exec: config.exec, maintenanceTemp: config.maintenanceTemp, requireGate: options.gate });
   const report = (results: Reconciliation[]) => {
     for (const result of results) {
@@ -135,6 +143,7 @@ async function cronHostExecution(config: CronConfig, options: { gate: boolean })
     if (options.gate) {
       db = createUiDb(config.dbPath);
       report(execution.attach(db));
+      relayBudgets = createTurnBudgets(db, createModelPricing(resolveStandalonePricingConfig()));
     }
   } catch (error) {
     reconciled = false;

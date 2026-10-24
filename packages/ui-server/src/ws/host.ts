@@ -102,6 +102,8 @@ export interface WsHostOptions {
   sessionProfiles?: import("./session-profiles.js").SessionProfiles;
   /** @internal Concrete list-price inference control. */
   budgets?: import("../brain/turn-budgets.js").TurnBudgets;
+  /** @internal BRAIN_UI_CLI_PROVIDER_ORIGINS, parsed: extra recipients for the CLI provider relay (#1673). */
+  cliProviderOrigins?: ReadonlyMap<string, readonly string[]>;
   /** Concrete contained staging root for track attachments; absent refuses the new path. */
   brainPath?: string;
   /** @internal Where the application route evaluates the brain's own code (#1648). */
@@ -267,6 +269,7 @@ export class WsHost {
   readonly sessionProfiles?: import("./session-profiles.js").SessionProfiles;
   /** @internal Host-owned inference accounting, not a replaceable budget provider. */
   readonly budgets?: import("../brain/turn-budgets.js").TurnBudgets;
+  readonly cliProviderOrigins?: ReadonlyMap<string, readonly string[]>;
   /** @internal Host wiring (#1053). */
   readonly failureReplay: FailureReplay;
   readonly askUserFormLimits: AskUserFormLimits;
@@ -355,6 +358,7 @@ export class WsHost {
     this.maintenance = options.maintenance;
     this.sessionProfiles = options.sessionProfiles;
     this.budgets = options.budgets;
+    this.cliProviderOrigins = options.cliProviderOrigins;
     this.askUserFormLimits = resolveAskUserFormLimits(options.askUserFormLimits);
     this.clients = new ClientSet(options.wsMaxConnections, (principalIds) => {
       this.coordinator.invalidateAuthorizations(principalIds);

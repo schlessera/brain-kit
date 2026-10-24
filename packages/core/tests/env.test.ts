@@ -49,6 +49,7 @@ describe("config/env descriptor", () => {
       [
         "ANTHROPIC_API_KEY",
         "BRAIN_CHROME_NO_SANDBOX",
+        "BRAIN_PROVIDER_RELAY_SOCKET",
         "BRAIN_RERANK_MODE",
         "BRAIN_ROOT",
         "BRAIN_STORAGE_GIT_ROOTS",
