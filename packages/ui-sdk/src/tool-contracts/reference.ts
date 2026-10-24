@@ -15,7 +15,7 @@ export const REFERENCE_WORKTREE_LIST_LIMIT = 20;
 
 const repository = z.string().trim().min(1).max(2048)
   .describe("Repository location: an https URL without credentials, a loopback http URL, or an absolute file:// path.");
-const revision = z.string().trim().min(1).max(255)
+const revision = z.string().trim().min(1).max(200)
   .describe("Branch or tag name. A raw commit id is refused; for one fixed commit, request a worktree.");
 const worktreeId = z.string().trim().min(1).max(64).describe("Worktree identity from an earlier result.");
 

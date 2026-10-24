@@ -63,13 +63,19 @@ export function createReferenceTools(options: {
     options.log?.emit({ severityText: "WARN", body: `reference tool failed: ${error instanceof Error ? error.message : String(error)}` });
     return { ok: false, code: "unavailable", message: "The reference service could not complete this request." };
   }
-  /** Bounded, and without the host's own pool or brain paths. */
+  /**
+   * Bounded, and without host paths: the pool's and brain's roots, and any
+   * other absolute path a service error carried. A `file://` repository the
+   * caller named stays readable.
+   */
   function scrub(text: string): string {
     let out = text;
     for (const root of hidden) if (root) out = out.split(root).join("<host>");
-    return Buffer.byteLength(out) > MESSAGE_BYTES ? `${Buffer.from(out).subarray(0, MESSAGE_BYTES - 3).toString().replace(/�$/, "")}...` : out;
+    out = out.replace(/(?<![\w:/.])\/(?!\/)[^\s'"`,;)]+/g, match => match.startsWith("/tmp/brain-") ? match : "<host path>");
+    return Buffer.byteLength(out) > MESSAGE_BYTES ? `${Buffer.from(out).subarray(0, MESSAGE_BYTES - 3).toString().replace(/\uFFFD$/, "")}...` : out;
   }
   const iso = (ms: number) => new Date(ms).toISOString();
+  const ended = (): ReferenceToolResult => ({ ok: false, code: "cancelled", message: "This turn ended before the call finished." });
 
   function source(access: TurnAccess, lease: ReferenceSourceLease): ReferenceSourceView {
     const bound = access.views?.[lease.domain];
@@ -78,22 +84,28 @@ export function createReferenceTools(options: {
       freshness: lease.stale ? "stale" : "fresh", refreshedAt: iso(lease.refreshedAt), validatedAt: iso(lease.validatedAt),
       error: lease.error === null ? null : scrub(lease.error) };
   }
-  function worktree(access: TurnAccess, item: ReferenceWorktree): ReferenceWorktreeView {
+  function worktree(access: TurnAccess, item: ReferenceWorktree, turnId?: string): ReferenceWorktreeView {
+    const reachable = (turnId === undefined || current(turnId, access)) && access.generation && item.generation === access.generation.id && item.state !== "released";
     return { id: item.id, repository: item.repository, revision: item.revision, domain: item.domain, startingCommit: item.commit, state: item.state,
-      path: access.generation && item.generation === access.generation.id && item.state !== "released" ? `${WORKER_WORKTREE_ROOT}/${item.id}` : null,
+      path: reachable ? `${WORKER_WORKTREE_ROOT}/${item.id}` : null,
       lastActivityAt: iso(item.accessedAt), expiresAt: iso(item.expiresAt), releasedAt: item.releasedAt === null ? null : iso(item.releasedAt),
       allowanceBytes: item.allowanceBytes };
   }
-  function keep(access: TurnAccess, lease: ReferenceSourceLease) {
+  /**
+   * One reader per source for the rest of the turn. A turn that already holds
+   * the limit of distinct sources is refused another: dropping an earlier
+   * reader would end protection the turn may still rely on.
+   */
+  function keep(access: TurnAccess, lease: ReferenceSourceLease): boolean {
     const key = `${lease.domain}\u0000${lease.repository}\u0000${lease.revision}`;
-    access.leases.get(key)?.release();
-    access.leases.delete(key);
+    const held = access.leases.get(key);
+    if (!held && access.leases.size >= TURN_LEASES) { lease.release(); return false; }
+    held?.release();
     access.leases.set(key, lease);
-    for (const [oldest, held] of access.leases) {
-      if (access.leases.size <= TURN_LEASES) break;
-      held.release(); access.leases.delete(oldest);
-    }
+    return true;
   }
+  /** A call that finished after its turn ended reports nothing a worker could use. */
+  const current = (turnId: string, access: TurnAccess) => turns.get(turnId) === access;
 
   return {
     /**
@@ -129,7 +141,8 @@ export function createReferenceTools(options: {
           const input = REFERENCE_SOURCE_INPUT_SCHEMA.parse(call.input);
           if (!access.views) return { ok: false, code: "unavailable", message: "Shared reference source cannot be bound into this turn's workers." };
           const lease = await options.sources.request({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal });
-          keep(access, lease);
+          if (!current(turnId, access)) { lease.release(); return ended(); }
+          if (!keep(access, lease)) return { ok: false, code: "busy", message: `This turn already reads ${TURN_LEASES} reference sources; use one of them, or request a worktree.` };
           return { ok: true, source: source(access, lease), guidance: SOURCE_GUIDANCE };
         }
         const input = REFERENCE_WORKTREE_INPUT_SCHEMA.parse(call.input);
@@ -143,23 +156,23 @@ export function createReferenceTools(options: {
         if (access.posture === "voice") return { ok: false, code: "unavailable", message: "Managed worktrees cannot be changed from a voice turn." };
         if (input.action === "renew") {
           const item = await worktrees.renew({ worktreeId: input.worktreeId!, principalId: access.principalId });
-          return { ok: true, action: "renew", worktree: worktree(access, item), guidance: WORKTREE_GUIDANCE.renew };
+          return { ok: true, action: "renew", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.renew };
         }
         if (input.action === "release") {
           const item = await worktrees.release({ worktreeId: input.worktreeId!, principalId: access.principalId, signal });
-          return { ok: true, action: "release", worktree: worktree(access, item), guidance: WORKTREE_GUIDANCE.release };
+          return { ok: true, action: "release", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.release };
         }
         // Requesting and accessing grant to this turn's generation: without one, nothing is allocated.
         const generation = access.generation;
         if (!generation) return { ok: false, code: "unavailable", message: "This turn's workers hold no worktree generation, so no worktree can be made available to them; its change journal may not be recording." };
         if (input.action === "access") {
           const item = await worktrees.access({ worktreeId: input.worktreeId!, principalId: access.principalId, generation: generation.id, signal });
-          return { ok: true, action: "access", worktree: worktree(access, item), guidance: WORKTREE_GUIDANCE.access };
+          return { ok: true, action: "access", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.access };
         }
         const allocated = await worktrees.allocate({ principalId: access.principalId, repository: input.repository, revision: input.revision, signal });
         try {
           const item = await worktrees.access({ worktreeId: allocated.id, principalId: access.principalId, generation: generation.id, signal });
-          return { ok: true, action: "request", worktree: worktree(access, item), guidance: WORKTREE_GUIDANCE.request };
+          return { ok: true, action: "request", worktree: worktree(access, item, turnId), guidance: WORKTREE_GUIDANCE.request };
         } catch (error) {
           // Nothing reached a worker: release the untouched worktree rather than leave it to expire.
           await worktrees.release({ worktreeId: allocated.id, principalId: access.principalId })

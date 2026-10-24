@@ -729,10 +729,13 @@ const shapes = await create("staging", 32 * MIB);
     const toolLaunch = workerCommand({ brainPath: "/brain-fixture/brain", env: { PATH: "/usr/bin:/bin" },
       sandbox: { ...prepareWorkerSandbox("/brain-fixture/brain", { profile: "strict", areas: [], maskPaths: masks }), worktrees: { source: toolTurn.path }, references: views },
       command: ["/bin/sh", "-c", `find ${shared.source.path}/odyssey -type f | wc -l; { printf x > ${shared.source.path}/odyssey/raft.md && echo SOURCE_WRITTEN || echo SOURCE_READ_ONLY; } 2>/dev/null; `
+        // The view itself: only a read-only bind refuses this to a root worker.
+        + `{ mkdir /tmp/brain-reference/private/raft && echo VIEW_WRITTEN || echo VIEW_READ_ONLY; } 2>/dev/null; `
         + `printf 'Penelope weaves.\\n' > ${asked.worktree.path}/odyssey/loom.md && echo WORKTREE_WRITTEN; for d in roots views access; do ls -A ${POOL}/$d 2>/dev/null | wc -l; done`] });
     const toolRun = Bun.spawnSync(toolLaunch, { stdout: "pipe", stderr: "pipe", env: {} });
     note("reference-tools-production-launch", { code: toolRun.exitCode, stdout: toolRun.stdout.toString(), stderr: toolRun.stderr.toString().slice(-2000) });
-    expect(toolRun.stdout.toString(), "REFERENCE_TOOLS_NATIVE_WORKER_READS_SOURCE_AND_EDITS_WORKTREE").toBe("1200\nSOURCE_READ_ONLY\nWORKTREE_WRITTEN\n0\n0\n0\n");
+    expect({ code: toolRun.exitCode, stdout: toolRun.stdout.toString() }, "REFERENCE_TOOLS_NATIVE_WORKER_READS_SOURCE_AND_EDITS_WORKTREE")
+      .toEqual({ code: 0, stdout: "1200\nSOURCE_READ_ONLY\nVIEW_READ_ONLY\nWORKTREE_WRITTEN\n0\n0\n0\n" });
     await journal.observe();
     expect(rows("turn-18-tools").map(row => row.path), "REFERENCE_TOOLS_NATIVE_ONLY_WORKTREE_EDIT_JOURNALED").toEqual([referenceWorktreeJournalPath(asked.worktree.id, "odyssey/loom.md")]);
     expect(facts.get("turn-18-tools"), "REFERENCE_TOOLS_NATIVE_READS_DO_NOT_COUNT").toMatchObject({ changedPaths: 1, partial: false });

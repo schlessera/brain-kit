@@ -7,6 +7,7 @@ import { BRIDGE_TOOL_POSTURE } from "../src/tool-contracts/bridge.js";
 import { piMaskFilename } from "../src/server/bridge-tools/mask.js";
 import { resolveInRepo } from "../src/server/bridge-tools/resolve-in-repo.js";
 import { wrapUntrustedData } from "../src/server/bridge-tools/activity.js";
+import { handleReferenceTool } from "../src/server/bridge-tools/reference.js";
 
 describe("bridge tool server primitives", () => {
   test("the posture names all bridge tools and derives backend-visible names", () => {
@@ -118,5 +119,16 @@ describe("pi mask destinations", () => {
   test("still strips an ordinary extension", () => {
     expect(piMaskFilename("x.png", "/repo/x.png")).toBe("/repo/x.mask.png");
     expect(piMaskFilename("x.jpeg", "/repo/nested/x.jpeg")).toBe("/repo/nested/x.mask.png");
+  });
+});
+
+describe("reference tool refusals (#2432)", () => {
+  test("an invalid input's refusal stays within 500 bytes and never reaches the host", async () => {
+    let called = false;
+    const result = await handleReferenceTool("reference_source", { repository: "https://git.example/ithaca/charts.git", revision: "main", ["k".repeat(2000)]: 1 },
+      { referenceAccess: async () => { called = true; return { ok: false, code: "unavailable", message: "unused" }; } });
+    const refusal = JSON.parse(result.text) as { ok: boolean; code: string; message: string };
+    expect({ isError: result.isError, ok: refusal.ok, code: refusal.code, called }).toEqual({ isError: true, ok: false, code: "invalid", called: false });
+    expect(Buffer.byteLength(refusal.message), "REFERENCE_TOOLS_ADAPTER_REFUSAL_BOUNDED").toBeLessThanOrEqual(500);
   });
 });

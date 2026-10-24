@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
@@ -25,17 +25,19 @@ const grant = (principalId: string) => createReferenceGrant(db, { brain: BRAIN, 
 
 function host() {
   const tips = new Map([[PUBLIC, "1".repeat(40)], [PRIVATE, "2".repeat(40)]]);
-  const state = { failFetch: false };
+  const state = { failFetch: false, resolves: 0, gate: null as Promise<void> | null };
   const transport: ReferenceTransport = {
     async resolve({ repository, token }) {
-      const tip = tips.get(repository.canonical);
+      state.resolves++;
+      await state.gate;
+      const tip = tips.get(repository.canonical) ?? (repository.canonical.startsWith(`${PUBLIC}-`) ? "4".repeat(40) : undefined);
       if (!tip || (repository.canonical === PRIVATE && token !== TOKEN)) return { ok: false, reason: "denied", detail: "fatal: repository not found" };
       return { ok: true, commit: tip, ref: "refs/heads/main" };
     },
     async fetch({ repository, root: target }) {
       if (state.failFetch) throw new Error(`fetch failed under ${join(root, "pool")}/roots`);
       writeFileSync(join(target, "odyssey.md"), `${repository.canonical}: Sing, Muse, of the man of many ways.\n`);
-      return { commit: tips.get(repository.canonical)! };
+      return { commit: tips.get(repository.canonical) ?? "4".repeat(40) };
     },
     async checkout() {},
   };
@@ -49,6 +51,7 @@ function host() {
     return { ...lease, release() { released.push(lease.name); lease.release(); } };
   } };
   const tools = createReferenceTools({ sources: counted, worktrees });
+  const views = () => readdirSync(join(root, "pool", "views")).flatMap(view => readdirSync(join(root, "pool", "views", view)));
   /** One interactive turn, prepared as run-session prepares it. */
   async function turn(principalId: string, options: { generation?: boolean; posture?: "interactive" | "voice" } = {}) {
     const turnId = crypto.randomUUID();
@@ -57,7 +60,7 @@ function host() {
     const call = (input: ReferenceToolCall, caller = principalId) => tools.call(turnId, caller, input);
     return { turnId, generation, views, call };
   }
-  return { pool, sources, worktrees, tools, turn, state, tips, released };
+  return { pool, sources, worktrees, tools, turn, state, tips, released, views };
 }
 const ok = <T extends ReferenceToolResult>(result: ReferenceToolResult) => { expect(result.ok, JSON.stringify(result)).toBe(true); return result as Extract<T, { ok: true }>; };
 const source = (repository: string, revision = "main"): ReferenceToolCall => ({ tool: "reference_source", input: { repository, revision } });
@@ -106,6 +109,8 @@ describe("shared reference source", () => {
     expect(await theirs.call(source(PRIVATE)), "REFERENCE_TOOLS_PRIVATE_NOT_SHARED").toMatchObject({ ok: false, code: "unauthorized" });
     expect(theirs.views!.private).not.toBe(current.views!.private);
     revokeReferenceGrant(db, { brain: BRAIN, principalId: penelope.id, id: issued.id, now: Date.now() });
+    // Inside the validation lifetime: revocation needs no clock to take effect.
+    expect(await current.call(source(PRIVATE)), "REFERENCE_TOOLS_REVOCATION_IMMEDIATE").toMatchObject({ ok: false, code: "unauthorized" });
     clock += 301_000;
     expect(await current.call(source(PRIVATE)), "REFERENCE_TOOLS_REVOKED_REFUSES").toMatchObject({ ok: false, code: "unauthorized" });
   });
@@ -126,6 +131,77 @@ describe("shared reference source", () => {
     tools.end(current.turnId);
     expect(released, "REFERENCE_TOOLS_LEASES_END_WITH_TURN").toHaveLength(2);
     expect(await current.call(source(PUBLIC))).toMatchObject({ ok: false, code: "unavailable" });
+  });
+});
+
+describe("binding a view is a new mount", () => {
+  test("a source whose validation lapsed with no reader leaves the view before a worker binds it, and returns once validated", async () => {
+    const { turn, tools, state, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const first = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await first.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    tools.end(first.turnId);
+    clock += 301_000;
+    const next = await turn(telemachus.id);
+    // Neither the name nor the root's identity stays in the view a new worker binds.
+    expect(views(), "REFERENCE_TOOLS_LAPSED_SOURCE_NOT_BOUND").toEqual([]);
+    const checks = state.resolves;
+    const again = ok<Extract<ReferenceToolResult, { source: unknown }>>(await next.call(source(PUBLIC)));
+    expect({ checked: state.resolves > checks, path: again.source.path?.endsWith(name) }, "REFERENCE_TOOLS_REVALIDATED_SOURCE_REPUBLISHED").toEqual({ checked: true, path: true });
+    expect(views()).toContain(name);
+  });
+
+  test("a running turn's source stays while another turn binds after its validation lapsed", async () => {
+    const { turn, views } = host();
+    const penelope = principal(), telemachus = principal("Telemachus");
+    const reading = await turn(penelope.id);
+    const name = ok<Extract<ReferenceToolResult, { source: unknown }>>(await reading.call(source(PUBLIC))).source.path!.split("/").at(-1)!;
+    clock += 301_000;
+    await turn(telemachus.id);
+    expect(views(), "REFERENCE_TOOLS_RUNNING_READER_KEEPS_SOURCE").toContain(name);
+  });
+});
+
+describe("turn boundaries", () => {
+  test("a call that finishes after its turn ended reports no path and keeps no reader", async () => {
+    const { turn, tools, state, released } = host();
+    const penelope = principal();
+    const current = await turn(penelope.id);
+    let open!: () => void;
+    state.gate = new Promise(resolve => { open = resolve; });
+    const pending = current.call(source(PUBLIC));
+    while (state.resolves === 0) await Bun.sleep(1);
+    tools.end(current.turnId);
+    open();
+    expect(await pending, "REFERENCE_TOOLS_LATE_RESULT_FENCED").toMatchObject({ ok: false, code: "cancelled" });
+    expect(released, "REFERENCE_TOOLS_LATE_LEASE_RELEASED").toHaveLength(1);
+  });
+
+  test("a turn at its reader limit is refused another source instead of dropping an earlier reader", async () => {
+    const { turn, released } = host();
+    const penelope = principal();
+    const current = await turn(penelope.id);
+    for (let index = 0; index < 32; index++) ok(await current.call(source(`${PUBLIC}-${index}`)));
+    expect(await current.call(source(`${PUBLIC}-32`)), "REFERENCE_TOOLS_READER_LIMIT_REFUSES").toMatchObject({ ok: false, code: "busy" });
+    expect(released, "REFERENCE_TOOLS_READER_LIMIT_KEEPS_EARLIER_READERS").toHaveLength(1);
+    ok(await current.call(source(`${PUBLIC}-0`)));
+  });
+
+  test("a refusal names no host path even when the views could not be prepared", async () => {
+    const { pool, sources, worktrees } = host();
+    const penelope = principal();
+    const create = pool.poolCreate;
+    pool.poolCreate = async (id, purpose, from, allowance, signal) => {
+      if (purpose === "worktree") throw new Error(`refused at ${join(root, "pool", "roots", id)}`);
+      return create(id, purpose, from, allowance, signal);
+    };
+    const tools = createReferenceTools({ sources: { ...sources, async bindable() { throw new Error("views unavailable"); } }, worktrees });
+    const turnId = crypto.randomUUID();
+    const generation = await worktrees.openGeneration({ principalId: penelope.id, turnId, profile: "governed" });
+    expect(await tools.begin(turnId, { principalId: penelope.id, posture: "interactive", generation })).toBeNull();
+    const refused = await tools.call(turnId, penelope.id, worktree({ action: "request", repository: PUBLIC, revision: "main" }));
+    expect(refused, "REFERENCE_TOOLS_REFUSAL_HIDES_HOST_PATH").toMatchObject({ ok: false, code: "unavailable" });
+    expect(JSON.stringify(refused), "REFERENCE_TOOLS_REFUSAL_NAMES_NO_HOST_PATH").not.toContain(root);
   });
 });
 

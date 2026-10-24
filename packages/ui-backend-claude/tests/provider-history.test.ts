@@ -77,7 +77,7 @@ test("title traffic is suppressed only by the explicit disable-nonessential flag
 });
 
 // #2432: the worktree tool runs through the installed CLI and its MCP route on
-// every turn, while the host's lifecycle answer and the sandbox views change.
+// every turn, while the host's lifecycle answer and its handler's presence change.
 test("Claude reference tools dispatch to the host and keep tools, system and history stable across the worktree lifecycle", () => {
   const capture = captures.reference!;
   // Against a local endpoint the CLI replays turn 0's MCP roster on resume, as it

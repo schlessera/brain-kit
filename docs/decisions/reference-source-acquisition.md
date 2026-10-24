@@ -45,7 +45,7 @@ exact published commit, and `refreshedAt`, the last successful refresh. Both
 default to five minutes and are configured separately
 (`BRAIN_UI_REFERENCE_VALIDATION_SECONDS`,
 `BRAIN_UI_REFERENCE_REFRESH_SECONDS`). Nothing runs on a timer
-(`operate`, `packages/ui-server/src/brain/reference-source.ts:226-273`).
+(`operate`, `packages/ui-server/src/brain/reference-source.ts:233-280`).
 
 - Inside both windows a request reuses the published source without any
   network call.
@@ -72,7 +72,7 @@ default to five minutes and are configured separately
 
 Acquisition reserves a pool root before any work. The root is a snapshot of
 the previous root, so a refresh fetches only new objects. Then
-(`acquire`, `packages/ui-server/src/brain/reference-source.ts:338-383`):
+(`acquire`, `packages/ui-server/src/brain/reference-source.ts:346-391`):
 
 1. The host writes fixed Git metadata into the root: no hooks, no fsmonitor,
    fsck on transfer, no repository-controlled configuration.
@@ -102,9 +102,9 @@ reclamation is observed.
 
 At most `BRAIN_UI_REFERENCE_ACQUISITIONS` (default two) acquisitions or
 refreshes run across the host
-(`admit`, `packages/ui-server/src/brain/reference-source.ts:166-181`). Requests
+(`admit`, `packages/ui-server/src/brain/reference-source.ts:173-188`). Requests
 for the same source in the same domain join one operation
-(`function join`, `packages/ui-server/src/brain/reference-source.ts:184-209`).
+(`function join`, `packages/ui-server/src/brain/reference-source.ts:191-216`).
 At most 64 distinct operations wait; beyond that a request is refused as busy.
 A requester that cancels leaves its operation, and the operation is cancelled
 when its last requester leaves. Readers are never admitted operations: a request
@@ -134,14 +134,14 @@ removes the name and moves every one of those roots out of the view
 (`poolWithdraw`), so no reader reaches them by name or identity. Storage is
 released once readers finish. An acquisition of the same source waits for the
 withdrawal to finish
-(`revoke`, `packages/ui-server/src/brain/reference-source.ts:419-436`).
+(`revoke`, `packages/ui-server/src/brain/reference-source.ts:456-473`).
 
 The catalog lives in the UI database and is disposable bookkeeping. At start, a
 recorded source survives only if its sealed root still exists, its name can be
 published again (which repairs a publication whose reply was lost) and, when
 private, a live grant still covers it. Every other owned source root is
 released: interrupted staging, superseded or withdrawn roots, roots the
-catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:439-477`).
+catalog lost, and deletions interrupted in `deleting` (`recover`, `packages/ui-server/src/brain/reference-source.ts:476-514`).
 
 ## Evidence
 

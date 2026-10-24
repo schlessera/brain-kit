@@ -69,7 +69,8 @@ test("a turn's tools reach reference source and its own worktree through the bou
   await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
   const repository = "https://github.com/odysseus/ithaca", calls: ReferenceToolResult[] = [];
   let sandbox: { worktrees?: { source: string }; references?: { public: string; private: string } } | undefined, late: (() => Promise<ReferenceToolResult>) | undefined;
-  const backend = makeFakeBackend({ id: "reference-fixture", startTurn: async ({ bridge, workerSandbox }) => {
+  // Named "pi" so the bridge applies the live-authority wrapper first-party backends get.
+  const backend = makeFakeBackend({ id: "pi", startTurn: async ({ bridge, workerSandbox }) => {
     sandbox = workerSandbox as typeof sandbox;
     calls.push(await bridge.referenceAccess!({ tool: "reference_source", input: { repository, revision: "main" } }));
     calls.push(await bridge.referenceAccess!({ tool: "reference_worktree", input: { action: "request", repository, revision: "main" } }));
@@ -106,6 +107,6 @@ test("a turn's tools reach reference source and its own worktree through the bou
     expect(requested.worktree.path, "REFERENCE_TOOLS_HOST_TURN_WORKTREE_PATH").toBe(`/tmp/brain-worktrees/${requested.worktree.id}`);
     expect(worktrees.list(principal.id).map(item => item.id), "REFERENCE_TOOLS_HOST_TURN_PRINCIPAL").toEqual([requested.worktree.id]);
     // After the turn its bridge holds no reference authority.
-    expect(await late!(), "REFERENCE_TOOLS_NO_ACCESS_AFTER_TURN").toMatchObject({ ok: false });
+    await expect(late!(), "REFERENCE_TOOLS_NO_ACCESS_AFTER_TURN").rejects.toThrow("no longer has current principal authority");
   } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);

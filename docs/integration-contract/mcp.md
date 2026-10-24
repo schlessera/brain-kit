@@ -878,7 +878,7 @@ are exported from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
 
 | Tool | Input | Result |
 | --- | --- | --- |
-| `reference_source` | `repository` (1–2048 characters: https without credentials, loopback http or absolute `file://`), `revision` (1–255 characters, a branch or tag) | `{ ok: true, source, guidance }` |
+| `reference_source` | `repository` (1–2048 characters: https without credentials, loopback http or absolute `file://`), `revision` (1–200 characters, a branch or tag) | `{ ok: true, source, guidance }` |
 | `reference_worktree` | `action`: `request` (with `repository`, `revision`), `access`, `renew` or `release` (with `worktreeId`, 1–64 characters), or `list` (no other field) | `{ ok: true, action, worktree, guidance }`; for `list`, `{ ok: true, action: "list", worktrees, truncated, guidance }` with at most 20 worktrees, most recent activity first |
 
 Inputs are strict objects: an action given a field it does not take, or
@@ -895,7 +895,10 @@ refreshedAt, validatedAt, error }`. `freshness` is `fresh` or `stale`; a stale
 source carries the refresh `error` and its unchanged `refreshedAt`. `path` is
 `/tmp/brain-reference/<public|private>/<name>` when this turn's workers bind
 that view, else `null`. The source is read-only and moves: a later read of the
-same path may see a newer commit.
+same path may see a newer commit. A path stays readable for the rest of the
+turn that requested it; a later turn reaches a source whose five-minute
+validation lapsed only after requesting it again. One turn keeps at most 32
+distinct sources; a further one is refused as `busy`.
 
 `worktree` is `{ id, repository, revision, domain, startingCommit, state,
 path, lastActivityAt, expiresAt, releasedAt, allowanceBytes }`. `state` is
