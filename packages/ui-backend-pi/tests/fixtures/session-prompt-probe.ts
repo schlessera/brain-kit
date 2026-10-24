@@ -1,5 +1,5 @@
 /** Real per-turn Pi workers, loopback Responses origin, outer offline namespace. */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPiBackend } from "../../src/backend.js";
 import { prepareFixtureWorkerSandbox } from "../../../ui-sdk/tests/helpers/worker-startup-view-fixture.js";
@@ -67,7 +67,27 @@ try {
       sessionId = result.sessionId;
     } finally { clearTimeout(timer); }
   }
+  // A session started before #2800 retained a brief that named `inbox_list` for the picker. Its next
+  // worker must send that retained append, not today's rendering.
+  const stored = [...new Bun.Glob("prompt-context/*/*.json").scanSync({ cwd: sessionDir, absolute: true })];
+  if (stored.length !== 1) throw new Error(`Expected one retained prompt snapshot, found ${stored.length}`);
+  const snapshot = JSON.parse(readFileSync(stored[0]!, "utf8"));
+  const legacyAppend = snapshot.append.replace("call `ask_user` — it renders", "call `inbox_list` — it renders");
+  if (legacyAppend === snapshot.append) throw new Error("Retained append has no ask_user picker line");
+  writeFileSync(stored[0]!, JSON.stringify({ ...snapshot, append: legacyAppend }));
+  const legacyFrames: ServerMessage[] = [];
+  const legacyBefore = requests.length;
+  await startFixtureTurn(createPiBackend({ brainPath: brain, sessionDir, loadExtensions: false,
+    profiles: [{ id: "fixture", label: "Fixture", vendor: "openai", model: "gpt-4o-mini", thinkingLevel: "off" }], confirmBashPatterns: [] }), brain, {
+    prompt: "Odysseus legacy follow-up", profileId: "fixture", sessionId, signal: AbortSignal.timeout(30000), turnId: "odysseus-legacy",
+    workerSandbox: { ...prepareFixtureWorkerSandbox(brain, { profile: "governed", areas: [] }), noteFacts: { history: { journal: true, userRevert: true } } },
+    client: { formFactor: "phone", viewportWidth: 350, camera: true, microphone: false },
+    bridge: { async askUser() { return {} as never; }, emit(frame) { legacyFrames.push(frame); }, async requestPermission() { return { behavior: "deny", message: "fixture" }; } },
+  });
+  if (legacyFrames.findLast(frame => frame.type === "result")?.outcome !== "success") throw new Error(JSON.stringify(legacyFrames));
+  const legacy = requests.slice(legacyBefore);
+  original.push("Odysseus legacy follow-up");
   const replay = createPiBackend({ brainPath: brain, sessionDir });
   const history = await replay.getHistory(sessionId!);
-  writeFileSync(join(scratch, "requests.json"), JSON.stringify({ requests, original: original.filter((_, index) => index !== 3), history, unsupportedVoice }));
+  writeFileSync(join(scratch, "requests.json"), JSON.stringify({ requests: requests.slice(0, legacyBefore), legacy, original: original.filter((_, index) => index !== 3), history, unsupportedVoice }));
 } finally { server.stop(true); }
