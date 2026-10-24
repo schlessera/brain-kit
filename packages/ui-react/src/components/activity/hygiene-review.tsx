@@ -28,6 +28,7 @@ import { useUIStore } from "../../stores/ui-store.js";
 import { useFinePointer } from "../../hooks/use-fine-pointer.js";
 import { isEditableTarget, singleKey } from "../../lib/single-key.js";
 import { formatWhen } from "./inbox-model.js";
+import { HygienePrivateDetails } from "./hygiene-private-details.js";
 
 // A display projection only; the server owns selection, handlers and validation.
 const findingDisplay = z.object({
@@ -419,6 +420,10 @@ export function HygieneFinding({
   const data = findingDisplay.safeParse(item.hygiene?.finding);
   const f = data.success ? data.data : { path: item.payload.detail, title: item.payload.title };
   const repairs = item.options.filter((o) => o.effect.kind === "hygiene" && o.effect.operation === "resolve");
+  // A managed worktree is host state, not a file: its one repair removes it,
+  // and checking it again may reclaim it when it is verified clean and unused
+  // (#2837). Its copy names that operation and claims only what the outcome shows.
+  const worktree = f.category === "managed-worktree";
   const [selected, setSelected] = useState(repairs[0]?.id ?? "check");
   const [value, setValue] = useState("");
   const [mode, setMode] = useState<"idle" | "later" | "dismiss" | "undo">("idle");
@@ -499,7 +504,7 @@ export function HygieneFinding({
         kind,
         optionId: id,
         label: opt.label,
-        receipt: id === "later" ? "Snoozed" : id === "dismiss" ? "Dismissed" : "Fixed · re-checked",
+        receipt: id === "later" ? "Snoozed" : id === "dismiss" ? "Dismissed" : worktree ? "No longer needs review" : "Fixed · re-checked",
         ...(reason ? { reason } : {}),
         ambiguous: true,
       })
@@ -570,6 +575,26 @@ export function HygieneFinding({
     ? status
     : outcome?.kind === "not-applied"
     ? "refused"
+    : undefined;
+  const removing = flight ? flight.optionId !== "check" : repairs.length > 0;
+  // The host's `fixed` for this device's own removal is the evidence that it
+  // was removed; keep it once seen, since confirmation then ends the flight.
+  const [removalConfirmed, setRemovalConfirmed] = useState(false);
+  if (worktree && !removalConfirmed && status === "fixed" && flight?.optionId === "delete-worktree") setRemovalConfirmed(true);
+  const outcomeReason = item.hygiene?.outcome?.reason ?? item.hygiene?.outcome?.code ?? "no reason given";
+  const worktreeText: HygieneCardProps["stateText"] = worktree
+    ? {
+        applying: removing ? "Removing… checking the worktree first" : "Checking the worktree again…",
+        stale: "This worktree changed since the finding was shown. Refresh the finding to review it again.",
+        refused: `The host refused the ${removing ? "removal" : "check"}: ${item.hygiene?.outcome?.reason ?? "no reason given"}`,
+        check_failed:
+          item.hygiene?.outcome?.code === "cleanup-failed"
+            ? `The removal didn't finish: ${outcomeReason}`
+            : `The removal couldn't be confirmed: ${outcomeReason}`,
+        unknown: "The outcome wasn't confirmed. Check again.",
+        still_detected: "Still needs review.",
+        fixed: removalConfirmed ? "Worktree removed" : "No longer needs review",
+      }
     : undefined;
   const parsedSources = f.sources?.map((p) => (p.source === "audit" ? "hygiene" : p.source)) ?? [];
   const sources = [...new Set(parsedSources)];
@@ -834,8 +859,15 @@ export function HygieneFinding({
         whyOpen={why}
         onWhy={() => setWhy(!why)}
         invalidation={invalidation}
+        details={
+          !compact && c.read.privateDetailAccess?.itemId === item.id && c.read.review.status === "active" && item.status === "pending" ? (
+            <HygienePrivateDetails key={`${item.id}:${item.version}`} item={item} controller={c} />
+          ) : undefined
+        }
         controls={controls}
         state={cardState}
+        stateText={worktreeText}
+        busyLabel={worktreeText?.applying}
         reason={item.hygiene?.outcome?.reason}
         code={item.hygiene?.outcome?.code}
         recovery={recovery}
@@ -843,14 +875,18 @@ export function HygieneFinding({
         previewRevealed={revealed}
         onReveal={() => setRevealed(true)}
         postCheck={
-          repairs.length
+          worktree
+            ? repairs.length
+              ? "Before removing it, the host checks the worktree again and refuses if it changed since this preview."
+              : "Checks its current state. A worktree verified clean and unused may be reclaimed automatically."
+            : repairs.length
             ? f.category === "broken-link"
               ? "Then re-checks the link before calling it fixed."
               : "Then re-runs validation on this file."
             : undefined
         }
         commit={{
-          label: repairs.length ? "Apply fix" : "Done, check again",
+          label: repairs.length ? "Apply fix" : worktree ? "Check again" : "Done, check again",
           disabled: locked || !!disabledReason,
           onClick: () => send(selected),
         }}

@@ -10,7 +10,7 @@ compatibility guarantee. Authentication requirements are a separate property.
 A public liveness probe can be supported; an authenticated settings route can
 be internal.
 
-The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 157 unique declared
+The inventory includes the additive Queue intake, poke, scheduled-task, session-draft, session-recovery interactive HTML preview, saved-audio transcription, human-started hygiene-review, governance-event, roadblock-report, reference-grant and retained-journal/user-revert routes mounted by `createApp`: 158 unique declared
 method/path pairs, plus the conditional SPA fallback. It describes the current
 implementation, including limitations, rather than a proposed redesign.
 Unknown response fields must be tolerated. There is no HTTP API revision
@@ -103,6 +103,7 @@ client code has a gap. Source owners are listed after the table.
 | GET | `/api/health` | S | Probe SQLite liveness without identity | Health probes and React connectivity; preserve public minimal response without identity. |
 | GET | `/api/hygiene/review` | S | Read the durable review strip and pending Action | Independent clients and hygiene review controls; preserve SDK review/read shapes. |
 | POST | `/api/hygiene/review` | S | Start, pause, resume or refresh human review | Human principal authority and one pending Action; preserve SDK command/read shapes. |
+| GET | `/api/hygiene/review/details/:itemId` | S | Read the owner-only recorded facts behind a private managed-worktree card | Owner principal only, per request; never cached or replicated. Preserve SDK details shapes. |
 | POST | `/api/hygiene/review/preview` | S | Bind typed handler input to a current CLI preview | Human principal authority, stored option and version; preserve SDK preview shapes. |
 | POST | `/api/internal/inbox/poke` | S | Recover and trigger the Queue lifecycle | Generated-host cron caller; independent boot bearer token plus actual loopback socket. See the [runtime specification](inbox-runtime.md). |
 | GET | `/api/models` | S | Read full catalog including hidden profiles | Independent chat clients; preserve model README and SDK ModelCatalogResponse/hidden-set promises. |
@@ -190,7 +191,7 @@ Authentication factories live in [auth.ts](../packages/ui-server/src/middleware/
 [passkeys.ts](../packages/ui-server/src/middleware/passkeys.ts) and
 [principals.ts](../packages/ui-server/src/middleware/principals.ts).
 [app.ts](../packages/ui-server/src/app.ts) owns prefixing and middleware order.
-All 157 declared endpoints are mounted regardless of backend, renderer or
+All 158 declared endpoints are mounted regardless of backend, renderer or
 speech-provider availability: unavailable capabilities return the responses
 below rather than removing their handlers. Only static serving is conditional.
 
@@ -1110,6 +1111,13 @@ with stale evidence, and unavailable checks remain refused. An unchanged fingerp
 returns the same card. Refresh preserves Pause and cannot re-admit a cap-retired card;
 use Resume. Full [refresh semantics](integration-contract/package-api.md#human-started-hygiene-review-additive-1027)
 bind independent clients.
+
+`GET /api/hygiene/review` and the `POST` command response add
+`privateDetailAccess: { itemId }` only when this caller may read the pending
+card's private managed-worktree details. `GET /api/hygiene/review/details/:itemId`
+returns those recorded facts to the owner principal and 403 to every other
+principal; it is `no-store`, reads only recorded facts and changes nothing. See
+[the owner-only details](integration-contract/package-api.md#owner-only-private-worktree-details-additive-0440-2734).
 
 `POST /api/hygiene/review/preview` accepts a stored `itemId`, `optionId`,
 `expectedVersion` and bounded handler `input`. Owner/ambient operation authority

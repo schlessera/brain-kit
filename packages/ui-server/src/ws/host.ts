@@ -110,6 +110,8 @@ export interface WsHostOptions {
   brainPath?: string;
   /** @internal Where the application route evaluates the brain's own code (#1648). */
   applicationPlanner?: ApplicationPlanner;
+  /** @internal The host's deferred index updates after applications, shared by every reader (#2835). */
+  indexBatch?: import("../brain/index-batch.js").IndexBatch;
   askUserFormLimits?: Partial<AskUserFormLimits>;
   /** Backend registry resolving profiles/sessions to agent backends. */
   registry: BackendRegistry;
@@ -257,6 +259,8 @@ export class WsHost {
   readonly brainPath?: string;
   /** @internal Host wiring (#1648). */
   readonly applicationPlanner?: ApplicationPlanner;
+  /** @internal Host wiring (#2835). */
+  readonly indexBatch?: import("../brain/index-batch.js").IndexBatch;
   /** @internal Hosted worker admission/reconciliation. */
   readonly policyProposals?: import("../brain/policy-proposal.js").PolicyProposals;
   readonly governedTurns?: import("../brain/governed-turn.js").GovernedTurns;
@@ -356,6 +360,7 @@ export class WsHost {
     this.brainPath = options.brainPath;
     this.identitySentinelDirectory = options.identitySentinelDirectory;
     this.applicationPlanner = options.applicationPlanner;
+    this.indexBatch = options.indexBatch;
     this.governedTurns = options.governedTurns;
     this.referenceWorktrees = options.referenceWorktrees;
     this.referenceWorktreeAccess = Boolean(options.referenceWorktrees && options.referenceWorktreeAccess);

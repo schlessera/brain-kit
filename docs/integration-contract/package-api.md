@@ -131,6 +131,17 @@ adds optional `badge?: { icon: IconName; label: string }`. Its compact neutral
 glyph and accessible label remain outside the truncating summary label, before
 the chevron. Existing controlled, seeded and uncontrolled behavior is unchanged.
 
+<a id="hygiene-card-caller-copy-additive-0440-2837"></a>
+
+**Hygiene card caller copy (additive, 0.44.0, #2837).** `HygieneCardProps`
+adds optional `stateText?: Partial<Record<state, string>>` and
+`busyLabel?: string`. A named state's text replaces its file default, the
+`fixed` entry included; `busyLabel` replaces the applying label of the commit
+control. Both are plain inert text, wrapped anywhere and never parsed. An
+omitted prop or state keeps every existing file default, meaning, state
+machine, focus and announcement. The kit has no finding-kind prop: callers
+choose the copy from the action and outcome they hold.
+
 ## UI-kit action accessibility and loading (additive #1756)
 
 `ButtonProps.ariaDescribedBy?: string` forwards the supplied element IDs to
@@ -3180,6 +3191,40 @@ live in the host's operational database
   `check_failed` with `code: "cleanup-failed"` and a fixed `reason`; the same
   finding then reappears with a new fingerprint.
 
+<a id="owner-only-private-worktree-details-additive-0440-2734"></a>
+
+#### Owner-only private worktree details (additive, 0.44.0, #2734)
+
+The owner principal may read what a private worktree's replicated card leaves
+out ([decision](../decisions/managed-worktrees.md#hygiene-and-cleanup)).
+
+- `HygieneReviewRead` gains optional `privateDetailAccess: { itemId }`. The
+  host adds it per request, to `GET /api/hygiene/review` and the `POST`
+  command response, only when the caller is a usable owner principal and the
+  pending Action is a private `managed-worktree` finding. It is never part of
+  the replicated Action; its absence means no access.
+- `GET /api/hygiene/review/details/:itemId` returns
+  `HygieneWorktreeDetailsRead` (`hygieneWorktreeDetailsReadSchema`), with
+  `Cache-Control: no-store`. Every other principal, including the worktree's
+  own delegated agent and any ambient principal, gets 403
+  `{ error: "Unauthorized" }`; authority is read again after the host read.
+- `{ status: "details", details }` carries `owner` (`{ label, kind: "agent" |
+  "device" }`, or `null` for a removed, revoked or expired principal),
+  `repository`, `revision` and `commit` (`null` when not recorded),
+  `changedPaths` (`null` when the work is not established, never `0`), the
+  recorded `sample`, `unverifiedPaths` and `assessedAt` (epoch milliseconds,
+  or `null`).
+- A card whose finding is no longer open, or that is not a pending private
+  worktree card, reads `{ status: "gone" }`; recorded facts that no longer
+  match the card's fingerprint read `{ status: "changed" }`. Neither carries a
+  detail value.
+- The read uses recorded facts only: it never selects, checks, reassesses,
+  previews or writes, so a finding's fingerprint, `last_seen` and state are
+  unchanged. Clients keep the details in memory only.
+- `HygieneCardProps` adds optional `details?: ReactNode`, rendered between the
+  evidence and the fix controls on the full card only. Its content is the
+  caller's; the kit fetches and decides nothing.
+
 ## Governed hosted workers (additive, 0.42.0, #1649)
 
 Ordinary interactive and voice hosted turns default to the governed writable
@@ -3701,6 +3746,20 @@ its fixed in-process application tools then refuse unavailable routes at call
 time. Direct unhosted consumers omitting it retain their legacy project MCP
 roster. Existing custom bridges without the field retain the prior `applyBrain`
 presence fallback. Autonomous authority/rosters are unchanged.
+
+### Deferred application indexing (breaking, 0.44.0, #2835)
+
+`BrainApplicationResult` adds `indexStatus?: "pending"`, and `indexed` now
+means the index covers the result's committed changes: a host that defers the
+update reports `indexed: false` with `indexStatus: "pending"` and no error, as
+specified in the [application contract](mcp.md). `BackendBridge` adds the
+optional `awaitIndex(toolName)`. A backend awaits it before admitting any tool,
+under the name the runtime calls it, and refuses the tool with the rejection's
+message; the host resolves at once for tools that do not read the index. The
+Claude and pi backends call it from their every-call admission paths (the
+`PreToolUse` enforcement hook and the shared pi permission decision). A custom
+backend that never calls it can read an index that misses applications its
+turn already committed.
 
 ### Prompt-cache diagnostic events (additive, #2050)
 

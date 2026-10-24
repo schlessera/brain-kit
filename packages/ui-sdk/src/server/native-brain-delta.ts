@@ -8,6 +8,8 @@ export interface NativeBrainDeltaCandidate {
   paths: string[];
   /** Expand only endpoints that are directories in either sealed root. */
   rename?: { from: string; to: string };
+  /** An extended attribute (such as an ACL) was set or removed on this path; `""` is the root. */
+  xattr?: string;
 }
 
 export class NativeBrainDeltaError extends Error {
@@ -182,7 +184,8 @@ export async function* parseNativeBrainDelta(chunks: AsyncIterable<Uint8Array>, 
         if (!same(source, options.before) && !same(source, options.after)) invalid("Native delta references an unadmitted clone root.");
         paths.push(relative(values.get(CLONE_PATH)!));
       }
-      if (paths.length) yield { paths };
+      if (command === 13 || command === 14) yield { paths, xattr: path };
+      else if (paths.length) yield { paths };
     }
   } finally {
     // Cancellation must not await a pending read; the owner terminates its child.

@@ -695,7 +695,7 @@ const shapes = await create("staging", 32 * MIB);
     const card = (await review.command(penelope.id, "start")).action!;
     const target = (card.hygiene!.finding as { path: string }).path.slice("reference-worktree://".length), kept = target === edited.id ? swapped.id : edited.id;
     note("worktree-review-card", { card });
-    for (const secret of [srv, "ithaca.git", commit, "argos", "book-", penelope.id])
+    for (const secret of [srv, "ithaca.git", commit, "argos", "book-", penelope.id, "Penelope"])
       expect(JSON.stringify(card).includes(secret), `REFERENCE_WORKTREE_NATIVE_PRIVATE_CARD_OPAQUE ${secret}`).toBe(false);
     expect([edited.id, swapped.id], "REFERENCE_WORKTREE_NATIVE_RETAINED_REVIEWED").toContain(target);
     const targetPath = (await records()).find(record => record.id === target)!.path!;

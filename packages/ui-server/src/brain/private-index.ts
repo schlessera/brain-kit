@@ -14,6 +14,9 @@
  * only hold what the masked view showed, so the turn starts anyway, and the
  * agent can run `brain index` into it. After the turn the real index is
  * refreshed from Markdown as usual, so captures made in the turn reach it.
+ *
+ * A complete build is kept as a host-owned base and reused by later turns
+ * whose views provably index to the same thing (`private-index-cache.ts`).
  */
 import { chmodSync, chownSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -111,4 +114,14 @@ export async function buildPrivateIndex(options: {
   const built = await runMaskedBrainCli({ ...options, timeoutMs: options.timeoutMs ?? PRIVATE_INDEX_BUILD_MS,
     command: privateIndexArgv(options.brainPath, options.command), label: "brain index" });
   return built.ok ? { ok: true } : built;
+}
+
+/**
+ * The same `brain index --json` over an index directory that already holds a
+ * reused base: the CLI's incremental run adds what is new. Its stats prove
+ * that nothing already in the base was rewritten.
+ */
+export async function updatePrivateIndex(options: Parameters<typeof buildPrivateIndex>[0]): Promise<{ ok: true; stdout: string } | { ok: false; detail: string }> {
+  return runMaskedBrainCli({ ...options, timeoutMs: options.timeoutMs ?? PRIVATE_INDEX_BUILD_MS,
+    command: privateIndexArgv(options.brainPath, options.command), label: "brain index", outputBytes: OUTPUT_BYTES });
 }

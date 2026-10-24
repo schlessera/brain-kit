@@ -97,7 +97,7 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:562-574`;
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:565-577`;
 `// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:841-852`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
@@ -199,7 +199,7 @@ The host side is `createReferenceTools`
 start, the host records its principal and what those workers bind: the public
 view, the principal's private view and the turn's worker generation, if one
 opened
-(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:575-581`).
+(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:578-584`).
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses
@@ -322,7 +322,7 @@ lost host database loses these dispositions together with the worktrees'
 ownership records; no brain content is lost.
 
 **Detection.** A worktree is one finding at most
-(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:77-84`):
+(`function kindOf`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:79-86`):
 
 - `retained`: released or expired, held by no generation, with unpreserved work;
 - `unknown`: its holder's liveness, its owner or its work cannot be established,
@@ -339,7 +339,7 @@ liveness, the work (state, counts and a digest of every changed path's type,
 mode, size, link target and file bytes, or its absence; times are left out
 because a worker can set them), any removal failure, and the state and last
 explicit activity
-(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:94-110`).
+(`export function referenceWorktreeCandidate`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:96-112`).
 The time of an assessment is not in it, so a fresh assessment of unchanged work
 is the same evidence. One assessment hashes at most 64 MiB of changed files,
 read without blocking the server; a larger or sparse file is named instead by its
@@ -358,12 +358,43 @@ consent to remove anything, and nothing reads it as such.
 **Privacy and authority.** Inbox Actions replicate to every usable principal,
 so the card of a private worktree carries only its opaque identity, state and
 counts: no repository, revision, commit, changed path or principal
-(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:179-197`).
+(`function display(`, `packages/ui-server/src/brain/reference-worktree-hygiene.ts:181-199`).
 A public worktree's card names its source and up to 16 changed paths. The owner
 principal is an authorized reader and reviewer of a delegated agent's worktree
 findings, as of any other finding; review authority stays with owner and ambient
 principals, so a delegated agent can neither operate the review nor remove a
 worktree through it.
+
+**Owner-only details (#2734).** The owner reads what the opaque card leaves
+out through a separate host read, never through the replicated Action: the
+owning principal, repository, revision, starting commit, changed-path count and
+sample, incomparable paths and when they were assessed. Only a usable owner
+principal is allowed; every delegated agent, the worktree's own included, and
+every ambient principal is refused by the host, whatever a client shows. The
+review read says per request whether this caller may read them. The read shows
+recorded facts only and never assesses or writes, so it changes no fingerprint,
+`last_seen` or state; a finding no longer open reads as gone and one whose
+recorded facts no longer match the card reads as changed, with no values
+either way. A removed, revoked or expired owning principal reads as removed,
+without its former label. The review card offers them inline as Private
+details, fetched on opening and kept in that card's memory only.
+
+**Card wording (#2837, maintainer ruling 2026-10-24).** A worktree finding's
+card describes host state, not a file edit. The kit's `HygieneCard` keeps its
+file defaults; the review supplies inert caller copy for a managed-worktree
+finding, chosen from the action this device sent and the outcome the host
+reported, and the kit never branches on the finding's kind. A finding with no
+repair offers "Check again", explained as "Checks its current state. A worktree
+verified clean and unused may be reclaimed automatically.", because `check`
+reassesses with removal allowed and a fresh assessment that proves a clean,
+unheld worktree reclaims it. The card never promises that checking removes
+nothing. "Worktree removed" needs confirmed evidence: the host's `fixed` for
+this device's own removal. Any other cleared finding reads "No longer needs
+review", and an uncertain reply reads "The outcome wasn't confirmed. Check
+again." Stale, refused and failed removals name the removal and quote the
+host's fixed reason as inert text, with no claim that nothing changed or that
+nothing was removed. There is no Undo for a worktree, so the review never
+selects undone copy.
 
 **Review.** The review reads one backlog: `next` and `list` merge the CLI's
 Markdown findings and the host's by core's ordinal rules (severity, known

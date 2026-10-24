@@ -7,7 +7,7 @@ beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "f
 
 test("Pi captures three real resumed interactive turns and a tool result through Responses", () => {
   for (const [name, capture] of Object.entries(captures)) {
-    if (name === "reference") continue;
+    if (["reference", "renewal", "freshness"].includes(name)) continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -77,3 +77,29 @@ test("Pi reference tools dispatch to the host and keep tools, system and history
   }
   expect(body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name)).toEqual(expect.arrayContaining(["reference_source", "reference_worktree"]));
 });
+
+// #2751: every lifecycle step reaches the host through the worker pipe, including a
+// successful renewal, and the shared source the host reports moves and then goes
+// stale between turns. Only the newest tool result differs.
+for (const [name, tool, label] of [["renewal", "reference_worktree", "RENEWAL"], ["freshness", "reference_source", "FRESHNESS"]] as const) {
+  test(`Pi reference ${name} keeps tools, system and history stable while each turn's result changes`, () => {
+    const capture = captures[name]!;
+    expect(capture.sessions).toHaveLength(3);
+    expect(new Set(capture.sessions).size).toBe(1);
+    expect(main(capture).map(e => e.turn), `REFERENCE_${label}_PI_EVERY_TURN_CALLS`).toEqual([0, 0, 1, 1, 2, 2]);
+    expect((capture.calls as { tool: string }[]).map(call => call.tool), `REFERENCE_${label}_PI_HOST_ANSWERS_EVERY_TURN`).toEqual([tool, tool, tool]);
+    const results = main(capture).filter((_, index) => index % 2 === 1).map(exchange => exchange.raw);
+    for (const raw of results) expect(raw).toContain('"function_call_output"');
+    // The newest input item of each request carries that turn's tool result.
+    const latest = main(capture).filter((_, index) => index % 2 === 1).map(exchange => JSON.stringify(body(exchange).input.at(-1)));
+    expect(latest.map(text => text.includes("no available host handler") || text.includes('\\"ok\\":false')), `REFERENCE_${label}_PI_EVERY_RESULT_SUCCEEDS`).toEqual([false, false, false]);
+    if (name === "renewal") expect(latest.map(text => /\\"action\\":\\"(\w+)\\"/.exec(text)?.[1]), "REFERENCE_RENEWAL_PI_LIFECYCLE_RESULTS").toEqual(["request", "renew", "release"]);
+    else expect(latest.map(text => [/\\"freshness\\":\\"(\w+)\\"/.exec(text)?.[1], /\\"commit\\":\\"(\w)/.exec(text)?.[1]]), "REFERENCE_FRESHNESS_PI_SOURCE_RESULTS")
+      .toEqual([["fresh", "1"], ["fresh", "2"], ["stale", "2"]]);
+    for (const [a, b] of pairs(capture)) {
+      identical(body(a).tools, body(b).tools, `REFERENCE_${label}_PI_TOOLS_STABLE`);
+      identical(system(a), system(b), `REFERENCE_${label}_PI_SYSTEM_STABLE`);
+      history(a, b);
+    }
+  });
+}

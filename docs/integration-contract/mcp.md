@@ -146,8 +146,32 @@ The in-process lock does not coordinate external terminal writers.
 
 Application results are `{ ok: boolean, message: string, changes:
 [{ path: string, contentHash: string | null }], code?: string,
-indexed?: boolean, outcome?: object }`. A null result hash denotes a removed
-source. `changes` names only committed effects. A refused result is visible to
+indexed?: boolean, indexStatus?: "pending", outcome?: object }`. A null result hash denotes a removed
+source. `changes` names only committed effects.
+
+**Deferred indexing (breaking, 0.44.0, #2835).** A committed application returns
+as soon as its Markdown is durable, with `indexed: false` and `indexStatus:
+"pending"` and no `indexError`; an `add` result's `outcome` carries the same two
+fields. Pending is not a failure. `indexed: true` is never reported for queued
+work. The host batches the exact committed paths of every application and runs
+one targeted index update, in the same isolated maintenance worker, at the next
+index-dependent read or at the end of the turn, whichever comes first. A brain
+whose index holds no Markdown yet, or cannot be trusted for a targeted update,
+gets a complete build instead. Index-dependent reads are every tool of the
+brain's own MCP server (`mcp__brain__*`), pi's `brain_search`, `brain_context`,
+`brain_read`, `brain_list` and `brain_graph`, either backend's shell, and capture
+planning for `add`; each waits for every application committed before it, in
+any turn, before it runs. File reads and host application tools do not wait.
+When the update fails, the waiting read is refused with a message that names the
+committed paths and the index error, and never runs against the stale index; an
+`add` refuses with the additive code `index_stale` and changes nothing. The
+paths stay queued, and the next reader or turn end retries. The Markdown stays
+committed throughout. The `brain_application` Activity event records
+`indexed: false` with `indexStatus: "pending"`; each later outcome appends a
+`brain_application_index` event `{ applicationId, indexed, indexError?,
+changeCount }` naming it, failure once and success once, before the turn's
+terminal record. No earlier result or provider message is rewritten. A failed
+turn-end update is on that record, and its paths are retried by the next reader. A refused result is visible to
 the agent and recorded as a server-authored `brain_application` activity event;
 policy denial, provider-mask refusal (`provider_masked`, #2690; whole-tool for `query_activity`, `inbox_list` and `inbox_get`, #2698; an autonomous origin thread without compatible provenance, #2741), alias denial, topology change, stale base, revoked authority,
 membership, permission, invalid request, unsupported kind/host, payload and

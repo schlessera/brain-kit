@@ -3533,7 +3533,38 @@ export interface HygieneReviewState {
 }
 export interface HygieneReviewCommand { operation: "start" | "pause" | "resume" | "refresh" }
 export interface HygienePreviewRequest { itemId: string; optionId: string; expectedVersion: number; input: HygieneInput }
-export interface HygieneReviewRead { review: HygieneReviewState; action: InboxActionItem | null }
+export interface HygieneReviewRead {
+  review: HygieneReviewState;
+  action: InboxActionItem | null;
+  /**
+   * Present only when this caller may read the pending Action's private
+   * managed-worktree details (#2734). The host decides it per request; it is
+   * never part of the replicated Action.
+   */
+  privateDetailAccess?: { itemId: string };
+}
+/**
+ * The recorded facts of a private managed-worktree finding, read by the owner
+ * principal only and never replicated (#2734). `owner` is null when its
+ * principal was removed; `changedPaths` is null when the work is not
+ * established; `sample` is the first recorded changed paths.
+ */
+export interface HygieneWorktreeDetails {
+  owner: { label: string; kind: "agent" | "device" } | null;
+  repository: string | null;
+  revision: string | null;
+  commit: string | null;
+  changedPaths: number | null;
+  sample: string[];
+  unverifiedPaths: number | null;
+  /** When these facts were last assessed, in epoch milliseconds. */
+  assessedAt: number | null;
+}
+/** A finding no longer open is `gone`; recorded facts that no longer match the card are `changed`. Neither carries details. */
+export type HygieneWorktreeDetailsRead =
+  | { status: "details"; details: HygieneWorktreeDetails }
+  | { status: "changed" }
+  | { status: "gone" };
 
 export type ResolutionEffect =
   | HygieneEffect

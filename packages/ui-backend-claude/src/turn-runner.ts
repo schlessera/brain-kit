@@ -41,7 +41,7 @@ function sameRoute(value: unknown, selected: string): boolean {
   } catch { return false; }
 }
 import { join, resolve } from "node:path";
-import { createClaudeSdkTurn, selectedInferenceUpstream, turnEnv } from "./sdk-options.js";
+import { createClaudeSdkTurn, prepareClaudeTurnSandbox, selectedInferenceUpstream, turnEnv } from "./sdk-options.js";
 import { StreamAdapter } from "./stream-adapter.js";
 import { probeClaudeRuntime, installedAgentSdkVersion, isMeasuredRuntime } from "./runtime-probe.js";
 import {
@@ -446,14 +446,17 @@ export function createClaudeTurnRunner(options: {
         hostRelayLink = join(preparedEgress.dir, "inference.sock");
         linkSync(hostRelay.socketPath, hostRelayLink);
       }
+      // A host without governed turns supplies no sandbox: Claude's own is
+      // awaited here, from the inputs its options would have used (#2796).
+      const own = await prepareClaudeTurnSandbox({ backend: options.backend, req, profile, turnEnvironment });
       const sdkTurn = createClaudeSdkTurn({
         ...(preparedEgress ? { hostInference: { proxyDir: preparedEgress.dir, baseUrl: relayBaseUrl,
           ...(apiCredential ? { placeholders: apiCredential.placeholders } : {}) } } : {}),
         backend: options.backend,
         ...(workerHost?.identity === "separate_uid" && workerHost.workerUid !== undefined ? { identity: { kind: "separate_uid" as const, workerUid: workerHost.workerUid } } : {}),
-        turnEnvironment,
+        turnEnvironment: own?.turnEnvironment ?? turnEnvironment,
         fileVersions,
-        req: { ...req, signal: abortController.signal, ...(preparedEgress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
+        req: { ...req, signal: abortController.signal, ...(own ? { workerSandbox: own.workerSandbox } : {}), ...(preparedEgress && req.workerSandbox ? { workerSandbox: { ...req.workerSandbox,
           // The relay holds the login: hide the host's file wherever the host masks do not.
           maskPaths: [...req.workerSandbox.maskPaths ?? [], ...hostLogin?.mask ?? []] } } : {}) },
         profile,

@@ -23,7 +23,7 @@ import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { BackendRegistry } from "../agent/backend.js";
 import type { WSContext } from "./clients.js";
 import { withSessionId, withTurnScope } from "./frames.js";
-import { makeBridge, emitTurnError } from "./bridge.js";
+import { makeBridge, emitTurnError, settleTurnIndex } from "./bridge.js";
 import { protectedPaths } from "@schlessera/brain-common/internal/protected-paths";
 import { createTurnRecorder, type TurnRecorder } from "../activity/recorder.js";
 import { resolveTurnTarget } from "./routing.js";
@@ -508,6 +508,9 @@ async function runRetainedSession(
       let scopeStopReason: string | undefined;
       turn.backendStarted = false;
       let enteredBackend = false;
+      // Index updates this turn's applications queued (#2835): flushed once its
+      // workers stop, before its Activity terminal, on every outcome.
+      let settleIndex: (() => Promise<void>) | undefined;
       let cancelledAdmission = false;
       let revokedAdmission = false;
       try {
@@ -692,6 +695,9 @@ async function runRetainedSession(
             ...(governedHold.typeFolders ? { typeFolders: governedHold.typeFolders } : {}),
             ...(governedHold.sandbox.inferenceRecipient ? { recipient: governedHold.sandbox.inferenceRecipient.name } : {}) } : undefined
         );
+        // A failed update is already on each application's Activity record,
+        // and its paths stay queued for the next reader; the turn still ends.
+        settleIndex = () => settleTurnIndex(bridge).catch(() => {});
         const fallback = governedHold?.sandbox.fallbackReason;
         if (fallback) {
           const match = /Error: (.+?) is (?:a )?(symlink|hardlinked)/.exec(fallback);
@@ -787,6 +793,7 @@ async function runRetainedSession(
           ...(work?.posture === "voice" ? { posture: "voice" as const, enforceAllowedTools: true, noGrantSurface: true } : {}),
         });
         turn.backendStarted = false;
+        await settleIndex?.();
         // Every relayed attempt reports before the turn's accounting closes.
         await providerRelay?.stop();
         turnEgress?.stop();
@@ -830,6 +837,7 @@ async function runRetainedSession(
         );
       } catch (err) {
         lifecycle?.mark("failureObservedAt");
+        await settleIndex?.();
         const egressFailure = turnEgress?.recordingFailure();
         const terminal = budgetFailure ?? journalFailure ?? egressFailure ?? err;
         if (terminal instanceof BudgetExceeded && terminal.stage === "admission") {

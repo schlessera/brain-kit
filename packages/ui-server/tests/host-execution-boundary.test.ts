@@ -146,7 +146,9 @@ describe("the host execution boundary (#1648)", () => {
     const result = await apply({ principalId: "owner", turnId: "turn-1",
       input: { operation: "add", content: "Penelope weaves by day and unpicks by night.", title: "Loom", type: "note" } });
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    expect(result.indexed, JSON.stringify(result)).toBe(true);
+    // The index update is queued (#2835); the next reader's barrier runs it in a worker.
+    expect(result, JSON.stringify(result)).toMatchObject({ indexed: false, indexStatus: "pending" });
+    await apply.indexBatch.barrier();
     const lines = evaluatedOnlyInWorkers(f, "the config helper");
     expect(lines.length, "planning and indexing each evaluated the config").toBeGreaterThanOrEqual(2);
     const written = result.changes[0]!.path;

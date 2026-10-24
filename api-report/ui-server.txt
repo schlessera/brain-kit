@@ -608,6 +608,7 @@ signatures (every public export and the types it is made of)
         readonly typeFolders?: Readonly<Record<string, readonly string[]>>;
         readonly startupView?: WorkerStartupView;
         readonly managedStorage: boolean;
+        readonly privateIndex?: PrivateIndexOutcome;
         end(): Promise<Reconciliation | null>;
     }
   GovernedTurnRoute (packages/ui-server/src/brain/governed-turn.ts)
@@ -1022,6 +1023,21 @@ signatures (every public export and the types it is made of)
     export type PrincipalAuthMethod = "password" | "passkey" | "delegated" | "ambient";
   PrincipalKind (packages/ui-server/src/db/principals.ts)
     export type PrincipalKind = "owner" | "agent" | "ambient" | "system";
+  PrivateIndexOutcome (packages/ui-server/src/brain/private-index-cache.ts)
+    export type PrivateIndexOutcome = ({
+        kind: "reused";
+    } | {
+        kind: "updated";
+        added: number;
+    } | {
+        kind: "built";
+        reason: string;
+    } | {
+        kind: "partial";
+        detail: string;
+    }) & {
+        readonly ms?: Readonly<Record<string, number>>;
+    };
   ProtectedWorkerPath (packages/ui-sdk/src/server/worker-sandbox.ts)
     export interface ProtectedWorkerPath {
         readonly rel: string;

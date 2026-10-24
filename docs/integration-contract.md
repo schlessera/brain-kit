@@ -68,6 +68,26 @@ floor above: an older CLI would keep writing the root-level index the server no
 longer reads. The template ignores `.brain-index/`; its existing unanchored
 `brain.db*` line already matches the new files.
 
+## Deferred application indexing (breaking, 0.44.0, #2835)
+
+A hosted application (`brain_add`, `brain_update`, `brain_archive`,
+`write_file`, `edit_file`, `apply_staged_changes`) no longer re-indexes the brain
+before it returns. Its Markdown commits durably as before; the result reports
+`indexed: false` with the additive `indexStatus: "pending"`, and `indexed: true`
+only ever means a completed update. Changed paths are batched into one targeted
+update, in the isolated maintenance worker, at the next index-dependent read or
+turn end; every such reader, including pi's in-worker search and the host's
+HTTP index routes, waits for it, and a failed update refuses the read rather
+than serve a stale index. The [application contract](integration-contract/mcp.md),
+[HTTP routes](integration-contract/http.md#index-reads-wait-for-applications-2835)
+and [package API](integration-contract/package-api.md) state the lifecycle.
+
+This is breaking: the value of `indexed` on a successful application changes
+from `true` to `false` while its update is queued. The maintainer ruled it on
+#2835 (2026-10-24, options A and C combined, with the pending result and
+deferred failure delivery separately approved). `brain add --json` in the
+standalone CLI keeps its synchronous `indexed` meaning.
+
 ## Provider folder turns (additive, 0.44.0, #1668)
 
 A governance policy's `providers` rules now take effect in hosted interactive,
@@ -722,6 +742,21 @@ The human-started hygiene review (`/api/hygiene/review`) also selects host-only
 `managed-worktree` findings, with a `delete-worktree` repair revalidated by the
 worktree service before it removes anything; described in
 [the package API](integration-contract/package-api.md#managed-worktree-findings-in-the-review-additive-0440-2431).
+
+## Owner-only private worktree details (additive, 0.44.0, #2734)
+
+The review read gains a per-request `privateDetailAccess`, and
+`GET /api/hygiene/review/details/:itemId` returns a private worktree finding's
+recorded facts to the owner principal only; `HygieneCard` gains a `details`
+slot. Described in
+[the package API](integration-contract/package-api.md#owner-only-private-worktree-details-additive-0440-2734).
+
+## Hygiene card caller copy (additive, 0.44.0, #2837)
+
+`HygieneCard` gains optional inert `stateText` and `busyLabel` copy that keeps
+every file default when omitted; the hygiene review uses it for managed-worktree
+findings. Described in
+[the package API](integration-contract/package-api.md#hygiene-card-caller-copy-additive-0440-2837).
 
 
 ## Reference and worktree tools (additive, 0.44.0, #2432)

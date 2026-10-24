@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:114-265`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:130-290`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:601-606`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:614-619`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -194,7 +194,7 @@ server and a read-only `brain policy check --json` command share it.
 **Why that location:**
 
 - `context/policies/` is already denied to the application route
-  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:40`).
+  (`if (folded[0] === "context"`, `packages/ui-server/src/brain/application.ts:41`).
 - R34 already placed policy there.
 - Scheduled-task definitions set the precedent of host-parsed Markdown under
   `context/`.
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:65-267`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-292`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1086,8 +1086,9 @@ A credentialed maintenance worker holds it exclusively.
 
 **No deadlock.** A turn never awaits a credentialed maintenance worker, because
 the turn's own shared hold would block it forever. Maintenance that a running
-turn waits for is credential-free; for example, the synchronous index after a
-curated application. The automatic plain `brain index` command is keyword-only
+turn waits for is credential-free; for example, the batched index update a
+turn's curated applications queue, which its next index read or its end awaits
+(#2835). The automatic plain `brain index` command is keyword-only
 and uses that same credential-free shared path. Flagged index operations,
 including embedding and on-commit passes, retain the credentialed exclusive
 path. Git transport and other credentialed work remain queued until no shared
@@ -1411,7 +1412,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:311`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:313`).
 
 **What changes:**
 
@@ -1890,6 +1891,87 @@ every turn without a proven recipient:
   read-only pre-check treats a plain index pass as a write to `.brain-index/`,
   so the agent can rebuild or extend its private index in the turn. After the
   turn, the shared refresh rebuilds the real index from Markdown.
+- **Reuse across turns (maintainer, 2026-10-24, #2833 option C).** A clean
+  build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
+  build as a base and reuses it while it provably equals a clean build of the
+  turn's final startup view (`createPrivateIndexCache`,
+  `packages/ui-server/src/brain/private-index-cache.ts:319-591`):
+  - *Identity.* A base is keyed by the brain's canonical path, the policy
+    hash, the masked folders, the proven recipient, the operational mask
+    paths, the build's argv, the runtime version and the change stamps of any
+    absolute file the argv names (`privateIndexCacheKey`,
+    `packages/ui-server/src/brain/private-index-cache.ts:87-91`). Any change
+    to one is another base. The default command is the brain's own CLI, which
+    the delta covers.
+  - *Freshness.* A base retains the native checkpoint it was built from. The
+    turn's final view is compared with it through the manager's `--no-data`
+    send delta, which the kernel derives from both sealed roots; the parser
+    must reach `END` and EOF and the helper must exit 0, or the turn builds
+    from nothing. Timestamps and the turn journal play no part.
+  - *Reconciliation.* Changes inside the masked folders, `.brain-index` and
+    `.git` cannot change what the masked build reads, nor can changes inside
+    `.brain/` and `.brain-ui/` (scratch, pins, inbox staging): the build sees
+    those two as empty folders, as it sees masked ones. A renamed or replaced
+    directory is expanded in both roots, and a directory, or the root, whose
+    mode, owner, group or extended attributes (ACLs) changed takes a clean
+    build, since that changes what the build's worker may read. If the only
+    other changes are new `.md` or asset files on unhidden paths, the turn's
+    copy is updated by the brain's own incremental `brain index`, which must
+    report nothing updated or deleted, and becomes the next base. Anything
+    else (a file changed, removed, moved into a masked folder, given a second
+    name, or any other new file) takes a clean build
+    (`classifyPrivateIndexChanges`,
+    `packages/ui-server/src/brain/private-index-cache.ts:178-229`). Nothing
+    is ever deleted from a base: a deleted row's bytes survive in SQLite free
+    pages, FTS5 segments and the WAL, so text that leaves the masked view only
+    ever leaves through a clean build. Physical non-disclosure is not claimed
+    for any other path. A configuration that imports from `.brain/` or
+    `.brain-ui/` no longer loads in the private index build.
+  - *Isolation.* The base is a server-owned `0700` directory of read-only
+    copies under the server's temporary directory, which every worker sees as
+    its own empty `/tmp`; on a `TMPDIR` outside `/tmp` and the masked
+    operational-state paths, no base is kept and every restricted turn builds
+    from nothing. Each turn gets its own writable copy. The kernel change
+    stamps of the base's files are recorded when it is sealed and checked
+    before and after every copy; a base changed anyway is discarded and
+    rebuilt.
+  - *Bounds and cleanup.* At most two bases (each one index copy and one
+    retained checkpoint), least recently used first, enforced when each turn's
+    reconciliation finishes; a base a turn is reconciling is never dropped
+    under it. A base idle for 30 minutes, and every base at server close,
+    releases its checkpoint. A retained checkpoint is a native root lease like
+    a turn's, so a crashed server's are released by dead-owner recovery, and
+    its base directories are removed by the next server's cache. A partial
+    build is served but never kept. Losing a base costs one clean build;
+    `brain.db` stays disposable.
+  - *Advancing off the turn path (maintainer, 2026-10-24, #2833 option B).*
+    After each post-turn index refresh, every kept base is brought to a fresh
+    checkpoint of the live brain, in its key's chain, so a turn admitted
+    meanwhile waits for it and then reuses it (`advanceBase`,
+    `packages/ui-server/src/brain/private-index-cache.ts:495-546`). It
+    reconciles exactly as admission does, with the same classifier and stamp
+    check: an unchanged view rebinds the base; new notes are added by the
+    incremental index in a staging directory beside the bases, which must
+    report nothing updated or deleted and then becomes the base itself
+    (`0700`, stamped, bound to the new checkpoint); a changed, removed or
+    masked document takes a clean masked build there. A change beyond
+    Markdown and asset files may change the configuration and so the masks
+    a type selector decides, which only admission translates again: it drops
+    the base, as do a tampered base, an unreadable delta and anything else
+    unproved, and the next turn builds from nothing. A failed or unproved
+    update or build keeps the old base bound to its own checkpoint. A base
+    built with a document that has a selected type outside its folders is
+    never served: every later view either still holds that document, which
+    admission refuses, or changed it, which rebuilds. Closing the server
+    aborts an advance in flight. Advancing is not use: a base no turn has
+    used for 30 minutes still expires, and an advance never renews it.
+  - *Cost.* The first restricted turn after start, or after a change that
+    drops the base, pays the full build plus one copy of the index. A warm
+    turn whose base has advanced pays the delta and one copy, also after
+    the previous turn added or edited notes; the incremental run (graph
+    precompute and full-corpus hash dominate it) and any clean rebuild run
+    after the turn. Measured figures are in #2833's pull requests.
+    Autonomous turns still build their own index each run.
 - A policy whose provider rules name a document type, a non-literal glob or a
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
   selector, per the 2026-10-16 ruling. The 2026-10-23 ruling below narrows the
@@ -2006,7 +2088,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:162-171`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:178-187`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2101,7 +2183,7 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:350`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:359`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
@@ -2332,7 +2414,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:132-133`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:148-149`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -3028,7 +3110,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:249-325`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:249-312`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3051,7 +3133,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:462-492`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:462-497`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:108-118`.
 
 ### Concurrent edits

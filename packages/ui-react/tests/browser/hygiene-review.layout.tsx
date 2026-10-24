@@ -18,6 +18,7 @@ let renderer: Root | undefined,
 const frames: ClientMessage[] = [];
 let reviewReads = 0, failedReads = 0;
 let holdRead = false, releaseRead: (() => void) | undefined;
+let detailsOffline = false;
 let styles: HTMLStyleElement;
 const originalTheme = document.documentElement.dataset.theme;
 const viewport = { width: innerWidth, height: innerHeight };
@@ -32,7 +33,7 @@ afterAll(async () => {
 });
 afterEach(async () => {
   releaseRead?.();
-  holdRead = false; releaseRead = undefined; failedReads = 0; reviewReads = 0;
+  holdRead = false; releaseRead = undefined; failedReads = 0; reviewReads = 0; detailsOffline = false;
   if (renderer) flushSync(() => renderer!.unmount());
   renderer = undefined;
   ui?.dispose();
@@ -51,8 +52,8 @@ const settle = async () => {
   await new Promise((r) => setTimeout(r, 160));
 };
 const set = (patch: Record<string, unknown>) => commands.hygieneServer({ op: "set", id: fixture!.id, patch });
-async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "dark") {
-  await page.viewport(width, 1000);
+async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "dark", height = 1000) {
+  await page.viewport(width, height);
   document.documentElement.dataset.theme = theme;
   fixture = (await commands.hygieneServer({ op: "start" })) as typeof fixture;
   await set({ start: true, ...patch });
@@ -65,6 +66,7 @@ async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "
         if (failedReads > 0) { failedReads--; throw new Error("fixture read unavailable"); }
         if (holdRead) await new Promise<void>((resolve) => { releaseRead = resolve; });
       }
+      if (path.includes("/hygiene/review/details/") && detailsOffline) throw new TypeError("Failed to fetch");
       if (path.includes("/hygiene/")) return fetch(url, init);
       if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
       if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
@@ -101,7 +103,7 @@ async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "
   );
   await settle();
   if (
-    width === 1280 &&
+    width >= 1280 &&
     ui.stores.inbox.getState().items &&
     Object.values(ui.stores.inbox.getState().items).some((i) => i.queue === "actions" && i.status === "pending")
   )
@@ -678,3 +680,301 @@ for (const recovery of ["unknown", "undo"] as const)
       for (const event of held) receive.call(socket!, event);
     }
   });
+
+// #2734: owner-only private details of a private managed-worktree card. The
+// fixture's host read returns the approved Odysseus facts: 14 changed paths,
+// 5 sampled, recorded 2026-07-12.
+const PRIVATE_BYTES = ["github.com/ithaca/palace-ledger", "refs/heads/raft-repairs", "3f9a2c1d4e5b7a8c9d0e1f2a3b4c5d6e7f8a9b0c", "olive-oil", "wine-stores", "antinous", "Telemachus research"];
+const toggle = () => page.getByRole("button", { name: "Private details", exact: true });
+/** Capture the visible full card whole: a viewport tall enough for it, then the scene's own. */
+async function captureCard(name: string) {
+  const [width, height] = [innerWidth, innerHeight];
+  const before = host!.style.height;
+  host!.style.height = "1800px";
+  await page.viewport(width, 1800);
+  await settle();
+  const selector = host!.querySelector("[data-hygiene-detail] [data-hygiene-id]") ? "[data-hygiene-detail] [data-hygiene-id]" : "[data-hygiene-id]";
+  await commands.hygieneServer({ op: "capture", selector, name });
+  host!.style.height = before;
+  await page.viewport(width, height);
+  await settle();
+}
+const region = () => current().querySelector<HTMLElement>('[role="region"][aria-label="Private details"]');
+const rows = () => region()?.querySelector("[data-hygiene-private-rows]") ?? null;
+const detailReads = async () => ((await set({})) as { detailReads: string[] }).detailReads;
+function noPrivateBytes(where: string) {
+  const text = host!.textContent ?? "";
+  for (const secret of PRIVATE_BYTES) expect(text.includes(secret), `${where}: ${secret}`).toBe(false);
+}
+const noHorizontalScroll = () =>
+  expect(
+    { page: document.documentElement.scrollWidth <= innerWidth, card: current().scrollWidth <= current().clientWidth },
+    "no horizontal scroll"
+  ).toEqual({ page: true, card: true });
+async function expandDetails() {
+  await toggle().click();
+  await expect.poll(() => rows(), { message: "the owner's rows load" }).not.toBeNull();
+}
+for (const theme of ["dark", "light"])
+  for (const [width, height] of [[320, 640], [1440, 900], [720, 450]] as const)
+    test(`${theme} ${width}×${height}: the owner opens, reads and collapses private details${width === 720 ? " (1440 at 200% zoom)" : ""}`, async () => {
+      await scene({ category: "managed-worktree-retained" }, width, theme, height);
+      const button = toggle().element() as HTMLButtonElement;
+      expect({ tag: button.tagName, expanded: button.getAttribute("aria-expanded"), controls: document.getElementById(button.getAttribute("aria-controls") ?? "") === region() },
+        "a native toggle that controls the region").toEqual({ tag: "BUTTON", expanded: "false", controls: true });
+      expect(button.getBoundingClientRect().height, "44px target").toBeGreaterThanOrEqual(44);
+      expect(current().textContent).toContain("Owner only · not sent to other devices or agents");
+      expect(region()?.hidden, "collapsed by default").toBe(true);
+      expect(await detailReads(), "nothing is fetched until opened").toEqual([]);
+      noPrivateBytes("collapsed card");
+      // Tab order: title, then the toggle.
+      title().focus();
+      await userEvent.tab();
+      expect(document.activeElement, "the toggle follows the title").toBe(button);
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => rows()).not.toBeNull();
+      expect(document.activeElement, "focus stays on the toggle").toBe(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(await detailReads()).toHaveLength(1);
+      await expect.poll(() => current().querySelector('[role="status"].bk-sr-only')?.textContent).toBe("Private details shown");
+      const text = region()!.textContent!;
+      for (const expected of ["OWNED BY", "Telemachus research (agent)", "REPOSITORY", "github.com/ithaca/palace-ledger", "REVISION", "refs/heads/raft-repairs",
+        "STARTING COMMIT", "3f9a2c1d4e5b7a8c9d0e1f2a3b4c5d6e7f8a9b0c", "CHANGED PATHS", "14 in total · first 5 shown", "2 paths couldn't be compared."])
+        expect(text, "approved row").toContain(expected);
+      expect(text).toMatch(/As recorded \w{3} 12 Jul, \d\d:02\./);
+      expect([...region()!.querySelectorAll("li")].map((li) => li.textContent)).toHaveLength(5);
+      // Stacked below 480px, two columns above it.
+      const [dt, dd] = [region()!.querySelector("dt")!.getBoundingClientRect(), region()!.querySelector("dd")!.getBoundingClientRect()];
+      const wide = region()!.getBoundingClientRect().width >= 480;
+      expect(wide ? dd.left > dt.right - 1 && Math.abs(dd.top - dt.top) < 4 : dd.top >= dt.bottom - 1, `${wide ? "two columns" : "stacked"} at ${width}`).toBe(true);
+      noHorizontalScroll();
+      // The commit wraps rather than truncating.
+      const commit = [...region()!.querySelectorAll("dd")].find((el) => el.textContent?.startsWith("3f9a2c"))!;
+      expect(commit.scrollWidth <= commit.clientWidth, "starting commit wraps").toBe(true);
+      // The next stop is outside the non-interactive region: the review controls.
+      await userEvent.tab();
+      expect(region()!.contains(document.activeElement), "rows hold no tab stop").toBe(false);
+      await captureCard(`c2734-${theme}-${width}-private-details.png`);
+      // Escape is not a binding of this inline disclosure.
+      button.focus();
+      await userEvent.keyboard("{Escape}");
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      await userEvent.keyboard(" ");
+      expect(button.getAttribute("aria-expanded"), "Space toggles once").toBe("false");
+      expect(document.activeElement, "collapse keeps focus on the toggle").toBe(button);
+      expect(rows(), "collapse drops the rows").toBeNull();
+      noPrivateBytes("collapsed again");
+      expect(await detailReads(), "one read per opening").toHaveLength(1);
+    });
+for (const theme of ["dark", "light"])
+  for (const width of [320, 1440])
+    test(`${theme} ${width}: a delegated agent sees today's card, with no toggle and no private bytes`, async () => {
+      await scene({ category: "managed-worktree-retained", as: "agent" }, width, theme, width === 320 ? 640 : 900);
+      await expect.poll(() => current()?.textContent).toContain("private source · 14 changed paths · released");
+      expect(current().querySelector("[data-hygiene-private-details]"), "no toggle").toBeNull();
+      expect(current().textContent).not.toContain("Private details");
+      expect(current().textContent, "no hint either").not.toContain("Owner only");
+      noPrivateBytes("agent card");
+      const ax = (await commands.hygieneServer({ op: "ax", selector: "body" })) as { nodes: Array<{ name?: { value: string } }> };
+      const names = ax.nodes.map((node) => node.name?.value ?? "").join("\n");
+      for (const secret of [...PRIVATE_BYTES, "Private details"]) expect(names.includes(secret), `accessibility tree: ${secret}`).toBe(false);
+      const direct = await fetch(`${fixture!.url}/api/hygiene/review/details/${encodeURIComponent(current().dataset.hygieneId!)}`);
+      expect({ status: direct.status, body: await direct.text() }, "a direct request is refused").toEqual({ status: 403, body: JSON.stringify({ error: "Unauthorized" }) });
+      expect(await detailReads(), "the host never reads facts for an agent").toEqual([]);
+      await captureCard(`c2734-${theme}-${width}-agent-card.png`);
+    });
+test("unknown reads differently from zero, and hostile-looking path text stays inert", async () => {
+  await scene({ category: "managed-worktree-retained", details: "zero" });
+  await expandDetails();
+  expect(region()!.textContent).toContain("CHANGED PATHS");
+  expect(region()!.querySelector("dt:nth-of-type(5) + dd")?.textContent, "a known zero").toBe("None");
+  await toggle().click();
+  await set({ details: "unknown" });
+  await expandDetails();
+  const text = region()!.textContent!;
+  expect(region()!.querySelector("dt:nth-of-type(5) + dd")?.textContent, "unknown is never zero").toBe("Not established yet");
+  for (const expected of ["Removed principal", "Assessment time unknown."]) expect(text).toContain(expected);
+  expect(text.match(/Not recorded/g), "repository, revision and commit").toHaveLength(3);
+  await toggle().click();
+  await set({ details: "hostile" });
+  await expandDetails();
+  const first = region()!.querySelector("li")!;
+  expect(first.textContent, "rendered literally").toBe("[x](http://e.test)<b>y</b>");
+  expect(region()!.querySelectorAll("a, b").length, "never linkified or interpreted").toBe(0);
+  noHorizontalScroll();
+});
+test("a late reply for a collapsed or replaced card is discarded", async () => {
+  await scene({ category: "managed-worktree-retained", details: "hold" });
+  await toggle().click();
+  await expect.poll(() => region()?.getAttribute("aria-busy")).toBe("true");
+  expect(region()!.querySelector('[role="group"][aria-label="Loading private details"]'), "named loading placeholder").not.toBeNull();
+  expect(document.activeElement, "focus stays on the toggle while loading").toBe(toggle().element());
+  await toggle().click();
+  await set({ releaseDetails: true });
+  await settle();
+  expect({ rows: rows(), expanded: toggle().element().getAttribute("aria-expanded") }, "the late reply is dropped").toEqual({ rows: null, expanded: "false" });
+  noPrivateBytes("after a late reply");
+  // A reply that lands after the card's version moved on is dropped too.
+  await toggle().click();
+  await set({ longFinding: true });
+  await expect.poll(() => current().querySelector("[data-hygiene-private-details] [aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
+  await set({ releaseDetails: true, details: "details" });
+  await settle();
+  expect(rows(), "no previous card's bytes").toBeNull();
+  noPrivateBytes("after a version change");
+});
+test("a disconnect clears the details", async () => {
+  await scene({ category: "managed-worktree-retained" });
+  await expandDetails();
+  socket!.close();
+  await expect.poll(() => ui!.stores.inbox.getState().online).toBe(false);
+  await expect.poll(() => rows(), { message: "disconnect clears the rows" }).toBeNull();
+  expect(toggle().element().getAttribute("aria-expanded")).toBe("false");
+  noPrivateBytes("after disconnect");
+});
+test("an Actions-limit set-aside clears the details with the card", async () => {
+  await scene({ category: "managed-worktree-retained" });
+  await expandDetails();
+  await set({ fillActions: true });
+  await expect.poll(() => host!.querySelector("[data-hygiene-limit]")).not.toBeNull();
+  await expect.poll(() => host!.querySelector("[data-hygiene-private-details]")).toBeNull();
+  noPrivateBytes("after set-aside");
+});
+for (const theme of ["dark", "light"])
+  test(`${theme}: changed, gone, offline, failed and refused replies show no detail rows`, async () => {
+    await scene({ category: "managed-worktree-retained", details: "changed" }, 320, theme, 640);
+    await toggle().click();
+    await expect.poll(() => region()?.textContent).toContain("This worktree changed since the card was shown. Refresh the finding to see current details.");
+    expect(rows()).toBeNull();
+    const refresh = [...region()!.querySelectorAll("button")].find((b) => b.textContent === "Refresh finding")!;
+    expect(refresh, "the existing refresh action").toBeTruthy();
+    await captureCard(`c2734-${theme}-320-changed.png`);
+    // Invalidation while focus is inside moves it to the card title.
+    refresh.focus();
+    socket!.close();
+    await expect.poll(() => document.activeElement).toBe(title());
+    expect(region()?.hidden).toBe(true);
+  });
+for (const [state, text, retry] of [
+  ["gone", "This finding is no longer open. There's nothing to show.", false],
+  ["fail", "Couldn't load the details. Nothing was changed.", true],
+  ["offline", "Can't reach your brain right now.", true],
+] as const)
+  test(`a ${state} reply shows its message and no rows`, async () => {
+    await scene({ category: "managed-worktree-retained", details: state === "offline" ? "details" : state });
+    detailsOffline = state === "offline";
+    await toggle().click();
+    await expect.poll(() => region()?.textContent).toContain(text);
+    expect(rows()).toBeNull();
+    await expect.poll(() => current().querySelector('[role="status"].bk-sr-only')?.textContent).toBe(text);
+    const again = [...region()!.querySelectorAll("button")].find((b) => b.textContent === "Try again");
+    expect(!!again, "Try again").toBe(retry);
+    if (again) {
+      detailsOffline = false;
+      await set({ details: "details" });
+      again.click();
+      await expect.poll(() => rows(), { message: "Try again reads again" }).not.toBeNull();
+    }
+  });
+test("a refusal collapses, removes the toggle on the next review read and returns focus to the title", async () => {
+  await scene({ category: "managed-worktree-retained" });
+  await set({ as: "agent" });
+  await toggle().click();
+  await expect.poll(() => document.activeElement).toBe(title());
+  await expect.poll(() => current().querySelector("[data-hygiene-private-details]"), { message: "toggle removed" }).toBeNull();
+  noPrivateBytes("after refusal");
+});
+// #2837: a managed worktree is host state, not a file. Its card names the
+// removal or the check, claims only what the outcome shows, and keeps inert
+// host reasons. Markdown findings keep their file wording above.
+const FILE_WORDING = ["file", "written", "validation", "Couldn't write", "Done, check again"];
+function noFileWording(where: string) {
+  const text = current().textContent ?? "";
+  for (const word of FILE_WORDING) expect(text.includes(word), `${where}: no "${word}"`).toBe(false);
+  // The logical identity appears once, as the card's identifier, never in a sentence.
+  expect(text.split("reference-worktree://").length - 1, `${where}: identity only in its PathRef`).toBe(1);
+}
+/** The state callout's own sentence, without its recovery controls. */
+const stateText = () => current().querySelector("[data-hygiene-state]")?.firstElementChild?.textContent ?? "";
+const REMOVAL_CHECK = "Before removing it, the host checks the worktree again and refuses if it changed since this preview.";
+const CHECK_EXPLANATION = "Checks its current state. A worktree verified clean and unused may be reclaimed automatically.";
+for (const theme of ["dark", "light"])
+  for (const width of [320, 1280]) {
+    test(`${theme} ${width}: a worktree removal's states name the removal and keep their reasons inert`, async () => {
+      const long = "The worktree could not be removed; it is kept for review. [x](http://e.test)<b>y</b> " + "ithaca-harbour-".repeat(8);
+      await scene({ category: "managed-worktree-retained", hostReason: long }, width, theme);
+      expect(current().textContent, "removal post-check").toContain(REMOVAL_CHECK);
+      noFileWording("fresh removal card");
+      const id = current().dataset.hygieneId!;
+      for (const [mode, expected] of [
+        ["stale", "This worktree changed since the finding was shown. Refresh the finding to review it again."],
+        ["refused", `The host refused the removal: ${long}`],
+        ["check_failed", `The removal didn't finish: ${long}`],
+        ["check_failed_other", "The removal couldn't be confirmed: The finding is still detected after removal."],
+      ] as const) {
+        await set({ mode });
+        await apply();
+        const focused = document.activeElement;
+        await expect.poll(() => stateText(), { message: `${mode} copy`, timeout: 5000 }).toBe(expected);
+        await expect.poll(() => ui!.stores.inbox.getState().inFlight[id]).toBeUndefined();
+        expect(current().dataset.hygieneId, `same card after ${mode}`).toBe(id);
+        expect(document.activeElement, `focus stays put after ${mode}`).toBe(focused);
+        noFileWording(mode);
+        if (mode === "check_failed") {
+          expect(current().querySelector("[data-hygiene-state] b"), "a reason is never interpreted").toBeNull();
+          expect(current().scrollWidth <= current().clientWidth, "a long reason wraps").toBe(true);
+          await commands.hygieneServer({ op: "capture", selector: ".bg-background.text-foreground", name: `c2837-${theme}-${width}-cleanup-failed.png` });
+        }
+      }
+      // Applying, then an unconfirmed reply.
+      await set({ mode: "hold" });
+      await apply();
+      await expect.poll(() => stateText(), { timeout: 5000 }).toBe("Removing… checking the worktree first");
+      expect(current().querySelector("[data-disposition-bar]")?.textContent, "busy label").toContain("Removing… checking the worktree first");
+      noFileWording("applying");
+      await set({ mode: "unknown", release: true });
+      await expect.poll(() => stateText(), { timeout: 5000 }).toContain("The outcome wasn't confirmed. Check again.");
+      noFileWording("unknown reply");
+    });
+    test(`${theme} ${width}: a worktree with no repair offers Check again, which may reclaim it, and a confirmed removal reads as removed`, async () => {
+      await scene({ category: "managed-worktree" }, width, theme);
+      const check = page.getByRole("button", { name: "Check again", exact: true });
+      await expect.element(check).toBeVisible();
+      expect(current().textContent, "approved check explanation").toContain(CHECK_EXPLANATION);
+      expect(current().textContent, "never a no-removal promise").not.toContain("never removes");
+      noFileWording("no-repair card");
+      await commands.hygieneServer({ op: "capture", selector: ".bg-background.text-foreground", name: `c2837-${theme}-${width}-check-again.png` });
+      // Keyboard: the commit control is reachable and answers once.
+      (check.element() as HTMLButtonElement).focus();
+      await set({ mode: "hold" });
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => stateText(), { timeout: 5000 }).toBe("Checking the worktree again…");
+      await set({ mode: "", release: true });
+      await expect.poll(() => stateText(), { timeout: 5000 }).toBe("Still needs review.");
+      noFileWording("still detected");
+      expect(frames.filter((f) => f.type === "inbox_resolve" && f.optionId === "check"), "one check sent").toHaveLength(1);
+      // A check that clears the finding claims no removal.
+      const id = current().dataset.hygieneId!;
+      await set({ mode: "check_clear" });
+      await check.click();
+      await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("resolved");
+      await page.getByRole("tab", { name: /^done / }).click();
+      await expect.poll(() => host!.querySelector("[data-hygiene-fixed]")?.textContent).toBe("No longer needs review");
+    });
+  }
+test("a confirmed removal from this device reads Worktree removed; the Done list claims only that the finding cleared", async () => {
+  await scene({ category: "managed-worktree-retained" });
+  const id = current().dataset.hygieneId!;
+  const seen: string[] = [];
+  const observer = new MutationObserver(() => { const t = host!.querySelector('[data-hygiene-card][role="status"]')?.textContent; if (t) seen.push(t); });
+  observer.observe(host!, { subtree: true, childList: true, characterData: true });
+  try {
+    await apply();
+    await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("resolved");
+  } finally { observer.disconnect(); }
+  // The transient fixed callout, whenever it paints, names only the confirmed removal.
+  expect([...new Set(seen)], "the fixed callout, while it paints, names the confirmed removal").toEqual(["Worktree removed"]);
+  await page.getByRole("tab", { name: /^done / }).click();
+  await expect.poll(() => host!.querySelector("[data-hygiene-fixed]")?.textContent).toBe("No longer needs review");
+  expect(host!.textContent).not.toContain("Finding no longer detected in reference-worktree://");
+});

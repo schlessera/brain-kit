@@ -360,6 +360,19 @@ history" above. A brain CLI older than 0.40.0 rejects the flag, and the route
 answers `500` with `{ error }`. A consumer treats that, and a 404 from an
 older server, as no history.
 
+<a id="index-reads-wait-for-applications-2835"></a>
+
+### Index reads wait for applications (0.44.0, #2835)
+
+Hosted applications index their Markdown after they return (see the
+[application contract](mcp.md)). `GET /api/brain/search`, `/api/brain/list`,
+`/api/brain/stats`, `/api/brain/stats/history`, `/api/brain/briefing` and every
+`/api/graph/*` route first wait for the index update covering every
+application committed before the request. When that update fails, the route
+answers `503` with `{ error, code: "index_stale" }` instead of a stale result;
+the error names the committed paths and the index failure, and a retry tries
+the update again. Shapes are otherwise unchanged; the status and code are additive.
+
 <a id="runtime-stats-get-apiactivitystats-additive-in-0370"></a>
 
 ### Runtime stats (`GET /api/activity/stats`, additive in 0.37.0)

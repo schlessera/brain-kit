@@ -30,6 +30,66 @@ spyOn(brainClients, "createBrainClient").mockImplementation((...args: Parameters
   };
   return brainClient;
 });
+// #2835: time every host apply at the bridge entry (journal idle wait included)
+// and every index barrier, without changing either call.
+const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
+if (APPLY_TIMING) {
+  const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
+  const makeBridge = bridges.makeBridge;
+  spyOn(bridges, "makeBridge").mockImplementation((...args: Parameters<typeof makeBridge>) => {
+    const bridge = makeBridge(...args), apply = bridge.applyBrain, awaitIndex = bridge.awaitIndex;
+    if (apply) bridge.applyBrain = async (input: any) => {
+      const start = performance.now(); const result = await apply(input);
+      event("apply_timing", { operation: input.operation, path: input.path, ms: performance.now() - start, ok: result.ok, indexed: result.indexed, indexStatus: result.indexStatus ?? null });
+      return result;
+    };
+    if (awaitIndex) bridge.awaitIndex = async (name: string) => {
+      const start = performance.now();
+      try { await awaitIndex(name); event("index_barrier", { name, ms: performance.now() - start, ok: true }); }
+      catch (error) { event("index_barrier", { name, ms: performance.now() - start, ok: false, error: String(error) }); throw error; }
+    };
+    return bridge;
+  });
+}
+const SCHERIA_LOGS = 20;
+const scheriaPath = (i: number) => `notes/scheria-log-${String(i).padStart(2, "0")}.md`;
+const scheriaContent = (i: number) => `---\ntype: note\ntitle: Scheria log ${i}\nupdated: 2026-07-12\n---\nNausicaa finds Odysseus on the Scheria shore, log ${i}.\n`;
+const sha256 = (text: string) => new Bun.CryptoHasher("sha256").update(text).digest("hex");
+/** The Claude timing turn: the turn's own brain-ui MCP handlers, called as the runtime would, then a same-turn search. */
+async function* scheriaClaudeTurn(params: any, attempt: number) {
+  if (typeof params.prompt !== "string") for await (const _message of params.prompt) { event("prompt_released", { attempt }); break; }
+  const sid = "11111111-1111-4111-8111-111111111791";
+  yield { type: "system", subtype: "init", session_id: sid };
+  const { Client } = await import(join(source!, "node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js"));
+  const { InMemoryTransport } = await import(join(source!, "node_modules/@modelcontextprotocol/sdk/dist/esm/inMemory.js"));
+  const client = new Client({ name: "odysseus-native-timing", version: "0.1.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await params.options.mcpServers["brain-ui"].instance.connect(serverTransport); await client.connect(clientTransport);
+  try {
+    const call = async (name: string, args: object) => {
+      const result = await client.callTool({ name, arguments: args });
+      const parsed = JSON.parse(result.content[0].text);
+      if (!parsed.ok) throw Error(`${name} refused: ${result.content[0].text}`);
+    };
+    for (let i = 0; i < SCHERIA_LOGS; i++) await call("write_file", { path: scheriaPath(i), content: scheriaContent(i), expectedBaseHash: null });
+    for (let i = 0; i < SCHERIA_LOGS; i++) await call("edit_file", { path: scheriaPath(i), expectedBaseHash: sha256(scheriaContent(i)), old_string: "Scheria shore", new_string: "Scheria harbour" });
+    // The runtime admits mcp__brain__brain_search through every unmatched PreToolUse hook first.
+    for (const matcher of params.options.hooks.PreToolUse.filter((entry: any) => !entry.matcher)) for (const hook of matcher.hooks) {
+      const output = await hook({ hook_event_name: "PreToolUse", tool_name: "mcp__brain__brain_search", tool_input: { query: "Nausicaa" }, tool_use_id: "scheria-search",
+        session_id: sid, transcript_path: "", cwd: brain }, "scheria-search", { signal: params.options.abortController.signal });
+      if (output?.hookSpecificOutput?.permissionDecision === "deny") throw Error(`search refused: ${output.hookSpecificOutput.permissionDecisionReason}`);
+    }
+    const { Database } = await import("bun:sqlite");
+    const index = new Database(join(brain!, ".brain-index", "brain.db"), { readonly: true });
+    try {
+      const rows = index.query("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'harbour AND Nausicaa' ORDER BY d.path").all() as { path: string }[];
+      event("scheria_search", { backend: "claude", paths: rows.map(row => row.path) });
+    } finally { index.close(); }
+  } finally { await client.close(); }
+  yield { type: "assistant", session_id: sid, message: { content: [{ type: "text", text: "Odysseus files the Scheria log." }] } };
+  yield { type: "result", subtype: "success", session_id: sid, is_error: false, duration_ms: 100, duration_api_ms: 0, num_turns: 1,
+    result: "Odysseus files the Scheria log.", total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } };
+}
 let piWorkerCount=0;
 const tracedSpawn = Bun.spawn;
 Bun.spawn = ((...args: any[]) => { const argv = Array.isArray(args[0]) ? args[0] : args[0].cmd, start = performance.now(), child = Reflect.apply(tracedSpawn, Bun, args); const tail = argv.slice(-8);
@@ -46,7 +106,8 @@ const egressOrigin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) 
 } });
 // "localhost", not 127.0.0.1: only the proxy resolves it, whatever the worker exempts.
 const egressCommand = (attempt: number) => `/usr/bin/python3 -I -S -c 'import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' http://localhost:${egressOrigin.port}/voyage-${attempt} > .brain/egress-${attempt}.txt`;
-const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand,egressCommand) : undefined;
+const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand,egressCommand,
+  APPLY_TIMING ? { count: SCHERIA_LOGS, path: scheriaPath, content: scheriaContent, sha256 } : undefined) : undefined;
 if (inference) process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = inference.origin;
 const backend = inference ? createPiBackend({brainPath:brain!,model:inference.model,loadExtensions:false,log(level: string,message: string){event("backend_log",{level,message});}}) : createClaudeBackend({
   brainPath: brain,
@@ -59,6 +120,12 @@ const backend = inference ? createPiBackend({brainPath:brain!,model:inference.mo
   log(level: string, message: string) { event("backend_log", { level, message }); },
   queryFn: (params: any) => {
     const attempt = ++count; event("fake_provider_enter", { attempt });
+    // First, warm and Stop are attempts 1-3; the timing turn follows them.
+    if (APPLY_TIMING && attempt === 4) return Object.assign(scheriaClaudeTurn(params, attempt), {
+      initializationResult: async () => ({ account: { apiProvider: "firstParty", apiKeySource: "ANTHROPIC_API_KEY" } }),
+      getSettings: async () => ({ effective: { env: { ...params.options.settings?.env } }, sources: [{ source: "flagSettings", settings: params.options.settings }] }),
+      close() {}, interrupt: async () => {},
+    });
     let child: any; try {
 child = params.options.spawnClaudeCodeProcess({
         command: "/bin/sh", args: ["-c",

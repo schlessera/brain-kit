@@ -128,6 +128,8 @@ import {
 } from "./agent/backend.js";
 import { createBrainClient, probeBrainCliVersion } from "./brain/client.js";
 import { boundaryPlanner } from "./brain/application.js";
+import { createIndexBatch } from "./brain/index-batch.js";
+import { INDEX_READ_ROUTES, indexReadBarrier } from "./routes/index-barrier.js";
 import { coalesced, createHostExecution } from "./brain/host-execution.js";
 import { ensureIndexDirectory, retireLegacyIndex } from "./brain/index-directory.js";
 import { createGovernedTurns } from "./brain/governed-turn.js";
@@ -525,6 +527,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   // A migrating brain rebuilds its index in the new directory once, at boot.
   if (legacyIndex.removed.length) keyedReindex();
   const applicationPlanner = boundaryPlanner(boundary, { afterIndex: keyedReindex });
+  // Applications return after their Markdown commits; the paths they changed
+  // are indexed together before the next read that needs them (#2835).
+  const indexBatch = createIndexBatch({ index: paths => applicationPlanner.index(config.brainPath, undefined, paths) });
+  bootCleanup.push(() => indexBatch.idle());
   // Managed worktree findings (#2431) reuse core's hygiene rules; without core there is no review to join.
   const hygieneCore = referenceWorktrees ? await import("@schlessera/brain/internal").catch(() => undefined) : undefined;
   const worktreeHygiene = referenceWorktrees && hygieneCore
@@ -637,6 +643,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
     budgets,
     ...(config.cliProviderOrigins ? { cliProviderOrigins: config.cliProviderOrigins } : {}),
     applicationPlanner,
+    indexBatch,
     drafts,
     brainPath: config.brainPath,
     registry,
@@ -690,7 +697,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   });
   bootCleanup.push(async () => { try { host.close(); } finally { await Promise.allSettled([...host.turnTasks]); } });
   if (dispatchFixture && inboxBudget) dispatcher = createInboxDispatcher(db, { identitySentinelDirectory, brainRoot: config.brainPath, nativeManager,
-    privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner,
+    privateIndex: { maskPaths: turnMaskPaths }, applicationPlanner: host.applicationPlanner, indexBatch,
     select: () => dispatchFixture.select(registry), budget: inboxBudget, fetch: dispatchFixture.fetch, now: dispatchFixture.now,
     classification: { apiKey: dispatchFixture.classificationKey ?? config.classification.apiKey },
     store: activity.store, runtime: activity.runtime, onWrite: () => activity.stream.pump(), log: observability.logger("inbox") });
@@ -920,6 +927,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       },
     })
   );
+  // Host readers of the index wait for application updates queued before them (#2835).
+  for (const path of INDEX_READ_ROUTES) app.use(path, indexReadBarrier(indexBatch));
   app.route(
     "/api",
     createBrainRoutes({ syncingRoots: new Set(), brain, brainPath: config.brainPath, exec: config.exec, keyterms, brainCliMinimum, log: brainLog, boundary })

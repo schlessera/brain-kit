@@ -10,6 +10,16 @@ prerequisites. Preparation can download dependencies; the proof uses
 `--network=none`, `--pull=never`, the normal test network guards and loopback
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
+`--apply-timing` adds one strict conversation after the cancellation checks
+(#2835). Claude calls its turn's `brain-ui` MCP `write_file` handler 20 times and
+`edit_file` 20 times, then admits `mcp__brain__brain_search` through its
+`PreToolUse` hooks and reads the index; pi's fixture model makes the same 40
+calls through host apply and then calls `brain_search`. Every host apply and
+index barrier is timed at the bridge, with the host load before and after, in
+`apply-timing.json`. The run fails unless both medians are at most 300 ms and
+the same-turn search sees all 20 edited notes. It is a measurement, not part of
+the default qualification.
+
 `bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
 the host identity protocol. It compiles the test-only helper on the host without
 setuid permissions, then installs it as root-owned setuid only inside its owned,
@@ -257,6 +267,34 @@ edits a writable snapshot of sealed source, diffs two of its read-only
 checkpoints and grants it to a running non-root bubblewrap worker through an
 access generation, then parks it, adopts an interrupted grant on restart and
 closes the generation.
+
+### Integrated app proof
+
+`bun scripts/prove-reference-pool.ts --integrated [--backend=claude|--backend=pi]`
+runs `reference-integration.native.ts` in the same container on the same owned
+volumes, with a 4 GiB store so the app's 2 GiB free-space floor holds
+([#2751](https://github.com/schlessera/brain-kit/issues/2751)). For each
+backend, the real app runs as UID 1000 against the native manager and its
+reference pool. The owner grants a local Odysseus repository of 1,200 files
+through the principal route. A scripted offline model then drives three turns
+through the backend's own reference tools. Pi uses its actual SDK session and
+`bash` tool. Claude calls its adapter's in-process MCP server and runs each
+turn's commands in one production-launched worker; the Claude CLI itself is not
+executed. The steps are in `reference-integration-steps.ts`:
+
+1. Acquire and inspect shared source, request two worktrees, release one unused.
+2. After the remote's `main` moves, access the kept worktree, read the moved
+   source, edit the worktree and renew it.
+3. After the remote fails with a transport error, read the stale fallback and
+   release the edited worktree.
+
+The proof asserts each result, the turn journal and scope facts, automatic
+removal of the clean worktree, and the owner's removal of the retained one
+through the host-only hygiene review. A user-owned `workspaces/` repository
+must be left untouched. For Pi it holds every provider request's tools, system
+and earlier messages byte-identical. For Claude it holds the system-prompt
+option and the assembled MCP roster. It is not part of the default runtime
+cell.
 
 The container has no network, `no-new-privileges` and only `SYS_ADMIN`,
 `MKNOD`, `DAC_OVERRIDE`, `FOWNER`, `CHOWN`, `KILL`, `SETUID`, `SETGID` and
