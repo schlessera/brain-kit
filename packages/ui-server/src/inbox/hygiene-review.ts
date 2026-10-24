@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ClientInboxResolve, HygieneAction, HygieneEffect, HygieneInput, HygieneReviewRead, HygieneReviewState, InboxActionItem, InboxOption } from "@schlessera/brain-ui-sdk/protocol";
 import { hygieneDiffSchema, hygieneEffectSchema, hygieneInputSchema, hygieneOutcomeSchema, hygieneReviewStateSchema, inboxOptionSchema } from "@schlessera/brain-ui-sdk/schemas";
 import type { BrainClient } from "../brain/client.js";
+import type { ReferenceWorktreeHygiene } from "../brain/reference-worktree-hygiene.js";
 import { isUsablePrincipal, resolvePrincipal } from "../db/principals.js";
 import { createInboxAction, insertInboxAction, inboxIdentity } from "./actions.js";
 import { createInboxResolver, inboxSnoozeUntil } from "./resolve.js";
@@ -22,6 +23,8 @@ interface Attempt { id: string; item_id: string; principal_id: string; request_j
 export class HygieneAuthorityError extends Error {}
 
 export function createHygieneReview(db: Database, deps: { brain: BrainClient; now?: () => number; timeZone?: string;
+  /** Host-only managed worktree findings (#2431), joined into the same review queue. */
+  worktrees?: ReferenceWorktreeHygiene;
   /** The gated dispatcher's current exact-operation envelope (#689); default empty. */
   allowedOperations?: Parameters<typeof createInboxResolver>[1]["allowedOperations"] }) {
   const now = deps.now ?? Date.now, store = createInboxStore(db, { now });
@@ -33,9 +36,24 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     const p = resolvePrincipal(db, principalId);
     if (!p || !isUsablePrincipal(p, now()) || !["owner", "ambient"].includes(p.kind)) throw new HygieneAuthorityError("Human review authority is required");
   }
-  async function cli(args: string[]) {
+  /**
+   * The review's one backlog: the CLI's Markdown findings and the host's
+   * managed-worktree findings (#2431). Selection merges both by the same
+   * ordinal rules, and an operation that names a host finding is answered by
+   * the host, never the CLI.
+   */
+  async function cli(args: string[]): Promise<unknown> {
+    const host = deps.worktrees, [command] = args, target = args.at(-1) ?? "", at = args.indexOf("--finding");
+    if (host && ((command === "next" && at >= 0 && host.owns(args[at + 1]!)) || (["check", "dismiss", "snooze", "resolve"].includes(command!) && host.owns(target))))
+      return host.run(args);
+    const own = host && (command === "list" || (command === "next" && at < 0)) ? host.run(args) : undefined;
+    void own?.catch(() => {});
     if (!deps.brain.hygiene) throw new Error("Hygiene CLI is unavailable");
-    return deps.brain.hygiene(args);
+    const listed = await deps.brain.hygiene(args);
+    if (!host || !own) return listed;
+    if (command === "list") return { ...(listed as object), entries: [...(listed as { entries: unknown[] }).entries, ...(await own as { entries: unknown[] }).entries] };
+    if (listed && typeof listed === "object" && "blocker" in listed) return listed;
+    return host.merge(listed as never, await own as never);
   }
   function state(): HygieneReviewState {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
@@ -62,6 +80,8 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
   function effect(f: { id: string; fingerprint: string }, operation: HygieneEffect["operation"]): HygieneEffect {
     return { kind: "hygiene", operation, findingId: f.id, fingerprint: f.fingerprint };
   }
+  /** A repair that takes no input but has no confirmed preview cannot be applied. */
+  const missingPreview = (options: InboxOption[]) => options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
   async function prepareOptions(finding: z.infer<typeof findingSchema> | null) {
     const options: InboxOption[] = [];
     if (finding) {
@@ -105,8 +125,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
         update(current, { version: 1, status: "refused", reason: "refresh-checks-unavailable" });
         return read();
       }
-      const missingPreview = options.some(o => o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview);
-      if (!finding || !verified.finding || finding.id !== old.hygiene!.findingId || verified.finding.id !== finding.id || verified.finding.fingerprint !== finding.fingerprint || missingPreview) {
+      if (!finding || !verified.finding || finding.id !== old.hygiene!.findingId || verified.finding.id !== finding.id || verified.finding.fingerprint !== finding.fingerprint || missingPreview(options)) {
         update(current, { version: 1, status: "stale", reason: finding ? "refresh-premise-changed" : "finding-not-detected" });
         return read();
       }
@@ -130,7 +149,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     // Recovery/next-item selection cannot authorize re-admission after retirement.
     if (paused && (!principalId || !resumeRetired)) return;
     // CLI selection/reconciliation and previews are outside write transactions.
-    const next = nextSchema.parse(await cli(["next"]));
+    let next = nextSchema.parse(await cli(["next"]));
     if (principalId) authority(principalId);
     let finding = "finding" in next ? next.finding : null;
     if (paused && !("blocker" in next)) {
@@ -141,7 +160,15 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
           finding = findingSchema.parse(retired.hygiene!.finding);
       }
     }
-    const options = await prepareOptions(finding);
+    let options = await prepareOptions(finding);
+    // A host worktree finding's preview assesses it afresh: evidence that changed
+    // meanwhile is selected again, and a repair left without a preview is not offered.
+    for (let attempt = 0; finding && deps.worktrees?.owns(finding.id) && missingPreview(options); attempt++) {
+      if (attempt === 2) { options = options.filter(o => !(o.effect.kind === "hygiene" && o.effect.operation === "resolve" && o.input?.type === "none" && !o.preview)); break; }
+      next = nextSchema.parse(await cli(["next"]));
+      finding = "finding" in next ? next.finding : null;
+      options = await prepareOptions(finding);
+    }
     if (principalId) authority(principalId);
     db.transaction(() => {
       const review = state();
@@ -210,11 +237,13 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (status === "preview") throw new Error("Preview is not an outcome");
     return hygieneOutcomeSchema.parse({ version: 1, status, reason: reason ?? undefined, code, undoToken, fieldError });
   }
-  async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null): Promise<Result> {
+  async function dispatch(e: HygieneEffect, request: ClientInboxResolve, waitUntil: number | null, principalId: string): Promise<Result> {
     const args = e.operation === "resolve" ? ["resolve", "--handler", e.handler!, "--input", JSON.stringify(e.input), "--expect-fingerprint", e.fingerprint, "--expect-preview", e.previewToken!, "--", e.findingId]
       : e.operation === "undo" ? ["undo", "--", e.undoToken!]
       : e.operation === "check" ? ["check", "--", e.findingId]
       : [e.operation, "--expect-fingerprint", e.fingerprint, ...(waitUntil !== null ? ["--until", new Date(waitUntil).toISOString()] : []), ...(request.reason ? ["--reason", request.reason] : []), "--", e.findingId];
+    // A confirmed effect on a host finding carries the reviewer's authority to its executor.
+    if (e.operation !== "undo" && deps.worktrees?.owns(e.findingId)) return resultSchema.parse(await deps.worktrees.run(args, { authorize: () => authority(principalId) }));
     return resultSchema.parse(await cli(args));
   }
   async function finish(attempt: Attempt, result: Result, recovering = false) {
@@ -283,7 +312,7 @@ export function createHygieneReview(db: Database, deps: { brain: BrainClient; no
     if (!admitted) return { replay: true, followUpId: undefined };
     inFlight.add(request.itemId);
     let result: Result;
-    try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until); }
+    try { authority(principalId); result = await dispatch(hygieneEffectSchema.parse(JSON.parse(admitted.effect_json)), request, admitted.wait_until, principalId); }
     catch {
       // Unknown dispatch receipt stays journaled. Recovery checks; it never retries.
       const item = action(request.itemId);

@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { constants, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { NativeBrainManagerError, REFERENCE_POOL_CHECKPOINT_BYTES, type createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
+import { NativeBrainManagerError, REFERENCE_POOL_CHECKPOINT_BYTES, type createNativeBrainManagerClient, type NativePoolRecord } from "@schlessera/brain-ui-sdk/internal";
 import { processAlive, SELF } from "./writer-gate.js";
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
@@ -178,6 +178,8 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
     poolUnpublish(view, name, signal) { return operation(() => raw.poolUnpublish(view, name, signal)); },
     poolCheckpoint(id, from, signal) { return operation(async () => {
       signal?.throwIfAborted();
+      // A worktree whose release never committed is assessable again (#2431).
+      await settleRelease(from, signal);
       db.transaction(() => {
         const lease = poolRow(id), worktree = poolRow(from);
         if (row(id)) throw new NativeBrainManagerError("unknown", "This identity already belongs to a checkpoint or stage lease.");
@@ -220,7 +222,11 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
         throw new NativeBrainManagerError("unavailable", "A reference snapshot is still being created from this root.");
       // Survives a lost reply; a retry continues the same identity's release.
       db.query("UPDATE native_pool_leases SET state='releasing' WHERE id=?").run(id);
-      const record = await raw.poolRelease(id, signal);
+      let record: NativePoolRecord;
+      releases.set(id, (releases.get(id) ?? 0) + 1);
+      try { record = await raw.poolRelease(id, signal); }
+      catch (error) { await settleRelease(id, undefined, 1).catch(() => {}); throw error; }
+      finally { releases.set(id, releases.get(id)! - 1); if (!releases.get(id)) releases.delete(id); }
       if (record.id !== id || !["deleted", "reclaimed"].includes(record.state)) throw new NativeBrainManagerError("unknown", "Reference pool release receipt is unreadable; retain and reconcile the same identity.");
       db.query("DELETE FROM native_pool_leases WHERE id=? AND state='releasing'").run(id);
       return record;
@@ -232,6 +238,29 @@ export async function createNativeBrainLeaseManager(raw: Client, options: {
       return releaseOwned(lease, signal);
     }); },
   };
+  /** Releases in flight per pool identity in this owner; a settled intent never overrides a newer one. */
+  const releases = new Map<string, number>();
+  async function poolRecord(id: string, signal?: AbortSignal): Promise<NativePoolRecord | null> {
+    for (let after: string | null = null; ;) {
+      const page = await raw.listPoolRecovery(after, signal);
+      const found = page.records.find(record => record.id === id);
+      if (found || !page.next) return found ?? null;
+      after = page.next;
+    }
+  }
+  /**
+   * A release intent whose root the pool still holds writable or sealed never
+   * committed: the manager runs requests in order and records deletion before
+   * it deletes. The lease is held again, so the root stays assessable; any
+   * other outcome keeps the intent for a retry to finish.
+   */
+  async function settleRelease(id: string, signal?: AbortSignal, own = 0) {
+    if (poolRow(id)?.state !== "releasing" || (releases.get(id) ?? 0) !== own) return;
+    const record = await poolRecord(id, signal);
+    // Another release of this identity may have started while the pool answered; its intent stands.
+    if ((releases.get(id) ?? 0) !== own) return;
+    if (record && (record.state === "writable" || record.state === "sealed")) db.query("UPDATE native_pool_leases SET state='held' WHERE id=? AND state='releasing'").run(id);
+  }
   async function recoverDeadOwners(): Promise<{ released: string[]; retainedLive: number; retainedUnverifiable: number; unknown: string[]; retainedPool: number }> {
     return operation(async () => {
       const result = { released: [] as string[], retainedLive: 0, retainedUnverifiable: 0, unknown: [] as string[],

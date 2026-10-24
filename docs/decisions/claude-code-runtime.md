@@ -41,8 +41,8 @@ next to it.
   `/usr/local/bin/claude` and resolved with
   `env.CLAUDE_CODE_PATH || "/usr/local/bin/claude"`. Since #213 it has no
   default (`name: "CLAUDE_CODE_PATH"`,
-  `packages/ui-server/src/config/env.ts:539-539`) and is null when unset
-  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1114`). The whole `agent` block is copied into the backend's module
+  `packages/ui-server/src/config/env.ts:549-549`) and is null when unset
+  (`claudeCodePath`, `packages/ui-server/src/config/env.ts:1132`). The whole `agent` block is copied into the backend's module
   config (`config: { ...agent }`,
   `packages/ui-server/src/agent/backend.ts:505`), read back as a string
   (`const claudeCodePath`, `packages/ui-backend-claude/src/module.ts:266-270`)
@@ -51,7 +51,7 @@ next to it.
   default the value was never empty, so **the server always overrode the SDK's
   own binary**. The variable is withheld from every subprocess
   (`CLAUDE_CODE_PATH: NONE`,
-  `packages/ui-sdk/src/server/subprocess-env.ts:126`), as
+  `packages/ui-sdk/src/server/subprocess-env.ts:129`), as
   [the container privilege record](https://github.com/schlessera/brain-hosting-template/blob/main/docs/decisions/container-privilege.md) (brain-hosting-template) assigns it.
 - **Invoked.** The SDK spawns it. With an exec wrapper configured,
   `spawnClaudeCodeProcess` puts the wrapper in front
@@ -64,7 +64,7 @@ next to it.
   of this binary. The only version probe in the server is for the `brain` CLI
   (`Probe the selected content CLI`,
   `packages/ui-server/src/brain/client.ts:142-210`, called at
-  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:420`).
+  `probeBrainCliVersion(config.brainPath`, `packages/ui-server/src/app.ts:429`).
   `brain doctor` runs `claude mcp list` from `PATH` (`which("claude")`,
   `packages/core/src/cli/commands/doctor.ts:501-505`) — the user's own Claude
   Code on their own machine, to check the MCP registration, not the server's
@@ -212,7 +212,7 @@ unnecessary.
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs`. The boot probe below
   turns either into a refusal to start, for the same reason a missing backend
   refuses to boot (`A missing (or unrecognized) agent backend`,
-  `packages/ui-server/src/app.ts:365-370`).
+  `packages/ui-server/src/app.ts:367-372`).
 - **The published range is still a caret, and that bounds what this repo can
   guarantee.** `@schlessera/brain-backend-claude` depends on `^0.3.241`, and a
   host resolves it in its own lockfile. A host can bump the SDK — and so the
@@ -447,9 +447,9 @@ into them.
 
 - **The credential is one environment variable.** `CLAUDE_CODE_OAUTH_TOKEN` is
   declared at `name: "CLAUDE_CODE_OAUTH_TOKEN"`, `packages/ui-backend-claude/src/config/env.ts:91-95` and admitted
-  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:61`).
+  to every subprocess audience (`CLAUDE_CODE_OAUTH_TOKEN: ALL`, `packages/ui-sdk/src/server/subprocess-env.ts:64`).
   `ANTHROPIC_API_KEY` is admitted to the agent and brain-CLI audiences
-  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:62`). The container privilege record's
+  (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:65`). The container privilege record's
   environment table (brain-hosting-template) keeps both.
 - **The default profile passes both through.** The built-in `claude` profile
   declares no credential (`DEFAULT_PROFILES`, `packages/ui-backend-claude/src/profiles.ts:139-141`).
@@ -503,13 +503,13 @@ all, and nothing warns: `accountInfo()` still reports the OAuth token as the
 token source. Only `apiKeySource` shows it. So an `ANTHROPIC_API_KEY` that
 reaches the CLI for any reason moves every default-profile chat turn to API
 billing. The tree gives it reasons to be set: the core CLI's `anthropic-haiku`
-completion provider reads it (`"anthropic-haiku": { keyEnv: ANTHROPIC_KEY_ENV`, `packages/core/src/lib/registry.ts:55`), and so does
+completion provider reads it (`"anthropic-haiku": { keyEnv: ANTHROPIC_KEY_ENV`, `packages/core/src/lib/registry.ts:56`), and so does
 model discovery. The cost record then says `api`, which is accurate
 bookkeeping of the thing the requirement forbids. Chat is not the only path.
 The core CLI's Claude runners, which `brain sync` uses under cron, spawn
 `claude` with the inherited environment
 (`Bun.spawn(args`, `packages/core/src/providers/agents/cli-runners.ts:37-43`; `Bun.spawn([...CLAUDE_BASE_ARGS`, `cli-runners.ts:66-72`), and that
-environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:62`).
+environment admits the API key (`ANTHROPIC_API_KEY: AGENT_AND_BRAIN_CLI`, `subprocess-env.ts:65`).
 
 > **2026-09-30 — Implementation context (the core runner paragraph above).**
 > The [old Claude runners](https://github.com/schlessera/brain-kit/blob/bcb16c73e68ed95f5453e88c6f38ffcb9bb97dca/packages/core/src/providers/agents/cli-runners.ts#L37-L72)
@@ -1333,8 +1333,8 @@ credential from the profile's own declaration, so an ambient
 the profile names, any host `CLAUDE_CODE_OAUTH_TOKEN` and the inference keys
 only agent runtimes read (`AGENT_INFERENCE_CREDENTIAL_ENV`) stay out of the
 worker, unless the operator admits one explicitly
-(`BRAIN_UI_SUBPROCESS_ENV_EXTRA`). Keys the `brain` CLI's own providers read stay until #1673 relays
-them.
+(`BRAIN_UI_SUBPROCESS_ENV_EXTRA`). Keys the `brain` CLI's own providers read stay on the host too:
+the CLI reaches them through the metered provider relay (#1673).
 The key needs no origin list: `BRAIN_UI_CLAUDE_PROFILES` declares the key and
 its route together, which is the trusted host authorization the 2026-10-16
 ruling asks for. The prompt gate applies the same settings-source and route
@@ -1371,7 +1371,7 @@ inventory and retained governance events remain required by #1665/#1666.
 The existing ordinary spawn adapter can explicitly consume the turn proxy's
 private directory. It passes that transport to the actual worker launcher and
 selects state projection without `.credentials.json` (`const settings =`,
-`packages/ui-backend-claude/src/worker-state.ts:181`). It retains exact native
+`packages/ui-backend-claude/src/worker-state.ts:186`). It retains exact native
 settings, account metadata, shared auto-memory and the resumed transcript;
 copy-out still publishes only the existing transcript/memory domains. The host
 resolver reads and refreshes the original credential store instead of placing

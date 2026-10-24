@@ -232,6 +232,25 @@ export function exposureConflicts(exposures: readonly ProviderExposure[], denied
   return [...conflicts.values()].sort((a, b) => a.folder.localeCompare(b.folder) || a.recipient.localeCompare(b.recipient));
 }
 
+/**
+ * The part of two masked-folder sets masked in both: where one folder holds
+ * the other, the inner one. A conversation's always-masked set narrows by
+ * this on every contributing turn (#2726).
+ */
+export function maskedInBoth(a: readonly string[], b: readonly string[]): string[] {
+  const both = a.flatMap(outer => b.flatMap(inner => within(inner, outer) ? [inner] : within(outer, inner) ? [outer] : []));
+  return outermostFolders(both);
+}
+
+/**
+ * The folders of `masked` that `always` does not cover: no folder masked
+ * throughout a conversation holds them, so some contributing turn may have
+ * read them (#2726).
+ */
+export function uncoveredFolders(masked: readonly string[], always: readonly string[]): string[] {
+  return masked.filter(folder => !always.some(covered => within(folder, covered)));
+}
+
 // The writer gate plans retention when it is acquired, before a turn can run
 // the worker that reads the taxonomy. It reuses the folders the last admission
 // under the same policy version translated, so peers acquired meanwhile retain
@@ -260,6 +279,25 @@ export class ProviderRecipientRefusedError extends Error {
       + `${recipient === undefined ? "this turn's unproven recipient" : `this turn's recipient, ${recipient},`} see ${conflicts.length === 1 ? "it" : "them"}. `
       + "The conversation's history would carry it there. Continue on a profile that reaches the same recipient, or start a new conversation.");
     this.name = "ProviderRecipientRefusedError";
+  }
+}
+
+/**
+ * Turn admission refused because this turn masks provider folders and the
+ * host cannot prove they were masked from every turn of the conversation it
+ * continues (#2726): it began before them, on a route that saw them, or with
+ * no trusted record of how it began. The saved conversation stays as it is.
+ */
+export class ProviderContinuationRefusedError extends Error {
+  constructor(readonly folders: readonly string[], readonly reason: "unrecorded" | "shown", readonly handoff = false) {
+    const named = folders.map(folder => `\`${folder}/\``);
+    const listed = `${named.slice(0, 3).join(", ")}${named.length > 3 ? ` and ${named.length - 3} more` : ""}`;
+    const what = handoff ? "the chat this handoff continues" : "this conversation";
+    super(`This turn cannot start: the governance policy's provider rules hide ${listed} from it, and the server cannot show that `
+      + `${what} kept ${folders.length === 1 ? "it" : "them"} hidden from every earlier turn`
+      + (reason === "unrecorded" ? ", because it has no record of the conversation starting under these rules. " : ", because an earlier turn could see " + (folders.length === 1 ? "it. " : "them. "))
+      + "Its history could carry what those turns read. Start a new conversation; the saved one is kept unchanged.");
+    this.name = "ProviderContinuationRefusedError";
   }
 }
 

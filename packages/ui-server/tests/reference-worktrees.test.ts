@@ -207,31 +207,38 @@ describe("activity, expiry and cleanup facts", () => {
     expect(worktrees.get({ worktreeId: gone.id, principalId: penelope.id })).toMatchObject({ state: "expired", generation: null, cleanup: { owner: "none", reason: "expired" } });
   });
 
-  test("release and expiry record whether unpreserved work remains, and never delete", async () => {
+  test("release and expiry retain unpreserved work and remove only a positively clean worktree", async () => {
     const { worktrees, pool, path } = service();
     const penelope = owner();
     const clean = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
     const edited = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
     const added = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
+    const idle = await worktrees.allocate({ principalId: penelope.id, repository: PUBLIC, revision: "main" });
     writeFileSync(join(path(edited.id), "odyssey.md"), "Penelope unweaves the shroud.\n");
     writeFileSync(join(path(added.id), "telemachus.md"), "A new voyage.\n");
     const released = await worktrees.release({ worktreeId: edited.id, principalId: penelope.id });
     expect(released.cleanup, "REFERENCE_WORKTREE_UNPRESERVED_RETAINED").toMatchObject({ reason: "released", owner: "none", work: "unpreserved", changedPaths: 1,
       sample: ["odyssey.md"], eligible: false });
+    // An expired worktree resumed before its reconciliation is not removed.
+    const generation = await worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
     days(4);
+    await worktrees.access({ worktreeId: idle.id, principalId: penelope.id, generation: generation.id });
     await worktrees.reconcile();
     expect(worktrees.get({ worktreeId: clean.id, principalId: penelope.id }).cleanup, "REFERENCE_WORKTREE_CLEAN_ELIGIBLE")
       .toMatchObject({ reason: "expired", owner: "none", work: "none", changedPaths: 0, eligible: true });
+    expect(pool.records.get(clean.id)?.state, "REFERENCE_WORKTREE_CLEAN_REMOVED").toBe("reclaimed");
+    expect(db.query("SELECT state, trigger FROM reference_worktree_cleanups WHERE worktree_id = ?").get(clean.id), "REFERENCE_WORKTREE_REMOVAL_RECEIPT")
+      .toEqual({ state: "reclaimed", trigger: "automatic" });
     expect(worktrees.get({ worktreeId: added.id, principalId: penelope.id }).cleanup, "REFERENCE_WORKTREE_NEW_FILE_IS_WORK")
       .toMatchObject({ work: "unpreserved", sample: ["telemachus.md"], eligible: false });
-    for (const tree of [clean, edited, added]) expect(pool.records.get(tree.id)?.state, "REFERENCE_WORKTREE_NEVER_DELETED").toBe("writable");
-    expect([...pool.records.values()].filter(record => record.purpose === "checkpoint" && record.state === "sealed").length, "REFERENCE_WORKTREE_ASSESSMENT_CHECKPOINTS_RELEASED").toBe(3);
-    await expect(worktrees.access({ worktreeId: edited.id, principalId: penelope.id, generation: "00000000-0000-4000-8000-000000000000" })).rejects.toMatchObject({ code: "unavailable" });
-    const generation = await worktrees.openGeneration({ principalId: penelope.id, turnId: "turn-1", profile: "governed" });
+    for (const tree of [edited, added, idle]) expect(pool.records.get(tree.id)?.state, "REFERENCE_WORKTREE_WORK_NEVER_DELETED").toBe("writable");
+    expect([...pool.records.values()].filter(record => record.purpose === "checkpoint" && record.state === "sealed").map(record => record.from).sort(),
+      "REFERENCE_WORKTREE_ONLY_BASELINES_REMAIN").toEqual([edited.id, added.id, idle.id].sort());
     await expect(worktrees.access({ worktreeId: edited.id, principalId: penelope.id, generation: generation.id }), "REFERENCE_WORKTREE_RELEASE_IS_FINAL")
       .rejects.toMatchObject({ code: "released" });
-    const resumed = await worktrees.access({ worktreeId: clean.id, principalId: penelope.id, generation: generation.id });
-    expect(resumed, "REFERENCE_WORKTREE_EXPIRED_RESUMABLE").toMatchObject({ state: "active", cleanup: null, accessedAt: clock });
+    await expect(worktrees.access({ worktreeId: clean.id, principalId: penelope.id, generation: generation.id }), "REFERENCE_WORKTREE_REMOVED_NEVER_RESUMED")
+      .rejects.toMatchObject({ code: "released" });
+    expect(referenceWorktreeDependents(db, pool.records.get(clean.id)!.from!), "REFERENCE_WORKTREE_SOURCE_STILL_SHARED_BY_OTHERS").toBe(true);
   });
 
   test("a release while a worker holds the worktree is assessed when its generation closes", async () => {

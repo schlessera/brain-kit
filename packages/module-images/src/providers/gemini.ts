@@ -15,6 +15,7 @@
  */
 
 import { resolveEnv } from "../config/env.js";
+import { providerRelayFetch } from "@schlessera/brain-common/internal/provider-relay";
 import { ImageProviderError, type ModelCapabilities, type Provider } from "../types.js";
 
 const MODELS: ModelCapabilities[] = [
@@ -154,7 +155,8 @@ export const geminiProvider: Provider = {
     if (req.aspect) responseFormat.aspect_ratio = req.aspect;
     if (req.resolution) responseFormat.image_size = req.resolution;
 
-    const res = await fetch(`${resolveEnv().geminiBaseUrl}/interactions`, {
+    // Without the key, the host's metered relay adds it (#1673).
+    const res = await (providerRelayFetch("gemini", "GEMINI_API_KEY") ?? fetch)(`${resolveEnv().geminiBaseUrl}/interactions`, {
       method: "POST",
       headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ model, input, response_format: responseFormat }),

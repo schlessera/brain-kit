@@ -30,6 +30,7 @@ import {
   runMaintenanceWorkerSync, workerHostProven, hostMaintenanceTempLimits, resolveMaintenanceTempLimits, type WorkerStateLimits, type MaintenanceCommand, type WorkerHostProbe,
   prepareNativeWorkerStartupView, hasManagedNativeStorage, type WorkerStartupView,
   acquireHostCredentialExclusion, type HostCredentialDomain,
+  startProviderRelay, relayedProviderKeys, hostProviderCredential, type ProviderRelay, type ProviderRelayReceipt,
 } from "@schlessera/brain-ui-sdk/internal";
 import { createKeyedLock, type KeyedLock, killWrapped, wrapCommand, type ExecWrapperConfig } from "@schlessera/brain-ui-sdk/server";
 import { markUnpinnedHostWriter, refuseHostFallback, type GateHold, type GateMode, type WriterGate } from "./writer-gate.js";
@@ -84,6 +85,8 @@ export interface BrainExecution {
   sync?: boolean;
   /** @internal Take the contention lock after writer-gate admission, never before it. */
   lock?: { keyed: import("@schlessera/brain-ui-sdk/server").KeyedLock; key: string };
+  /** @internal The turn whose tool started this run: its relayed provider spend is charged there (#1673). */
+  turnId?: string;
 }
 
 export interface ExecutionResult {
@@ -159,6 +162,9 @@ export const hostExecution = {
 /** Worker-host status for turn egress (#1665); also stated in docs/hosting/agent-workers.md. */
 const TURN_EGRESS_ACTIVE = "Governed and strict Claude and pi turns run on their own turn egress proxy and the host inference relay. A pi turn whose credential runs a command, or whose provider and credential type the relay does not carry, is refused.";
 const TURN_EGRESS_INACTIVE = "This host has no managed native storage, so governed and strict turns keep their current network without the turn egress proxy, and their egress is unrecorded.";
+/** Whether the brain CLI's paid providers are relayed (#1673): where provider keys live on this host. */
+const PROVIDERS_RELAYED = "The brain CLI's Gemini, Anthropic and OpenAI image providers go through a metered host relay, in turn and maintenance workers alike: the host holds their keys, records each request's usage and counts it toward the budgets.";
+const PROVIDERS_NOT_RELAYED = "The brain CLI's providers are not relayed here: governed and strict turn workers report them unavailable, and maintenance workers still receive the provider keys, so their spend is unmetered.";
 const within = (dir: string, path: string) => path === dir || path.startsWith(`${dir}/`);
 const real = (path: string) => { try { return realpathSync(path); } catch { return resolve(path); } };
 
@@ -208,6 +214,18 @@ export interface HostBoundaryOptions {
   credentialDomain?: HostCredentialDomain;
   /** The one configured host manager; never discovered through the repository. */
   nativeManager?: Parameters<typeof prepareNativeWorkerStartupView>[1];
+  /**
+   * @internal The CLI provider relay for credentialed maintenance (#1673).
+   * Supplied only where the host relays the CLI's providers (managed native
+   * storage). A relayed run holds none of the relayed keys and none of the
+   * brain's `.env*`; its requests are metered against the turn whose tool
+   * started it, or its UTC day otherwise.
+   */
+  providerRelay?: {
+    origins?: ReadonlyMap<string, readonly string[]>;
+    admit(turnId: string | null): { allowed: true } | { allowed: false; message: string };
+    observe(turnId: string | null, attempt: ProviderRelayReceipt): void;
+  };
   profile?: "governed" | "strict";
   /** Resolved once at the server/cron host edge. */
   maintenanceTemp?: WorkerStateLimits;
@@ -383,7 +401,26 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
   };
 
   const maskPaths = [...operationalStateMasks({ brainPath: brain, dbPath: options.dbPath, privateStatePaths: options.privateStatePaths }), ...(options.nativeMaskPaths ?? [])];
-  const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView): MaintenanceCommand => {
+  /**
+   * A credentialed run's own CLI provider relay (#1673), where the host relays
+   * providers; the caller stops it once the worker has exited.
+   */
+  const providerRelayFor = (execution: BrainExecution): ProviderRelay | undefined => {
+    const relay = options.providerRelay;
+    // A hosted sync's local phase runs credential-free; only its mirror transport holds a credential.
+    if (!relay || !execution.credentials || execution.sync) return undefined;
+    const turnId = execution.turnId ?? null;
+    return startProviderRelay({ ...(relay.origins ? { origins: relay.origins } : {}), credential: name => runCredential(execution, name),
+      admit: () => relay.admit(turnId), observe: attempt => relay.observe(turnId, attempt) });
+  };
+  /**
+   * The key a credentialed run would have held: its server-built environment.
+   * Only a custom key the operator listed comes from the server's own
+   * environment: a built-in key outside this run's audience stays out of reach.
+   */
+  const runCredential = (execution: Pick<BrainExecution, "env">, name: string): string | undefined =>
+    execution.env[name] || (relayedProviderKeys().includes(name) ? undefined : hostProviderCredential(name));
+  const command = (execution: BrainExecution | Parameters<HostBoundary["runSync"]>[0], startupView?: WorkerStartupView, relay?: ProviderRelay): MaintenanceCommand => {
     const path = brainWorkerPath(brain, execution.env.PATH);
     const env: Record<string, string | undefined> = execution.credentials ? { ...execution.env }
       : Object.fromEntries(CREDENTIAL_FREE_ENV.map(name => [name, execution.env[name]]));
@@ -391,6 +428,14 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
     // Git credentials belong only to fixed host transports and installers,
     // including while provider-credentialed maintenance remains an interim exposure.
     for (const name of HOST_GIT_CREDENTIAL_ENV) delete env[name];
+    // A relayed run holds no relayed key: it learns their names and reaches
+    // them through the relay. Keys the relay does not carry stay (#1673).
+    if (relay) {
+      for (const name of relayedProviderKeys(options.providerRelay?.origins)) delete env[name];
+      const held = relayedProviderKeys(options.providerRelay?.origins).filter(name => Boolean(runCredential(execution, name)));
+      if (held.length) env.BRAIN_WITHHELD_KEYS = held.join(",");
+      else delete env.BRAIN_WITHHELD_KEYS;
+    }
     if (execution.credentials && options.home) env.HOME = options.home;
     const argv = absoluteArgv(brain, execution.argv, path);
     // The wrapper runs inside the worker; one that is not there fails here, as a host spawn of it would.
@@ -405,6 +450,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       command: wrapCommand(argv, exec.wrapper),
       env,
       credentials: execution.credentials,
+      ...(relay ? { providerRelay: relay.dir, maskEnvFiles: true } : {}),
       ...(execution.credentials && options.home ? { home: options.home } : {}),
       readPaths: [...(exec.wrapper ? [exec.wrapper] : []), ...serverInstallation()],
       maskPaths,
@@ -511,7 +557,8 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         protectedPaths: protection.protection.paths.map(({ rel, mode, reason }) => ({ path: rel, mode, reason })),
         ...(protection.reason ? { profileFallback: protection.reason } : {}),
         ...identity, configurationView: profile === "governed" ? "live" : "startup",
-        egress: hasManagedNativeStorage(brain) ? { active: true, detail: TURN_EGRESS_ACTIVE } : { active: false, detail: TURN_EGRESS_INACTIVE } };
+        egress: hasManagedNativeStorage(brain) ? { active: true, detail: `${TURN_EGRESS_ACTIVE} ${options.providerRelay ? PROVIDERS_RELAYED : PROVIDERS_NOT_RELAYED}` }
+          : { active: false, detail: `${TURN_EGRESS_INACTIVE} ${PROVIDERS_NOT_RELAYED}` } };
     },
     withGate,
     async run(execution) {
@@ -558,10 +605,12 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
             execution.assertAuthorized?.();
             const view = await prepareInput(execution.signal);
             let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
+            let relay: ProviderRelay | undefined;
             try {
               execution.signal?.throwIfAborted();
               outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
-              const launch = command(execution);
+              relay = providerRelayFor(execution);
+              const launch = command(execution, undefined, relay);
               const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
               execution.signal?.throwIfAborted(); execution.assertAuthorized?.();
               const result = await runMaintenanceWorker({ ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}), stdin: execution.stdin,
@@ -573,7 +622,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
                 else await outputs.publish();
               }
               return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, ...(result.killed ? { timedOut: true } : {}) };
-            } finally { try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
+            } finally { await relay?.stop(); try { await outputs?.cleanup(); } finally { await view.cleanup(); } }
           };
           return outputLock.withLock(brain, () => execution.lock
             ? execution.lock.keyed.withLock(execution.lock.key, run, { signal: admissionSignal }) : run(), { signal: admissionSignal });
@@ -640,12 +689,14 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
       let worker: Awaited<ReturnType<typeof launchMaintenanceWorkerAsync>>;
       let outputs: Awaited<ReturnType<typeof prepareMaintenanceOutput>> | undefined;
       let view: WorkerStartupView | undefined;
+      let relay: ProviderRelay | undefined;
       try {
         execution.signal?.throwIfAborted();
         view = await prepareInput(execution.signal);
         execution.signal?.throwIfAborted();
         outputs = await prepareMaintenanceOutput(brain, { startupView: view, folderPaths: hold?.folderPaths, signal: execution.signal, areas: execution.outputAreas });
-        const launch = command(execution);
+        relay = providerRelayFor(execution);
+        const launch = command(execution, undefined, relay);
         const git = await prepareMaintenanceGit(launch, outputs, execution.signal, options.log);
         execution.signal?.throwIfAborted();
         const maintenance = { ...launch, startupView: outputs.view, output: outputs.output, ...(git ? { git } : {}) };
@@ -653,7 +704,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         execution.signal?.throwIfAborted();
         worker = await launchMaintenanceWorkerAsync(maintenance);
       }
-      catch (error) { try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
+      catch (error) { await relay?.stop(); try { await outputs?.cleanup(); } finally { try { await view?.cleanup(); } finally { try { releaseOutput(); } finally { try { credential?.release(); } finally { hold?.release(); } } } } throw error; }
       void worker.input(execution.stdin ?? "");
       let signalCode: string | null = null;
       const exited = worker.exited.then(async code => {
@@ -663,7 +714,7 @@ export function createHostBoundary(options: HostBoundaryOptions): HostBoundary {
         }
         return code;
       })
-        .finally(async () => { try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
+        .finally(async () => { await relay?.stop(); try { await outputs!.cleanup(); } finally { try { await view!.cleanup(); } finally { try { releaseOutput(); } finally { hold?.release(); } } } });
       const kill = (signal: NodeJS.Signals = "SIGTERM") => { signalCode = signal; worker.kill(signal); };
       execution.signal?.addEventListener("abort", () => kill("SIGKILL"), { once: true });
       // An abort accepted while the launch was awaited still stops the worker.

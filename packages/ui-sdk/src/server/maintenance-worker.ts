@@ -48,6 +48,10 @@ export interface MaintenanceCommand {
   env: Readonly<Record<string, string | undefined>>;
   /** Credentialed: network, the server's home and the brain's `.env*`. Credential-free: none of them. */
   credentials: boolean;
+  /** A credentialed command whose provider keys the host relays (#1673): mask the brain's `.env*` as well. */
+  maskEnvFiles?: boolean;
+  /** The server's CLI provider relay directory for a credentialed command (#1673). */
+  providerRelay?: string;
   /** The host network. Defaults to `credentials`. */
   network?: boolean;
   /** The server's home, shown to a credentialed worker. */
@@ -188,6 +192,8 @@ export function maintenanceLaunch(input: MaintenanceCommand): WorkerLaunch {
       tempBytes: (input.tempLimits ? resolveMaintenanceTempLimits(input.tempLimits) : hostMaintenanceTempLimits()).allowanceBytes,
       network: input.network ?? input.credentials,
       credentials: input.credentials,
+      ...(input.credentials && input.maskEnvFiles ? { maskEnvFiles: true } : {}),
+      ...(input.credentials && input.providerRelay ? { providerRelay: input.providerRelay } : {}),
       ...(home ? { home: { path: home, overlay: false } } : {}),
       readPaths: [process.execPath, ...(input.readPaths ?? [])],
       ...(input.maskPaths ? { maskPaths: input.maskPaths } : {}),

@@ -32,6 +32,10 @@ export type { SearchResponse } from "./lib/search-engine.js";
 export { collectStats } from "./lib/stats.js";
 export type { CollectStatsOptions } from "./lib/stats.js";
 export { buildTaxonomy } from "./lib/taxonomy.js";
+// Host-only managed-worktree findings (#2431) reuse the hygiene identity, fingerprint and selection rules.
+export { canonicalFindings } from "./lib/hygiene.js";
+export type { HygieneCandidate, HygieneFinding, HygieneLogEntry } from "./lib/hygiene.js";
+export { REVIEW_SEVERITY, REVIEW_URGENCY, reviewUrgency, selectHygieneNext } from "./lib/hygiene-next.js";
 export { SEARCH_SORTS } from "./lib/types.js";
 export type { IngestInput, SearchOptions } from "./lib/types.js";
 export type { ValidationIssue } from "./lib/validate.js";

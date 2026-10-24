@@ -297,6 +297,13 @@ export async function prepareHandoff(
       return answer({ state: "failed", message: `${backend.id} can't draft a summary on this server.` });
     }
     await requireWorkerHostRecorded(host.brainPath ?? process.cwd(), "ordinary", host.activity?.runtime, { identitySentinelDirectory: host.identitySentinelDirectory });
+    // The summary run has no proven recipient, so the policy hides every
+    // provider folder from it. A chat not born with them hidden may hold what
+    // an earlier turn read there (#2726): refused before its history is read.
+    if (host.governedTurns?.unprovenHistory(msg.sourceSessionId)) {
+      return answer({ state: "failed", message: "This chat can't be summarized: the governance policy's provider rules hide folders from the summary run, "
+        + "and the server can't show that this chat kept them hidden from every turn. Start a new conversation instead; this one is kept unchanged." });
+    }
     let history: SessionHistoryMessage[];
     try {
       history = host.prepareHistory(msg.sourceSessionId, await backend.getHistory(msg.sourceSessionId));

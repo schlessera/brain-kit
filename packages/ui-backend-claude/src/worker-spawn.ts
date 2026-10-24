@@ -146,7 +146,9 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
       let state: ReturnType<typeof createClaudeWorkerState>;
       try {
         state = prepareClaudeWorkerState(brainPath, env, args, { ...stateOptions, limits: stateLimits, turnTempLimits,
-          ephemeral: Boolean(restricted), hostInference: Boolean(egress) });
+          ephemeral: Boolean(restricted), hostInference: Boolean(egress),
+          // The host's actual masks: any provider folder hidden makes the turn provider-denied (#2726).
+          omitMemory: Boolean(sandbox?.providerMasks?.folders.length) });
       } catch (error) { record(error); throw error; }
       const emitter = new EventEmitter();
       let worker: LaunchedWorker;
