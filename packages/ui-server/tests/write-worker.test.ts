@@ -111,20 +111,20 @@ test("a read-only app snapshot keeps its deferred mode and never holds the write
 });
 
 test("an attached database file is owned by the same write connection, at FULL", async () => {
-  const root = mkdtempSync(join(tmpdir(), "write-worker-attach-odysseus-")), path = join(root, "ui.db"), journalPath = join(root, "journal.db");
+  const root = mkdtempSync(join(tmpdir(), "write-worker-attach-odysseus-")), path = join(root, "ui.db"), harbourPath = join(root, "harbour.db");
   const db = createUiDb(path);
-  db.query("ATTACH DATABASE ? AS journal").run(journalPath); db.exec("PRAGMA journal.journal_mode = WAL");
-  const writer = openSqliteWriter(db, { attach: [{ schema: "journal", path: journalPath }] });
+  db.query("ATTACH DATABASE ? AS harbour").run(harbourPath); db.exec("PRAGMA harbour.journal_mode = WAL");
+  const writer = openSqliteWriter(db, { attach: [{ schema: "harbour", path: harbourPath }] });
   try {
-    const voyage = writer.channel(probe, { table: "journal.odysseus_log" }); await voyage.ready;
-    expect(await voyage.call<number>("levelOf", "journal"), "WRITE_WORKER_ATTACHED_FULL").toBe(2);
+    const voyage = writer.channel(probe, { table: "harbour.odysseus_log" }); await voyage.ready;
+    expect(await voyage.call<number>("levelOf", "harbour"), "WRITE_WORKER_ATTACHED_FULL").toBe(2);
     await voyage.call("log", "Ithaca");
-    const separate = new Database(journalPath, { readonly: true });
+    const separate = new Database(harbourPath, { readonly: true });
     try { expect((separate.query("SELECT label FROM odysseus_log").all() as { label: string }[]).map(row => row.label), "WRITE_WORKER_COMMITS_ATTACHED_FILE").toEqual(["Ithaca"]); }
     finally { separate.close(); }
-    await expectRejection(voyage.call("loweredIn", "journal", "Calypso"), "SQLITE_WRITE_BELOW_FULL", "WRITE_WORKER_REFUSES_ATTACHED_BELOW_FULL");
-    expect(await voyage.call<number>("levelOf", "journal"), "WRITE_WORKER_RESTORES_ATTACHED_FULL").toBe(2);
-    expect((db.query("SELECT label FROM journal.odysseus_log").all() as { label: string }[]).map(row => row.label)).toEqual(["Ithaca"]);
+    await expectRejection(voyage.call("loweredIn", "harbour", "Calypso"), "SQLITE_WRITE_BELOW_FULL", "WRITE_WORKER_REFUSES_ATTACHED_BELOW_FULL");
+    expect(await voyage.call<number>("levelOf", "harbour"), "WRITE_WORKER_RESTORES_ATTACHED_FULL").toBe(2);
+    expect((db.query("SELECT label FROM harbour.odysseus_log").all() as { label: string }[]).map(row => row.label)).toEqual(["Ithaca"]);
   } finally { await writer.close(); db.close(); rmSync(root, { recursive: true, force: true }); }
 });
 

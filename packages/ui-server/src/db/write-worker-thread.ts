@@ -22,11 +22,16 @@ function inTurn<T>(work: () => T): T {
 }
 const channels = new Map<number, WriteProcedures | { failed: unknown }>();
 
-/** Every database file this connection writes: `main` and each attached schema. */
+/** Every database file this connection writes: `main` and each attached schema, as last checked. */
 let schemas = ["main"];
 
-/** A commit below FULL, in any of the connection's files, is refused before it happens: the transaction rolls back. */
+/**
+ * A commit below FULL, in any of the connection's files, is refused before it
+ * happens: the transaction rolls back. The files are read each time, so one a
+ * procedure attaches itself (the journal ledger attaches `journal.db`) counts.
+ */
 function assertFull(connection: Database) {
+  schemas = (connection.query("PRAGMA database_list").all() as { name: string }[]).map(row => row.name).filter(name => name !== "temp");
   for (const schema of schemas) {
     const level = (connection.query(`PRAGMA "${schema}".synchronous`).get() as { synchronous: number }).synchronous;
     if (level !== FULL) throw new Error(`SQLITE_WRITE_BELOW_FULL: a write-worker commit would run at synchronous=${level} in ${schema}.`);

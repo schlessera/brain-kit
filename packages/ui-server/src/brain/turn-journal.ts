@@ -2,6 +2,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import type { JournalVersion, TurnJournalDetails, TurnJournalSummary, JournalOutwardAction, JournalObservationReference } from "@schlessera/brain-ui-sdk/protocol";
 import { openSqliteWriter, type SqliteWriter } from "../db/write-worker.js";
+import { JOURNAL_SCHEMA, journalDatabasePath } from "../db/journal-database.js";
 import { installEscapeGuard, JournalStorageUnavailable } from "./journal-accounting.js";
 import { replaySteeringEvents } from "./journal-governance.js";
 import { createJournalObjects, JournalCapacityError } from "./journal-objects.js";
@@ -67,7 +68,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
   // connection, committed at synchronous=FULL off the event loop and in
   // submission order (#2814). This connection only reads; its own guard
   // refuses any journal row it would change.
-  const writer = options.writer ?? openSqliteWriter(db);
+  const writer = options.writer ?? openSqliteWriter(db, { attach: [{ schema: JOURNAL_SCHEMA, path: journalDatabasePath(options.dbPath) }] });
   const ownWriter = !options.writer;
   const ledger = writer.channel<JournalStoreOptions>(journalStore, { dbPath: options.dbPath, objectsRoot: options.objectsRoot, ...(options.capBytes !== undefined ? { capBytes: options.capBytes } : {}) }, reviveJournalError);
   if (writer.offloop) installEscapeGuard(db);
