@@ -1434,6 +1434,12 @@ signatures (every public export and the types it is made of)
             threadId: string;
         }>;
         close: () => Promise<void>;
+        conversation: (input: ShareInput, key: string, principal: Principal, turnId: string, isCurrent: () => boolean) => Promise<{
+            created: boolean;
+            itemId: string;
+            result: ShareIntakeResult;
+            threadId: string;
+        }>;
         person: (input: ShareInput, key: string, principal: Principal) => Promise<{
             created: boolean;
             itemId: string;
