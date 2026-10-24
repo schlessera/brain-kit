@@ -1890,46 +1890,61 @@ every turn without a proven recipient:
   build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
   build as a base and reuses it while it provably equals a clean build of the
   turn's final startup view (`createPrivateIndexCache`,
-  `packages/ui-server/src/brain/private-index-cache.ts:239-356`):
+  `packages/ui-server/src/brain/private-index-cache.ts:292-440`):
   - *Identity.* A base is keyed by the brain's canonical path, the policy
-    hash, the masked folders, the proven recipient, the operational mask paths
-    and the build's argv (`privateIndexCacheKey`,
-    `packages/ui-server/src/brain/private-index-cache.ts:67-70`). Any change
-    to one is another base.
+    hash, the masked folders, the proven recipient, the operational mask
+    paths, the build's argv, the runtime version and the change stamps of any
+    absolute file the argv names (`privateIndexCacheKey`,
+    `packages/ui-server/src/brain/private-index-cache.ts:87-91`). Any change
+    to one is another base. The default command is the brain's own CLI, which
+    the delta covers.
   - *Freshness.* A base retains the native checkpoint it was built from. The
     turn's final view is compared with it through the manager's `--no-data`
     send delta, which the kernel derives from both sealed roots; the parser
     must reach `END` and EOF and the helper must exit 0, or the turn builds
     from nothing. Timestamps and the turn journal play no part.
   - *Reconciliation.* Changes inside the masked folders, `.brain-index` and
-    `.git` cannot change what the masked build reads. A renamed or replaced
-    directory is expanded in both roots. If the only other changes are new
-    `.md` or asset files on unhidden paths, the turn's copy is updated by the
-    brain's own incremental `brain index`, which must report nothing updated
-    or deleted, and becomes the next base. Anything else (a file changed,
-    removed, moved into a masked folder, given a second name, or any other
-    new file) takes a clean build (`classifyPrivateIndexChanges`,
-    `packages/ui-server/src/brain/private-index-cache.ts:163-198`).
-    Nothing is ever deleted from a base: a deleted row's bytes survive in
-    SQLite free pages, FTS5 segments and the WAL, so text that leaves the
-    masked view only ever leaves through a clean build. Physical
-    non-disclosure is not claimed for any other path.
+    `.git` cannot change what the masked build reads, nor can changes inside
+    `.brain/` and `.brain-ui/` (scratch, pins, inbox staging): the build sees
+    those two as empty folders, as it sees masked ones. A renamed or replaced
+    directory is expanded in both roots, and a directory, or the root, whose
+    mode, owner, group or extended attributes (ACLs) changed takes a clean
+    build, since that changes what the build's worker may read. If the only
+    other changes are new `.md` or asset files on unhidden paths, the turn's
+    copy is updated by the brain's own incremental `brain index`, which must
+    report nothing updated or deleted, and becomes the next base. Anything
+    else (a file changed, removed, moved into a masked folder, given a second
+    name, or any other new file) takes a clean build
+    (`classifyPrivateIndexChanges`,
+    `packages/ui-server/src/brain/private-index-cache.ts:176-222`). Nothing
+    is ever deleted from a base: a deleted row's bytes survive in SQLite free
+    pages, FTS5 segments and the WAL, so text that leaves the masked view only
+    ever leaves through a clean build. Physical non-disclosure is not claimed
+    for any other path. A configuration that imports from `.brain/` or
+    `.brain-ui/` no longer loads in the private index build.
   - *Isolation.* The base is a server-owned `0700` directory of read-only
-    copies, outside the brain and every worker's mounts; each turn gets its
-    own writable copy. The kernel change stamps of the base's files are
-    recorded when it is sealed and checked before and after every copy; a
-    base changed anyway is discarded and rebuilt.
+    copies under the server's temporary directory, which every worker sees as
+    its own empty `/tmp`; on a `TMPDIR` outside `/tmp` and the masked
+    operational-state paths, no base is kept and every restricted turn builds
+    from nothing. Each turn gets its own writable copy. The kernel change
+    stamps of the base's files are recorded when it is sealed and checked
+    before and after every copy; a base changed anyway is discarded and
+    rebuilt.
   - *Bounds and cleanup.* At most two bases (each one index copy and one
-    retained checkpoint), least recently used first; a base idle for 30
-    minutes, and every base at server close, releases its checkpoint. A
-    retained checkpoint is a native root lease like a turn's, so a crashed
-    server's are released by dead-owner recovery. A partial build is served
-    but never kept. Losing a base costs one clean build; `brain.db` stays
-    disposable.
+    retained checkpoint), least recently used first, enforced when each turn's
+    reconciliation finishes; a base a turn is reconciling is never dropped
+    under it. A base idle for 30 minutes, and every base at server close,
+    releases its checkpoint. A retained checkpoint is a native root lease like
+    a turn's, so a crashed server's are released by dead-owner recovery, and
+    its base directories are removed by the next server's cache. A partial
+    build is served but never kept. Losing a base costs one clean build;
+    `brain.db` stays disposable.
   - *Cost.* The first restricted turn after start, or after a change that
     needs a clean build, pays the full build plus one copy of the index. A
-    warm turn pays the delta and one copy. Measured figures are in #2833's
-    pull request. Autonomous turns still build their own index each run.
+    warm turn over an unchanged view pays the delta and one copy; one after
+    new notes also pays the CLI's incremental run, whose graph precompute
+    and full-corpus hash dominate it. Measured figures are in #2833's pull
+    request. Autonomous turns still build their own index each run.
 - A policy whose provider rules name a document type, a non-literal glob or a
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
   selector, per the 2026-10-16 ruling. The 2026-10-23 ruling below narrows the

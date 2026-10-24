@@ -52,6 +52,15 @@ test("root and parent timestamps request no recursive expansion", async () => {
   expect(await collect(stream())).toEqual([]);
 });
 
+test("extended attribute changes name their path, the root included", async () => {
+  // An ACL is an extended attribute: it changes who may read a directory (#2833).
+  const data = stream(
+    command(13, [[15, bytes("notes")], [13, bytes("system.posix_acl_access")], [14, bytes("acl")]]),
+    command(14, [[15, bytes("")], [13, bytes("user.odysseus")]]),
+  );
+  expect(await collect(data)).toEqual([{ paths: ["notes"], xattr: "notes" }, { paths: [], xattr: "" }]);
+});
+
 test("command corruption is refused by the real CRC guard", async () => {
   const data = stream(command(11, [[15, bytes("notes/odysseus.md")]]));
   data[data.length - 11] ^= 1;

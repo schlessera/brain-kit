@@ -147,7 +147,10 @@ policy, mask set and recipient, compares the turn's checkpoint with the one
 that copy was built from, and adds new Markdown and asset files outside the
 masks with the CLI's incremental index. Any other change, including a
 document edited, removed or moved into a masked folder, builds the index from
-nothing again, as does the first such turn after the server starts. The real index is refreshed from Markdown after
+nothing again, as does the first such turn after the server starts. Changes
+inside `.brain/` and `.brain-ui/` do not, because the build sees those
+folders as empty; a `brain.config.ts` that imports from them does not load in
+that build. The real index is refreshed from Markdown after
 the turn as usual. Host bridge tools that run on the server, outside the
 worker's mounts, refuse every path at or below a masked root with the named
 refusal `provider_masked` and one `provider_mask_refusal` governance event per
