@@ -69,6 +69,7 @@ export function createSessionResources(options: {
         inbox: caps.inbox,
         mask: caps.mask,
         turnTemp: caps.turnTemp,
+        reference: caps.reference,
       },
     });
     return { tools, turnContext };
@@ -115,7 +116,7 @@ export function createSessionResources(options: {
     const append = env.autonomous ? [brief, options.sandboxNote].filter(Boolean).join("\n\n")
       : options.fixedAppend ?? [buildAppend(backend, { ...env, client: undefined, turnBudgetMs: undefined, caps: {
         policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-        location: true, activity: true, inbox: true, mask: true, turnTemp: true,
+        location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
       } }, subagentTool, webSearch, Boolean(options.shellCwd)), env.sessionBudgetLimits].filter(Boolean).join("\n\n");
     options.observeAppend?.(append);
     const loader = new DefaultResourceLoader({
@@ -199,6 +200,8 @@ function buildAppend(
         inboxAdd: env.caps.inbox && "inbox_add", resolveAction: env.caps.inbox && "resolve_action", completeShare: env.caps.inbox && "complete_share",
         mask: env.caps.mask && "request_image_mask",
         turnTemp: env.caps.turnTemp === true && "turn_temp",
+        referenceSource: env.caps.reference === true && "reference_source",
+        referenceWorktree: env.caps.reference === true && "reference_worktree",
         // Always registered: it needs nothing from the bridge.
         block: "show_block",
       },

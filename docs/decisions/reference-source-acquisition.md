@@ -9,8 +9,9 @@ authority. This record names the concrete choices the rulings left to
 implementation. The service is `createReferenceSources`
 (`createReferenceSources`, `packages/ui-server/src/brain/reference-source.ts:89-497`),
 created at host start when the native manager reports a reference pool, and
-closed with the app. Agent tools that request source arrive with
-[#2432](https://github.com/schlessera/brain-kit/issues/2432).
+closed with the app. The agent tool that requests source arrived with
+[#2432](https://github.com/schlessera/brain-kit/issues/2432)
+([agent tools](managed-worktrees.md#agent-tools)).
 
 ## Requests name a repository and a branch or tag
 

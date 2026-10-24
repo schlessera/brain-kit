@@ -8,8 +8,8 @@ and the pool's [checkpoints and access generations](reference-pool-accounting.md
 This record names the concrete choices the rulings left to implementation. The
 service is `createReferenceWorktrees`
 (`createReferenceWorktrees`, `packages/ui-server/src/brain/reference-worktrees.ts:150-691`),
-created with the acquisition service. Agent tools that call it arrive with
-[#2432](https://github.com/schlessera/brain-kit/issues/2432). Hygiene findings,
+created with the acquisition service. The agent tools that call it arrived with
+[#2432](https://github.com/schlessera/brain-kit/issues/2432) ([agent tools](#agent-tools)). Hygiene findings,
 review and cleanup arrived with [#2431](https://github.com/schlessera/brain-kit/issues/2431)
 ([hygiene and cleanup](#hygiene-and-cleanup)).
 
@@ -97,7 +97,7 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:558-570`;
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:559-571`;
 `// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:776-787`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
@@ -111,9 +111,9 @@ recovery parks only for a holder that is provably gone. A turn whose
 generation cannot be opened runs without worktree access.
 
 Generations open only when the host enables worktree access
-(`WsHost.referenceWorktreeAccess`), which the supported worktree tools of
-#2432 do. Until then no turn binds a generation, so this layer adds no
-reachable write path.
+(`WsHost.referenceWorktreeAccess`). Since #2432 the app enables it whenever a
+reference pool exists, together with the [agent tools](#agent-tools) that grant
+worktrees to a generation.
 
 Acquisition checks out source group-writable (umask 002, Git metadata
 directories 0775). Sealed source stays read-only whatever its modes say, and a
@@ -154,7 +154,7 @@ Ordinary brain and workspace journaling is unchanged.
 ## Guidance
 
 Workers with a bound generation receive fixed guidance in the existing sandbox
-note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:504-510`):
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:516-522`):
 shared source is read-only and moves, a worktree starts at a reported commit
 that never moves, where to work, that edits are journaled and scope-counted,
 that only explicit access or renewal resets the three-day clock, that expiry
@@ -184,6 +184,78 @@ operation preserves worktree content elsewhere. A release while a worker holds t
 worktree is assessed when that generation closes. The facts are evidence for
 review, not approval: removal revalidates identity, ownership and work
 immediately before it acts.
+
+## Agent tools
+
+[#2432](https://github.com/schlessera/brain-kit/issues/2432) exposes shared
+source and worktrees to agents through two bridge tools, `reference_source` and
+`reference_worktree` (`request`, `access`, `renew`, `release`, `list`), declared
+once in the SDK and registered identically by both backends
+([MCP contract](../integration-contract/mcp.md#reference-source-and-managed-worktree-tools-additive-0440-2432)).
+The host side is `createReferenceTools`
+(`createReferenceTools`, `packages/ui-server/src/brain/reference-tools.ts:49-172`).
+
+**The turn is the authority.** Before a governed or strict turn's workers
+start, the host records its principal and what those workers bind: the public
+view, the principal's private view and the turn's worker generation, if one
+opened
+(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:572-578`).
+A call carries only a repository, a revision or a worktree identity. The bridge
+adds the turn's own principal, and a call for a turn the host did not prepare,
+or under another principal, refuses
+(`async call(turnId: string`, `packages/ui-server/src/brain/reference-tools.ts:122-170`).
+Every operation then runs through the acquisition and worktree services, which
+check grants, validation and ownership again; a tool never repeats or skips
+their rules. Once the turn ends, its record is gone and its bridge holds
+nothing.
+
+**Shared source is read through views.** Each such turn's workers bind the
+public view and their principal's private view whole and read-only at
+`/tmp/brain-reference/public` and `/tmp/brain-reference/private`
+(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:788-799`).
+A view the domain has not published to yet is opened empty first, so the turn
+sees its own first acquisition
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:501-510`).
+A refresh renames the name a later lookup resolves, so reads stay live and
+nothing pins a revision. A view is the domain's authorized cache: its names are
+published under that domain's authority and withdrawn when the authority is
+lost, and binding it grants nothing more. A `reference_source` call validates
+and refreshes the source under its own clocks before it reports a path; the
+turn keeps one reader per source protecting it from capacity eviction until the
+turn ends.
+
+**Paths need namespace evidence.** A source result names
+`/tmp/brain-reference/<domain>/<name>` only when the source's view is the one
+this turn's workers bind, and a worktree result names
+`/tmp/brain-worktrees/<id>` only while this turn's generation holds it.
+Otherwise the path is `null`. No result names a host path, and refusal
+messages are bounded and have the host's pool and brain paths removed.
+
+**Worktrees go to the turn's generation.** `request` allocates a worktree and
+grants it to the turn's generation at once; when the grant fails, the untouched
+worktree is released so automatic cleanup removes it. Without a generation (its
+journal is not recording) `request` and `access` refuse and allocate nothing.
+`renew` and `release` need no generation. A voice turn reads source and lists
+worktrees, and changes none. Restricted (autonomous) turns hold no reference
+access and their rosters do not name the tools.
+
+**Stable tools, live results.** Both tools stay in every interactive session's
+fixed roster with fixed descriptions; a turn without a handler refuses at call
+time. Lifecycle and freshness facts arrive only in the result of the call that
+produced them, and the sandbox note's reference guidance is fixed text
+(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:513-515`),
+so no earlier system prompt, tool or message changes
+([provider history](provider-history.md)).
+
+**Validation and the whole view.** Binding a whole view exposes every source
+name the domain has published, not only those this turn requested. Names are
+published only under live domain authority and withdrawn when it is lost, as
+[acquisition](reference-source-acquisition.md#revocation-and-recovery) records,
+but a source whose five-minute validation has lapsed stays readable by name
+until the next request rechecks it. The Q4 ruling asks for a fresh check before
+a new mount; this layer reads the whole-view binding that #2429 selected as the
+mount and the request as the check, and records the gap for the epic's final
+acceptance ([#2751](https://github.com/schlessera/brain-kit/issues/2751)).
 
 ## Hygiene and cleanup
 

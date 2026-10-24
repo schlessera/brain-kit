@@ -223,7 +223,10 @@ directory its intent records. Sealing also makes the root's top directory
 
 `roots/` and `views/` join the mandatory worker masks. A worker sees reference
 source only through a view bound for it, and other domains' views stay
-invisible.
+invisible. `poolView` (#2432) opens a view's directory before its first
+publication (`function viewOpen`, `packages/ui-sdk/src/server/native-reference-pool.ts:938-941`),
+so a worker that binds it at its start sees the domain's first publication on a
+later lookup ([agent tools](managed-worktrees.md#agent-tools)).
 
 ## Worktree checkpoints and access generations (#2430)
 

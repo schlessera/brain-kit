@@ -26,7 +26,7 @@ import { coveringReferenceGrant, isLiveReferenceGrant, referenceRepository, type
 import { referenceRevision, ReferenceTransportError, type ReferenceTransport } from "./reference-transport.js";
 
 type Client = ReturnType<typeof createNativeBrainManagerClient>;
-export type ReferencePool = Pick<Client, "poolStatus" | "poolCreate" | "poolSeal" | "poolRelease" | "poolPublish" | "poolUnpublish" | "poolWithdraw" | "listPoolRecovery">;
+export type ReferencePool = Pick<Client, "poolStatus" | "poolCreate" | "poolSeal" | "poolRelease" | "poolPublish" | "poolView" | "poolUnpublish" | "poolWithdraw" | "listPoolRecovery">;
 
 export interface ReferenceSourceLimits {
   /** Lifetime of a successful authority check of one exact commit. */
@@ -491,6 +491,23 @@ export function createReferenceSources(options: {
     views(principalId: string): { public: string | null; private: string | null } {
       const path = (domain: string) => (db.query("SELECT host_path FROM reference_views WHERE domain = ?").get(domain) as { host_path: string | null } | null)?.host_path ?? null;
       return { public: path(PUBLIC), private: path(privateDomain(principalId)) };
+    },
+    /**
+     * The public view and this principal's private view, opened if nothing was
+     * published there yet, for a worker to bind whole at its start (#2432).
+     * Binding grants nothing: names in a view are published and withdrawn under
+     * that domain's authority, and every request rechecks it.
+     */
+    async bindable(principalId: string, signal?: AbortSignal): Promise<{ public: string; private: string }> {
+      if (closed) throw new ReferenceSourceError("unavailable", "Reference sources are closed.");
+      const open = async (domain: string) => {
+        const view = viewFor(domain);
+        if (view.hostPath) return view.hostPath;
+        const opened = await pool.poolView(view.id, signal);
+        db.query("UPDATE reference_views SET host_path = ? WHERE domain = ? AND host_path IS NULL").run(opened.path, domain);
+        return viewFor(domain).hostPath!;
+      };
+      return { public: await open(PUBLIC), private: await open(privateDomain(principalId)) };
     },
     /** Operations admitted or waiting, for status reporting; private keys are not disclosed. */
     activity(): { active: number; waiting: number } { return { active, waiting: queue.length }; },

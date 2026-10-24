@@ -675,3 +675,12 @@ The human-started hygiene review (`/api/hygiene/review`) also selects host-only
 worktree service before it removes anything; described in
 [the package API](integration-contract/package-api.md#managed-worktree-findings-in-the-review-additive-0440-2431).
 
+
+## Reference and worktree tools (additive, 0.44.0, #2432)
+
+Both backends gain the bridge tools `reference_source` and `reference_worktree`,
+described in
+[the MCP contract](integration-contract/mcp.md#reference-source-and-managed-worktree-tools-additive-0440-2432).
+Their shared contracts, `BackendBridge.referenceAccess`, the native manager's
+`poolView` and the worker's read-only source views are described in
+[the package API](integration-contract/package-api.md#reference-and-worktree-tools-additive-0440-2432).

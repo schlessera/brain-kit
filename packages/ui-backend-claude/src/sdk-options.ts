@@ -217,6 +217,9 @@ function assembleClaudeSdkTurn(
     if (turnTempTool) allowed.push(TURN_TEMP_TOOL_NAME);
     for (const [name, handler] of [["inbox_list", "inboxList"], ["inbox_get", "inboxGet"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
     if (!req.noGrantSurface && req.posture !== "voice") for (const [name, handler] of [["inbox_add", "inboxAdd"], ["resolve_action", "resolveAction"], ["complete_share", "completeShare"]] as const) if (req.bridge[handler]) allowed.push(visibleToolName(name, "claude"));
+    // The host owns reference authority and refuses per call (#2432); an
+    // approval card would add nothing a grant does not already decide.
+    if (req.bridge.referenceAccess) allowed.push(visibleToolName("reference_source", "claude"), visibleToolName("reference_worktree", "claude"));
     // No side effect and no host handler: the block is part of the answer, and
     // an approval card for drawing a table would be the surface asking
     // permission to answer.
@@ -274,6 +277,7 @@ function assembleClaudeSdkTurn(
       inbox: Boolean(req.bridge.inboxList),
       block: true,
       turnTemp: turnTempTool,
+      reference: Boolean(req.bridge.referenceAccess),
     },
     req.turnBudgetMs
   );
@@ -282,7 +286,7 @@ function assembleClaudeSdkTurn(
   const context = req.autonomous ? undefined : claudePromptContext(backend.brainPath, contextId);
   const append = context ? context.retainAppend([buildAppend(backend, undefined, {
     policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true,
+    location: true, mask: true, activity: true, inbox: true, block: true, turnTemp: true, reference: true,
   }, undefined), req.sessionBudgetLimits].filter(Boolean).join("\n\n"), req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}) : candidate;
   const available = (name: string) => toolAvailabilityRefusal({ ...req, workerSandbox: sandbox }, name) === undefined;
   const owned = context?.prepare(req.prompt, {
@@ -292,7 +296,8 @@ function assembleClaudeSdkTurn(
       askUser: available("ask_user"), askUserList: available("ask_user_list"), askUserRank: available("ask_user_rank"), askUserForm: available("ask_user_form"),
       location: available("get_current_location"), mask: available("request_image_mask"), policyChange: available("propose_policy_change"),
       activity: available("query_activity"), inbox: { list: available("inbox_list"), get: available("inbox_get"),
-        add: available("inbox_add"), resolveAction: available("resolve_action"), completeShare: available("complete_share") } }),
+        add: available("inbox_add"), resolveAction: available("resolve_action"), completeShare: available("complete_share") },
+      reference: available("reference_source") }),
     ...(req.turnBudgetMs && req.turnBudgetMs > 0 ? { timeout: `The host hard budget for this turn is ${req.turnBudgetMs} ms (about ${Math.round(req.turnBudgetMs / 60000)} minutes); finish inside this cap.` } : {}),
     ...(req.sessionBudgetLimits ? { limits: req.sessionBudgetLimits } : {}),
     ...(req.budgetContext ? { budget: req.budgetContext } : {}),
@@ -437,6 +442,7 @@ function assembleClaudeSdkTurn(
       requestMask,
       queryActivity,
       ...(!req.autonomous || req.bridge.inboxList ? { inbox: req.bridge } : {}),
+      ...(!req.autonomous || req.bridge.referenceAccess ? { reference: req.bridge } : {}),
       ...(turnTempTool ? { turnTemp: createTurnTempTool(turnTemp, event => {
         try { req.bridge.activity?.(event); } catch { /* Observability must not fail the observed turn. */ }
       }) } : {}),
@@ -520,6 +526,7 @@ function buildAppend(
     inbox: boolean;
     block: boolean;
     turnTemp: boolean;
+    reference: boolean;
   },
   turnBudgetMs: number | undefined
 ): string {
@@ -546,6 +553,8 @@ function buildAppend(
         completeShare: tools.inbox && visibleToolName("complete_share", "claude"),
         block: tools.block && SHOW_BLOCK_TOOL_NAME,
         turnTemp: tools.turnTemp && TURN_TEMP_TOOL_NAME,
+        referenceSource: tools.reference && visibleToolName("reference_source", "claude"),
+        referenceWorktree: tools.reference && visibleToolName("reference_worktree", "claude"),
       },
     })
   );

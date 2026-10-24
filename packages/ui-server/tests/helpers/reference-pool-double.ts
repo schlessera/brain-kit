@@ -74,6 +74,11 @@ export function referencePoolDouble(root: string, options: { capacityRoots?: num
       note({ operation: "publish", id, view, name });
       return record!;
     },
+    async poolView(view) {
+      mkdirSync(join(views, view), { recursive: true });
+      note({ operation: "view", view });
+      return { view, path: join(views, view) };
+    },
     async poolUnpublish(view, name) {
       const path = join(views, view, name);
       let removed = false;

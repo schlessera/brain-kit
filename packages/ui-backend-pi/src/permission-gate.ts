@@ -67,6 +67,7 @@ export function piToolAvailabilityRefusal(turn: TurnContext, name: string): stri
     request_image_mask: "requestMask", get_current_location: "getLocation", query_activity: "queryActivity",
     propose_policy_change: "proposePolicyChange", inbox_list: "inboxList", inbox_get: "inboxGet",
     inbox_add: "inboxAdd", resolve_action: "resolveAction", complete_share: "completeShare", brain_read_base: "readBrainBase",
+    reference_source: "referenceAccess", reference_worktree: "referenceAccess",
   };
   const handler = handlers[name];
   if (handler && typeof (turn.bridge as unknown as Record<string, unknown> | null)?.[handler] !== "function")

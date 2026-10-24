@@ -278,7 +278,7 @@ roadblocks parameters become tool errors without changing other scopes.
 answer blocks inline in the answer, or the follow-ups the model offers under
 it (`suggestions`); it validates its argument and echoes it, and rejects a `link` block whose
 address the link policy refuses, and a `tracker` block with any event whose address it refuses.
-The nine bridge tools are declared once as **tool contracts** in
+The eleven bridge tools are declared once as **tool contracts** in
 `@schlessera/brain-ui-sdk/tool-contracts` (also re-exported from `/server` and
 `/client`); their names and Claude-side input schemas are stable.
 
@@ -863,6 +863,52 @@ dispatcher cannot acquire the bound item. Cleanup is journaled only after
 verified completion and live worker unwind, then retried through the existing
 compensation lifecycle. The path also works with dispatch disabled. Voice,
 restricted and unbound sessions cannot complete interactive shares.
+
+<a id="reference-source-and-managed-worktree-tools-additive-0440-2432"></a>
+
+## Reference source and managed worktree tools (additive, 0.44.0, #2432)
+
+Both first-party backends attach `reference_source` and `reference_worktree`
+to their existing UI bridge. Claude names them `mcp__brain-ui__<name>` and
+loads them eagerly; pi attaches plain names. Both stay in every interactive
+session's fixed roster, after `turn_temp`; a turn without a host handler
+refuses the call instead. They are auto-allowed: the host decides authority on
+every call. Restricted autonomous rosters do not include them. Shared contracts
+are exported from `@schlessera/brain-ui-sdk/tool-contracts` and `/server`.
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `reference_source` | `repository` (1–2048 characters: https without credentials, loopback http or absolute `file://`), `revision` (1–255 characters, a branch or tag) | `{ ok: true, source, guidance }` |
+| `reference_worktree` | `action`: `request` (with `repository`, `revision`), `access`, `renew` or `release` (with `worktreeId`, 1–64 characters), or `list` (no other field) | `{ ok: true, action, worktree, guidance }`; for `list`, `{ ok: true, action: "list", worktrees, truncated, guidance }` with at most 20 worktrees, most recent activity first |
+
+Inputs are strict objects: an action given a field it does not take, or
+missing one it needs, is invalid. Principal, profile, brain, session, worker
+generation and paths are never inputs; the host takes them from the
+authenticated turn, and another principal's worktree identity reads as
+`missing`. A refusal is `{ ok: false, code, message }`, a tool error on both
+backends, with `code` one of `unavailable`, `unauthorized`, `missing`,
+`invalid`, `capacity`, `busy`, `released` or `cancelled`. Messages are at most
+500 bytes and never name the host's pool or brain paths.
+
+`source` is `{ repository, revision, domain, commit, path, freshness,
+refreshedAt, validatedAt, error }`. `freshness` is `fresh` or `stale`; a stale
+source carries the refresh `error` and its unchanged `refreshedAt`. `path` is
+`/tmp/brain-reference/<public|private>/<name>` when this turn's workers bind
+that view, else `null`. The source is read-only and moves: a later read of the
+same path may see a newer commit.
+
+`worktree` is `{ id, repository, revision, domain, startingCommit, state,
+path, lastActivityAt, expiresAt, releasedAt, allowanceBytes }`. `state` is
+`active`, `expired` or `released`. `path` is `/tmp/brain-worktrees/<id>` only
+while this turn's worker generation holds the worktree, else `null`. `request`
+and `access` grant it to the turn and need a worker generation; without one the
+call refuses and nothing is allocated. Only `request`, `access` and `renew` move
+`lastActivityAt`. `release` is final. Times are ISO 8601.
+
+Interactive governed and strict turns have the tools; a voice turn may read
+source and `list`, and refuses the other worktree actions. Each call runs
+through the reference services, which check authority again
+([managed worktrees](../decisions/managed-worktrees.md#agent-tools)).
 
 ## Hosted policy proposal (additive, #1662)
 

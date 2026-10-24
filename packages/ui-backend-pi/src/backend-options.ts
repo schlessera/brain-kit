@@ -185,6 +185,8 @@ export interface SessionCaps {
   mask: boolean;
   /** The worker's turn temp is reachable through the `turn_temp` tool (#1703); not in an autonomous turn. */
   turnTemp?: boolean;
+  /** Shared reference source and managed worktrees (#2432). */
+  reference?: boolean;
 }
 
 /** What one session's system prompt and toolset are conditioned on. */
@@ -223,11 +225,12 @@ export function capsOf(bridge: BackendBridge): SessionCaps {
     activity: Boolean(bridge.queryActivity),
     inbox: Boolean(bridge.inboxList),
     mask: Boolean(bridge.requestMask),
+    reference: Boolean(bridge.referenceAccess),
   };
 }
 
 /** Deployment-owned tools exist even when this turn has no matching handler. */
 export const INTERACTIVE_SESSION_CAPS: Readonly<SessionCaps> = Object.freeze({
   policyChange: true, askUser: true, askUserList: true, askUserRank: true, askUserForm: true,
-  location: true, activity: true, inbox: true, mask: true, turnTemp: true,
+  location: true, activity: true, inbox: true, mask: true, turnTemp: true, reference: true,
 });

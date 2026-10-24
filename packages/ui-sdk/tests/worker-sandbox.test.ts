@@ -513,6 +513,58 @@ describe("managed worktree generations (#2430)", () => {
     } finally { f.cleanup(); }
   });
 
+});
+
+describe("shared reference source views (#2432)", () => {
+  test("each view is bound whole and read-only, only into an interactive worker, and only from a root-owned directory outside the brain", async () => {
+    const f = fixture();
+    try {
+      const sandbox = prepareWorkerSandbox(f.brain, { home: f.home });
+      const publicView = join(f.root, "public-view"), privateView = join(f.root, "private-view");
+      for (const view of [publicView, privateView]) { mkdirSync(view); chmodSync(view, 0o755); }
+      const inBrain = join(f.brain, "notes"); chmodSync(inBrain, 0o755);
+      const writable = join(f.root, "writable"); mkdirSync(writable); chmodSync(writable, 0o775);
+      // As for generations: a child namespace that maps this uid to root shows these 0755 directories as root-owned.
+      const script = `const { workerCommand } = await import(${JSON.stringify(resolve(import.meta.dir, "../src/server/worker-launcher.ts"))});
+        const launch = (references) => workerCommand({ brainPath: ${JSON.stringify(f.brain)}, command: [process.execPath], env: { HOME: ${JSON.stringify(f.home)} },
+          sandbox: { ...${JSON.stringify(sandbox)}, references } });
+        const refusal = (references) => { try { launch(references); return "accepted"; } catch (error) { return error.message; } };
+        console.log(JSON.stringify({ argv: launch({ public: ${JSON.stringify(publicView)}, private: ${JSON.stringify(privateView)} }),
+          inBrain: refusal({ public: ${JSON.stringify(inBrain)} }), writable: refusal({ private: ${JSON.stringify(writable)} }) }));`;
+      const child = Bun.spawn(["unshare", "--user", "--map-root-user", process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      expect(stderr).toBe("");
+      expect(code).toBe(0);
+      const { argv, inBrain: inBrainRefusal, writable: writableRefusal } = JSON.parse(stdout) as { argv: string[]; inBrain: string; writable: string };
+      expect(inBrainRefusal, "REFERENCE_VIEW_OUTSIDE_THE_BRAIN").toContain("root-owned directory outside the brain");
+      expect(writableRefusal, "REFERENCE_VIEW_MODE_0755").toContain("root-owned directory outside the brain");
+      for (const [view, domain] of [[publicView, "public"], [privateView, "private"]] as const) {
+        const at = argv.findIndex((arg, i) => argv[i + 1] === view && argv[i + 2] === `/tmp/brain-reference/${domain}`);
+        expect(argv.slice(at, at + 3), "REFERENCE_VIEW_BOUND_READ_ONLY").toEqual(["--ro-bind", view, `/tmp/brain-reference/${domain}`]);
+        const turnTemp = argv.findIndex((arg, i) => arg === "--tmpfs" && argv[i + 1] === "/tmp");
+        expect(turnTemp >= 0 && turnTemp < at, "REFERENCE_VIEW_MOUNTED_OVER_TURN_TEMP").toBe(true);
+      }
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: { HOME: f.home }, sandbox: { ...sandbox, references: { public: publicView } } }),
+        "REFERENCE_VIEW_MUST_BE_ROOT_OWNED").toThrow("root-owned directory outside the brain");
+      const restricted = prepareWorkerSandbox(f.brain, { restricted: true });
+      expect(() => workerCommand({ brainPath: f.brain, command: [process.execPath], env: {}, restricted: { readPaths: [process.execPath], inferenceDir: f.root },
+        sandbox: { ...restricted, references: { public: "/usr" } } }), "REFERENCE_VIEW_NEVER_IN_A_RESTRICTED_WORKER").toThrow("only an interactive governed or strict worker");
+    } finally { f.cleanup(); }
+  });
+
+  test("the guidance is fixed text that appears only where views are bound", () => {
+    const base: WorkerSandbox = { brain: "/srv/ithaca/brain", restricted: false, scratchAliasesRemoved: [], home: { mode: "xdg" }, profile: "governed", areas: [] };
+    expect(workerSandboxNote(base), "REFERENCE_VIEW_GUIDANCE_ONLY_WHEN_BOUND").not.toContain("**Reference source.**");
+    const first = workerSandboxNote({ ...base, references: { public: "/srv/ithaca-reference/views/a", private: "/srv/ithaca-reference/views/b" } });
+    const second = workerSandboxNote({ ...base, references: { public: "/srv/ithaca-reference/views/c", private: "/srv/ithaca-reference/views/d" } });
+    expect(first, "REFERENCE_VIEW_GUIDANCE_STATIC").toBe(second);
+    expect(first, "REFERENCE_VIEW_GUIDANCE_NAMES_NO_HOST_PATH").not.toContain("ithaca-reference");
+    for (const phrase of ["`/tmp/brain-reference/`", "Read only under the path the tool returns", "read-only and moves", "stale because a refresh failed"])
+      expect(first, `REFERENCE_VIEW_GUIDANCE ${phrase}`).toContain(phrase);
+  });
+});
+
+describe("managed worktree guidance (#2430)", () => {
   test("the guidance is fixed text that appears only where a generation is bound", () => {
     const brain = "/srv/ithaca/brain";
     const base: WorkerSandbox = { brain, restricted: false, scratchAliasesRemoved: [], home: { mode: "xdg" }, profile: "governed", areas: [],

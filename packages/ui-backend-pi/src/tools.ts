@@ -218,6 +218,7 @@ export interface BrainToolDeps {
     mask?: boolean;
     policyChange?: boolean;
     turnTemp?: boolean;
+    reference?: boolean;
   };
 }
 
@@ -239,6 +240,8 @@ export const TOOL_RISK: Record<string, RiskClass> = {
   get_current_location: "read",
   query_activity: "read",
   inbox_list: "read", inbox_get: "read", inbox_add: "mutate", resolve_action: "mutate", complete_share: "mutate",
+  // Shared source is read-only; a worktree request, access, renewal or release changes host state (#2432).
+  reference_source: "read", reference_worktree: "mutate",
   // Echoes the block it was given; the surface draws it. Touches nothing.
   show_block: "read",
   // Writes a mask PNG next to its image, but the approval is the mask editor

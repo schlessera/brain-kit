@@ -21,6 +21,8 @@ describe("bridge tool server primitives", () => {
       "query_activity",
       "show_block",
       "turn_temp",
+      "reference_source",
+      "reference_worktree",
     ]);
     expect(BRIDGE_TOOL_POSTURE.allowedTools("pi")).toEqual(
       BRIDGE_TOOL_POSTURE.names
@@ -36,6 +38,8 @@ describe("bridge tool server primitives", () => {
       "mcp__brain-ui__query_activity",
       "mcp__brain-ui__show_block",
       "mcp__brain-ui__turn_temp",
+      "mcp__brain-ui__reference_source",
+      "mcp__brain-ui__reference_worktree",
     ]);
   });
 

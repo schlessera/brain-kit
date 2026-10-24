@@ -72,7 +72,7 @@ export { NativeFileVersions, nativeFileVersion, STALE_NATIVE_WRITE } from "./ser
 export type { NativeFileVersion } from "./server/native-file-versions.js";
 export { createWorkerFileObserver } from "./server/worker-file-observer.js";
 export type { ObservedWorkerFile } from "./server/worker-file-observer.js";
-export { WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT } from "./server/worker-sandbox.js";
+export { WORKER_AREA_ROOT, WORKER_REFERENCE_ROOT, WORKER_WORKTREE_ROOT } from "./server/worker-sandbox.js";
 export { parseNativeBrainDelta, NativeBrainDeltaError } from "./server/native-brain-delta.js";
 export type { NativeBrainRootIdentity, NativeBrainDeltaCandidate } from "./server/native-brain-delta.js";
 

@@ -16,7 +16,7 @@ import { hostOutputStagingLimits, DEFAULT_MAINTENANCE_TEMP_BYTES, type WorkerSta
 import { WORKER_INFERENCE_DIR } from "./inference-relay.js";
 import { WORKER_EGRESS_DIR } from "./egress-proxy.js";
 import { FIRST_PARTY_FAILURE_CLASSES } from "../protocol.js";
-import { resolveScratchMountSteps, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT,
+import { resolveScratchMountSteps, resolveWorkspacesMount, workerProfile, WORKER_AREAS, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT,
   type WorkerArea, type WorkerAreaName, type WorkerHome, type WorkerSandbox } from "./worker-sandbox.js";
 import { WORKER_XDG_HOME, WORKER_XDG_DIRS } from "./worker-xdg.js";
 import { limitFailureMessage, PRLIMIT_REQUIREMENT, prlimitArgs, WORKER_LIMITS_ENV, workerLimitsPlan,
@@ -535,7 +535,7 @@ export function workerCommand(input: WorkerLaunch): string[] {
     if (!within(TURN_TEMP_ROOT, scratch) || scratch === TURN_TEMP_ROOT) throw new WorkerHostError("maintenance scratch must be inside its size-limited /tmp");
   }
   const sized = tempBytes !== undefined;
-  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
+  const reservedRuntimePaths = ["/proc", "/dev", scratch, WORKER_STATE, WORKER_AREA_ROOT, WORKER_WORKTREE_ROOT, WORKER_REFERENCE_ROOT, WORKER_XDG_HOME, WORKER_INFERENCE_DIR, WORKER_EGRESS_DIR,
     MAINTENANCE_HOME, ...Object.values(MAINTENANCE_XDG_DIRS), "/tmp/brain-maintenance-output",
     ...(maintenance?.output ? [maintenance.output.target] : []), ...(transport ? [transport.mirror, ...(transport.writePaths ?? [])] : [])];
   const runtimeEntries = input.command.filter((path, index) => isAbsolute(path) && existsSync(path) && (index === 0 || !reservedRuntimePaths.some(reserved => within(reserved, runtimeCanonicalName(path)) || within(runtimeCanonicalName(path), reserved))));
@@ -784,6 +784,19 @@ function sandboxMounts(input: WorkerLaunch, brain: string, scratch: string, stat
       || within(brain, source) || within(source, brain))
       throw new WorkerHostError("a managed worktree generation must be its pool's root-owned directory outside the brain");
     out.binds.push("--bind", source, WORKER_WORKTREE_ROOT);
+  }
+  // Shared reference source (#2432): each domain's whole view, read-only, so a
+  // refresh swaps the name a later lookup resolves and nothing is pinned.
+  for (const domain of ["public", "private"] as const) {
+    const source = sandbox.references?.[domain];
+    if (!source) continue;
+    const info = lstatSync(source, { throwIfNoEntry: false });
+    if (sandbox.restricted || input.restricted || input.maintenance || input.transport || workerProfile(sandbox) === "restricted")
+      throw new WorkerHostError("only an interactive governed or strict worker binds a reference source view");
+    if (!isAbsolute(source) || !info?.isDirectory() || realpathSync(source) !== normalize(source) || info.uid !== 0 || (info.mode & 0o7777) !== 0o755
+      || within(brain, source) || within(source, brain))
+      throw new WorkerHostError("a reference source view must be its pool's root-owned directory outside the brain");
+    out.binds.push("--ro-bind", source, `${WORKER_REFERENCE_ROOT}/${domain}`);
   }
   return out;
 }

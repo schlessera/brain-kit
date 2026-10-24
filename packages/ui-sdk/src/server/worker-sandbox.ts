@@ -55,6 +55,8 @@ export type WorkerAreaName = keyof typeof WORKER_AREAS;
 export const WORKER_AREA_ROOT = "/tmp/brain-worker-areas";
 /** Where a worker sees its turn's managed reference worktrees (#2430), one directory per granted worktree. */
 export const WORKER_WORKTREE_ROOT = "/tmp/brain-worktrees";
+/** Where a worker reads shared reference source (#2432): `public/` and `private/`, one entry per published source. */
+export const WORKER_REFERENCE_ROOT = "/tmp/brain-reference";
 
 export interface WorkerArea {
   readonly name: WorkerAreaName;
@@ -132,6 +134,13 @@ export interface WorkerSandbox {
    * granted worktree into it and parks it out again; the worker never names it.
    */
   readonly worktrees?: { readonly source: string };
+  /**
+   * @internal Shared reference source views (#2432): the pool's root-owned
+   * view directories of the public domain and of this turn's principal,
+   * bound whole and read-only under `WORKER_REFERENCE_ROOT`, so a refresh
+   * appears on the worker's next lookup.
+   */
+  readonly references?: { readonly public?: string; readonly private?: string };
 }
 
 function decode(path: string): string {
@@ -501,8 +510,11 @@ const EGRESS_NOTE = "Network access goes through this turn's host proxy: connect
  * live fact: identities, commits and expiry arrive in the results that grant
  * access, so earlier provider-facing content never has to change.
  */
+const REFERENCE_GUIDANCE = [
+  `**Reference source.** Another repository's branch or tag can be read as shared reference source under \`${WORKER_REFERENCE_ROOT}/\`, through the reference source tool and the reference grants you hold. Read only under the path the tool returns. Shared source is read-only and moves: a later read may see a newer commit, and a result says when it is stale because a refresh failed.`,
+];
 const WORKTREE_GUIDANCE = [
-  "**Managed reference worktrees.** Shared reference source is read-only and moves: a later read may see a newer commit. To edit reference source, or to read one fixed commit across several steps, request a managed worktree. It starts at a reported commit that never moves, and its files are writable.",
+  "**Managed reference worktrees.** Shared reference source is read-only and moves: a later read may see a newer commit. To edit reference source, or to read one fixed commit across several steps, request a managed worktree with the reference worktree tool. It starts at a reported commit that never moves, and its files are writable.",
   `- Work only inside \`${WORKER_WORKTREE_ROOT}/<worktree id>/\`. A worktree appears there once access to it is granted for this turn; do not make an unmanaged clone instead.`,
   "- Edits there are journaled and count toward this turn's scope limits, like workspace edits. A worktree has no configured remote.",
   "- A worktree left without explicit activity for three days expires. Only requesting access again or renewing it resets that clock; reading, writing and running commands do not. Expiry and release never delete unfinished work: it is kept for the user to decide.",
@@ -583,6 +595,7 @@ export function workerSandboxNote(sandbox: WorkerSandbox, facts: WorkerNoteFacts
     const masked = sandbox.providerMasks.folders.map(path => `\`${path}/\``).join(", ");
     lines.push("", `Provider policy hides ${masked} from this turn: ${sandbox.providerMasks.folders.length === 1 ? "it reads" : "they read"} as empty and read-only, and \`.git\` is hidden, so history is unavailable. The generated-text caches \`.context-cache.jsonl\` and \`.asset-cache.jsonl\` read as empty. The search index is this turn's private copy without those documents; \`brain\` CLI captures and \`brain index\` write to it, and the brain's own index is rebuilt from Markdown after the turn.`);
   }
+  if (profile !== "restricted" && sandbox.references) lines.push("", ...REFERENCE_GUIDANCE);
   if (profile !== "restricted" && sandbox.worktrees) lines.push("", ...WORKTREE_GUIDANCE);
   if (profile !== "restricted" && sandbox.retainedFolders?.length) {
     lines.push("", `Keep these folders and their ancestors in place: ${sandbox.retainedFolders.map(path => `\`${path}\``).join(", ")}. Their contents keep the usual write permissions; do not remove or replace the folders themselves.`);

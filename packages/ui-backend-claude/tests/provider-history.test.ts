@@ -1,12 +1,13 @@
 import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { body, captureOffline, history, identical, main, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
+import { body, captureOffline, history, identical, main, messages, noInternalNotes, pairs, system, type Captures } from "../../../tests/helpers/provider-history.js";
 
 let captures: Captures;
 beforeAll(async () => { captures = await captureOffline(join(import.meta.dir, "fixtures/provider-history-probe.ts")); }, 180_000);
 
 test("Claude captures three real resumed interactive turns and a tool result", () => {
   for (const [name, capture] of Object.entries(captures)) {
+    if (name === "reference") continue;
     expect(capture.sessions).toHaveLength(3);
     expect(new Set(capture.sessions).size).toBe(1);
     expect(main(capture).map(e => e.turn)).toEqual([0, 0, 1, 2]);
@@ -73,4 +74,31 @@ test("title traffic is suppressed only by the explicit disable-nonessential flag
   expect(body(helpers[0]!).tools ?? []).toHaveLength(0);
   expect(body(helpers[0]!).model).toBe(body(main(captures.title!)[0]!).model);
   for (const [a, b] of pairs(captures.title!)) { identical(system(a), system(b), "system with title helper"); identical(body(a).tools, body(b).tools, "tools with title helper"); history(a,b); }
+});
+
+// #2432: the worktree tool runs through the installed CLI and its MCP route on
+// every turn, while the host's lifecycle answer and the sandbox views change.
+test("Claude reference tools dispatch to the host and keep tools, system and history stable across the worktree lifecycle", () => {
+  const capture = captures.reference!;
+  expect(capture.sessions).toHaveLength(3);
+  expect(new Set(capture.sessions).size).toBe(1);
+  expect(main(capture).map(e => e.turn), "REFERENCE_TOOLS_CLAUDE_EVERY_TURN_CALLS").toEqual([0, 0, 1, 1, 2, 2]);
+  expect(capture.calls, "REFERENCE_TOOLS_CLAUDE_HOST_RECEIVES_PARSED_INPUT").toEqual([
+    { tool: "reference_worktree", input: { action: "request", repository: "https://github.com/odysseus/ithaca", revision: "main" } },
+    { tool: "reference_worktree", input: { action: "release", worktreeId: "raft-worktree" } }]);
+  const results = main(capture).filter((_, index) => index % 2 === 1);
+  for (const exchange of results) expect(exchange.raw).toContain('"tool_result"');
+  // The newest message of each request carries that turn's tool result.
+  const latest = results.map(exchange => JSON.stringify(messages(exchange).at(-1)));
+  expect(latest.map(text => text.includes('"is_error":true')), "REFERENCE_TOOLS_CLAUDE_NO_HANDLER_REFUSES").toEqual([false, true, false]);
+  expect(latest[1]).toContain("no available host handler");
+  expect(main(capture)[5]!.raw).toContain('\\"state\\":\\"released\\"');
+  for (const [a, b] of pairs(capture)) {
+    identical(body(a).tools, body(b).tools, "REFERENCE_TOOLS_CLAUDE_TOOLS_STABLE");
+    identical(system(a), system(b), "REFERENCE_TOOLS_CLAUDE_SYSTEM_STABLE");
+    history(a, b);
+  }
+  const [first, ...rest] = capture.appends;
+  for (const next of rest) identical(first, next, "REFERENCE_TOOLS_CLAUDE_SYSTEM_OPTION_STABLE");
+  expect(body(main(capture)[0]!).tools.map((tool: { name: string }) => tool.name)).toEqual(expect.arrayContaining(["mcp__brain-ui__reference_source", "mcp__brain-ui__reference_worktree"]));
 });

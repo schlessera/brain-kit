@@ -8,21 +8,26 @@ import { changeRepository, fixtureBrain } from "../../../../tests/fixtures/provi
 import { historyHost } from "../../../../tests/fixtures/provider-history-host.js";
 import type { Captures, HistoryCapture } from "../../../../tests/helpers/provider-history.js";
 import type { ServerMessage } from "@schlessera/brain-ui-sdk/server";
+import type { ReferenceToolCall } from "@schlessera/brain-ui-sdk/tool-contracts";
 
 const scratch = process.argv[2]!;
 const captures: Captures = {};
 let capture: HistoryCapture;
-let turnIndex = 0, sequence = 0;
+let turnIndex = 0, sequence = 0, turnOpen = false;
+/** The reference lifecycle (#2432): each turn calls the worktree tool through the worker pipe, and the host's answer changes between turns. */
+const REFERENCE_ACTIONS = [{ action: "request", repository: "https://github.com/odysseus/ithaca", revision: "main" },
+  { action: "renew", worktreeId: "raft-worktree" }, { action: "release", worktreeId: "raft-worktree" }];
 let scenario = "", brain = "";
 const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
   if (path !== "/v1/responses") throw new Error(`Unexpected Pi endpoint: ${path}`);
   const raw = await request.text();
-  const tool = sequence++ === 0;
+  const tool = scenario === "reference" ? turnOpen : sequence === 0;
+  sequence++; turnOpen = false;
   const id = `msg_odysseus_${sequence}`;
-  const answer = tool ? { type: "function_call", id: "fc_odysseus", call_id: "call_odysseus",
-    name: scenario === "promotion" ? "bash" : "read_file",
-    arguments: JSON.stringify(scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { path: "notes/raft.md" }) }
+  const answer = tool ? { type: "function_call", id: "fc_odysseus", call_id: `call_odysseus_${turnIndex}`,
+    name: scenario === "reference" ? "reference_worktree" : scenario === "promotion" ? "bash" : "read_file",
+    arguments: JSON.stringify(scenario === "reference" ? REFERENCE_ACTIONS[turnIndex] : scenario === "promotion" ? { command: "printf 'Odysseus raft plan' > /tmp/raft.txt" } : { path: "notes/raft.md" }) }
     : { type: "message", role: "assistant", content: [{ type: "output_text", text: scenario === "promotion" ? "[Raft plan](/tmp/raft.txt)" : "Odysseus checks the mast.", annotations: [] }], status: "completed", id };
   capture.exchanges.push({ turn: turnIndex, path, raw, main: true, answer });
   const response = { id: `resp_odysseus_${sequence}`, object: "response", status: "completed", model: "gpt-4o-mini", output: [answer],
@@ -41,7 +46,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) 
 mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
 writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "models.json"), JSON.stringify({ providers: { openai: { baseUrl: `${server.url.origin}/v1`, apiKey: "offline-odysseus" } } }));
 try {
-  for (scenario of ["control", "repository", "facts", "promotion"]) {
+  for (scenario of ["control", "repository", "facts", "promotion", "reference"]) {
     brain = fixtureBrain(scratch, scenario);
     capture = captures[scenario] = { sessions: [], exchanges: [], appends: [] };
     const backend = createPiBackend({ brainPath: brain, sessionDir: join(scratch, `sessions-${scenario}`), loadExtensions: false,
@@ -49,6 +54,7 @@ try {
     let sessionId: string | undefined;
     sequence = 0;
     for (turnIndex = 0; turnIndex < 3; turnIndex++) {
+      turnOpen = true;
       if (scenario === "repository" && turnIndex) changeRepository(brain, turnIndex);
       const facts = scenario === "facts" ? turnIndex : 0;
       const controller = new AbortController();
@@ -60,7 +66,16 @@ try {
           signal: controller.signal, turnId: `odysseus-${turnIndex}`,
           workerSandbox: { ...sandbox, noteFacts: { history: { journal: facts !== 1, userRevert: facts === 2 } } },
           client: { formFactor: facts === 1 ? "phone" : "tablet", viewportWidth: 800 + facts * 100, camera: facts !== 1 }, turnBudgetMs: 60_000 + facts * 1000,
-          bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; } },
+          bridge: { emit(frame) { frames.push(frame); }, async requestPermission() { return { behavior: "allow" as const }; },
+            // The second turn has no host handler: the tool refuses, and the roster must not change.
+            ...(scenario === "reference" && turnIndex !== 1 ? { async referenceAccess(call: ReferenceToolCall) {
+              (capture.calls ??= []).push(call);
+              const worktree = { id: "raft-worktree", repository: "https://github.com/odysseus/ithaca", revision: "main", domain: "public" as const,
+                startingCommit: "1".repeat(40), state: turnIndex === 2 ? "released" as const : "active" as const, path: turnIndex === 2 ? null : "/tmp/brain-worktrees/raft-worktree",
+                lastActivityAt: new Date(Date.UTC(2026, 6, 12, turnIndex)).toISOString(), expiresAt: new Date(Date.UTC(2026, 6, 15, turnIndex)).toISOString(),
+                releasedAt: turnIndex === 2 ? new Date(Date.UTC(2026, 6, 12, 2)).toISOString() : null, allowanceBytes: 2 ** 31 };
+              return { ok: true as const, action: REFERENCE_ACTIONS[turnIndex]!.action as "request", worktree, guidance: "Fixture lifecycle step." };
+            } } : {}) },
         });
         const result = frames.findLast(f => f.type === "result");
         if (!result || result.outcome !== "success") throw new Error(JSON.stringify(frames));
