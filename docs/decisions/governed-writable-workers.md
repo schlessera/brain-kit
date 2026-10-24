@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:122-279`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:130-290`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-281`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-292`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1894,7 +1894,7 @@ every turn without a proven recipient:
   build costs 28-36 s on 2,000 notes, so hosted admission keeps one complete
   build as a base and reuses it while it provably equals a clean build of the
   turn's final startup view (`createPrivateIndexCache`,
-  `packages/ui-server/src/brain/private-index-cache.ts:292-440`):
+  `packages/ui-server/src/brain/private-index-cache.ts:319-587`):
   - *Identity.* A base is keyed by the brain's canonical path, the policy
     hash, the masked folders, the proven recipient, the operational mask
     paths, the build's argv, the runtime version and the change stamps of any
@@ -1920,7 +1920,7 @@ every turn without a proven recipient:
     else (a file changed, removed, moved into a masked folder, given a second
     name, or any other new file) takes a clean build
     (`classifyPrivateIndexChanges`,
-    `packages/ui-server/src/brain/private-index-cache.ts:176-222`). Nothing
+    `packages/ui-server/src/brain/private-index-cache.ts:178-229`). Nothing
     is ever deleted from a base: a deleted row's bytes survive in SQLite free
     pages, FTS5 segments and the WAL, so text that leaves the masked view only
     ever leaves through a clean build. Physical non-disclosure is not claimed
@@ -1943,12 +1943,33 @@ every turn without a proven recipient:
     its base directories are removed by the next server's cache. A partial
     build is served but never kept. Losing a base costs one clean build;
     `brain.db` stays disposable.
+  - *Advancing off the turn path (maintainer, 2026-10-24, #2833 option B).*
+    After each post-turn index refresh, every kept base is brought to a fresh
+    checkpoint of the live brain, in its key's chain, so a turn admitted
+    meanwhile waits for it and then reuses it (`advanceBase`,
+    `packages/ui-server/src/brain/private-index-cache.ts:493-544`). It
+    reconciles exactly as admission does, with the same classifier and stamp
+    check: an unchanged view rebinds the base; new notes are added by the
+    incremental index in a staging directory beside the bases, which must
+    report nothing updated or deleted and then becomes the base itself
+    (`0700`, stamped, bound to the new checkpoint); a changed, removed or
+    masked document takes a clean masked build there. A change beyond
+    Markdown and asset files may change the configuration and so the masks
+    a type selector decides, which only admission translates again: it drops
+    the base, as do a tampered base, an unreadable delta and anything else
+    unproved, and the next turn builds from nothing. A failed or unproved
+    update or build keeps the old base bound to its own checkpoint. A base
+    built with a document that has a selected type outside its folders is
+    never served: every later view either still holds that document, which
+    admission refuses, or changed it, which rebuilds. Closing the server
+    aborts an advance in flight.
   - *Cost.* The first restricted turn after start, or after a change that
-    needs a clean build, pays the full build plus one copy of the index. A
-    warm turn over an unchanged view pays the delta and one copy; one after
-    new notes also pays the CLI's incremental run, whose graph precompute
-    and full-corpus hash dominate it. Measured figures are in #2833's pull
-    request. Autonomous turns still build their own index each run.
+    drops the base, pays the full build plus one copy of the index. A warm
+    turn whose base has advanced pays the delta and one copy, also after
+    the previous turn added or edited notes; the incremental run (graph
+    precompute and full-corpus hash dominate it) and any clean rebuild run
+    after the turn. Measured figures are in #2833's pull requests.
+    Autonomous turns still build their own index each run.
 - A policy whose provider rules name a document type, a non-literal glob or a
   single path refuses admission with `ProviderPolicyRefusedError`, naming each
   selector, per the 2026-10-16 ruling. The 2026-10-23 ruling below narrows the
@@ -2065,7 +2086,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:170-179`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:178-187`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2391,7 +2412,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:140-141`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:148-149`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
