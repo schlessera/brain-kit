@@ -11,7 +11,7 @@ coordinator.
 
 The autonomous runner calls a synchronous checkpoint callback before denying
 a permission and aborting the backend. The writer
-(`escalateInbox`, `packages/ui-server/src/inbox/escalate.ts:21-55`) verifies the current
+(`escalateInbox`, `packages/ui-server/src/inbox/escalate.ts:22-59`) verifies the current
 claim/version, lease, run and principal-bound active reservation. One immediate
 SQLite transaction appends the checkpoint, validates and inserts the Action,
 and blocks the source item. Checkpoint facts retain the requested operation,
@@ -27,7 +27,7 @@ charges through the existing budget recovery path.
 
 ## Resolution and snooze
 
-The resolver (`createInboxResolver`, `packages/ui-server/src/inbox/resolve.ts:34-129`)
+The resolver (`createInboxResolver`, `packages/ui-server/src/inbox/resolve.ts:35-132`)
 rechecks the durable principal and derives the current operation
 envelope from server code. It validates raw persisted options against the
 strict v1 schemas, rather than trusting the permissive display projection.

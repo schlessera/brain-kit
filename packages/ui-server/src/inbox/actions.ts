@@ -5,6 +5,7 @@ import type { InboxActionItem, InboxOperation, InboxQueueItem } from "@schlesser
 import { hygieneReviewStateSchema, inboxOptionSchema, validateResolutionEffect } from "@schlessera/brain-ui-sdk/schemas";
 import { createInboxStore } from "./store.js";
 import { inboxThreadAwaitingSettlement } from "./lifetime.js";
+import { recordInboxProvenance } from "./provenance.js";
 
 const DAY = 86_400_000;
 export const INBOX_ACTION_CAP = 60;
@@ -68,6 +69,7 @@ export function enqueueInboxCleanup(db: Database, threadId: string, now: number)
     store.commit([{ kind: "item", item: { id, dedupKey: id, threadId, queue: "queue", type: "cleanup_pending",
       status: "ready", attempts: 0, maxAttempts: 3, version: 1, createdAt: now, updatedAt: now,
       expiresAt: Number.MAX_SAFE_INTEGER, payload: { stagingId } } }]);
+    recordInboxProvenance(db, { item: id }, { origin: "server" }, now);
   }
 }
 
@@ -94,6 +96,8 @@ export function retireInboxAction(db: Database, action: InboxActionItem, status:
       evidenceBoundary: stored?.evidence_boundary ?? action.dedupKey,
       expiresAt: Math.max(now + DAY, stored?.suppression_until ?? action.expiresAt),
       reraiseCondition: stored?.reraise_condition ?? "New evidence or suppression expiry." }]);
+    // The notice repeats the decision's title.
+    recordInboxProvenance(db, { item: id }, { derivedFrom: { item: action.id } }, now);
   }
   if (status === "dropped" && report && action.hygiene) {
     const row = db.query("SELECT data_json FROM hygiene_review WHERE singleton = 1").get() as { data_json: string } | null;
@@ -146,6 +150,7 @@ function deadLetter(db: Database, item: InboxQueueItem, now: number, cap?: numbe
     payload: { title: "Queued work exhausted its retries", detail: `Work ${item.id} stopped after ${item.attempts} attempts.` },
     options: item.type === "cleanup_pending" ? [] : [{ id: "dismiss", label: "Dismiss", effect: { kind: "dismiss" } }] };
   insertInboxAction(db, action, [], { ...inboxActionContext(action), sourceItemId: item.id }, now);
+  recordInboxProvenance(db, { item: id }, { origin: "server" }, now);
   enforceInboxActionCap(db, cap, now);
 }
 /** A thrown/expired worker ends this attempt. It never buys another model call. */
@@ -184,6 +189,7 @@ export function sweepInboxLifecycle(db: Database, now = Date.now(), cap?: number
             payload: { title: "Queued work expired", detail: `Work ${item.id} expired before completion; staging cleanup is journaled separately.` }, options: [] } },
           { kind: "suppress", classKey: inboxIdentity("work", item.dedupKey), evidenceBoundary: item.dedupKey,
             expiresAt: now + DAY, reraiseCondition: "New intake evidence or suppression expiry." }]);
+          recordInboxProvenance(db, { item: id }, { origin: "server" }, now);
           enqueueInboxCleanup(db, item.threadId, now);
         } else if (item.status === "scheduled" && (item.waitUntil ?? 0) <= now)
           store.commit([{ kind: "transition", itemId: item.id, expectedVersion: item.version, to: "ready", waitUntil: null }]);

@@ -639,6 +639,7 @@ signatures (every public export and the types it is made of)
         sessionId: () => string | undefined;
         membership: "interactive" | "voice" | "restricted";
         allowedReads?: readonly ("inbox_list" | "inbox_get")[];
+        qualifyOrigin?: () => void;
         approvedAction?: {
             sessionId: string;
             itemId: string;
@@ -1430,6 +1431,12 @@ signatures (every public export and the types it is made of)
             threadId: string;
         }>;
         close: () => Promise<void>;
+        person: (input: ShareInput, key: string, principal: Principal) => Promise<{
+            created: boolean;
+            itemId: string;
+            result: ShareIntakeResult;
+            threadId: string;
+        }>;
         protectedIds: () => Set<string>;
         reconcile: () => Promise<void>;
         share: (input: ShareInput, principal: Principal) => Promise<{

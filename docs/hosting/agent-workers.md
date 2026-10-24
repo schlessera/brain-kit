@@ -643,6 +643,17 @@ none of the processes they started is still running before you rely on that
 policy. Restarting the server does not stop a detached one
 ([decision](../decisions/governed-writable-workers.md#the-host-execution-boundary)).
 
+**Queued work under a provider folder policy.** Once a policy names provider
+folders, autonomous queued work runs only on inbox threads whose every item
+the server can show was written without those folders: arrivals people made
+through the share or queue routes, server notices, and autonomous runs that
+already had the folders masked. Work queued before the policy, or added by a
+conversation, is refused with `provider_masked` before any provider is
+reached; it stays in the inbox, retries with backoff and then appears as a
+dead-lettered decision for the user to handle in the app. Expect that for
+existing queued work when you first add a provider rule
+([decision](../decisions/governed-writable-workers.md#data-to-provider-routing-g2)).
+
 **Operational state must live outside the brain, in every hosted profile.**
 Before opening SQLite, provisioning the private poke token, reconciling turns or
 executing brain code, the server resolves `DB_PATH` and

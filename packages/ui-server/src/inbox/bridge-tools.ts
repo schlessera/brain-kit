@@ -19,6 +19,11 @@ export interface InboxBridgeContext {
   membership: "interactive" | "voice" | "restricted";
   /** Canonical read names selected from the backend's exact autonomous roster. */
   allowedReads?: readonly ("inbox_list" | "inbox_get")[];
+  /**
+   * The origin thread's provider admission (#2741): throws unless it still
+   * holds. Run in each read's transaction before any payload is built.
+   */
+  qualifyOrigin?: () => void;
   /** Server-held exact approval only. V1 never creates a discuss binding. */
   approvedAction?: { sessionId: string; itemId: string; optionId: string; expectedVersion: number; effect: V1ResolutionEffect };
 }
@@ -42,6 +47,7 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
       function authorizeRead(name: "inbox_list" | "inbox_get") {
         authorize();
         if (membership === "restricted" && !reads.includes(name)) throw new Error("Inbox read is outside the exact restricted roster");
+        context.qualifyOrigin?.();
       }
       function scope(requested?: string): string | undefined {
         if (threadId && requested && requested !== threadId) throw new Error("Inbox read is outside this turn's scope");

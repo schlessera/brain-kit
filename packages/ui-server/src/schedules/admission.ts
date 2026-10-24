@@ -17,6 +17,7 @@ import { failInboxWork } from "../inbox/actions.js";
 import { reconcileInboxBudgets, type InboxBudgetOperation } from "../inbox/budget.js";
 import { inboxRunIsLive } from "../inbox/lifetime.js";
 import { runAutonomousTurn, type AutonomousTurnDeps } from "../inbox/autonomous-turn.js";
+import { recordInboxProvenance } from "../inbox/provenance.js";
 import type { StoredDefinition } from "./definition.js";
 import { dropUnstartedItems } from "./queue-items.js";
 import { occurrenceId, OUTSTANDING_STATES, type ExecutionPolicy, type OccurrenceRow, type ScheduleService, type TaskRow } from "./service.js";
@@ -285,6 +286,8 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
           // The approved snapshot is the instruction; the item only names it.
           payload: { instruction: `Scheduled task ${current.id}, occurrence ${occurrence}.` },
         } });
+        // The server composed this text; the approved definition is not thread history (#2741).
+        recordInboxProvenance(db, { item: itemId }, { origin: "server" }, at);
         db.query("INSERT INTO schedule_occurrence_items (item_id, occurrence_id, sequence, created_at) VALUES (?, ?, 1, ?)")
           .run(itemId, occurrence, at);
         return occurrence;
@@ -322,6 +325,7 @@ export function createScheduleAdmission(db: Database, deps: ScheduleAdmissionDep
         attempts: 0, maxAttempts: remaining, version: 1, createdAt: at, updatedAt: at, expiresAt: occurrence.expires_at,
         payload: { instruction: `Scheduled task ${task.id}, occurrence ${id}, continuation ${sequence + 1}.` },
       } }]);
+      recordInboxProvenance(db, { item: itemId }, { origin: "server" }, at);
       db.query("INSERT INTO schedule_occurrence_items (item_id, occurrence_id, sequence, created_at) VALUES (?, ?, ?, ?)")
         .run(itemId, id, sequence + 1, at);
       setOccurrence(id, "retrying", at);
