@@ -41,12 +41,19 @@ thread waits for it.
   connection is below FULL just before it commits, which rolls it back, and
   reports an autocommit statement that ran below FULL. Journal writes still set
   FULL themselves.
-- **The app connection takes the write lock up front.** With a second writer
-  on the same file, a deferred transaction that reads and then writes can lose
-  its snapshot upgrade to a worker commit and fail at once with
-  `SQLITE_BUSY`; a busy timeout never retries that. Opening a write worker
-  therefore makes every transaction on the app connection immediate. The first
-  native run without this refused a governed turn with `database is locked`.
+- **App transactions and worker procedures take turns.** Two connections in
+  one process writing one WAL file misbehaved under fsync load. The first
+  native runs refused governed turns with `database is locked`: an app
+  `BEGIN IMMEDIATE` returned SQLITE_BUSY after about 37 ms despite a 5 s busy
+  timeout, while the worker was committing. Separately, a deferred transaction
+  that reads and then writes can lose its snapshot upgrade to a worker commit.
+  So every outermost transaction on the app connection waits until the worker
+  is between procedures, through a lock shared with the worker thread
+  (`takeTurns`). The worker likewise waits, and lets a waiting app
+  transaction go first. Each transaction keeps its own mode, so a read-only
+  deferred snapshot never takes the write lock. Making every app transaction
+  immediate was tried and rejected: it held the write lock through read-only
+  snapshots, and the inbox's foreign-writer convergence test failed.
 - **Further database files join the same connection.** `openSqliteWriter(db,
   { attach })` attaches each file to the worker connection and checks FULL on
   all of them before every commit. That is how the worker owns the journal's own
