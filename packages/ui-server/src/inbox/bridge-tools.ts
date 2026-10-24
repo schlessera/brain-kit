@@ -80,8 +80,10 @@ export function createInboxBridgeTools(db: Database, intake: InboxIntake, resolv
           const parsed = INBOX_ADD_INPUT_SCHEMA.parse(input), principal = authorize();
           if (threadId && store.getThread(threadId)?.trustClass !== "trusted") throw new Error("inbox_add requires a trusted origin");
           if (membership !== "interactive") throw new Error("inbox_add is outside this turn's membership");
-          // Reuse compensated, principal-checked intake; never accept a model source/trust field.
-          const result = await intake.cli({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, () => { authorize(); return true; });
+          // Reuse compensated, principal-checked intake; never accept a model
+          // source/trust field. The turn is this bridge's own: its host lineage
+          // alone decides what the item can qualify for (#2816).
+          const result = await intake.conversation({ text: parsed.text, files: [] }, `bridge:${principalId}:${turnId}:${parsed.idempotencyKey}`, principal, turnId, () => { authorize(); return true; });
           return { created: result.created, threadId: result.threadId, itemId: result.itemId };
         },
         resolveAction: async input => {
