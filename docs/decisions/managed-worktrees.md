@@ -215,7 +215,7 @@ public view and their principal's private view whole and read-only at
 (`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:853-864`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
-(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:740-752`).
+(`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:741-753`).
 A refresh renames the name a later lookup resolves, so reads stay live and
 nothing pins a revision. A view is the domain's authorized cache: its names are
 published under that domain's authority and withdrawn when the authority is
@@ -255,10 +255,11 @@ check before a new mount) applies to the bind itself. The maintainer ruled on
 before a turn's workers bind a view, every source in it whose validation lapsed
 is validated again, including sources a running turn reads; one that fails is
 withheld from the new bind, and a running reader keeps its existing mount
-(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:567-605`):
+(`async function settleView`, `packages/ui-server/src/brain/reference-source.ts:568-606`):
 
-- a source with less than a minute of validation left counts as lapsed, so it
-  does not lapse between the check and its workers' start;
+- a source with less than the bind margin of validation left counts as
+  lapsed: a minute, or half of a shorter configured lifetime, so it does not
+  lapse between admission and its workers' mounts;
 - the check covers the exact published commit under the domain's authority,
   four sources at a time, and never fetches. A revision that moved, or a
   failed or impossible check, withholds the source; a denial or a missing
@@ -268,7 +269,7 @@ withheld from the new bind, and a running reader keeps its existing mount
   one kept only for a worktree or staging whose publication reply was lost.
 
 Withholding takes a source's name and roots out of the view
-(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:502-513`).
+(`function suspendSource`, `packages/ui-server/src/brain/reference-source.ts:503-514`).
 Its cache and charge stay, and the next request that validates it publishes it
 again. A running reader keeps its bind of the view and the files it has open;
 its later lookups of a withheld name fail until a request validates the source.
@@ -281,9 +282,13 @@ cancelled bind stops waiting for other requests' work without cancelling it.
 bind could lapse before the bind returns. Both views are therefore admitted
 together, at one instant, only when every source they expose has at least the
 margin left, no exposure is unconfirmed and no stray root remains; otherwise
-the bind prepares them again. After three passes it refuses, and the turn runs
+the bind prepares them again. With many sources, checking some again can push
+others into the margin, so after two passes whatever is still inside it is
+withheld rather than checked again; withholding takes only short pool calls,
+so the bind converges whatever the cache size. A bind that still cannot be
+admitted, because a pool change stays unconfirmed, refuses, and the turn runs
 without shared source views
-(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:611-620`).
+(`function admissible`, `packages/ui-server/src/brain/reference-source.ts:612-621`).
 The margin covers the moments between admission and the workers' mounts.
 
 Suspension, restoration, withdrawal and publication of one source run one at a

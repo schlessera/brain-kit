@@ -122,10 +122,11 @@ export function createReferenceSources(options: {
   /** Lapsed sources a bind checks at once. */
   const BIND_CHECKS = 4;
   /**
-   * Validation a source needs left at a bind, so it does not lapse between the
-   * check and its workers' start: a minute, or a fifth of a shorter lifetime.
+   * Validation a source needs left at a bind, so it does not lapse between
+   * admission and its workers' mounts: a minute, or half a shorter lifetime. A
+   * fresh check always leaves more than this.
    */
-  const BIND_MARGIN = () => Math.min(60_000, Math.floor(limits.validationMs / 5));
+  const BIND_MARGIN = () => Math.min(60_000, Math.floor(limits.validationMs / 2));
   const validFor = (source: SourceRow) => source.validated_at === null ? -Infinity : source.validated_at + limits.validationMs - now();
   /**
    * Wait for shared work without cancelling it: a cancelled bind stops waiting
@@ -750,12 +751,24 @@ export function createReferenceSources(options: {
       const paths = { public: await open(domains[0]), private: await open(domains[1]) };
       // Preparation waits on checks and pool work, so a source can lapse meanwhile:
       // both views are admitted together, at one instant, or prepared again.
-      for (let pass = 0; pass < 3; pass++) {
+      for (let pass = 0; pass < 2; pass++) {
         for (const domain of domains) await prepare(domain, signal);
         signal?.throwIfAborted();
         if (domains.every(admissible)) return paths;
       }
-      throw new ReferenceSourceError("unavailable", "Reference sources kept lapsing while the views were prepared; they are not bound this turn.");
+      // Checking again can push others into the margin when there are many: what is
+      // still inside it is withheld instead, which takes only short pool calls.
+      for (let round = 0; round < 3; round++) {
+        for (const domain of domains)
+          for (const source of db.query("SELECT * FROM reference_sources WHERE domain = ? AND root_id IS NOT NULL").all(domain) as SourceRow[]) {
+            const key = sourceKey(source.domain, source.repository, source.revision);
+            if (withdrawn.has(key) || (suspended.has(key) && !unsettled.has(key)) || validFor(source) > BIND_MARGIN()) continue;
+            await abortable(suspendSource(source.domain, source.repository, source.revision), signal, false);
+          }
+        signal?.throwIfAborted();
+        if (domains.every(admissible)) return paths;
+      }
+      throw new ReferenceSourceError("unavailable", "The reference views could not be settled for this bind; they are not bound this turn.");
     },
     /** Operations admitted or waiting, for status reporting; private keys are not disclosed. */
     activity(): { active: number; waiting: number } { return { active, waiting: queue.length }; },

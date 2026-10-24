@@ -250,18 +250,16 @@ describe("binding a view is a new mount (#2432, option 1)", () => {
 describe("admission (#2432 review)", () => {
   const lapsedSources = (views: { public: string }) => (db.query("SELECT name, validated_at FROM reference_sources WHERE domain = 'public'").all() as { name: string; validated_at: number }[])
     .filter(row => readdirSync(views.public).includes(row.name) && row.validated_at + 300_000 <= clock + 60_000).map(row => row.name);
-  async function thirteen() {
+  async function cached(count: number) {
     const h = host();
     const penelope = principal(), telemachus = principal("Telemachus");
-    const first = await h.turn(penelope.id);
-    for (let index = 0; index < 13; index++) nameOf(await first.call(source(`${PUBLIC}-${index}`)));
-    h.tools.end(first.turnId);
+    for (let index = 0; index < count; index++) (await h.sources.request({ principalId: penelope.id, repository: `${PUBLIC}-${index}`, revision: "main" })).release();
     clock += 301_000;
     return { ...h, telemachus };
   }
 
   test("no source a bind admits has lapsed while later checks ran", async () => {
-    const { sources, state, telemachus } = await thirteen();
+    const { sources, state, telemachus } = await cached(13);
     // The first round of checks takes half a minute each, so the first batch nears
     // its margin before the last finishes; the bind checks those again before admitting.
     let slow = 13;
@@ -273,11 +271,30 @@ describe("admission (#2432 review)", () => {
       .toEqual({ admitted: 26, lapsed: [], rechecked: true });
   });
 
-  test("a bind whose sources keep lapsing while it checks them is refused", async () => {
-    const { sources, state, telemachus } = await thirteen();
+  test("a bind whose sources keep lapsing while it checks them withholds them instead of admitting them", async () => {
+    const { sources, state, telemachus } = await cached(13);
+    const checks = state.resolves;
     state.onResolve = () => { clock += 110_000; };
-    await expect(sources.bindable(telemachus.id), "REFERENCE_TOOLS_ADMISSION_REFUSES_WHEN_LAPSING").rejects.toMatchObject({ code: "unavailable" });
+    const bound = await sources.bindable(telemachus.id).then(views => ({ views, refused: null }), (error: Error) => ({ views: null, refused: error.message }));
     state.onResolve = null;
+    expect(bound.refused, "REFERENCE_TOOLS_LAPSING_SOURCES_WITHHELD").toBeNull();
+    const views = bound.views!;
+    expect({ checked: state.resolves - checks > 13, lapsed: lapsedSources(views) }, "REFERENCE_TOOLS_LAPSING_SOURCES_WITHHELD").toEqual({ checked: true, lapsed: [] });
+  });
+
+  test("a bind over many healthy sources with slow checks converges", async () => {
+    const { sources, state, telemachus } = await cached(100);
+    // Sixteen seconds per batch of four: a full round of checks outlasts the margin,
+    // so checking again keeps pushing other sources into it.
+    state.onResolve = () => { clock += 4_000; };
+    const bound = await sources.bindable(telemachus.id).then(views => ({ views, refused: null }), (error: Error) => ({ views: null, refused: error.message }));
+    state.onResolve = null;
+    expect(bound.refused, "REFERENCE_TOOLS_BIND_CONVERGES_WITH_MANY_SOURCES").toBeNull();
+    const views = bound.views!;
+    // The pool double holds 64 roots, so capacity eviction left 64 of the 100 cached.
+    const cachedNames = (db.query("SELECT name FROM reference_sources WHERE domain = 'public' AND root_id IS NOT NULL").all() as { name: string }[]).map(row => row.name);
+    const admitted = cachedNames.filter(name => readdirSync(views.public).includes(name));
+    expect({ lapsed: lapsedSources(views), mostAdmitted: admitted.length >= cachedNames.length * 0.9 }, "REFERENCE_TOOLS_BIND_CONVERGES_WITH_MANY_SOURCES").toEqual({ lapsed: [], mostAdmitted: true });
   });
 
   test("a released root whose reply was lost is settled, not refused forever", async () => {
@@ -285,12 +302,16 @@ describe("admission (#2432 review)", () => {
     const penelope = principal();
     const publish = pool.poolPublish, release = pool.poolRelease;
     pool.poolPublish = async (id, view, entry, signal) => { await publish(id, view, entry, signal); throw new Error("publication reply lost"); };
-    let lost = 1;
-    pool.poolRelease = async (id, signal) => { const record = await release(id, signal); if (lost-- > 0) throw new Error("release reply lost"); return record; };
+    let lost = 1, releases = 0;
+    pool.poolRelease = async (id, signal) => { releases++; const record = await release(id, signal); if (lost-- > 0) throw new Error("release reply lost"); return record; };
     await expect(sources.request({ principalId: penelope.id, repository: PUBLIC, revision: "main" })).rejects.toThrow();
     pool.poolPublish = publish;
+    // The publication took effect and its release did too, but neither reply arrived: the catalog still says staging.
+    const orphan = db.query("SELECT id, state FROM reference_roots").get() as { id: string; state: string };
+    expect({ state: orphan.state, pool: pool.records.get(orphan.id)?.state, releases }).toEqual({ state: "staging", pool: "reclaimed", releases: 1 });
     const next = await turn(penelope.id);
-    expect({ bound: next.views !== null, entries: next.views ? publicEntries(next.views) : null }, "REFERENCE_TOOLS_RELEASED_ORPHAN_SETTLED").toEqual({ bound: true, entries: [] });
+    expect({ bound: next.views !== null, entries: publicEntries(next.views), releases, catalog: db.query("SELECT id FROM reference_roots").all() }, "REFERENCE_TOOLS_RELEASED_ORPHAN_SETTLED")
+      .toEqual({ bound: true, entries: [], releases: 2, catalog: [] });
   });
 
   test("a cancelled bind stops waiting for a suspension in progress", async () => {
