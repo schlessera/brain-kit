@@ -85,8 +85,8 @@ export const GATE_POLL_MS = 200;
  * How long provider folder admission waits for a peer whose plan predates the
  * folders it retains (#2832). A type selector's folders are known only once a
  * turn has translated it, so writers admitted at server start, before the first
- * provider-policy turn, plan without them; they are ordinary bounded commands.
- * The same bound as a host CLI read or index refresh.
+ * provider-policy turn, plan without them. The boot-time scratch prune is one;
+ * on the native fixture it finishes within a second of the turn reaching it.
  */
 export const PEER_FOLDER_PLAN_WAIT_MS = 30_000;
 
