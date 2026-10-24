@@ -3,7 +3,9 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 type Event = (kind:string,data?:object)=>void;
 const HOST_KEY="odysseus-offline-host-key";
-export function startPiNativeInference(agentDirectory:string,event:Event,authorityCommand:string,egressCommand:(attempt:number)=>string) {
+/** #2835 timing turn: the fixture model's exact host-applied writes, edits and one same-turn search. */
+export interface ScheriaTiming { count:number; path:(i:number)=>string; content:(i:number)=>string; sha256:(text:string)=>string }
+export function startPiNativeInference(agentDirectory:string,event:Event,authorityCommand:string,egressCommand:(attempt:number)=>string,timing?:ScheriaTiming) {
   let attempts=0;const seen=new Map<string,number>();
   const model="claude-sonnet-4-6";
   const server=Bun.serve({hostname:"127.0.0.1",port:0,maxRequestBodySize:16*1024**2,async fetch(request){
@@ -15,6 +17,7 @@ export function startPiNativeInference(agentDirectory:string,event:Event,authori
     const prompt=texts.findLast(text=>text.includes("Odysseus requests")||text.includes("Odysseus cancels"));
     if(!prompt)throw Error("Offline Pi transport did not receive the fixture user request");
     let attempt=seen.get(prompt);if(!attempt){attempt=++attempts;seen.set(prompt,attempt);event("fake_provider_enter",{attempt,backend:"pi"});}
+    if(timing&&prompt.includes("Scheria log"))return scheria(body,attempt,timing);
     const toolId=`odysseus-native-bash-${attempt}`;
     const completed=body.messages.some(message=>Array.isArray(message.content)&&message.content.some(block=>block.type==="tool_result"&&block.tool_use_id===toolId));
     const frames:object[]=[{type:"message_start",message:{id:`odysseus-native-${attempt}-${completed?"done":"tool"}`,type:"message",role:"assistant",model,content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
@@ -28,6 +31,28 @@ export function startPiNativeInference(agentDirectory:string,event:Event,authori
     event("pi_inference_response",{attempt,completed});
     return new Response(frames.map(frame=>`event: ${(frame as {type:string}).type}\ndata: ${JSON.stringify(frame)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
   }});
+  // One tool call per response, in order: write each log, edit each log, search, answer.
+  function scheria(body:{messages:{role:string;content:string|{type:string;text?:string;tool_use_id?:string;content?:unknown}[]}[];tools?:{name:string}[]},attempt:number,timing:ScheriaTiming){
+    const results=body.messages.flatMap(message=>Array.isArray(message.content)?message.content.filter(block=>block.type==="tool_result"&&block.tool_use_id?.startsWith("scheria-")):[]);
+    const step=results.length,count=timing.count;
+    const frames:object[]=[{type:"message_start",message:{id:`odysseus-scheria-${attempt}-${step}`,type:"message",role:"assistant",model,content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
+    const call=(name:string,input:object)=>{
+      if(!body.tools?.some(tool=>tool.name===name))throw Error(`Actual Pi SDK did not expose ${name} to the timing turn`);
+      frames.push({type:"content_block_start",index:0,content_block:{type:"tool_use",id:`scheria-${step}`,name,input:{}}},{type:"content_block_delta",index:0,delta:{type:"input_json_delta",partial_json:JSON.stringify(input)}});
+    };
+    if(step<count)call("write_file",{path:timing.path(step),content:timing.content(step)});
+    else if(step<2*count){const i=step-count;call("edit_file",{path:timing.path(i),expectedBaseHash:timing.sha256(timing.content(i)),old_string:"Scheria shore",new_string:"Scheria harbour"});}
+    else if(step===2*count)call("brain_search",{query:"harbour Nausicaa",limit:50});
+    else{
+      const text=(block:unknown):string=>typeof block==="string"?block:Array.isArray(block)?block.map(text).join("\n"):block&&typeof block==="object"&&"text" in block?String((block as {text:unknown}).text):"";
+      event("scheria_search",{backend:"pi",text:text(results.at(-1)?.content)});
+      frames.push({type:"content_block_start",index:0,content_block:{type:"text",text:""}},{type:"content_block_delta",index:0,delta:{type:"text_delta",text:"Odysseus files the Scheria log."}});
+    }
+    const done=step>2*count;
+    frames.push({type:"content_block_stop",index:0},{type:"message_delta",delta:{stop_reason:done?"end_turn":"tool_use",stop_sequence:null},usage:{output_tokens:1}},{type:"message_stop"});
+    event("pi_inference_response",{attempt,step,completed:done});
+    return new Response(frames.map(frame=>`event: ${(frame as {type:string}).type}\ndata: ${JSON.stringify(frame)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
+  }
   // A fictional host-held key, sent only to this offline loopback fixture.
   writeFileSync(join(agentDirectory,"models.json"),JSON.stringify({providers:{anthropic:{baseUrl:`http://127.0.0.1:${server.port}`,apiKey:HOST_KEY}}}));
   // The relay may send the host's key to this fixture origin only because the host lists it.

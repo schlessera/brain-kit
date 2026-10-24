@@ -19,6 +19,8 @@ if (![0,1000].includes(APP_UID)) throw Error("Unknown native app UID proof selec
 const DESCENDANT_CONTROL = BACKEND === "pi" && APP_UID === 0;
 const RETAIN_INDEX_NAMESPACE = process.env.BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMESPACE === "1";
 if (RETAIN_INDEX_NAMESPACE && !DESCENDANT_CONTROL) throw Error("Namespace retention reproduction requires Pi UID 0");
+// #2835 measurement: one strict turn of 20 host-applied writes and 20 edits, then a same-turn search.
+const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
@@ -80,7 +82,8 @@ print(json.dumps(result))`;
   const permissions = Bun.spawnSync(["chown", "-R", `${APP_UID}:${APP_UID}`, dir, brain]); expect(permissions.exitCode).toBe(0);
   const child = Bun.spawn(["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
     cwd: SOURCE,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test" }, stdout: "pipe", stderr: "pipe"
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test",
+      ...(APPLY_TIMING ? { BRAIN_NATIVE_PROOF_APPLY_TIMING: "1" } : {}) }, stdout: "pipe", stderr: "pipe"
   });
   const descendants = DESCENDANT_CONTROL ? observeIndexDescendants(ARTIFACTS, { retainMountNamespace: RETAIN_INDEX_NAMESPACE }) : undefined;
   releasePinnedNamespace = () => descendants?.releaseNamespace();
@@ -248,6 +251,41 @@ print(json.dumps(result))`;
     await until(() => sender.frames.some(f => f.receiptAt >= unnamedStart && f.type === "status" && f.status === "cancelled" && f.requestId === "odysseus-unnamed-cancel"), 10000);
     await sleep(200);
     expect(eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
+    if (APPLY_TIMING) {
+      // A new strict conversation: host apply carries write_file and edit_file for both backends.
+      const draft = "odysseus-scheria-draft", load = () => readFileSync("/proc/loadavg", "utf8").trim();
+      const preference = await fetch(origin + `/api/drafts/${draft}/profile`, { method: "PUT", headers: { cookie, origin, "content-type": "application/json" }, body: JSON.stringify({ preference: "strict" }) });
+      expect(preference.status, "APPLY_TIMING_STRICT_PREFERENCE_SAVED").toBe(200);
+      const timingStart = performance.now(), loadBefore = load();
+      sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests the Scheria log on 2026-07-12.", requestId: "odysseus-scheria-log", draftId: draft }));
+      await until(() => sender.frames.some(f => f.type === "session_info" && f.requestId === "odysseus-scheria-log"), 45000);
+      const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === "odysseus-scheria-log")!;
+      expect(ack.workerProfile?.actualProfile, "APPLY_TIMING_STRICT_TURN").toBe("strict");
+      await until(() => sender.frames.some(f => f.receiptAt >= timingStart && (f.type === "result" || f.type === "error") && f.sessionId === ack.sessionId), 240000);
+      await until(() => eventLog.read("timing-settlement").some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId), 60000);
+      const loadAfter = load();
+      const rows = eventLog.read("apply-timing");
+      const applies = rows.filter(row => row.kind === "apply_timing"), barriers = rows.filter(row => row.kind === "index_barrier");
+      const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+      const cell = (operation: string) => { const ms = applies.filter(row => row.operation === operation).map(row => row.ms as number);
+        return { calls: ms.length, medianMs: ms.length ? median(ms) : null, p95Ms: ms.length ? [...ms].sort((a, b) => a - b)[Math.ceil(ms.length * 0.95) - 1] : null, maxMs: ms.length ? Math.max(...ms) : null, ms }; };
+      const search = rows.find(row => row.kind === "scheria_search");
+      const timing = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter, elapsedMs: performance.now() - timingStart,
+        write: cell("write"), edit: cell("edit"), barriers: barriers.map(row => ({ name: row.name, ms: row.ms, ok: row.ok })),
+        results: applies.map(row => ({ operation: row.operation, ok: row.ok, indexed: row.indexed, indexStatus: row.indexStatus })), search,
+        terminal: sender.frames.filter(f => f.receiptAt >= timingStart && (f.type === "result" || f.type === "error")) };
+      writeFileSync(join(ARTIFACTS, "apply-timing.json"), JSON.stringify(timing, null, 2));
+      console.log(JSON.stringify({ applyTiming: { ...timing, write: { ...timing.write, ms: undefined }, edit: { ...timing.edit, ms: undefined }, results: undefined } }));
+      expect(applies.every(row => row.ok && row.indexed === false && row.indexStatus === "pending"), "APPLY_TIMING_RESULTS_PENDING").toBe(true);
+      expect([timing.write.calls, timing.edit.calls], "APPLY_TIMING_20_WRITES_20_EDITS").toEqual([20, 20]);
+      expect(timing.write.medianMs!, "APPLY_TIMING_WRITE_MEDIAN_MS").toBeLessThanOrEqual(300);
+      expect(timing.edit.medianMs!, "APPLY_TIMING_EDIT_MEDIAN_MS").toBeLessThanOrEqual(300);
+      const logs = Array.from({ length: 20 }, (_, i) => `notes/scheria-log-${String(i).padStart(2, "0")}.md`);
+      if (BACKEND === "claude") expect(search?.paths, "APPLY_TIMING_SAME_TURN_SEARCH_SEES_EVERY_EDIT").toEqual(logs);
+      else for (const path of logs) expect(search?.text ?? "", "APPLY_TIMING_SAME_TURN_SEARCH_SEES_EVERY_EDIT").toContain(path);
+      // The timing turn entered the fixture model once more and wrote no worker note.
+      expectedProviderAttempts = attemptBefore + 1;
+    }
     // Drain the real queued refresh before shutdown intentionally discards pending work.
     await until(() => {
       const events = eventLog.read("queued-refresh");
