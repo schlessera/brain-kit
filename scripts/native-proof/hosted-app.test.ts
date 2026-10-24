@@ -257,7 +257,7 @@ print(json.dumps(result))`;
       const preference = await fetch(origin + `/api/drafts/${draft}/profile`, { method: "PUT", headers: { cookie, origin, "content-type": "application/json" }, body: JSON.stringify({ preference: "strict" }) });
       expect(preference.status, "APPLY_TIMING_STRICT_PREFERENCE_SAVED").toBe(200);
       const timingStart = performance.now(), loadBefore = load();
-      sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests the Scheria log on 2026-07-12.", requestId: "odysseus-scheria-log", draftId: draft }));
+      sender.ws.send(JSON.stringify({ type: "chat_message", text: "Odysseus requests the Scheria log on 2026-07-12.", requestId: "odysseus-scheria-log", draftId: draft, profileDraftId: draft }));
       await until(() => sender.frames.some(f => f.type === "session_info" && f.requestId === "odysseus-scheria-log"), 45000);
       const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === "odysseus-scheria-log")!;
       expect(ack.workerProfile?.actualProfile, "APPLY_TIMING_STRICT_TURN").toBe("strict");
@@ -281,8 +281,15 @@ print(json.dumps(result))`;
       expect(timing.write.medianMs!, "APPLY_TIMING_WRITE_MEDIAN_MS").toBeLessThanOrEqual(300);
       expect(timing.edit.medianMs!, "APPLY_TIMING_EDIT_MEDIAN_MS").toBeLessThanOrEqual(300);
       const logs = Array.from({ length: 20 }, (_, i) => `notes/scheria-log-${String(i).padStart(2, "0")}.md`);
+      // The same-turn search's barrier indexed every edit into the live index. A strict
+      // worker itself reads its immutable startup view, so pi's in-worker result is recorded only.
+      expect(barriers.some(row => row.ok && (row.name === "brain_search" || row.name === "mcp__brain__brain_search")), "APPLY_TIMING_SEARCH_WAITED_FOR_INDEX").toBe(true);
+      const live = new Database(join(brain, ".brain-index", "brain.db"), { readonly: true });
+      try {
+        const indexed = (live.query("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'harbour AND Nausicaa' ORDER BY d.path").all() as { path: string }[]).map(row => row.path);
+        expect(indexed, "APPLY_TIMING_BARRIER_INDEXED_EVERY_EDIT").toEqual(logs);
+      } finally { live.close(); }
       if (BACKEND === "claude") expect(search?.paths, "APPLY_TIMING_SAME_TURN_SEARCH_SEES_EVERY_EDIT").toEqual(logs);
-      else for (const path of logs) expect(search?.text ?? "", "APPLY_TIMING_SAME_TURN_SEARCH_SEES_EVERY_EDIT").toContain(path);
       // The timing turn entered the fixture model once more and wrote no worker note.
       expectedProviderAttempts = attemptBefore + 1;
     }
