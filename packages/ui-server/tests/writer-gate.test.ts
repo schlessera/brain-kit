@@ -6,7 +6,7 @@
  * UI database: two handles on one file stand in for the two processes.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prepareWorkerSandbox, workerCommand } from "../../ui-sdk/src/server/worker-launcher.js";
@@ -141,6 +141,95 @@ test("a peer inherits retired provider folders from the active cross-process gat
   } finally { w.close(); }
 });
 
+
+describe("a type selector's recorded translation across processes (#2836)", () => {
+  const GATE_PROCESS = join(import.meta.dir, "helpers/gate-process.ts");
+  const TYPE_POLICY = "---\nschema_version: 1\nproviders: [{ types: [identity], allow: [anthropic] }]\n---\nOnly Anthropic may read who Odysseus is.\n";
+  function typeBrain(dir: string, policy = TYPE_POLICY) {
+    mkdirSync(join(dir, "context/policies"), { recursive: true });
+    mkdirSync(join(dir, "me"), { recursive: true });
+    writeFileSync(join(dir, "context/policies/governance.md"), policy);
+  }
+  /** A writer in its own Bun process, with an empty module cache. */
+  function gateProcess(db: string, brain: string, ...args: string[]) {
+    return Bun.spawn([process.execPath, GATE_PROCESS, db, brain, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  }
+  async function record(db: string, brain: string, folders: string[]) {
+    const child = gateProcess(db, brain, "record", JSON.stringify(folders));
+    child.stdin.end();
+    const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(code, `TRANSLATING_PROCESS_EXITED: ${stderr}`).toBe(0);
+  }
+  /** The plan a new process's writer acquires; the process has exited when this returns. */
+  async function planInNewProcess(db: string, brain: string): Promise<string[]> {
+    const child = gateProcess(db, brain, "acquire");
+    child.stdin.end();
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, `WRITER_PROCESS_EXITED: ${stderr}`).toBe(0);
+    return JSON.parse(stdout) as string[];
+  }
+  function typeWorld() {
+    const dir = mkdtempSync(join(tmpdir(), "writer-gate-types-"));
+    dirs.push(dir);
+    typeBrain(dir);
+    return { brain: realpathSync(dir), db: join(dir, "brain-ui.db") };
+  }
+
+  test("a new process plans the folders an exited process translated, under the same policy version", async () => {
+    const w = typeWorld();
+    await record(w.db, w.brain, ["me"]);
+    expect(await planInNewProcess(w.db, w.brain), "RESTARTED_PROCESS_PLANS_THE_RECORDED_TYPE_FOLDERS").toEqual([".brain-index", "me"]);
+  });
+
+  test("a translation recorded under another policy version is not planned", async () => {
+    const w = typeWorld();
+    await record(w.db, w.brain, ["me"]);
+    // The same selectors in another policy version: the taxonomy may differ too.
+    writeFileSync(join(w.brain, "context/policies/governance.md"), TYPE_POLICY.replace("who Odysseus is", "who the king of Ithaca is"));
+    expect(await planInNewProcess(w.db, w.brain), "OTHER_POLICY_VERSION_PLANS_NO_TYPE_FOLDER").toEqual([]);
+  });
+
+  test("a translation recorded for one brain is not planned for another under an identical policy", async () => {
+    const w = typeWorld();
+    const other = mkdtempSync(join(tmpdir(), "writer-gate-types-other-"));
+    dirs.push(other);
+    typeBrain(other);
+    await record(w.db, w.brain, ["me"]);
+    expect(await planInNewProcess(w.db, realpathSync(other)), "OTHER_BRAIN_PLANS_NO_TYPE_FOLDER").toEqual([]);
+    expect(await planInNewProcess(w.db, w.brain), "RECORDING_BRAIN_STILL_PLANS_IT").toEqual([".brain-index", "me"]);
+  });
+
+  test("a recorded folder that is no longer a directory is not planned", async () => {
+    const w = typeWorld();
+    // The taxonomy moved a type under the same policy: the old folder is gone or aliased.
+    symlinkSync(join(w.brain, "me"), join(w.brain, "alias"));
+    await record(w.db, w.brain, ["alias", "ithaca", "me"]);
+    expect(await planInNewProcess(w.db, w.brain), "ONLY_EXISTING_RECORDED_FOLDERS_PLANNED").toEqual([".brain-index", "me"]);
+  });
+
+  test("only the brain's latest translation is kept, and an unreadable one plans nothing", async () => {
+    const w = typeWorld();
+    const db = createUiDb(w.db);
+    try {
+      const gate = createWriterGate(db, w.brain, { pollMs: 10 });
+      await record(w.db, w.brain, ["me"]);
+      mkdirSync(join(w.brain, "ithaca"));
+      await record(w.db, w.brain, ["ithaca"]);
+      expect(db.query("SELECT folders FROM provider_type_folders").all(), "ONE_BOUNDED_RECORD_PER_BRAIN").toEqual([{ folders: JSON.stringify(["ithaca"]) }]);
+      for (const folders of ["not json", JSON.stringify({ roots: ["me"] }), JSON.stringify(["../me"]), JSON.stringify([7])]) {
+        db.query("UPDATE provider_type_folders SET folders = ?").run(folders);
+        // Neither planned nor in the way: an unreadable record must not stop a writer.
+        const hold = await gate.acquire("shared", "cron:odysseus-ledger").catch((error: Error) => error);
+        expect(hold instanceof Error ? hold.message : hold.folderPaths, `UNREADABLE_RECORD_PLANS_NOTHING: ${folders}`).toEqual([]);
+        if (!(hold instanceof Error)) hold.release();
+      }
+      db.exec("DROP TABLE provider_type_folders");
+      const hold = await gate.acquire("shared", "cron:odysseus-ledger").catch((error: Error) => error);
+      expect(hold instanceof Error ? hold.message : hold.folderPaths, "UNREADABLE_TABLE_PLANS_NOTHING").toEqual([]);
+      if (!(hold instanceof Error)) hold.release();
+    } finally { db.close(); }
+  });
+});
 
 describe("provider folder admission beside earlier writers (#2832)", () => {
   // A writer admitted before any plan held the folders, as one started with

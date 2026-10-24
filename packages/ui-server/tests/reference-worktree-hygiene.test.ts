@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Database } from "bun:sqlite";
 import { createUiDb } from "../src/db/client";
-import { createPrincipal, revokePrincipal } from "../src/db/principals";
+import { Hono } from "hono";
+import type { AppEnv } from "../src/app-env";
+import { createPrincipal, resolveAmbientPrincipal, revokePrincipal } from "../src/db/principals";
+import { createHygieneReviewRoutes } from "../src/routes/hygiene-review";
 import { createReferenceGrant } from "../src/db/reference-grants";
 import { createReferenceSources } from "../src/brain/reference-source";
 import type { ReferenceTransport } from "../src/brain/reference-transport";
@@ -105,7 +108,8 @@ describe("detection and dispositions", () => {
     const preview = await f.hygiene.run(["resolve", "--handler", "delete-worktree", "--input", "null", "--expect-fingerprint", finding.fingerprint, "--dry-run", "--", finding.id]);
     const card = (await f.review().command(f.penelope.id, "start")).action;
     const shown = JSON.stringify({ finding, preview, list: await f.list(), card });
-    for (const secret of ["penelope-loom", "odysseus/", "2222222222", "odyssey.md", "secret-route", f.telemachus.id])
+    // #2734: the owning principal's label is a private detail too.
+    for (const secret of ["penelope-loom", "odysseus/", "2222222222", "odyssey.md", "secret-route", f.telemachus.id, "Telemachus"])
       expect(shown.includes(secret), `REFERENCE_WORKTREE_HYGIENE_PRIVATE_OPAQUE ${secret}`).toBe(false);
     expect(shown).toContain(tree.id);
     expect(finding).toMatchObject({ worktree: { domain: "private", changedPaths: 1 } });
@@ -570,5 +574,120 @@ describe("human-started review", () => {
     expect(createInboxStore(db).getItem(read.action!.id)?.status).toBe("dismissed");
     await f.worktrees.reconcile();
     expect({ pool: f.pool.records.get(tree.id)?.state, receipt: f.receipt(tree.id) }, "REFERENCE_WORKTREE_REVIEW_DISMISSAL_NOT_CONSENT").toEqual({ pool: "writable", receipt: null });
+  });
+});
+
+describe("owner-only private details (#2734)", () => {
+  /** The review over HTTP, as the named principal. */
+  function http(review: ReturnType<Awaited<ReturnType<typeof fixture>>["review"]>) {
+    let as: unknown;
+    const app = new Hono<AppEnv>();
+    app.use("*", async (c, next) => { c.set("principal", as as never); await next(); });
+    app.route("/", createHygieneReviewRoutes(review));
+    return async (principal: unknown, path: string) => { as = principal; const res = await app.request(path); return { status: res.status, cache: res.headers.get("cache-control"), body: await res.text() }; };
+  }
+  const SECRETS = ["penelope-loom", "odysseus/", "2222222222", "odyssey.md", "secret-route", "Telemachus"];
+  async function privateCard() {
+    const f = await fixture();
+    const tree = await f.retained(PRIVATE, f.telemachus.id);
+    const review = f.review();
+    const card = (await review.command(f.penelope.id, "start")).action!;
+    const odysseus = createPrincipal(db, { authMethod: "delegated", label: "Odysseus voyage", createdBy: f.penelope.id, ttlSeconds: 365 * DAY });
+    const eurycleia = resolveAmbientPrincipal(db, "proxy", "eurycleia@ithaca.example", "Eurycleia");
+    return { f, tree, review, card, odysseus, eurycleia, get: http(review) };
+  }
+  /** Every replicated surface: inbox items, outcomes, resolutions and the change stream, plus the review rows. */
+  const replicated = () => JSON.stringify((db.query("SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE 'inbox%' OR name LIKE 'hygiene%')").all() as { name: string }[])
+    .map(({ name }) => db.query(`SELECT * FROM "${name}"`).all()));
+
+  test("the owner reads the recorded facts; every delegated and ambient principal is refused by direct request", async () => {
+    const { f, tree, card, odysseus, eurycleia, get } = await privateCard();
+    const path = `/hygiene/review/details/${encodeURIComponent(card.id)}`;
+    const owner = await get(f.penelope, path);
+    expect({ status: owner.status, cache: owner.cache }, "REFERENCE_WORKTREE_DETAILS_NEVER_CACHED").toEqual({ status: 200, cache: "no-store" });
+    expect(JSON.parse(owner.body), "REFERENCE_WORKTREE_DETAILS_OWNER_READS").toMatchObject({ status: "details", details: {
+      owner: { label: "Telemachus", kind: "agent" }, repository: PRIVATE, revision: "main", commit: "2".repeat(40),
+      changedPaths: 1, sample: ["odyssey.md"], unverifiedPaths: 0, assessedAt: expect.any(Number) } });
+    expect(tree.id).toBeTruthy();
+    for (const [name, principal] of [["the worktree's own agent", f.telemachus], ["another agent", odysseus], ["an ambient principal", eurycleia]] as const) {
+      const refused = await get(principal, path);
+      expect({ status: refused.status, body: JSON.parse(refused.body) }, `REFERENCE_WORKTREE_DETAILS_REFUSED ${name}`).toEqual({ status: 403, body: { error: "Unauthorized" } });
+    }
+    expect((await get(undefined, path)).status, "REFERENCE_WORKTREE_DETAILS_UNAUTHENTICATED").toBe(401);
+    // A revoked owner is refused too: the host reads authority per request.
+    revokePrincipal(db, f.penelope.id, Date.now());
+    expect((await get(f.penelope, path)).status, "REFERENCE_WORKTREE_DETAILS_REVOKED_OWNER_REFUSED").toBe(403);
+  });
+
+  test("an owner revoked while the facts are read is refused", async () => {
+    const { f, card, get } = await privateCard();
+    const read = f.hygiene.details;
+    f.hygiene.details = async (...args) => { const result = await read(...args); revokePrincipal(db, f.penelope.id, Date.now()); return result; };
+    const refused = await get(f.penelope, `/hygiene/review/details/${encodeURIComponent(card.id)}`);
+    expect({ status: refused.status, body: JSON.parse(refused.body) }, "REFERENCE_WORKTREE_DETAILS_AUTHORITY_RECHECKED").toEqual({ status: 403, body: { error: "Unauthorized" } });
+  });
+
+  test("only the owner's review read carries the per-request access fact, and no replicated surface carries a private byte", async () => {
+    const { f, card, odysseus, eurycleia, get } = await privateCard();
+    const owner = JSON.parse((await get(f.penelope, "/hygiene/review")).body);
+    expect(owner.privateDetailAccess, "REFERENCE_WORKTREE_DETAILS_ACCESS_FOR_OWNER").toEqual({ itemId: card.id });
+    for (const principal of [f.telemachus, odysseus, eurycleia])
+      expect(JSON.parse((await get(principal, "/hygiene/review")).body), "REFERENCE_WORKTREE_DETAILS_NO_ACCESS_FOR_NON_OWNER").not.toHaveProperty("privateDetailAccess");
+    expect(JSON.stringify(card), "REFERENCE_WORKTREE_DETAILS_ACCESS_NOT_REPLICATED").not.toContain("privateDetailAccess");
+    await get(f.penelope, `/hygiene/review/details/${encodeURIComponent(card.id)}`);
+    const surfaces = replicated() + JSON.stringify({ owner, list: await f.list() });
+    for (const secret of [...SECRETS, f.telemachus.id])
+      expect(surfaces.includes(secret), `REFERENCE_WORKTREE_DETAILS_NEVER_REPLICATED ${secret}`).toBe(false);
+  });
+
+  test("reading details assesses nothing and changes no finding, fingerprint, last_seen or state", async () => {
+    const { f, card, get } = await privateCard();
+    const reassessed: string[] = [];
+    const reassess = f.worktrees.reassess;
+    f.worktrees.reassess = (id, options) => { reassessed.push(id); return reassess(id, options); };
+    const snapshot = () => JSON.stringify([db.query("SELECT * FROM reference_worktree_findings ORDER BY id").all(), db.query("SELECT * FROM reference_worktrees ORDER BY id").all(),
+      db.query("SELECT * FROM reference_worktree_cleanups ORDER BY worktree_id").all()]);
+    const before = snapshot();
+    days(2);
+    for (let read = 0; read < 3; read++) expect((await get(f.penelope, `/hygiene/review/details/${encodeURIComponent(card.id)}`)).status).toBe(200);
+    expect({ rows: snapshot() === before, reassessed, cli: f.calls.filter(args => args[0] !== "next" && args[0] !== "list") }, "REFERENCE_WORKTREE_DETAILS_READ_ONLY")
+      .toEqual({ rows: true, reassessed: [], cli: [] });
+  });
+
+  test("changed and gone findings return no detail values", async () => {
+    const { f, tree, card, get } = await privateCard();
+    const path = `/hygiene/review/details/${encodeURIComponent(card.id)}`;
+    // New work, recorded by a fresh assessment the card has not seen.
+    writeFileSync(join(f.path(tree.id), "secret-route.md"), "Telemachus sails to Pylos.\n");
+    await f.worktrees.reassess(tree.id, { remove: false });
+    const changed = await get(f.penelope, path);
+    expect(JSON.parse(changed.body), "REFERENCE_WORKTREE_DETAILS_CHANGED").toEqual({ status: "changed" });
+    // The finding leaves the open backlog.
+    const current = (await f.next()).finding!;
+    expect(await f.hygiene.run(["dismiss", "--expect-fingerprint", current.fingerprint, "--", current.id])).toMatchObject({ status: "dismissed" });
+    const gone = await get(f.penelope, path);
+    expect(JSON.parse(gone.body), "REFERENCE_WORKTREE_DETAILS_GONE").toEqual({ status: "gone" });
+    expect(JSON.parse((await get(f.penelope, "/hygiene/review/details/no-such-card")).body), "REFERENCE_WORKTREE_DETAILS_UNKNOWN_IS_GONE").toEqual({ status: "gone" });
+    for (const secret of [...SECRETS, f.telemachus.id])
+      expect((changed.body + gone.body).includes(secret), `REFERENCE_WORKTREE_DETAILS_NO_VALUES ${secret}`).toBe(false);
+  });
+
+  test("a removed owning principal reads as removed", async () => {
+    const { f, card, get } = await privateCard();
+    revokePrincipal(db, f.telemachus.id, Date.now());
+    const read = JSON.parse((await get(f.penelope, `/hygiene/review/details/${encodeURIComponent(card.id)}`)).body);
+    expect(read.status === "details" ? read.details.owner : read, "REFERENCE_WORKTREE_DETAILS_REMOVED_PRINCIPAL").toBeNull();
+  });
+
+  test("unknown work carries no count, never a zero", async () => {
+    // A worktree whose baseline is gone cannot establish its work.
+    const g = await fixture();
+    const lost = await g.worktrees.allocate({ principalId: g.telemachus.id, repository: PRIVATE, revision: "main" });
+    db.query("UPDATE reference_worktrees SET baseline = NULL WHERE id = ?").run(lost.id);
+    await g.worktrees.release({ worktreeId: lost.id, principalId: g.telemachus.id });
+    const unknown = (await g.review().command(g.penelope.id, "start")).action!;
+    expect(unknown.payload.title).toBe("A managed worktree's work or owner cannot be established");
+    expect(await g.hygiene.details(unknown.hygiene!.findingId, unknown.hygiene!.fingerprint), "REFERENCE_WORKTREE_DETAILS_UNKNOWN_WORK_NEVER_ZERO")
+      .toMatchObject({ status: "details", details: { changedPaths: null, sample: [], unverifiedPaths: null } });
   });
 });

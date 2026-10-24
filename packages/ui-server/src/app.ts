@@ -91,6 +91,7 @@ import {
 import { principalManagementRoutes } from "./middleware/principals.js";
 import { createModuleRoutes } from "./routes/modules.js";
 import { createUiDb } from "./db/client.js";
+import { journalDatabasePath } from "./db/journal-database.js";
 import { createInboxBridgeTools } from "./inbox/bridge-tools.js";
 import { createInboxStore } from "./inbox/store.js";
 import { createHygieneReview } from "./inbox/hygiene-review.js";
@@ -938,6 +939,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
   for (const [path, label] of [[config.dbPath, "Operational database"], [nativeLeasePath, "Native lease database"]] as const) {
     if (!path || path === ":memory:") continue;
     for (const suffix of ["", "-wal", "-shm", "-journal"]) storageStores.push({ path: resolve(path + suffix), label: label + suffix, category: "database", owner: "app", recursive: false, optional: suffix !== "" });
+  }
+  // The journal's metadata has its own file since #2789; it is retained file history, like its objects.
+  if (!ephemeralJournal) for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+    storageStores.push({ path: journalDatabasePath(config.dbPath) + suffix, label: "Retained file history database" + suffix, category: "journal", owner: "app", recursive: false, optional: suffix !== "" });
   }
   for (const [index, path] of (config.storage?.backupRoots ?? []).entries()) storageStores.push({ path, label: `Backup store ${index + 1}`, category: "backup", owner: "operator", recursive: true });
   const storage = createStorageCoordinator({ salt: storageHistory.salt, shared: storageShared,

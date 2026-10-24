@@ -21,6 +21,8 @@ export interface HygieneCardProps {
   compact?: boolean;
   onOpen?: () => void;
   invalidation?: string;
+  /** Caller-owned detail between the evidence and the controls, such as an owner-only disclosure. Full card only. */
+  details?: ReactNode;
   controls?: ReactNode;
   preview?: { path: string; changes: Array<{ before: string; after: string; line: number }> };
   previewRevealed?: boolean;
@@ -29,6 +31,14 @@ export interface HygieneCardProps {
   state?: "applying" | "stale" | "refused" | "check_failed" | "still_detected" | "unknown" | "fixed" | "undone";
   reason?: string;
   code?: string;
+  /**
+   * Caller-chosen wording for a state, replacing its file default (#2837).
+   * Plain inert text: never parsed, linked or called. Omit a state, or the
+   * whole prop, to keep the default file wording and meaning.
+   */
+  stateText?: Partial<Record<NonNullable<HygieneCardProps["state"]>, string>>;
+  /** Replaces the commit control's default busy label while applying. */
+  busyLabel?: string;
   recovery?: ReactNode;
   commit?: DispositionControl;
   later?: DispositionControl;
@@ -43,7 +53,7 @@ const mono: CSSProperties = { font: `500 10px/1.5 ${font.mono}`, color: color.in
 /** Presentation only. CLI projections, input validation and every effect belong to the caller. */
 export function HygieneCard(p: HygieneCardProps) {
   const whyId = useId();
-  const stateText =
+  const fallback =
     p.state === "applying"
       ? "Applying… checking the file first"
       : p.state === "stale"
@@ -61,6 +71,7 @@ export function HygieneCard(p: HygieneCardProps) {
       : p.state === "undone"
       ? "Change undone. Review a new preview before applying again."
       : undefined;
+  const statusText = p.state ? p.stateText?.[p.state] ?? fallback : undefined;
   const tone =
     p.state === "stale"
       ? "gold"
@@ -71,8 +82,8 @@ export function HygieneCard(p: HygieneCardProps) {
       : "neutral";
   if (p.state === "fixed")
     return (
-      <div data-hygiene-card="" role="status">
-        <Callout tone="teal" text={`Fixed · re-checked · Finding no longer detected in ${p.path}`} />
+      <div data-hygiene-card="" role="status" style={{ overflowWrap: "anywhere" }}>
+        <Callout tone="teal" text={p.stateText?.fixed ?? `Fixed · re-checked · Finding no longer detected in ${p.path}`} />
       </div>
     );
   return (
@@ -134,10 +145,11 @@ export function HygieneCard(p: HygieneCardProps) {
               </pre>
             ) : null}
             <div style={mono}>{p.provenance}</div>
+            {p.details}
             {p.invalidation ? <Callout tone="gold" text={p.invalidation} /> : null}
-            {stateText ? (
-              <div role="status" data-hygiene-state={p.state}>
-                <Callout tone={tone} text={stateText} />
+            {statusText ? (
+              <div role="status" data-hygiene-state={p.state} style={{ overflowWrap: "anywhere" }}>
+                <Callout tone={tone} text={statusText} />
                 {p.recovery}
               </div>
             ) : null}
@@ -166,7 +178,7 @@ export function HygieneCard(p: HygieneCardProps) {
               dismiss={p.dismiss}
               reason={p.disabledReason}
               busy={p.state === "applying" ? "commit" : undefined}
-              busyLabel="Applying… checking the file first"
+              busyLabel={p.busyLabel ?? "Applying… checking the file first"}
             />
             {p.confirmation}
             {p.keys ? <div style={mono}>a Apply · l Later · d Dismiss</div> : null}

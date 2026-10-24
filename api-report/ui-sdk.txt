@@ -165,6 +165,8 @@ export "." (./src/index.ts)
   type HygieneReviewCommand
   type HygieneReviewRead
   type HygieneReviewState
+  type HygieneWorktreeDetails
+  type HygieneWorktreeDetailsRead
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -614,6 +616,8 @@ export "./client" (./src/client/index.ts)
   type HygieneReviewCommand
   type HygieneReviewRead
   type HygieneReviewState
+  type HygieneWorktreeDetails
+  type HygieneWorktreeDetailsRead
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -1401,6 +1405,8 @@ export "./protocol" (./src/protocol.ts)
   type HygieneReviewCommand
   type HygieneReviewRead
   type HygieneReviewState
+  type HygieneWorktreeDetails
+  type HygieneWorktreeDetailsRead
   type InboxActionItem
   type InboxActionStatus
   type InboxChange
@@ -1713,6 +1719,7 @@ export "./schemas" (./src/schemas.ts)
   hygieneReviewCommandSchema
   hygieneReviewReadSchema
   hygieneReviewStateSchema
+  hygieneWorktreeDetailsReadSchema
   inboxActionItemSchema
   inboxActionStatusSchema
   inboxChangeSchema
@@ -2060,6 +2067,8 @@ export "./server" (./src/server/index.ts)
   type HygieneReviewCommand
   type HygieneReviewRead
   type HygieneReviewState
+  type HygieneWorktreeDetails
+  type HygieneWorktreeDetailsRead
   IMAGE_MASK_PAYLOAD_SCHEMA
   INBOX_ADD_CONTRACT
   INBOX_ADD_INPUT_SCHEMA
@@ -6539,6 +6548,9 @@ signatures (every public export and the types it is made of)
     export interface HygieneReviewRead {
         review: HygieneReviewState;
         action: InboxActionItem | null;
+        privateDetailAccess?: {
+            itemId: string;
+        };
     }
   HygieneReviewState (packages/ui-sdk/src/protocol.ts)
     export interface HygieneReviewState {
@@ -6564,6 +6576,29 @@ signatures (every public export and the types it is made of)
         };
         blocker?: Record<string, unknown>;
     }
+  HygieneWorktreeDetails (packages/ui-sdk/src/protocol.ts)
+    export interface HygieneWorktreeDetails {
+        owner: {
+            label: string;
+            kind: "agent" | "device";
+        } | null;
+        repository: string | null;
+        revision: string | null;
+        commit: string | null;
+        changedPaths: number | null;
+        sample: string[];
+        unverifiedPaths: number | null;
+        assessedAt: number | null;
+    }
+  HygieneWorktreeDetailsRead (packages/ui-sdk/src/protocol.ts)
+    export type HygieneWorktreeDetailsRead = {
+        status: "details";
+        details: HygieneWorktreeDetails;
+    } | {
+        status: "changed";
+    } | {
+        status: "gone";
+    };
   IMAGE_MASK_PAYLOAD_SCHEMA (packages/ui-sdk/src/tool-contracts/bridge.ts)
     const IMAGE_MASK_PAYLOAD_SCHEMA: z.ZodObject<{
         bytes: z.ZodNumber;
@@ -12252,6 +12287,9 @@ signatures (every public export and the types it is made of)
             version: z.ZodNumber;
             waitUntil: z.ZodOptional<z.ZodNumber>;
         }, z.core.$loose>>;
+        privateDetailAccess: z.ZodOptional<z.ZodObject<{
+            itemId: z.ZodString;
+        }, z.core.$strict>>;
         review: z.ZodObject<{
             blocker: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
             counts: z.ZodOptional<z.ZodObject<{
@@ -12312,6 +12350,30 @@ signatures (every public export and the types it is made of)
         }>;
         version: z.ZodLiteral<1>;
     }, z.core.$strict>;
+  hygieneWorktreeDetailsReadSchema (packages/ui-sdk/src/schemas.ts)
+    const hygieneWorktreeDetailsReadSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+        details: z.ZodObject<{
+            assessedAt: z.ZodNullable<z.ZodNumber>;
+            changedPaths: z.ZodNullable<z.ZodNumber>;
+            commit: z.ZodNullable<z.ZodString>;
+            owner: z.ZodNullable<z.ZodObject<{
+                kind: z.ZodEnum<{
+                    agent: "agent";
+                    device: "device";
+                }>;
+                label: z.ZodString;
+            }, z.core.$strict>>;
+            repository: z.ZodNullable<z.ZodString>;
+            revision: z.ZodNullable<z.ZodString>;
+            sample: z.ZodArray<z.ZodString>;
+            unverifiedPaths: z.ZodNullable<z.ZodNumber>;
+        }, z.core.$strict>;
+        status: z.ZodLiteral<"details">;
+    }, z.core.$strict>, z.ZodObject<{
+        status: z.ZodLiteral<"changed">;
+    }, z.core.$strict>, z.ZodObject<{
+        status: z.ZodLiteral<"gone">;
+    }, z.core.$strict>], "status">;
   inboxActionItemSchema (packages/ui-sdk/src/schemas.ts)
     const inboxActionItemSchema: z.ZodObject<{
         createdAt: z.ZodNumber;

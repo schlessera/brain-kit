@@ -17,12 +17,15 @@
  *
  * The server and the cron runner are separate processes, so the gate is a
  * table in the UI database. A row whose process has exited is stale and is
- * removed by the next acquisition.
+ * removed by the next acquisition. The folders a policy's type selectors last
+ * translated to live there too, so every process plans them, across restarts
+ * (#2836).
  */
 import type { Database } from "bun:sqlite";
-import { readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createGovernancePolicyReader, providerFolderRoots, rememberedProviderTypeFolders, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
+import { createGovernancePolicyReader, providerFolderRoots, retainedFolderRoots, type TurnGovernancePolicy } from "./governance-policy.js";
 import { ensureIndexDirectory } from "./index-directory.js";
 import { INDEX_DIR } from "@schlessera/brain-common/internal/index-location";
 
@@ -76,6 +79,12 @@ export interface WriterGate {
   holders(): { mode: GateMode; purpose: string; pid: number }[];
   /** Refuse an ungated host process beside retained or unknown folder plans, or under a folder policy. */
   assertUngatedHostFallback(): void;
+  /**
+   * Record the folders admission translated the policy's type selectors to,
+   * under that policy's hash (#2836). Every later acquisition under the same
+   * hash plans them, in any process. It replaces the brain's earlier record.
+   */
+  rememberTypeFolders(policyHash: string | null, folders: readonly string[]): void;
 }
 
 /** How often a waiting acquisition looks again. */
@@ -142,6 +151,24 @@ function folderPlan(raw: string): { roots: readonly string[]; unpinnedHost: bool
   return { roots, unpinnedHost };
 }
 
+/**
+ * The type folders last translated under `hash`. A missing, unreadable or
+ * other-hash record plans none: it only ever adds retention, and admission
+ * still checks what it actually masks. A recorded folder that is no longer an
+ * unaliased directory, as after the taxonomy moved a type under the same
+ * policy, is dropped: it cannot be pinned, and retaining it would refuse
+ * every governed worker that inherits it.
+ */
+function recordedTypeFolders(db: Database, brain: string, hash: string | null): readonly string[] {
+  if (hash === null) return [];
+  try {
+    const row = db.query("SELECT folders FROM provider_type_folders WHERE brain = ? AND policy_hash = ?").get(brain, hash) as { folders: string } | null;
+    if (!row || !Array.isArray(JSON.parse(row.folders))) return [];
+    return folderPlan(row.folders).roots.filter(root => root.split("/").every((_, i, parts) =>
+      lstatSync(join(brain, ...parts.slice(0, i + 1)), { throwIfNoEntry: false })?.isDirectory() === true));
+  } catch { return []; }
+}
+
 /** Derived folder plans only. NULL legacy rows are not mounted-topology proof. */
 function mergeFolderPlans(rows: { folder_topology: string | null }[], additions: readonly string[]): readonly string[] {
   const roots = new Set<string>();
@@ -170,7 +197,7 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
     const id = randomUUID();
     if (waiter) db.query("DELETE FROM writer_gate_turn_waiters WHERE id = ?").run(waiter);
     const policy = policyReader.load();
-    const folderPaths = mergeFolderPlans(held, retainedFolderRoots(policy.policy, rememberedProviderTypeFolders(brain, policy.hash)));
+    const folderPaths = mergeFolderPlans(held, retainedFolderRoots(policy.policy, recordedTypeFolders(db, brain, policy.hash)));
     db.query("INSERT INTO writer_gate (id, brain, mode, purpose, pid, pid_start, acquired_at, folder_topology) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(id, brain, mode, purpose, SELF.pid, SELF.start, Date.now(), JSON.stringify(folderPaths));
     return { id, folderPaths };
@@ -290,6 +317,12 @@ export function createWriterGate(db: Database, brainPath: string, options: { pol
         catch { throw new HostFallbackRefusedError("Host fallback is refused beside an active writer with an unverified folder plan; finish that writer and retry."); }
         refuseHostFallback(policyReader.load(), roots);
       }).immediate();
+    },
+    rememberTypeFolders(policyHash, folders) {
+      if (policyHash === null) return;
+      const roots = folderPlan(JSON.stringify([...new Set(folders)].sort())).roots;
+      db.query("INSERT INTO provider_type_folders (brain, policy_hash, folders, translated_at) VALUES (?, ?, ?, ?) ON CONFLICT (brain) DO UPDATE SET policy_hash = excluded.policy_hash, folders = excluded.folders, translated_at = excluded.translated_at")
+        .run(brain, policyHash, JSON.stringify(roots), Date.now());
     },
     holders() {
       return db.transaction(() => {

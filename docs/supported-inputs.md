@@ -120,8 +120,10 @@ A peer's descendant root also retains its ancestors; retaining an ancestor alone
 does not retain each child inside it. An unknown peer-plan checker refuses too.
 A peer missing a root waits rather than refusing, for up to 30 seconds: every
 writer admitted after the turn retained its folders inherits them, so only an
-older one can lack them, such as a writer started with the server before any
-turn translated a type selector. A peer still active at that bound refuses.
+older one can lack them, such as a writer admitted before the first turn
+under the current policy translated a type selector. The server records each
+translation in its UI database, so writers in the cron runner and after a
+restart plan those folders too. A peer still active at that bound refuses.
 This check does not stop an older writer and does not block nested
 shared maintenance, explicitly strict turns or strict inspection fallback.
 
@@ -141,7 +143,16 @@ empty read-only directory, a selected folder inside another selected folder
 is hidden with it (#2718), `.git` is hidden, and `.brain-index/` is a
 turn-private, writable index. It is built before the turn by the brain's own
 CLI (`brain index`, keyword-only) in a worker that sees the same masks, so it
-never held a masked document. The real index is refreshed from Markdown after
+never held a masked document. A hosted turn reuses an earlier turn's build
+when it provably equals a fresh one (#2833): the server keeps one copy per
+policy, mask set and recipient, compares the turn's checkpoint with the one
+that copy was built from, and adds new Markdown and asset files outside the
+masks with the CLI's incremental index. Any other change, including a
+document edited, removed or moved into a masked folder, builds the index from
+nothing again, as does the first such turn after the server starts. Changes
+inside `.brain/` and `.brain-ui/` do not, because the build sees those
+folders as empty; a `brain.config.ts` that imports from them does not load in
+that build. The real index is refreshed from Markdown after
 the turn as usual. Host bridge tools that run on the server, outside the
 worker's mounts, refuse every path at or below a masked root with the named
 refusal `provider_masked` and one `provider_mask_refusal` governance event per

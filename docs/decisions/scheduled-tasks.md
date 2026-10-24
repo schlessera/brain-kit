@@ -23,7 +23,7 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   (`else if (item.status === "scheduled"`, `packages/ui-server/src/inbox/actions.ts:196-197`).
   The runtime ticks every minute (`INBOX_TICK_MS`, `packages/ui-server/src/inbox/runtime.ts:11-13`).
 - Production app wiring supplies recovery and budgets, without a dispatcher
-  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:485-501`).
+  (`// Recovery/heartbeat only.`, `packages/ui-server/src/app.ts:486-502`).
   A scripted nonempty ready-item test still reports no claim, attempt or
   Activity root. That proves disabled wiring, not safe execution of a schedule.
 - Headless plumbing checks backend support, a usable principal, lifetime and
@@ -35,7 +35,7 @@ Source inspected at `b5c30c180df5584584f261b446c4d440380d2441`:
   no autonomous authority/admission controls (`runAgent`, `packages/core/src/cli/agent.ts:39-66`).
   Existing static nightly sync is not authorization for arbitrary stored prompts.
 - The existing operational database is concrete WAL SQLite
-  (`createUiDb`, `packages/ui-server/src/db/client.ts:25-37`). The
+  (`createUiDb`, `packages/ui-server/src/db/client.ts:27-44`). The
   [complete backup](../inbox-recovery.md) and [reservation accounting](../inbox-budget.md)
   are available precedents; their existing tests cannot prove new schedule relations.
 - Notification kinds are already failure/completion/stuck
