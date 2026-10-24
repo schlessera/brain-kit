@@ -18,6 +18,12 @@ import { parseClientMessage } from "@schlessera/brain-ui-sdk/schemas";
 const scratch = mkdtempSync(join(tmpdir(), "c5-server-"));
 const db = createUiDb(join(scratch, "ui.sqlite"));
 const principal = createPrincipal(db, { authMethod: "password", label: "Odysseus", ttlSeconds: 86400 });
+// The delegated agent whose private worktree the owner reviews (#2734).
+const agent = createPrincipal(db, { authMethod: "delegated", label: "Telemachus research", createdBy: principal.id, ttlSeconds: 86400 });
+let as: "owner" | "agent" = "owner";
+let details = "details";
+let holdDetails: (() => void) | undefined;
+const detailReads: string[] = [];
 let longPreview = false;
 let mode = "",
   category = "broken-link",
@@ -52,7 +58,8 @@ function worktreeFinding(n: number) {
     urgency: null,
     field: null,
     line: null,
-    excerpt: `private source · ${unknown ? "work not established" : "3 changed paths"} · released`,
+    excerpt: `private source · ${unknown ? "work not established" : "14 changed paths"} · released`,
+    worktree: { id: worktreeId, domain: "private", state: "released", changedPaths: unknown ? null : 14, removal: null },
     sources: [{ source: "hygiene", name: "managed-worktree", severity: "warning" }],
     priorityReason: { severity: "warning", urgency: "unknown", ageDays: 4, newerWithSameRank: 0, tieBreak: "identity" },
     invalidation: null,
@@ -200,9 +207,9 @@ const brain = {
         diff: category.startsWith("managed-worktree")
           ? {
               path: `reference-worktree/${worktreeId}`,
-              before: `worktree ${worktreeId}\nprivate source\n3 changed paths since its starting commit\n`,
+              before: `worktree ${worktreeId}\nprivate source\n14 changed paths since its starting commit\n`,
               after: "",
-              changes: [`worktree ${worktreeId}`, "private source", "3 changed paths since its starting commit"].map(
+              changes: [`worktree ${worktreeId}`, "private source", "14 changed paths since its starting commit"].map(
                 (line, index) => ({ line: index + 1, before: line, after: "" })
               ),
             }
@@ -265,7 +272,32 @@ const brain = {
 } as unknown as BrainClient;
 let clock = Date.UTC(2026, 6, 12, 9);
 const now = () => clock;
-const review = createHygieneReview(db, { brain, now });
+/** The recorded facts the host's owner-only read returns (#2734), per fixture mode. */
+const SAMPLE = ["src/ledger/olive-oil.ts", "src/ledger/wine-stores.ts", "docs/suitors/antinous-accounts-of-the-great-hall-feasts-in-the-twentieth-year.md", "tests/ledger.test.ts", "package.json"];
+function recorded() {
+  const facts = {
+    owner: { label: "Telemachus research", kind: "agent" as const },
+    repository: "github.com/ithaca/palace-ledger", revision: "refs/heads/raft-repairs", commit: "3f9a2c1d4e5b7a8c9d0e1f2a3b4c5d6e7f8a9b0c",
+    changedPaths: 14 as number | null, sample: SAMPLE, unverifiedPaths: 2 as number | null, assessedAt: Date.UTC(2026, 6, 12, 14, 2) as number | null,
+  };
+  if (details === "zero") return { ...facts, changedPaths: 0, sample: [], unverifiedPaths: 0 };
+  if (details === "unknown") return { ...facts, owner: null, repository: null, revision: null, commit: null, changedPaths: null, sample: [], unverifiedPaths: null, assessedAt: null };
+  if (details === "hostile") return { ...facts, sample: ["[x](http://e.test)<b>y</b>", ...SAMPLE.slice(1)] };
+  return facts;
+}
+const worktrees = {
+  owns: () => false,
+  run: async (args: string[]) => args[0] === "list" ? { entries: [] } : { finding: null, counts: { eligibleRemaining: 0, fixed: 0, dismissed: 0, snoozed: 0, nextSnoozeDueAt: null, informationalNotShown: 0 } },
+  merge: async (cli: unknown) => cli,
+  details: async (findingId: string) => {
+    detailReads.push(findingId);
+    if (details === "hold") await new Promise<void>((resolve) => { holdDetails = resolve; });
+    if (details === "fail") throw new Error("details unavailable");
+    if (details === "changed" || details === "gone") return { status: details };
+    return { status: "details", details: recorded() };
+  },
+};
+const review = createHygieneReview(db, { brain, now, worktrees: worktrees as never });
 const store = createInboxStore(db, { now }),
   stream = createInboxStream(store, db, undefined, review.resolver);
 const auth = {
@@ -277,7 +309,7 @@ const auth = {
 };
 const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
-  c.set("principal", principal as never);
+  c.set("principal", (as === "agent" ? agent : principal) as never);
   if (c.req.method === "GET" && c.req.path === "/api/hygiene/review") {
     const r = review.read();
     reads.push({ status: r.review.status, pending: !!r.action });
@@ -288,6 +320,9 @@ app.route("/api", createHygieneReviewRoutes(review));
 app.post("/fixture", async (c) => {
   const p = await c.req.json();
   if (p.holdNext !== undefined) holdNext = p.holdNext;
+  if (p.as) as = p.as;
+  if (p.details) details = p.details;
+  if (p.releaseDetails) { holdDetails?.(); holdDetails = undefined; }
   if (p.releaseNext) { holdNext = false; releaseNext?.(); releaseNext = undefined; }
   if (p.longPreview !== undefined) longPreview = p.longPreview;
   if (p.mode !== undefined) mode = p.mode;
@@ -322,7 +357,7 @@ app.post("/fixture", async (c) => {
     clock += 10000;
   }
   if (p.start) await review.command(principal.id, "start");
-  return c.json({ calls, read: review.read(), reads, selecting: !!releaseNext });
+  return c.json({ calls, read: review.read(), reads, detailReads, selecting: !!releaseNext });
 });
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -354,6 +389,7 @@ console.log(JSON.stringify({ url: `http://127.0.0.1:${server.port}` }));
 process.on("SIGTERM", () => {
   hold?.();
   releaseNext?.();
+  holdDetails?.();
   stream.close();
   server.stop(true);
   db.close();

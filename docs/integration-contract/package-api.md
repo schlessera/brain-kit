@@ -3210,6 +3210,9 @@ out ([decision](../decisions/managed-worktrees.md#hygiene-and-cleanup)).
 - The read uses recorded facts only: it never selects, checks, reassesses,
   previews or writes, so a finding's fingerprint, `last_seen` and state are
   unchanged. Clients keep the details in memory only.
+- `HygieneCardProps` adds optional `details?: ReactNode`, rendered between the
+  evidence and the fix controls on the full card only. Its content is the
+  caller's; the kit fetches and decides nothing.
 
 ## Governed hosted workers (additive, 0.42.0, #1649)
 

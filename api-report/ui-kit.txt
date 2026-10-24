@@ -1221,6 +1221,7 @@ signatures (every public export and the types it is made of)
         compact?: boolean;
         onOpen?: () => void;
         invalidation?: string;
+        details?: ReactNode;
         controls?: ReactNode;
         preview?: {
             path: string;

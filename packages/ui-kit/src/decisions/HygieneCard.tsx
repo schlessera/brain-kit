@@ -21,6 +21,8 @@ export interface HygieneCardProps {
   compact?: boolean;
   onOpen?: () => void;
   invalidation?: string;
+  /** Caller-owned detail between the evidence and the controls, such as an owner-only disclosure. Full card only. */
+  details?: ReactNode;
   controls?: ReactNode;
   preview?: { path: string; changes: Array<{ before: string; after: string; line: number }> };
   previewRevealed?: boolean;
@@ -134,6 +136,7 @@ export function HygieneCard(p: HygieneCardProps) {
               </pre>
             ) : null}
             <div style={mono}>{p.provenance}</div>
+            {p.details}
             {p.invalidation ? <Callout tone="gold" text={p.invalidation} /> : null}
             {stateText ? (
               <div role="status" data-hygiene-state={p.state}>
