@@ -10,7 +10,7 @@ import { exposedAnything, exposureConflicts, governancePolicyReaderFor, maskedIn
 import type { ProviderExposures } from "./provider-exposure.js";
 import { providerRecipient } from "./provider-recipients.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory, updatePrivateIndex } from "./private-index.js";
-import { createPrivateIndexCache, privateIndexBuildFolders, type PrivateIndexDiffer, type PrivateIndexOutcome } from "./private-index-cache.js";
+import { createPrivateIndexCache, privateIndexBuildFolders, type PrivateIndexAdvance, type PrivateIndexDiffer, type PrivateIndexOutcome } from "./private-index-cache.js";
 import { privateIndexArgv } from "./client.js";
 import { translateProviderTypesInView } from "./provider-types.js";
 import { providerHardlinks } from "./provider-hardlinks.js";
@@ -85,10 +85,18 @@ export function createGovernedTurns(options: {
   peerFolderPlanWaitMs?: number;
   /** How two startup views are compared for private index reuse; default the native send delta. */
   privateIndexDiffer?: PrivateIndexDiffer;
+  /** What each off-turn advance of the private index bases did (#2833). */
+  onPrivateIndexAdvance?: (results: PrivateIndexAdvance[]) => void;
 }): GovernedTurns {
   const policyReader = governancePolicyReaderFor(options.brainPath);
   const canonicalBrain = (() => { try { return realpathSync(options.brainPath); } catch { return options.brainPath; } })();
-  const privateIndexes = createPrivateIndexCache({ report: options.report, ...(options.privateIndexDiffer ? { differ: options.privateIndexDiffer } : {}) });
+  const privateIndexes = createPrivateIndexCache({ report: options.report, ...(options.privateIndexDiffer ? { differ: options.privateIndexDiffer } : {}),
+    ...(options.onPrivateIndexAdvance ? { onAdvance: options.onPrivateIndexAdvance } : {}) });
+  // After the post-turn refresh, off the turn path: every kept private index
+  // base is brought to a fresh checkpoint of the live brain, so the next warm
+  // turn usually finds it unchanged even after a turn added notes (#2833).
+  const advance = () => void privateIndexes.advance(signal => prepareNativeWorkerStartupView(options.brainPath, options.nativeManager, signal))
+    .catch(error => options.report(`private index advance failed: ${String(error)}`));
   let current: Promise<unknown> | undefined;
   let again = false;
   let closing = false;
@@ -97,7 +105,7 @@ export function createGovernedTurns(options: {
     if (current) { again = true; return; }
     again = false;
     current = options.index(lock).catch(error => options.report(`governed index refresh failed: ${String(error)}`))
-      .finally(() => { current = undefined; if (again) refresh(lock); });
+      .finally(() => { current = undefined; if (again) refresh(lock); else if (!closing) advance(); });
   };
   return {
     refresh,
@@ -234,12 +242,15 @@ export function createGovernedTurns(options: {
           privateIndex = createPrivateIndexDirectory();
           // Reused only when the base provably indexes to what a clean build
           // of this final view would (#2833); otherwise built from nothing.
-          const run = { brainPath: options.brainPath, startupView: startupView!, folders: privateIndexBuildFolders(maskedFolders, startupView!.root), index: privateIndex,
-            maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) };
+          const runOn = (view: WorkerStartupView, index: string, runSignal: AbortSignal) => ({ brainPath: options.brainPath, startupView: view,
+            folders: privateIndexBuildFolders(maskedFolders, view.root), index, maskPaths: options.maskPaths, signal: runSignal,
+            ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
+          const run = runOn(startupView!, privateIndex, signal);
           indexOutcome = await privateIndexes.prepare({ startupView: startupView!, index: privateIndex, signal,
             identity: { brain: canonicalBrain, policyHash: policy.hash, folders: maskedFolders, ...(recipient ? { recipient } : {}),
               maskPaths: options.maskPaths, command: privateIndexArgv(options.brainPath, options.privateIndexCommand) },
-            build: () => buildPrivateIndex(run), update: () => updatePrivateIndex(run) });
+            build: () => buildPrivateIndex(run), update: () => updatePrivateIndex(run),
+            runner: (view, index, runSignal) => { const next = runOn(view, index, runSignal); return { build: () => buildPrivateIndex(next), update: () => updatePrivateIndex(next) }; } });
           if (indexOutcome.kind === "partial") options.report(`turn ${turnId} starts with an incomplete private search index: ${indexOutcome.detail}`);
         }
         // A turn allowed every provider folder keeps empty masks, so whatever

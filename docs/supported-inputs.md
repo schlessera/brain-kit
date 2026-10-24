@@ -149,7 +149,10 @@ policy, mask set and recipient, compares the turn's checkpoint with the one
 that copy was built from, and adds new Markdown and asset files outside the
 masks with the CLI's incremental index. Any other change, including a
 document edited, removed or moved into a masked folder, builds the index from
-nothing again, as does the first such turn after the server starts. Changes
+nothing again, as does the first such turn after the server starts. After
+each turn's index refresh the server brings that copy up to the live brain
+off the turn path, adding new notes or rebuilding it after a document
+changed, so the next turn usually reuses it as it is. Changes
 inside `.brain/` and `.brain-ui/` do not, because the build sees those
 folders as empty; a `brain.config.ts` that imports from them does not load in
 that build. The real index is refreshed from Markdown after
