@@ -1158,6 +1158,9 @@ function heldTmpfs(fd: number, release?: { sync(): void; async(): Promise<void> 
   const root = `/proc/self/fd/${fd}`;
   let open = true;
   let released = false;
+  // One awaited close at a time per handle: a repeat waits for its own first
+  // close, never for another handle's broker close.
+  let closing: Promise<void> | undefined;
   const closeDescriptor = () => { if (open) { closeSync(fd); open = false; } };
   return {
     root,
@@ -1170,11 +1173,13 @@ function heldTmpfs(fd: number, release?: { sync(): void; async(): Promise<void> 
       release?.sync();
       released = true;
     },
-    async closeAsync() {
-      if (released) return;
-      closeDescriptor();
-      await release?.async();
-      released = true;
+    closeAsync() {
+      if (released) return Promise.resolve();
+      return closing ??= (async () => {
+        closeDescriptor();
+        await release?.async();
+        released = true;
+      })().catch((error: unknown) => { closing = undefined; throw error; });
     },
   };
 }

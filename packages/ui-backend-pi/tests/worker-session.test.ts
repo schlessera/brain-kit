@@ -229,6 +229,34 @@ test("Pi releases a turn's turn-temp reservation only once its awaited close con
   expect(worker.processStateLedger().turnTempHeld, "PI_CONFIRMED_RETRY_RELEASES_RESERVATION").toBe(baseline);
   expect(closes).toBe(2);
 });
+for (const ending of ["inactive abort", "initialization failure"] as const) test(`a Pi worker that never ran a turn awaits its turn-temp close on ${ending} (#2854)`, async () => {
+  const base = launch.getMockImplementation()!;
+  const gate = Promise.withResolvers<void>();
+  let closes = 0;
+  launch.mockImplementation(async (...args: unknown[]) => {
+    const launched = await base(...args) as any;
+    if (ending === "initialization failure") {
+      // The worker refuses its init frame; the session never becomes ready.
+      launched.stdin = new Writable({ write(_chunk, _encoding, callback) { sendPipe(launched.stdout, { type: "error", message: "Odysseus refused the voyage" }); callback(); } });
+    }
+    return { ...launched, turnTemp: { root, space: () => ({ total: 0, free: 0 }),
+      close() { throw new Error("PI_SYNC_TURN_TEMP_CLOSE_ON_AN_ASYNC_LAUNCH"); },
+      closeAsync: () => { closes++; return gate.promise; } } };
+  });
+  const baseline = worker.processStateLedger().turnTempHeld;
+  const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false };
+  const ended = ending === "inactive abort"
+    ? openPiWorkerSession({ brainPath: brain }, sessionDir, { caps }).then(({ session }) => session.abort())
+    : openPiWorkerSession({ brainPath: brain }, sessionDir, { caps }).then(() => undefined);
+  const outcome = ended.then(() => "resolved", () => "rejected");
+  for (const deadline = Date.now() + 3_000; !closes && Date.now() < deadline;) await Bun.sleep(5);
+  expect(await Promise.race([outcome, Bun.sleep(50).then(() => "pending")]), "PI_UNPROMPTED_END_AWAITS_TURN_TEMP_CLOSE").toBe("pending");
+  expect(worker.processStateLedger().turnTempHeld, "PI_UNPROMPTED_RESERVATION_HELD_WHILE_CLOSE_PENDING").toBeGreaterThan(baseline);
+  gate.resolve();
+  expect(await outcome).toBe(ending === "inactive abort" ? "resolved" : "rejected");
+  expect(worker.processStateLedger().turnTempHeld, "PI_UNPROMPTED_CONFIRMED_CLOSE_RELEASES_RESERVATION").toBe(baseline);
+  expect(closes).toBe(1);
+});
 test("growth reserve has a 1 MiB floor and scales to 25 percent", () => {
   expect(sessionReserveBytes(1)).toBe(MiB);
   expect(sessionReserveBytes(12 * MiB)).toBe(3 * MiB);

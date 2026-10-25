@@ -298,7 +298,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   const releases = new Map<string, () => void>();
   void child.exited.finally(() => { for (const release of releases.values()) release(); releases.clear(); }).catch(() => {});
   // A worker that never ran a turn has nothing to promote; one that did is
-  // cleaned up by `promote` once its answer has been read.
+  // cleaned up by `promote` once its answer has been read. Initialization
+  // failure and an inactive abort also await this close themselves.
   let prompted = false;
   void child.exited.finally(() => prompted ? undefined : closeTurnTemp()).catch(() => {});
   child.stdin.on("error", () => {});
@@ -656,7 +657,14 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     send({ ...init, sandboxNote });
     const timeout = setTimeout(() => fail(new BackendRequestError("Pi worker initialization timed out")), 30_000);
     try { await ready.promise; } finally { clearTimeout(timeout); }
-  } catch (error) { fail(error); await child.exited; throw error; }
+  } catch (error) {
+    fail(error); await child.exited;
+    // A worker that never ran a turn frees its turn temp here, awaited (#2854).
+    // A refused close keeps the reservation; the startup error stays the refusal.
+    try { await closeTurnTemp(); }
+    catch (failure) { try { backend.log?.("warn", `Pi worker turn-temp cleanup was not confirmed after its startup failure: ${String(failure)}`); } catch { /* Reporting cannot replace the startup error. */ } }
+    throw error;
+  }
   finally { workerSignal?.removeEventListener("abort", abortInitialization); }
   const session: PiSessionLike = {
     ...(resumeId && !restricted ? { stateRoom: admissionObservation } : {}),
@@ -691,7 +699,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     },
     async abort() {
       if (ended) return;
-      if (!active) { ended = true; child.kill("SIGKILL"); await child.exited; return; }
+      if (!active) { ended = true; child.kill("SIGKILL"); await child.exited; await closeTurnTemp(); return; }
       send({ type: "abort" });
       const deadline = setTimeout(() => { ended = true; done.resolve(); child.kill("SIGKILL"); }, 1000);
       try { await done.promise.catch(() => {}); }

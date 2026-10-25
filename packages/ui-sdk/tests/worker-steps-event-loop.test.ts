@@ -618,7 +618,7 @@ async function heldRootLaunch(handles = true, answer: IdentityWorkerStatus | (()
 }
 
 test("an asynchronously launched separate-UID worker's exit settles with handles held, and its last handle closes the broker through awaited steps", async () => {
-  for (const order of ["sequential", "concurrent"] as const) {
+  for (const order of ["sequential", "concurrent", "repeated"] as const) {
     const run = await heldRootLaunch();
     try {
       run.exit();
@@ -633,6 +633,13 @@ test("an asynchronously launched separate-UID worker's exit settles with handles
           expect(await settledWithin(run.worker.state!.closeAsync(), 50), "NON_FINAL_HANDLE_RELEASE_DOES_NOT_WAIT").toBe("settled");
           expect(run.seam.operations(), "NON_FINAL_HANDLE_KEEPS_BROKER").toEqual([]);
           ({ ticks } = await ticksDuring(() => run.worker.turnTemp!.closeAsync()));
+        } else if (order === "repeated") {
+          // Repeating a non-final handle's close while the last one's broker close runs waits only for its own.
+          ({ ticks } = await ticksDuring(async () => {
+            const first = run.worker.state!.closeAsync(), last = run.worker.turnTemp!.closeAsync();
+            expect(await settledWithin(run.worker.state!.closeAsync(), 50), "REPEATED_NON_FINAL_CLOSE_DOES_NOT_WAIT_FOR_THE_LAST").toBe("settled");
+            await Promise.all([first, last]);
+          }));
         } else {
           ({ ticks } = await ticksDuring(() => Promise.all([run.worker.state!.closeAsync(), run.worker.turnTemp!.closeAsync(),
             run.worker.turnTemp!.closeAsync(), run.worker.state!.closeAsync()])));
