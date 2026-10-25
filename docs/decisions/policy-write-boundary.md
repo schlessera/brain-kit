@@ -280,8 +280,15 @@ Option B alone (a background update per write behind a per-turn barrier) still
 starts one maintenance worker per write, and a whole-brain pass each time; the
 batch starts one per read that needs it. Host evaluation of brain-controlled
 code, provider masks, authorization, the journal and Markdown durability are
-unchanged. Provider-masked turns read a private index built at turn start; this
-change does not update it during the turn.
+unchanged.
+
+> **2026-10-25 — A turn's own index ([#2848](https://github.com/schlessera/brain-kit/issues/2848), [#2846](https://github.com/schlessera/brain-kit/issues/2846)).**
+> A turn that does not run on the live brain, and every provider-masked turn,
+> now reads its own index, which the host updates with the turn's own
+> applications. Its index readers wait for that update instead of this batch;
+> capture planning and the HTTP routes keep this batch for unmasked turns, and
+> every turn still flushes it at its end
+> ([governed writable workers](governed-writable-workers.md#a-turns-own-applications-reach-its-reads-maintainer-2026-10-25)).
 
 ## PNG mask application — 2026-10-10
 
@@ -488,13 +495,13 @@ sessions.
 before the runtime starts and read it after the worker is gone, while the
 tmpfs is reachable only inside the worker. The launcher does both from the
 host (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1314-1569`):
+`packages/ui-sdk/src/server/worker-launcher.ts:1321-1576`):
 
 1. It finds the sandbox's first process from the kernel's record of
    bubblewrap's only child, then opens the tmpfs root through
    `/proc/<pid>/root` and keeps that directory descriptor
    (`function openPrivateState`,
-   `packages/ui-sdk/src/server/worker-launcher.ts:1088-1112`). bubblewrap's
+   `packages/ui-sdk/src/server/worker-launcher.ts:1095-1119`). bubblewrap's
    process exists before its mounts do, so the open is accepted only once the
    path is its own mount (a device other than its parent's), a tmpfs of
    exactly the allowance, and empty; until then it would name the host's

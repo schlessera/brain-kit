@@ -37,7 +37,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { KeyedLock, KeyedLockAcquireOptions, WriteLock } from "@schlessera/brain-ui-sdk/server";
 import { createKeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { killWrapped } from "@schlessera/brain-ui-sdk/server";
-import { RTK_WORKER_ENV, NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
+import { RTK_WORKER_ENV, NativeFileVersions, nativeFileVersion, execWrapperSpawnOptions, WORKER_DATA_ROOT, WORKER_EGRESS_TRANSPORT_ENV } from "@schlessera/brain-ui-sdk/internal";
 import {
   ASK_USER_TOOL_NAME, BRIDGE_TOOL_POSTURE,
   bashLockKey,
@@ -549,7 +549,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
     name: "bash",
     label: "Run bash",
     description:
-      (deps.shellCwd ? "Run a bash command in writable worker scratch. The authoritative brain is read-only. " : "Run a bash command in the brain repository root. ") + "Combined stdout+stderr is " +
+      (deps.shellCwd === WORKER_DATA_ROOT ? `Run a bash command in this turn's read-only data tree (${WORKER_DATA_ROOT}): the brain's documents with every change this turn applied. Write files under $BRAIN_WORKER_SCRATCH. `
+        : deps.shellCwd ? "Run a bash command in writable worker scratch. The authoritative brain is read-only. " : "Run a bash command in the brain repository root. ") + "Combined stdout+stderr is " +
       "returned. Destructive command shapes (recursive delete, history rewrites, " +
       "brain archive) raise a confirmation card before running.",
     parameters: Type.Object({

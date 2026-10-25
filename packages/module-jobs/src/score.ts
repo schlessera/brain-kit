@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "fs";
 import { isAbsolute, resolve } from "path";
 import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter";
 import type { ScoreBreakdown } from "./types.js";
-import { safeResolve } from "@schlessera/brain/module";
+import { configurationRoot, safeResolve } from "@schlessera/brain/module";
 
 // ---------------------------------------------------------------------------
 // Criteria model
@@ -178,11 +178,12 @@ export function parseScoringConfig(scoring: unknown): ScoringConfig {
 
 /**
  * Load the scoring config from the criteria markdown file. `criteriaPath` is
- * resolved against `root` when relative. Throws a readable error when the file
- * is missing or the frontmatter is malformed.
+ * resolved against the configuration root when relative. Throws a readable
+ * error when the file is missing or the frontmatter is malformed.
  */
 export function loadScoringConfig(root: string, criteriaPath: string, source?: unknown): ScoringConfig {
   if (source !== undefined) return parseScoringConfig(source);
+  root = configurationRoot(root);
   const savedPath = safeResolve(root, "settings/jobs.json");
   if (!savedPath) throw new Error("Jobs settings escape the brain root");
   if (existsSync(savedPath)) {

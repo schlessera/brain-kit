@@ -18,12 +18,14 @@ import { acquireInboxRunLifetime } from "./lifetime.js";
 import { WorkerHostError, prepareNativeWorkerStartupView, type WorkerStartupView } from "@schlessera/brain-ui-sdk/internal";
 import { requireWorkerHostRecorded } from "../agent/worker-host.js";
 import type { InboxOperation } from "@schlessera/brain-ui-sdk/protocol";
-import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, type ApplicationPlanner } from "../brain/application.js";
+import { boundaryPlanner, createBrainApplication, readBrainApplicationBase, validatePlan, type ApplicationPlanner } from "../brain/application.js";
+import { createTurnDataTree, staleReadRefusal, type TurnDataTree } from "../brain/turn-data-tree.js";
+import { privateIndexBuildFolders } from "../brain/private-index-cache.js";
 import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createHostBoundary } from "../brain/host-boundary.js";
 import { applicationToolName, inboxOperationAllowed } from "./envelope.js";
 import { recordGovernanceEvent } from "../governance/events.js";
-import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
+import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerDeniedTypes, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { createProviderMaskGuard, type ProviderMaskGuard } from "../brain/provider-mask-refusal.js";
 import { translateProviderTypesInView } from "../brain/provider-types.js";
 import { appearedInView } from "../brain/governed-manifest.js";
@@ -293,7 +295,7 @@ async function executeAutonomousTurn(
   // Index updates this turn's applications queued (#2835).
   let turnIndex: IndexBatch | undefined;
   // Installed once the turn's masks are resolved, before the backend starts.
-  const installApplication = (request: StartTurnRequest, maskGuard: ProviderMaskGuard | undefined): void => {
+  const installApplication = (request: StartTurnRequest, maskGuard: ProviderMaskGuard | undefined, tree: TurnDataTree, view: string): void => {
     const lock = input.application && deps.brainPath ? deps.backend.brainApplicationPolicy?.(request)?.lock : undefined;
     if (!input.application || !deps.brainPath || !lock) return;
     const root = deps.brainPath, approved = input.application.approved;
@@ -326,9 +328,16 @@ async function executeAutonomousTurn(
       record: result => recorder.recordApplication?.(result),
       ...(deps.indexBatch ? { indexBatch: deps.indexBatch } : {}),
       recordIndex: outcome => recorder.recordApplicationIndex?.(outcome),
+      // The envelope reads its own data tree (#2848); a masked one plans there too (#2846).
+      turnTree: tree,
+      ...(maskGuard ? { turnPlanner: async (_root, proposal, _read, planSignal) => validatePlan(await tree.planAdd(proposal, planSignal)) } : {}),
     });
     turnIndex = apply.indexBatch;
-    bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await apply.indexBatch.barrier(controller.signal); };
+    bridge.awaitIndex = async (toolName, toolInput) => {
+      const refusal = staleReadRefusal(tree, root, view, toolName, toolInput);
+      if (refusal) throw new Error(refusal);
+      if (readsIndex(toolName)) await tree.barrier(controller.signal);
+    };
     bridge.readBrainBase = async (path) => {
       if (!current()) throw new Error("This turn no longer has current principal authority.");
       return readBrainApplicationBase(root, path, maskGuard
@@ -337,7 +346,9 @@ async function executeAutonomousTurn(
     bridge.applyBrain = (proposal) => apply({ principalId, turnId: input.turnId, input: proposal });
   };
   const principalCheck = setInterval(checkPrincipal, 100);
-  let startupView: WorkerStartupView | undefined, privateIndex: string | undefined;
+  let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, dataTree: TurnDataTree | undefined;
+  // Marked before the checkpoint: its index may lack what is queued (#2848).
+  const watermark = deps.indexBatch?.watermark();
   try {
     if (!deps.nativeManager) throw new BackendRequestError("Autonomous workers require the configured native brain manager; full-copy fallback is unsupported.");
     // The private index is mounted over `.brain-index/`, which the view must
@@ -376,17 +387,26 @@ async function executeAutonomousTurn(
       controller.signal.throwIfAborted();
       workerProviderMasks = Object.freeze({ folders: Object.freeze([...maskedFolders]), index: privateIndex });
     }
+    dataTree = createTurnDataTree({ brainPath, view: startupView, maskPaths: deps.privateIndex?.maskPaths ?? [], mount: true,
+      ...(privateIndex ? { index: privateIndex, masks: { folders: maskedFolders, buildFolders: privateIndexBuildFolders(maskedFolders, startupView.root),
+        types: providerDeniedTypes(policy.policy, undefined) } } : {}),
+      pending: watermark?.paths() ?? [] });
+    watermark?.release();
     // The thread is read last, under a revalidated admission.
     admission.revalidate();
     const context = input.compose ? await input.compose(admission) : { prompt: input.prompt, systemPromptAppend: input.systemPromptAppend };
     controller.signal.throwIfAborted();
     const request: StartTurnRequest = { prompt: context.prompt, profileId: input.profileId,
       signal: controller.signal, bridge, autonomous: modeFor(context.systemPromptAppend), enforceAllowedTools: true, noGrantSurface: true,
-      workerStartupView: startupView, ...(workerProviderMasks ? { workerProviderMasks } : {}) };
-    installApplication(request, guardFor(maskedFolders, typeFolders));
-    // Without its own route, the turn's readers still wait for the host's queued updates.
-    const hostIndex = deps.indexBatch;
-    if (!bridge.awaitIndex && hostIndex) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await hostIndex.barrier(controller.signal); };
+      workerStartupView: startupView, ...(workerProviderMasks ? { workerProviderMasks } : {}), ...(dataTree.mount ? { workerDataTree: dataTree.mount } : {}) };
+    installApplication(request, guardFor(maskedFolders, typeFolders), dataTree, startupView.root);
+    // Without applications, the turn's readers still wait for what its checkpoint index lacks.
+    const tree = dataTree;
+    if (!bridge.awaitIndex) bridge.awaitIndex = async (toolName, toolInput) => {
+      const refusal = staleReadRefusal(tree, brainPath, startupView!.root, toolName, toolInput);
+      if (refusal) throw new Error(refusal);
+      if (readsIndex(toolName)) await tree.barrier(controller.signal);
+    };
     await deps.backend.startTurn(request);
     if (!terminal) {
       outcome = failed ? "error" : controller.signal.aborted ? "cancelled" : "error";
@@ -426,7 +446,10 @@ async function executeAutonomousTurn(
         recorder.finish(outcome, failureReason);
         if (yielded) finishYield(deps.db, input.turnId);
       }).immediate();
-    } finally { try { await startupView?.cleanup(); } finally { if (privateIndex) removePrivateIndexDirectory(privateIndex); } }
+    } finally {
+      watermark?.release();
+      try { await dataTree?.close(); } finally { try { await startupView?.cleanup(); } finally { if (privateIndex) removePrivateIndexDirectory(privateIndex); } }
+    }
   }
 }
 

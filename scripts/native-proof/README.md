@@ -11,14 +11,19 @@ prerequisites. Preparation can download dependencies; the proof uses
 HTTP/WebSocket clients. Missing prerequisites fail the selected runtime job.
 
 `--apply-timing` adds one strict conversation after the cancellation checks
-(#2835). Claude calls its turn's `brain-ui` MCP `write_file` handler 20 times and
-`edit_file` 20 times, then admits `mcp__brain__brain_search` through its
-`PreToolUse` hooks and reads the index; pi's fixture model makes the same 40
-calls through host apply and then calls `brain_search`. Every host apply and
-index barrier is timed at the bridge, with the host load before and after, in
-`apply-timing.json`. The run fails unless both medians are at most 300 ms and
-the same-turn search sees all 20 edited notes. It is a measurement, not part of
-the default qualification.
+(#2835), once the earlier turns' index refresh has finished. Claude calls its
+turn's `brain-ui` MCP `write_file` handler 20 times and `edit_file` 20 times,
+then admits `mcp__brain__brain_search` through its `PreToolUse` hooks and runs
+the search in the turn's actual strict worker, through the brain's own MCP
+server started with `BRAIN_ROOT` pinned to the brain path (#2848). pi's fixture
+model makes the same 40 calls through host apply, then calls `brain_search`,
+`read_file` and `bash` (`cat`), all in its worker. Every host apply and index
+barrier is timed at the bridge, and the copy and seed of the turn's data tree
+at admission, with the host load before and after, in `apply-timing.json`. The
+run fails unless both medians are at most 300 ms, the in-worker search sees all
+20 edited notes, Claude's MCP server reads the data tree and pi's reader and
+shell see the edits. It is a measurement, not part of the default
+qualification.
 
 `--observation-timing` measures the turn journal's per-call cost (#2834). For
 pi, 11 fresh governed conversations each make 20 calls of one tool, one call

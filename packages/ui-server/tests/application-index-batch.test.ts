@@ -124,3 +124,35 @@ describe("deferred application indexing (#2835)", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+// #2848: a checkpoint's index may lag what the batch still holds or flushed
+// after the mark was taken; the watermark names every such path.
+describe("watermark", () => {
+  test("names paths queued before the mark and not yet indexed, and those queued after, flushed or not", async () => {
+    const indexed: string[][] = [];
+    const batch = createIndexBatch({ index: async paths => { indexed.push([...paths]); } });
+    batch.queue(["notes/settled.md"]);
+    await batch.barrier();
+    batch.queue(["notes/waiting.md"]);
+    const mark = batch.watermark();
+    batch.queue(["notes/after.md"]);
+    // A flush between the mark and the checkpoint must not hide what it covered.
+    await batch.barrier();
+    batch.queue(["notes/later.md"]);
+    expect(mark.paths(), "WATERMARK_NAMES_EVERY_PATH_THE_CHECKPOINT_MAY_LACK").toEqual(["notes/after.md", "notes/later.md", "notes/waiting.md"]);
+    mark.release();
+    expect(indexed).toEqual([["notes/settled.md"], ["notes/after.md", "notes/waiting.md"]]);
+  });
+
+  test("a held mark keeps what was flushed after it; a new mark starts after everything indexed", async () => {
+    const batch = createIndexBatch({ index: async () => {} });
+    const first = batch.watermark(), second = batch.watermark();
+    batch.queue(["notes/one.md"]); await batch.barrier();
+    first.release();
+    expect(second.paths(), "A_HELD_MARK_KEEPS_ITS_HISTORY").toEqual(["notes/one.md"]);
+    second.release();
+    const fresh = batch.watermark();
+    expect(fresh.paths(), "A_NEW_MARK_STARTS_AFTER_EVERYTHING_INDEXED").toEqual([]);
+    fresh.release();
+  });
+});

@@ -1,7 +1,8 @@
 import { PROPOSE_POLICY_CHANGE_TOOL_NAME, type PolicyChangeInput } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { BudgetExceeded, BudgetUnavailable } from "../brain/turn-budgets.js";
 import { createMaskApplication, readMaskBase, type MaskBase } from "../brain/mask-application.js";
-import { createBrainApplication, readBrainApplicationBase } from "../brain/application.js";
+import { createBrainApplication, readBrainApplicationBase, validatePlan } from "../brain/application.js";
+import { staleReadRefusal, type TurnDataTree } from "../brain/turn-data-tree.js";
 import { readsIndex, type IndexBatch } from "../brain/index-batch.js";
 import { createProviderMaskGuard, ProviderMaskRefusedError, ProviderRecordsRefusedError } from "../brain/provider-mask-refusal.js";
 import type { TurnGovernancePolicy } from "../brain/governance-policy.js";
@@ -72,7 +73,12 @@ export function makeBridge(
   pricingContext?: { billingMode?: import("@schlessera/brain-ui-sdk/protocol").BillingMode; pricingRoute?: import("@schlessera/brain-ui-sdk/protocol").PricingRoute },
   mainModel?: { current(): string | null; bind(model: string): void },
   /** The admitted turn's masked provider folders (`sandbox.providerMasks.folders`) and the policy that named them. */
-  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>>; recipient?: string }
+  providerMasks?: { folders: readonly string[]; policy: TurnGovernancePolicy; typeFolders?: Readonly<Record<string, readonly string[]>>; recipient?: string },
+  /**
+   * The admitted turn's data tree (#2848, #2846) and, for a worker on the
+   * startup view, that view's root: where its `Read` of a brain path resolves.
+   */
+  turnData?: { tree: TurnDataTree; view?: string }
 ): BackendBridge {
   if (applicationPolicy) applicationPolicy = { ...applicationPolicy, lock: host.workerLock };
   const { coordinator, catalog } = host;
@@ -666,6 +672,9 @@ export function makeBridge(
       record: result => recorder?.recordApplication?.(result),
       ...(host.indexBatch ? { indexBatch: host.indexBatch } : {}),
       recordIndex: outcome => recorder?.recordApplicationIndex?.(outcome),
+      ...(turnData ? { turnTree: turnData.tree } : {}),
+      // A masked turn plans on its own tree, so its captures are admitted like its other effects (#2846).
+      ...(turnData && maskGuard ? { turnPlanner: async (_root, input, _read, planSignal) => validatePlan(await turnData.tree.planAdd(input, planSignal)) } : {}),
     });
     turnIndex = apply.indexBatch;
     bridge.readBrainBase = async path => {
@@ -723,10 +732,19 @@ export function makeBridge(
   // Index-dependent reads wait for every application committed before them,
   // in any turn; the end of this turn flushes what is still queued (#2835).
   const indexBatch = turnIndex ?? host.indexBatch;
-  if (indexBatch) {
-    bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
-    if (turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
-  }
+  if (turnData) {
+    // The worker reads the turn's own index, so only its own update gates
+    // a read; the live brain's still settles at the end of the turn (#2848).
+    const { tree, view } = turnData;
+    bridge.awaitIndex = async (toolName, input) => {
+      // A Claude file tool sees the startup view at the brain path: what this
+      // turn applied is current only through the brain tools (2026-10-25 ruling).
+      const refusal = tree.mount && host.brainPath ? staleReadRefusal(tree, host.brainPath, view, toolName, input) : undefined;
+      if (refusal) throw new Error(refusal);
+      if (readsIndex(toolName)) await tree.barrier(signal);
+    };
+  } else if (indexBatch) bridge.awaitIndex = async toolName => { if (readsIndex(toolName)) await indexBatch.barrier(signal); };
+  if (indexBatch && turnIndex) turnIndexSettlers.set(bridge, () => turnIndex!.pending() ? turnIndex!.barrier() : Promise.resolve());
   // Reference source and managed worktrees (#2432): the host's record of this
   // turn supplies principal, views and generation; the call carries its input only.
   if (host.referenceTools) bridge.referenceAccess = call => host.referenceTools!.call(turnId, principalId, call, signal);

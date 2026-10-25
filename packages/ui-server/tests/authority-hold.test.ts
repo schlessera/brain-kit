@@ -101,6 +101,25 @@ describe("brain application", () => {
     expect(receipts).toHaveLength(1);
   });
 
+  test("a write that waits out a hold still captures its committed bytes into the turn's data tree (#2848)", async () => {
+    const f = testHold();
+    const captured: { path: string; content: string | null; base: string | null }[][] = [];
+    let commits = 0, capturedWhileHeld = 0;
+    beforeCommit = () => { if (commits++ === 0) f.begin(); };
+    const apply = createBrainApplication({ root, planner: boundaryPlanner(createFixtureHostBoundary({ brainPath: root })),
+      principalId: "odysseus", turnId: "turn-raft", signal: controller.signal, isAuthorized: f.isAuthorized, hold: f.hold,
+      policy: { autoAllowed: ["write"], available: ["write"], lock: createKeyedLock() }, approve: async () => true, record: result => receipts.push(result),
+      turnTree: { commit: effects => { if (f.state.held && effects.length) capturedWhileHeld++; captured.push(effects.map(effect => ({ ...effect }))); }, barrier: async () => {} },
+      beforeCommit: () => beforeCommit?.() });
+    const pending = apply({ principalId: "odysseus", turnId: "turn-raft", input: write });
+    await until(() => f.state.waits > 0);
+    expect(captured.flat(), "TURN_TREE_RECEIVES_NOTHING_WHILE_HELD").toEqual([]);
+    f.release();
+    expect(await pending).toMatchObject({ ok: true });
+    expect(capturedWhileHeld).toBe(0);
+    expect(captured.flat(), "TURN_TREE_CAPTURES_THE_WRITE_AFTER_THE_HOLD").toEqual([{ path, content: "Odysseus sails.\n", base: raw }]);
+  });
+
   test("a hold that outlasts its bound refuses without claiming revocation, with nothing written", async () => {
     const f = testHold(20);
     beforeCommit = () => f.begin();
