@@ -83,7 +83,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       }
       // Not resident — reopen the transcript from disk.
       const opened = await runtime.openSession(req.sessionId, env);
-      if (req.signal.aborted) { disposeSession(opened.session); req.signal.throwIfAborted(); }
+      if (req.signal.aborted) await cancelAcquiredSession(opened.session, req.signal);
       // A concurrent turn for the same id may have registered it while we opened.
       const raced = sessions.get(req.sessionId);
       if (raced) {
@@ -99,7 +99,7 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
     }
 
     const created = await runtime.newSession(req.profileId, env);
-    if (req.signal.aborted) { disposeSession(created.session); req.signal.throwIfAborted(); }
+    if (req.signal.aborted) await cancelAcquiredSession(created.session, req.signal);
     if (req.autonomous) return { entry: { ...created, running: true, ephemeral: true }, isNew: true };
     const existing = sessions.get(created.session.sessionId);
     if (existing) {
@@ -153,6 +153,16 @@ export function createSessionPool(runtime: SessionRuntime, retainSessions = true
       evictIdle();
     },
   };
+}
+
+/** A late acquisition still owns its worker until abort confirms or refuses cleanup. */
+async function cancelAcquiredSession(session: PiSessionLike, signal: AbortSignal): Promise<void> {
+  try { await session.abort(); }
+  finally {
+    disposeSession(session);
+    // Cleanup refusal cannot replace the host's accepted cancellation.
+    signal.throwIfAborted();
+  }
 }
 
 function disposeSession(session: PiSessionLike): void {
