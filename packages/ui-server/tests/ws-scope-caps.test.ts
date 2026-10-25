@@ -114,7 +114,10 @@ for (const { adapter, voice, overshoot } of cases) test(`${adapter}: ${overshoot
       return;
     }
     send({ type: "chat_message", text: "Record the return", requestId: "scope-request", source: "dictation" });
-    await wait(paused, () => frames);
+    // Scope summaries reach the client once each commits (#2850): wait for the
+    // one that counts every call the worker has made so far.
+    const calls = () => new Set(frames.flatMap(frame => frame.type === "tool_use_start" || frame.type === "tool_use_complete" ? [frame.toolUseId] : [])).size;
+    await wait(() => paused() && latest()!.journal.scope!.receipts.at(-1)!.count === calls(), () => frames);
     const first = latest()!, receipt = first.journal.scope!.receipts.at(-1)!;
     expect(first.journal.budget, "COMBINED_SCOPE_PAUSE_RETAINS_BUDGET_FACTS").toBeDefined();
     if (overshoot) {

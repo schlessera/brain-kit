@@ -10,7 +10,7 @@ import { journalStatement } from "./journal-store.js";
 import type { WriterGate } from "./writer-gate.js";
 import { processAlive, SELF } from "./writer-gate.js";
 import { reversibleJournalPath, restoreJournalPath, createJournalSibling } from "./revert-files.js";
-import { recordGovernanceEvent } from "../governance/events.js";
+import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 
 export class RevertUnavailable extends Error {}
 type Selected = TurnRevertPath & { before: JournalVersion | null; after: JournalVersion | null; beforeSequence: number; afterSequence: number; other?: JournalVersion; otherSequence?: number };
@@ -22,7 +22,10 @@ export function createTurnReverts(db: Database, options: {
   brainPath: string; journal: TurnJournal; gate: WriterGate; lock: KeyedLock;
   isAuthorized(principalId: string): boolean;
   refresh(): void;
+  /** Where a revert conflict is recorded: the write worker (#2850). Absent: on `db`. */
+  governance?: Pick<GovernanceWrites, "record">;
 }) {
+  const governance = options.governance ?? createGovernanceWrites(db);
   const journal = options.journal, running = new Map<string, Promise<void>>(), shutdown = new AbortController();
   function select(sessionId: string, turnId: string, action: "revert" | "restore"): Selected[] {
     const details = journal.details(sessionId, turnId);
@@ -137,7 +140,7 @@ export function createTurnReverts(db: Database, options: {
           }
         }
         const conflicts = selected.filter(path => path.state === "conflict");
-        for (let offset = 0; offset < conflicts.length; offset += 1) recordGovernanceEvent(db, {kind:"revert_conflict",sessionId:row.session_id,turnId:row.journal_turn_id,actor:"user",model:null,profile:source.profile,
+        for (let offset = 0; offset < conflicts.length; offset += 1) await governance.record({kind:"revert_conflict",sessionId:row.session_id,turnId:row.journal_turn_id,actor:"user",model:null,profile:source.profile,
           payload:{conflicts:conflicts.slice(offset,offset+1).map(path=>({path:path.path,state:"changed"})),restored:selected.filter(path=>path.state==="restored").length}});
       }));
       await journal.finish(row.journal_turn_id);

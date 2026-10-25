@@ -812,6 +812,9 @@ export function createClaudeTurnRunner(options: {
         // Every turn's input, autonomous or not, so cleanup always ends it.
         () => input.close(),
         () => req.signal.removeEventListener("abort", onHostAbort),
+        // The new session's retain is not awaited where it is queued; the
+        // turn still settles only after every observation save has.
+        () => fileVersions?.settled(),
         () => fileVersions?.cancelPending(),
         () => { if (!sessionId) fileVersionsBySession.delete(turnKey); },
         () => turnLock.close(),

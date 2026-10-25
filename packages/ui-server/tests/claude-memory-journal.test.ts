@@ -156,3 +156,47 @@ test("uninspectable native copy-out marks external memory unavailable before any
     expect(readFileSync(join(f.memory,"voyage.md"))).toEqual(Buffer.from([65,13,10,255]));
   }finally{await f.close();}
 });
+
+// Journal commits run off the event loop (#2814): persistence a caller does
+// not await still completes its record before the turn it belongs to ends.
+test("a memory save in flight when its turn finishes is recorded before the turn ends", async () => {
+  const f = fixture(); try {
+    await f.begin("return"); const w = f.worker("return");
+    writeFileSync(join(w.notes, "voyage.md"), "Athena remembers the crossing.\n");
+    const saving = w.persist(); await f.journal.finish("return"); await saving;
+    const details = f.journal.details("ithaca", "return")!;
+    expect(details.summary, "MEMORY_SAVE_IN_FLIGHT_RECORDED_BEFORE_FINISH").toMatchObject({ state: "complete", changedFiles: 1, steeringFiles: 1 });
+    expect(details.changes.map(change => change.path)).toEqual(["claude-memory://voyage.md"]);
+    expect(details.missing).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("a memory save requested after its turn's finish is refused before it saves", async () => {
+  const f = fixture(); try {
+    await f.begin("return"); const w = f.worker("return");
+    writeFileSync(join(w.notes, "voyage.md"), "Too late for the crossing.\n");
+    const finishing = f.journal.finish("return"), late = w.persist();
+    await finishing; await expectRejection(late, "memory persistence requires an active turn");
+    expect(readFileSync(join(f.memory, "voyage.md")), "MEMORY_LATE_SAVE_REFUSED_BEFORE_SAVED_BYTES_CHANGE").toEqual(Buffer.from([65, 13, 10, 255]));
+    expect(f.journal.details("ithaca", "return")!.changes).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("a memory record made while an observation of its turn commits takes the next free sequence", async () => {
+  const { lstatSync } = await import("node:fs");
+  const f = fixture(); try {
+    await f.begin("return"); await f.begin("athena");
+    writeFileSync(join(f.brain, "harbour.md"), "Ithaca in sight\n");
+    const info = lstatSync(f.memory), target = { directory: f.memory, device: String(info.dev), inode: String(info.ino), note: "counsel.md" };
+    let recorded: Promise<void> | undefined;
+    // Turns are observed one after another: while "athena"'s observation is
+    // committing, record its memory note behind a commit submitted first.
+    const stop = f.journal.onObservation(turnId => {
+      if (turnId === "return" && !recorded) recorded = f.journal.writeOperation([]).then(() => f.journal.recordClaudeMemory("athena", "claude-memory://counsel.md", target, null, null));
+    });
+    await f.journal.observe(); await recorded; stop();
+    await f.journal.finish("return"); await f.journal.finish("athena");
+    const sequences = f.journal.details("ithaca", "athena")!.changes.map(change => [change.path, change.sequence]);
+    expect(sequences, "MEMORY_RECORD_NEVER_REUSES_AN_OBSERVED_SEQUENCE").toEqual([["harbour.md", 1], ["claude-memory://counsel.md", 2]]);
+  } finally { await f.close(); }
+});

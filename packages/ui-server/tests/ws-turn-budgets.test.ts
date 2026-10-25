@@ -22,9 +22,9 @@ import { WsHost } from "../src/ws/host.js";
 import { createTurnBudgets } from "../src/brain/turn-budgets.js";
 import { parseServerMessage } from "@schlessera/brain-ui-sdk/schemas";
 for (const adapter of ["claude", "pi"] as const)
-  for (const mode of adapter === "claude" ? ["token", "usd", "sdk", "unavailable"] : ["token", "usd"])
-    test(`actual ${adapter} completed response crosses the host ${mode === "unavailable" ? "unavailable accounting" : mode === "sdk" ? "SDK backstop" : mode === "usd" ? "USD budget" : "token fallback"} and stops with ${mode === "unavailable" ? "budget_unavailable" : "budget_exceeded"}, preserving partial work`, async () => {
-      const priced = mode !== "token", backstop = mode === "sdk", unavailable = mode === "unavailable";
+  for (const mode of adapter === "claude" ? ["token", "usd", "sdk", "unavailable", "late"] : ["token", "usd"])
+    test(`actual ${adapter} completed response crosses the host ${mode === "unavailable" ? "unavailable accounting" : mode === "sdk" ? "SDK backstop" : mode === "usd" ? "USD budget" : mode === "late" ? "USD budget in a commit that lands after the response" : "token fallback"} and stops with ${mode === "unavailable" ? "budget_unavailable" : "budget_exceeded"}, preserving partial work`, async () => {
+      const priced = mode !== "token", backstop = mode === "sdk", unavailable = mode === "unavailable", late = mode === "late";
       let failAccounting: () => void = () => { };
       const root = await mkdtemp(resolve(tmpdir(), "odysseus-budget-host-")), brain = resolve(root, "brain");
       await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
@@ -73,7 +73,11 @@ for (const adapter of ["claude", "pi"] as const)
       const app = await createApp({ config: resolveServerConfig({ BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
       const host = priced ? new WsHost({ brainPath: brain, registry: createStaticBackendRegistry([backend], backend.id), catalog: app.wsHost.catalog,
         governedTurns: app.wsHost.governedTurns, journal: app.wsHost.journal, activity: app.wsHost.activity ?? undefined,
-        budgets: createTurnBudgets(app.db, { resolve: () => ({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1, estimate: false, source: "snapshot" }) }) }) : app.wsHost;
+        budgets: (() => {
+          const budgets = createTurnBudgets(app.db, { resolve: () => ({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1, estimate: false, source: "snapshot" }) });
+          // The blocking report's commit lands after the backend has returned (#2850).
+          return late ? { ...budgets, observe: (...args: Parameters<typeof budgets.observe>) => { const committed = budgets.observe(...args); return committed && Bun.sleep(400).then(() => committed); } } : budgets;
+        })() }) : app.wsHost;
       failAccounting = () => app.db.exec("DROP TABLE turn_budget_days");
       try {
         const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus device", ttlSeconds: 60 });
@@ -94,7 +98,7 @@ for (const adapter of ["claude", "pi"] as const)
         expect(receivedLimits, "STATIC_BUDGET_LIMITS_STILL_TRANSPORTED").toContain("turn: warn $5; stop $10");
         expect(receivedContext, "NO_ROUTINE_BUDGET_TAIL_AT_ADMISSION").toBeUndefined();
         expect(called, "BUDGET_ACTUAL_ADAPTER_LAUNCHED").toBe(1);
-        expect(aborted, "BUDGET_HOST_ABORTS_ACTUAL_ADAPTER").toBe(true);
+        expect(aborted, "BUDGET_HOST_ABORTS_ACTUAL_ADAPTER").toBe(!late);
         expect(maxBudget).toBe(10);
         const failure = frames().findLast(frame => frame.type === "error")!;
         expect(failure).toMatchObject(unavailable ? { code: "BUDGET_UNAVAILABLE", failure: { errorClass: "budget_unavailable" } } : { code: "BUDGET_EXCEEDED", failure: { errorClass: "budget_exceeded", budgetScope: "turn" } });
