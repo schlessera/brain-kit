@@ -1,7 +1,7 @@
 /** Independent repository oracle: Bun's resolver + TS's import preprocessor.
  * Production uses its AST walker/TypeScript runtime resolver. No source is executed.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { workspaces } from "../../scripts/ci-plan";
@@ -31,6 +31,7 @@ export function auditUnitConsumers(root: string, browserEntrypoints: readonly st
   const add = (target: string, owner: string) => {
     const owners = reverse.get(target) ?? new Set<string>(); owners.add(owner); reverse.set(target, owners);
   };
+  const helperNames = new Set(helpers.map(file => basename(file).replace(/\.[cm]?[jt]sx?$/, "")));
   for (const file of paths) {
     const text = readFileSync(join(root, file), "utf8");
     const imports = ts.preProcessFile(text, true, true).importedFiles;
@@ -60,10 +61,17 @@ export function auditUnitConsumers(root: string, browserEntrypoints: readonly st
         references = references.slice(0, entry.pos) + " ".repeat(entry.end - entry.pos) + references.slice(entry.end);
       for (const match of references.matchAll(/["'`]([./\w-]+)["'`]|(?:^|[\s"'`])([./\w-]+\.[cm]?[jt]sx?)(?=$|[\s"'`?])/g)) {
         const value = (match[1] ?? match[2])!;
-        let target: string | undefined;
-        try { target = relative(root, Bun.resolveSync(value.startsWith(".") ? value : `./${value}`, dirname(join(root, file)))); }
-        catch { /* split join arguments / root-relative payload: inspect candidates */ }
         const name = basename(value).replace(/\.[cm]?[jt]sx?$/, "");
+        const specifier = value.startsWith(".") ? value : `./${value}`;
+        // Only helpers can contribute a lexical edge. Impossible relative
+        // lookups otherwise fill Bun's native resolver cache with arbitrary
+        // quoted words from every test, retaining gigabytes until VM exit.
+        // Existing paths include directories and symlink aliases; helper stems
+        // include extension-appended/replaced source files and name fallbacks.
+        if (!helperNames.has(name) && !existsSync(resolve(root, dirname(file), specifier))) continue;
+        let target: string | undefined;
+        try { target = relative(root, Bun.resolveSync(specifier, dirname(join(root, file)))); }
+        catch { /* split join arguments / root-relative payload: inspect candidates */ }
         for (const helper of helpers) if (target ? target === helper :
           basename(helper).replace(/\.[cm]?[jt]sx?$/, "") === name) add(helper, file);
       }

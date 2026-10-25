@@ -204,6 +204,7 @@ jobs:
           path: |
             tmp/proof-checkout.json
             tmp/proof-resources.json
+            tmp/unit-memory.jsonl
             tmp/unit-report.xml
             tmp/unit-report-summary.json
             tmp/unit-worker-*.xml

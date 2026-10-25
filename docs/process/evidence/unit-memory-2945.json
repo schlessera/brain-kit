@@ -1,0 +1,238 @@
+{
+  "issue": 2945,
+  "base": "b722bca83e36bed1b79f809fd2ec2aadf99f088d",
+  "runtime": "1.4.2",
+  "scope": "Local forced reproduction, not hosted shard proof. MemoryMax=4GiB, MemorySwapMax=0, one shared cgroup per invocation; heavy host slot held. Existing four-file subset executed through bun run test. Sampler excerpts exclude unrelated host processes and machine paths.",
+  "files": [
+    "tests/api-surface.test.ts",
+    "tests/ci-plan.test.ts",
+    "tests/opportunity-cli-agreement.test.ts",
+    "tests/unit-test-consumers.test.ts"
+  ],
+  "hostedLogs": [
+    {
+      "run": 40169775574,
+      "job": 121098258282,
+      "finding": "Runner shutdown during opportunity-cli-agreement; no completed resource receipt in original attempt. The gh log export initially returned a successful rerun; direct job logs identify the original."
+    },
+    {
+      "run": 40200485073,
+      "job": 121190656149,
+      "finding": "A real dirty-mount test fails first; sibling reports 137 during cancellation, so this is not independent evidence of an OOM."
+    },
+    {
+      "run": 40228567424,
+      "job": 121275421603,
+      "sampledVmPeakUsedBytes": 16523436032,
+      "totalBytes": 16766410752,
+      "finding": "Runner shutdown during opportunity-cli-agreement after API surface tests. Two private workers; sibling includes unit-test-consumers. Kernel OOM attribution is unavailable in these historical logs."
+    }
+  ],
+  "before": {
+    "samples": 270,
+    "samplingMs": 200,
+    "cgroup": {
+      "current": "4294840320",
+      "peak": "4294967296",
+      "limit": "4294967296",
+      "events": "low 0\nhigh 0\nmax 58\noom 1\noom_kill 1\noom_group_kill 0"
+    },
+    "peakTestProcessSample": {
+      "at": "2026-10-25T20:26:48.210Z",
+      "pid": 2039543,
+      "rssKiB": 4138068,
+      "peakRssKiB": 4138068,
+      "command": "bun test --preload <checkout>/scripts/test-network-preload.ts --timeout 30000 ./tests/api-surface.test.ts ./tests/ci-plan.test.ts ./tests/opportunity-cli-agreement.test.ts ./tests/unit-test-consumers.test.ts "
+    },
+    "lastEvent": "SIGTERM"
+  },
+  "after": {
+    "samples": 200,
+    "samplingMs": 200,
+    "cgroup": {
+      "current": "54484992",
+      "peak": "2772992000",
+      "limit": "4294967296",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0"
+    },
+    "peakTestProcessSample": {
+      "at": "2026-10-25T20:51:09.871Z",
+      "pid": 2300775,
+      "rssKiB": 2655780,
+      "peakRssKiB": 2655780,
+      "command": "bun test --preload <checkout>/scripts/test-network-preload.ts --timeout 30000 ./tests/api-surface.test.ts ./tests/ci-plan.test.ts ./tests/opportunity-cli-agreement.test.ts ./tests/unit-test-consumers.test.ts "
+    },
+    "lastEvent": "stop"
+  },
+  "afterResult": {
+    "tests": 183,
+    "files": 4,
+    "failures": 0,
+    "maxRssKiB": 2652504,
+    "wallTime": "0:39.79"
+  },
+  "unboundedBeforeResult": {
+    "tests": 182,
+    "files": 4,
+    "failures": 0,
+    "maxRssKiB": 5326104,
+    "wallSeconds": 65.05
+  },
+  "smolControl": {
+    "tests": 182,
+    "failures": 0,
+    "maxRssKiB": 5344332,
+    "wallSeconds": 63.36
+  },
+  "nativeAllocationTrace": {
+    "location": "unit-test-consumers, independent whole-repository audit, after earlier tests have collected JavaScript garbage",
+    "beforeAuditRssBytes": 180248576,
+    "afterAuditRssBytes": 4950003712,
+    "afterAuditHeapUsedBytes": 33202430,
+    "afterAuditExternalBytes": 21485246
+  },
+  "limitations": [
+    "Subset reproduction is not the complete hosted shard or ten consecutive main runs.",
+    "Hosted cross-shard comparison with the newly added cgroup/process diagnostics is outside this local receipt."
+  ],
+  "hostedAssignment": {
+    "run": 40228567424,
+    "shard": "3/4",
+    "concurrentSerialTestProcesses": 2,
+    "workers": [
+      {
+        "worker": 1,
+        "files": 118,
+        "rootFiles": [
+          "tests/api-surface.test.ts",
+          "tests/bound-browser-runtime-inputs.test.ts",
+          "tests/bridge-tools.test.ts",
+          "tests/build-concurrency.test.ts",
+          "tests/changed-unit-workers.test.ts",
+          "tests/ci-build-qualification.test.ts",
+          "tests/ci-plan.test.ts",
+          "tests/diagram-export-installation.test.ts",
+          "tests/identity-native-fixture.test.ts",
+          "tests/lockfile.test.ts",
+          "tests/measurement-isolation.test.ts",
+          "tests/opportunity-cli-agreement.test.ts",
+          "tests/project-status.test.ts",
+          "tests/reverse-geocode-env.test.ts",
+          "tests/seam-list.test.ts",
+          "tests/tag-alias-writer.test.ts",
+          "tests/test-git-maintenance.test.ts",
+          "tests/unit-proof-report.test.ts",
+          "tests/visual-runner.test.ts"
+        ]
+      },
+      {
+        "worker": 2,
+        "files": 119,
+        "rootFiles": [
+          "tests/bin-modes.test.ts",
+          "tests/browser-inventory-process.test.ts",
+          "tests/candidate-admission.test.ts",
+          "tests/ci-build-context.test.ts",
+          "tests/ci-throughput.test.ts",
+          "tests/experiment-tier.test.ts",
+          "tests/export-links-runtime.test.ts",
+          "tests/font-cache-binding.test.ts",
+          "tests/generated-audio-input.test.ts",
+          "tests/label-completion-provider.test.ts",
+          "tests/module-hygiene-queries.test.ts",
+          "tests/native-dead-root-trace.test.ts",
+          "tests/native-diagram-inputs.test.ts",
+          "tests/pi-worker-runtime.test.ts",
+          "tests/policy-write-boundary.test.ts",
+          "tests/project-sync-main.test.ts",
+          "tests/proof-reuse.test.ts",
+          "tests/release-manifest.test.ts",
+          "tests/show-block-schema-forms.test.ts",
+          "tests/test-invocation-lifetime.test.ts",
+          "tests/test-network-guard.test.ts",
+          "tests/unit-test-consumers.test.ts",
+          "tests/unit-workers.test.ts",
+          "tests/worker-state-tmpfs.test.ts"
+        ]
+      }
+    ]
+  },
+  "hostedOtherShards": [
+    {
+      "shard": "1/4",
+      "checkout": {
+        "sha": "2eaa3100ef55463f718af99c782d5c64e1b258fe",
+        "tree": "537fde397e0233dec03ed908c6fb84d9ab66ec35",
+        "parents": [
+          "2c83cd2f16bfca5cb43b16fea0e981c1eed05395"
+        ]
+      },
+      "machine": {
+        "logicalCpus": 4,
+        "totalBytes": 16766414848,
+        "sampledPeakUsedBytes": 4833009664,
+        "activeCpuSeconds": 2046.41,
+        "samples": 898,
+        "samplingSeconds": 1
+      },
+      "elapsedSeconds": 898.8608560370001,
+      "artifactSha256": "c8084ceeae9882acf1a39f9ee6afc353ea3ec41125239512aeedc2525b5e71ea",
+      "artifactId": 12611704100
+    },
+    {
+      "shard": "2/4",
+      "checkout": {
+        "sha": "2eaa3100ef55463f718af99c782d5c64e1b258fe",
+        "tree": "537fde397e0233dec03ed908c6fb84d9ab66ec35",
+        "parents": [
+          "2c83cd2f16bfca5cb43b16fea0e981c1eed05395"
+        ]
+      },
+      "machine": {
+        "logicalCpus": 4,
+        "totalBytes": 16766414848,
+        "sampledPeakUsedBytes": 8523886592,
+        "activeCpuSeconds": 1891.92,
+        "samples": 727,
+        "samplingSeconds": 1
+      },
+      "elapsedSeconds": 726.873836946,
+      "artifactSha256": "44acea0ab9b6f53143c9da89926af56c386114b7460a875f94b9c58bd2f851e9",
+      "artifactId": 12612780166
+    },
+    {
+      "shard": "4/4",
+      "checkout": {
+        "sha": "2eaa3100ef55463f718af99c782d5c64e1b258fe",
+        "tree": "537fde397e0233dec03ed908c6fb84d9ab66ec35",
+        "parents": [
+          "2c83cd2f16bfca5cb43b16fea0e981c1eed05395"
+        ]
+      },
+      "machine": {
+        "logicalCpus": 4,
+        "totalBytes": 16766414848,
+        "sampledPeakUsedBytes": 6039945216,
+        "activeCpuSeconds": 1964.06,
+        "samples": 816,
+        "samplingSeconds": 1
+      },
+      "elapsedSeconds": 816.4861830990001,
+      "artifactSha256": "7dd1c312ef2784a2f367601ba8e42168dfcfde19038062b2788304e7a0e057bd",
+      "artifactId": 12612314302
+    }
+  ],
+  "censusEquivalence": {
+    "baseline": {
+      "records": 1265,
+      "nativeLookups": 171267,
+      "sha256": "fc1b6f21038a7277aa7e434fddb607a23c00eb3fe7ab95986105c1435abe5c3e"
+    },
+    "fixed": {
+      "records": 1265,
+      "nativeLookups": 24710,
+      "sha256": "fc1b6f21038a7277aa7e434fddb607a23c00eb3fe7ab95986105c1435abe5c3e"
+    },
+    "equal": true
+  }
+}
