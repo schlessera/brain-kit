@@ -194,8 +194,8 @@ signatures (every public export and the types it is made of)
   AppliedEffect (packages/ui-server/src/brain/turn-data-tree.ts)
     export interface AppliedEffect {
         readonly path: string;
-        readonly content: string | null;
-        readonly base: string | null;
+        readonly content: string | Uint8Array | null;
+        readonly base: string | Uint8Array | null;
         readonly from?: string;
     }
   AuthConfig (packages/ui-server/src/config/env.ts)

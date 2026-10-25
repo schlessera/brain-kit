@@ -701,6 +701,7 @@ export function makeBridge(
       const applyMask = createMaskApplication({ maintenance: host.maintenance, root: host.brainPath, backend: backendId, principalId, turnId, signal,
         protectedPaths: maskGuard ? [...(protectedPaths ?? []), ...maskGuard.folders] : protectedPaths,
         lock: applicationPolicy.lock, isAuthorized, hold, isAvailable: () => work?.posture !== "voice",
+        ...(turnData ? { turnTree: turnData.tree } : {}),
         record: result => recorder?.recordApplication?.(result) });
       const requestMask = bridge.requestMask!;
       bridge.requestMask = async (imagePath, instruction) => {
