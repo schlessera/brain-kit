@@ -39,11 +39,13 @@ export class NativeFileVersions {
   private storage?: NativeObservationStorage;
   private incomplete = false;
   private storageFailed = false;
+  /** Saves land in call order, so the newest record is the last one written. */
+  private saving: Promise<void> = Promise.resolve();
   /** Restore before the first tool; a legacy/missing record cannot establish never-read authority. */
-  static restore(storage: NativeObservationStorage): NativeFileVersions {
+  static async restore(storage: NativeObservationStorage): Promise<NativeFileVersions> {
     const versions = new NativeFileVersions();
-    let saved: ReturnType<typeof loadNativeObservations>;
-    try { saved = loadNativeObservations(storage); }
+    let saved: Awaited<ReturnType<typeof loadNativeObservations>>;
+    try { saved = await loadNativeObservations(storage); }
     catch { throw new Error("The host could not restore this session's native file observations. Repair host observation storage before resuming."); }
     versions.incomplete = saved?.incomplete ?? true;
     for (const [key, value] of saved?.observed ?? []) versions.observed.set(key, value);
@@ -51,36 +53,45 @@ export class NativeFileVersions {
     return versions;
   }
   /** New Claude sessions get their native identity before the first tool. */
-  retain(storage: NativeObservationStorage): void {
+  retain(storage: NativeObservationStorage): Promise<void> {
     this.storage = storage;
-    this.persist();
+    return this.persist();
   }
-  private persist(): void {
-    if (!this.storage) return;
-    const observed = new Map(this.observed);
+  /**
+   * The in-memory change is immediate; the returned promise settles once it
+   * is durable. Callers await it before the tool it guards proceeds, and the
+   * fsync waits off the event loop (#2416).
+   */
+  private persist(): Promise<void> {
+    if (!this.storage) return Promise.resolve();
+    const storage = this.storage, observed = new Map(this.observed);
     // A crash after bytes are supplied but before completion must not forget the read.
     for (const pending of this.pendingReads.values()) observed.set(pending.key, { status: "unavailable" });
     for (const key of this.pendingWrites) observed.set(key, { status: "unavailable" });
-    try { saveNativeObservations(this.storage, { incomplete: this.incomplete, observed: [...observed] }); this.storageFailed = false; }
-    catch { this.storageFailed = true; throw new Error("The host could not retain native file observations. Retry when host observation storage is available."); }
+    const record = { incomplete: this.incomplete, observed: [...observed] };
+    const saved = this.saving.then(() => saveNativeObservations(storage, record)).then(
+      () => { this.storageFailed = false; },
+      () => { this.storageFailed = true; throw new Error("The host could not retain native file observations. Retry when host observation storage is available."); });
+    this.saving = saved.catch(() => undefined);
+    return saved;
   }
-  beginRead(toolUseId: string, key: string, before: NativeFileVersion): void {
+  beginRead(toolUseId: string, key: string, before: NativeFileVersion): Promise<void> {
     this.pendingReads.set(toolUseId, { key, before });
-    this.persist();
+    return this.persist();
   }
-  finishRead(toolUseId: string, after: NativeFileVersion, success: boolean): void {
+  finishRead(toolUseId: string, after: NativeFileVersion, success: boolean): Promise<void> {
     const pending = this.pendingReads.get(toolUseId); this.pendingReads.delete(toolUseId);
-    if (!pending) return;
-    if (!success) { this.persist(); return; }
+    if (!pending) return Promise.resolve();
+    if (!success) return this.persist();
     // A changing read is not an observation of a known version. It must not
     // silently teach the session a newer hash than the bytes it was shown.
     this.observed.set(pending.key, same(pending.before, after) ? after : { status: "unavailable" });
-    this.persist();
+    return this.persist();
   }
   /** Persist uncertainty before even a never-read native write can affect bytes. */
-  beginWrite(key: string): void { this.pendingWrites.add(key); this.persist(); }
-  remember(key: string, hash: string): void { this.pendingWrites.delete(key); this.observed.set(key, { status: "known", hash }); this.persist(); }
-  finishWrite(key: string, after: NativeFileVersion): void { this.pendingWrites.delete(key); this.observed.set(key, after); this.persist(); }
+  beginWrite(key: string): Promise<void> { this.pendingWrites.add(key); return this.persist(); }
+  remember(key: string, hash: string): Promise<void> { this.pendingWrites.delete(key); this.observed.set(key, { status: "known", hash }); return this.persist(); }
+  finishWrite(key: string, after: NativeFileVersion): Promise<void> { this.pendingWrites.delete(key); this.observed.set(key, after); return this.persist(); }
   hasObservation(key: string): boolean { return this.observed.has(key); }
   check(key: string, current: NativeFileVersion): string | null {
     const prior = this.observed.get(key);

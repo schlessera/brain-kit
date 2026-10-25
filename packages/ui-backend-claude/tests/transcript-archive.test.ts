@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { open } from "node:fs/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -69,6 +71,38 @@ test("once-per-day marker survives a new caller and concurrent sweeps", async ()
   expect(calls).toBe(1);
   now += DAY - 1; await archiveIdleSessions({ ...options }); expect(calls).toBe(1);
   now++; await archiveIdleSessions({ ...options }); expect(calls).toBe(2);
+});
+// #2416: every turn's cleanup reaches the daily marker, and on a loaded host
+// its directory fsync took 327 ms on the hosted server's event loop. With each
+// fsync delayed, a 1 ms timer keeps firing, the synchronous fsync never runs,
+// and the marker's file and directory are still synced.
+test("the daily scan marker waits on fsync off the event loop and stays durable", async () => {
+  rmSync(join(root, "config", "transcript-archive"), { recursive: true, force: true });
+  const probe = await open(tmpdir(), "r"), handle = Object.getPrototypeOf(probe) as { sync(): Promise<void> };
+  await probe.close();
+  const sync = handle.sync;
+  let syncs = 0, ticks = 0;
+  const delayed = spyOn(handle, "sync").mockImplementation(async function (this: unknown) { syncs++; await Bun.sleep(20); return sync.call(this); });
+  const blocking = spyOn(fs, "fsyncSync");
+  const timer = setInterval(() => { ticks++; }, 1);
+  try { await archiveIdleSessions(options); }
+  finally { clearInterval(timer); delayed.mockRestore(); }
+  try {
+    expect(errors).toEqual([]);
+    expect(blocking.mock.calls.length, "ARCHIVE_MARKER_NEVER_SYNC_FSYNC").toBe(0);
+    expect(ticks, "ARCHIVE_MARKER_LEAVES_EVENT_LOOP_FREE").toBeGreaterThan(0);
+    // Two new directories' parents, the marker and the marker's directory.
+    expect(syncs, "ARCHIVE_MARKER_STAYS_DURABLE").toBe(4);
+    expect(readFileSync(join(archive, "last-scan"), "utf8")).toBe(String(now));
+    expect(calls).toBe(1);
+  } finally { blocking.mockRestore(); }
+});
+test("concurrent sweeps in one process scan once while the marker is still being written", async () => {
+  session(); mkdirSync(archive, { recursive: true });
+  await Promise.all([archiveIdleSessions(options), archiveIdleSessions({ ...options })]);
+  expect(errors).toEqual([]);
+  expect(calls, "CONCURRENT_SWEEPS_SCAN_ONCE").toBe(1);
+  expect(listArchivedSessions(options).map(s => s.id)).toEqual([ID]);
 });
 for (const phase of ["archive", "index"] as const) test(`interruption after ${phase} recovers without losing the session`, async () => {
   session(); const bytes = readFileSync(join(live, `${ID}.jsonl`));

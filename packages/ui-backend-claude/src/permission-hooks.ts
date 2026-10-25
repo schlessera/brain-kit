@@ -84,13 +84,13 @@ export function createPermissionWiring(options: {
     }
     return undefined;
   };
-  const nativeRefusal = (toolName: string, input: unknown): string | null => {
+  const nativeRefusal = async (toolName: string, input: unknown): Promise<string | null> => {
     if (req.autonomous || !["Write", "Edit", "NotebookEdit"].includes(toolName)) return null;
     const path = filePath(toolName, input), current = path ? observation(path) : undefined;
     if (!current) return null;
     const refusal = fileVersions.check(current.key, current.version);
     if (refusal) return refusal;
-    try { fileVersions.beginWrite(current.key); }
+    try { await fileVersions.beginWrite(current.key); }
     catch { return "The host could not retain this write observation. Nothing was written; retry when host storage is available."; }
     return null;
   };
@@ -98,7 +98,7 @@ export function createPermissionWiring(options: {
     if (req.autonomous || req.signal.aborted || hookInput.hook_event_name !== "PreToolUse" || hookInput.tool_name !== "Read") return { continue: true };
     const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
     if (current) {
-      try { fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version); }
+      try { await fileVersions.beginRead(hookInput.tool_use_id, current.key, current.version); }
       catch { return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
         permissionDecisionReason: "The host could not retain this read observation. Nothing was read; retry when host storage is available." } }; }
     }
@@ -108,7 +108,7 @@ export function createPermissionWiring(options: {
     if (req.autonomous || (hookInput.hook_event_name !== "PostToolUse" && hookInput.hook_event_name !== "PostToolUseFailure")) return { continue: true };
     const path = filePath(hookInput.tool_name, hookInput.tool_input), current = path ? observation(path) : undefined;
     if (hookInput.tool_name === "Read") {
-      fileVersions.finishRead(hookInput.tool_use_id, current?.version ?? { status: "unavailable" }, hookInput.hook_event_name === "PostToolUse" && !req.signal.aborted && ["text", "image", "notebook", "pdf", "parts"].includes((hookInput.tool_response as { type?: string } | null)?.type ?? ""));
+      await fileVersions.finishRead(hookInput.tool_use_id, current?.version ?? { status: "unavailable" }, hookInput.hook_event_name === "PostToolUse" && !req.signal.aborted && ["text", "image", "notebook", "pdf", "parts"].includes((hookInput.tool_response as { type?: string } | null)?.type ?? ""));
     } else if (current && hookInput.hook_event_name === "PostToolUse" && ["Write", "Edit", "NotebookEdit"].includes(hookInput.tool_name)) {
       const response = hookInput.tool_response as { content?: unknown; originalFile?: unknown; oldString?: unknown; newString?: unknown; replaceAll?: unknown; staged?: unknown } | null;
       if (response?.staged === true) return { continue: true };
@@ -119,8 +119,8 @@ export function createPermissionWiring(options: {
       if (hookInput.tool_name === "Edit" && typeof response?.originalFile === "string" && typeof response.oldString === "string" && typeof response.newString === "string") {
         if (response.originalFile.includes(response.oldString)) written = response.replaceAll ? response.originalFile.replaceAll(response.oldString, response.newString) : response.originalFile.replace(response.oldString, response.newString);
       }
-      if (written !== undefined) fileVersions.remember(current.key, createHash("sha256").update(written, "utf8").digest("hex"));
-      else fileVersions.finishWrite(current.key, current.version);
+      if (written !== undefined) await fileVersions.remember(current.key, createHash("sha256").update(written, "utf8").digest("hex"));
+      else await fileVersions.finishWrite(current.key, current.version);
     }
     return { continue: true };
   };
@@ -363,7 +363,7 @@ export function createPermissionWiring(options: {
         lockKeyForTool(toolName, effectiveInput, brainPath)
       );
       if (!acquired.ok) return { behavior: "deny", message: acquired.reason };
-      const stale = nativeRefusal(toolName, effectiveInput);
+      const stale = await nativeRefusal(toolName, effectiveInput);
       if (stale) { turnLock.releaseForTool(opts.toolUseID); return { behavior: "deny", message: stale }; }
     }
     return toPermissionResult(decision);
@@ -500,7 +500,7 @@ export function createPermissionWiring(options: {
         },
       };
     }
-    const stale = nativeRefusal(hookInput.tool_name, edited ?? hookInput.tool_input);
+    const stale = await nativeRefusal(hookInput.tool_name, edited ?? hookInput.tool_input);
     if (stale) { turnLock.releaseForTool(hookInput.tool_use_id); return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: stale } }; }
     if (edited !== undefined) {
       // Applied by returning `updatedInput` with NO permissionDecision. A

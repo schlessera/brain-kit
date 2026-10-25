@@ -342,7 +342,8 @@ export function createBrainTools(deps: BrainToolDeps): ToolDefinition[] {
   // The receipt is always a whole-document hash: a paged brain_read_base
   // remembers the server's hash, never one recomputed from its page.
   const rememberHash = (path: string, hash: string): string => {
-    if (deps.directWrites) directBases.remember(resolveOrThrow(path), hash);
+    // No storage: the in-memory base is immediate and nothing is persisted.
+    if (deps.directWrites) void directBases.remember(resolveOrThrow(path), hash);
     if (turn.bridge?.applyBrain) {
       let entries = bases.get(turn.bridge);
       if (!entries) { entries = new Map(); bases.set(turn.bridge, entries); }

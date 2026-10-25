@@ -1249,7 +1249,7 @@ classification:
   `Write`/`Edit`/`NotebookEdit` disallow is lifted
   (`disallowedTools`, `packages/ui-backend-claude/src/sdk-options.ts:341`). In
   pi, the direct tools and a `bash` whose working directory is the brain root
-  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:548`).
+  return (`const bash`, `packages/ui-backend-pi/src/tools.ts:549`).
 - **Approvals do not change.** Confirmation patterns and destructive-operation
   approvals still run in the permission hooks. The journal adds the ability to
   undo; it removes no approval.
@@ -1285,7 +1285,9 @@ the canonical brain root and native session identity; filenames contain only a
 SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
 regular-file validation and a 16 MiB per-session metadata bound protect the
 record (`saveNativeObservations`,
-`packages/ui-sdk/src/server/native-observation-storage.ts:56-69`).
+`packages/ui-sdk/src/server/native-observation-storage.ts:66-79`).
+Saves wait on the file system off the hosted server's event loop, land in call
+order, and complete before the tool they guard proceeds (#2416).
 
 Read and write admission first retain an unavailable observation. A crash after the
 worker was shown or wrote bytes but before the completion callback therefore requires
