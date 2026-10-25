@@ -9,6 +9,7 @@ import { parseFrontmatter } from "@schlessera/brain-common/internal/frontmatter"
 import { parseGovernancePolicy, GOVERNANCE_POLICY_PATH, GOVERNANCE_POLICY_MAX_BYTES } from "@schlessera/brain-common/internal/governance-policy";
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { PROPOSE_POLICY_CHANGE_INPUT_SCHEMA, type PolicyChangeInput, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
+import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
 
 const hash = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 class Refusal extends Error { constructor(readonly state: "stale" | "invalid" | "refused", message: string) { super(message); } }
@@ -90,7 +91,14 @@ function sections(before: string, after: string) {
 }
 export interface PolicyProposalTurn {
   principalId: string; turnId: string; sessionId(): string | null; signal: AbortSignal;
+  /** Whether the policy may publish now; false while a `hold` is active as well as once authority is gone. */
   isAuthorized(): boolean; isAvailable(): boolean;
+  /**
+   * A scope pause, which stops publication without revoking authority (#2853):
+   * waited for, bounded, outside the lock. Inside the policy's own journal
+   * observation it refuses as before; waiting there would hold that observation.
+   */
+  hold?: AuthorityHold;
   approve(review: PolicyChangeReview): Promise<boolean>;
   emit(review: PolicyChangeReview): void;
 }
@@ -139,10 +147,16 @@ export function createPolicyProposals(options: {
     },
     bind(turnId: string, sessionId: string) { db.query("UPDATE policy_proposals SET session_id = ? WHERE turn_id = ? AND session_id IS NULL").run(sessionId, turnId); },
     async propose(turn: PolicyProposalTurn, requestId: string, raw: PolicyChangeInput): Promise<PolicyChangeReview> {
-      const authority = () => {
+      const authority = (waits = true) => {
+        if (!turn.signal.aborted && !turn.isAuthorized() && waits && turn.hold?.active()) throw new AuthorityHeld();
         if (turn.signal.aborted || !turn.isAuthorized() || !turn.isAvailable()) throw new Refusal("refused", "This request no longer has current interactive authority. Nothing was written.");
       };
-      authority();
+      // An attempt that meets a hold has published nothing; it runs again once the hold clears.
+      const budget: { deadline?: number } = {};
+      const expired = (): never => { throw new Refusal("refused", "This request stayed held by a scope pause past the wait bound. Nothing was written."); };
+      const afterHolds = <T>(attempt: () => T | Promise<T>) => retryHeld(turn.hold, turn.signal, attempt, expired, budget);
+      const admitted = admitHeld(turn.hold, turn.signal, () => authority(), expired, budget);
+      if (admitted) await admitted;
       if (!requestId || requestId.length > 200) throw new Error("Invalid policy request identity.");
       if (process.platform !== "linux") throw new Error("Policy publication requires descriptor-anchored Linux support.");
       const input = PROPOSE_POLICY_CHANGE_INPUT_SCHEMA.parse(raw);
@@ -170,7 +184,7 @@ export function createPolicyProposals(options: {
           if (!await turn.approve(review)) { review.state = "declined"; review.message = "Policy change declined. Nothing was written."; }
           else {
             review.state = "writing"; review.message = "Writing the policy…"; save(review, turn);
-            await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+            await afterHolds(() => options.lock.withLock(BRAIN_LOCK_KEY, async () => {
               authority();
               const currentValidation = validate(bytes);
               if (!currentValidation.ok || currentValidation.status !== "valid") throw new Refusal("invalid", `This proposal no longer passes validation: ${currentValidation.errors.join("; ")}. Nothing was written. A fresh proposal is required.`);
@@ -182,7 +196,7 @@ export function createPolicyProposals(options: {
                 // No awaited code between final authority/base/topology check and publication.
                 await options.observeUserPolicy(turn.turnId, () => {
                   // Journal observation may precede this callback; recheck at the exact write.
-                  authority(); verify(target!, review.baseHash);
+                  authority(false); verify(target!, review.baseHash);
                   // The operation owns the staging inode for this synchronous
                   // callback only. Both journal observations are outside its
                   // lifetime; no path/prefix ignore can hide real worker files.
@@ -192,7 +206,7 @@ export function createPolicyProposals(options: {
                     const fd = openSync(staging, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, target!.mode ?? 0o644);
                     temp = staging; // Only a successfully created inode belongs to this operation.
                     try { writeFileSync(fd, bytes); if (target!.mode !== undefined) fchmodSync(fd, target!.mode); fsyncSync(fd); } finally { closeSync(fd); }
-                    authority(); verify(target!, review.baseHash);
+                    authority(false); verify(target!, review.baseHash);
                     if (review.baseHash === null) linkSync(temp, target!.at); else renameSync(temp, target!.at);
                     committed = true;
                   } catch (error) { publicationFailed = true; publicationError = error; }
@@ -215,7 +229,7 @@ export function createPolicyProposals(options: {
                 if (target) close(target);
                 if (!committed) for (const directory of created.reverse()) { try { rmdirSync(directory); } catch { /* Preserve concurrent files. */ } }
               }
-            }, { signal: turn.signal });
+            }, { signal: turn.signal }));
           }
         } catch (error) {
           review.state = committed ? "unknown" : error instanceof Refusal ? error.state : "refused";

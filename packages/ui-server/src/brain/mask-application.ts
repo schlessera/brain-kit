@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { BRAIN_LOCK_KEY, BRAIN_MASK_MAX_BYTES, type BrainMaskInput, type BrainApplicationResult, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { assertScratchMaskAsync, claudeMaskFilename, piMaskFilename } from "@schlessera/brain-ui-sdk/internal";
 import { isProtectedTarget } from "./protected-target.js";
+import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -101,7 +102,10 @@ export function createMaskApplication(options: {
   lock: Pick<KeyedLock, "withLock">;
   /** Immutable admitted host facts; not a browser or worker permission. */
   protectedPaths?: readonly string[];
+  /** Whether the mask may commit now; false while a `hold` is active as well as once authority is gone. */
   isAuthorized(): boolean;
+  /** Holds that stop changes without revoking authority (#2853); the mask waits for them, bounded. */
+  hold?: AuthorityHold;
   isAvailable(): boolean;
   record(result: BrainApplicationResult): void;
   /** Internal race fixture only. */
@@ -114,16 +118,27 @@ export function createMaskApplication(options: {
     if (isProtectedTarget(path, protectedPaths)) refuse("policy_denied", "This mask target is protected by the policy admitted for this turn; no change was applied.");
   };
   const authority = (principalId: string, turnId: string) => {
-    if (principalId !== options.principalId || turnId !== options.turnId || !options.isAuthorized())
+    if (principalId !== options.principalId || turnId !== options.turnId) refuse("authority_revoked", "This mask no longer has current turn authority.");
+    if (!options.isAuthorized()) {
+      if (options.signal.aborted) refuse("cancelled", "The mask turn was cancelled.");
+      if (options.hold?.active()) throw new AuthorityHeld();
       refuse("authority_revoked", "This mask no longer has current turn authority.");
+    }
     if (options.signal.aborted) refuse("cancelled", "The mask turn was cancelled.");
     if (!options.isAvailable()) refuse("membership_denied", "This turn's membership does not permit image masks.");
   };
   return async (request: { principalId: string; turnId: string; input: BrainMaskInput; base: MaskBase }): Promise<BrainApplicationResult> => {
     const changes: BrainApplicationResult["changes"] = [];
     let result: BrainApplicationResult;
+    // An attempt that meets a hold has committed nothing; it runs again once the hold clears.
+    // One wait bound for every hold this mask meets; outlasting it is not revocation.
+    const budget: { deadline?: number } = {};
+    const expired = (): never => options.signal.aborted ? refuse("cancelled", "The mask turn was cancelled.")
+      : refuse("application_failed", "This mask stayed held by a journal observation or a scope pause past the wait bound; no change was applied.");
+    const afterHolds = <T>(attempt: () => T | Promise<T>) => retryHeld(options.hold, options.signal, attempt, expired, budget);
     try {
-      authority(request.principalId, request.turnId);
+      const admitted = admitHeld(options.hold, options.signal, () => authority(request.principalId, request.turnId), expired, budget);
+      if (admitted) await admitted;
       const input = { ...request.input }, base = { ...request.base };
       if (Object.keys(input).some(key => !["imagePath", "maskPath", "png"].includes(key)) || typeof input.imagePath !== "string" || typeof input.maskPath !== "string" || !(input.png instanceof Uint8Array))
         refuse("invalid_request", "Use the exact PNG mask operation.");
@@ -144,7 +159,8 @@ export function createMaskApplication(options: {
         validateTarget(input.maskPath);
         await assertScratchMaskAsync(root, input.maskPath, join(root, input.maskPath), options.maintenance, options.signal);
       }
-      result = await options.lock.withLock(BRAIN_LOCK_KEY, async () => {
+      // A hold met inside the lock releases it and waits outside (#2853).
+      result = await afterHolds(() => options.lock.withLock(BRAIN_LOCK_KEY, async () => {
         authority(request.principalId, request.turnId);
         validateTarget(input.maskPath);
         const current = readMaskBase(root, input.imagePath, options.backend);
@@ -178,7 +194,7 @@ export function createMaskApplication(options: {
           }
           return { ok: true, message: "Applied the PNG mask.", changes, outcome: { maskPath: input.maskPath, ...(pruneError ? { pruneError } : {}) } };
         } finally { if (temp) unlinkSync(temp); close(image); close(mask); }
-      }, { signal: options.signal });
+      }, { signal: options.signal }));
     } catch (error) {
       result = { ok: false, code: error instanceof MaskRefusal ? error.code : options.signal.aborted ? "cancelled" : "application_failed", message: error instanceof Error ? error.message : String(error), changes };
     }
