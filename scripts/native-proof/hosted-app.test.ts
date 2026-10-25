@@ -21,6 +21,8 @@ const RETAIN_INDEX_NAMESPACE = process.env.BRAIN_NATIVE_PROOF_RETAIN_INDEX_NAMES
 if (RETAIN_INDEX_NAMESPACE && !DESCENDANT_CONTROL) throw Error("Namespace retention reproduction requires Pi UID 0");
 // #2835 measurement: one strict turn of 20 host-applied writes and 20 edits, then a same-turn search.
 const APPLY_TIMING = process.env.BRAIN_NATIVE_PROOF_APPLY_TIMING === "1";
+// #2834 measurement: pi's per-call journal observation cost by tool, and journal begin + finish for both backends.
+const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
 const releaseObservations = nativeReleaseObservations(ARTIFACTS);
 let releasePinnedNamespace: (() => void) | undefined;
 const recordedSpawn = Bun.spawn;
@@ -83,7 +85,7 @@ print(json.dumps(result))`;
   const child = Bun.spawn(["/usr/bin/setpriv", `--reuid=${APP_UID}`, `--regid=${APP_UID}`, "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all", "--no-new-privs", process.execPath, "--preload", join(SOURCE, "scripts/test-network-child-preload.ts"), join(import.meta.dir, "hosted-app-child.ts"), SOURCE, dir, brain, socket, BACKEND], {
     cwd: SOURCE,
     env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: join(dir, "home"), PI_CODING_AGENT_DIR: join(dir, "pi"), NODE_ENV: "test",
-      ...(APPLY_TIMING ? { BRAIN_NATIVE_PROOF_APPLY_TIMING: "1" } : {}) }, stdout: "pipe", stderr: "pipe"
+      ...(APPLY_TIMING ? { BRAIN_NATIVE_PROOF_APPLY_TIMING: "1" } : {}), ...(OBSERVATION_TIMING ? { BRAIN_NATIVE_PROOF_OBSERVATION_TIMING: "1" } : {}) }, stdout: "pipe", stderr: "pipe"
   });
   const descendants = DESCENDANT_CONTROL ? observeIndexDescendants(ARTIFACTS, { retainMountNamespace: RETAIN_INDEX_NAMESPACE }) : undefined;
   releasePinnedNamespace = () => descendants?.releaseNamespace();
@@ -293,6 +295,90 @@ print(json.dumps(result))`;
       // The timing turn entered the fixture model once more and wrote no worker note.
       expectedProviderAttempts = attemptBefore + 1;
     }
+    if (OBSERVATION_TIMING) {
+      const load = () => readFileSync("/proc/loadavg", "utf8").trim(), loadBefore = load(), timingStart = performance.now();
+      const median = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]! : null;
+      const p95 = (values: number[]) => values.length ? [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]! : null;
+      const turn = async (text: string, requestId: string, sessionId: string | undefined, deadline: number) => {
+        const start = performance.now();
+        sender.ws.send(JSON.stringify({ type: "chat_message", text, requestId, ...(sessionId ? { sessionId } : { draftId: `${requestId}-draft` }) }));
+        await until(() => sender.frames.some(f => f.type === "session_info" && f.requestId === requestId), 45000);
+        const ack = sender.frames.find(f => f.type === "session_info" && f.requestId === requestId)!;
+        expect(ack.workerProfile?.actualProfile, "OBSERVATION_TIMING_GOVERNED_TURN").toBe("governed");
+        await until(() => sender.frames.some(f => f.receiptAt >= start && (f.type === "result" || f.type === "error") && f.sessionId === ack.sessionId), deadline);
+        await until(() => eventLog.read("timeline-settlement").some(row => row.kind === "session_slot_released" && row.turnId === ack.turnId), 60000);
+        const terminal = sender.frames.find(f => f.receiptAt >= start && (f.type === "result" || f.type === "error") && f.sessionId === ack.sessionId)!;
+        expect(terminal.type === "result" && terminal.outcome === "success", `OBSERVATION_TIMING_TURN_SUCCEEDED ${JSON.stringify(terminal)}`).toBe(true);
+        return ack;
+      };
+      let timeline: ReturnType<typeof perTool> | null = null;
+      function perTool() {
+        const rows = eventLog.read("observation-timing");
+        const requests = rows.filter(row => row.kind === "timeline_request");
+        // Setup calls carry no label and are not measured.
+        const responses = rows.filter(row => row.kind === "timeline_response" && row.label);
+        const frames = rows.filter(row => row.kind === "timeline_frame");
+        const captures = rows.filter(row => row.kind === "timeline_capture");
+        const freezes = rows.filter(row => row.kind === "timeline_freeze"), resumes = rows.filter(row => row.kind === "timeline_resume");
+        const calls = responses.map(response => {
+          const next = requests.find(row => row.attempt === response.attempt && row.step === response.step + 1);
+          const started = frames.find(row => row.frame === "tool_use_start" && row.toolUseId === response.toolUseId);
+          const result = frames.find(row => row.frame === "tool_result" && row.toolUseId === response.toolUseId);
+          const roundTripMs = next ? next.at - response.at : null, toolMs = started && result ? result.at - started.at : null;
+          // Captures completed between this call's result and the next request,
+          // and the worker hold that kept that request from leaving.
+          const within = (at: number) => result && next && at >= result.at - 1 && at <= next.at;
+          const observed = captures.filter(row => within(row.at));
+          const frozenAt = freezes.find(row => within(row.at))?.at, resumedAt = frozenAt === undefined ? undefined : resumes.find(row => row.at >= frozenAt && (!next || row.at <= next.at))?.at;
+          return { step: response.step, tool: response.tool, label: response.label as string, isError: result?.isError ?? null, roundTripMs, toolMs,
+            addedMs: roundTripMs !== null && toolMs !== null ? roundTripMs - toolMs : null, resultToNextRequestMs: result && next ? next.at - result.at : null,
+            captures: observed.length, frozenMs: frozenAt !== undefined && resumedAt !== undefined ? resumedAt - frozenAt : null,
+            resumeToNextRequestMs: resumedAt !== undefined && next ? next.at - resumedAt : null };
+        });
+        const groups = new Map<string, typeof calls>();
+        for (const call of calls) groups.set(call.label, [...(groups.get(call.label) ?? []), call]);
+        return { calls, tools: Object.fromEntries([...groups].map(([key, group]) => {
+          const values = (field: "roundTripMs" | "toolMs" | "addedMs" | "resultToNextRequestMs") => group.map(call => call[field]).filter((value): value is number => value !== null);
+          return [key, { calls: group.length, errors: group.filter(call => call.isError).length, observed: group.filter(call => call.captures).length,
+            roundTrip: { medianMs: median(values("roundTripMs")), p95Ms: p95(values("roundTripMs")) }, toolMedianMs: median(values("toolMs")),
+            added: { medianMs: median(values("addedMs")), p95Ms: p95(values("addedMs")) }, resultToNextRequestMedianMs: median(values("resultToNextRequestMs")),
+            frozen: group.filter(call => call.frozenMs !== null).length,
+            frozenMedianMs: median(group.map(call => call.frozenMs).filter((value): value is number => value !== null)),
+            resumeToNextRequestMedianMs: median(group.map(call => call.resumeToNextRequestMs).filter((value): value is number => value !== null)) }];
+        })) };
+      }
+      const timelineTurnIds: string[] = [];
+      // One fresh conversation per cell (ithacaCells in hosted-app-child.ts).
+      if (BACKEND === "pi") {
+        // brain_search needs the index the earlier turns' automatic refresh builds.
+        await until(() => eventLog.read("timeline-index").some(row => row.kind === "automatic_index_finished"), 120000);
+        for (let cell = 0; cell < 11; cell++) timelineTurnIds.push((await turn(`Odysseus requests the Ithaca timeline cell ${cell} on 2026-07-12.`, `odysseus-ithaca-cell-${cell}`, undefined, 300000)).turnId);
+        timeline = perTool();
+      }
+      const harbour: string[] = [];
+      let harbourSession: string | undefined;
+      for (let i = 0; i < 10; i++) {
+        const ack = await turn(`Odysseus requests the Ithaca harbour record ${i} on 2026-07-12.`, `odysseus-ithaca-harbour-${i}`, harbourSession, 60000);
+        harbourSession = ack.sessionId; harbour.push(ack.turnId);
+      }
+      const journalRows = eventLog.read("observation-timing-journal");
+      const elapsed = (kind: string, turnId: string) => journalRows.find(row => row.kind === kind && row.turnId === turnId)?.elapsedMs as number | undefined;
+      const beginFinish = harbour.map(turnId => ({ turnId, beginMs: elapsed("journal_begin_end", turnId) ?? null, finishMs: elapsed("journal_finish_end", turnId) ?? null }))
+        .map(row => ({ ...row, totalMs: row.beginMs !== null && row.finishMs !== null ? row.beginMs + row.finishMs : null }));
+      const total = (field: "beginMs" | "finishMs" | "totalMs") => beginFinish.map(row => row[field]).filter((value): value is number => value !== null);
+      const result = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter: load(), elapsedMs: performance.now() - timingStart, timelineTurnIds,
+        tools: timeline?.tools ?? null, journal: { begin: { medianMs: median(total("beginMs")), p95Ms: p95(total("beginMs")) }, finish: { medianMs: median(total("finishMs")), p95Ms: p95(total("finishMs")) },
+          beginPlusFinish: { medianMs: median(total("totalMs")), p95Ms: p95(total("totalMs")) }, turns: beginFinish }, calls: timeline?.calls ?? null };
+      writeFileSync(join(ARTIFACTS, "observation-timing.json"), JSON.stringify(result, null, 2));
+      console.log(JSON.stringify({ observationTiming: { ...result, calls: undefined, journal: { ...result.journal, turns: undefined } } }));
+      expect(total("totalMs"), "OBSERVATION_TIMING_10_HARBOUR_TURNS").toHaveLength(10);
+      if (timeline) {
+        for (const [tool, cell] of Object.entries(timeline.tools)) {
+          expect([tool, cell.calls, cell.errors], "OBSERVATION_TIMING_20_SUCCESSFUL_CALLS_PER_TOOL").toEqual([tool, 20, 0]);
+        }
+      }
+      expectedProviderAttempts = attemptBefore + (BACKEND === "pi" ? 11 : 0) + 10;
+    }
     // Drain the real queued refresh before shutdown intentionally discards pending work.
     await until(() => {
       const events = eventLog.read("queued-refresh");
@@ -419,7 +505,7 @@ print(json.dumps(result))`;
     } finally { try { await service.close(); } finally { rmSync(dir, { recursive: true, force: true }); rmSync(join(ARTIFACTS,"crash-owner"), { recursive: true, force: true }); } }
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
-}, 120000);
+}, OBSERVATION_TIMING ? 1_200_000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {

@@ -87,7 +87,9 @@ try:
     STORE.mkdir(mode=0o755)
     run(["mount", "-t", "btrfs", "-o", "nosuid,nodev,nodiscard", str(DEVICE), str(STORE)]); mounted = True
     run(["btrfs", "subvolume", "create", str(STORE / "brain")])
-    run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=180)
+    # The #2834 timing turn alone makes 220 tool calls, each one model request.
+    run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))],
+        timeout=1500 if os.environ.get("BRAIN_NATIVE_PROOF_OBSERVATION_TIMING") == "1" else 180)
 except BaseException as error:
     failure = error
     record("failure", detail=str(error))

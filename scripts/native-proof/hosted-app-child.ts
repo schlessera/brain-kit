@@ -51,6 +51,45 @@ if (APPLY_TIMING) {
     return bridge;
   });
 }
+// #2834: time every tool frame and every journal observation, without changing either.
+const OBSERVATION_TIMING = process.env.BRAIN_NATIVE_PROOF_OBSERVATION_TIMING === "1";
+if (OBSERVATION_TIMING) {
+  const bridges = await import(join(source!, "packages/ui-server/src/ws/bridge.ts"));
+  const makeBridge = bridges.makeBridge;
+  spyOn(bridges, "makeBridge").mockImplementation((...args: Parameters<typeof makeBridge>) => {
+    const bridge = makeBridge(...args), emit = bridge.emit;
+    bridge.emit = (message: any) => {
+      if (message.type === "tool_use_start" || message.type === "tool_result") event("timeline_frame", { frame: message.type, toolUseId: message.toolUseId, toolName: message.toolName ?? null, isError: message.isError ?? null, at: performance.now() });
+      return emit(message);
+    };
+    return bridge;
+  });
+}
+const ITHACA_CALLS = 20, ITHACA_DOC = "notes/voyage-0007.md";
+const ithacaNote = (i: number) => `---\ntype: note\ntitle: Ithaca timeline ${i}\nupdated: 2026-07-12\n---\nTelemachus writes ${i}.\n`;
+const ithacaPath = (prefix: string, i: number) => `notes/ithaca-${prefix}-${String(i).padStart(2, "0")}.md`;
+/**
+ * One fresh conversation per cell, so the request history stays short: the
+ * cell's unmeasured setup calls, then 20 calls of its tool, one per request.
+ * The reads after a writer or after `bash` run in the same worker as it.
+ */
+type Step = [name: string, input: object];
+const ithacaCells = (): { label: string; setup: Step[]; tool: string; input: (i: number) => object }[] => [
+  { label: "read_file", setup: [], tool: "read_file", input: () => ({ path: ITHACA_DOC }) },
+  { label: "brain_read_base", setup: [], tool: "brain_read_base", input: () => ({ path: ITHACA_DOC }) },
+  { label: "query_activity", setup: [], tool: "query_activity", input: () => ({ scope: "recent" }) },
+  { label: "inbox_list", setup: [], tool: "inbox_list", input: () => ({ view: "queue" }) },
+  { label: "brain_search", setup: [], tool: "brain_search", input: () => ({ query: "Ithaca voyage", limit: 5 }) },
+  { label: "write_file", setup: [], tool: "write_file", input: i => ({ path: ithacaPath("timeline", i), content: ithacaNote(i) }) },
+  { label: "edit_file", setup: [], tool: "edit_file", input: i => ({ path: ithacaPath("timeline", i), old_string: "writes", new_string: "edits" }) },
+  { label: "bash read", setup: [], tool: "bash", input: () => ({ command: `cat ${ITHACA_DOC} > /dev/null` }) },
+  { label: "bash write", setup: [], tool: "bash", input: i => ({ command: `echo Penelope ${i} > ${ithacaPath("bash", i)}` }) },
+  { label: "read_file after write_file", setup: [["write_file", { path: ithacaPath("after", 0), content: ithacaNote(0) }]], tool: "read_file", input: () => ({ path: ITHACA_DOC }) },
+  { label: "read_file after bash", setup: [["bash", { command: `cat ${ITHACA_DOC} > /dev/null` }]], tool: "read_file", input: () => ({ path: ITHACA_DOC }) },
+];
+const ithacaSteps = () => ithacaCells().map(cell => ({ label: cell.label,
+  steps: [...cell.setup.map(([name, input]): [string, object, string | null] => [name, input, null]),
+    ...Array.from({ length: ITHACA_CALLS }, (_, i): [string, object, string | null] => [cell.tool, cell.input(i), cell.label])] }));
 const SCHERIA_LOGS = 20;
 const scheriaPath = (i: number) => `notes/scheria-log-${String(i).padStart(2, "0")}.md`;
 const scheriaContent = (i: number) => `---\ntype: note\ntitle: Scheria log ${i}\nupdated: 2026-07-12\n---\nNausicaa finds Odysseus on the Scheria shore, log ${i}.\n`;
@@ -107,7 +146,7 @@ const egressOrigin = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) 
 // "localhost", not 127.0.0.1: only the proxy resolves it, whatever the worker exempts.
 const egressCommand = (attempt: number) => `/usr/bin/python3 -I -S -c 'import sys,urllib.request;sys.stdout.write(urllib.request.urlopen(sys.argv[1],timeout=5).read().decode())' http://localhost:${egressOrigin.port}/voyage-${attempt} > .brain/egress-${attempt}.txt`;
 const inference = selectedBackend === "pi" ? startPiNativeInference(join(dir!,"pi"),event,authorityCommand,egressCommand,
-  APPLY_TIMING ? { count: SCHERIA_LOGS, path: scheriaPath, content: scheriaContent, sha256 } : undefined) : undefined;
+  APPLY_TIMING ? { count: SCHERIA_LOGS, path: scheriaPath, content: scheriaContent, sha256 } : undefined, OBSERVATION_TIMING ? { cells: ithacaSteps() } : undefined) : undefined;
 if (inference) process.env.BRAIN_UI_PI_CREDENTIAL_ORIGINS = inference.origin;
 const backend = inference ? createPiBackend({brainPath:brain!,model:inference.model,loadExtensions:false,log(level: string,message: string){event("backend_log",{level,message});}}) : createClaudeBackend({
   brainPath: brain,
@@ -128,8 +167,10 @@ const backend = inference ? createPiBackend({brainPath:brain!,model:inference.mo
     });
     let child: any; try {
 child = params.options.spawnClaudeCodeProcess({
-        command: "/bin/sh", args: ["-c",
-          `${authorityCommand} > .brain/worker-authority-${attempt}.json && ${egressCommand(attempt)} && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
+        command: "/bin/sh", args: ["-c", OBSERVATION_TIMING && attempt >= 4
+          // #2834 harbour records after first, warm and Stop: one worker write each, for journal begin and finish timings.
+          ? `echo Eurycleia ${attempt} > notes/ithaca-harbour-${attempt}.md; printf worker-pass`
+          : `${authorityCommand} > .brain/worker-authority-${attempt}.json && ${egressCommand(attempt)} && printf '%b' '---\\ntype: note\\ntitle: Odysseus worker ${attempt}\\nupdated: 2026-07-12\\n---\\nOdysseus marks the actual worker.\\n' > notes/worker-${attempt}.md; printf worker-pass; sleep ${attempt === 3 ? "10" : "0.05"}`],
         env: { PATH: "/usr/bin:/bin", HOME: join(dir!, "home"), CLAUDE_CONFIG_DIR: join(dir!, "agent") },
         signal: params.options.abortController.signal
       });
@@ -170,7 +211,7 @@ try {
       AUTH_MODE: "password", BRAIN_UI_PASSWORD_HASH: "fixture-hash", COOKIE_SECRET: SECRET,
       HOST: "127.0.0.1", DB_PATH: dbPath, BRAIN_PATH: brain, NODE_ENV: "test", AGENT_BACKEND: selectedBackend,
       PI_CODING_AGENT_DIR: join(dir!, "pi"), BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0", BRAIN_UI_COASTLINE: "0",
-      BRAIN_UI_TURN_TIMEOUT_MS: "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
+      BRAIN_UI_TURN_TIMEOUT_MS: OBSERVATION_TIMING ? "900000" : "90000", BRAIN_UI_NATIVE_BRAIN_SOCKET: socket
     }), registry: createStaticBackendRegistry([backend], selectedBackend), observability
   });
   const {spyOn} = await import("bun:test");
@@ -201,6 +242,25 @@ try {
           (error: any) => { event(`${label}_error`, { turnId: args[0], elapsedMs: performance.now() - start, error: String(error) }); throw error; });
         event(`${label}_end`, { turnId: args[0], elapsedMs: performance.now() - start }); return result;
       } catch (error) { event(`${label}_error`, { turnId: args[0], elapsedMs: performance.now() - start, error: String(error) }); throw error; }
+    };
+  }
+  if (OBSERVATION_TIMING) {
+    const journal = app.wsHost.journal, observe = journal.observe.bind(journal), ended = journal.toolEnded?.bind(journal);
+    journal.observe = async () => { const start = performance.now(); try { return await observe(); } finally { event("timeline_observe", { start, ms: performance.now() - start }); } };
+    // Every completed capture, periodic and scope-limit ones included, reports here once per active turn.
+    journal.onObservation?.((turnId: string) => event("timeline_capture", { turnId, at: performance.now() }));
+    if (ended) journal.toolEnded = (turnId: string, toolUseId: string) => {
+      const start = performance.now(), work = ended(turnId, toolUseId);
+      void work.finally(() => event("timeline_tool_ended", { toolUseId, start, ms: performance.now() - start })).catch(() => {});
+      return work;
+    };
+    // An observation's hold freezes the turn's workers; the next request waits for the resume.
+    const scope = app.wsHost.scope, workerStarted = scope.workerStarted.bind(scope);
+    scope.workerStarted = (turnId: string, worker: any) => {
+      const freeze = worker.freeze.bind(worker), resume = worker.resume.bind(worker);
+      worker.freeze = () => { event("timeline_freeze", { at: performance.now() }); return freeze(); };
+      worker.resume = () => { const answer = resume(); event("timeline_resume", { at: performance.now() }); return answer; };
+      return workerStarted(turnId, worker);
     };
   }
   for (const [owner, method, label] of [[app.wsHost.execution?.boundary, "governed", "boundary_governed"], [app.wsHost.governedTurns, "facts", "governed_facts"]] as any[]) {

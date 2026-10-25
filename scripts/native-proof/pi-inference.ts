@@ -5,7 +5,12 @@ type Event = (kind:string,data?:object)=>void;
 const HOST_KEY="odysseus-offline-host-key";
 /** #2835 timing turn: the fixture model's exact host-applied writes, edits and one same-turn search. */
 export interface ScheriaTiming { count:number; path:(i:number)=>string; content:(i:number)=>string; sha256:(text:string)=>string }
-export function startPiNativeInference(agentDirectory:string,event:Event,authorityCommand:string,egressCommand:(attempt:number)=>string,timing?:ScheriaTiming) {
+/**
+ * #2834 timeline turn: the fixture model's exact calls, one per request, each
+ * request's arrival and each response's dispatch on the app's own clock.
+ */
+export interface IthacaTimeline { cells:readonly {label:string;steps:readonly (readonly [name:string,input:object,label:string|null])[]}[] }
+export function startPiNativeInference(agentDirectory:string,event:Event,authorityCommand:string,egressCommand:(attempt:number)=>string,timing?:ScheriaTiming,timeline?:IthacaTimeline) {
   let attempts=0;const seen=new Map<string,number>();
   const model="claude-sonnet-4-6";
   const server=Bun.serve({hostname:"127.0.0.1",port:0,maxRequestBodySize:16*1024**2,async fetch(request){
@@ -18,6 +23,7 @@ export function startPiNativeInference(agentDirectory:string,event:Event,authori
     if(!prompt)throw Error("Offline Pi transport did not receive the fixture user request");
     let attempt=seen.get(prompt);if(!attempt){attempt=++attempts;seen.set(prompt,attempt);event("fake_provider_enter",{attempt,backend:"pi"});}
     if(timing&&prompt.includes("Scheria log"))return scheria(body,attempt,timing);
+    if(timeline&&prompt.includes("Ithaca "))return ithaca(body,attempt,timeline,texts);
     const toolId=`odysseus-native-bash-${attempt}`;
     const completed=body.messages.some(message=>Array.isArray(message.content)&&message.content.some(block=>block.type==="tool_result"&&block.tool_use_id===toolId));
     const frames:object[]=[{type:"message_start",message:{id:`odysseus-native-${attempt}-${completed?"done":"tool"}`,type:"message",role:"assistant",model,content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
@@ -52,6 +58,26 @@ export function startPiNativeInference(agentDirectory:string,event:Event,authori
     frames.push({type:"content_block_stop",index:0},{type:"message_delta",delta:{stop_reason:done?"end_turn":"tool_use",stop_sequence:null},usage:{output_tokens:1}},{type:"message_stop"});
     event("pi_inference_response",{attempt,step,completed:done});
     return new Response(frames.map(frame=>`event: ${(frame as {type:string}).type}\ndata: ${JSON.stringify(frame)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});
+  }
+  function ithaca(body:{messages:{role:string;content:string|{type:string;tool_use_id?:string}[]}[];tools?:{name:string}[]},attempt:number,plan:IthacaTimeline,texts:string[]){
+    const arrivedAt=performance.now();
+    const step=body.messages.flatMap(message=>Array.isArray(message.content)?message.content.filter(block=>block.type==="tool_result"&&block.tool_use_id?.startsWith(`ithaca-${attempt}-`)):[]).length;
+    event("timeline_request",{attempt,step,at:arrivedAt});
+    const frames:object[]=[{type:"message_start",message:{id:`odysseus-ithaca-${attempt}-${step}`,type:"message",role:"assistant",model,content:[],stop_reason:null,stop_sequence:null,usage:{input_tokens:1,output_tokens:0}}}];
+    // A harbour record is one bash write, for the journal begin and finish timings.
+    const request=texts.findLast(text=>text.includes("Odysseus requests"))??"";
+    const harbour=/Ithaca harbour record (\d+)/.exec(request),cell=/Ithaca timeline cell (\d+)/.exec(request);
+    const next=harbour?(step===0?["bash",{command:`echo Eurycleia ${harbour[1]} > notes/ithaca-harbour-${harbour[1]}.md`},null] as const:undefined)
+      :cell?plan.cells[Number(cell[1])]?.steps[step]:undefined;
+    if(next){
+      const [name,input]=next;
+      if(!body.tools?.some(tool=>tool.name===name))throw Error(`Actual Pi SDK did not expose ${name} to the timeline turn`);
+      frames.push({type:"content_block_start",index:0,content_block:{type:"tool_use",id:`ithaca-${attempt}-${step}`,name,input:{}}},{type:"content_block_delta",index:0,delta:{type:"input_json_delta",partial_json:JSON.stringify(input)}});
+    }else frames.push({type:"content_block_start",index:0,content_block:{type:"text",text:""}},{type:"content_block_delta",index:0,delta:{type:"text_delta",text:"Odysseus files the Ithaca timeline."}});
+    frames.push({type:"content_block_stop",index:0},{type:"message_delta",delta:{stop_reason:next?"tool_use":"end_turn",stop_sequence:null},usage:{output_tokens:1}},{type:"message_stop"});
+    const response=frames.map(frame=>`event: ${(frame as {type:string}).type}\ndata: ${JSON.stringify(frame)}\n\n`).join("");
+    event("timeline_response",{attempt,step,tool:next?.[0]??null,label:next?.[2]??null,toolUseId:next?`ithaca-${attempt}-${step}`:null,at:performance.now()});
+    return new Response(response,{headers:{"content-type":"text/event-stream"}});
   }
   // A fictional host-held key, sent only to this offline loopback fixture.
   writeFileSync(join(agentDirectory,"models.json"),JSON.stringify({providers:{anthropic:{baseUrl:`http://127.0.0.1:${server.port}`,apiKey:HOST_KEY}}}));
