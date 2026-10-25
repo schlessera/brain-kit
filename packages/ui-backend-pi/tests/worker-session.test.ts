@@ -179,7 +179,7 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
       callback();
     } });
     return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }),
-      turnTemp: { root: tmp, space: () => ({ total: 0, free: 0 }), close: () => { closed++; } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+      turnTemp: { root: tmp, space: () => ({ total: 0, free: 0 }), closeAsync: async () => { closed++; } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const events: unknown[] = [], frames: ServerMessage[] = [];
   await createPiBackend({ brainPath: brain, sessionDir, maintenance: { startupView: scratchReader, tempDomain: { statePath: join(scratchReader.storage.root, "maintenance-state.db") } } }).startTurn({
@@ -204,6 +204,58 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
   expect(closed).toBe(1);
   expect(worker.processStateLedger().turnTempHeld).toBe(0);
   rmSync(tmp, { recursive: true, force: true });
+});
+test("Pi releases a turn's turn-temp reservation only once its awaited close confirms, and retries an unconfirmed close (#2854)", async () => {
+  const base = launch.getMockImplementation()!;
+  const attempts = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+  let closes = 0;
+  launch.mockImplementation(async (...args: unknown[]) => ({ ...await base(...args),
+    turnTemp: { root, space: () => ({ total: 0, free: 0 }),
+      close() { throw new Error("PI_SYNC_TURN_TEMP_CLOSE_ON_AN_ASYNC_LAUNCH"); },
+      closeAsync: () => attempts[closes++]!.promise } }));
+  const baseline = worker.processStateLedger().turnTempHeld;
+  const until = async (count: number) => {
+    for (const deadline = Date.now() + 3_000; closes < count && Date.now() < deadline;) await Bun.sleep(5);
+    expect(closes, "PI_TURN_TEMP_CLOSE_ATTEMPTED").toBe(count);
+  };
+  const turning = turn(null);
+  await until(1);
+  expect(worker.processStateLedger().turnTempHeld, "PI_RESERVATION_HELD_WHILE_CLOSE_PENDING").toBeGreaterThan(baseline);
+  attempts[0]!.reject(Object.assign(new Error("worker_identity_cleanup_unconfirmed: fixture"), { cleanupUnconfirmed: true }));
+  await until(2);
+  expect(worker.processStateLedger().turnTempHeld, "PI_UNCONFIRMED_CLOSE_KEEPS_RESERVATION").toBeGreaterThan(baseline);
+  attempts[1]!.resolve();
+  await turning;
+  expect(worker.processStateLedger().turnTempHeld, "PI_CONFIRMED_RETRY_RELEASES_RESERVATION").toBe(baseline);
+  expect(closes).toBe(2);
+});
+for (const ending of ["inactive abort", "initialization failure"] as const) test(`a Pi worker that never ran a turn awaits its turn-temp close on ${ending} (#2854)`, async () => {
+  const base = launch.getMockImplementation()!;
+  const gate = Promise.withResolvers<void>();
+  let closes = 0;
+  launch.mockImplementation(async (...args: unknown[]) => {
+    const launched = await base(...args) as any;
+    if (ending === "initialization failure") {
+      // The worker refuses its init frame; the session never becomes ready.
+      launched.stdin = new Writable({ write(_chunk, _encoding, callback) { sendPipe(launched.stdout, { type: "error", message: "Odysseus refused the voyage" }); callback(); } });
+    }
+    return { ...launched, turnTemp: { root, space: () => ({ total: 0, free: 0 }),
+      close() { throw new Error("PI_SYNC_TURN_TEMP_CLOSE_ON_AN_ASYNC_LAUNCH"); },
+      closeAsync: () => { closes++; return gate.promise; } } };
+  });
+  const baseline = worker.processStateLedger().turnTempHeld;
+  const caps = { askUser: false, askUserList: false, askUserRank: false, location: false, activity: false, mask: false };
+  const ended = ending === "inactive abort"
+    ? openPiWorkerSession({ brainPath: brain }, sessionDir, { caps }).then(({ session }) => session.abort())
+    : openPiWorkerSession({ brainPath: brain }, sessionDir, { caps }).then(() => undefined);
+  const outcome = ended.then(() => "resolved", () => "rejected");
+  for (const deadline = Date.now() + 3_000; !closes && Date.now() < deadline;) await Bun.sleep(5);
+  expect(await Promise.race([outcome, Bun.sleep(50).then(() => "pending")]), "PI_UNPROMPTED_END_AWAITS_TURN_TEMP_CLOSE").toBe("pending");
+  expect(worker.processStateLedger().turnTempHeld, "PI_UNPROMPTED_RESERVATION_HELD_WHILE_CLOSE_PENDING").toBeGreaterThan(baseline);
+  gate.resolve();
+  expect(await outcome).toBe(ending === "inactive abort" ? "resolved" : "rejected");
+  expect(worker.processStateLedger().turnTempHeld, "PI_UNPROMPTED_CONFIRMED_CLOSE_RELEASES_RESERVATION").toBe(baseline);
+  expect(closes).toBe(1);
 });
 test("growth reserve has a 1 MiB floor and scales to 25 percent", () => {
   expect(sessionReserveBytes(1)).toBe(MiB);
@@ -263,7 +315,12 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
     exited = process.exited.then(code => { childExited = true; events.push("exited"); return code; });
     return { stdin: process.stdin, stdout: Readable.fromWeb(process.stdout as never), stderr: Readable.fromWeb(process.stderr as never), exited,
       kill() { events.push("killed"); process!.kill("SIGKILL"); }, limitReport: () => ({ hits: [], fatal: false }),
-      turnTemp: { close() { events.push("turn-temp-close"); } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+      turnTemp: { async closeAsync() {
+        events.push("turn-temp-close");
+        // The reservation stays charged until the awaited close confirms (#2854).
+        await Bun.sleep(20);
+        if (worker.processStateLedger().turnTempHeld > baseline) events.push("turn-temp-still-charged");
+      } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const opening = openPiWorkerSession({ brainPath: brain }, sessionDir, { workerStartupView: profile === "strict" ? view : undefined,
     workerSandbox: { brain, restricted: false, profile, scratchAliasesRemoved: [], areas: profile === "strict" ? [{ name: "workspaces", rel: "workspaces", mount: { path: join(brain, "workspaces"), writable: true } }] : [] } as never,
@@ -275,7 +332,8 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
     expect(childExited, "PI_WORKER_START_FAILURE_DRAINS_REAL_CHILD").toBe(true);
     expect(outcome, "PI_WORKER_START_FAILURE_PRESERVES_CALLBACK_ERROR").toBe(failure);
     expect(worker.processStateLedger().turnTempHeld, "PI_WORKER_START_FAILURE_RELEASES_RESERVATION").toBe(baseline);
-    expect(events).toEqual(profile === "strict" ? ["callback", "killed", "exited", "turn-temp-close", "native-cleanup"] : ["callback", "killed", "exited", "turn-temp-close"]);
+    expect(events, "PI_START_FAILURE_AWAITS_TURN_TEMP_CLOSE").toEqual(["callback", "killed", "exited", "turn-temp-close", "turn-temp-still-charged",
+      ...profile === "strict" ? ["native-cleanup"] : []]);
     expect(native).toHaveBeenCalledTimes(profile === "strict" ? 1 : 0);
     expect(receivedInit, "PI_WORKER_START_FAILURE_INITIALIZES_NO_PROVIDER").toBeUndefined();
   } finally { process?.kill("SIGKILL"); await exited; await result; native.mockRestore(); }

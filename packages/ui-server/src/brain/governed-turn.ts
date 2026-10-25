@@ -131,6 +131,9 @@ export function createGovernedTurns(options: {
       const gate = options.execution.gate();
       const manifests = options.execution.manifests();
       if (!gate || !manifests) throw new Error("Hosted turns require the writer gate and durable manifests");
+      // Governed turns that end from here on may have written into this
+      // turn's checkpoints before their quarantine (#2699).
+      const since = Date.now();
       const hold = await gate.acquire("shared", `turn:${turnId}`, { signal, turn: true });
       let startupView: WorkerStartupView | undefined, privateIndex: string | undefined, indexOutcome: PrivateIndexOutcome | undefined;
       const discardPrivateIndex = () => { if (privateIndex) { const dir = privateIndex; privateIndex = undefined; removePrivateIndexDirectory(dir); } };
@@ -150,7 +153,8 @@ export function createGovernedTurns(options: {
         const refused = unsupportedProviderSelectors(policy.policy);
         const types = providerTypeSelectors(policy.policy);
         const translate = (view: WorkerStartupView) => translateProviderTypesInView({ brainPath: options.brainPath, policy: policy.policy, view,
-          maskPaths: options.maskPaths, signal, ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
+          maskPaths: options.maskPaths, signal, appeared: root => manifests.appearedIn(root, since),
+          ...(options.privateIndexCommand ? { command: options.privateIndexCommand } : {}) });
         let typeFolders: Record<string, string[]> = {};
         if (types.length && !refused.length) {
           const translated = await translate(startupView);

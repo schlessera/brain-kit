@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:130-290`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:130-294`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:614-619`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:619-624`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-292`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-296`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -842,7 +842,7 @@ worker's command starts, the server opens that tmpfs from outside through the
 sandbox's `/proc/<pid>/root`. It waits until the path is a tmpfs of exactly
 the allowance on another device than the server's own `/tmp`, and keeps the
 descriptor
-(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1111-1139`).
+(`function* openPrivateTurnTempSteps`, `packages/ui-sdk/src/server/worker-launcher.ts:1125-1153`).
 Every later read goes through that descriptor, after the worker's namespace
 is gone as well, and never enters another mount, so runtime state below
 `/tmp` is never read as turn temp. The allowance (256 MiB by default,
@@ -922,7 +922,8 @@ to the user.
 
 **Delivered journal behavior (#1652).** The host records raw observations at
 admission, tool completion, 15-second scope observations and turn completion
-before quarantine/gate release. The journal and private content objects are
+before quarantine/gate release. Since #2834 a proven read's tool completion
+is not observed ([per-result observation schedule](#per-result-observation-schedule--2026-10-25-2834)). The journal and private content objects are
 operational state beside `DB_PATH`, masked from workers; they do not make
 `brain.db` authoritative. Descriptor walking, the pinned ignore matcher and
 the stat cache were implemented by
@@ -1193,6 +1194,118 @@ version. This conservative recovery cannot infer that an unrecorded path was
 never read. Sessions with complete retained observations preserve the approved
 never-read behavior across restarts. There is no reconstruction of authority
 from worker transcripts, and no extension of the observed-shell guarantee.
+
+### Per-result observation schedule — 2026-10-25 (#2834)
+
+> **Maintainer ruling (2026-10-24), Option A.** Schedule per-result
+> observations by proven write capability in the actual execution path. Only a
+> call proven read-only there may skip its observation. Bash, write-capable and
+> unknown or custom calls keep it; a tool name or risk label alone is not
+> evidence. Terminal and periodic capture, background-write completeness and
+> the scope-limit bound stay; no coalescing, overshoot relaxation or durability
+> change.
+
+**Where the next request waited.** The bridge never awaits an observation: it
+starts one per result and carries on
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:188`).
+The wait is the observation's hold. `held` takes it synchronously, before it
+queues the capture
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:171-190`),
+and the scope monitor's hold freezes every active turn's productive workers
+until the capture completes (`before() {`,
+`packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
+its worker, so a frozen worker cannot send its next provider request until the
+resume. On the native fixture the gap between a result and the next request
+tracked the hold, not the bridge call.
+
+**The schedule.** Every tool result is still observed, unless the call is
+proven read-only, no other call of an active turn is still running, and no
+active turn has run a call whose effects may outlast it
+(`toolEnded(turnId: string, toolUseId: string)`,
+`packages/ui-server/src/brain/turn-journal.ts:411-418`). Admission, turn end,
+the 15-second timer, scope-limit observations, approved policy writes and
+removal coverage observe exactly as before.
+
+**Proof comes from the execution path.** The backend reports where each call
+ran through the server-only `StartTurnRequest.toolExecution`, and the host
+classifies that evidence together with the call's name
+(`export function toolObservation`,
+`packages/ui-server/src/brain/tool-observation.ts:37-42`). A call without
+evidence is unproven.
+
+| Calls | Where they run | Evidence | Result |
+| --- | --- | --- | --- |
+| Host bridge reads: `brain_read_base`, `query_activity`, `inbox_list`, `inbox_get`, `show_block`, `ask_user*`, `get_current_location` | In the host's handler. They read the UI database, Activity, a Git object or the client, and none reads the index, so no index barrier runs before them | The host dispatched that call's `bridge` or `readBase` RPC; it took no lock and reported no file phase | Not observed |
+| Host bridge writers: the application route (`brain_add`, `brain_update`, `brain_archive`, strict `write_file` and `edit_file`), `inbox_add`, `resolve_action`, `complete_share`, `request_image_mask`, `propose_policy_change`, reference tools | In the host's handler; their writes finish before the result | Same | Observed |
+| Pi `read_file` (direct worker read) | The curated `readFileSync` in the worker | The governed `read_start` and `read_end` RPCs for that call, and no lock | Not observed |
+| Pi `write_file`, `edit_file` (direct worker writers) | The curated write under its path lock | The lock RPC plus `write_check` and `write_end` | Observed |
+| `bash`, `grep`, `brain_search`, `brain_context`, `brain_read`, `brain_list`, `brain_graph`, extension and subagent tools, anything else | A subprocess, or brain-owned code: `brain.config.ts` evaluated in the worker by the first index query (`async function ensureContext`, `packages/ui-backend-pi/src/brain-access.ts:156`), which stays loaded. Index readers also run a host index barrier first, which can write `.brain-index/` | None | Observed, and every later result of the turn is observed too |
+| Every Claude tool | Built-ins run in the worker next to project settings hooks and the brain's own MCP server, which can run brain-owned code on any tool event | None reported | Observed, as before |
+
+The pi backend reports evidence only from its own record of each call's RPCs.
+A call that names two tools, takes the write lock as a read, or reports only
+part of its read proves nothing (`export function provenToolExecution`,
+`packages/ui-backend-pi/src/worker-session.ts:48-56`). It reports nothing at
+all for a worker that loads extensions. Extension handlers run on every tool
+event, bridge reads included, and can write at any time
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:448`).
+With extensions loaded, which is pi's default, every result is observed as
+before. The worker's reports are evidence only while it has run nothing but
+curated code. Once it admits a call outside the provable set (`bash`, `grep`,
+an index tool that loads `brain.config.ts`, an application tool), or starts a
+call under a running call's identity, it reports nothing more until it exits.
+Code it ran could otherwise report itself as a host read. The host also
+classifies evidence against the name the call started with, so host evidence
+for a call that started as another tool proves nothing either.
+
+**Completeness.** A skipped result belongs to a call that changed nothing and
+left nothing running, at a moment when nothing else in an active turn was
+running or could still be writing. The turn's terminal observation captures the
+whole brain root, whichever results were observed before it, so every path's
+state at turn end is in the journal. Writers are observed after their own result, as
+before. After an unproven call, every later result in that turn is observed,
+so a background writer's versions between calls are retained at the same
+points as before. A call still running keeps a proven read's result observed,
+so that call's intermediate versions are retained too. What the schedule can
+delay is a change by a writer outside every active turn's calls: another
+session without a journal, host maintenance or an external editor. If it lands
+while the active turns make only proven reads, the change is captured by the
+next observation the schedule keeps: the 15-second observation or the turn's
+end. Those two already bounded it, because a turn can go any length of time
+without a tool result; a per-result observation captured it only by
+coincidence. Such a writer's intermediate version, overwritten before the next
+kept observation, is not retained, just as it was not when no tool result fell
+between.
+
+**Scope limits.** `files_changed` and `turn_bytes` are evaluated on each
+observation's facts. A proven read changes nothing, so it cannot cross a limit.
+A writer's result is still observed, so its own crossing is detected there.
+After an unproven call every result is observed, so a limit that a background
+writer crosses between two calls is detected at the next result, as before.
+
+**Measured.** The fixture model of `scripts/prove-native-host.ts
+--observation-timing` makes 20 calls of each tool, one per request, on the
+native fixture (pi, governed, UID 1000, 2,000 notes); the PR records the host
+load. Targets: a proven read adds under 50 ms median over its tool time, a
+writer under 150 ms, and journal begin plus finish stay under 300 ms median.
+Measured on 2026-10-25 at host load 12–17, median added ms with its p95
+(added = round trip minus tool time) and the share of calls whose worker was held:
+
+| Calls | Before | After |
+| --- | --- | --- |
+| Proven reads (`read_file`, `brain_read_base`, `query_activity`, `inbox_list`, `read_file` after a writer) | 546–607, held 19–20 of 20 | 72–98, held 0 of 20 |
+| Writers (`write_file`, `edit_file`) | 639–754, held 20 of 20 | 668–774, held 20 of 20 |
+| Unproven (`brain_search`, `bash`, `read_file` after `bash`) | 556–665, held 19–20 of 20 | 571–704, held 18–20 of 20 |
+
+A proven read no longer waits for an observation: its remaining cost is pi's
+own response handling and the relay, about 20 ms after the result and the rest
+before the call starts. At that load it does not reach the 50 ms target. A
+writer's result is observed as before, so writers stay far above 150 ms, and
+journal begin plus finish stay above 300 ms (Claude 1,124 ms, pi 3,508 ms).
+The observation's native checkpoint and release dominate a writer's cost
+(#2872), and pi's finish also retains a whole new index version after each
+automatic refresh (#2873). Neither can be cut by scheduling without weakening
+capture, so these targets are reported as unmet rather than relaxed.
 
 ## Monitoring
 
@@ -1524,7 +1637,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1837`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1899`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -1583,7 +1696,7 @@ as agent workers. It retains one execution view and binds the owned stage drain
 before setup can spawn a worker, so setup failure also preserves unresolved
 cleanup authority. Credentialed and no-helper maintenance keep their existing
 paths (`launchMaintenanceWorker`,
-`packages/ui-sdk/src/server/maintenance-worker.ts:239-316`).
+`packages/ui-sdk/src/server/maintenance-worker.ts:241-319`).
 
 The frozen Git adapter is concrete first-party input. Its bounded installer
 places only its fixed files in an initially absent private control directory
@@ -1751,9 +1864,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:248-255`;
+`packages/ui-sdk/src/server/worker-protection.ts:271-278`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:258-296`).
+`packages/ui-sdk/src/server/worker-protection.ts:281-319`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -2053,7 +2166,7 @@ every turn without a proven recipient:
     document's text there.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:83-89`), together with
+    `packages/ui-backend-pi/src/worker-session.ts:99-105`), together with
     that session's fixed system-prompt append. Its stored native file
     observations are content hashes, not text. Pi has no memory folder; its
     worker receives only `settings.json` (with `auth.json` and `models.json`
@@ -2088,7 +2201,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:178-187`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:182-191`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2183,7 +2296,7 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:363`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:366`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
@@ -2271,7 +2384,7 @@ were rejected.
   stores that value whatever its path. The taxonomy alone therefore does not
   bound a type. Admission also reads the turn's immutable view, data only, for
   `.md` files outside the masked folders whose frontmatter declares the type
-  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:60-98`).
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:126-164`).
   It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
   and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
   the file it resolves to, as the indexer reads it, unless that file is in a
@@ -2286,7 +2399,7 @@ The taxonomy is code in `brain.config.ts` and its modules, so the host does
 not load it. The brain's own CLI reports it (`brain config check --json`)
 from a credential-free strict worker on the startup view with the literal
 folders masked (`readProviderTaxonomy`,
-`packages/ui-server/src/brain/provider-types.ts:35-46`). That worker sees
+`packages/ui-server/src/brain/provider-types.ts:95-112`). That worker sees
 selected documents outside the literal folders, so it writes into a throwaway
 directory that is deleted before the private index is created. Its answer is
 parsed as untrusted data: a malformed or oversized answer refuses every type
@@ -2296,8 +2409,74 @@ is its path's type under the same configuration, so the reported folders
 decide which assets are hidden. That trusts the code the configuration runs.
 `brain.config.ts` and `node_modules` are protected (tier B), but local
 modules, helper files the configuration imports and the `scripts/brain-cli.ts`
-fallback are not: a turn that rewrites them can make a later admission's
-taxonomy misreport, and so leave that type's assets outside the masks.
+fallback were not: a turn that rewrote them could make a later admission's
+taxonomy misreport, and so leave that type's assets outside the masks. The
+next ruling closes that.
+
+**The taxonomy runs only protected code (maintainer, 2026-10-24, #2699
+option B).** Type translation is refused, naming the brain's configuration
+and the reason, unless protection of its complete executable load set is
+established; the resulting restriction of previously accepted configurations
+is approved. A partial list of protected entry files was ruled insufficient,
+and so was trusting the worker's own account of what it loaded, since code
+that runs in it can rewrite that account. The load set is therefore not
+computed. It is enforced by what the worker can see: the brain path is an
+empty tmpfs with only the policy's protected paths bound back read-only
+(`WorkerProviderMasks.visible`; `if (masks.visible)`,
+`packages/ui-sdk/src/server/worker-protection.ts:194-214`). An import, a
+local module, a `tsconfig.json` alias or a data file outside them is simply
+absent, so the configuration loads only from what no governed turn can
+change, or does not load, and its own error, which names the file, becomes
+every type's refusal. Two cases are judged on the host first, by name
+(`taxonomyProtection`,
+`packages/ui-server/src/brain/provider-types.ts:62-83`): a policy that
+releases a tier B name the load reads (`brain.config.ts`,
+`brain.config.json`, `package.json`, `bun.lock`, `node_modules`), and a CLI
+that is a brain file outside the protected paths, such as the
+`scripts/brain-cli.ts` fallback. Each protected path and every folder on the
+way to it must be neither a link, which bubblewrap would follow in a bind's
+source, nor a hardlinked file. Hosted and autonomous admission share
+`translateProviderTypesInView`, so both refuse before any worker reaches a
+provider. An owner keeps translation by adding the files to the policy's
+`protect` list, which also makes them read-only to governed turns.
+
+Hiding what is not protected settles code but not data: a protected
+configuration that reads or probes an unprotected file loads either way and
+can report another taxonomy without it. The taxonomy is therefore read twice
+on the same checkpoint, once with only the protected paths and once with the
+whole view, and every type refuses unless both agree; only the protected read
+is used. The whole-view read can run code a turn wrote, which can make the two
+agree when they would not, so the check is not proof that the configuration
+reads nothing else. It refuses every configuration whose answer honestly
+depends on other files. What it cannot refuse, a configuration that optionally
+imports turn-writable code which then hides the difference, still gets masks
+from the protected files alone: nothing a turn can write chooses them. Where
+such a configuration makes a type's territory depend on files a turn can
+change, a turn can already change that territory through those files, by the
+owner's own definition. `.brain/` and `.brain-ui/`, which the server writes for
+turns (areas, inbox staging), are never shown, even when protected. Three more
+host checks follow from a review of the first
+cut. A protected name that does not exist is not mounted in a governed worker,
+so a turn can create it, and its end quarantines it; until then it is no proof
+of the owner, so the view is compared with the start manifest of every
+governed turn open or ended since admission began (`appearedInView`,
+`packages/ui-server/src/brain/governed-manifest.ts:160-168`). A brain path
+whose canonical path differs (a link; a trailing slash is not a difference)
+refuses, because the worker's runtime read paths can restore the live brain
+under its real name, outside the empty brain path.
+And every CLI argument naming a brain file is judged however it is spelled.
+
+Protection is judged against the policy at admission. A file that an earlier
+policy left writable keeps what a turn wrote to it then; the supported-input
+contract tells owners to review a file before protecting it. Code outside the
+brain, which no turn writes, still loads. The relative `bun
+scripts/brain-cli.ts` fallback cannot launch in a masked worker at all (the
+launcher requires an absolute executable), so a protected fallback refuses
+too until that is fixed separately (#2865). Host writers that a turn drives
+outside its worker, such as inbox staging and an autonomous turn's exactly
+approved application, do not consult the policy's `protect` list; a
+configuration that reads files they write is outside this rule until they do
+(#2876).
 Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
@@ -2414,7 +2593,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:148-149`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:151-152`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -2697,11 +2876,11 @@ An ordinary group-shared directory was accessible, but the worker's private
 mount and namespace links through `/proc/<pid>` were denied. Changing the
 private directory to `0770` did not remove that process-access barrier. The
 current launcher opens mounts directly (`function openPrivateState`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1074-1102`;
+`packages/ui-sdk/src/server/worker-launcher.ts:1088-1116`;
 `function* openPrivateTurnTempSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1111-1137`) before population and
+`packages/ui-sdk/src/server/worker-launcher.ts:1125-1151`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1285-1358`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1314-1402`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
@@ -2813,6 +2992,36 @@ supervision was lost; the selected policy instead fails and terminates it.
 Unbounded shared storage, Btrfs/qgroup redesign and universal cross-worker
 confinement do not follow from this ruling. The existing optional no-helper,
 same-uid mask-only mode remains available with truthful host-status disclosure.
+
+### Awaited broker cleanup after launch — 2026-10-24
+
+The maintainer selected **option A** on
+[#2854](https://github.com/schlessera/brain-kit/issues/2854): both backends
+explicitly await a separate-UID worker's handle cleanup, behind one shared
+single-flight broker close. It extends the cleanup rule above to the closes
+that run after an asynchronous launch has returned.
+
+- **Confirmed means awaited.** A runtime-state or turn-temp handle's awaited
+  close (`closeAsync`) resolves only once the broker's asynchronous control
+  steps have confirmed cleanup. The backend awaits it before it releases the
+  turn's storage reservation, authority or accounting. Scheduling a close is
+  not success. An unconfirmed close rejects, keeps ownership charged and can be
+  retried. The synchronous throw remains only for synchronous launches.
+- **One close, once.** The launcher counts handle references and keeps one
+  broker close in flight, whoever asks: the last handle, a zero-handle exit or
+  a failed supervision. Concurrent or repeated closes share it; references and
+  descriptors are released once; a failed confirmation can be retried without
+  releasing a reference again. Releasing a handle that is not the last waits
+  for nothing.
+- **Exit settlement stays separate.** A worker's exit never waits for a handle
+  still held, because the backends release their handles only after the exit.
+  An exit holding no handle settles after the broker close, and its refusal is
+  the exit's. A failed supervision is terminated before the close, and an
+  unconfirmed close refuses that exit. Cleanup failures reach the lifecycle
+  owner instead of being dropped after the exit has settled.
+
+Termination and the signal requests stay synchronous; this ruling does not
+cover them.
 
 ### Outward actions (G5)
 
@@ -3115,7 +3324,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:249-312`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:257-320`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3138,7 +3347,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:462-497`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:501-536`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:111-121`.
 
 ### Concurrent edits
@@ -3210,7 +3419,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:556-621`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:563-628`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

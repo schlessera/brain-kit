@@ -81,6 +81,25 @@ Direct Vitest diagnostics do not acquire whole-command ownership.
 Editorial captures retain their existing separate capture guard. Use the
 coordinated entry points or separate worktrees when overlapping those runs.
 
+The frozen native diagram control also requires the independently qualified
+installation bytes and modes. An `installation-mismatch` with matching frozen
+source is an install problem: keep its source revision, 859-file inventory and
+qualification fingerprints unchanged. A frozen lockfile does not repair a
+modified shared package cache, and copying that cache copies the modifications
+([#1980](https://github.com/schlessera/brain-kit/issues/1980)). Recover only the
+owned checkout through a fresh private cache and independent file copies:
+
+```sh
+native_fixture_cache=$(mktemp -d)
+bun install --force --frozen-lockfile --backend=copyfile --cache-dir "$native_fixture_cache"
+bun run test ./tests/native-diagram-inputs.test.ts
+```
+
+Retain the failed and restored installation identities. Verify any suspected
+package edits against the lockfile's archive integrity; never normalize unknown
+bytes or modes to force qualification. Leave shared caches and other checkouts
+alone. This recovery does not prevent future diagnostic cache edits (#1980).
+
 The Linux backend nonpersistence tests require `bubblewrap` and permitted user
 namespaces. They launch the installed Claude and pi adapters with a loopback
 fixture model inside a network namespace; no provider credential or external

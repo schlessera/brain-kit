@@ -1,4 +1,4 @@
-import { closeSync, mkdtempSync, openSync, rmSync, constants, createWriteStream } from "node:fs";
+import { closeSync, fstatSync, mkdtempSync, openSync, readdirSync, rmSync, statSync, constants, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -27,6 +27,33 @@ export function fifoStream(fd: number): ReadableStream<Uint8Array> {
   });
 }
 
+/** A FIFO by inode: what every descriptor on it shares, whatever its number. */
+interface FifoIdentity { readonly dev: number; readonly ino: number }
+
+const fifoHeld = (fifos: readonly FifoIdentity[]): boolean => {
+  let fds: string[];
+  try { fds = readdirSync("/proc/self/fd"); } catch { return false; }
+  return fds.some(fd => {
+    try { const { dev, ino } = statSync(`/proc/self/fd/${fd}`); return fifos.some(fifo => fifo.dev === dev && fifo.ino === ino); }
+    catch { return false; }
+  });
+};
+
+/**
+ * Resolves once no descriptor in this process refers to any of these FIFOs
+ * (#2862). Bun's file stream and sink (`fifoStream`, `Bun.file(fd).writer()`)
+ * work through their own duplicate of the descriptor they are given, and
+ * close it on one of Bun's pool threads after the stream ends, with nothing a
+ * caller can await: while asynchronous file I/O holds the pool, the duplicate
+ * stays open. The wait is bounded, because that duplicate is Bun's to close:
+ * after `limitMs`, or where `/proc/self/fd` cannot be read, it resolves
+ * without that confirmation. One scan of the descriptor table is the usual cost.
+ */
+async function fifosReleased(fifos: readonly FifoIdentity[], limitMs = 5_000): Promise<void> {
+  const deadline = performance.now() + limitMs;
+  for (let wait = 1; fifoHeld(fifos) && performance.now() < deadline; wait = Math.min(wait * 2, 16)) await Bun.sleep(wait);
+}
+
 /** Bun's web stream and Node's typings differ only in name. */
 const nodeReadable = (stream: ReadableStream<Uint8Array>): Readable =>
   Readable.fromWeb(stream as unknown as import("node:stream/web").ReadableStream<Uint8Array>);
@@ -45,6 +72,7 @@ export function createWorkerPipes() {
 export function* createWorkerPipesSteps() {
   const root = mkdtempSync(join(tmpdir(), "brain-worker-pipes-"));
   const owned = new Set<number>();
+  const fifos: FifoIdentity[] = [];
   const close = (fd: number): void => { if (owned.delete(fd)) closeSync(fd); };
   const cleanup = (): void => { for (const fd of [...owned]) close(fd); };
   try {
@@ -55,6 +83,7 @@ export function* createWorkerPipesSteps() {
     if (result.exitCode !== 0) throw new Error(`mkfifo failed: ${result.stderr}`);
     const channel = (path: string): [number, number] => {
       const hold = openSync(path, constants.O_RDWR); owned.add(hold);
+      const { dev, ino } = fstatSync(hold); fifos.push({ dev, ino });
       const reader = openSync(path, constants.O_RDONLY); owned.add(reader);
       const writer = openSync(path, constants.O_WRONLY); owned.add(writer);
       close(hold);
@@ -70,6 +99,8 @@ export function* createWorkerPipesSteps() {
       closeChild: () => { for (const fd of [input[0], output[1], error[1]]) close(fd); },
       closeInput: () => close(input[1]),
       cleanup,
+      /** Resolves once no descriptor on these FIFOs remains in this process, Bun's own duplicates included. */
+      released: () => fifosReleased(fifos),
       /** The parent's three ends as raw descriptors, now owned by the caller. */
       take: () => {
         for (const fd of [input[1], output[0], error[0]]) owned.delete(fd);

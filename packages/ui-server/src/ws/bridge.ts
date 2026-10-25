@@ -179,8 +179,13 @@ export function makeBridge(
           host.catalog.recordEffectiveThinkingLevel?.(turn.sessionId, turnId, msg.effectiveThinkingLevel);
         }
       }
-      if ((msg.type === "tool_use_start" || msg.type === "tool_use_complete") && turn.turnId === turnId) host.scope?.toolCall(turnId, msg.toolUseId);
-      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.observe().catch(error => { turn.abortController.abort(error); emitTurnError(host, turn, error); });
+      if ((msg.type === "tool_use_start" || msg.type === "tool_use_complete") && turn.turnId === turnId) {
+        host.journal?.toolStarted(turnId, msg.toolUseId, msg.toolName, msg.type === "tool_use_start");
+        host.scope?.toolCall(turnId, msg.toolUseId);
+      }
+      // Never awaited here: an observation's hold freezes the turn's workers,
+      // which is what delays a worker's next provider request (#2834).
+      if (msg.type === "tool_result" && turn.turnId === turnId) void host.journal?.toolEnded(turnId, msg.toolUseId).catch(error => { turn.abortController.abort(error); emitTurnError(host, turn, error); });
       if (collector && turn.turnId === turnId) collector.observe(msg);
       if (msg.type === "session_info") {
         if (turn.turnId === turnId) collectedSessionId = msg.sessionId;

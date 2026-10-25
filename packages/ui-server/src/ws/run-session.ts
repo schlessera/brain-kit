@@ -766,6 +766,7 @@ async function runRetainedSession(
           ...(host.journal && governedHold ? { persistClaudeMemory: (change, save) => host.journal!.persistClaudeMemory(turn.turnId, change, save) } : {}),
           ...(governedHold?.startupView ? { workerStartupView: governedHold.startupView } : {}),
           ...(host.scope && governedHold ? { workerStarted: worker => host.scope!.workerStarted(scopeTurnId, worker) } : {}),
+          ...(host.journal && governedHold ? { toolExecution: (toolUseId, path) => host.journal!.toolExecuted(scopeTurnId, toolUseId, path) } : {}),
           ...(governedHold ? { workerSandbox: { ...governedHold.sandbox, ...(commandPolicy ? { commandPolicy } : {}), ...(turnEgress ? { egress: turnEgress } : {}),
             ...(worktreeGeneration ? { worktrees: { source: worktreeGeneration.path } } : {}), ...(referenceViews ? { references: referenceViews } : {}), noteFacts: {
             ...governedHold.sandbox.noteFacts,

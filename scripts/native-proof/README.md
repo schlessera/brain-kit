@@ -20,6 +20,19 @@ index barrier is timed at the bridge, with the host load before and after, in
 the same-turn search sees all 20 edited notes. It is a measurement, not part of
 the default qualification.
 
+`--observation-timing` measures the turn journal's per-call cost (#2834). For
+pi, 11 fresh governed conversations each make 20 calls of one tool, one call
+per request: `read_file`, `brain_read_base`, `query_activity`, `inbox_list`,
+`brain_search`, `write_file`, `edit_file`, a reading `bash`, a writing `bash`,
+and `read_file` once after one `write_file` and once after one `bash` in the
+same worker. For each call it records the model-side round trip (response sent
+to next request received), the tool time between the host's `tool_use_start`
+and `tool_result` frames, and every journal observation and worker hold in
+between. Both backends then run 10 one-write turns and record journal begin and
+finish. Medians, p95s, per-call rows and the host load before and after are in
+`observation-timing.json`. It is a measurement, not part of the default
+qualification.
+
 `bun scripts/prove-worker-identity.ts` is a separate required runtime cell for
 the host identity protocol. It compiles the test-only helper on the host without
 setuid permissions, then installs it as root-owned setuid only inside its owned,

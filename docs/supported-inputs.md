@@ -284,16 +284,62 @@ The taxonomy comes from `brain.config.ts`, which the host never runs: the
 brain's own CLI reports it from a credential-free worker that sees the
 literal-folder masks, and anything that worker writes is discarded. Assets
 (images, PDFs) take their type from their path under that configuration, so
-the reported folders decide which assets are hidden. That trusts the code the
-configuration runs: `brain.config.ts` and `node_modules` are protected paths a
-governed turn cannot change, but local modules, files the configuration
-imports and the brain's own CLI fallback script are not, and a turn that rewrites them can
-change which assets a later turn's type rules hide. Markdown documents stay
+the reported folders decide which assets are hidden. Markdown documents stay
 covered by the frontmatter check whatever the taxonomy reports. Admission
 therefore runs that worker and reads every Markdown file outside the masked
 folders, on top of the private index build. When admission takes a newer
 checkpoint of the brain before the turn starts, it judges the types again on
 that checkpoint.
+
+**Protected taxonomy code (breaking in 0.44.0, #2699).** Because the
+reported folders decide which assets are hidden, a type selector translates
+only when no governed turn could have changed the code the taxonomy runs.
+The taxonomy worker sees only the policy's protected paths: the built-in
+tiers (`brain.config.ts`, `brain.config.json`, `package.json`, `bun.lock`,
+`node_modules`, `bunfig.toml`, `context/policies` and the rest), minus what
+the policy releases, plus its `protect` list. The rest of the brain, `.git`
+included, is absent from that worker, and so are `.brain/` and `.brain-ui/`,
+which the server writes for turns, even when protected. Every type selector
+of the policy
+refuses with `ProviderPolicyRefusedError`, naming the reason, when:
+
+- the policy releases `brain.config.ts`, `brain.config.json`, `package.json`,
+  `bun.lock` or `node_modules`;
+- the CLI that reports the taxonomy is a brain file outside the protected
+  paths, such as the brain's own CLI fallback script, which a brain without
+  a packaged CLI (`node_modules/.bin/brain`) runs;
+- the configuration does not load from the protected paths alone, for
+  example because it imports a helper file, loads a local module
+  (`./<folder>` in `modules`), reads a `tsconfig.json` path alias or reads
+  any other file outside them. The refusal quotes the configuration's own
+  error, which names the file;
+- the taxonomy it reports differs from the one read with the rest of the
+  brain visible too, because the configuration reads or probes a file outside
+  the protected paths. Both reads run on the same checkpoint, and only the
+  protected one is used, so the masks never depend on a file a turn can
+  change even when code such a file holds makes the two reads agree;
+- a protected name, such as `brain.config.ts` beside a `brain.config.json`,
+  was created by a governed turn that is still running, or has ended since
+  admission began, and has not been reconciled. A protected name that does
+  not exist is not mounted, so a turn can create it; its end moves the new
+  file out of the brain;
+- the configured brain path is not its canonical path (it is reached through
+  a symbolic link);
+- a protected path, or a folder on the way to it, is a symbolic link, is a
+  hardlinked file, or is neither a file nor a folder in the turn's view.
+
+To keep translating, add each such file or folder to the policy's `protect`
+list, for example `protect: [modules, lib/odysseus-types.ts]`. A governed turn
+then cannot change it either. A configuration that imports only installed
+packages, as the template's does, needs nothing. A brain that has only the
+fallback script still refuses after protecting it, because that script
+cannot yet start in the taxonomy worker; install the packaged CLI instead.
+Protection is judged against
+the policy in force at admission: a file that an earlier policy left
+unprotected keeps whatever a turn wrote to it then, so review it before
+protecting it. Code outside the brain, which no turn can write, still loads.
+Before 0.44.0 such configurations translated, trusting code a governed turn
+could rewrite; the maintainer approved this restriction on #2699.
 
 **Hardlinks out of masked folders (additive in 0.44.0, #2700).** A folder
 mask hides names, not the file itself. Admission therefore refuses with

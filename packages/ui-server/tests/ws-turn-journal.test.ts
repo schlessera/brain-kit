@@ -123,3 +123,40 @@ test("a real mid-turn journal capacity stop emits the named failure and an error
     expect(Bun.file(resolve(brain, "notes/partial.txt")).size).toBe(2 * 1024 * 1024);
   } finally { host.close(); await journal.close(); await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
 }, 30_000);
+
+test("the host observes after a tool result unless the backend proved where that read ran (#2834)", async () => {
+  const root = await mkdtemp(resolve(tmpdir(), "odysseus-host-schedule-")), brain = resolve(root, "brain");
+  await createFixtureBrain(resolve(import.meta.dir, "../../.."), brain);
+  let app!: Awaited<ReturnType<typeof createApp>>, observations = 0;
+  const counts: Record<string, number> = {};
+  const backend = makeFakeBackend({ id: "schedule-fixture", startTurn: async ({ bridge, toolExecution }) => {
+    bridge.emit({ type: "session_info", sessionId: "sess-ithaca", isNew: true });
+    const call = async (id: string, toolName: string, proven?: "worker_read" | "host_bridge") => {
+      await app.wsHost.journal!.idle(); const before = observations;
+      bridge.emit({ type: "tool_use_start", toolUseId: id, toolName });
+      bridge.emit({ type: "tool_use_complete", toolUseId: id, toolName, input: {} });
+      if (proven) toolExecution!(id, proven);
+      bridge.emit({ type: "tool_result", toolUseId: id, output: "Ithaca", isError: false });
+      await app.wsHost.journal!.idle(); counts[id] = observations - before;
+    };
+    await call("read-proven", "read_file", "worker_read");
+    await call("base-proven", "brain_read_base", "host_bridge");
+    // The name alone proves nothing, and an unproven call may keep writing in
+    // the worker: it and every later result are observed.
+    await call("read-unproven", "read_file");
+    await call("read-after-unproven", "read_file", "worker_read");
+    bridge.emit({ type: "result", sessionId: "sess-ithaca", outcome: "success", durationMs: 1, numTurns: 1, isError: false });
+  } });
+  const native = createNativeJournalFixture(brain, root), broker = native.serve();
+  app = await createApp({ config: resolveServerConfig({ BRAIN_UI_NATIVE_BRAIN_SOCKET: broker.socketPath, BRAIN_PATH: brain, DB_PATH: resolve(root, "ui.db"), HOST: "127.0.0.1", AUTH_MODE: "none", NODE_ENV: "test", BRAIN_UI_MODEL_DISCOVERY: "0", BRAIN_UI_PRICING_DISCOVERY: "0" }), registry: createStaticBackendRegistry([backend], backend.id), observability: createRecordingObservability() });
+  app.wsHost.journal!.onObservation(() => { observations++; });
+  try {
+    const principal = createPrincipal(app.db, { authMethod: "password", label: "Odysseus schedule", ttlSeconds: 60 });
+    const handlers = createWsHandlers(app.wsHost, principal), sent: string[] = [], ws = { send: (text: string) => sent.push(text), close() {}, readyState: 1 } as WSContext;
+    await handlers.onOpen(undefined as never, ws);
+    handlers.onMessage({ data: JSON.stringify({ type: "chat_message", text: "Read the return to Ithaca", requestId: "schedule-request" }) } as MessageEvent, ws);
+    const until = Date.now() + 10_000;
+    while (!sent.some(text => JSON.parse(text).type === "turn_journal" && JSON.parse(text).journal.state === "complete")) { if (Date.now() > until) throw new Error(sent.join("\n")); await Bun.sleep(5); }
+    expect(counts, "HOST_SCHEDULE_BY_PROVEN_EXECUTION_PATH").toEqual({ "read-proven": 0, "base-proven": 0, "read-unproven": 1, "read-after-unproven": 1 });
+  } finally { await app.close(); broker.close(); await native.close(); await rm(root, { recursive: true, force: true }); }
+}, 30_000);

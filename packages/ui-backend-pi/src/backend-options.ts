@@ -198,6 +198,8 @@ export interface SessionEnv {
   workerSignal?: AbortSignal;
   workerStartupView?: import("@schlessera/brain-ui-sdk/internal").WorkerStartupView;
   workerStarted?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["workerStarted"];
+  /** Host-only per-call execution evidence (#2834); never serialized into a worker. */
+  toolExecution?: import("@schlessera/brain-ui-sdk/server").StartTurnRequest["toolExecution"];
   workerSandbox?: import("@schlessera/brain-ui-sdk/internal").WorkerSandbox;
   /** Host-admitted provider masks for the restricted envelope; never serialized into a worker. */
   workerProviderMasks?: import("@schlessera/brain-ui-sdk/internal").WorkerProviderMasks;

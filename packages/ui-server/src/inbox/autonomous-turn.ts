@@ -27,6 +27,7 @@ import { createGovernanceWrites } from "../governance/event-writes.js";
 import { governancePolicyReaderFor, ProviderPolicyRefusedError, providerFolderRoots, providerMaskedFolders, providerTypeSelectors, unsupportedProviderSelectors, type TurnGovernancePolicy } from "../brain/governance-policy.js";
 import { createProviderMaskGuard, type ProviderMaskGuard } from "../brain/provider-mask-refusal.js";
 import { translateProviderTypesInView } from "../brain/provider-types.js";
+import { appearedInView } from "../brain/governed-manifest.js";
 import { providerHardlinks } from "../brain/provider-hardlinks.js";
 import { buildPrivateIndex, createPrivateIndexDirectory, removePrivateIndexDirectory } from "../brain/private-index.js";
 import { ensureIndexDirectory } from "../brain/index-directory.js";
@@ -346,6 +347,7 @@ async function executeAutonomousTurn(
     // The private index is mounted over `.brain-index/`, which the view must
     // hold; the host creates that directory, never a provider folder.
     if (masksFolders) ensureIndexDirectory(brainPath);
+    const since = Date.now();
     startupView = await prepareNativeWorkerStartupView(brainPath, deps.nativeManager, controller.signal);
     controller.signal.throwIfAborted();
     if (!checkPrincipal()) throw new BackendRequestError("Autonomous principal is missing, expired or revoked.");
@@ -353,7 +355,8 @@ async function executeAutonomousTurn(
     let typeFolders: Record<string, string[]> = {};
     if (providerTypeSelectors(policy.policy).length) {
       const translated = await translateProviderTypesInView({ brainPath, policy: policy.policy, view: startupView, maskPaths: deps.privateIndex!.maskPaths,
-        signal: controller.signal, ...(deps.privateIndex!.command ? { command: deps.privateIndex!.command } : {}) });
+        signal: controller.signal, appeared: root => appearedInView(deps.db, brainPath, root, since),
+        ...(deps.privateIndex!.command ? { command: deps.privateIndex!.command } : {}) });
       if (translated.refused.length) throw new ProviderPolicyRefusedError(translated.refused);
       typeFolders = translated.folders;
     }

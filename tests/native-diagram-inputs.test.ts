@@ -51,6 +51,11 @@ test("fixed native qualification binds the independently frozen complete source 
  const control=fixture(),path=process.env.PATH,bin=join(control.root,"commands");mkdirSync(bin);symlinkSync(realpathSync(process.execPath),join(bin,"bun"));
  try{
   process.env.PATH=bin;const binding=control.bind();
+  expect(control.diagnostic(),"FROZEN_NATIVE_INSTALLATION_MUST_MATCH_QUALIFIED_BYTES: recover this owned install from a fresh private cache; never refresh qualification pins").toMatchObject({
+   status:"qualified",stage:"complete",sourceInputs:859,
+   actual:{source:qualifiedSource,installation:qualifiedInstallation},
+   installation:{packages:843,files:59516,bytes:1833832361}
+  });
   expect(binding?.files.length,"COMPLETE_NATIVE_QUALIFICATION_WITHOUT_DOCKER_OR_IMAGE_LOOKUP").toBe(859);
   expect(binding?.files.toSorted()).toEqual(nativeDiagramSourceInventory(control.root).inputs.map(entry=>entry.path).toSorted());
   expect(binding?.identity.source).toBe(qualifiedSource);expect(binding?.identity.installation).toBe(qualifiedInstallation);
