@@ -109,7 +109,7 @@ test.skipIf(!native)("a pi turn waits for its worker's stdio release, however lo
   let settled = false;
   const turn = piTurn(ANSWERING, "none", { promise: release.promise, called: calling.resolve }).then(outcome => { settled = true; return outcome; });
   cleanup.push(() => release.resolve());
-  await Promise.race([calling.promise, Bun.sleep(10_000)]);
+  expect(await Promise.race([calling.promise.then(() => true), Bun.sleep(10_000).then(() => false)]), "PI_TURN_REACHES_RELEASE").toBe(true);
   await Bun.sleep(100);
   expect(settled, "PI_TURN_PENDING_WHILE_RELEASE_WITHHELD").toBe(false);
   release.resolve();

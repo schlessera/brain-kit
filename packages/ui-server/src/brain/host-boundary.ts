@@ -315,8 +315,10 @@ function retainExecutionAdmission(execution: StreamingExecution,
   if (!hold) return execution;
   const kill = () => execution.kill("SIGKILL");
   const stdout = credentialOutput(execution.stdout, kill), stderr = credentialOutput(execution.stderr, kill);
-  void Promise.allSettled([execution.exited, stdout.done, stderr.done]).then(() => hold.release());
-  return { stdout: stdout.stream, stderr: stderr.stream, exited: execution.exited, ...(execution.settled ? { settled: execution.settled } : {}),
+  const released = Promise.allSettled([execution.exited, stdout.done, stderr.done]).then(() => hold.release());
+  // Settled once this admission is released too, and whatever the launch itself still held.
+  const settled = Promise.allSettled([released, execution.settled]).then(() => {});
+  return { stdout: stdout.stream, stderr: stderr.stream, exited: execution.exited, settled,
     get signalCode() { return execution.signalCode; }, kill: execution.kill };
 }
 /**

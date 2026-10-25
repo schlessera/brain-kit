@@ -550,13 +550,15 @@ describe("cron runs jobs through the exec wrapper", () => {
 test("a job through the host boundary ends only once its launch has settled", async () => {
   const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-settled-"));
   const settlement = Promise.withResolvers<void>();
+  const awaited = Promise.withResolvers<boolean>();
   let ended = false;
   const boundary = { isolated: () => true, launch: async () => ({ stdout: stream("Ithaca\n"), stderr: stream(),
-    exited: Promise.resolve(0), settled: settlement.promise, signalCode: null, kill() {} }) } as unknown as HostBoundary;
+    exited: Promise.resolve(0), get settled() { awaited.resolve(true); return settlement.promise; }, signalCode: null, kill() {} }) } as unknown as HostBoundary;
   try {
     const job = runJob({ jobName: "maintain", command: ["brain", "hygiene"], dbPath: join(dir, "brain-ui.db"), childEnv: {}, exec: {},
       stdout: textSink().sink, stderr: textSink().sink, boundary }, { sinkPath: join(dir, "sink.jsonl") }).then(code => { ended = true; return code; });
-    await Bun.sleep(100);
+    expect(await Promise.race([awaited.promise, Bun.sleep(10_000).then(() => false)]), "CRON_JOB_REACHES_LAUNCH_SETTLEMENT").toBe(true);
+    await Bun.sleep(50);
     expect(ended, "CRON_JOB_AWAITS_LAUNCH_SETTLEMENT").toBe(false);
     settlement.resolve();
     expect(await job).toBe(0);
