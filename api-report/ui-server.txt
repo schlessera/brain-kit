@@ -1265,6 +1265,8 @@ signatures (every public export and the types it is made of)
         tokenSet: boolean;
         mintedAt: string | null;
     }
+  ToolExecutionPath (packages/ui-server/src/brain/tool-observation.ts)
+    export type ToolExecutionPath = Parameters<NonNullable<StartTurnRequest["toolExecution"]>>[1];
   TurnGovernancePolicy (packages/ui-server/src/brain/governance-policy.ts)
     export interface TurnGovernancePolicy {
         readonly commandRuleIndices: Readonly<GovernanceCommandRuleIndices>;
@@ -1726,6 +1728,9 @@ signatures (every public export and the types it is made of)
         reserveRevert(turnId: string, sourceTurnId: string, versions: readonly (JournalVersion | null)[]): Promise<void>;
         retainBefore(turnId: string, path: string, signal?: AbortSignal): Promise<JournalVersion | null>;
         summary: (turnId: string) => TurnJournalSummary;
+        toolEnded(turnId: string, toolUseId: string): Promise<void>;
+        toolExecuted(turnId: string, toolUseId: string, path: ToolExecutionPath): void;
+        toolStarted(turnId: string, toolUseId: string, name: string, start: boolean): void;
         version(sessionId: string, turnId: string, sequence: number, side: "after" | "before"): null | {
             bytes: (maxBytes: number) => Buffer<ArrayBufferLike>;
             selected: JournalVersion;

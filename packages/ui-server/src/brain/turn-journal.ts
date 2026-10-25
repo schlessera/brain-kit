@@ -387,7 +387,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     observe(): Promise<void> { return held(() => observe()); },
     /**
-     * A call of an active turn started (`start`) or was described; only its
+     * @internal A call of an active turn started (`start`) or was described; only its
      * own ending settles it. A second start under a running call's identity,
      * or another name, makes that call unproven.
      */
@@ -398,13 +398,13 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (call.name !== name || start && call.started) call.name = null;
       call.started ||= start;
     },
-    /** The backend's evidence of where the call actually ran (`StartTurnRequest.toolExecution`). */
+    /** @internal The backend's evidence of where the call actually ran (`StartTurnRequest.toolExecution`). */
     toolExecuted(turnId: string, toolUseId: string, path: ToolExecutionPath): void {
       const call = calls.get(callKey(turnId, toolUseId));
       if (call) call.path = call.path === undefined || call.path === path ? path : undefined;
     },
     /**
-     * A call's result: observed, unless the call is proven read-only, no
+     * @internal A call's result: observed, unless the call is proven read-only, no
      * other call is still running and no active turn ran a call whose effects
      * may outlast it. A call that could write is observed after its own result.
      */
