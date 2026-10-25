@@ -10,6 +10,7 @@ import {
   runJob,
 } from "../src/cron/run-job";
 import { createUiDb } from "../src/db/client";
+import type { HostBoundary } from "../src/brain/host-boundary";
 import { emitCrontab, TRUSTED_JOB_NAMES } from "../src/cron/emit";
 
 function textSink() {
@@ -541,4 +542,26 @@ describe("cron runs jobs through the exec wrapper", () => {
     // is the one way the namespacing alone would stop protecting it.
     for (const name of TRUSTED_JOB_NAMES) expect(name).not.toContain("-");
   });
+});
+
+// #2863: a maintenance launch frees its writer gate after its exit, once its
+// worker's stdio is released; the cron host closes the gate's database right
+// after the job, so the job ends only once the launch has settled.
+test("a job through the host boundary ends only once its launch has settled", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "brain-ui-cron-settled-"));
+  const settlement = Promise.withResolvers<void>();
+  let ended = false;
+  const boundary = { isolated: () => true, launch: async () => ({ stdout: stream("Ithaca\n"), stderr: stream(),
+    exited: Promise.resolve(0), settled: settlement.promise, signalCode: null, kill() {} }) } as unknown as HostBoundary;
+  try {
+    const job = runJob({ jobName: "maintain", command: ["brain", "hygiene"], dbPath: join(dir, "brain-ui.db"), childEnv: {}, exec: {},
+      stdout: textSink().sink, stderr: textSink().sink, boundary }, { sinkPath: join(dir, "sink.jsonl") }).then(code => { ended = true; return code; });
+    await Bun.sleep(100);
+    expect(ended, "CRON_JOB_AWAITS_LAUNCH_SETTLEMENT").toBe(false);
+    settlement.resolve();
+    expect(await job).toBe(0);
+  } finally {
+    settlement.resolve();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

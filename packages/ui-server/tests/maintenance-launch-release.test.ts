@@ -73,10 +73,14 @@ test("a caller that drains the streams only after the exit sees the exit first, 
     const exit = await Promise.race([worker.exited, Bun.sleep(10_000).then(() => "no exit")]);
     expect(exit, "EXIT_REPORTED_WHILE_RELEASE_PENDING").toBe(0);
     expect(await Promise.all([new Response(worker.stdout).text(), new Response(worker.stderr).text()]), "POST_EXIT_DRAIN_COMPLETES").toEqual(["Ithaca", "Penelope"]);
+    let settled = false;
+    void worker.settled?.then(() => { settled = true; });
     const early = await refusal(execution.gate()!.acquire("exclusive", "before the release", { signal: AbortSignal.timeout(200) }));
-    expect({ releasing, early: early instanceof DOMException }, "GATE_HELD_UNTIL_STDIO_RELEASE").toEqual({ releasing: true, early: true });
+    expect({ releasing, early: early instanceof DOMException, settled }, "GATE_HELD_UNTIL_STDIO_RELEASE").toEqual({ releasing: true, early: true, settled: false });
     release.resolve();
-    const next = await execution.gate()!.acquire("exclusive", "after the release", { signal: AbortSignal.timeout(4_000) });
+    await worker.settled;
+    // Settled means the gate is already free.
+    const next = await execution.gate()!.acquire("exclusive", "after the release", { signal: AbortSignal.timeout(200) });
     const open = fifos.held();
     next.release();
     expect(open, "POST_EXIT_DRAIN_RELEASES_STDIO").toEqual([]);

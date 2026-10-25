@@ -276,6 +276,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     if (launchedChild) {
       await attempt(() => launchedChild!.kill("SIGKILL"));
       await attempt(() => launchedChild!.exited);
+      // Nothing reads its stdio yet: close the server's ends, then wait out Bun's duplicates (#2863).
+      await attempt(() => { launchedChild!.stdin.end(); launchedChild!.stdout.destroy(); launchedChild!.stderr.destroy(); return launchedChild!.released(); });
       workerStorageReleased = await attempt(() => launchedChild!.turnTemp?.closeAsync());
     }
     if (workerStorageReleased) await attempt(() => preparedOutput?.cleanup());

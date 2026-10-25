@@ -33,7 +33,7 @@ const REFUSING = `IFS= read -r init; sleep 0.3; printf 'Penelope' >&2; exit 3`;
  * pool is held from when the last protocol line (`hold`) reached the worker's
  * FIFO, through the worker's teardown, and frees 250 ms after both its outputs end.
  */
-async function piTurn(script: string, hold: "init" | "prompt") {
+async function piTurn(script: string, hold: "init" | "prompt" | "started" | "none", withheld?: { promise: Promise<void>; called(): void }) {
   const root = mkdtempSync(join(tmpdir(), "odysseus-pi-release-"));
   const brain = join(root, "ithaca"), sessionDir = join(root, "sessions");
   mkdirSync(brain); mkdirSync(sessionDir);
@@ -48,9 +48,20 @@ async function piTurn(script: string, hold: "init" | "prompt") {
   const real = worker.launchAgentWorkerAsync;
   const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async input => {
     const launched = await real({ ...input, command: ["/bin/sh", "-c", script] });
+    if (withheld) {
+      const released = launched.released;
+      launched.released = () => { withheld.called(); return withheld.promise.then(released); };
+    }
+    if (hold === "started") {
+      // Nothing reads the outputs of a worker whose start callback refused: they are closed instead.
+      const held = pool = holdWorkPool(fifos.dir);
+      const closed = (stream: NodeJS.ReadableStream) => new Promise(done => stream.once("close", done));
+      void Promise.all([closed(launched.stdout), closed(launched.stderr)]).then(() => Bun.sleep(250)).then(held.release);
+      return launched;
+    }
     const write = launched.stdin.write.bind(launched.stdin) as (chunk: unknown, done: () => void) => boolean;
     launched.stdin.write = ((chunk: unknown) => write(chunk, () => {
-      if (pool || !String(chunk).includes(`"type":"${hold}"`)) return;
+      if (pool || hold === "none" || !String(chunk).includes(`"type":"${hold}"`)) return;
       const held = pool = holdWorkPool(fifos.dir);
       const ended = (stream: NodeJS.ReadableStream) => new Promise(done => stream.once("end", done));
       void Promise.all([ended(launched.stdout), ended(launched.stderr)]).then(() => Bun.sleep(250)).then(held.release);
@@ -63,6 +74,7 @@ async function piTurn(script: string, hold: "init" | "prompt") {
   const frames: ServerMessage[] = [];
   const refused = await startFixtureTurn(backend, brain, { prompt: "Return to Ithaca", profileId: "fixture", signal: new AbortController().signal,
     turnId: "odysseus-release", workerSandbox: sandbox,
+    ...(hold === "started" ? { workerStarted: () => { throw new Error("Odysseus scope freezer refused"); } } : {}),
     bridge: { emit: frame => { frames.push(frame); }, requestPermission: async () => ({ behavior: "deny", message: "fixture" }) } }).then(() => undefined, (error: unknown) => error as Error);
   return { open: fifos.held(), held: Boolean(pool), refused, result: frames.findLast(frame => frame.type === "result") };
 }
@@ -82,4 +94,27 @@ test.skipIf(!native)("a refused pi worker initialization settles only once its s
   expect(held, "POOL_HELD_THROUGH_TEARDOWN").toBe(true);
   expect(refused?.message, "PI_INIT_REFUSED").toBe("Pi worker exited before completion: Penelope");
   expect(open, "PI_INIT_REFUSAL_SETTLES_AFTER_STDIO_RELEASE").toEqual([]);
+});
+
+test.skipIf(!native)("a pi worker whose start callback refused settles only once its stdio descriptors are closed", async () => {
+  const { open, held, refused } = await piTurn("sleep 30", "started");
+  expect(held, "POOL_HELD_THROUGH_TEARDOWN").toBe(true);
+  expect(refused?.message, "PI_START_REFUSED").toBe("Odysseus scope freezer refused");
+  expect(open, "PI_START_REFUSAL_SETTLES_AFTER_STDIO_RELEASE").toEqual([]);
+});
+
+test.skipIf(!native)("a pi turn waits for its worker's stdio release, however long Bun takes within the bound", async () => {
+  const release = Promise.withResolvers<void>();
+  const calling = Promise.withResolvers<void>();
+  let settled = false;
+  const turn = piTurn(ANSWERING, "none", { promise: release.promise, called: calling.resolve }).then(outcome => { settled = true; return outcome; });
+  cleanup.push(() => release.resolve());
+  await Promise.race([calling.promise, Bun.sleep(10_000)]);
+  await Bun.sleep(100);
+  expect(settled, "PI_TURN_PENDING_WHILE_RELEASE_WITHHELD").toBe(false);
+  release.resolve();
+  const { open, refused, result } = await turn;
+  expect(refused).toBeUndefined();
+  expect(result?.type === "result" && result.outcome, "PI_TURN_COMPLETES").toBe("success");
+  expect(open, "PI_TURN_SETTLES_AFTER_STDIO_RELEASE").toEqual([]);
 });
