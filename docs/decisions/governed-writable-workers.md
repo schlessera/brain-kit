@@ -1285,7 +1285,7 @@ the canonical brain root and native session identity; filenames contain only a
 SHA-256 identity. Atomic replacement, file and directory fsync, private modes,
 regular-file validation and a 16 MiB per-session metadata bound protect the
 record (`saveNativeObservations`,
-`packages/ui-sdk/src/server/native-observation-storage.ts:61-74`).
+`packages/ui-sdk/src/server/native-observation-storage.ts:66-79`).
 Saves wait on the file system off the hosted server's event loop, land in call
 order, and complete before the tool they guard proceeds (#2416).
 

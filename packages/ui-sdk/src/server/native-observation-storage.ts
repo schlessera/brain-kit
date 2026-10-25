@@ -21,7 +21,12 @@ async function directory(path: string, brain: string): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await directory(dirname(path), brain);
-    await mkdir(path, { mode: 0o700 });
+    // A concurrent save may create it first; it is then validated as an existing one.
+    try { await mkdir(path, { mode: 0o700 }); }
+    catch (created) {
+      if ((created as NodeJS.ErrnoException).code !== "EEXIST") throw created;
+      if (!(await lstat(path)).isDirectory() || await realpath(path) !== path) throw new Error("Native observation storage is redirected.");
+    }
     await syncDirectory(dirname(path));
   }
 }

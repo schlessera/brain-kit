@@ -149,3 +149,10 @@ test("creating storage and saving an observation wait on fsync off the event loo
   expect(restored.syncs).toBe(1);
   expect(readFileSync(file, "utf8")).toBe("Penelope weaves.\n");
 }));
+
+test("concurrent sessions create the same new storage directory and both save", () => fixture(async (storage) => {
+  const peer = { ...storage, sessionId: "scheria" };
+  const results = await Promise.allSettled([new NativeFileVersions().retain(storage), new NativeFileVersions().retain(peer)]);
+  expect(results.map(result => result.status), "CONCURRENT_STORAGE_CREATION_SAVES_BOTH").toEqual(["fulfilled", "fulfilled"]);
+  expect(readdirSync(storage.directory).filter(name => name.endsWith(".json"))).toHaveLength(2);
+}));

@@ -76,7 +76,9 @@ async function syncDirectoryAsync(path: string) {
 async function durableDirectoryAsync(path: string): Promise<void> {
   if (existsSync(path)) { directory(path); return; }
   await durableDirectoryAsync(dirname(path));
-  await mkdir(path, { mode: 0o700 });
+  // Native observations share this tree and may create a directory first.
+  try { await mkdir(path, { mode: 0o700 }); }
+  catch (created) { if ((created as NodeJS.ErrnoException).code !== "EEXIST") throw created; directory(path); }
   await syncDirectoryAsync(dirname(path));
 }
 async function atomicAsync(path: string, bytes: Uint8Array | string) {

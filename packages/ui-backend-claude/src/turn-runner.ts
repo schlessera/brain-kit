@@ -652,7 +652,11 @@ export function createClaudeTurnRunner(options: {
             // busy slot from its placeholder, so a resume of this session while
             // it still runs is detected as busy.
             sessionId = msg.session_id;
-            if (fileVersions && observationStorage) await fileVersions.retain({ ...observationStorage, sessionId });
+            // Saved off the event loop (#2416) and queued before any tool's
+            // observation save, which each native tool awaits. A failure
+            // refuses native writes until a later save succeeds.
+            if (fileVersions && observationStorage) fileVersions.retain({ ...observationStorage, sessionId })
+              .catch(error => options.log("warn", "Claude native file observations could not be retained", { error: String(error) }));
             if (fileVersions) { fileVersionsBySession.delete(turnKey); fileVersionsBySession.set(sessionId, fileVersions); }
             activeTurns.delete(turnKey);
             activeTurns.set(sessionId, turn);
