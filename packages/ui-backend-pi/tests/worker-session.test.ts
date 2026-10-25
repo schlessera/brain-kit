@@ -48,7 +48,7 @@ beforeEach(() => {
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
 });
 afterEach(() => {
@@ -178,7 +178,7 @@ test("turn-temp promotion preserves native answer bytes and reloads promoted UI 
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }),
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }), released: async () => {},
       turnTemp: { root: tmp, space: () => ({ total: 0, free: 0 }), closeAsync: async () => { closed++; } } } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const events: unknown[] = [], frames: ServerMessage[] = [];
@@ -314,7 +314,7 @@ for (const profile of ["governed", "strict"] as const) test(`throwing workerStar
     children.push(() => { process?.kill("SIGKILL"); });
     exited = process.exited.then(code => { childExited = true; events.push("exited"); return code; });
     return { stdin: process.stdin, stdout: Readable.fromWeb(process.stdout as never), stderr: Readable.fromWeb(process.stderr as never), exited,
-      kill() { events.push("killed"); process!.kill("SIGKILL"); }, limitReport: () => ({ hits: [], fatal: false }),
+      kill() { events.push("killed"); process!.kill("SIGKILL"); }, limitReport: () => ({ hits: [], fatal: false }), released: async () => {},
       turnTemp: { async closeAsync() {
         events.push("turn-temp-close");
         // The reservation stays charged until the awaited close confirms (#2854).
@@ -403,7 +403,7 @@ for (const mode of ["result", "orphan", "direct"] as const) test(`Pi authoritati
       }
       callback();
     } });
-    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }) } as unknown as ReturnType<typeof worker.launchAgentWorker>;
+    return { stdin, stdout, stderr, exited: exited.promise, kill: stop, limitReport: () => ({ hits: [], fatal: false }), released: async () => {} } as unknown as ReturnType<typeof worker.launchAgentWorker>;
   });
   const frames: ServerMessage[] = [];
   await createPiBackend({ brainPath: brain, sessionDir }).startTurn({ prompt: "Repair the raft", signal: new AbortController().signal,
