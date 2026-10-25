@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { nativeCheckpointReaderPath, startNativeCheckpointRead } from "./native-checkpoint-reader.js";
 import { NativeRecoveryIndex } from "./native-recovery-index.js";
 import { createNativeReferencePool, validateNativeReferencePoolConfig, type NativeReferencePool, type NativeReferencePoolConfig } from "./native-reference-pool.js";
+import { createNativeIdentityInspector, type NativeInspection } from "./native-identity-inspector.js";
 
 const BTRFS = "/usr/bin/btrfs", PYTHON = "/usr/bin/python3", FALLOCATE = "/usr/bin/fallocate";
 const ENV = Object.freeze({ PATH: "/usr/bin:/bin", LC_ALL: "C", LANG: "C" });
@@ -21,27 +22,6 @@ const BTRFS_MAGIC = 0x9123683e;
 /** Interval between transaction-thread wakes while a deleted root awaits its cleaner. */
 const RECLAIM_WAKE_MS = 1_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** Kernel UAPI: GET_SUBVOL_INFO supplies ctransid independently of generation/otransid. */
-const INSPECT = `import os,sys,fcntl,struct,json,uuid
-fd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-try:
- s=os.fstat(fd)
- if s.st_ino!=256: raise RuntimeError("not a subvolume root")
- root=bytearray(504); fcntl.ioctl(fd,0x81f8943c,root,True)
- fs=bytearray(1024); fcntl.ioctl(fd,0x8400941f,fs,True)
- q=lambda offset: str(struct.unpack_from("<Q",root,offset)[0])
- u=lambda offset: bytes(root[offset:offset+16]).hex()
- print(json.dumps({"rootId":q(0),"uuid":u(296),"parentUuid":u(312),"receivedUuid":u(328),"transaction":q(344),"readOnly":bool(int(q(288))&1),"fsid":str(uuid.UUID(bytes=bytes(fs[16:32]))),"devices":struct.unpack_from("<Q",fs,8)[0]}))
-finally: os.close(fd)
-`;
-const LOOP_IDENTITY = `import os,sys,fcntl,struct,json
-fd=os.open(sys.argv[1],os.O_RDONLY|os.O_NOFOLLOW)
-try:
- info=bytearray(232); fcntl.ioctl(fd,0x4c05,info,True)
- print(json.dumps({"device":str(struct.unpack_from("<Q",info,0)[0]),"inode":str(struct.unpack_from("<Q",info,8)[0])}))
-finally: os.close(fd)
-`;
-
 export interface NativeBrainManagerConfig {
   /** Root-owned mount of the configured Btrfs device's top-level tree. */
   storePath: string;
@@ -200,8 +180,16 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     }
     await sync;
   }
+  // One interpreter for every identity inspection, instead of a fresh launch per inspection (#2872).
+  const inspector = createNativeIdentityInspector({ python: PYTHON, env: ENV, timeoutMs: fixed.operationTimeoutMs, maximumBytes: NATIVE_CONTROL_BYTES });
+  /** The same program, path and refusal a fresh `python3 -I -S -c` launch had through `command`. */
+  async function inspection(program: NativeInspection, path: string, signal?: AbortSignal): Promise<string> {
+    const result = await inspector.run(program, path, signal);
+    if (result.code !== 0) throw new NativeBrainManagerError(/No space left on device|Disk quota exceeded/.test(result.errors) ? "capacity" : "unavailable", `Native command refused: ${result.errors.trim()}`);
+    return result.text;
+  }
   async function inspect(path: string, signal?: AbortSignal): Promise<RootInfo> {
-    const result = await command([PYTHON, "-I", "-S", "-c", INSPECT, path], signal), info = JSON.parse(result.text) as RootInfo;
+    const info = JSON.parse(await inspection("root", path, signal)) as RootInfo;
     if (info.fsid !== fixed.fsid || info.devices !== 1 || !/^[0-9a-f]{32}$/.test(info.uuid) || !/^\d+$/.test(info.rootId) || !/^\d+$/.test(info.transaction) || info.receivedUuid !== "0".repeat(32))
       throw new NativeBrainManagerError("unsupported", "Native root identity or single-device store cannot be verified.");
     return info;
@@ -225,7 +213,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
       trustedAncestors(dirname(backing)); const file = lstatSync(backing);
       if (!file.isFile() || file.uid !== 0 || file.nlink !== 1 || (file.mode & 0o022) || file.size !== fixed.capacityBytes || file.blocks * 512 < file.size)
         throw new NativeBrainManagerError("unsupported", "Native loop storage requires owned fixed fully allocated non-sparse backing; provision it explicitly with discard disabled.");
-      const kernelBacking = JSON.parse((await command([PYTHON, "-I", "-S", "-c", LOOP_IDENTITY, fixed.devicePath], signal)).text);
+      const kernelBacking = JSON.parse(await inspection("loop", fixed.devicePath, signal));
       const backingIdentity = lstatSync(backing, { bigint: true });
       if (kernelBacking.device !== String(backingIdentity.dev) || kernelBacking.inode !== String(backingIdentity.ino))
         throw new NativeBrainManagerError("unsupported", "Native loop kernel backing identity differs from its owned preallocated file.");
@@ -240,12 +228,16 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     if (quotas.code === 0 || !/quotas? (?:not|is not) enabled|quota not enabled/i.test(quotas.errors)) throw new NativeBrainManagerError("unsupported", "Native store must have qgroups disabled; absence could not be verified.");
     return root;
   }
-  await qualify();
-  for (const [path, mode] of [[privateRoot, 0o710], [state, 0o700], [roots, 0o750], [stages, 0o710]] as const) {
-    if (!existsSync(path)) { mkdirSync(path, { mode }); chownSync(path, 0, fixed.appGid); chmodSync(path, mode); }
-    trustedDirectory(path, mode);
-  }
-  const stateFd = openSync(state, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  /** A refused startup leaves no interpreter behind. */
+  const abandon = (error: unknown): never => { void inspector.close(); throw error; };
+  try {
+    await qualify();
+    for (const [path, mode] of [[privateRoot, 0o710], [state, 0o700], [roots, 0o750], [stages, 0o710]] as const) {
+      if (!existsSync(path)) { mkdirSync(path, { mode }); chownSync(path, 0, fixed.appGid); chmodSync(path, mode); }
+      trustedDirectory(path, mode);
+    }
+  } catch (error) { abandon(error); }
+  const stateFd = (() => { try { return openSync(state, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); } catch (error) { return abandon(error); } })();
   let reserveConsumed = false;
   async function ensureReserve(signal?: AbortSignal) {
     if (!existsSync(reserve)) {
@@ -262,7 +254,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     reserveConsumed = false;
   }
   // A full existing store must still serve release/recovery. Ready/checkpoint refuse until rearmed.
-  try { await ensureReserve(); } catch (error) { if (plainError(error).code !== "capacity") { closeSync(stateFd); throw error; } reserveConsumed = true; }
+  try { await ensureReserve(); } catch (error) { if (plainError(error).code !== "capacity") { closeSync(stateFd); abandon(error); } reserveConsumed = true; }
   function readIntent(id: string): Intent | null {
     const path = join(state, `${id}.json`);
     if (!existsSync(path)) return null;
@@ -313,17 +305,19 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
   // Recover bounded stage accounting once at service startup; warm admission
   // never rescans all checkpoint tombstones or any live-brain bytes.
   const recoveredIds: string[] = [];
-  for (const name of readdirSync(state).filter(name => name.endsWith(".json"))) {
-    const id = name.slice(0, -5);
-    if (!nativeCheckpointId.safeParse(id).success) throw new NativeBrainManagerError("unknown", "Native state contains an unrecognized identity.");
-    rememberStage(readIntent(id)!);
-    recoveredIds.push(id);
-  }
+  try {
+    for (const name of readdirSync(state).filter(name => name.endsWith(".json"))) {
+      const id = name.slice(0, -5);
+      if (!nativeCheckpointId.safeParse(id).success) throw new NativeBrainManagerError("unknown", "Native state contains an unrecognized identity.");
+      rememberStage(readIntent(id)!);
+      recoveredIds.push(id);
+    }
+  } catch (error) { closeSync(stateFd); abandon(error); }
   // This one-time rebuild remains O(history). The private in-memory B-tree
   // is disposable; neither its loss nor a lost reply retires an identity.
   const recoveryIndex = (() => {
     try { return new NativeRecoveryIndex(recoveredIds); }
-    catch (error) { closeSync(stateFd); throw error; }
+    catch (error) { closeSync(stateFd); return abandon(error); }
   })();
   // The pool qualifies independently: its refusal never blocks brain status or recovery.
   let referencePool: NativeReferencePool | undefined;
@@ -331,7 +325,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
     try {
       referencePool = await createNativeReferencePool({ pool: validateNativeReferencePoolConfig(fixed.referencePool, fixed), appGid: fixed.appGid, command,
         brain: { storePath: fixed.storePath, fsid: fixed.fsid, privatePaths: [privateRoot] } });
-    } catch (error) { recoveryIndex.close(); closeSync(stateFd); throw error; }
+    } catch (error) { recoveryIndex.close(); closeSync(stateFd); abandon(error); }
   }
   const pool = () => {
     if (!referencePool) throw new NativeBrainManagerError("unsupported", "No reference pool volume is configured for this native manager.");
@@ -648,7 +642,7 @@ export async function createNativeBrainManager(config: NativeBrainManagerConfig)
   return {
     /** Only an already authenticated Unix endpoint invokes this fixed operation set. */
     run,
-    async close() { closed = true; for (const controller of active) controller.abort(); await pending;
+    async close() { closed = true; for (const controller of active) controller.abort(); await inspector.close(); await pending;
       try {
         for (const reader of checkpointReaders.values()) await reader.close(); checkpointReaders.clear();
         for (const stage of activeStages.values()) await stage.close(); activeStages.clear();
