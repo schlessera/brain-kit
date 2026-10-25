@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createNativeBrainManagerClient } from "@schlessera/brain-ui-sdk/internal";
 import { generateSignedCookie } from "hono/cookie";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { createActivityStore } from "../src/activity/store";
 import { createPrincipal } from "../src/db/principals";
 import { createSessionCatalog } from "../src/ws/session-catalog";
 import { CLI_LOG, httpContractApp, type HttpContractApp } from "./helpers/http-contract-app";
-import { closeHttpMountFixture, createHttpMountPool } from "./helpers/http-mount-pool";
+import { closeHttpMountFixture, createHttpMountPool, httpMountAgentKey } from "./helpers/http-mount-pool";
 import { observeMountTimers } from "./helpers/http-mount-timers";
 import { mountLifetimes } from "./helpers/http-mount-lifetimes";
 import { documentedRoutes, httpCoverageMatrix } from "./helpers/http-spec";
@@ -212,7 +213,7 @@ for (const [operation, check] of Object.entries(checks).filter(([operation]) => 
   test(`mounted supported handler: ${operation}`, async () => {
     const { t, cookie } = await prepare(operation);
     try { await checkHandler(operation, check, t, cookie); }
-    finally { await t.close(); }
+    finally { await closeHttpMountFixture(t); }
   });
 }
 
@@ -251,7 +252,7 @@ test("a dirty failed mount discards its resources before the next independent ca
       throw new Error("injected mount failure");
     })).rejects.toThrow("injected mount failure");
     expect(timers.pending.size).toBe(0);
-    const agentKey = globalAgent.getName({ socketPath: dirty!.app.config.nativeBrain!.socketPath });
+    const agentKey = httpMountAgentKey(dirty!);
     expect(globalAgent.sockets[agentKey] ?? []).toHaveLength(0);
     expect(globalAgent.freeSockets[agentKey] ?? []).toHaveLength(0);
     expect(globalAgent.requests[agentKey] ?? []).toHaveLength(0);
@@ -269,8 +270,23 @@ test("a dirty failed mount discards its resources before the next independent ca
     // A separate fresh app must also retain its native startup observer after
     // the failed and rebuilt shared environments have completely shut down.
     const fresh = await prepare("GET /api/auth/principals");
-    try { await checkHandler("GET /api/auth/principals", checks["GET /api/auth/principals"]!, fresh.t, fresh.cookie); }
-    finally { await fresh.t.close(); }
+    try {
+      const native = createNativeBrainManagerClient(fresh.t.app.config.nativeBrain!);
+      await Promise.all(Array.from({ length: 6 }, () => native.ready()));
+      const freshKey = httpMountAgentKey(fresh.t);
+      const sockets = [...(globalAgent.sockets[freshKey] ?? []), ...(globalAgent.freeSockets[freshKey] ?? [])];
+      expect(sockets).toHaveLength(6);
+      // Re-arm the existing idle deadlines outside the keepalive observer's
+      // exclusion. Native server shutdown precedes client socket close; all
+      // six real one-shot timers must be cancelled before the zero check.
+      const beforeSocketTimers = timers.pending.size;
+      for (const socket of sockets) {
+        expect(socket.timeout).toBeGreaterThan(0);
+        socket.setTimeout(socket.timeout!);
+      }
+      expect(timers.pending.size).toBe(beforeSocketTimers + 6);
+      await checkHandler("GET /api/auth/principals", checks["GET /api/auth/principals"]!, fresh.t, fresh.cookie);
+    } finally { await closeHttpMountFixture(fresh.t); }
     expect(timers.pending.size).toBe(0);
   } finally {
     try { await pool.close(); }
