@@ -19,17 +19,18 @@ export function maintenanceProviderMeter(options: {
   const policy = createGovernancePolicyReader(options.brainPath);
   return {
     ...(options.origins ? { origins: options.origins } : {}),
-    admit(turnId) {
+    async admit(turnId) {
       const budgets = options.budgets();
       if (!budgets) return { allowed: false, message: new BudgetUnavailable().message };
       try {
-        const blocked = budgets.providerAdmission(turnId, policy.load().policy);
+        const blocked = await budgets.providerAdmission(turnId, policy.load().policy);
         return blocked ? { allowed: false, message: new BudgetExceeded(blocked, "mid_turn").message } : { allowed: true };
       } catch { return { allowed: false, message: new BudgetUnavailable().message }; }
     },
     observe(turnId: string | null, attempt: ProviderRelayReceipt) {
-      try { options.budgets()?.observeProvider(turnId, attempt); }
-      catch (error) { options.report(`a relayed provider request could not be recorded: ${error instanceof Error ? error.message : String(error)}`); }
+      const failed = (error: unknown) => options.report(`a relayed provider request could not be recorded: ${error instanceof Error ? error.message : String(error)}`);
+      try { options.budgets()?.observeProvider(turnId, attempt).catch(failed); }
+      catch (error) { failed(error); }
     },
   };
 }

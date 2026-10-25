@@ -10,6 +10,8 @@ import { createGovernanceWrites } from "../src/governance/event-writes.js";
 import { createTurnJournal } from "../src/brain/turn-journal.js";
 import { createTurnScope } from "../src/brain/turn-scope.js";
 import { createTurnRecorder } from "../src/activity/recorder.js";
+import { createTurnBudgets } from "../src/brain/turn-budgets.js";
+import * as probe from "./fixtures/write-worker-probe.js";
 import { createActivityStore } from "../src/activity/store.js";
 import { createNativeJournalFixture } from "./helpers/native-journal-fixture.js";
 import { watchWriteSites } from "./helpers/write-sites.js";
@@ -104,4 +106,33 @@ test("a turn's settled() waits for its roadblock commit", async () => {
     await recorder.settled();
     expect(settled).toBe(true);
   } finally { db.close(); }
+});
+
+test("turn budget writes commit on the write worker at FULL, after earlier writes, and admission waits for them", async () => {
+  const f = fixture();
+  const runtime = createActivityRuntime(f.db, { log: quietLog, writer: f.writer });
+  try {
+    const sites = await watchWriteSites(f.db, f.writer, ["turn_budget_usage", "turn_budget_days", "turn_budget_warnings", "provider_relay_usage", "activity_spans"]);
+    const policy = resolveGovernancePolicy({ schema_version: 1, budgets: { turn: { warn_usd: 1, block_usd: 2, block_tokens: 10 } } });
+    const budgets = createTurnBudgets(f.db, { resolve: () => ({ input: 1, output: 1, cacheRead: 1, cacheWrite: 1, estimate: false, source: "snapshot" }) }, Date.now, f.writer);
+    void runtime.store.startSpan({ spanId: "voyage:root", runId: "voyage", name: "invoke_agent", kind: "turn", origin: "session", sessionId: "ithaca" });
+    await budgets.begin("voyage", undefined, policy);
+    await budgets.bind("voyage", "ithaca");
+    const usage = (n: number) => ({ inputTokens: n, perModel: { odysseus: { inputTokens: n } } });
+    expect(budgets.listPrice("voyage", usage(1)), "BUDGET_LIST_PRICE_BEFORE_COMMIT").toBe(1);
+    expect((await budgets.observe("voyage", usage(1))!).warnings.map(item => item.scope), "BUDGET_OBSERVE_COMMITS_ON_WORKER").toEqual(["turn"]);
+    // A slow commit ahead of the report that blocks the turn: admission must not read past it.
+    const held = f.writer.channel(probe, { table: "odysseus_log" }); await held.ready;
+    const slow = held.call("slow", "Calypso", 300);
+    const blocking = budgets.observe("voyage", usage(2))!;
+    expect((await budgets.providerAdmission("voyage", policy))?.scope, "BUDGET_ADMISSION_WAITS_FOR_PENDING_WRITES").toBe("turn");
+    await slow; await blocking;
+    await budgets.warnings("voyage");
+    await budgets.backstop("voyage");
+    await budgets.observeProvider("voyage", { attemptId: "attempt-1", family: "gemini", operation: "generate", origin: "https://ithaca.invalid", key: "GEMINI_API_KEY",
+      model: "odysseus", outcome: "completed", status: 200, usage: { inputTokens: 1 } } as never);
+    const log = await sites.log();
+    expect(log[0], "BUDGET_AFTER_EARLIER_ACTIVITY_WRITE").toBe("activity_spans");
+    expect(new Set(log.slice(1)), "BUDGET_TABLES_WRITTEN_ON_WORKER").toEqual(new Set(["turn_budget_usage", "turn_budget_days", "turn_budget_warnings", "provider_relay_usage"]));
+  } finally { runtime.close(); await f.close(); }
 });

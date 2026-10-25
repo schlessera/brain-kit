@@ -608,7 +608,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<BrainUi
       index: lock => brain.index({ lock }).catch(ignoreShutdown), report: message => brainLog.emit({ severityText: "WARN", body: message }),
       exposures: createProviderExposures(db), ...(config.providerRecipientOrigins ? { recipientOrigins: config.providerRecipientOrigins } : {}), indexBatch });
   bootCleanup.push(() => governedTurns.close());
-  const budgets = createTurnBudgets(db, pricing);
+  // Budget writes commit on the write worker (#2850).
+  const budgets = createTurnBudgets(db, pricing, Date.now, writer);
   relayBudgets = budgets;
   const sessionProfiles = createSessionProfiles(db, governedTurns, budgets, { hardTimeoutMs: () => host.turnTimeoutMs });
   const journal = createTurnJournal(db, { nativeManager, brainPath: config.brainPath, dbPath: config.dbPath, objectsRoot: journalRoot, writer,
