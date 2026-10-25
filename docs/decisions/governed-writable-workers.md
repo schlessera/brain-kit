@@ -1248,7 +1248,7 @@ part of its read proves nothing (`export function provenToolExecution`,
 `packages/ui-backend-pi/src/worker-session.ts:48-56`). It reports nothing at
 all for a worker that loads extensions. Extension handlers run on every tool
 event, bridge reads included, and can write at any time
-(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:448`).
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:457`).
 With extensions loaded, which is pi's default, every result is observed as
 before. The worker's reports are evidence only while it has run nothing but
 curated code. Once it admits a call outside the provable set (`bash`, `grep`,
