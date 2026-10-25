@@ -10,6 +10,8 @@ export interface JournalSnapshotEntry {
   hash?: string;
   target?: string;
   ignored: boolean;
+  /** The brain root's disposable index family: observed by metadata, never retained (#2873). */
+  metadataOnly?: true;
 }
 export interface JournalSnapshot {
   entries: JournalSnapshotEntry[];

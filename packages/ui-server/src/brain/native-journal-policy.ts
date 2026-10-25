@@ -1,5 +1,30 @@
 /** Frozen per-turn retention rules over metadata from a sealed native root. */
 import ignore, { type Ignore } from "ignore";
+import { INDEX_DIR, INDEX_FAMILY } from "@schlessera/brain-common/internal/index-location";
+
+const INDEX_FAMILY_PATHS = new Set<string>(INDEX_FAMILY.map(name => `${INDEX_DIR}/${name}`));
+/**
+ * Maintenance publication stages each changed file as `.maintenance-<uuid>`
+ * beside its target, then renames it over the target (`const handle = { fd: preparationDirectory(brain, rel), name:`,
+ * `packages/ui-sdk/src/server/worker-native-output.ts:397`; `const temporary = at(handle.fd,`,
+ * `packages/ui-sdk/src/server/worker-output.ts:180`). Inside the index
+ * directory such a copy is an index refresh in progress. As a SQLite GLOB.
+ */
+const hex = (count: number) => "[0-9a-f]".repeat(count);
+export const INDEX_PUBLICATION_COPY = `${INDEX_DIR}/.maintenance-${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`;
+const publicationCopy = new RegExp(`^${INDEX_PUBLICATION_COPY.replaceAll(".", "\\.")}$`, "u");
+
+/**
+ * The brain root's disposable index family (#2873): the database, its SQLite
+ * sidecars and an index publication copy, by exact journal-relative path.
+ * The journal records their path, size and change stamp and never retains,
+ * serves or restores their bytes; `brain index --force` rebuilds them from
+ * Markdown. Any other name, inside `.brain-index/` or elsewhere, is ordinary
+ * content. The caller decides whether a path is relative to the brain root.
+ */
+export function journalMetadataOnlyPath(path: string): boolean {
+  return INDEX_FAMILY_PATHS.has(path) || publicationCopy.test(path);
+}
 
 type Entry = { path: string; kind: "file" | "symlink" | "directory" | "other"; bytes: number };
 type Rule = { directory: string; matcher: Ignore };

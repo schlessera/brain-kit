@@ -515,12 +515,16 @@ export const CONFIG_FILENAMES = ["brain.config.ts", "brain.config.json"];
 /**
  * Resolve the brain root: explicit argument → BRAIN_ROOT env → nearest
  * ancestor of cwd containing a brain.config.* → nearest ancestor containing
- * .git → cwd.
+ * .git → cwd. A trusted worker's config root maps back to its data root,
+ * including pinned BRAIN_ROOT values and discovery from the frozen brain cwd.
  */
 export function resolveRoot(explicit?: string): string {
-  if (explicit) return resolve(explicit);
+  const roots = maintenanceConfigRoots();
+  const dataRoot = (root: string): string => roots.data && roots.config && resolve(root) === resolve(roots.config)
+    ? resolve(roots.data) : resolve(root);
+  if (explicit) return dataRoot(explicit);
   const { brainRoot } = resolveEnv();
-  if (brainRoot) return resolve(brainRoot);
+  if (brainRoot) return dataRoot(brainRoot);
 
   const findUp = (marker: (dir: string) => boolean): string | null => {
     let dir = process.cwd();
@@ -532,7 +536,7 @@ export function resolveRoot(explicit?: string): string {
     }
   };
 
-  return (
+  return dataRoot(
     findUp((dir) => CONFIG_FILENAMES.some((f) => existsSync(join(dir, f)))) ??
     findUp((dir) => existsSync(join(dir, ".git"))) ??
     process.cwd()
@@ -624,7 +628,7 @@ export async function loadUserConfig(root: string): Promise<LoadedConfig> {
   return { config: parsed.data, path: destination === root ? path : join(destination, source === "ts" ? "brain.config.ts" : "brain.config.json"), source, content };
 }
 
-/** @internal Maintenance writes are outside the immutable configuration execution view. */
+/** Resolve a worker's data root to its frozen configuration view; other roots pass through. */
 export function configurationRoot(root: string): string {
   const roots = maintenanceConfigRoots();
   return roots.data === root && roots.config ? roots.config : root;

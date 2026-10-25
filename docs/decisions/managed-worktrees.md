@@ -98,7 +98,7 @@ Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
 (`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:565-577`;
-`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:841-852`).
+`// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:848-859`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
 restricted worker never binds a generation. Nothing returns a host path to the
@@ -125,8 +125,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:434-446`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:285-299`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:444-456`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:294-308`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -154,7 +154,7 @@ Ordinary brain and workspace journaling is unchanged.
 ## Guidance
 
 Workers with a bound generation receive fixed guidance in the existing sandbox
-note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:525-531`):
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:554-560`):
 shared source is read-only and moves, a worktree starts at a reported commit
 that never moves, where to work, that edits are journaled and scope-counted,
 that only explicit access or renewal resets the three-day clock, that expiry
@@ -212,7 +212,7 @@ nothing.
 **Shared source is read through views.** Each such turn's workers bind the
 public view and their principal's private view whole and read-only at
 `/tmp/brain-reference/public` and `/tmp/brain-reference/private`
-(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:853-864`).
+(`// Shared reference source (#2432)`, `packages/ui-sdk/src/server/worker-launcher.ts:860-871`).
 A view the domain has not published to yet is opened empty first, so the turn
 sees its own first acquisition
 (`async bindable(principalId: string`, `packages/ui-server/src/brain/reference-source.ts:741-753`).
@@ -244,7 +244,7 @@ access and their rosters do not name the tools.
 fixed roster with fixed descriptions; a turn without a handler refuses at call
 time. Lifecycle and freshness facts arrive only in the result of the call that
 produced them, and the sandbox note's reference guidance is fixed text
-(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:522-524`),
+(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:551-553`),
 so no earlier system prompt, tool or message changes
 ([provider history](provider-history.md)).
 

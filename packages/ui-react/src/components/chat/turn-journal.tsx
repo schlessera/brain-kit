@@ -64,13 +64,16 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
     setAnnouncement(live && turnId && cardSession === sessionId && ["complete", "partial"].includes(state)
       ? `Turn journal: ${changes} · ${cost}. ${state === "partial" ? "Incomplete." : ""}` : "");
   }, [live, turnId, cardSession, sessionId, state, changes, cost]);
+  // Each change lands in one group: metadata-only index entries, then ignored paths, then other entries.
+  const kept = (change: TurnJournalChange) => !change.before?.metadataOnly && !change.after?.metadataOnly && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other";
   const groups = details ? [
-    ["Steering", details.changes.filter(change => change.class === "steering" && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
-    ["Policy", details.changes.filter(change => change.class === "policy" && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
-    ["Content", details.changes.filter(change => change.class === "content" && !change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
-    ["Workspaces", details.changes.filter(change => change.class === "content" && !!change.scope && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) !== "other")],
-    ["Ignored paths · bytes not kept", details.changes.filter(change => change.before?.ignored || change.after?.ignored)],
-    ["Other entries · bytes not kept", details.changes.filter(change => !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) === "other")],
+    ["Steering", details.changes.filter(change => change.class === "steering" && kept(change))],
+    ["Policy", details.changes.filter(change => change.class === "policy" && kept(change))],
+    ["Content", details.changes.filter(change => change.class === "content" && !change.scope && kept(change))],
+    ["Workspaces", details.changes.filter(change => change.class === "content" && !!change.scope && kept(change))],
+    ["Search index · metadata only", details.changes.filter(change => change.before?.metadataOnly || change.after?.metadataOnly)],
+    ["Ignored paths · bytes not kept", details.changes.filter(change => !change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.ignored || change.after?.ignored))],
+    ["Other entries · bytes not kept", details.changes.filter(change => !change.before?.metadataOnly && !change.after?.metadataOnly && !change.before?.ignored && !change.after?.ignored && (change.before?.kind ?? change.after?.kind) === "other")],
   ] as const : [];
   const selectedObservation=selected?.conflict?.versions.find(ref=>ref.sequence===selected.sequence);
   const otherObservations=selected?.conflict?.versions.filter(ref=>ref.sequence!==selectedObservation?.sequence)??[];
@@ -106,11 +109,12 @@ export function TurnJournal({ turnId, summary, live = false }: { turnId?: string
         {revert.controls}
         {details && groups.slice(0,4).every(([,entries]) => !entries.length) && <p>No retained content, steering, policy or workspace changes.</p>}
         {groups.map(([name, entries]) => entries.length > 0 && <section key={name} className="min-w-0"><h3 className="font-medium">{name}</h3>
+          {name.startsWith("Search index") && <p>The search index is rebuilt from your notes, so only its size and timestamps were recorded. Its bytes were not kept; it cannot be reviewed or restored, and history revert leaves it for the next rebuild.</p>}
           {name.startsWith("Ignored paths") && <p>These paths match the brain's ignore rules, so only size and timestamps were observed and no bytes were kept. Equal sizes do not mean equal content. The journal does not identify which process wrote them.</p>}
           {name.startsWith("Other entries") && <p>Not a regular file or symlink. Its contents were not kept.</p>}
           <ul className="grid gap-2 mt-2">{entries.map(change => <li key={`${change.sequence}-${change.path}`} data-journal-change={change.path} className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           <span className="break-all min-w-0">{change.path}{change.conflict && <span className="block text-muted-foreground">Conflict: distinct versions observed in a shared window.</span>}{change.tainted === true && change.taintSourceEventId && <span className="block text-muted-foreground">Review recommended: recorded untrusted input (source event {change.taintSourceEventId}).</span>} <span className="text-muted-foreground">{change.before?.bytes ?? 0} → {change.after?.bytes ?? 0} bytes{change.before?.ignored || change.after?.ignored ? " · ignored" : ""}{change.actor === "user" ? " · Approved by you" : ""}</span></span>
-          {(change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
+          {!change.before?.metadataOnly && !change.after?.metadataOnly && (change.before?.hash || change.after?.hash || change.before?.kind === "symlink" || change.after?.kind === "symlink") && <span data-journal-review={change.sequence}><Button label="Review" ariaLabel={`Review ${change.path}`} size="sm" block={false} style={{ minHeight: 44 }} onClick={() => { trigger.current = wrapper.current?.querySelector<HTMLElement>(`[data-journal-review="${change.sequence}"] [role="button"]`) ?? null; setSelected(change); }} /></span>}
         </li>)}</ul></section>)}
         {!!details?.missing.some(item => item.reason !== "configuration_inputs_not_fully_identified") && <section className="grid gap-2 min-w-0"><h3 className="font-medium">Retained versions unavailable</h3><p>These observed versions cannot be reviewed or restored.</p>
           {details.missing.filter(item => item.reason !== "configuration_inputs_not_fully_identified").map((item, index) => <p key={`${item.path}-${index}`} className="break-all">{item.path} · {({ interrupted_observation: "Observation was interrupted", journal_capacity: "Journal storage was full", journal_unavailable: "Journal storage was unavailable", revert_not_observed: "The revert was not observed" } as Record<string, string>)[item.reason] ?? item.reason}</p>)}

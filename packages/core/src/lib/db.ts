@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./models.js";
 import { nameKeys } from "./name-key.js";
+import { maintenanceConfigRoots } from "../config/env.js";
 
 /**
  * The brain.db schema this build writes, and the ONE place the number lives.
@@ -33,6 +34,53 @@ export interface SchemaOptions {
  */
 export const JOURNAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
 
+const recoveryConnections = new WeakSet<Database>();
+const recoveryStatements = new WeakSet<object>();
+
+function recover<T>(operation: () => T): T {
+  let original: unknown;
+  for (let attempt = 0; ; attempt++) {
+    try { return operation(); }
+    catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code !== "SQLITE_READONLY_RECOVERY" && code !== "SQLITE_BUSY_RECOVERY") throw error;
+      if (attempt === 0) original = error;
+      if (attempt === 39) throw original;
+      Bun.sleepSync(Math.min(5 + attempt * 2, 25));
+    }
+  }
+}
+
+function recoveryOperation<T extends (...args: any[]) => any>(operation: T): T {
+  return function (this: unknown, ...args: Parameters<T>): ReturnType<T> {
+    return recover(() => operation.apply(this, args));
+  } as T;
+}
+
+/** Worker read mounts can briefly need WAL recovery; busy_timeout does not retry it. */
+export function retryRecovery(db: Database): Database {
+  if (!maintenanceConfigRoots().data || recoveryConnections.has(db)) return db;
+  recoveryConnections.add(db);
+  for (const method of ["prepare", "query"] as const) {
+    const original: Database["prepare"] = db[method];
+    db[method] = function (this: Database, ...args: Parameters<typeof original>) {
+      const statement = recover(() => original.apply(this, args));
+      // query returns cached statements; repeated lookups must not multiply retries.
+      if (!recoveryStatements.has(statement)) {
+        recoveryStatements.add(statement);
+        statement.all = recoveryOperation(statement.all);
+        statement.get = recoveryOperation(statement.get);
+        statement.run = recoveryOperation(statement.run);
+        statement.values = recoveryOperation(statement.values);
+      }
+      return statement;
+    } as typeof original;
+  }
+  db.run = recoveryOperation(db.run);
+  db.exec = recoveryOperation(db.exec);
+  return db;
+}
+
 /**
  * Open the brain database, creating tables if needed.
  * Synchronous for broad compatibility.
@@ -52,10 +100,10 @@ export function openDatabase(
     const directory = dirname(dbPath);
     if (mkdirSync(directory, { recursive: true }) !== undefined) chmodSync(directory, statSync(dirname(directory)).mode & 0o7777);
   }
-  const db = new Database(dbPath, {
+  const db = retryRecovery(new Database(dbPath, {
     readonly: options?.readonly ?? false,
     create: !options?.readonly,
-  });
+  }));
 
   // Multiple processes share this db (MCP server per Claude session, CLI,
   // git hooks). Without a busy_timeout any lock contention fails instantly

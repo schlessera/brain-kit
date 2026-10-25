@@ -163,7 +163,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     const path = join(agentDir, name);
     if (existsSync(path)) agentFiles[name] = readFileSync(path, "utf8");
   }
-  const { workerSandbox, workerProviderMasks, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
+  const { workerSandbox, workerProviderMasks, workerDataTree, workerLock, workerStarted, workerStartupView, workerSignal, toolExecution, ...workerSessionEnv } = env;
   const npmPath = envelope ? undefined : join(agentDir, "npm", "node_modules");
   let cachedNpmModules: string | undefined;
   if (npmPath && existsSync(npmPath)) {
@@ -175,7 +175,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       throw new BackendRequestError("Pi prepared npm resources must be inside the selected agent directory's npm tree.");
     }
   }
-  const init = { type: "init", governed: workerSandbox?.profile === "governed", sharedLock: Boolean(workerLock), backend: { exec, brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
+  const init = { type: "init", governed: workerSandbox?.profile === "governed", dataTree: Boolean(workerSandbox?.dataTree ?? workerDataTree), sharedLock: Boolean(workerLock), backend: { exec, brainPath: backend.brainPath, profiles: configuredProfiles(backend), model: backend.model,
     loadExtensions: envelope ? false : backend.loadExtensions, systemPromptAppend: backend.systemPromptAppend }, env: workerSessionEnv, sessionId,
     resume: Boolean(resumeId), entries, profileId, agentFiles, fixedAppend: promptContext?.append(), ...(cachedNpmModules ? { cachedNpmModules } : {}), ...(envelope ? { inference: envelope.inference } : {}) };
   // Every worker's /tmp is a private tmpfs of exactly this allowance, which
@@ -231,7 +231,7 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
     // One resolution feeds the worker's mounts and the note its agent reads (#1626),
     // and one its resource limits and the note's limits section (#1660).
     sandbox = envelope ? { ...prepareWorkerSandbox(backend.brainPath, { restricted: true, maintenance: backend.maintenance }),
-      ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}) }
+      ...(workerProviderMasks ? { providerMasks: workerProviderMasks } : {}), ...(workerDataTree ? { dataTree: workerDataTree } : {}) }
       : workerSandbox ?? await prepareWorkerSandboxAsync(backend.brainPath, { home: workerEnv.HOME, maintenance: backend.maintenance });
     if (hostInference) sandbox = { ...sandbox, maskPaths: [...sandbox.maskPaths ?? [], ...hostInference.maskPaths] };
     if (cachedNpmModules) {

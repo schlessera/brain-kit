@@ -140,7 +140,7 @@ test("confirmed session preference tightens the next actual worker without chang
   try {
     expect(strict.sandbox.profile, "SESSION_PROFILE_NEXT_ADMISSION").toBe("strict");
     expect(active.sandbox.profile, "SESSION_PROFILE_RUNNING_UNCHANGED").toBe("governed");
-    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: strict.sandbox, env: {}, command: ["/bin/sh", "-c", 'if printf attack > harbor.md; then exit 41; fi; printf STRICT_SESSION_WRITE_REFUSED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    const worker = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: strict.sandbox, startupView: strict.startupView, env: {}, command: ["/bin/sh", "-c", 'if printf attack > harbor.md; then exit 41; fi; printf STRICT_SESSION_WRITE_REFUSED'] }), { env: {}, stdout: "pipe", stderr: "pipe" });
     expect(worker.exitCode, worker.stderr.toString()).toBe(0);
     expect(worker.stdout.toString()).toBe("STRICT_SESSION_WRITE_REFUSED");
   } finally { strict.end(); active.end(); }

@@ -112,8 +112,20 @@ async function maskedTurn(kind: "claude" | "pi", script: (bridge: BackendBridge,
   const authorization = testAuthorization(principal.id);
   const execution = createHostExecution({ brainPath: brain, dbPath, exec: {} }); execution.attach(db);
   // The private index's content is not under test here; its build is a no-op worker.
+  const plan = (input: Record<string, unknown>, read: (path: string) => string | null) => {
+    // A capture the planner files under the masked folder, as a type's directory would.
+    if (input.title === "Planned") return { path: "me/planned.md", content: IDENTITY, baseContent: null, outcome: {} };
+    // Classification matched a masked document and planning reads it to append.
+    if (input.title === "Classified") {
+      const masked = read("me/identity.md");
+      return { path: "notes/classified.md", content: masked ?? "Odysseus remembers Ithaca.\n", baseContent: masked, outcome: {} };
+    }
+    throw new Error("NO_PLANNING_FOR_A_MASKED_TARGET");
+  };
+  // A masked turn plans on its own data tree (#2846), which never holds the folder.
   const turns = createGovernedTurns({ nativeManager: createNativeJournalFixture(brain, root).client, brainPath: brain, execution, profile: "governed",
-    maskPaths: [], index: async () => {}, report() {}, privateIndexCommand: ["/bin/true"] });
+    maskPaths: [], index: async () => {}, report() {}, privateIndexCommand: ["/bin/true"], turnIndexUpdate: async () => {},
+    turnPlan: async (tree, input) => plan(input, path => { try { return readFileSync(join(tree.root, path), "utf8"); } catch { return null; } }) });
   const firstParty = kind === "claude" ? createClaudeBackend({ brainPath: brain }) : createPiBackend({ brainPath: brain, loadExtensions: false });
   let failure: unknown, masks: readonly string[] | undefined;
   const backend = { ...makeFakeBackend({ id: kind, startTurn: async request => {
@@ -125,16 +137,7 @@ async function maskedTurn(kind: "claude" | "pi", script: (bridge: BackendBridge,
   const host = new WsHost({ brainPath: brain, governedTurns: turns, registry: createStaticBackendRegistry([backend], kind), catalog: createSessionCatalog(() => db),
     isPrincipalAuthorized: id => { const found = resolvePrincipal(db, id); return found !== null && isUsablePrincipal(found, Date.now()); },
     ...options.host, ...extraHost,
-    applicationPlanner: { index: async () => {}, planAdd: async (_root, input, read) => {
-      // A capture the planner files under the masked folder, as a type's directory would.
-      if (input.title === "Planned") return { path: "me/planned.md", content: IDENTITY, baseContent: null, outcome: {} };
-      // Classification matched a masked document and planning reads it to append.
-      if (input.title === "Classified") {
-        const masked = read("me/identity.md");
-        return { path: "notes/classified.md", content: masked ?? "Odysseus remembers Ithaca.\n", baseContent: masked, outcome: {} };
-      }
-      throw new Error("NO_PLANNING_FOR_A_MASKED_TARGET");
-    } } });
+    applicationPlanner: { index: async () => {}, planAdd: async (_root, input, read) => plan(input, read) } });
   const ws = { send(data: string) {
     const frame = JSON.parse(data);
     if (frame.type === "mask_request") void handleClientMessage(host, ws, { type: "mask_response", requestId: frame.requestId, turnId: frame.turnId,

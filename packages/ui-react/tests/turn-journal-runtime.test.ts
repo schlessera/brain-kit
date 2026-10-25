@@ -105,7 +105,12 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`jo
   const details = app.wsHost.journal!.details("ithaca", turnId)!;
   // UI-only response shape; the server capture control separately proves a
   // genuinely written similarly named file retains its bytes and class.
-  const shown = { ...details, changes: [...details.changes, { ...details.changes.find(change => change.path === "notes/voyage.md")!, path: "notes/brain.db-shm", sequence: 999 }] };
+  const voyage = details.changes.find(change => change.path === "notes/voyage.md")!;
+  // A metadata-only index version (#2873) has size facts and no content hash.
+  const index = { kind: "file" as const, mode: 0o644, ignored: false, metadataOnly: true as const };
+  const shown = { ...details, changes: [...details.changes, { ...voyage, path: "notes/brain.db-shm", sequence: 999 },
+    { ...voyage, path: ".brain-index/brain.db", sequence: 998, before: { ...index, bytes: 4096 }, after: { ...index, bytes: 8192 } },
+    { ...voyage, path: ".brain-index/brain.db-journal", sequence: 997, before: null, after: { ...index, kind: "symlink" as const, bytes: 20 } }] };
   const missing = Array.from({ length: 733 }, (_, i) => ({ path: `workspaces/${i}/brain.config.ts`, reason: "configuration_inputs_not_fully_identified" }));
   try {
     await page.route(`**/api/sessions/ithaca/turns/${turnId}/journal`, async route => {
@@ -136,6 +141,10 @@ for (const width of [320, 1280]) for (const theme of ["dark", "light"]) test(`jo
     expect(await page.locator("[data-journal-change]").count(), "EVERY_RETAINED_CHANGE_HAS_ONE_ROW").toBe(shown.changes.length);
     expect(await page.locator("[data-journal-change]").evaluateAll(nodes => nodes.every(node => node.checkVisibility() && node.getBoundingClientRect().height > 0)), "EVERY_RETAINED_ROW_IS_VISIBLE").toBe(true);
     expect(await page.getByRole("button", { name: "Review notes/brain.db-shm", exact: true }).count(), "SIMILAR_OPERATIONAL_NAME_IS_REVIEWABLE").toBe(1);
+    const indexGroup = page.locator("section").filter({ has: page.getByRole("heading", { name: "Search index · metadata only", exact: true }) });
+    expect(await indexGroup.locator("[data-journal-change]").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-journal-change"))), "INDEX_LISTED_AS_METADATA_ONLY").toEqual([".brain-index/brain.db", ".brain-index/brain.db-journal"]);
+    expect(await indexGroup.innerText(), "INDEX_EXPLAINED_AS_NOT_RESTORABLE").toContain("cannot be reviewed or restored");
+    expect(await page.getByRole("button", { name: /^Review \.brain-index\// }).count(), "INDEX_OFFERS_NO_REVIEW").toBe(0);
     expect((await note.boundingBox())!.y, "SMALL_CHANGE_BEFORE_COVERAGE_INVENTORY").toBeLessThan(800);
     const facts = page.getByRole("button", { name: "Turn facts", exact: true });
     const factsBox = (await facts.boundingBox())!;

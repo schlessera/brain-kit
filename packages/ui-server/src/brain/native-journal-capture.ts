@@ -1,6 +1,6 @@
 /** Changed versions only; checkpoint advancement follows the journal commit. */
 import { createNativeJournalObserver, type NativeJournalManager, type NativeJournalMetadata, type NativeJournalUnreadable } from "./native-journal-observer.js";
-import { freezeNativeJournalPolicy, journalPathScope } from "./native-journal-policy.js";
+import { freezeNativeJournalPolicy, journalMetadataOnlyPath, journalPathScope } from "./native-journal-policy.js";
 import { nativeJournalPermissionDenied, readNativeJournalFile, withNativeJournalFile, type NativeJournalReadContext } from "./native-journal-read.js";
 import { verifiedWorkerIdentity, workerIdentityHelper } from "@schlessera/brain-ui-sdk/internal";
 import { isJournalSteeringPath, nativeJournalSteeringInputs, type JournalSteeringOptions } from "./journal-steering.js";
@@ -9,8 +9,11 @@ import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 export type NativeJournalPolicy = Awaited<ReturnType<typeof freezeNativeJournalPolicy>>;
 export function createNativeJournalCapture(manager: NativeJournalManager, retain: (source: number, bytes: number, signal?: AbortSignal) => Promise<string>, steeringOptions: JournalSteeringOptions = {},
   identity?: { brainPath: string; createTemporary: NativeJournalReadContext["createTemporary"] },
-  /** A separate root (#2430) is content only: none of its files configure the brain's agent. */
-  scope: { steering: boolean } = { steering: true }) {
+  /**
+   * A separate root (#2430) is content only: none of its files configure the
+   * brain's agent, and its `.brain-index/` is not the brain's index.
+   */
+  rootScope: { steering: boolean; index: boolean } = { steering: true, index: true }) {
   const workerUid = () => {
     if (!identity || !workerIdentityHelper()) return undefined;
     const actual = verifiedWorkerIdentity(identity.brainPath);
@@ -27,18 +30,21 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
   const entry = (metadata: NativeJournalMetadata, policy: NativeJournalPolicy): JournalSnapshotEntry | undefined => {
     const scope = journalPathScope(metadata.path);
     if (!scope || metadata.kind === "directory") return undefined;
-    return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path) };
+    return { ...metadata, kind: metadata.kind, scope: scope.scope, ignored: policy.ignored(metadata.path),
+      ...(rootScope.index && journalMetadataOnlyPath(metadata.path) ? { metadataOnly: true as const } : {}) };
   };
+  /** Ignored and metadata-only versions keep their observed facts and never their bytes. */
+  const retained = (entry: JournalSnapshotEntry) => entry.kind === "file" && !entry.ignored && !entry.metadataOnly;
   return {
     async initialize(signal?: AbortSignal) { await observer.initialize(signal); },
     async policy(covered: readonly string[] = []): Promise<NativeJournalPolicy> {
       const root = observer.currentRoot();
       return freezeNativeJournalPolicy(observer.ignoreEntries(), (path, maximum) => readNativeJournalFile(root.path, path, maximum, context(root)), covered);
     },
-    allowed(path: string, policy: NativeJournalPolicy): boolean { return !!journalPathScope(path) && !policy.ignored(path); },
+    allowed(path: string, policy: NativeJournalPolicy): boolean { return !!journalPathScope(path) && !policy.ignored(path) && !(rootScope.index && journalMetadataOnlyPath(path)); },
     eligible(path: string, policy: NativeJournalPolicy): boolean {
       const metadata = observer.get(path);
-      return !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path);
+      return !!metadata && metadata.kind === "file" && metadata.bytes <= 64 * 1024 * 1024 && !policy.ignored(path) && !!journalPathScope(path) && !(rootScope.index && journalMetadataOnlyPath(path));
     },
     /** Exact current sealed before-version; the caller keeps the ordinary policy and storage owner. */
     async retainBefore(path: string, policy: NativeJournalPolicy, signal?: AbortSignal): Promise<JournalSnapshotEntry | undefined> {
@@ -47,7 +53,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
       if (!metadata) return undefined;
       if (metadata.bytes > 64 * 1024 * 1024) throw new Error("Selected attachment exceeds the bounded recovery copy size.");
       const result = entry(metadata, policy);
-      if (!result || result.ignored || result.kind !== "file") return result;
+      if (!result || !retained(result)) return result;
       const hash = await withNativeJournalFile(root.path, path, metadata.bytes, context(root, signal),
         file => retain(file.fd, metadata.bytes, signal));
       signal?.throwIfAborted();
@@ -61,7 +67,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
         async function version(metadata: NativeJournalMetadata | null, policy: NativeJournalPolicy, root: { id: string; path: string }): Promise<JournalSnapshotEntry | undefined> {
           if (!metadata) return undefined;
           const result = entry(metadata, policy);
-          if (!result || result.ignored || result.kind !== "file") return result;
+          if (!result || !retained(result)) return result;
           const key = `${root.id}:${metadata.inode}`;
           let hash = captured.get(key);
           if (!hash) {
@@ -103,7 +109,7 @@ export function createNativeJournalCapture(manager: NativeJournalManager, retain
           roots.set(stamp, root);
           return { ...value, stamp };
         };
-        if (scope.steering && policies.size && observation.changes.length) {
+        if (rootScope.steering && policies.size && observation.changes.length) {
           for (const [root, after] of [[observation.beforeRoot, false], [observation.afterRoot, true]] as const) {
             const entries: JournalSnapshotEntry[] = [];
             const append = (metadata: NativeJournalMetadata) => {

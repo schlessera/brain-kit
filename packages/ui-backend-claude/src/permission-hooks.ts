@@ -215,7 +215,7 @@ export function createPermissionWiring(options: {
     // An index reader runs only once the host has indexed every application
     // committed before it; a failed update refuses it rather than serve stale results.
     if (hookInput.hook_event_name === "PreToolUse" && req.bridge.awaitIndex) {
-      try { await req.bridge.awaitIndex(hookInput.tool_name); }
+      try { await req.bridge.awaitIndex(hookInput.tool_name, hookInput.tool_input as Record<string, unknown> | undefined); }
       catch (error) {
         return { continue: true, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
           permissionDecisionReason: error instanceof Error ? error.message : "The search index could not be brought up to date." } };

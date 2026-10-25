@@ -77,6 +77,41 @@ summary like workspace edits. History revert and Undo exclude them as
 The behaviour is recorded in the
 [managed-worktree decision](../decisions/managed-worktrees.md#journal-and-scope).
 
+<a id="metadata-only-index-history-breaking-2873"></a>
+
+### Metadata-only index history (breaking, 0.44.0, #2873)
+
+The brain root's disposable index family is journaled by metadata only:
+`.brain-index/brain.db`, its `-wal`, `-shm` and `-journal` sidecars, and a
+`.brain-index/.maintenance-<uuid>` index publication copy, matched by exact
+journal-relative path. Each of their versions keeps `kind`, `mode`, `bytes` and
+`ignored`, and adds `metadataOnly: true` and an opaque change `stamp`
+(`JournalVersion` in `@schlessera/brain-ui-sdk/protocol`); it has no `hash` and
+no symlink `target`. The host still records every observed change of these
+paths, telling versions of equal size apart by their stamp, so history shows
+when and how far the index changed. Their bytes are never retained: preview
+answers `{ inline:false, reason:"metadata_only" }` and raw download is 404. A
+metadata-only version is never a missing version: it neither adds a `missing`
+entry nor makes an otherwise complete turn `partial`. No shared-window
+`conflict` is offered between versions that were not retained.
+
+History revert and Undo exclude these paths with the reason `metadata_only`,
+including versions retained by releases before 0.44.0, and leave the index for
+the refresh that follows the operation; that exclusion alone does not make the
+operation `partial`. Rebuild the index from Markdown with `brain index --force`;
+metadata is not a restore source. Every other path keeps its exact retained
+bytes, including other names inside `.brain-index/`, another root's
+`.brain-index/` and similarly named files elsewhere.
+
+This is breaking: index versions were byte-retained, readable and restorable
+before, and the maintainer approved narrowing them on #2873 (2026-10-25,
+option B). History recorded by earlier releases is not erased: its index
+rows and objects stay until ordinary retention expires them, but history
+presents those versions as metadata-only too, without `hash` or `stamp`, and
+never reads or restores them. The decision is
+recorded in
+[the governed-workers decision](../decisions/governed-writable-workers.md#metadata-only-index-history--2026-10-25-2873).
+
 ### User history restoration (additive, #1653)
 
 The four authenticated human `/revert` operations are specified in

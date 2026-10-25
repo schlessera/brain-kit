@@ -10,6 +10,7 @@ import * as journalStore from "./journal-store.js";
 import { reviveJournalError, type JournalStatement, type JournalStoreOptions } from "./journal-store.js";
 import type { JournalSnapshotEntry } from "./journal-snapshot.js";
 import { createNativeJournalCapture, type NativeJournalPolicy } from "./native-journal-capture.js";
+import { INDEX_PUBLICATION_COPY, journalMetadataOnlyPath } from "./native-journal-policy.js";
 import type { NativeJournalManager } from "./native-journal-observer.js";
 import { processAlive, SELF } from "./writer-gate.js";
 import { toolObservation, type ToolExecutionPath } from "./tool-observation.js";
@@ -26,20 +27,13 @@ const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /**
  * The brain root's index database and its sidecars. Every host index refresh
  * rewrites them whole, so summing each observed version would charge a turn
- * the index's full size per refresh (#2831).
+ * the index's full size per refresh (#2831). Inside the index directory a
+ * publication copy (`INDEX_PUBLICATION_COPY`) is that refresh itself, already
+ * counted at its target. Only a copy a later observation saw removed is
+ * excluded: one that stays, whoever wrote it, counts like any other
+ * metadata-only file.
  */
 const DISPOSABLE_INDEX_PATHS = JSON.stringify(INDEX_FAMILY.map(name => `${INDEX_DIR}/${name}`));
-/**
- * Maintenance publication stages each changed file as `.maintenance-<uuid>`
- * beside its target, then renames it over the target (`const handle = { fd: preparationDirectory(brain, rel), name:`,
- * `packages/ui-sdk/src/server/worker-native-output.ts:397`; `const temporary = at(handle.fd,`,
- * `packages/ui-sdk/src/server/worker-output.ts:180`). Inside the index
- * directory such a copy is the index refresh itself, already counted at its
- * target. Only a copy a later observation saw removed is excluded: one that
- * stays, whoever wrote it, counts like any other file.
- */
-const hex = (count: number) => "[0-9a-f]".repeat(count);
-const INDEX_PUBLICATION_COPY = `${INDEX_DIR}/.maintenance-${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`;
 const storageError = (error: unknown): Error => error instanceof JournalCapacityError || error instanceof JournalStorageUnavailable
   ? error : new JournalStorageUnavailable(error instanceof Error ? error.message : String(error));
 type TurnRow = { turn_id: string; session_id: string | null; actor: "interactive" | "voice" | "user"; kind: "turn" | "revert"; source_turn_id: string | null; model: string | null; profile: "strict" | "governed"; policy_hash: string | null; started_at: number; ended_at: number | null; state: TurnJournalSummary["state"]; summary: string | null; missing: string; steering_inventory_missing: string; failure: string };
@@ -47,8 +41,23 @@ type ChangeRow = { sequence: number; path: string; scope: string; before_json: s
 const statement = (sql: string, ...params: SQLQueryBindings[]): JournalStatement => ({ sql, params });
 const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null => entry ? {
   kind: entry.kind, mode: entry.mode, bytes: entry.bytes, ignored: entry.ignored,
-  ...(entry.hash ? { hash: entry.hash } : {}), ...(entry.target !== undefined ? { target: entry.target } : {}),
+  ...(entry.hash ? { hash: entry.hash } : {}), ...(entry.target !== undefined && !entry.metadataOnly ? { target: entry.target } : {}),
+  ...(entry.metadataOnly ? { metadataOnly: true as const, stamp: entry.stamp } : {}),
 } : null;
+/**
+ * A recorded version as history presents it. The index family is metadata
+ * only however it was recorded: a version an earlier release retained keeps
+ * its stored row and object until ordinary retention, but is neither read nor
+ * restored, and no conflict is offered between versions history does not keep
+ * (#2873). Journal paths of other roots are logical, never canonical.
+ */
+const presented = (path: string, json: string | null): JournalVersion | null => {
+  if (!json) return null;
+  const recorded = JSON.parse(json) as JournalVersion;
+  if (recorded.metadataOnly || !journalMetadataOnlyPath(path)) return recorded;
+  return { kind: recorded.kind, mode: recorded.mode, bytes: recorded.bytes, ignored: recorded.ignored, metadataOnly: true };
+};
+/** Without a content hash, a version's change stamp is what tells two of them apart; a metadata-only version records its own. */
 const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(entry ? { ...version(entry), ...(entry.ignored ? { stamp: entry.stamp } : {}) } : null);
 
 export interface TurnJournalOptions {
@@ -315,17 +324,18 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
           overlaps, worktree, steeringUnavailable: [...steering.unavailable], unreadable,
         }));
         publish(turnId);
-        // Ignored versions have metadata but no content hash: count their largest
-        // observed size once per path, independently of hashed changed versions.
-        // The disposable index is counted the same way, ignored or not. A host
-        // publication copy of it is no turn write once it is gone (#2831).
+        // Ignored and metadata-only versions have no content hash: count their
+        // largest observed size once per path, independently of hashed changed
+        // versions. The disposable index is counted the same way, ignored or not,
+        // including history recorded before it became metadata-only (#2873). A
+        // host publication copy of it is no turn write once it is gone (#2831).
         const facts = db.query(`SELECT count(*) AS changedPaths,coalesce(sum(hashedBytes+ignoredBytes),0) AS observedBytes FROM (
           SELECT path,sum(CASE WHEN json_extract(after_json,'$.kind')='file' AND coalesce(json_extract(after_json,'$.ignored'),0)!=1 AND NOT disposable
             AND json_extract(after_json,'$.hash') IS NOT json_extract(before_json,'$.hash')
             THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS hashedBytes,
           max(CASE WHEN json_extract(after_json,'$.kind')='file' AND (json_extract(after_json,'$.ignored')=1 OR disposable)
             THEN json_extract(after_json,'$.bytes') ELSE 0 END) AS ignoredBytes
-          FROM (SELECT *,path IN (SELECT value FROM json_each(?)) AS disposable FROM turn_journal_changes AS change
+          FROM (SELECT *,(path IN (SELECT value FROM json_each(?)) OR coalesce(json_extract(after_json,'$.metadataOnly'),0)=1) AS disposable FROM turn_journal_changes AS change
             WHERE turn_id=? AND NOT (path GLOB ? AND (SELECT after_json FROM turn_journal_changes WHERE turn_id=change.turn_id
               AND path=change.path ORDER BY sequence DESC LIMIT 1) IS NULL)) GROUP BY path
         )`).get(DISPOSABLE_INDEX_PATHS, turnId, INDEX_PUBLICATION_COPY) as { changedPaths: number; observedBytes: number };
@@ -436,7 +446,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       if (!active.has(turnId) || failures.has(turnId)) throw new JournalStorageUnavailable("worktree coverage requires an active complete observation window");
       const existing = worktrees.get(worktreeId);
       if (existing) { if (existing.turnId === turnId) return; throw new JournalStorageUnavailable("another turn already observes this worktree"); }
-      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints), retainVersion, {}, readIdentity, { steering: false });
+      const root = createNativeJournalCapture(referenceWorktreeJournalManager(options.referencePool, worktreeId, options.referenceCheckpoints), retainVersion, {}, readIdentity, { steering: false, index: false });
       try {
         await root.initialize(signal);
         const policy = await root.policy();
@@ -495,13 +505,13 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const turn = active.get(turnId);
       if (!turn || summary(turnId).state !== "recording") throw new JournalStorageUnavailable("A complete active journal is required before removal.");
       const before = version(await capture.retainBefore(path, turn.policy, signal));
-      if (!before || before.ignored || before.kind !== "file" || !before.hash) return null;
+      if (!before || before.ignored || before.metadataOnly || before.kind !== "file" || !before.hash) return null;
       await write(pin(turnId, before));
       if (!objects.verify(before.hash, before.bytes)) throw new JournalStorageUnavailable("The retained original could not be verified.");
       return before;
     }); },
     hasRetainedVersion(turnId: string, selected: JournalVersion): boolean {
-      if (!selected.hash || selected.ignored || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
+      if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file" || ["unknown", "expired"].includes(summary(turnId).state)) return false;
       if (!db.query("SELECT 1 FROM turn_journal_object_refs WHERE turn_id=? AND hash=?").get(turnId, selected.hash)) return false;
       try { return objects.verify(selected.hash, selected.bytes); } catch { return false; }
     },
@@ -573,14 +583,14 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     /** Acquire the read lease while the selected source still owns its original. */
     async withRetainedRemoval<T>(turnId: string, selected: JournalVersion, apply: (copy: (fd: number) => void) => T): Promise<T> {
-      if (!selected.hash || selected.ignored || selected.kind !== "file") throw new JournalStorageUnavailable("retained original is unavailable");
+      if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file") throw new JournalStorageUnavailable("retained original is unavailable");
       const lease = await call<string>("openRead", selected.hash, turnId);
       try { return await objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
       finally { await releaseRead(lease); }
     },
     async withRetainedVersion<T>(selected: JournalVersion | null, apply: (copy: (fd: number) => void) => T): Promise<T> {
       if (!selected || selected.kind === "symlink") return apply(() => {});
-      if (!selected.hash || selected.ignored || selected.kind !== "file") throw new JournalStorageUnavailable("retained version is unavailable");
+      if (!selected.hash || selected.ignored || selected.metadataOnly || selected.kind !== "file") throw new JournalStorageUnavailable("retained version is unavailable");
       const lease = await call<string>("openRead", selected.hash);
       try { return await objects.withVerifiedCopy(selected.hash, selected.bytes, apply); }
       finally { await releaseRead(lease); }
@@ -590,8 +600,8 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
       const row = db.query("SELECT * FROM turn_journal_turns WHERE turn_id=? AND session_id=?").get(turnId, sessionId) as TurnRow | null;
       if (!row) return null;
       const changes = (db.query("SELECT * FROM turn_journal_changes WHERE turn_id=? ORDER BY sequence,path").all(turnId) as ChangeRow[]).map(item => ({ sequence: item.sequence, path: item.path, scope: item.scope, class: item.class, actor: item.actor,
-        before: item.before_json ? JSON.parse(item.before_json) as JournalVersion : null, after: item.after_json ? JSON.parse(item.after_json) as JournalVersion : null, overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.taint_source_event_id ? { tainted: true as const, taintSourceEventId: item.taint_source_event_id } : {}),
-        ...(JSON.parse(item.conflict_observations).length ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
+        before: presented(item.path, item.before_json), after: presented(item.path, item.after_json), overlappingTurnIds: JSON.parse(item.overlaps) as string[], ...(item.taint_source_event_id ? { tainted: true as const, taintSourceEventId: item.taint_source_event_id } : {}),
+        ...(JSON.parse(item.conflict_observations).length && !journalMetadataOnlyPath(item.path) ? { conflict: { versions: JSON.parse(item.conflict_observations) as JournalObservationReference[],
           latest: { turnId, sequence: (db.query("SELECT max(sequence) AS sequence FROM turn_journal_changes WHERE turn_id=? AND path=?").get(turnId,item.path) as {sequence:number}).sequence, side:"after" as const } } } : {}) }));
       const failure = failures.get(turnId) ?? row.failure.trim();
       const outward = queryGovernanceEvents(db, { sessionId, turnId, kinds: ["outward_action"], limit: 1001 });
@@ -603,7 +613,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     version(sessionId: string, turnId: string, sequence: number, side: "before" | "after") {
       const details = this.details(sessionId, turnId), change = details?.changes.find(item => item.sequence === sequence);
       const selected = change?.[side];
-      if (!selected?.hash || details?.summary.state === "expired") return null;
+      if (!selected?.hash || selected.metadataOnly || details?.summary.state === "expired") return null;
       return { selected, bytes: (maxBytes: number) => objects.read(selected.hash!, maxBytes), async stream() {
         const lease = await call<string>("openRead", selected.hash!);
         const release = () => releaseRead(lease);
