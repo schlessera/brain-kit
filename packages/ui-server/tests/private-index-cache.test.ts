@@ -139,7 +139,8 @@ function bytesHolding(dir: string, word: string): string[] {
 
 /** What a search can return from an index, independent of row ids and build times. */
 function snapshot(dir: string) {
-  const db = new Database(join(dir, "brain.db"));
+  // Read-only: a writable close would delete the sidecars the worker's read-only mount needs.
+  const db = new Database(join(dir, "brain.db"), { readonly: true });
   try {
     const all = (sql: string, ...values: string[]) => db.query(sql).all(...values);
     return {
@@ -337,12 +338,14 @@ test.each([
   });
 });
 
-test("a worker's writes stay in its own copy, and a base changed outside the server is discarded", async () => {
+test("a worker cannot write its turn's private index, and a base changed outside the server is discarded", async () => {
   const f = fixture();
   await turn(f.begin("first"), hold => {
     const shell = Bun.spawnSync(workerCommand({ brainPath: f.brain, sandbox: hold.sandbox, env: { PATH }, command: ["/bin/sh", "-c",
-      "printf Polyphemusmarker >> .brain-index/brain.db && printf x > .brain-index/extra"] }), { env: {}, stdout: "pipe", stderr: "pipe" });
-    expect(shell.exitCode, `THE_TURN_INDEX_IS_WRITABLE: ${shell.stderr.toString()}`).toBe(0);
+      "printf Polyphemusmarker >> .brain-index/brain.db; printf x > .brain-index/extra"] }), { env: {}, stdout: "pipe", stderr: "pipe" });
+    // The host keeps it current with the turn's own applications (#2846).
+    expect(shell.exitCode, "THE_TURN_INDEX_IS_READ_ONLY").not.toBe(0);
+    expect(shell.stderr.toString().match(/Read-only file system/g)?.length, `BOTH_WRITES_REFUSED: ${shell.stderr.toString()}`).toBe(2);
   });
   await turn(f.begin("next"), hold => {
     expect(bytesHolding(indexOf(hold), "Polyphemusmarker"), "NO_WORKER_WRITE_REACHES_THE_NEXT_TURN").toEqual([]);

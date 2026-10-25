@@ -49,12 +49,15 @@ export function startPiNativeInference(agentDirectory:string,event:Event,authori
     if(step<count)call("write_file",{path:timing.path(step),content:timing.content(step)});
     else if(step<2*count){const i=step-count;call("edit_file",{path:timing.path(i),expectedBaseHash:timing.sha256(timing.content(i)),old_string:"Scheria shore",new_string:"Scheria harbour"});}
     else if(step===2*count)call("brain_search",{query:"harbour Nausicaa",limit:50});
+    // #2848: pi's own reader and its shell, whose cwd is the turn's data tree.
+    else if(step===2*count+1)call("read_file",{path:timing.path(0)});
+    else if(step===2*count+2)call("bash",{command:`cat ${timing.path(1)}`});
     else{
       const text=(block:unknown):string=>typeof block==="string"?block:Array.isArray(block)?block.map(text).join("\n"):block&&typeof block==="object"&&"text" in block?String((block as {text:unknown}).text):"";
-      event("scheria_search",{backend:"pi",text:text(results.at(-1)?.content)});
+      event("scheria_search",{backend:"pi",text:text(results[2*count]?.content),read:text(results[2*count+1]?.content),shell:text(results[2*count+2]?.content)});
       frames.push({type:"content_block_start",index:0,content_block:{type:"text",text:""}},{type:"content_block_delta",index:0,delta:{type:"text_delta",text:"Odysseus files the Scheria log."}});
     }
-    const done=step>2*count;
+    const done=step>2*count+2;
     frames.push({type:"content_block_stop",index:0},{type:"message_delta",delta:{stop_reason:done?"end_turn":"tool_use",stop_sequence:null},usage:{output_tokens:1}},{type:"message_stop"});
     event("pi_inference_response",{attempt,step,completed:done});
     return new Response(frames.map(frame=>`event: ${(frame as {type:string}).type}\ndata: ${JSON.stringify(frame)}\n\n`).join(""),{headers:{"content-type":"text/event-stream"}});

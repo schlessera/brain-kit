@@ -29,10 +29,10 @@ test("Pi tool round trips preserve the complete prefix even in known-break scena
   }
 });
 test("Pi stable system stays byte-identical on resume and repository changes", () => {
-  for (const name of ["control", "repository", "promotion"]) for (const [a, b] of pairs(captures[name]!)) identical(system(a), system(b), `system ${name}`);
+  for (const name of ["control", "repository", "promotion", "datatree"]) for (const [a, b] of pairs(captures[name]!)) identical(system(a), system(b), `system ${name}`);
 });
 test("Pi ordinary messages retain every previous request and scripted answer", () => {
-  for (const name of ["control", "repository", "facts", "budget"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
+  for (const name of ["control", "repository", "facts", "budget", "datatree"]) for (const [a, b] of pairs(captures[name]!)) history(a, b);
 });
 test("Pi requests contain no internal budget notes at the backend boundary", () => {
   for (const [name, capture] of Object.entries(captures)) if (name !== "budget") noInternalNotes(capture);

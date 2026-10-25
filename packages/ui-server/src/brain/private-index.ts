@@ -73,7 +73,7 @@ export async function runMaskedBrainCli(options: {
 }): Promise<{ ok: true; stdout: string } | { ok: false; detail: string; stdout?: string }> {
   options.signal.throwIfAborted();
   const sandbox = { ...prepareWorkerSandbox(options.brainPath, { profile: "strict", areas: [], maskPaths: options.maskPaths }),
-    providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index,
+    providerMasks: Object.freeze({ folders: Object.freeze([...options.folders]), index: options.index, indexWritable: true,
       ...(options.visible ? { visible: Object.freeze([...options.visible]) } : {}) }) };
   const view = retainWorkerStartupView(options.startupView);
   let worker: ReturnType<typeof launchAgentWorker>;

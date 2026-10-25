@@ -254,6 +254,15 @@ print(json.dumps(result))`;
     await sleep(200);
     expect(eventLog.read("provider-admission").filter(row => row.kind === "fake_provider_enter").length, "UNNAMED_CANCEL_NEVER_ENTERED_PROVIDER").toBe(attemptBefore);
     if (APPLY_TIMING) {
+      // The turn's index is seeded from its checkpoint's (#2848). Let the earlier
+      // turns' refresh finish first, so the timing turn starts from a complete
+      // index and measures its targeted barrier, not a first build.
+      await until(() => {
+        const rows = eventLog.read("timing-seed");
+        if (rows.some(row => row.kind === "automatic_index_failed")) throw Error("NATIVE_AUTOMATIC_INDEX_COMPLETED_BEFORE_TIMING");
+        const started = rows.filter(row => row.kind === "automatic_index_started").length;
+        return started > 0 && rows.filter(row => row.kind === "automatic_index_finished").length === started;
+      }, 120000);
       // A new strict conversation: host apply carries write_file and edit_file for both backends.
       const draft = "odysseus-scheria-draft", load = () => readFileSync("/proc/loadavg", "utf8").trim();
       const preference = await fetch(origin + `/api/drafts/${draft}/profile`, { method: "PUT", headers: { cookie, origin, "content-type": "application/json" }, body: JSON.stringify({ preference: "strict" }) });
@@ -272,8 +281,9 @@ print(json.dumps(result))`;
       const cell = (operation: string) => { const ms = applies.filter(row => row.operation === operation).map(row => row.ms as number);
         return { calls: ms.length, medianMs: ms.length ? median(ms) : null, p95Ms: ms.length ? [...ms].sort((a, b) => a - b)[Math.ceil(ms.length * 0.95) - 1] : null, maxMs: ms.length ? Math.max(...ms) : null, ms }; };
       const search = rows.find(row => row.kind === "scheria_search");
+      const seeds = rows.filter(row => row.kind === "turn_tree_seed").map(row => ({ ms: row.ms, masked: row.masked, mounted: row.mounted }));
       const timing = { backend: BACKEND, appUid: APP_UID, files: FILES, bytes: BYTES, loadBefore, loadAfter, elapsedMs: performance.now() - timingStart,
-        write: cell("write"), edit: cell("edit"), barriers: barriers.map(row => ({ name: row.name, ms: row.ms, ok: row.ok })),
+        write: cell("write"), edit: cell("edit"), barriers: barriers.map(row => ({ name: row.name, ms: row.ms, ok: row.ok })), seeds,
         results: applies.map(row => ({ operation: row.operation, ok: row.ok, indexed: row.indexed, indexStatus: row.indexStatus })), search,
         terminal: sender.frames.filter(f => f.receiptAt >= timingStart && (f.type === "result" || f.type === "error")) };
       writeFileSync(join(ARTIFACTS, "apply-timing.json"), JSON.stringify(timing, null, 2));
@@ -283,15 +293,24 @@ print(json.dumps(result))`;
       expect(timing.write.medianMs!, "APPLY_TIMING_WRITE_MEDIAN_MS").toBeLessThanOrEqual(300);
       expect(timing.edit.medianMs!, "APPLY_TIMING_EDIT_MEDIAN_MS").toBeLessThanOrEqual(300);
       const logs = Array.from({ length: 20 }, (_, i) => `notes/scheria-log-${String(i).padStart(2, "0")}.md`);
-      // The same-turn search's barrier indexed every edit into the live index. A strict
-      // worker itself reads its immutable startup view, so pi's in-worker result is recorded only.
+      // The same-turn search waited for the turn's own index update (#2848); the
+      // live index still receives every edit when the turn ends.
       expect(barriers.some(row => row.ok && (row.name === "brain_search" || row.name === "mcp__brain__brain_search")), "APPLY_TIMING_SEARCH_WAITED_FOR_INDEX").toBe(true);
+      expect(seeds.length, `APPLY_TIMING_TURN_TREE_SEEDED: ${JSON.stringify(seeds)}`).toBeGreaterThan(0);
       const live = new Database(join(brain, ".brain-index", "brain.db"), { readonly: true });
       try {
         const indexed = (live.query("SELECT d.path FROM documents_fts f JOIN documents d ON d.id = f.rowid WHERE documents_fts MATCH 'harbour AND Nausicaa' ORDER BY d.path").all() as { path: string }[]).map(row => row.path);
         expect(indexed, "APPLY_TIMING_BARRIER_INDEXED_EVERY_EDIT").toEqual(logs);
       } finally { live.close(); }
-      if (BACKEND === "claude") expect(search?.paths, "APPLY_TIMING_SAME_TURN_SEARCH_SEES_EVERY_EDIT").toEqual(logs);
+      // The worker's own search, through the brain's MCP server (Claude) or pi's
+      // in-process tool, finds all 20 edits in the same turn.
+      const found = BACKEND === "claude" ? search?.paths : [...new Set(String(search?.text ?? "").match(/notes\/scheria-log-\d\d\.md/g) ?? [])].sort();
+      expect(found, `APPLY_TIMING_SAME_TURN_IN_WORKER_SEARCH_SEES_EVERY_EDIT: ${JSON.stringify(search)}`).toEqual(logs);
+      if (BACKEND === "claude") expect(search?.dataRoot, "APPLY_TIMING_CLAUDE_MCP_READS_THE_DATA_TREE").toBe("/tmp/brain-worker-data");
+      if (BACKEND === "pi") {
+        expect(String(search?.read), "APPLY_TIMING_PI_READ_FILE_SEES_THE_EDIT").toContain("Scheria harbour");
+        expect(String(search?.shell), "APPLY_TIMING_PI_SHELL_RUNS_IN_THE_DATA_TREE").toContain("Scheria harbour");
+      }
       // The timing turn entered the fixture model once more and wrote no worker note.
       expectedProviderAttempts = attemptBefore + 1;
     }
@@ -505,7 +524,8 @@ print(json.dumps(result))`;
     } finally { try { await service.close(); } finally { rmSync(dir, { recursive: true, force: true }); rmSync(join(ARTIFACTS,"crash-owner"), { recursive: true, force: true }); } }
   }
   expect(cleanExit, "HOSTED_NORMAL_SHUTDOWN_CLEAN_EXIT").toBe(true);
-}, OBSERVATION_TIMING ? 1_200_000 : 120000);
+  // The #2848 timing turn first waits for the earlier turns' index refresh.
+}, OBSERVATION_TIMING ? 1_200_000 : APPLY_TIMING ? 240000 : 120000);
 
 // One fixed backend/UID cell owns this backend-independent root-lifetime control.
 if (BACKEND === "pi" && APP_UID === 0) for (const held of ["descriptor", "cwd"] as const) test(`a retained native checkpoint ${held} records the actual release interruption and reconciles the same root`, async () => {

@@ -22,7 +22,7 @@ export interface BrainApplicationRequest {
   turnId: string;
   input: BrainApplicationInput;
 }
-interface Change { path: string; expectedBaseHash: string | null; content: string | null }
+interface Change { path: string; expectedBaseHash: string | null; content: string | null; /** An archive destination's source: its bytes derive from that base. */ from?: string }
 interface Directory { fd: number; path: string; dev: number; ino: number }
 interface Target { path: string; at: string; chain: Directory[]; content: string | null; hash: string | null; mode?: number }
 class Refusal extends Error {
@@ -252,6 +252,14 @@ export function createBrainApplication(options: {
   indexBatch?: IndexBatch;
   /** Each deferred index outcome for an application this route committed. */
   recordIndex?(outcome: BrainApplicationIndexOutcome): void;
+  /**
+   * The turn's data tree (#2848): every committed effect, with the live base
+   * it replaced, inside the commit boundary. A masked turn's capture planning
+   * reads it too, through `planner`, and waits for its index (#2846).
+   */
+  turnTree?: { commit(effects: readonly { path: string; content: string | null; base: string | null; from?: string }[]): void; barrier(signal?: AbortSignal): Promise<void> };
+  /** Where a masked turn plans captures: on its own tree and index, never the live brain (#2846). */
+  turnPlanner?: ApplicationPlanner["planAdd"];
   /** Internal deterministic race fixture; never wired to a worker or HTTP. */
   beforeCommit?: () => void;
 }) {
@@ -322,7 +330,7 @@ export function createBrainApplication(options: {
       // Capture planning reads the index (title matches, appends): it waits
       // for earlier writes like any other reader, before the lock they share.
       if (input.operation === "add") {
-        try { await indexBatch.barrier(options.signal); }
+        try { await (options.turnPlanner && options.turnTree ? options.turnTree : indexBatch).barrier(options.signal); }
         catch (error) {
           if (error instanceof IndexFlushError) refuse("index_stale", `${error.message} No change was applied.`);
           throw error;
@@ -346,7 +354,7 @@ export function createBrainApplication(options: {
           };
           if (input.operation === "add") {
             if (input.target !== undefined) validateTarget(input.target);
-            const plan = await planner.planAdd(root, { ...input, path: input.target }, path => {
+            const plan = await (options.turnPlanner ?? planner.planAdd)(root, { ...input, path: input.target }, path => {
               validatePath(path); // Protection is read-only; planning may still read it.
               // A masked document is absent to planning; a destination it
               // chooses there still refuses by name when it is opened.
@@ -402,7 +410,7 @@ export function createBrainApplication(options: {
                   if (destination !== input.path) {
                     targetFor(destination, null);
                     changes.push({ path: input.path, expectedBaseHash: target.hash, content: null });
-                    changes.push({ path: destination, expectedBaseHash: null, content });
+                    changes.push({ path: destination, expectedBaseHash: null, content, from: input.path });
                   }
                 }
               }
@@ -414,6 +422,9 @@ export function createBrainApplication(options: {
           // Prepare complete bytes privately. No awaited work occurs between
           // final authority/topology/base validation and the commit burst.
           const prepared: { change: Change; target: Target; temp?: string }[] = [];
+          // What the turn's data tree receives: each committed effect and the live base it replaced.
+          const effects: { path: string; content: string | null; base: string | null; from?: string }[] = [];
+          const baseOf = (change: Change, target: Target) => change.from ? { base: targets.find(t => t.path === change.from)!.content, from: change.from } : { base: target.content };
           try {
             for (const change of changes) {
               const target = targets.find(t => t.path === change.path)!;
@@ -436,12 +447,16 @@ export function createBrainApplication(options: {
               if (change.expectedBaseHash === null) linkSync(temp!, target.at);
               else renameSync(temp!, target.at);
               committed.push({ path: change.path, contentHash: contentHash(change.content!) });
+              effects.push({ path: change.path, content: change.content, ...baseOf(change, target) });
             }
             for (const { change, target } of prepared.filter(p => p.change.content === null)) {
               unlinkSync(target.at); committed.push({ path: change.path, contentHash: null });
+              effects.push({ path: change.path, content: null, base: target.content });
             }
             for (const target of targets) fsyncSync(target.chain.at(-1)!.fd);
           } finally {
+            // Partial failures included: the tree follows exactly what committed.
+            options.turnTree?.commit(effects);
             for (const { temp } of prepared) if (temp) { try { unlinkSync(temp); } catch { /* Best-effort cleanup of private temporary bytes. */ } }
           }
         } finally {
