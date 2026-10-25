@@ -443,6 +443,7 @@ async function runRetainedSession(
               onWrite: () => host.activity!.stream.pump(),
               log: host.log,
               ...(host.activity.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
+              ...(host.activity.governanceWrites ? { governanceWrites: host.activity.governanceWrites } : {}),
               ...(host.brainPath ? { brainPath: host.brainPath } : {}),
               abort: error => abortController.abort(error),
             },
@@ -583,7 +584,7 @@ async function runRetainedSession(
             generation: worktreeGeneration ?? null, signal: abortController.signal });
         }
         const scopeTurnId = turn.turnId;
-        if (governedHold && host.scope) host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
+        if (governedHold && host.scope) await host.scope.begin(scopeTurnId, { sessionId: turn.sessionId ?? null, principalId: turn.principalId,
           origin, model: () => mainModel, profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", policy: governedHold.policy.policy,
           source: governedHold.policy.source === "default" ? "default" : "policy", hardTimeoutMs: host.turnTimeoutMs,
           current: () => turn.turnId === scopeTurnId && !abortController.signal.aborted && current.authorization.valid && current.authorization.expiresAt > Date.now() && host.isPrincipalAuthorized(current.principalId),
@@ -713,11 +714,13 @@ async function runRetainedSession(
         if (governedHold?.sandbox.inferenceRecipient && !(governedHold.managedStorage && relayed))
           throw new Error("This turn's provider folders were admitted for a recipient its inference relay cannot enforce; retry the turn.");
         if (governedHold?.managedStorage && relayed) {
-          const governance = host.activity?.governance;
+          const governance = host.activity?.governance, governanceWrites = host.activity?.governanceWrites;
           turnEgress = await prepareTurnEgress({ policy: governedHold.policy.policy, bridge, controller: abortController,
             turnId: turn.turnId, sessionId: () => turn.sessionId ?? null, model: () => mainModel,
             profile: governedHold.sandbox.profile === "governed" ? "governed" : "strict", origin,
-            ...(governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
+            // A record's commit failure stops the turn, as a synchronous one did (#2850).
+            ...(governanceWrites ? { record: (event: Parameters<typeof governanceWrites.record>[0]) => governanceWrites.record(event), governanceWrites }
+              : governance ? { record: (event: Parameters<typeof governance>[0]) => governance(event) } : {}),
             ...(host.activity?.governanceDb ? { governanceDb: host.activity.governanceDb } : {}),
           });
           // The CLI's paid providers reach the network only through this relay,
@@ -753,7 +756,9 @@ async function runRetainedSession(
         // The session's recorded untrusted input, read live by outward admission and the note (G6).
         const governanceDb = host.activity?.governanceDb;
         const commandPolicy = governedHold?.sandbox.commandPolicy && governanceDb ? { ...governedHold.sandbox.commandPolicy,
-          taint: () => sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
+          // A taint submitted to the write worker counts before it commits (#2850).
+          taint: () => host.activity?.governanceWrites ? host.activity.governanceWrites.taint(turn.turnId, turn.sessionId ?? null)
+            : sessionTaint(governanceDb, turn.turnId, turn.sessionId ?? null) } : governedHold?.sandbox.commandPolicy;
         enteredBackend = true;
         turn.backendStarted = true;
         lifecycle?.mark("backendInvokedAt");
@@ -799,6 +804,8 @@ async function runRetainedSession(
         // Every relayed attempt reports before the turn's accounting closes.
         await providerRelay?.stop();
         turnEgress?.stop();
+        // Every egress record commits, or fails the turn, before its outcome (#2850).
+        await turnEgress?.settled();
         const egressFailure = turnEgress?.recordingFailure();
         if (egressFailure) throw egressFailure;
         // Final observation is part of this host outcome, after worker writes
@@ -840,6 +847,7 @@ async function runRetainedSession(
       } catch (err) {
         lifecycle?.mark("failureObservedAt");
         await settleIndex?.();
+        await turnEgress?.settled();
         const egressFailure = turnEgress?.recordingFailure();
         const terminal = budgetFailure ?? journalFailure ?? egressFailure ?? err;
         if (terminal instanceof BudgetExceeded && terminal.stage === "admission") {
@@ -869,6 +877,8 @@ async function runRetainedSession(
       } finally {
         await providerRelay?.stop();
         turnEgress?.stop();
+        // The session's next turn reads these hosts back as contacted (G6).
+        await turnEgress?.settled();
         if (referenceTurn) host.referenceTools?.end(turn.turnId);
         // No grant after this point: the final observation covers everything granted.
         if (worktreeGeneration) await host.referenceWorktrees!.retireGeneration(worktreeGeneration.id).catch(() => {});

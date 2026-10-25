@@ -127,7 +127,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Cursors and transactional snapshots:** (`CREATE TABLE IF NOT EXISTS activity_changes (`, `packages/ui-server/migrations/007_activity.sql:58-66`)
   and (`snapshotRun(runId) {`, `packages/ui-server/src/activity/store.ts:894-923`). Reuse the algorithm; the
   activity stream is bound to activity store methods and frame types.
-- **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:57-196`). Cron's scheduler
+- **Runtime lifecycle:** (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:64-203`). Cron's scheduler
   owns manual triggers/history; it does not tick the inbox.
 - **Two connections:** (`export function createUiDb(`, `packages/ui-server/src/db/client.ts:27-44`) sets WAL,
   foreign keys and a 5-second busy timeout. Claims are immediate transactions.
@@ -146,7 +146,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Pi resources and extension gate:** (`export function createSessionResources(`, `packages/ui-backend-pi/src/session-resources.ts:29-152`) and
   (`export function createPermissionGate(`, `packages/ui-backend-pi/src/permission-gate.ts:96-125`). Built-ins are disabled,
   but ambient resources/extensions and in-process execution still need containment.
-- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:723`) settles after execution;
+- **Cost timing:** (`store.rollupRun(runId);`, `packages/ui-server/src/activity/recorder.ts:746`) settles after execution;
   (`export function sumEffectiveCost(`, `packages/ui-server/src/activity/store.ts:179-194`) explicitly counts unpriced runs.
   Reservations must cover in-flight work, not only this retrospective sum.
 - **Notifications:** (`CREATE TABLE IF NOT EXISTS notification_intents (`, `packages/ui-server/migrations/007_activity.sql:99-114`),
@@ -156,7 +156,7 @@ system gate. It is not a prerequisite to rebuild or a new independent package.
 - **Share provenance/limits:** (`const result = await stageShareAt(`, `packages/ui-server/src/inbox/intake.ts:106`) assigns the source in server code.
   (`export const SHARE_MAX_TEXT_BYTES =`, `packages/ui-sdk/src/protocol.ts:2348`) bounds text, not binary uploads;
   extracted T1 context needs its own byte/token bound.
-- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1300-1312`) gates WS starts;
+- **Interactive locks:** (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1310-1322`) gates WS starts;
   (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`) owns tool locks.
   Shared-target priority and cooperative yield belong to the keyed lock and backend lifecycle.
 
@@ -632,7 +632,7 @@ write-once outcome discipline, cursor emission); migration comment style of `007
 - Test: `packages/ui-server/tests/inbox-runtime.test.ts`
 
 **Approach:**
-- 60s interval with a `close()` lifecycle, modeled on (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:57-196`), including
+- 60s interval with a `close()` lifecycle, modeled on (`export function createActivityRuntime(`, `packages/ui-server/src/activity/runtime.ts:64-203`), including
   its boot sweep
 - **Gate first**: a SQL count of ready items; zero means return immediately — no model call and
   **no Activity run** (AE2)
@@ -1193,7 +1193,7 @@ and a server-selected tool policy.
 - Modify: `packages/ui-backend-claude/src/backend.ts` (`persistSession: false`, synthetic
   bridge)
 - Modify: `packages/ui-server/src/activity/recorder.ts` (server-selected
-  origin defaults to `"session"` at (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:115-193`))
+  origin defaults to `"session"` at (`export function createTurnRecorder(`, `packages/ui-server/src/activity/recorder.ts:125-203`))
 - Test: `packages/ui-backend-claude/tests/autonomous-turn.test.ts`
 
 **Approach:** an autonomous request carrying persistence, tool policy, origin, and prompt
@@ -1274,7 +1274,7 @@ full-v1 enablement; predicates and schema tests cannot substitute for it.
 
 **Approach:** **hybrid — reserve capacity normally, yield only at denial risk.**
 `MAX_AUTONOMOUS_RUNS` (default 2) is necessary but not sufficient: the host cap applies only at
-WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1300-1312`) and an autonomous turn can hold a path write lock
+WS session start (`const cap = host.maxConcurrentSessions();`, `packages/ui-server/src/ws/run-session.ts:1310-1322`) and an autonomous turn can hold a path write lock
 while an interactive turn waits or is denied at 30s
 (`export function createTurnLockBinding(`, `packages/ui-backend-claude/src/turn-lock.ts:27-119`).
 

@@ -44,8 +44,12 @@ export interface EgressProxyOptions {
    * `contacted()` reports; deny and the ordinary rules still apply first.
    */
   taint?: { allow: readonly string[]; tainted(): boolean; contacted(host: string): boolean };
-  /** A destination passed every check; called before its first upstream byte. */
-  admitted?(destination: { host: string; port: number; method: string; inference: boolean }): void;
+  /**
+   * A destination passed every check; called before its first upstream byte.
+   * A returned promise is awaited first, so a durable record it makes commits
+   * before any byte flows; its rejection refuses the connection.
+   */
+  admitted?(destination: { host: string; port: number; method: string; inference: boolean }): unknown;
   signal?: AbortSignal;
 }
 const hostname = (value: string) => value.toLowerCase().replace(/\.$/, "");
@@ -131,7 +135,8 @@ export async function startEgressProxy(options: EgressProxyOptions) {
       }
       if (narrowed()) { finish("denied", "taint_not_allowed"); return false; }
       // A recorder failure aborts the turn through its own signal; it cannot admit.
-      try { options.admitted?.({ host, port, method, inference }); } catch { finish("failed", "proxy_error"); return false; }
+      try { await options.admitted?.({ host, port, method, inference }); } catch { finish("failed", "proxy_error"); return false; }
+      if (stopped || controller.signal.aborted) { finish("cancelled", "turn_cancelled"); return false; }
       return true;
     };
     return { finish, charge, admit, signal: controller.signal, outcome: () => finalOutcome };

@@ -106,7 +106,8 @@ export function createPolicyProposals(options: {
   root: string; db: Database; lock: Pick<KeyedLock, "withLock">;
   /** The journal service owns exact user/policy attribution and its live recording window. */
   observeUserPolicy(turnId: string, approvedWrite: () => void): void | Promise<void>;
-  recordEvent(review: PolicyChangeReview, turn: PolicyProposalTurn): void;
+  /** A returned promise is the event's commit (#2850); its failure is the receipt's. */
+  recordEvent(review: PolicyChangeReview, turn: PolicyProposalTurn): unknown;
   /** Deterministic race/revalidation fixtures, never wired to a worker. */
   beforeCommit?(): void;
   validate?: typeof parseGovernancePolicy;
@@ -223,7 +224,7 @@ export function createPolicyProposals(options: {
                   fsyncSync(target!.chain.at(-1)!.fd);
                 });
                 review.state = "updated"; review.message = "Policy updated. Applies from the next turn.";
-                options.recordEvent(review, turn);
+                await options.recordEvent(review, turn);
               } finally {
                 if (temp) { try { unlinkSync(temp); } catch { /* Rename consumed it. */ } }
                 if (target) close(target);

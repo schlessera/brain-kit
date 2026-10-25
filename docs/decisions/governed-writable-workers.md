@@ -1072,7 +1072,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:197-224`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:198-225`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1334,7 +1334,7 @@ queues the capture
 (`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:191-210`),
 and the scope monitor's hold freezes every active turn's productive workers
 until the capture completes (`before() {`,
-`packages/ui-server/src/brain/turn-scope.ts:134-142`). Pi's agent loop runs in
+`packages/ui-server/src/brain/turn-scope.ts:158-166`). Pi's agent loop runs in
 its worker, so a frozen worker cannot send its next provider request until the
 resume. On the native fixture the gap between a result and the next request
 tracked the hold, not the bridge call.
@@ -1443,7 +1443,7 @@ unmet rather than relaxed.
 
 **Why.** Every governed turn queues an automatic index refresh after it
 (`host.governedTurns?.refresh(host.workerLock)`,
-`packages/ui-server/src/ws/run-session.ts:899`). The refresh usually finishes
+`packages/ui-server/src/ws/run-session.ts:909`). The refresh usually finishes
 while the next turn runs, so that turn's finish observation found a rewritten
 `brain.db` and copied a whole new version of it into retained objects, inside
 the observation's worker hold. #2831 measured 36 versions of a ~120 MB index in
@@ -1484,10 +1484,10 @@ timestamps only, with no review action. Preview reports `metadata_only` and
 download has nothing to serve. History revert and Undo read that same
 presentation and exclude the family as `metadata_only`, so a version retained
 by an earlier release is not restored either
-(`reason = "metadata_only"`, `packages/ui-server/src/brain/turn-revert.ts:43`).
+(`reason = "metadata_only"`, `packages/ui-server/src/brain/turn-revert.ts:46`).
 The operation's ordinary index refresh rebuilds it, so that exclusion alone
 does not make the operation partial
-(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:145`). Existing
+(`const partial`, `packages/ui-server/src/brain/turn-revert.ts:148`). Existing
 retained history is not erased; ordinary bounded retention expires it.
 
 **Measured.** `scripts/prove-native-host.ts --backend=pi --app-uid=1000
@@ -1531,7 +1531,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:364`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:368`)
   must not feed any budget.
 
 **Enforcement:**
@@ -1724,7 +1724,7 @@ limits from the same policy inputs and states independent hard limits.
 
 **What exists.** The audit trail is the Activity span record: tool name, the
 full input up to its cap, output and approval decisions
-(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:313`).
+(`"tool_input"`, `packages/ui-server/src/activity/recorder.ts:334`).
 
 **What changes:**
 
@@ -1805,7 +1805,7 @@ reports which applies as `governed.egress`. Making the relay work without
 managed storage is follow-up work. Each connection is recorded as a governance event, and a recording
 failure ends the turn. Without a governance recorder the policy still applies
 and only the records are absent (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:59-135`). The note says egress is
+`packages/ui-server/src/brain/turn-egress.ts:60-166`). The note says egress is
 recorded only when the backend actually routed the worker through the proxy.
 API-key Claude profiles (2026-10-22) and pi turns (2026-10-23) are routed
 too. A pi turn whose credential the relay cannot carry is refused rather than
@@ -2496,7 +2496,7 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:373`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:377`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
@@ -3310,7 +3310,7 @@ outward host skips the card only while every classified call in progress is a
 visible read, or an approved outward action that names that host. A GitHub
 write names the GitHub API hosts, and a push or HTTP write names its target's
 host. Any unknown or opaque call in progress withholds the exception
-(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:35-57`).
+(`createOutwardCalls`, `packages/ui-server/src/brain/turn-egress.ts:36-58`).
 A background process left by an earlier call can still connect inside such a
 window; the proxy records it either way.
 
@@ -3324,7 +3324,7 @@ listen on other ports: `gmail.googleapis.com`, `graph.microsoft.com`,
 `smtp.sendgrid.net`, `api.mailgun.net`, `api.eu.mailgun.net`,
 `smtp.mailgun.org`, `smtp.eu.mailgun.org`, `api.postmarkapp.com`,
 `smtp.postmarkapp.com`, `api.resend.com` and `smtp.resend.com`
-(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:16-19`).
+(`MAIL_SUBMISSION_PORTS`, `packages/ui-server/src/brain/turn-egress.ts:17-20`).
 Microsoft Graph and Exchange Online carry more than mail, so their reads by
 an opaque script also wait on the card. The coordinator chose this list for
 #1665; the maintainer may override it.
@@ -3374,7 +3374,12 @@ server", following the rule above that erring towards taint costs only tighter
 rules (maintainer ruling, 2026-10-22). The first source is the session's one
 `taint` event. A write that fails stops the turn rather than leaving its
 outward rules loose. The check and write share a SQLite transaction
-(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-22`).
+(`recordFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:17-23`).
+The hosted server runs that transaction on its write worker
+(`insertFirstTaint`, `packages/ui-server/src/governance/session-taint.ts:29-35`;
+[#2850](https://github.com/schlessera/brain-kit/issues/2850)). A taint counts
+for admission from the moment it is submitted, and a connection's first byte
+waits for its taint's commit.
 
 The admitting host hands both backends a live read of that record with the
 turn's command policy. While it reports a taint, no `outward.allow` rule
@@ -3395,7 +3400,7 @@ session's proxies already admitted (a record with charged bytes; the proxy
 charges only after admission); otherwise it is refused and recorded as an
 `egress_denial` with reason `taint_allowlist`. The taint list narrows and never
 widens: deny and `allowlist` mode still apply first (`prepareTurnEgress`,
-`packages/ui-server/src/brain/turn-egress.ts:59-135`). Hosts without managed
+`packages/ui-server/src/brain/turn-egress.ts:60-166`). Hosts without managed
 native storage have no proxy, so the Bash classifier remains their shell rule
 and nothing narrows their egress.
 
@@ -3543,7 +3548,7 @@ providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
 `packages/ui-server/src/brain/turn-journal.ts:524-554`; destination-bound recovery
-is `const target`, `packages/ui-server/src/brain/turn-revert.ts:110-120`.
+is `const target`, `packages/ui-server/src/brain/turn-revert.ts:113-123`.
 
 ### Concurrent edits
 
@@ -3576,7 +3581,7 @@ exclusive "mine" or "theirs" ownership. A conflict requires two distinct
 observed after-versions sharing an overlapping turn; one version remains shared
 attribution. User choices use the existing authenticated history operation,
 comparing current raw state with the reviewed latest observation before effects
-(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:52-75`).
+(`resolveSelection`, `packages/ui-server/src/brain/turn-revert.ts:55-78`).
 Keep both creates the other version beside the selected file with sync's
 numbered `-remote` convention, using exclusive descriptor-rooted creation,
 existing CAS leases and explicit coverage for its final generated name
