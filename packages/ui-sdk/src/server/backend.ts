@@ -517,6 +517,14 @@ export interface StartTurnRequest {
   /** @internal Parent-owned lifecycle control; never serialized into a worker. */
   workerStarted?: (worker: Pick<import("./worker-launcher.js").LaunchedWorker, "freeze" | "resume" | "kill" | "exited">) => void;
   /**
+   * @internal Server-only evidence of where one call actually ran, reported
+   * before its `tool_result` and never serialized into a worker (#2834).
+   * `host_bridge`: its body ran in the host's handler for its tool;
+   * `worker_read` / `worker_write`: a first-party file tool read or wrote in a
+   * worker that loaded no extension code. A call without evidence is unproven.
+   */
+  toolExecution?: (toolUseId: string, path: "host_bridge" | "worker_read" | "worker_write") => void;
+  /**
    * @internal Host-only observation of validated native memory copy-out, never a worker/client destination.
    * The host may record the note asynchronously; a backend awaits the result before the next note or exit.
    */

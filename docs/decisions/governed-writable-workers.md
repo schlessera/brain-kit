@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:614-619`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:619-624`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -922,7 +922,8 @@ to the user.
 
 **Delivered journal behavior (#1652).** The host records raw observations at
 admission, tool completion, 15-second scope observations and turn completion
-before quarantine/gate release. The journal and private content objects are
+before quarantine/gate release. Since #2834 a proven read's tool completion
+is not observed ([per-result observation schedule](#per-result-observation-schedule--2026-10-25-2834)). The journal and private content objects are
 operational state beside `DB_PATH`, masked from workers; they do not make
 `brain.db` authoritative. Descriptor walking, the pinned ignore matcher and
 the stat cache were implemented by
@@ -1193,6 +1194,118 @@ version. This conservative recovery cannot infer that an unrecorded path was
 never read. Sessions with complete retained observations preserve the approved
 never-read behavior across restarts. There is no reconstruction of authority
 from worker transcripts, and no extension of the observed-shell guarantee.
+
+### Per-result observation schedule — 2026-10-25 (#2834)
+
+> **Maintainer ruling (2026-10-24), Option A.** Schedule per-result
+> observations by proven write capability in the actual execution path. Only a
+> call proven read-only there may skip its observation. Bash, write-capable and
+> unknown or custom calls keep it; a tool name or risk label alone is not
+> evidence. Terminal and periodic capture, background-write completeness and
+> the scope-limit bound stay; no coalescing, overshoot relaxation or durability
+> change.
+
+**Where the next request waited.** The bridge never awaits an observation: it
+starts one per result and carries on
+(`void host.journal?.toolEnded`, `packages/ui-server/src/ws/bridge.ts:188`).
+The wait is the observation's hold. `held` takes it synchronously, before it
+queues the capture
+(`function held<T>`, `packages/ui-server/src/brain/turn-journal.ts:171-190`),
+and the scope monitor's hold freezes every active turn's productive workers
+until the capture completes (`before() {`,
+`packages/ui-server/src/brain/turn-scope.ts:134-142`). Pi's agent loop runs in
+its worker, so a frozen worker cannot send its next provider request until the
+resume. On the native fixture the gap between a result and the next request
+tracked the hold, not the bridge call.
+
+**The schedule.** Every tool result is still observed, unless the call is
+proven read-only, no other call of an active turn is still running, and no
+active turn has run a call whose effects may outlast it
+(`toolEnded(turnId: string, toolUseId: string)`,
+`packages/ui-server/src/brain/turn-journal.ts:411-418`). Admission, turn end,
+the 15-second timer, scope-limit observations, approved policy writes and
+removal coverage observe exactly as before.
+
+**Proof comes from the execution path.** The backend reports where each call
+ran through the server-only `StartTurnRequest.toolExecution`, and the host
+classifies that evidence together with the call's name
+(`export function toolObservation`,
+`packages/ui-server/src/brain/tool-observation.ts:37-42`). A call without
+evidence is unproven.
+
+| Calls | Where they run | Evidence | Result |
+| --- | --- | --- | --- |
+| Host bridge reads: `brain_read_base`, `query_activity`, `inbox_list`, `inbox_get`, `show_block`, `ask_user*`, `get_current_location` | In the host's handler. They read the UI database, Activity, a Git object or the client, and none reads the index, so no index barrier runs before them | The host dispatched that call's `bridge` or `readBase` RPC; it took no lock and reported no file phase | Not observed |
+| Host bridge writers: the application route (`brain_add`, `brain_update`, `brain_archive`, strict `write_file` and `edit_file`), `inbox_add`, `resolve_action`, `complete_share`, `request_image_mask`, `propose_policy_change`, reference tools | In the host's handler; their writes finish before the result | Same | Observed |
+| Pi `read_file` (direct worker read) | The curated `readFileSync` in the worker | The governed `read_start` and `read_end` RPCs for that call, and no lock | Not observed |
+| Pi `write_file`, `edit_file` (direct worker writers) | The curated write under its path lock | The lock RPC plus `write_check` and `write_end` | Observed |
+| `bash`, `grep`, `brain_search`, `brain_context`, `brain_read`, `brain_list`, `brain_graph`, extension and subagent tools, anything else | A subprocess, or brain-owned code: `brain.config.ts` evaluated in the worker by the first index query (`async function ensureContext`, `packages/ui-backend-pi/src/brain-access.ts:156`), which stays loaded. Index readers also run a host index barrier first, which can write `.brain-index/` | None | Observed, and every later result of the turn is observed too |
+| Every Claude tool | Built-ins run in the worker next to project settings hooks and the brain's own MCP server, which can run brain-owned code on any tool event | None reported | Observed, as before |
+
+The pi backend reports evidence only from its own record of each call's RPCs.
+A call that names two tools, takes the write lock as a read, or reports only
+part of its read proves nothing (`export function provenToolExecution`,
+`packages/ui-backend-pi/src/worker-session.ts:48-56`). It reports nothing at
+all for a worker that loads extensions. Extension handlers run on every tool
+event, bridge reads included, and can write at any time
+(`const extensionFree`, `packages/ui-backend-pi/src/worker-session.ts:448`).
+With extensions loaded, which is pi's default, every result is observed as
+before. The worker's reports are evidence only while it has run nothing but
+curated code. Once it admits a call outside the provable set (`bash`, `grep`,
+an index tool that loads `brain.config.ts`, an application tool), or starts a
+call under a running call's identity, it reports nothing more until it exits.
+Code it ran could otherwise report itself as a host read. The host also
+classifies evidence against the name the call started with, so host evidence
+for a call that started as another tool proves nothing either.
+
+**Completeness.** A skipped result belongs to a call that changed nothing and
+left nothing running, at a moment when nothing else in an active turn was
+running or could still be writing. The turn's terminal observation captures the
+whole brain root, whichever results were observed before it, so every path's
+state at turn end is in the journal. Writers are observed after their own result, as
+before. After an unproven call, every later result in that turn is observed,
+so a background writer's versions between calls are retained at the same
+points as before. A call still running keeps a proven read's result observed,
+so that call's intermediate versions are retained too. What the schedule can
+delay is a change by a writer outside every active turn's calls: another
+session without a journal, host maintenance or an external editor. If it lands
+while the active turns make only proven reads, the change is captured by the
+next observation the schedule keeps: the 15-second observation or the turn's
+end. Those two already bounded it, because a turn can go any length of time
+without a tool result; a per-result observation captured it only by
+coincidence. Such a writer's intermediate version, overwritten before the next
+kept observation, is not retained, just as it was not when no tool result fell
+between.
+
+**Scope limits.** `files_changed` and `turn_bytes` are evaluated on each
+observation's facts. A proven read changes nothing, so it cannot cross a limit.
+A writer's result is still observed, so its own crossing is detected there.
+After an unproven call every result is observed, so a limit that a background
+writer crosses between two calls is detected at the next result, as before.
+
+**Measured.** The fixture model of `scripts/prove-native-host.ts
+--observation-timing` makes 20 calls of each tool, one per request, on the
+native fixture (pi, governed, UID 1000, 2,000 notes); the PR records the host
+load. Targets: a proven read adds under 50 ms median over its tool time, a
+writer under 150 ms, and journal begin plus finish stay under 300 ms median.
+Measured on 2026-10-25 at host load 12–17, median added ms with its p95
+(added = round trip minus tool time) and the share of calls whose worker was held:
+
+| Calls | Before | After |
+| --- | --- | --- |
+| Proven reads (`read_file`, `brain_read_base`, `query_activity`, `inbox_list`, `read_file` after a writer) | 546–607, held 19–20 of 20 | 72–98, held 0 of 20 |
+| Writers (`write_file`, `edit_file`) | 639–754, held 20 of 20 | 668–774, held 20 of 20 |
+| Unproven (`brain_search`, `bash`, `read_file` after `bash`) | 556–665, held 19–20 of 20 | 571–704, held 18–20 of 20 |
+
+A proven read no longer waits for an observation: its remaining cost is pi's
+own response handling and the relay, about 20 ms after the result and the rest
+before the call starts. At that load it does not reach the 50 ms target. A
+writer's result is observed as before, so writers stay far above 150 ms, and
+journal begin plus finish stay above 300 ms (Claude 1,124 ms, pi 3,508 ms).
+The observation's native checkpoint and release dominate a writer's cost
+(#2872), and pi's finish also retains a whole new index version after each
+automatic refresh (#2873). Neither can be cut by scheduling without weakening
+capture, so these targets are reported as unmet rather than relaxed.
 
 ## Monitoring
 
@@ -2053,7 +2166,7 @@ every turn without a proven recipient:
     document's text there.
   - Pi resumes that session's own entries
     (`readPiSession`,
-    `packages/ui-backend-pi/src/worker-session.ts:83-89`), together with
+    `packages/ui-backend-pi/src/worker-session.ts:99-105`), together with
     that session's fixed system-prompt append. Its stored native file
     observations are content hashes, not text. Pi has no memory folder; its
     worker receives only `settings.json` (with `auth.json` and `models.json`
@@ -3140,7 +3253,7 @@ attribution. If an existing same-session/turn taint event precedes an agent
 observation, the journal retains its source ID with that change. Replay never
 infers taint from a later event, and absence of evidence does not assert complete
 untrusted-input detection. User history operations are not tainted agent writes
-(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:249-312`).
+(`async function observe`, `packages/ui-server/src/brain/turn-journal.ts:257-320`).
 
 Claude auto-memory persists outside the authoritative brain. Its validated
 native copy-out wraps each changed direct `.md` note in host journal retention:
@@ -3163,7 +3276,7 @@ memory completion of the earlier 0.42.0 steering slice, not a widening of memory
 providers or a claim of capturing intervening external writes. The copy-out
 boundary is `const write`, `packages/ui-backend-claude/src/worker-state.ts:210-224`;
 retention/finalization is `persistClaudeMemory`,
-`packages/ui-server/src/brain/turn-journal.ts:462-497`; destination-bound recovery
+`packages/ui-server/src/brain/turn-journal.ts:501-536`; destination-bound recovery
 is `const target`, `packages/ui-server/src/brain/turn-revert.ts:108-118`.
 
 ### Concurrent edits
