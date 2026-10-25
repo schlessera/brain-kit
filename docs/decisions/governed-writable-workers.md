@@ -150,7 +150,7 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-132`;
 `begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:658-663`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:662-667`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -849,7 +849,9 @@ configuration still loads from the frozen view at the brain path.
   the brain path. A file the server cannot read across UIDs (a worker's own
   `0600` file) is left out too.
   It costs O(brain), 0.11-0.31 s on the 2,000-note fixture, besides the
-  approved index copy.
+  approved index copy. Applications write only non-hidden `.md` outside
+  `context/policies`, and the image-mask operation only its PNG and its
+  scratch prune's removals, so every other byte in the tree equals the view.
 - **The copy runs as a pool (#2891).** Admission plans the tree (directories
   and links) in one walk, then copies the files and the index seed sixteen at
   a time off the event loop, requesting a reflink, and closes each directory's
@@ -866,9 +868,8 @@ configuration still loads from the frozen view at the brain path.
   checkpoints qualify), so it needs a manager-provisioned location and a
   capacity ruling first. Hardlinks from a shared base are refused by the
   readers that require one link (`checkGovernancePolicy`, the embedding
-  policy, storage-attachment facts) and cannot cross subvolumes. The tree still holds
-  one copy per concurrent turn on the temporary directory. Applications write only non-hidden `.md` outside
-  `context/policies`, so every other byte in the tree equals the view.
+  policy, storage-attachment facts) and cannot cross subvolumes. The tree
+  still holds one copy per concurrent turn on the temporary directory.
 - **Committed bytes enter the tree inside the commit boundary.** Each
   application hands the tree its committed effects with the live base each
   one replaced, partial staged failures included; an archive writes the
@@ -906,7 +907,14 @@ configuration still loads from the frozen view at the brain path.
   the tree must stay data that only the brain tools read. pi's `read_file`,
   `grep` and `brain_read` resolve against the tree, and pi's shell runs in it;
   pi loads its context files at startup from the frozen path. The sandbox note
-  names the data path. Image-mask PNGs are not copied into the tree mid-turn.
+  names the data path.
+- **Image masks reach the tree too (#2892).** The mask operation hands the
+  tree its committed PNG, with the mask bytes it replaced as the base, and the
+  scratch prune's removals, inside the same lock as the live write. A worker's
+  next read of the mask in the tree returns the applied bytes, a pruned
+  scratch file is gone from it, and a Claude `Read` of the mask at the brain
+  path is refused like any applied path. In a masked turn the PNG enters only
+  under the provenance rule below, compared byte for byte.
 
 **Provider-restricted turns (#2846, B1).** A masked turn's tree leaves out
 the masked folders, the operational-state folders `.brain` and `.brain-ui` and
@@ -1128,7 +1136,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:198-225`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:210-237`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1716,7 +1724,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:368`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:375`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2643,7 +2651,7 @@ every turn without a proven recipient:
   - **The handoff summary.** Drafting a handoff summary refuses when the
     policy has provider rules and the source chat's lineage does not cover
     every provider folder, before its history is read (`unprovenHistory`,
-    `packages/ui-server/src/ws/handoff.ts:303-306`). The run has no proven
+    `packages/ui-server/src/ws/handoff.ts:309-312`). The run has no proven
     recipient, so every provider folder is denied to it. A policy with a type
     selector always refuses: the type's folders follow the current taxonomy,
     which this check does not translate, and a remembered translation may be

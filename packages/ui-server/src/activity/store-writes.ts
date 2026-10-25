@@ -28,6 +28,21 @@ export interface ActivityWriteOptions { writer: string; pricing?: ActivityPricin
  * replaces it, so a rollup prices from the table the app last published.
  */
 export function setup(db: Database, options: ActivityWriteOptions): WriteProcedures {
+  const { store, pricing } = workerActivity(db, options);
+  const procedures: WriteProcedures = {};
+  for (const name of ACTIVITY_WRITE_METHODS) {
+    procedures[name] = ((...args: unknown[]) => { pricing?.(); return Reflect.apply(store[name] as (...values: unknown[]) => unknown, store, args); }) as WriteProcedures[string];
+  }
+  return procedures;
+}
+
+/**
+ * A store on the write connection, as `setup` builds it, for another
+ * procedure module whose transaction writes Activity rows too (#2850).
+ * `pricing`, present with a pricing configuration, reloads the shared table
+ * if the app has replaced it; call it before a write that prices.
+ */
+export function workerActivity(db: Database, options: ActivityWriteOptions): { store: ActivityStore; pricing?: () => RollupPricing } {
   const config = options.pricing;
   let pricing: RollupPricing | undefined, identity = "";
   const current = (): RollupPricing => {
@@ -38,11 +53,7 @@ export function setup(db: Database, options: ActivityWriteOptions): WriteProcedu
     return pricing;
   };
   const store = createActivityStore(db, { writer: options.writer, ...(config ? { pricing: { resolve: (model, route) => current().resolve(model, route) } } : {}) });
-  const procedures: WriteProcedures = {};
-  for (const name of ACTIVITY_WRITE_METHODS) {
-    procedures[name] = ((...args: unknown[]) => { if (config) current(); return Reflect.apply(store[name] as (...values: unknown[]) => unknown, store, args); }) as WriteProcedures[string];
-  }
-  return procedures;
+  return { store, ...(config ? { pricing: current } : {}) };
 }
 
 /**

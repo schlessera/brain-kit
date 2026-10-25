@@ -623,7 +623,7 @@ describe("review findings: authority, admission and fail-closed idempotency", ()
   });
 
   for (const pair of PAIRS) test(`${pair.source} → ${pair.destination}: a destination whose link could not be stored is still found by its key`, async () => {
-    const r = rig({ recordHandoff: () => () => false });
+    const r = rig({ recordHandoff: () => async () => false });
     const source = seedSource(r, pair.source);
     const ws = r.open();
     const frame = { type: "chat_message", text: "Odysseus is sailing home.", providerId: pair.profile, requestId: "req-unrecorded",

@@ -392,8 +392,9 @@ write verified scratch/workspace copies through the aliases below.
   fail. Autonomous turns retain their restricted permissions.
 - **The turn's data tree** (`/tmp/brain-worker-data`, read-only) is what a
   strict, voice or autonomous worker's brain tools read: the documents as the
-  turn started plus every change the turn's own applications committed, with
-  a search index the server brings up to date before the next search. The
+  turn started plus every change the turn's own applications and image masks
+  committed, with a search index the server brings up to date before the next
+  search. The
   `brain` CLI in a shell, Claude's `brain` MCP server and pi's brain tools use
   it as their data root (`BRAIN_ROOT`); configuration still loads from the
   frozen view at the brain path. Claude's `Read`, `Grep` and `Glob` and shell

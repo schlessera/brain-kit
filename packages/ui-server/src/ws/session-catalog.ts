@@ -1,7 +1,8 @@
-import { createActivityStore, priceUsage, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
+import { createActivityStore, priceUsage, type ActivityStore, type AwaitableActivityStore, type RollupPricing } from "../activity/store.js";
+import type { ActivityPricingConfig } from "../activity/store-writes.js";
 import { createModelPricing } from "../pricing/model-pricing.js";
 import { resolveStandalonePricingConfig } from "../config/env.js";
-import { allocateClaudeTitleUsage, reconcileClaudeUsage, type ClaudeUsageEvidence, type ClaudeUsageState } from "./claude-usage-accounting.js";
+import type { ClaudeUsageEvidence } from "./claude-usage-accounting.js";
 import type { BillingMode, PricingRoute } from "@schlessera/brain-ui-sdk/protocol";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "@opentelemetry/api-logs";
@@ -18,7 +19,7 @@ import type {
 } from "@schlessera/brain-ui-sdk/protocol";
 import { stateRoomObservationSchema } from "@schlessera/brain-ui-sdk/schemas";
 
-import { attachMessageSources, saveMessageSource, saveEffectiveThinkingLevel } from "./message-sources.js";
+import { attachMessageSources } from "./message-sources.js";
 import {
   loadLocalExchanges,
   saveLocalExchange,
@@ -28,7 +29,9 @@ import {
 
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
-import { attachTurnFailures, saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
+import { attachTurnFailures, type RecordedTurnFailure } from "./turn-failures.js";
+import * as writes from "./session-catalog-writes.js";
+import { procedureCaller, type ProcedureCall, type SqliteWriter } from "../db/write-worker.js";
 import type { GovernanceEventInput } from "../governance/events.js";
 import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 
@@ -51,10 +54,16 @@ export interface SessionCatalog {
   recordTurnFailure?(sessionId: string, backendId: string, record: RecordedTurnFailure): void;
   attachTurnFailures?(sessionId: string, messages: SessionHistoryMessage[]): SessionHistoryMessage[];
   /**
-   * Record an accepted request and return its revision (#964), or null when
-   * it could not be stored. Never throws: acceptance must not fail a turn.
+   * Settles once every catalog write submitted before it has settled
+   * (#2850): a reader that joins committed rows onto history awaits it.
    */
-  acceptWork?(sessionId: string, requestId: string | null, backendId: string | null): number | null;
+  settled?(): Promise<void>;
+  /**
+   * Record an accepted request and return its revision (#964), or null when
+   * none could be assigned. `settled` hears whether it was stored. Never
+   * throws: acceptance must not fail a turn.
+   */
+  acceptWork?(sessionId: string, requestId: string | null, backendId: string | null, settled?: (stored: boolean) => void): number | null;
   /** Record the turn that runs the request accepted at `revision`. */
   dispatchWork?(sessionId: string, revision: number, turnId: string, backendId: string, startedAt: number): void;
   /** The latest accepted request, or null. Throws when the read fails. */
@@ -119,10 +128,10 @@ export interface SessionCatalog {
   loadLocalExchanges?(sessionId: string): LocalExchangeRecord[];
   /**
    * Link a handoff destination to its source and its client-minted key
-   * (#61). Called once `session_info` names the destination. Returns false
+   * (#61). Called once `session_info` names the destination. Settles false
    * when it could not be stored.
    */
-  recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): boolean;
+  recordHandoff?(sessionId: string, handoffId: string, sourceSessionId: string, sourceTurns: number | null): Promise<boolean>;
   /** The destination already created for a handoff key, or null. */
   findHandoff?(handoffId: string): string | null;
   /**
@@ -152,18 +161,11 @@ export interface SessionCatalog {
   recordGovernanceEvent?(event: GovernanceEventInput): void;
 }
 
-const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_active_at, total_cost_usd, num_turns, provider_id, backend_id)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-   ON CONFLICT(id) DO UPDATE SET
-     last_active_at = excluded.last_active_at,
-     total_cost_usd = total_cost_usd + excluded.total_cost_usd,
-     num_turns = num_turns + excluded.num_turns,
-     provider_id = COALESCE(excluded.provider_id, provider_id),
-     backend_id = COALESCE(excluded.backend_id, backend_id)`;
-
 /** SQLite-backed catalog over the app's own database (injected by createApp). */
 export function createSessionCatalog(db: () => Database, log?: Logger, scratchPins?: { record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void },
-  accounting?: { pricing: RollupPricing; store: AwaitableActivityStore; governance?: Pick<GovernanceWrites, "record" | "bind"> }): SessionCatalog {
+  accounting?: { pricing: RollupPricing; store: AwaitableActivityStore; governance?: Pick<GovernanceWrites, "record" | "bind">;
+    /** Where catalog rows commit: the app's write worker (#2850). Absent, they commit on `db` at once. */
+    writer?: SqliteWriter; pricingConfig?: ActivityPricingConfig }): SessionCatalog {
   let accountingDeps = accounting;
   // Governance rows commit on the write worker when the app has one (#2850).
   let governanceWrites = accounting?.governance;
@@ -185,76 +187,89 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       },
     });
   };
+
+  // Every catalog write is one procedure call, committed in submission order
+  // (#2850). `tail` is the latest one's settlement: the worker settles calls
+  // in order, so once it has settled, so has every write submitted before it.
+  let caller: ProcedureCall | undefined;
+  let tail: Promise<void> = Promise.resolve();
+  const settle = (done: Promise<unknown>) => { tail = done.then(() => {}, () => {}); };
+  const submit = <T>(name: string, ...args: unknown[]): Promise<T> => {
+    let done: Promise<T>;
+    try {
+      caller ??= procedureCaller(db(), { url: writes.url, setup: writes.setup }, accounting?.writer
+        ? { activity: { writer: accounting.store.writer, ...(accounting.pricingConfig ? { pricing: accounting.pricingConfig } : {}) } }
+        : { local: () => ({ store: getAccounting().store as ActivityStore, pricing: getAccounting().pricing }) }, accounting?.writer);
+      done = caller<T>(name, ...args);
+    } catch (error) { done = Promise.reject(error); }
+    settle(done);
+    return done;
+  };
+
+  // The effects of writes submitted and not yet settled, per session, in
+  // submission order. A synchronous read on the turn path answers from the
+  // committed row with these applied, so a write is visible from its
+  // submission, as it was when it committed inline. Each effect goes when its
+  // own write settles: a failed one stops counting at once.
+  type RowEffect = { upsert: { providerId: string | null; backendId: string | null } } | { label: { label: string; source: string } };
+  const rowEffects = new Map<string, RowEffect[]>();
+  const pendingWork = new Map<string, Array<(row: work.AcceptedWork | null) => work.AcceptedWork | null>>();
+  const track = <E, T>(effects: Map<string, E[]>, sessionId: string, effect: E, done: Promise<T>): Promise<T> => {
+    const list = effects.get(sessionId) ?? [];
+    list.push(effect);
+    effects.set(sessionId, list);
+    void done.then(() => {}, () => {}).then(() => {
+      list.splice(list.indexOf(effect), 1);
+      if (list.length === 0 && effects.get(sessionId) === list) effects.delete(sessionId);
+    });
+    return done;
+  };
+  const committedRow = (sessionId: string) => db()
+    .query("SELECT provider_id AS providerId, backend_id AS backendId FROM sessions WHERE id = ?")
+    .get(sessionId) as { providerId: string | null; backendId: string | null } | null;
+  /** The latest non-null value a pending upsert gives (its COALESCE), else none. */
+  const pendingValue = (sessionId: string, key: "providerId" | "backendId"): string | null => {
+    const effects = rowEffects.get(sessionId) ?? [];
+    for (let index = effects.length - 1; index >= 0; index--) {
+      const effect = effects[index]!;
+      if ("upsert" in effect && effect.upsert[key] !== null) return effect.upsert[key];
+    }
+    return null;
+  };
+  const pendingRow = (sessionId: string) => (rowEffects.get(sessionId) ?? []).some(effect => "upsert" in effect);
+  const storedBackendId = (sessionId: string) => pendingValue(sessionId, "backendId") ?? committedRow(sessionId)?.backendId ?? null;
+  const hasRow = (sessionId: string) => pendingRow(sessionId) || db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
+  const upsert = (sessionId: string, promptText: string, providerId: string | null, backendId: string, costUsd: number, turns: number) => {
+    const row: writes.SessionRow = { id: sessionId, title: promptText.slice(0, 100), at: Date.now(), costUsd, turns, providerId, backendId };
+    return track(rowEffects, sessionId, { upsert: { providerId, backendId } }, submit<void>("upsertSession", row));
+  };
+  /** Highest revision issued per session; it never goes down, so a failed acceptance's revision is never reused. */
+  const issued = new Map<string, number>();
+  const latestWork = (sessionId: string): work.AcceptedWork | null => {
+    let row = work.latestWork(db(), sessionId);
+    for (const effect of pendingWork.get(sessionId) ?? []) row = effect(row);
+    return row;
+  };
+  // Retained retries stay on this connection, and so stay fail-closed: a
+  // failed invalidation still refuses the input that needed it. A failure
+  // retained before its session's row has committed is stored once that row
+  // has, unless an input has invalidated it meanwhile.
+  const retryGenerations = new Map<string, number>();
   return {
+    async settled() { let waiting: Promise<void>; do { waiting = tail; await waiting; } while (waiting !== tail); },
     accountClaudeUsage(sessionId, backendId, turnId, evidence, resumed, context) {
       let mainCost: number | undefined;
       try {
-        const { pricing, store } = getAccounting();
+        const { pricing } = getAccounting();
         mainCost = evidence.completed?.perModel ? priceUsage(evidence.completed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
-        db().transaction(() => {
-          if (db().query("SELECT 1 FROM claude_usage_turns WHERE turn_id=?").get(turnId)) return;
-          const row = db().query("SELECT state_json FROM claude_session_usage WHERE session_id=? AND backend_id=?")
-            .get(sessionId, backendId) as { state_json: string } | null;
-          const previous = row ? JSON.parse(row.state_json) as ClaudeUsageState : undefined;
-          const result = reconcileClaudeUsage(previous, evidence.completed, evidence.cumulative, resumed, evidence.cumulativeCompleted);
-          const allocation = allocateClaudeTitleUsage(result.auxiliary, evidence.title, previous?.titleReceiptIds);
-          result.state.titleReceiptIds = allocation.seenIds;
-          result.state.partial ||= allocation.partial;
-          for (const [index, receipt] of allocation.title.entries()) {
-            const cost = receipt.costUsd ?? priceUsage(receipt.usage.perModel!, pricing, context?.pricingRoute)?.costUsd;
-            const runId = `${turnId}:claude-title:${index}`, spanId = `${runId}:root`;
-            store.startSpan({ runId, spanId, sessionId, principalId: context?.principalId, kind: "turn", origin: "session",
-              name: "Claude session title", attrs: { "brain.backend.id": backendId } });
-            store.endSpan(spanId, { outcome: "success", usage: {
-              inputTokens: receipt.usage.inputTokens, outputTokens: receipt.usage.outputTokens,
-              cacheReadTokens: receipt.usage.cacheReadTokens, cacheCreationTokens: receipt.usage.cacheCreationTokens,
-              ...(cost !== undefined ? { costUsd: cost } : {}),
-            }, attrs: { "brain.usage.source": receipt.source, "brain.usage.attribution": "title_helper",
-              "brain.usage.receipt_id": receipt.receiptId, "brain.usage.coverage": "observed",
-              "gen_ai.usage.per_model": receipt.usage.perModel!,
-              ...(context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
-              ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
-            } });
-            store.rollupRun(runId);
-            if (cost !== undefined) db().query("UPDATE sessions SET total_cost_usd=total_cost_usd+? WHERE id=?").run(cost, sessionId);
-          }
-          const auxiliaryCost = allocation.unattributed?.perModel ? priceUsage(allocation.unattributed.perModel, pricing, context?.pricingRoute)?.costUsd : undefined;
-          // An independent run keeps main conversation/cache metrics clean.
-          // Unavailable coverage remains visible as an unpriced run; this is
-          // unstreamed usage, not a claim that a model was a title helper.
-          if (allocation.unattributed || result.state.partial && !previous?.partial) {
-            const runId = `${turnId}:claude-unstreamed`, spanId = `${runId}:root`;
-            store.startSpan({ runId, spanId, sessionId, principalId: context?.principalId, kind: "turn", origin: "session",
-              name: "Unstreamed Claude usage", attrs: { "brain.backend.id": backendId } });
-            store.endSpan(spanId, { outcome: "success", usage: allocation.unattributed ? {
-              inputTokens: allocation.unattributed.inputTokens, outputTokens: allocation.unattributed.outputTokens,
-              cacheReadTokens: allocation.unattributed.cacheReadTokens, cacheCreationTokens: allocation.unattributed.cacheCreationTokens,
-              ...(auxiliaryCost !== undefined ? { costUsd: auxiliaryCost } : {}),
-            } : undefined, attrs: {
-              "brain.usage.source": "claude_session_cumulative_remainder",
-              "brain.usage.attribution": "unattributed",
-              ...(evidence.title ? { "brain.usage.title_evidence": JSON.stringify(evidence.title) } : {}),
-              "brain.usage.coverage": result.state.partial ? "partial" : "observed",
-              ...(allocation.unattributed?.perModel ? { "gen_ai.usage.per_model": allocation.unattributed.perModel } : {}),
-              ...(allocation.unattributed && context?.billingMode ? { "brain.billing_mode": context.billingMode } : {}),
-              ...(context?.pricingRoute ? { "brain.pricing_route": context.pricingRoute } : {}),
-              ...(evidence.reportedCostUsd !== undefined ? { "brain.usage.reported_session_cost_usd": evidence.reportedCostUsd } : {}),
-            } });
-            store.rollupRun(runId);
-            if (auxiliaryCost !== undefined) db().query("UPDATE sessions SET total_cost_usd=total_cost_usd+? WHERE id=?").run(auxiliaryCost, sessionId);
-          }
-          db().query("INSERT INTO claude_session_usage VALUES (?,?,?) ON CONFLICT(session_id,backend_id) DO UPDATE SET state_json=excluded.state_json")
-            .run(sessionId, backendId, JSON.stringify(result.state));
-          db().query("INSERT INTO claude_usage_turns VALUES (?,?,?)").run(turnId, sessionId, backendId);
-        }).immediate();
+        submit("claudeUsage", sessionId, backendId, turnId, evidence, resumed, context).catch(error => reportWriteFailure(sessionId, error));
       } catch (error) { reportWriteFailure(sessionId, error); }
       return mainCost;
     },
     recordStateRoom(sessionId, observation) {
       try {
         const parsed = stateRoomObservationSchema.parse(observation);
-        db().query("INSERT INTO session_state_room (session_id, observation) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET observation = excluded.observation")
-          .run(sessionId, JSON.stringify(parsed));
+        submit("stateRoom", sessionId, parsed).catch(error => reportWriteFailure(sessionId, error));
       } catch (error) { reportWriteFailure(sessionId, error); }
     },
     readStateRoom(sessionId) {
@@ -268,25 +283,37 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       catch (err) { reportWriteFailure(sessionId, err); }
     },
     recordTurnFailure(sessionId, backendId, record) {
-      try { saveTurnFailure(db(), sessionId, backendId, record); }
-      catch (err) { reportWriteFailure(sessionId, err); }
+      submit("turnFailure", sessionId, backendId, record).catch(err => reportWriteFailure(sessionId, err));
     },
     attachTurnFailures(sessionId, messages) {
       try {
-        const row = db().query("SELECT backend_id FROM sessions WHERE id = ?").get(sessionId) as { backend_id: string | null } | null;
-        return row?.backend_id ? attachTurnFailures(db(), sessionId, row.backend_id, messages) : messages;
+        const backendId = storedBackendId(sessionId);
+        return backendId ? attachTurnFailures(db(), sessionId, backendId, messages) : messages;
       } catch (err) {
         reportWriteFailure(sessionId, err);
         return messages;
       }
     },
     saveRetryRequest(sessionId, turnId, principalId, request, prompt, failure) {
-      try { retries.saveRetryRequest(db(), sessionId, turnId, principalId, request, prompt, failure); return true; }
-      catch (err) { reportWriteFailure(sessionId, err); return false; }
+      const save = () => retries.saveRetryRequest(db(), sessionId, turnId, principalId, request, prompt, failure);
+      try {
+        if (!pendingRow(sessionId)) { save(); return true; }
+        // Its row references the session's, still pending: it is stored once
+        // that has committed, and the answer advertises Retry now, since a
+        // frame cannot wait. If it is not kept, reserving it refuses.
+        const generation = retryGenerations.get(sessionId) ?? 0;
+        const stored = tail.then(() => { if ((retryGenerations.get(sessionId) ?? 0) === generation) save(); });
+        settle(stored);
+        stored.catch(err => reportWriteFailure(sessionId, err));
+        return true;
+      } catch (err) { reportWriteFailure(sessionId, err); return false; }
     },
     // Retry reads/consumption must fail closed: unlike accounting, an
     // unsuccessful invalidation cannot permit an obsolete prompt to run.
-    clearRetryRequest(sessionId) { retries.clearRetryRequest(db(), sessionId); },
+    clearRetryRequest(sessionId) {
+      retryGenerations.set(sessionId, (retryGenerations.get(sessionId) ?? 0) + 1);
+      retries.clearRetryRequest(db(), sessionId);
+    },
     peekRetry(sessionId) { return retries.retained(db(), sessionId); },
     reserveRetry(sessionId, turnId, requestId, principalId, expectedPrompt) { return retries.reserveRetry(db(), sessionId, turnId, requestId, principalId, expectedPrompt); },
     refuseRetry(sessionId, requestId, principalId, message) { return retries.refuseRetry(db(), sessionId, requestId, principalId, message); },
@@ -295,26 +322,37 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       try { return retries.attachRetryRequest(db(), sessionId, messages); }
       catch (err) { reportWriteFailure(sessionId, err); return messages; }
     },
-    acceptWork(sessionId, requestId, backendId) {
-      try { return work.acceptWork(db(), sessionId, { requestId, backendId, at: Date.now() }); }
-      catch (err) { reportWriteFailure(sessionId, err); return null; }
+    acceptWork(sessionId, requestId, backendId, settled) {
+      let revision: number;
+      let latest: work.AcceptedWork | null;
+      const at = Date.now();
+      try {
+        latest = latestWork(sessionId);
+        revision = Math.max(issued.get(sessionId) ?? 0, latest?.revision ?? 0) + 1;
+      } catch (err) { reportWriteFailure(sessionId, err); return null; }
+      issued.set(sessionId, revision);
+      // The statement's own effect: the upsert keeps the stored backend when none is given.
+      track(pendingWork, sessionId, (row: work.AcceptedWork | null) => (
+        { revision, requestId, turnId: null, backendId: backendId ?? row?.backendId ?? null, acceptedAt: at, startedAt: null }),
+      submit("acceptWork", sessionId, { revision, requestId, backendId, at }))
+        .then(() => settled?.(true), err => { reportWriteFailure(sessionId, err); settled?.(false); });
+      return revision;
     },
     dispatchWork(sessionId, revision, turnId, backendId, startedAt) {
-      try { work.dispatchWork(db(), sessionId, { revision, turnId, backendId, startedAt }); }
-      catch (err) { reportWriteFailure(sessionId, err); }
+      // The statement's own effect: only the latest acceptance, not yet dispatched, takes the turn.
+      track(pendingWork, sessionId, (row: work.AcceptedWork | null) => row && row.revision === revision && row.turnId === null
+        ? { ...row, turnId, startedAt, backendId: row.backendId ?? backendId } : row,
+      submit("dispatchWork", sessionId, { revision, turnId, backendId, startedAt })).catch(err => reportWriteFailure(sessionId, err));
     },
-    latestWork(sessionId) { return work.latestWork(db(), sessionId); },
-    hasSession(sessionId) {
-      return db().query("SELECT 1 FROM sessions WHERE id = ?").get(sessionId) !== null;
-    },
+    latestWork,
+    hasSession: hasRow,
     recordTurnBoundary(sessionId, backendId, boundary) {
-      try { work.saveTurnBoundary(db(), sessionId, backendId, boundary); }
-      catch (err) { reportWriteFailure(sessionId, err); }
+      submit("turnBoundary", sessionId, backendId, boundary).catch(err => reportWriteFailure(sessionId, err));
     },
     attachTurnBoundaries(sessionId, messages) {
       try {
-        const row = db().query("SELECT backend_id FROM sessions WHERE id = ?").get(sessionId) as { backend_id: string | null } | null;
-        return row?.backend_id ? work.attachTurnBoundaries(db(), sessionId, row.backend_id, messages) : messages;
+        const backendId = storedBackendId(sessionId);
+        return backendId ? work.attachTurnBoundaries(db(), sessionId, backendId, messages) : messages;
       } catch (err) {
         // Without the boundaries a replay carries no turn ids, which is
         // what it carried before they existed: unproven, never wrong.
@@ -323,69 +361,27 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
       }
     },
     getStoredProviderId(sessionId) {
-      const row = db()
-        .query("SELECT provider_id AS providerId FROM sessions WHERE id = ?")
-        .get(sessionId) as { providerId: string | null } | null;
-      return row?.providerId ?? null;
+      return pendingValue(sessionId, "providerId") ?? committedRow(sessionId)?.providerId ?? null;
     },
 
-    getStoredBackendId(sessionId) {
-      const row = db()
-        .query("SELECT backend_id AS backendId FROM sessions WHERE id = ?")
-        .get(sessionId) as { backendId: string | null } | null;
-      return row?.backendId ?? null;
-    },
+    getStoredBackendId: storedBackendId,
 
     persistSessionStub(sessionId, promptText, providerId, backendId) {
-      try {
-        db()
-          .prepare(UPSERT_SESSION_SQL)
-          .run(
-            sessionId,
-            promptText.slice(0, 100),
-            Date.now(),
-            Date.now(),
-            0,
-            0,
-            providerId,
-            backendId
-          );
-      } catch (err) {
-        reportWriteFailure(sessionId, err);
-      }
+      upsert(sessionId, promptText, providerId, backendId, 0, 0).catch(err => reportWriteFailure(sessionId, err));
     },
 
     persistSession(msg, promptText, providerId, backendId) {
-      try {
-        db()
-          .prepare(UPSERT_SESSION_SQL)
-          .run(
-            msg.sessionId,
-            promptText.slice(0, 100),
-            Date.now(),
-            Date.now(),
-            // costUsd is optional (rev 2): absent = unknown, accounted as 0.
-            msg.costUsd ?? 0,
-            msg.numTurns,
-            providerId,
-            backendId
-          );
-      } catch (err) {
-        reportWriteFailure(msg.sessionId, err);
-      }
+      // costUsd is optional (rev 2): absent = unknown, accounted as 0.
+      upsert(msg.sessionId, promptText, providerId, backendId, msg.costUsd ?? 0, msg.numTurns).catch(err => reportWriteFailure(msg.sessionId, err));
     },
 
     recordMessageSource(sessionId, text, source, effort) {
-      try {
-        saveMessageSource(db(), sessionId, text, source, effort);
-      } catch (err) {
-        reportWriteFailure(sessionId, err);
-      }
+      // Its clock is taken now; its ordinal where it commits, in order.
+      submit("messageSource", sessionId, text, source, effort, Date.now()).catch(err => reportWriteFailure(sessionId, err));
     },
 
     recordEffectiveThinkingLevel(sessionId, turnId, level) {
-      try { saveEffectiveThinkingLevel(db(), sessionId, turnId, level); }
-      catch (err) { reportWriteFailure(sessionId, err); }
+      submit("effectiveThinkingLevel", sessionId, turnId, level).catch(err => reportWriteFailure(sessionId, err));
     },
 
     recordLocalExchange(sessionId, exchange, delivered) {
@@ -426,17 +422,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     recordHandoff(sessionId, handoffId, sourceSessionId, sourceTurns) {
-      try {
-        // A stub that failed to persist leaves no row to update: that is not
-        // a recorded link, and saying so keeps the caller's key fail-closed.
-        const result = db()
-          .prepare("UPDATE sessions SET handoff_from = ?, handoff_id = ?, handoff_from_turns = ? WHERE id = ?")
-          .run(sourceSessionId, handoffId, sourceTurns, sessionId);
-        return result.changes === 1;
-      } catch (err) {
-        reportWriteFailure(sessionId, err);
-        return false;
-      }
+      return submit<boolean>("handoff", sessionId, handoffId, sourceSessionId, sourceTurns)
+        .catch((err: unknown) => { reportWriteFailure(sessionId, err); return false; });
     },
 
     findHandoff(handoffId) {
@@ -448,6 +435,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     sessionLabel(sessionId) {
       try {
+        // A label lands only on a row that exists by the time it commits.
+        const pending = [...rowEffects.get(sessionId) ?? []].reverse().find(effect => "label" in effect);
+        if (pending && "label" in pending && hasRow(sessionId)) return pending.label;
         const row = db()
           .query("SELECT label, label_source AS source FROM sessions WHERE id = ?")
           .get(sessionId) as { label: string | null; source: string | null } | null;
@@ -458,13 +448,8 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     saveSessionLabel(sessionId, label, source) {
-      try {
-        db()
-          .prepare("UPDATE sessions SET label = ?, label_source = ? WHERE id = ?")
-          .run(label, source, sessionId);
-      } catch (err) {
-        reportWriteFailure(sessionId, err);
-      }
+      track(rowEffects, sessionId, { label: { label, source } }, submit("label", sessionId, label, source))
+        .catch(err => reportWriteFailure(sessionId, err));
     },
 
     bindGovernanceEvents(turnId, sessionId) {
@@ -491,13 +476,7 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
 
     addSessionCost(sessionId, costUsd) {
       if (!Number.isFinite(costUsd) || costUsd <= 0) return;
-      try {
-        db()
-          .prepare("UPDATE sessions SET total_cost_usd = COALESCE(total_cost_usd, 0) + ? WHERE id = ?")
-          .run(costUsd, sessionId);
-      } catch (err) {
-        reportWriteFailure(sessionId, err);
-      }
+      submit("addCost", sessionId, costUsd).catch(err => reportWriteFailure(sessionId, err));
     },
 
     attachMessageSources(sessionId, messages) {

@@ -98,9 +98,18 @@ export async function runMaskedBrainCli(options: {
     // Output is read only when it is wanted, and then only whole.
     return options.outputBytes === undefined || stdout.whole ? { ok: true, stdout: stdout.text }
       : { ok: false, detail: `${options.label} wrote more than ${options.outputBytes} bytes` };
+  } catch (error) {
+    // A failed output read must also stop the worker before its pipes settle.
+    try { stop(); } catch { /* already gone */ }
+    throw error;
   } finally {
     clearTimeout(timer);
     options.signal.removeEventListener("abort", stop);
+    await worker.exited.catch(() => {});
+    worker.stdin.end();
+    // Bun closes its FIFO duplicates on the pool after the output streams end.
+    await worker.released();
+    options.signal.throwIfAborted();
   }
 }
 

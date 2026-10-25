@@ -134,6 +134,7 @@ export async function startHandoff(
   coordinator.handoffs.set(handoff.handoffId, entry);
   let handedOver = false;
   let recorded = false;
+  let settled = false;
   const release = () => {
     // Fail closed: a destination that exists but whose link could not be
     // stored keeps its key here, so a retry still finds it rather than
@@ -159,7 +160,9 @@ export async function startHandoff(
     let sourceTurns: number | null = null;
     try {
       const sourceBackend = await host.registry.getBackendForSession(sourceBackendId);
-      sourceTurns = host.prepareHistory(handoff.sourceSessionId, await sourceBackend.getHistory(handoff.sourceSessionId))
+      const history = await sourceBackend.getHistory(handoff.sourceSessionId);
+      await host.historySettled();
+      sourceTurns = host.prepareHistory(handoff.sourceSessionId, history)
         .filter((message) => message.role === "user").length;
     } catch { /* the marker goes at the end */ }
     if (!connection.authorization.valid) return;
@@ -178,16 +181,19 @@ export async function startHandoff(
         sourceSessionId: handoff.sourceSessionId,
         onNamed: (sessionId) => {
           entry.sessionId = sessionId;
-          recorded = catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceTurns);
-          if (!recorded) {
+          // The key stays held until the link commits (#2850): until then a
+          // retry finds this destination here rather than in the catalog.
+          void catalog.recordHandoff!(sessionId, handoff.handoffId, handoff.sourceSessionId, sourceTurns).then((stored) => {
+            recorded = stored;
+            if (stored) { if (settled) release(); return; }
             host.log.emit({
               severityText: "WARN",
               body: "handoff link not recorded",
               attributes: { "session.id": sessionId, "handoff.id": handoff.handoffId },
             });
-          }
+          });
         },
-        onSettled: release,
+        onSettled: () => { settled = true; release(); },
       },
     });
   } catch (err) {
@@ -306,7 +312,9 @@ export async function prepareHandoff(
     }
     let history: SessionHistoryMessage[];
     try {
-      history = host.prepareHistory(msg.sourceSessionId, await backend.getHistory(msg.sourceSessionId));
+      const replayed = await backend.getHistory(msg.sourceSessionId);
+      await host.historySettled();
+      history = host.prepareHistory(msg.sourceSessionId, replayed);
     } catch {
       return answer({ state: "failed", message: "Couldn't load this chat's history." });
     }
