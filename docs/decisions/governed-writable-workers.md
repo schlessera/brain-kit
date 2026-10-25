@@ -324,7 +324,7 @@ their own, keep repository-controlled code off the host
 Each case below was reproduced on a disposable fixture:
 
 - **The config's dependencies.** The host imports `brain.config.ts`
-  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:590`).
+  (`export async function loadUserConfig`, `packages/core/src/lib/config.ts:594`).
   The config can import local helpers and local module entries, and those
   files are not on any fixed list.
 - **Bun startup.** A newly created `bunfig.toml` preload runs before any
@@ -585,7 +585,7 @@ makes in the brain.
   It lives in `.brain-index/` with its sidecars. While provider folders exist,
   writers retain that directory as a whole (see "The index directory" under
   G2), but its contents stay writable. SQLite coordinates writers across processes
-  (`PRAGMA busy_timeout`, `packages/core/src/lib/db.ts:63`). The host never
+  (`PRAGMA busy_timeout`, `packages/core/src/lib/db.ts:111`). The host never
   takes authority from it.
 - **`CLAUDE.md`, `AGENTS.md`, `.claude/skills/`, `.agents/`.** Changing them as
   you go is exactly the flexibility ruling 1 restores. The journal records
@@ -3216,7 +3216,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 `context/scheduled-tasks/`. The finite configuration seed mapping is consumer-qualified:
 
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
-  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
+  brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:594-628`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
   `packages/ui-server/src/brain/host-boundary.ts:493-504`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal

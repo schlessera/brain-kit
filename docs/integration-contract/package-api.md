@@ -347,6 +347,14 @@ process context. First-party modules import this entry and never
 `@schlessera/brain/queries`. The `/internal` entry keeps the same names for
 the first-party packages that still import them.
 
+**Additive frozen configuration root (#2848).** `@schlessera/brain/module`
+exports `configurationRoot(root: string): string`. When `root` equals the
+trusted worker's `BRAIN_WORKER_DATA_ROOT` and `BRAIN_WORKER_CONFIG_ROOT` is
+set, it returns the configuration root; otherwise it returns `root` unchanged.
+Module configuration reads use this view while content reads use the data
+root. Jobs scoring reads both `settings/jobs.json` and relative criteria
+Markdown from this frozen view. This addition ships in a minor.
+
 **Additive protected scratch retention (#1743).** The existing module helper
 `pruneScratch(root, now?, options?)` accepts optional
 `options.protectedPaths: readonly string[]`. These brain-relative or absolute

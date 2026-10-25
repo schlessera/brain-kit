@@ -599,6 +599,7 @@ first-party modules do not use it either.
 
 | Need | `@schlessera/brain/module` exports |
 | --- | --- |
+| Read configuration from a worker's frozen view | `configurationRoot(root)`; other roots pass through unchanged |
 | Keep a path inside the brain | `safeResolve`, `resolveWritable` |
 | Write a document atomically | `writeFileSafely` (`replace: false` refuses an existing name with `WriteRefusedError`, `code: "EEXIST"`) |
 | Intermediate files that are never canonical | `SCRATCH_DIR`, `scratchName`, `writeScratchFile`, `assertScratchWritable`, `isInScratch`, `isWriteRefusal`, `pruneScratch` |

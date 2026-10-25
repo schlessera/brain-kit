@@ -26,8 +26,8 @@ the requests, scoring rules, individual outcomes and tuning comparison.
 | Review everything | Every posting goes to human review. |
 
 The keyword baseline uses the shipped scorer
-(`scoreJob`, `packages/module-jobs/src/score.ts:277-320`), including its
-literal group matching (`groupScore`, `packages/module-jobs/src/score.ts:230-243`).
+(`scoreJob`, `packages/module-jobs/src/score.ts:278-321`), including its
+literal group matching (`groupScore`, `packages/module-jobs/src/score.ts:231-244`).
 No scorer, skill, transport or public contract changes in this spike.
 
 Both semantic arms receive the same criteria text (including its evidence precedence and current-exclusions clarification), posting, structured job metadata,
