@@ -185,7 +185,7 @@ export function createClaudeTurnRunner(options: {
         ? { directory: join(transcriptPaths(options.backend.brainPath, turnEnvironment).archive, "native-observations"), brainPath: options.backend.brainPath }
         : undefined;
       fileVersions = req.autonomous ? undefined : fileVersionsBySession.get(turnKey)
-        ?? (req.sessionId && observationStorage ? NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
+        ?? (req.sessionId && observationStorage ? await NativeFileVersions.restore({ ...observationStorage, sessionId: req.sessionId }) : new NativeFileVersions());
       if (fileVersions) fileVersionsBySession.set(turnKey, fileVersions);
     } catch (error) {
       req.signal.removeEventListener("abort", onHostAbort);
@@ -652,7 +652,7 @@ export function createClaudeTurnRunner(options: {
             // busy slot from its placeholder, so a resume of this session while
             // it still runs is detected as busy.
             sessionId = msg.session_id;
-            if (fileVersions && observationStorage) fileVersions.retain({ ...observationStorage, sessionId });
+            if (fileVersions && observationStorage) await fileVersions.retain({ ...observationStorage, sessionId });
             if (fileVersions) { fileVersionsBySession.delete(turnKey); fileVersionsBySession.set(sessionId, fileVersions); }
             activeTurns.delete(turnKey);
             activeTurns.set(sessionId, turn);

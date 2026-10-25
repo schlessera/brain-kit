@@ -2,6 +2,7 @@
 import { listSessions as sdkListSessions } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdir, open, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { WorkerHostError } from "@schlessera/brain-ui-sdk/internal";
@@ -62,6 +63,30 @@ function atomic(path: string, bytes: Uint8Array | string) {
     try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
     directory(dirname(path)); renameSync(temp, path); syncDirectory(dirname(path));
   } finally { rmSync(temp, { force: true }); }
+}
+/**
+ * The same durable steps as `durableDirectory` and `atomic`, waiting on the
+ * file system off the event loop: every turn's cleanup writes the daily scan
+ * marker, and a loaded host's fsync must not stall the server (#2416).
+ */
+async function syncDirectoryAsync(path: string) {
+  const handle = await open(path, "r");
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+async function durableDirectoryAsync(path: string): Promise<void> {
+  if (existsSync(path)) { directory(path); return; }
+  await durableDirectoryAsync(dirname(path));
+  await mkdir(path, { mode: 0o700 });
+  await syncDirectoryAsync(dirname(path));
+}
+async function atomicAsync(path: string, bytes: Uint8Array | string) {
+  await durableDirectoryAsync(dirname(path));
+  const temp = `${path}.${crypto.randomUUID()}.tmp`;
+  try {
+    const handle = await open(temp, "wx", 0o600);
+    try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+    directory(dirname(path)); await rename(temp, path); await syncDirectoryAsync(dirname(path));
+  } finally { await rm(temp, { force: true }); }
 }
 function manifest(root: string, id: string): Manifest {
   directory(join(root, id));
@@ -184,15 +209,20 @@ function removeSource(live: string, archive: string, record: Manifest): boolean 
   return true;
 }
 
+/** Archives with a scan in flight in this process; a concurrent call skips. */
+const scanning = new Set<string>();
 /** Best effort, at most daily, and always outside the autonomous envelope. */
 export async function archiveIdleSessions(options: ArchiveOptions): Promise<void> {
+  let claimed: string | undefined;
   try {
     const { live, archive } = transcriptPaths(options.brainPath, options.env);
     if (!existsSync(live) && !existsSync(archive)) return;
     const now = options.now?.() ?? Date.now();
     const marker = join(archive, "last-scan");
-    if (existsSync(marker) && now - Number(regular(marker, METADATA_BYTES).toString()) < DAY) return;
-    atomic(marker, String(now));
+    if (scanning.has(archive) || (existsSync(marker) && now - Number(regular(marker, METADATA_BYTES).toString()) < DAY)) return;
+    // Claimed before the first wait, as the synchronous marker write was.
+    scanning.add(archive); claimed = archive;
+    await atomicAsync(marker, String(now));
     const sessions = await (options.listSessionsFn ?? sdkListSessions)({ dir: options.brainPath });
     const active = options.activeSessionIds?.() ?? new Set<string>();
     // Recovery precedes fresh moves. Committed manifests are immutable, so a
@@ -238,5 +268,5 @@ export async function archiveIdleSessions(options: ArchiveOptions): Promise<void
   } catch (error) {
     try { (options.log ?? ((message, reason) => console.warn(message, reason)))("Claude transcript archival failed", error); }
     catch { /* Logging cannot fail a completed turn either. */ }
-  }
+  } finally { if (claimed) scanning.delete(claimed); }
 }

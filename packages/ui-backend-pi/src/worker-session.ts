@@ -114,8 +114,8 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
   let ownedPrompt: { id: string; text: string; images: boolean } | undefined;
   const observationStorage = { directory: join(sessionDir, "native-observations"), brainPath: backend.brainPath, sessionId };
   const nativeVersions = nativeSessions.get(sessionId)
-    ?? (!env.autonomous && resumeId ? NativeFileVersions.restore(observationStorage) : new NativeFileVersions());
-  if (!env.autonomous && !resumeId) nativeVersions.retain(observationStorage);
+    ?? (!env.autonomous && resumeId ? await NativeFileVersions.restore(observationStorage) : new NativeFileVersions());
+  if (!env.autonomous && !resumeId) await nativeVersions.retain(observationStorage);
   if (!env.autonomous) nativeSessions.set(sessionId, nativeVersions);
   /** Entries saved before this turn: only their own turn owns their display mappings. */
   const resumedIds = new Set((entries ?? []).map(entry => (entry as { id?: unknown }).id));
@@ -493,13 +493,13 @@ export async function openPiWorkerSession(backend: CreatePiBackendOptions, sessi
       }
       const observed = child.observeFile?.(input.path);
       if (!observed) throw new Error("Native file observation is outside the worker file view");
-      if (phase === "read_start") nativeVersions.beginRead(msg.toolCallId, observed.key, observed.version);
-      else if (phase === "read_end") nativeVersions.finishRead(msg.toolCallId, observed.version, true);
+      if (phase === "read_start") await nativeVersions.beginRead(msg.toolCallId, observed.key, observed.version);
+      else if (phase === "read_end") await nativeVersions.finishRead(msg.toolCallId, observed.version, true);
       else if (phase === "write_check") {
         const refusal = nativeVersions.check(observed.key, observed.version);
         if (refusal) throw new Error(refusal);
-        nativeVersions.beginWrite(observed.key);
-      } else nativeVersions.finishWrite(observed.key, observed.version);
+        await nativeVersions.beginWrite(observed.key);
+      } else await nativeVersions.finishWrite(observed.key, observed.version);
       executed(msg).phases.add(phase as string);
       return { ok: true };
     }
