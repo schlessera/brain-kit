@@ -79,6 +79,37 @@ export function workerIdentityDockerArgs(source: string, artifact: string, conta
 
 }
 
+const changed = (text: string, before: string, after: string) => { if(!text.includes(before))throw Error("Identity fixture mutation anchor changed");return text.replace(before,after); };
+
+/**
+ * The identity cell's fixture: the native fixture with its hosted-app run
+ * replaced by the identity phases. It rewrites `scripts/native-proof/fixture.py`
+ * by exact text, so a change there that moves an anchor fails
+ * `tests/identity-native-fixture.test.ts` locally rather than this cell in CI.
+ */
+export function identityNativeFixture(fixture: string, options: { applicationTimeoutMs: number; sharedGit: boolean; privateGitInputs: boolean;
+  applicationQualification: boolean; probeStatePlacement: boolean; applicationScenario?: string; bootPruneCapture: boolean; omitProbeStatePlacement: boolean }): string {
+  const { applicationTimeoutMs, sharedGit, privateGitInputs, applicationQualification, probeStatePlacement, applicationScenario, bootPruneCapture, omitProbeStatePlacement } = options;
+  let text = changed(fixture,
+    'run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)',
+    `run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=${applicationTimeoutMs / 1000})\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts", "--cleanup-failure"], timeout=180)`);
+  if (sharedGit) {
+    // A separate fresh-brain composition: the original default retains the
+    // prior worker-private journal/recovery mutations and its failure evidence.
+    const fresh = changed(text,
+      '    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n', "");
+    text = changed(fresh,
+      "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", applicationQualification ? "/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts" : probeStatePlacement ? "/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts" : privateGitInputs ? "/repo/packages/ui-sdk/tests/fixtures/private-git-identity-root.ts" : "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts");
+  }
+  if (applicationScenario) text = changed(text,
+    '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', `"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--application-scenario=${applicationScenario}"`);
+  if (bootPruneCapture) text = changed(text,
+    '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--boot-prune-capture"');
+  if (omitProbeStatePlacement) text = changed(text,
+    '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts", "--omit-probe-state-placement"');
+  return text;
+}
+
 if (import.meta.main) {
   try {
     if (process.platform !== "linux" || process.arch !== "x64") throw Error("Identity proof requires qualified Linux x86_64");
@@ -104,7 +135,6 @@ if (import.meta.main) {
     const mutation = options.find(arg=>arg.startsWith("--mutation="))?.slice("--mutation=".length);
     if (nativePhaseOnly && (!sharedGit || mutation)) throw Error("Native-phase-only proof requires shared Git composition and forbids mutations");
     if (collectorInventory && (!nativePhaseOnly || !sharedGit || !privateGitInputs || mutation)) throw Error("Collector inventory requires the separate private native-phase diagnostic composition");
-    const changed = (text: string, before: string, after: string) => { if(!text.includes(before))throw Error("Identity fixture mutation anchor changed");return text.replace(before,after); };
     const source = resolve(import.meta.dir, ".."), output = join(source, "tmp", "worker-identity-proof");
     mkdirSync(output, { recursive: true });
     const artifact = mkdtempSync(join(output, "run-")); chmodSync(artifact, 0o755);
@@ -187,23 +217,8 @@ if (import.meta.main) {
     const containerTimeoutMs = 240_000 + Math.max(0, applicationTimeoutMs - 180_000)
       + (nativePhaseOnly ? 0 : 2 * (SDK_RELAY_PROFILE_TIMEOUT_MS - SDK_RELAY_SINGLE_TURN_TIMEOUT_MS));
     const nativeFixturePath = join(artifact, "identity-fixture.py");
-    writeFileSync(nativeFixturePath, changed(readFileSync(join(source, "scripts/native-proof/fixture.py"), "utf8"),
-      'run(["/usr/local/bin/bun", "run", "test", str(pathlib.Path(__file__).with_name("hosted-app.test.ts"))], timeout=HOSTED_TIMEOUT)',
-      `run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts"], timeout=${applicationTimeoutMs / 1000})\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts"], timeout=180)\n    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/packages/ui-backend-claude/tests/fixtures/prepared-consumer-native-root.ts", "--cleanup-failure"], timeout=180)`));
-    if (sharedGit) {
-      // A separate fresh-brain composition: the original default retains the
-      // prior worker-private journal/recovery mutations and its failure evidence.
-      const fresh = changed(readFileSync(nativeFixturePath, "utf8"),
-        '    run(["/usr/local/bin/bun", "--preload", "/repo/scripts/test-network-child-preload.ts", "/repo/scripts/native-proof/identity-manager.native.ts"], timeout=180)\n', "");
-      writeFileSync(nativeFixturePath, changed(fresh,
-        "/repo/packages/ui-sdk/tests/fixtures/ordinary-identity-root.ts", applicationQualification ? "/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts" : probeStatePlacement ? "/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts" : privateGitInputs ? "/repo/packages/ui-sdk/tests/fixtures/private-git-identity-root.ts" : "/repo/packages/ui-sdk/tests/fixtures/shared-git-identity-root.ts"));
-    }
-    if (applicationScenario) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
-      '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', `"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--application-scenario=${applicationScenario}"`));
-    if (bootPruneCapture) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
-      '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/application-identity-root.ts", "--boot-prune-capture"'));
-    if (omitProbeStatePlacement) writeFileSync(nativeFixturePath, changed(readFileSync(nativeFixturePath, "utf8"),
-      '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts"', '"/repo/packages/ui-sdk/tests/fixtures/probe-state-identity-root.ts", "--omit-probe-state-placement"'));
+    writeFileSync(nativeFixturePath, identityNativeFixture(readFileSync(join(source, "scripts/native-proof/fixture.py"), "utf8"), { applicationTimeoutMs,
+      sharedGit, privateGitInputs, applicationQualification, probeStatePlacement, applicationScenario, bootPruneCapture, omitProbeStatePlacement }));
     const setup = join(artifact, "setup.sh");
     writeFileSync(setup, `set -eu
 mkdir -p /usr/local/lib/brain-identity-fixture /run/brain-identity-fixture

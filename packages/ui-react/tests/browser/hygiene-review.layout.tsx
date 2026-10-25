@@ -16,9 +16,16 @@ let renderer: Root | undefined,
   host: HTMLDivElement | undefined,
   socket: WebSocket | undefined;
 const frames: ClientMessage[] = [];
-let reviewReads = 0, failedReads = 0;
-let holdRead = false, releaseRead: (() => void) | undefined;
-let detailsOffline = false;
+function createReadState() {
+  return {
+    reviewReads: 0,
+    failedReads: 0,
+    holdRead: false,
+    releaseRead: undefined as (() => void) | undefined,
+    detailsOffline: false,
+  };
+}
+let reads = createReadState();
 let styles: HTMLStyleElement;
 const originalTheme = document.documentElement.dataset.theme;
 const viewport = { width: innerWidth, height: innerHeight };
@@ -31,20 +38,25 @@ afterAll(async () => {
   styles.remove();
   await page.viewport(viewport.width, viewport.height);
 });
-afterEach(async () => {
-  releaseRead?.();
-  holdRead = false; releaseRead = undefined; failedReads = 0; reviewReads = 0; detailsOffline = false;
-  if (renderer) flushSync(() => renderer!.unmount());
+async function disposeScene() {
+  const sceneRenderer = renderer, sceneUi = ui, sceneSocket = socket, sceneHost = host, sceneFixture = fixture;
+  const sceneReads = reads;
   renderer = undefined;
-  ui?.dispose();
   ui = undefined;
-  socket?.close();
   socket = undefined;
-  host?.remove();
   host = undefined;
-  if (fixture) await commands.hygieneServer({ op: "stop", id: fixture.id });
   fixture = undefined;
+  reads = createReadState();
+  sceneReads.releaseRead?.();
+  if (sceneRenderer) flushSync(() => sceneRenderer.unmount());
+  sceneUi?.dispose();
+  sceneSocket?.close();
+  sceneHost?.remove();
+  if (sceneFixture) await commands.hygieneServer({ op: "stop", id: sceneFixture.id });
   frames.length = 0;
+}
+afterEach(async () => {
+  await disposeScene();
   if (originalTheme === undefined) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = originalTheme;
 });
@@ -55,47 +67,49 @@ const set = (patch: Record<string, unknown>) => commands.hygieneServer({ op: "se
 async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "dark", height = 1000) {
   await page.viewport(width, height);
   document.documentElement.dataset.theme = theme;
-  fixture = (await commands.hygieneServer({ op: "start" })) as typeof fixture;
-  await set({ start: true, ...patch });
-  ui = createBrainUiRoot({
+  const sceneFixture = fixture = (await commands.hygieneServer({ op: "start" })) as NonNullable<typeof fixture>;
+  await commands.hygieneServer({ op: "set", id: sceneFixture.id, patch: { start: true, ...patch } });
+  const sceneReads = reads = createReadState();
+  const sceneUi = ui = createBrainUiRoot({
     storage: null,
     request: async (url, init) => {
       const path = new URL(url, location.origin).pathname;
       if (path.endsWith("/hygiene/review") && (!init?.method || init.method === "GET")) {
-        reviewReads++;
-        if (failedReads > 0) { failedReads--; throw new Error("fixture read unavailable"); }
-        if (holdRead) await new Promise<void>((resolve) => { releaseRead = resolve; });
+        sceneReads.reviewReads++;
+        if (sceneReads.failedReads > 0) { sceneReads.failedReads--; throw new Error("fixture read unavailable"); }
+        if (sceneReads.holdRead) await new Promise<void>((resolve) => { sceneReads.releaseRead = resolve; });
       }
-      if (path.includes("/hygiene/review/details/") && detailsOffline) throw new TypeError("Failed to fetch");
+      if (path.includes("/hygiene/review/details/") && sceneReads.detailsOffline) throw new TypeError("Failed to fetch");
       if (path.includes("/hygiene/")) return fetch(url, init);
       if (path.endsWith("/activity/runs")) return Response.json({ live: [], history: [] });
       if (path.endsWith("/activity/inbox")) return Response.json({ intents: [] });
       return new Response("{}", { status: 404 });
     },
   });
-  socket = new WebSocket(fixture!.url.replace("http:", "ws:") + "/ws");
-  ui.connection.send = (msg) => {
-    if (socket?.readyState !== WebSocket.OPEN) return false;
+  const sceneSocket = socket = new WebSocket(sceneFixture.url.replace("http:", "ws:") + "/ws");
+  sceneUi.connection.send = (msg) => {
+    if (sceneSocket.readyState !== WebSocket.OPEN) return false;
     frames.push(msg);
-    socket.send(JSON.stringify(msg));
+    sceneSocket.send(JSON.stringify(msg));
     return true;
   };
-  socket.onmessage = (e) => {
+  sceneSocket.onmessage = (e) => {
     const p = parseServerMessage(e.data);
     if (!p.ok) throw new Error(p.error);
-    ui!.connection.handleServerMessage(p.message);
+    sceneUi.connection.handleServerMessage(p.message);
   };
-  socket.onclose = () => ui?.stores.inbox.getState().connectionLost();
-  await expect.poll(() => ui!.stores.inbox.getState().online).toBe(true);
-  host = document.createElement("div");
-  host.style.height = "1000px";
-  host.style.display = "flex";
-  host.className = "bg-background text-foreground";
-  document.body.append(host);
-  renderer = createRoot(host);
+  // Late callbacks keep their original owner, even after it is disposed.
+  sceneSocket.onclose = () => sceneUi.stores.inbox.getState().connectionLost();
+  await expect.poll(() => sceneUi.stores.inbox.getState().online).toBe(true);
+  const sceneHost = host = document.createElement("div");
+  sceneHost.style.height = "1000px";
+  sceneHost.style.display = "flex";
+  sceneHost.className = "bg-background text-foreground";
+  document.body.append(sceneHost);
+  const sceneRenderer = renderer = createRoot(sceneHost);
   flushSync(() =>
-    renderer!.render(
-      <BrainUiProvider root={ui!}>
+    sceneRenderer.render(
+      <BrainUiProvider root={sceneUi}>
         <ActivityPage />
         <DesktopPalette />
       </BrainUiProvider>
@@ -104,11 +118,11 @@ async function scene(patch: Record<string, unknown> = {}, width = 320, theme = "
   await settle();
   if (
     width >= 1280 &&
-    ui.stores.inbox.getState().items &&
-    Object.values(ui.stores.inbox.getState().items).some((i) => i.queue === "actions" && i.status === "pending")
+    sceneUi.stores.inbox.getState().items &&
+    Object.values(sceneUi.stores.inbox.getState().items).some((i) => i.queue === "actions" && i.status === "pending")
   )
     await page.getByRole("button", { name: /^Open finding:/ }).click();
-  return host;
+  return sceneHost;
 }
 const current = () =>
   host!.querySelector<HTMLElement>("[data-hygiene-detail] [data-hygiene-id]") ??
@@ -120,6 +134,65 @@ async function chooseText() {
 const apply = () => page.getByRole("button", { name: "Apply fix", exact: true }).click();
 const appliedCalls = (v: unknown) =>
   (v as { calls: string[][] }).calls.filter((c) => c[0] === "resolve" && !c.includes("--dry-run"));
+
+test("a disposed scene's held real close cannot take the next scene offline", async () => {
+  await scene();
+  const previousSocket = socket!;
+  const close = previousSocket.onclose!;
+  let heldClose: CloseEvent | undefined;
+  previousSocket.onclose = event => { heldClose = event; };
+  await disposeScene();
+  await expect.poll(() => heldClose, { message: "the previous socket's real close is held" }).toBeDefined();
+  expect(heldClose!.target, "the held event belongs to the previous real socket").toBe(previousSocket);
+  expect(previousSocket.readyState).toBe(WebSocket.CLOSED);
+
+  await scene();
+  const nextUi = ui!;
+  const nextSocket = socket!;
+  await new Promise<void>(resolve => queueMicrotask(() => {
+    close.call(previousSocket, heldClose!);
+    resolve();
+  }));
+  expect(nextSocket.readyState, "the next scene's real socket is still open").toBe(WebSocket.OPEN);
+  await expect.poll(() => nextUi.stores.inbox.getState().online, {
+    message: "the next scene stays online after the previous scene's real close",
+  }).toBe(true);
+});
+
+test("a disposed scene's held real snapshot cannot populate the next scene's inbox", async () => {
+  await scene();
+  const previousSocket = socket!;
+  const receive = previousSocket.onmessage!;
+  const previousId = current().dataset.hygieneId!;
+  let heldSnapshot: MessageEvent | undefined;
+  previousSocket.onmessage = event => {
+    const parsed = parseServerMessage(event.data);
+    if (parsed.ok && parsed.message.type === "inbox_snapshot" &&
+        parsed.message.items.some(item => item.id === previousId)) heldSnapshot = event;
+    else receive.call(previousSocket, event);
+  };
+  ui!.connection.send({ type: "inbox_subscribe", view: "actions" });
+  await expect.poll(() => heldSnapshot, { message: "the previous socket's real inbox snapshot is held" }).toBeDefined();
+  expect(heldSnapshot!.target).toBe(previousSocket);
+  await disposeScene();
+
+  await scene({ start: false });
+  const nextUi = ui!;
+  expect(nextUi.stores.inbox.getState().items[previousId], "the next scene starts without the previous finding").toBeUndefined();
+  await Promise.resolve().then(() => receive.call(previousSocket, heldSnapshot!));
+  expect(nextUi.stores.inbox.getState().items[previousId], "the previous scene's real snapshot stays out of the next inbox").toBeUndefined();
+});
+
+test("a disposed scene's sender cannot use the next scene's real socket", async () => {
+  await scene();
+  const send = ui!.connection.send;
+  await disposeScene();
+  await scene();
+  expect(socket!.readyState).toBe(WebSocket.OPEN);
+  const sent = frames.length;
+  expect(send({ type: "inbox_subscribe", view: "actions" }), "the disposed scene's sender refuses its closed socket").toBe(false);
+  expect(frames.length, "no frame is sent through the next scene's socket").toBe(sent);
+});
 
 for (const theme of ["dark", "light"])
   for (const width of [320, 1280]) {
@@ -227,6 +300,7 @@ test("refresh uses the server operation, supersedes the fingerprint card, and pr
 });
 test("reload, reconnect, Pause and Resume retain the pending card and strip", async () => {
   await scene();
+  const sceneUi = ui!, sceneRenderer = renderer!;
   const id = current().dataset.hygieneId;
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect.poll(() => host!.textContent).toContain("Hygiene review paused");
@@ -235,15 +309,15 @@ test("reload, reconnect, Pause and Resume retain the pending card and strip", as
   await expect.poll(() => host!.querySelector("[data-hygiene-strip]")?.textContent).toContain("1 of 2 open");
   expect(current().dataset.hygieneId).toBe(id);
   flushSync(() =>
-    renderer!.render(
-      <BrainUiProvider root={ui!}>
+    sceneRenderer.render(
+      <BrainUiProvider root={sceneUi}>
         <div />
       </BrainUiProvider>
     )
   );
   flushSync(() =>
-    renderer!.render(
-      <BrainUiProvider root={ui!}>
+    sceneRenderer.render(
+      <BrainUiProvider root={sceneUi}>
         <ActivityPage />
         <DesktopPalette />
       </BrainUiProvider>
@@ -461,27 +535,28 @@ for (const width of [320, 1280])
 for (const stop of ["pause", "offline", "unsupported", "unmount"] as const)
   test(`transient selection refresh stops on ${stop}, including an outstanding read`, async () => {
     await scene({ remaining: 1 });
+    const sceneRenderer = renderer!;
     await settle();
-    const idleReads = reviewReads;
+    const idleReads = reads.reviewReads;
     await new Promise(r => setTimeout(r, 600));
-    expect(reviewReads, "waiting for a pending decision never polls").toBe(idleReads);
+    expect(reads.reviewReads, "waiting for a pending decision never polls").toBe(idleReads);
     await set({ holdNext: true });
     await page.getByRole("button", { name: "Later ▾", exact: true }).click();
     await page.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click();
     await expect.poll(async () => (await set({}) as { selecting: boolean }).selecting).toBe(true);
     await settle();
-    holdRead = true;
-    await expect.poll(() => !!releaseRead, { message: "selection refresh started another real read" }).toBe(true);
+    reads.holdRead = true;
+    await expect.poll(() => !!reads.releaseRead, { message: "selection refresh started another real read" }).toBe(true);
     if (stop === "pause") await page.getByRole("button", { name: "Pause", exact: true }).click();
-    else if (stop === "unmount") flushSync(() => renderer!.render(<div />));
+    else if (stop === "unmount") flushSync(() => sceneRenderer.render(<div />));
     else ui!.stores.inbox.setState(stop === "offline" ? { online: false } : { supported: false });
     await settle();
-    holdRead = false;
-    releaseRead!(); releaseRead = undefined;
+    reads.holdRead = false;
+    reads.releaseRead!(); reads.releaseRead = undefined;
     await settle();
-    const stoppedReads = reviewReads;
+    const stoppedReads = reads.reviewReads;
     await new Promise(r => setTimeout(r, 700));
-    expect(reviewReads, `${stop} cancels selection refresh even after its read returns`).toBe(stoppedReads);
+    expect(reads.reviewReads, `${stop} cancels selection refresh even after its read returns`).toBe(stoppedReads);
   });
 
 test("transient selection refresh retries an unavailable REST read and stops at server completion", async () => {
@@ -490,15 +565,15 @@ test("transient selection refresh retries an unavailable REST read and stops at 
   await page.getByRole("button", { name: "Later ▾", exact: true }).click();
   await page.getByRole("button", { name: "Snooze until the next scheduled time", exact: true }).click();
   await expect.poll(async () => (await set({}) as { selecting: boolean }).selecting).toBe(true);
-  failedReads = 1;
-  await expect.poll(() => failedReads).toBe(0);
+  reads.failedReads = 1;
+  await expect.poll(() => reads.failedReads).toBe(0);
   await set({ releaseNext: true });
   await expect.poll(() => host!.textContent, { message: "server completion arrives after a failed read" }).toContain("Review complete");
   await expect.poll(() => document.activeElement?.textContent).toBe("Review complete");
   await settle();
-  const finalReads = reviewReads;
+  const finalReads = reads.reviewReads;
   await new Promise(r => setTimeout(r, 700));
-  expect(reviewReads, "completed review stops selection refresh").toBe(finalReads);
+  expect(reads.reviewReads, "completed review stops selection refresh").toBe(finalReads);
 });
 
 test("disconnect cancels a scheduled selection read before it starts", async () => {
@@ -511,9 +586,9 @@ test("disconnect cancels a scheduled selection read before it starts", async () 
   // first 250ms read is still scheduled. Disconnect before it starts.
   ui!.stores.inbox.setState({ online: false });
   await settle();
-  const readsAtDisconnect = reviewReads;
+  const readsAtDisconnect = reads.reviewReads;
   await new Promise(r => setTimeout(r, 600));
-  expect(reviewReads, "disconnect clears the scheduled selection read").toBe(readsAtDisconnect);
+  expect(reads.reviewReads, "disconnect clears the scheduled selection read").toBe(readsAtDisconnect);
 });
 
 for (const width of [320, 1280])
@@ -524,9 +599,10 @@ for (const width of [320, 1280])
     await apply();
     await expect.poll(() => current().textContent).toContain("This file changed");
     const oldId = current().dataset.hygieneId!;
-    const receive = socket!.onmessage!;
+    const sceneSocket = socket!;
+    const receive = sceneSocket.onmessage!;
     const held: MessageEvent[] = [];
-    socket!.onmessage = event => { held.push(event); };
+    sceneSocket.onmessage = event => { held.push(event); };
     try {
       await set({ fingerprint: "50314b3e36cd", mode: "" });
       await page.getByRole("button", { name: "Refresh finding", exact: true }).click();
@@ -557,8 +633,8 @@ for (const width of [320, 1280])
       }
       expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "no response is queued for replay").toHaveLength(0);
       await commands.hygieneServer({ op: "capture", selector: ".bg-background.text-foreground", name: `replication-wait-${width}.png` });
-      socket!.onmessage = receive;
-      for (const event of held.splice(0)) receive.call(socket!, event);
+      sceneSocket.onmessage = receive;
+      for (const event of held.splice(0)) receive.call(sceneSocket, event);
       await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("pending");
       if (width === 1280) await page.getByRole("button", { name: /^Open finding:/ }).click();
       await expect.poll(() => current().dataset.hygieneId).toBe(id);
@@ -572,8 +648,8 @@ for (const width of [320, 1280])
       expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(1);
       expect(appliedCalls(await set({})), "one old stale attempt and exactly one explicit replacement repair").toHaveLength(2);
     } finally {
-      socket!.onmessage = receive;
-      for (const event of held) receive.call(socket!, event);
+      sceneSocket.onmessage = receive;
+      for (const event of held) receive.call(sceneSocket, event);
     }
   });
 
@@ -582,9 +658,10 @@ for (const width of [320, 1280])
     test(`${width}: REST-only ${operation} keeps manual and disposition controls unavailable until replication`, async () => {
       await scene({ start: false, category: "manual" }, width);
       await page.getByRole("tab", { name: /^needs you / }).click();
-      const receive = socket!.onmessage!;
+      const sceneSocket = socket!;
+      const receive = sceneSocket.onmessage!;
       const held: MessageEvent[] = [];
-      socket!.onmessage = event => { held.push(event); };
+      sceneSocket.onmessage = event => { held.push(event); };
       try {
         await page.getByRole("button", { name: "Start hygiene review", exact: true }).click();
         await expect.poll(() => current()?.dataset.hygieneId).toBeTruthy();
@@ -611,8 +688,8 @@ for (const width of [320, 1280])
           expect(page.getByRole("button", { name: /^Open finding:/ }).query()).toBeNull();
         }
         expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(0);
-        socket!.onmessage = receive;
-        for (const event of held.splice(0)) receive.call(socket!, event);
+        sceneSocket.onmessage = receive;
+        for (const event of held.splice(0)) receive.call(sceneSocket, event);
         await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("pending");
         if (width === 1280) await page.getByRole("button", { name: /^Open finding:/ }).click();
         expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "replication never replays disabled controls").toHaveLength(0);
@@ -626,8 +703,8 @@ for (const width of [320, 1280])
         }
         expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(1);
       } finally {
-        socket!.onmessage = receive;
-        for (const event of held) receive.call(socket!, event);
+        sceneSocket.onmessage = receive;
+        for (const event of held) receive.call(sceneSocket, event);
       }
     });
 
@@ -635,9 +712,10 @@ for (const recovery of ["unknown", "undo"] as const)
   test(`REST-only ${recovery} recovery waits for replicated authority`, async () => {
     await scene({ start: false });
     await page.getByRole("tab", { name: /^needs you / }).click();
-    const receive = socket!.onmessage!;
+    const sceneSocket = socket!;
+    const receive = sceneSocket.onmessage!;
     const held: MessageEvent[] = [];
-    socket!.onmessage = event => { held.push(event); };
+    sceneSocket.onmessage = event => { held.push(event); };
     try {
       await page.getByRole("button", { name: "Start hygiene review", exact: true }).click();
       await expect.poll(() => current()?.dataset.hygieneId).toBeTruthy();
@@ -659,8 +737,8 @@ for (const recovery of ["unknown", "undo"] as const)
       expect(host!.querySelector("[data-hygiene-id]")?.textContent).not.toContain("Undo change · inverse preview");
       expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(0);
       await expect.poll(() => held.length).toBeGreaterThan(0);
-      socket!.onmessage = receive;
-      for (const event of held.splice(0)) receive.call(socket!, event);
+      sceneSocket.onmessage = receive;
+      for (const event of held.splice(0)) receive.call(sceneSocket, event);
       await expect.poll(() => ui!.stores.inbox.getState().items[id]?.version).toBeGreaterThan(1);
       await expect.element(button).toBeEnabled();
       expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id), "receipt delivery does not confirm recovery").toHaveLength(0);
@@ -676,8 +754,8 @@ for (const recovery of ["unknown", "undo"] as const)
       expect(frames.filter(f => f.type === "inbox_resolve" && f.itemId === id)).toHaveLength(1);
       expect(appliedCalls(await set({})), "recovery never repeats the original repair").toHaveLength(1);
     } finally {
-      socket!.onmessage = receive;
-      for (const event of held) receive.call(socket!, event);
+      sceneSocket.onmessage = receive;
+      for (const event of held) receive.call(sceneSocket, event);
     }
   });
 
@@ -862,7 +940,7 @@ for (const [state, text, retry] of [
 ] as const)
   test(`a ${state} reply shows its message and no rows`, async () => {
     await scene({ category: "managed-worktree-retained", details: state === "offline" ? "details" : state });
-    detailsOffline = state === "offline";
+    reads.detailsOffline = state === "offline";
     await toggle().click();
     await expect.poll(() => region()?.textContent).toContain(text);
     expect(rows()).toBeNull();
@@ -870,7 +948,7 @@ for (const [state, text, retry] of [
     const again = [...region()!.querySelectorAll("button")].find((b) => b.textContent === "Try again");
     expect(!!again, "Try again").toBe(retry);
     if (again) {
-      detailsOffline = false;
+      reads.detailsOffline = false;
       await set({ details: "details" });
       again.click();
       await expect.poll(() => rows(), { message: "Try again reads again" }).not.toBeNull();
@@ -966,8 +1044,9 @@ test("a confirmed removal from this device reads Worktree removed; the Done list
   await scene({ category: "managed-worktree-retained" });
   const id = current().dataset.hygieneId!;
   const seen: string[] = [];
-  const observer = new MutationObserver(() => { const t = host!.querySelector('[data-hygiene-card][role="status"]')?.textContent; if (t) seen.push(t); });
-  observer.observe(host!, { subtree: true, childList: true, characterData: true });
+  const sceneHost = host!;
+  const observer = new MutationObserver(() => { const t = sceneHost.querySelector('[data-hygiene-card][role="status"]')?.textContent; if (t) seen.push(t); });
+  observer.observe(sceneHost, { subtree: true, childList: true, characterData: true });
   try {
     await apply();
     await expect.poll(() => ui!.stores.inbox.getState().items[id]?.status).toBe("resolved");

@@ -97,7 +97,7 @@ unknown; what happens next is in [hygiene and cleanup](#hygiene-and-cleanup).
 Each governed or strict turn whose journal is recording opens one worker
 generation, and every worker of that turn binds the generation's root-owned
 directory whole at `/tmp/brain-worktrees`, inside the turn's own `/tmp`
-(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:565-577`;
+(`// Managed worktrees (#2430): a journaled turn's workers bind one empty generation.`, `packages/ui-server/src/ws/run-session.ts:567-579`;
 `// Managed worktrees (#2430): the whole access generation`, `packages/ui-sdk/src/server/worker-launcher.ts:848-859`).
 A granted worktree appears there as `/tmp/brain-worktrees/<worktree id>/` on the
 worker's next path lookup; the worker cannot create entries beside it, and a
@@ -125,8 +125,8 @@ A managed worktree is not inside the brain, so the brain's checkpoints never
 cover it. The turn journal observes each covered worktree as its own root,
 through that worktree's read-only checkpoints and deltas and the same observer
 and capture as the brain
-(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:456-468`;
-`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:301-315`).
+(`attachWorktree(turnId: string`, `packages/ui-server/src/brain/turn-journal.ts:467-479`;
+`// Each managed worktree is observed through its own checkpoints`, `packages/ui-server/src/brain/turn-journal.ts:312-326`).
 Coverage starts with a baseline checkpoint and inventory before the grant, and
 every journal observation, periodic, at a scope cap or at the turn's end, then
 observes the worktree too.
@@ -199,7 +199,7 @@ The host side is `createReferenceTools`
 start, the host records its principal and what those workers bind: the public
 view, the principal's private view and the turn's worker generation, if one
 opened
-(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:578-584`).
+(`// Reference tools (#2432): the turn's workers bind the principal's source`, `packages/ui-server/src/ws/run-session.ts:580-586`).
 A call carries only a repository, a revision or a worktree identity. The bridge
 adds the turn's own principal, and a call for a turn the host did not prepare,
 or under another principal, refuses

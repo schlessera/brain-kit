@@ -230,7 +230,7 @@ export interface HostBoundaryOptions {
    */
   providerRelay?: {
     origins?: ReadonlyMap<string, readonly string[]>;
-    admit(turnId: string | null): { allowed: true } | { allowed: false; message: string };
+    admit(turnId: string | null): { allowed: true } | { allowed: false; message: string } | Promise<{ allowed: true } | { allowed: false; message: string }>;
     observe(turnId: string | null, attempt: ProviderRelayReceipt): void;
   };
   profile?: "governed" | "strict";

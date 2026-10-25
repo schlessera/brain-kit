@@ -305,17 +305,19 @@ export function isGovernanceEventKind(value: string): value is GovernanceEventKi
   return Object.hasOwn(GOVERNANCE_EVENT_SCHEMAS, value);
 }
 
+/** A validated event as it is stored: everything but the row id. */
+export interface GovernanceEventRow {
+  sessionId: string | null; turnId: string | null; at: number; kind: GovernanceEventKind; version: number;
+  actor: GovernanceActor; model: string | null; profile: GovernanceProfile | null; payload: string; dedupeKey: string | null;
+}
+
 /**
- * The one writer. Throws `GovernanceEventError` on an unknown kind, a payload
- * that does not match its kind's schema, bad attribution or an oversized
- * payload; database failures propagate. Returns the row id, and whether this
- * call stored it (false when `dedupeKey` already recorded the event).
- *
- * The session is attached only when its catalog row exists, so an emitter
- * never has to know whether `session_info` has landed yet; `bindTurnEvents`
- * attaches the rest when it does.
+ * Validates one event and builds its row. Throws `GovernanceEventError` on an
+ * unknown kind, a payload that does not match its kind's schema, bad
+ * attribution or an oversized payload. The clock default is taken here, when
+ * the event is submitted, not when its commit runs.
  */
-export function recordGovernanceEvent(db: Database, input: GovernanceEventInput): { id: number; recorded: boolean } {
+export function governanceEventRow(input: GovernanceEventInput): GovernanceEventRow {
   if (typeof input?.kind !== "string" || !isGovernanceEventKind(input.kind)) {
     throw new GovernanceEventError(`Unknown governance event kind: ${String(input?.kind)}`);
   }
@@ -333,20 +335,43 @@ export function recordGovernanceEvent(db: Database, input: GovernanceEventInput)
     throw new GovernanceEventError(`${input.kind} payload exceeds ${GOVERNANCE_PAYLOAD_MAX_BYTES} bytes`);
   }
   const m = meta.data;
-  const at = m.at ?? Date.now();
+  return { sessionId: m.sessionId, turnId: m.turnId, at: m.at ?? Date.now(), kind: input.kind, version: spec.version,
+    actor: m.actor, model: m.model, profile: m.profile, payload: json, dedupeKey: m.dedupeKey ?? null };
+}
+
+/**
+ * Stores one validated row in its own immediate transaction. Database
+ * failures propagate. Returns the row id, and whether this call stored it
+ * (false when `dedupeKey` already recorded the event).
+ *
+ * The session is attached only when its catalog row exists, so an emitter
+ * never has to know whether `session_info` has landed yet; `bindTurnEvents`
+ * attaches the rest when it does.
+ */
+export function insertGovernanceEvent(db: Database, row: GovernanceEventRow): { id: number; recorded: boolean } {
   return db.transaction(() => {
-    db.query("DELETE FROM governance_events WHERE session_id IS NULL AND at < ?").run(at - UNBOUND_GOVERNANCE_RETENTION_MS);
-    const row = db.query(`INSERT INTO governance_events
+    db.query("DELETE FROM governance_events WHERE session_id IS NULL AND at < ?").run(row.at - UNBOUND_GOVERNANCE_RETENTION_MS);
+    const stored = db.query(`INSERT INTO governance_events
         (session_id, turn_id, at, kind, schema_version, actor, model, profile, payload, dedupe_key)
       VALUES ((SELECT id FROM sessions WHERE id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
       ON CONFLICT(kind, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
       RETURNING id`)
-      .get(m.sessionId, m.turnId, at, input.kind, spec.version, m.actor, m.model, m.profile, json, m.dedupeKey ?? null) as { id: number } | null;
-    if (row) return { id: row.id, recorded: true };
+      .get(row.sessionId, row.turnId, row.at, row.kind, row.version, row.actor, row.model, row.profile, row.payload, row.dedupeKey) as { id: number } | null;
+    if (stored) return { id: stored.id, recorded: true };
     const existing = db.query("SELECT id FROM governance_events WHERE kind = ? AND dedupe_key = ?")
-      .get(input.kind, m.dedupeKey ?? null) as { id: number };
+      .get(row.kind, row.dedupeKey) as { id: number };
     return { id: existing.id, recorded: false };
   }).immediate();
+}
+
+/**
+ * The one synchronous writer, for a connection that commits its own writes:
+ * the write worker's procedures and the cron runner. The hosted server's app
+ * connection submits through `governance/event-writes.ts` instead (#2850).
+ * Throws as `governanceEventRow` and `insertGovernanceEvent` do.
+ */
+export function recordGovernanceEvent(db: Database, input: GovernanceEventInput): { id: number; recorded: boolean } {
+  return insertGovernanceEvent(db, governanceEventRow(input));
 }
 
 /**

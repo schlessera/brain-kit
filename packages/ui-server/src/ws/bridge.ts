@@ -318,7 +318,7 @@ export function makeBridge(
       host.sendToClients(scoped);
       // Identity must reach the client before its first scoped journal receipt.
       // The journal publishes its receipt once the binding commits, after this frame.
-      if (msg.type === "session_info" && turn.turnId === turnId) { host.budgets?.bind(turnId, msg.sessionId); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
+      if (msg.type === "session_info" && turn.turnId === turnId) { void host.budgets?.bind(turnId, msg.sessionId).catch(() => { /* The turn's accounting is unavailable; its next observation stops it. */ }); void host.journal?.bindSession(turnId, msg.sessionId).catch(() => { /* The turn's record stays unbound; its observations still commit. */ }); host.scope?.bindSession(turnId, msg.sessionId); }
       work?.observe(scoped);
       if (msg.type === "result") {
         // Only the live turn's own result may set its disposition — a late

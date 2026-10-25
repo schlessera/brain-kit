@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { recordGovernanceEvent } from "../governance/events.js";
+import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 import type { Logger } from "@opentelemetry/api-logs";
 import type { BrainClient, MaintenanceRequest } from "../brain/client.js";
 
@@ -41,13 +41,17 @@ export type Every = (check: () => void, ms: number) => () => void;
 export function startScratchPrune(options: {
   brain: Pick<BrainClient, "scratchPrune">;
   log?: Logger;
+  /** Where a scratch overage is recorded: on this connection, at once. */
   db?: Database;
+  /** Where a scratch overage is recorded, in preference to `db`: the hosted server's write worker (#2850). */
+  governance?: Pick<GovernanceWrites, "record">;
   pins?: { file: string; refresh(signal: AbortSignal): Promise<void> };
   every?: Every;
   intervalMs?: number;
   deadlineMs?: number;
 }): ScratchPruner {
   const { brain, log } = options;
+  const governance = options.governance ?? (options.db ? createGovernanceWrites(options.db) : undefined);
   const deadlineMs = options.deadlineMs ?? SCRATCH_PRUNE_DEADLINE_MS;
   let inFlight: Promise<string> | null = null;
   let active: AbortController | null = null;
@@ -79,14 +83,14 @@ export function startScratchPrune(options: {
       request?.assertAuthorized?.();
       return brain.scratchPrune({ ...(request ?? {}), signal: controller.signal, ...(options.pins ? { pinsFile: options.pins.file } : {}) });
     })()
-      .then((output) => {
+      .then(async (output) => {
         try {
           const report = JSON.parse(output) as { bytes: number; overageBytes?: number; pinned: { files: number; bytes: number } };
           if (report.overageBytes && report.overageBytes > 0) {
             let eventError: unknown;
-            if (options.db) {
+            if (governance) {
               try {
-                recordGovernanceEvent(options.db, { kind: "scratch_overage", actor: "server", sessionId: null,
+                await governance.record({ kind: "scratch_overage", actor: "server", sessionId: null,
                   turnId: null, model: null, profile: null, payload: { bytes: report.bytes,
                     pinnedFiles: report.pinned.files, pinnedBytes: report.pinned.bytes, overageBytes: report.overageBytes } });
                 return output;

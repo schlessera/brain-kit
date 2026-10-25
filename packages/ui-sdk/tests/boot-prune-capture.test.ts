@@ -10,7 +10,7 @@ const source = await Bun.file(resolve(import.meta.dir, "../../ui-server/src/cron
 async function factory() {
   const root = mkdtempSync(join(tmpdir(), "odysseus-boot-prune-"));
   try {
-    const variant = bootPruneCaptureVariant(source).cron.replace('"../governance/events.js"', JSON.stringify(resolve(import.meta.dir, "../../ui-server/src/governance/events.ts")));
+    const variant = bootPruneCaptureVariant(source).cron.replace('"../governance/event-writes.js"', JSON.stringify(resolve(import.meta.dir, "../../ui-server/src/governance/event-writes.ts")));
     const file = join(root, "scratch-prune.ts"); writeFileSync(file, variant);
     return { start: (await import(file)).startScratchPrune, cleanup: () => rmSync(root, { recursive: true, force: true }) };
   } catch (error) { rmSync(root, { recursive: true, force: true }); throw error; }

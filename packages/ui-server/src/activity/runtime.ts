@@ -24,7 +24,8 @@ import { digestRetentionFloor } from "./digest.js";
 import { runActivityQuery } from "./query.js";
 import { keepSubscriptionProof } from "../agent/subscription.js";
 import { createRuntimeStatus, type RuntimeStatus } from "./runtime-status.js";
-import { recordGovernanceEvent, type GovernanceEventInput } from "../governance/events.js";
+import type { GovernanceEventInput } from "../governance/events.js";
+import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 import { getDetailRetentionDays } from "../db/settings.js";
 
 // Activity lifecycle cadence. The stale threshold must comfortably exceed
@@ -49,8 +50,14 @@ export interface ActivityRuntime {
   runtime: RuntimeStatus;
   /** The agent-facing read seam (bridge.queryActivity). */
   query(query: ActivityQuery): ActivityQueryResult;
-  /** The governance-event writer (#1651), for the turn recorders. Throws on an invalid event. */
-  governance(input: GovernanceEventInput): void;
+  /**
+   * The governance-event writer (#1651), for the turn recorders. Throws on an
+   * invalid event. With a write worker the row commits there (#2850); the
+   * promise settles once it has, and never rejects: a failed commit is logged.
+   */
+  governance(input: GovernanceEventInput): Promise<void>;
+  /** Every governance write, committed on the write worker when there is one (#2850). */
+  governanceWrites: GovernanceWrites;
   close(): void;
 }
 
@@ -78,6 +85,7 @@ export function createActivityRuntime(
     ? createOffloopActivityStore(db, deps.writer, { ...(deps.pricing ? { pricing: deps.pricing } : {}), ...(deps.pricingConfig ? { pricingConfig: deps.pricingConfig } : {}) })
     : createActivityStore(db, deps.pricing ? { pricing: deps.pricing } : {});
   const stream = createActivityStream(store, log);
+  const governanceWrites = createGovernanceWrites(db, deps.writer);
 
   // The notifier resumes its persisted cursor, including terminal changes
   // committed while this server was down and interruptions from the boot sweep.
@@ -204,7 +212,10 @@ export function createActivityRuntime(
     actionNotices,
     runtime: createRuntimeStatus(undefined, log, (at) => keepSubscriptionProof(db, at)),
     query: (query) => runActivityQuery(db, store, query, notifier),
-    governance: (input) => { recordGovernanceEvent(db, input); },
+    governance: (input) => governanceWrites.record(input).then(() => {}, (err: unknown) => {
+      log.emit({ severityText: "WARN", body: `governance event not recorded: ${err instanceof Error ? err.message : String(err)}` });
+    }),
+    governanceWrites,
     close() {
       clearInterval(tick);
       stream.close();

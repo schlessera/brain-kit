@@ -31,7 +31,7 @@ test("fixed owned-prune variants refuse missing/duplicate anchors and preserve g
 
 test("real variant tick joins existing work and starts a subsequent pass with the same receiver/signal/output", async () => {
   const root = mkdtempSync(join(tmpdir(), "odysseus-prune-variant-"));
-  const source = ownedPruneVariant(cron, boundary).cron.replace('"../governance/events.js"', JSON.stringify(resolve(import.meta.dir, "../../ui-server/src/governance/events.ts")));
+  const source = ownedPruneVariant(cron, boundary).cron.replace('"../governance/event-writes.js"', JSON.stringify(resolve(import.meta.dir, "../../ui-server/src/governance/event-writes.ts")));
   const file = join(root, "scratch-prune.ts"); writeFileSync(file, source);
   const descriptor = Object.getOwnPropertyDescriptor(console, "log")!;
   const records: unknown[] = []; Object.defineProperty(console, "log", { ...descriptor, value: (text: string) => records.push(JSON.parse(text)) });

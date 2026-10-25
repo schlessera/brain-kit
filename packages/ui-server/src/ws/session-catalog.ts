@@ -29,7 +29,8 @@ import {
 import * as retries from "./retry-requests.js";
 import * as work from "./session-work.js";
 import { attachTurnFailures, saveTurnFailure, type RecordedTurnFailure } from "./turn-failures.js";
-import { bindTurnEvents, recordGovernanceEvent, type GovernanceEventInput } from "../governance/events.js";
+import type { GovernanceEventInput } from "../governance/events.js";
+import { createGovernanceWrites, type GovernanceWrites } from "../governance/event-writes.js";
 
 /**
  * Persistence seam for session ownership + accounting. The ws coordinator only
@@ -162,8 +163,11 @@ const UPSERT_SESSION_SQL = `INSERT INTO sessions (id, title, created_at, last_ac
 
 /** SQLite-backed catalog over the app's own database (injected by createApp). */
 export function createSessionCatalog(db: () => Database, log?: Logger, scratchPins?: { record(sessionId: string, backendId: string, messages: SessionHistoryMessage[]): void },
-  accounting?: { pricing: RollupPricing; store: AwaitableActivityStore }): SessionCatalog {
+  accounting?: { pricing: RollupPricing; store: AwaitableActivityStore; governance?: Pick<GovernanceWrites, "record" | "bind"> }): SessionCatalog {
   let accountingDeps = accounting;
+  // Governance rows commit on the write worker when the app has one (#2850).
+  let governanceWrites = accounting?.governance;
+  const governance = () => governanceWrites ??= createGovernanceWrites(db());
   const getAccounting = () => accountingDeps ??= (() => {
     const pricing = createModelPricing(resolveStandalonePricingConfig());
     return { pricing, store: createActivityStore(db(), { pricing }) };
@@ -464,13 +468,12 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
     },
 
     bindGovernanceEvents(turnId, sessionId) {
-      try { bindTurnEvents(db(), turnId, sessionId); }
+      try { governance().bind(turnId, sessionId).catch((err: unknown) => reportWriteFailure(sessionId, err)); }
       catch (err) { reportWriteFailure(sessionId, err); }
     },
 
     recordGovernanceEvent(event) {
-      try { recordGovernanceEvent(db(), event); }
-      catch (err) {
+      const notRecorded = (err: unknown) => {
         log?.emit({
           severityText: "WARN",
           body: "governance event not recorded",
@@ -481,7 +484,9 @@ export function createSessionCatalog(db: () => Database, log?: Logger, scratchPi
             error: err instanceof Error ? err.message : String(err),
           },
         });
-      }
+      };
+      try { governance().record(event).catch(notRecorded); }
+      catch (err) { notRecorded(err); }
     },
 
     addSessionCost(sessionId, costUsd) {
