@@ -1524,7 +1524,7 @@ The worker's private `/tmp` and the other host masks remain in place.
 
 After the masks, the launcher re-binds only the explicit runtime inputs the
 worker needs, read-only, with the same resolution the restricted envelope uses
-(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1892`):
+(`export function restrictedReadPaths`, `packages/ui-sdk/src/server/worker-launcher.ts:1899`):
 
 - the Bun executable;
 - the backend entry's package, its `node_modules` chains and linked workspace
@@ -2701,7 +2701,7 @@ current launcher opens mounts directly (`function openPrivateState`,
 `function* openPrivateTurnTempSteps`,
 `packages/ui-sdk/src/server/worker-launcher.ts:1125-1151`) before population and
 start-gate release (`function* launchAgentWorkerSteps`,
-`packages/ui-sdk/src/server/worker-launcher.ts:1309-1397`). Group modes and a uid
+`packages/ui-sdk/src/server/worker-launcher.ts:1314-1402`). Group modes and a uid
 switch alone therefore cannot implement the selected cross-uid lifecycle.
 
 **Authority and launch.** One trusted external supervisor owns each worker
