@@ -1484,12 +1484,14 @@ export function* launchAgentWorkerSteps(input: WorkerLaunch): WorkerSteps<Launch
     // handle holds it, and never waits for a held handle: a backend releases
     // its handles only after the exit. A failed supervision is terminated
     // before the close. Either close's refusal is the exit's (#2854).
+    let exitReleaseRefused = false;
     const workerExit = identityBroker ? identityWorkerExit(() => identityBroker!.requestSteps<IdentityWorkerStatus>("status"), spawned.exited, {
       finished: () => identityFinished,
       finish: () => { identityFinished = true; },
-      release: releaseIdentityAsync,
+      release: () => releaseIdentityAsync().catch((error: unknown) => { exitReleaseRefused = true; throw error; }),
     }).catch(async (error: unknown) => {
-      if (workerCleanupUnconfirmed(error)) throw error;
+      // The worker exited and only its broker's close was refused.
+      if (exitReleaseRefused) throw error;
       // A failed supervisor/control path is never eligible for publication.
       // Independently authorized termination precedes the broker close.
       identityBroker!.terminate();

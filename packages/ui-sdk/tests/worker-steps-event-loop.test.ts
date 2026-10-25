@@ -595,11 +595,11 @@ const settledWithin = <T>(promise: Promise<T>, ms: number) =>
   Promise.race([promise.then(() => "settled", () => "settled"), Bun.sleep(ms).then(() => "pending")]);
 
 /** Launch through the seam, with both handles unless `handles` is false; `exit()` makes the supervisor report the worker gone. */
-async function heldRootLaunch(handles = true, answer: IdentityWorkerStatus = { exited: true, code: 0 }) {
+async function heldRootLaunch(handles = true, answer: IdentityWorkerStatus | (() => IdentityWorkerStatus) = { exited: true, code: 0 }) {
   const f = fixture(), view = createFixtureWorkerStartupView(f.brain);
   const helper = spyOn(identity, "workerIdentityHelper").mockReturnValue(IDENTITY_HELPER);
   let gone = false;
-  const seam = heldRootSeam(f, () => gone ? answer : { exited: false, code: null });
+  const seam = heldRootSeam(f, () => !gone ? { exited: false, code: null } : typeof answer === "function" ? answer() : answer);
   let worker: LaunchedWorker | undefined;
   try {
     worker = await launchAgentWorkerAsync({ brainPath: f.brain, startupView: view, command: ["/bin/true"], env: {},
@@ -724,6 +724,15 @@ test("a failed supervision terminates its worker before an awaited broker close,
       }
     } finally { await run.cleanup(); }
   }
+  // A status request that lost control, with a supervisor stop it could not
+  // confirm, is still terminated and closed: only the exit's own close refusal is final.
+  const lost = await heldRootLaunch(false, () => { throw new identity.WorkerIdentityCleanupError("worker_identity_supervisor_stop_unconfirmed: fixture"); });
+  try {
+    lost.exit();
+    const refusal = await lost.worker.exited.then(() => new Error("exit_succeeded"), (error: unknown) => error);
+    expect({ unconfirmed: identity.workerCleanupUnconfirmed(refusal), operations: lost.seam.operations() }, "LOST_CONTROL_STILL_TERMINATES_AND_CLOSES")
+      .toEqual({ unconfirmed: true, operations: ["signal", "signal:answered", "close", "close:answered"] });
+  } finally { await lost.cleanup(); }
   // With handles held, the failed exit leaves the close to the last of them.
   const held = await heldRootLaunch(true, failure);
   try {
