@@ -45,7 +45,9 @@ const fifoHeld = (fifos: readonly FifoIdentity[]): boolean => {
  * work through their own duplicate of the descriptor they are given, and
  * close it on one of Bun's pool threads after the stream ends, with nothing a
  * caller can await: while asynchronous file I/O holds the pool, the duplicate
- * stays open. Bounded, because that duplicate is Bun's to close.
+ * stays open. The wait is bounded, because that duplicate is Bun's to close:
+ * after `limitMs`, or where `/proc/self/fd` cannot be read, it resolves
+ * without that confirmation. One scan of the descriptor table is the usual cost.
  */
 async function fifosReleased(fifos: readonly FifoIdentity[], limitMs = 5_000): Promise<void> {
   const deadline = performance.now() + limitMs;
