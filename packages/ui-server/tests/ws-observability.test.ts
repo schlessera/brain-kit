@@ -604,7 +604,7 @@ describe("socket-level failures are observable", () => {
 });
 
 describe("session persistence failures are observable", () => {
-  test("a failed catalog write warns with the session id instead of vanishing", () => {
+  test("a failed catalog write warns with the session id instead of vanishing", async () => {
     const observability = createRecordingObservability();
     const db = createUiDb(":memory:");
     db.close();
@@ -612,6 +612,8 @@ describe("session persistence failures are observable", () => {
 
     // Still non-throwing — the turn must survive — but no longer silent.
     expect(() => catalog.persistSessionStub("s9", "prompt", null, "fake")).not.toThrow();
+    // The write settles off the event loop (#2850); its failure is reported then.
+    await catalog.settled!();
 
     const [record] = observability.logs.find({ scope: "db", severity: "WARN" });
     expect(record.body).toBe("session persistence failed");

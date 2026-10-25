@@ -66,6 +66,9 @@ test("host admission, tool completion and terminal observation produce scoped re
     if (receipt.type !== "turn_journal") throw new Error("Missing receipt");
     release();
     await wait(() => frames().some(frame => frame?.type === "turn_journal" && frame.journal.state === "complete"));
+    // Roadblocks are classified after the journal completes; the turn's slot
+    // ends only once they have committed (#2850).
+    await wait(() => !app.wsHost.coordinator.isTurnActive());
     const details = app.wsHost.journal!.details("sess-ithaca", receipt.turnId)!;
     expect(details.summary.policyHash, "JOURNAL_FROZEN_ADMISSION_POLICY").toMatch(/^[a-f0-9]{64}$/);
     expect(details.changes.filter(change => change.path === "notes/journal.md").map(change => app.wsHost.journal!.version("sess-ithaca", receipt.turnId, change.sequence, "after")!.bytes(1024).toString()), "JOURNAL_TOOL_AND_TERMINAL_VERSIONS").toEqual(["Athena\r\n", "Penelope\r\n"]);

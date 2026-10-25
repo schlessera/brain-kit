@@ -210,6 +210,8 @@ export async function handleClientMessage(
 
     case "retry_status": {
       try {
+        // Retained retries and their invalidations commit off the event loop (#2850).
+        await catalog.settled?.();
         host.sendMessage(ws, catalog.retryReceipt?.(msg.sessionId, msg.requestId, connection.authorization.principalId)
           ?? { type: "retry_receipt", sessionId: msg.sessionId, requestId: msg.requestId, state: "unknown" });
       } catch {
@@ -225,6 +227,11 @@ export async function handleClientMessage(
         catch { host.sendMessage(ws, receipt); }
       };
       try {
+        // Read and reserve against every retained request and invalidation
+        // submitted before this frame (#2850). One submitted during the file
+        // check below came with an accepted message, which the admission
+        // check after it refuses.
+        await catalog.settled?.();
         // Replay a receipt even while its turn runs. A repeated request id
         // cannot become a queued follow-up, including after reconnect.
         const prior = catalog.retryReceipt?.(msg.sessionId, msg.requestId, connection.authorization.principalId);

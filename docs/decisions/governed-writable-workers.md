@@ -150,7 +150,7 @@ interactive work. Voice shows its policy read-only; dictation is interactive.
 The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
-(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
+(`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:16-132`;
 `begin`, `packages/ui-server/src/brain/governed-turn.ts:141-306`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
@@ -163,7 +163,7 @@ still holds.
 **Voice.** Ruling 1 makes voice `governed` too. Voice keeps its narrower
 membership (`VOICE_ALLOWED_TOOLS`, `packages/ui-backend-claude/src/tool-policy.ts:120`):
 no Bash, no raw `Write`/`Edit`, no archive, and approval returns false
-(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:658-663`).
+(`const apply = createBrainApplication`, `packages/ui-server/src/ws/bridge.ts:662-667`).
 A voice turn therefore writes only through curated capture and update, now
 with a journal behind it. The writable mount gives voice no tool it lacked.
 Pi still refuses voice turns.
@@ -1110,7 +1110,7 @@ principal authority remain the caller's responsibility. The policy publisher
 creates, writes, fsyncs and removes its operation-owned staging name entirely
 inside that synchronous callback, between the two serialized observations
 (`await options.observeUserPolicy`,
-`packages/ui-server/src/brain/policy-proposal.ts:198-225`). First publication
+`packages/ui-server/src/brain/policy-proposal.ts:210-237`). First publication
 also removes the temporary hardlink before the final observation. No filename
 prefix is ignored; a similarly named real agent change is still retained.
 Failed staging preserves the original policy, while failed recording after
@@ -1698,7 +1698,7 @@ The brain's git history stays the durable record of its content.
 - **The Activity recorder and its rollups** price those events under the
   [cost-tracking rules](cost-tracking.md). An unknown price is never counted as
   zero. The session total that counts unknown as zero
-  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:368`)
+  (`msg.costUsd ?? 0`, `packages/ui-server/src/ws/session-catalog.ts:375`)
   must not feed any budget.
 
 **Enforcement:**
@@ -2625,7 +2625,7 @@ every turn without a proven recipient:
   - **The handoff summary.** Drafting a handoff summary refuses when the
     policy has provider rules and the source chat's lineage does not cover
     every provider folder, before its history is read (`unprovenHistory`,
-    `packages/ui-server/src/ws/handoff.ts:303-306`). The run has no proven
+    `packages/ui-server/src/ws/handoff.ts:309-312`). The run has no proven
     recipient, so every provider folder is denied to it. A policy with a type
     selector always refuses: the type's folders follow the current taxonomy,
     which this check does not translate, and a remembered translation may be

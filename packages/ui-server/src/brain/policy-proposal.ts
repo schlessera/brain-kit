@@ -10,6 +10,8 @@ import { parseGovernancePolicy, GOVERNANCE_POLICY_PATH, GOVERNANCE_POLICY_MAX_BY
 import { BRAIN_LOCK_KEY, type KeyedLock } from "@schlessera/brain-ui-sdk/server";
 import { PROPOSE_POLICY_CHANGE_INPUT_SCHEMA, type PolicyChangeInput, type PolicyChangeReview } from "@schlessera/brain-ui-sdk/tool-contracts";
 import { admitHeld, AuthorityHeld, retryHeld, type AuthorityHold } from "./authority-hold.js";
+import { procedureCaller, type SqliteWriter } from "../db/write-worker.js";
+import * as proposalWrites from "./policy-proposal-writes.js";
 
 const hash = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 class Refusal extends Error { constructor(readonly state: "stale" | "invalid" | "refused", message: string) { super(message); } }
@@ -108,11 +110,15 @@ export function createPolicyProposals(options: {
   observeUserPolicy(turnId: string, approvedWrite: () => void): void | Promise<void>;
   /** A returned promise is the event's commit (#2850); its failure is the receipt's. */
   recordEvent(review: PolicyChangeReview, turn: PolicyProposalTurn): unknown;
+  /** Where a proposal's session bind commits: the app's write worker (#2850). Absent: on `db`, at once. */
+  writer?: SqliteWriter;
   /** Deterministic race/revalidation fixtures, never wired to a worker. */
   beforeCommit?(): void;
   validate?: typeof parseGovernancePolicy;
 }) {
   const db = options.db;
+  const bind = procedureCaller(db, proposalWrites, undefined, options.writer);
+  let bound: Promise<void> = Promise.resolve();
   // App startup also serves hosts whose brain has not been provisioned yet.
   // Keep existing roots canonical; a missing root is resolved at the operation,
   // never created by policy publication.
@@ -146,7 +152,13 @@ export function createPolicyProposals(options: {
         return review ? { ...tool, policyChange: review } : tool;
       }) }));
     },
-    bind(turnId: string, sessionId: string) { db.query("UPDATE policy_proposals SET session_id = ? WHERE turn_id = ? AND session_id IS NULL").run(sessionId, turnId); },
+    bind(turnId: string, sessionId: string): Promise<unknown> {
+      const done = bind("bind", turnId, sessionId);
+      bound = done.then(() => {}, () => {});
+      return done;
+    },
+    /** Settles once every bind submitted before it has settled: history joins proposals by session. */
+    async settled() { let waiting: Promise<void>; do { waiting = bound; await waiting; } while (waiting !== bound); },
     async propose(turn: PolicyProposalTurn, requestId: string, raw: PolicyChangeInput): Promise<PolicyChangeReview> {
       const authority = (waits = true) => {
         if (!turn.signal.aborted && !turn.isAuthorized() && waits && turn.hold?.active()) throw new AuthorityHeld();

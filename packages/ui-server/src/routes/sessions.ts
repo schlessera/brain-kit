@@ -9,6 +9,11 @@ export function createSessionRoutes(deps: {
   db: Database;
   prepareHistory?: (sessionId: string, messages: SessionHistoryMessage[]) => SessionHistoryMessage[];
   /**
+   * Settles once every catalog write submitted before it has settled: those
+   * commit off the event loop (#2850), and both routes read what they wrote.
+   */
+  settled?: () => Promise<void>;
+  /**
    * Whether this host labels pills (#1004). Off, stored labels from an
    * earlier run are not listed: nothing would refresh them.
    */
@@ -51,6 +56,7 @@ export function createSessionRoutes(deps: {
   .get("/sessions", async (c) => {
     try {
       const backends = await registry.getBackends();
+      await deps.settled?.();
       // The catalog's accounting (total_cost_usd, num_turns) was write-only
       // for years on the default backend, whose listSessions hardcodes
       // zeros — merge the stored numbers in so the drawer's cost renders
@@ -116,8 +122,10 @@ export function createSessionRoutes(deps: {
   .get("/sessions/:id", async (c) => {
     const id = c.req.param("id");
     try {
+      await deps.settled?.();
       const backend = await registry.getBackendForSession(getStoredBackendId(id));
       const messages = await backend.getHistory(id);
+      await deps.settled?.();
       return c.json({ id, messages: deps.prepareHistory?.(id, messages) ?? messages });
     } catch (err) {
       return c.json(

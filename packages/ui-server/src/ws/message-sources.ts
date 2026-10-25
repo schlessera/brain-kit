@@ -43,7 +43,8 @@ export function saveMessageSource(
   sessionId: string,
   text: string,
   source: MessageSource,
-  effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] }
+  effort?: { thinkingLevel?: ThinkingLevel; turnId: string; files?: SharedFileMeta[] },
+  at = Date.now()
 ): void {
   const hash = messageTextHash(text);
   db.transaction(() => {
@@ -53,7 +54,7 @@ export function saveMessageSource(
     db.prepare(
       `INSERT INTO message_sources (session_id, text_hash, ordinal, source, created_at, thinking_level, turn_id, track_files)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(sessionId, hash, row.n, source, Date.now(), effort?.thinkingLevel ?? null, effort?.turnId ?? null, effort?.files?.length ? JSON.stringify(effort.files) : null);
+    ).run(sessionId, hash, row.n, source, at, effort?.thinkingLevel ?? null, effort?.turnId ?? null, effort?.files?.length ? JSON.stringify(effort.files) : null);
   }).immediate();
 }
 
