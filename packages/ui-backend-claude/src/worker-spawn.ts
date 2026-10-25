@@ -247,14 +247,16 @@ export function createWorkerSpawn(brainPath: string, config: ExecWrapperConfig, 
         try { emitter.emit("error", error); } finally { emitExit(exitCode ?? 1); }
         throw error;
       })
-        .finally(() => {
+        .finally(async () => {
           checks.delete(check);
           if (liveWorker === worker) liveWorker = undefined;
           if (liveTurnTemp === turnTemp) liveTurnTemp = undefined;
-          const failures: unknown[] = [];
-          try { handle.close(); } catch (error) { failures.push(error); }
-          try { turnTemp?.close(); } catch (error) { failures.push(error); }
-          if (failures.length) throw failures[0];
+          // Awaited: a separate-UID worker's last handle closes its broker off
+          // the event loop, and the reservation is released only once that
+          // cleanup is confirmed. A refusal keeps it charged (#2854).
+          const closed = await Promise.allSettled([handle.closeAsync(), turnTemp?.closeAsync()]);
+          const refused = closed.find(result => result.status === "rejected");
+          if (refused) throw refused.reason;
           state.release();
         });
       // Lifecycle is also awaited by the turn, so rejections cannot go unhandled.
