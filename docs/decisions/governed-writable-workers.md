@@ -492,7 +492,7 @@ maintenance worker no longer receives the keys the provider relay carries
 (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and keys the operator
 lists for it), and the brain's `.env*` files are masked as they are for a
 credential-free worker. Its `brain` CLI reaches those providers through its own
-relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:415-422`).
+relay (`providerRelayFor`, `packages/ui-server/src/brain/host-boundary.ts:417-424`).
 What remains is narrower and stated in the status: keys the relay does not
 carry (the `jev` reranker's, a `brain sync` agent runner's login) and every
 key on a host without managed native storage, where there is no relay.
@@ -3218,7 +3218,7 @@ files, `.claude/`, `.agents/`, `.pi/`, `.mcp.json`, and
 - The core CLI loads `brain.config.ts` or `brain.config.json` at the canonical
   brain cwd (`loadUserConfig`, `packages/core/src/lib/config.ts:590-624`).
   Host commands bind that cwd to the selected brain (`function hostSpawn`,
-  `packages/ui-server/src/brain/host-boundary.ts:500-511`).
+  `packages/ui-server/src/brain/host-boundary.ts:502-513`).
 - Bun startup uses root `bunfig.toml` and `package.json`; retained literal
   preload/module inputs can identify a nested module's nearest package scope.
   The inventory walks parent directories only within the originating journal
