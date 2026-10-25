@@ -154,7 +154,7 @@ Ordinary brain and workspace journaling is unchanged.
 ## Guidance
 
 Workers with a bound generation receive fixed guidance in the existing sandbox
-note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:518-524`):
+note (`const WORKTREE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:525-531`):
 shared source is read-only and moves, a worktree starts at a reported commit
 that never moves, where to work, that edits are journaled and scope-counted,
 that only explicit access or renewal resets the three-day clock, that expiry
@@ -244,7 +244,7 @@ access and their rosters do not name the tools.
 fixed roster with fixed descriptions; a turn without a handler refuses at call
 time. Lifecycle and freshness facts arrive only in the result of the call that
 produced them, and the sandbox note's reference guidance is fixed text
-(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:515-517`),
+(`const REFERENCE_GUIDANCE`, `packages/ui-sdk/src/server/worker-sandbox.ts:522-524`),
 so no earlier system prompt, tool or message changes
 ([provider history](provider-history.md)).
 

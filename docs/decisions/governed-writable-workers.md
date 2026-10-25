@@ -151,7 +151,7 @@ The current worker never changes profile because a later save succeeded.
 Unknown enforcement facts remain unknown, and requested preference is separate
 from the actual admitted worker, including fallback
 (`createSessionProfiles`, `packages/ui-server/src/ws/session-profiles.ts:12-89`;
-`begin`, `packages/ui-server/src/brain/governed-turn.ts:130-290`).
+`begin`, `packages/ui-server/src/brain/governed-turn.ts:130-294`).
 
 **Where a turn falls back to `strict`.** The launcher refuses to start
 `governed` when a protected path is a symlink, a hardlinked file
@@ -283,7 +283,7 @@ Mixed command lists retain their valid entries and report skipped sources;
 nonempty entirely invalid lists refuse under the existing confirmation ruling.
 
 Admission captures and freezes one effective policy/hash after acquiring the
-writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-292`),
+writer gate (`createGovernedTurns`, `packages/ui-server/src/brain/governed-turn.ts:69-296`),
 records it for strict and governed turns in host operational state,
 and passes its protection list to the existing launcher/manifest. The journal
 consumes that captured identity rather than rereading the file. Invalid edits
@@ -1864,9 +1864,9 @@ coordinator. The server checks the handle's mount ID against the worker's own
 mount table: it must be the top mount at the brain path. It then runs the
 unchanged comparison of brain, pins, empty masks and the private index
 relative to the handle (`function requireWorkerBrainMount`,
-`packages/ui-sdk/src/server/worker-protection.ts:248-255`;
+`packages/ui-sdk/src/server/worker-protection.ts:271-278`;
 `export function verifyWorkerFolderMounts`,
-`packages/ui-sdk/src/server/worker-protection.ts:258-296`).
+`packages/ui-sdk/src/server/worker-protection.ts:281-319`).
 The server returns the handle before release, and the coordinator refuses to
 release the start gate, or open a second view, while one is held
 (`if operation == 'release':`,
@@ -2201,7 +2201,7 @@ every turn without a proven recipient:
   - **Continuation.** A denied turn may continue a conversation only when
     the host's lineage proves every folder it masks was masked from every
     contributing turn (`lineages`,
-    `packages/ui-server/src/brain/governed-turn.ts:178-187`). The lineage is
+    `packages/ui-server/src/brain/governed-turn.ts:182-191`). The lineage is
     one row per conversation in the exposure record (`session_masked_lineage`,
     migration 064, `narrowMasked`,
     `packages/ui-server/src/brain/provider-exposure.ts:67-76`). It starts
@@ -2296,7 +2296,7 @@ every turn without a proven recipient:
   provenance shows every item and checkpoint of its origin thread compatible
   with those masks, checked once the masks are exact and before any thread
   text is read into the prompt (`admission = await admitOriginThread`,
-  `packages/ui-server/src/inbox/autonomous-turn.ts:359`). The dispatcher's
+  `packages/ui-server/src/inbox/autonomous-turn.ts:362`). The dispatcher's
   context is built afterwards, from the admission's arrival read and in the
   transaction that revalidates it, and both reads revalidate in their own
   transaction before building any payload (`function authorizeRead`,
@@ -2384,7 +2384,7 @@ were rejected.
   stores that value whatever its path. The taxonomy alone therefore does not
   bound a type. Admission also reads the turn's immutable view, data only, for
   `.md` files outside the masked folders whose frontmatter declares the type
-  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:60-98`).
+  (`strayTypedDocuments`, `packages/ui-server/src/brain/provider-types.ts:126-164`).
   It counts hidden and excluded folders, `node_modules` and uppercase `.MD`,
   and skips only `.git` and `.brain-index/`. A `.md` symbolic link counts as
   the file it resolves to, as the indexer reads it, unless that file is in a
@@ -2399,7 +2399,7 @@ The taxonomy is code in `brain.config.ts` and its modules, so the host does
 not load it. The brain's own CLI reports it (`brain config check --json`)
 from a credential-free strict worker on the startup view with the literal
 folders masked (`readProviderTaxonomy`,
-`packages/ui-server/src/brain/provider-types.ts:35-46`). That worker sees
+`packages/ui-server/src/brain/provider-types.ts:95-112`). That worker sees
 selected documents outside the literal folders, so it writes into a throwaway
 directory that is deleted before the private index is created. Its answer is
 parsed as untrusted data: a malformed or oversized answer refuses every type
@@ -2409,8 +2409,74 @@ is its path's type under the same configuration, so the reported folders
 decide which assets are hidden. That trusts the code the configuration runs.
 `brain.config.ts` and `node_modules` are protected (tier B), but local
 modules, helper files the configuration imports and the `scripts/brain-cli.ts`
-fallback are not: a turn that rewrites them can make a later admission's
-taxonomy misreport, and so leave that type's assets outside the masks.
+fallback were not: a turn that rewrote them could make a later admission's
+taxonomy misreport, and so leave that type's assets outside the masks. The
+next ruling closes that.
+
+**The taxonomy runs only protected code (maintainer, 2026-10-24, #2699
+option B).** Type translation is refused, naming the brain's configuration
+and the reason, unless protection of its complete executable load set is
+established; the resulting restriction of previously accepted configurations
+is approved. A partial list of protected entry files was ruled insufficient,
+and so was trusting the worker's own account of what it loaded, since code
+that runs in it can rewrite that account. The load set is therefore not
+computed. It is enforced by what the worker can see: the brain path is an
+empty tmpfs with only the policy's protected paths bound back read-only
+(`WorkerProviderMasks.visible`; `if (masks.visible)`,
+`packages/ui-sdk/src/server/worker-protection.ts:194-214`). An import, a
+local module, a `tsconfig.json` alias or a data file outside them is simply
+absent, so the configuration loads only from what no governed turn can
+change, or does not load, and its own error, which names the file, becomes
+every type's refusal. Two cases are judged on the host first, by name
+(`taxonomyProtection`,
+`packages/ui-server/src/brain/provider-types.ts:62-83`): a policy that
+releases a tier B name the load reads (`brain.config.ts`,
+`brain.config.json`, `package.json`, `bun.lock`, `node_modules`), and a CLI
+that is a brain file outside the protected paths, such as the
+`scripts/brain-cli.ts` fallback. Each protected path and every folder on the
+way to it must be neither a link, which bubblewrap would follow in a bind's
+source, nor a hardlinked file. Hosted and autonomous admission share
+`translateProviderTypesInView`, so both refuse before any worker reaches a
+provider. An owner keeps translation by adding the files to the policy's
+`protect` list, which also makes them read-only to governed turns.
+
+Hiding what is not protected settles code but not data: a protected
+configuration that reads or probes an unprotected file loads either way and
+can report another taxonomy without it. The taxonomy is therefore read twice
+on the same checkpoint, once with only the protected paths and once with the
+whole view, and every type refuses unless both agree; only the protected read
+is used. The whole-view read can run code a turn wrote, which can make the two
+agree when they would not, so the check is not proof that the configuration
+reads nothing else. It refuses every configuration whose answer honestly
+depends on other files. What it cannot refuse, a configuration that optionally
+imports turn-writable code which then hides the difference, still gets masks
+from the protected files alone: nothing a turn can write chooses them. Where
+such a configuration makes a type's territory depend on files a turn can
+change, a turn can already change that territory through those files, by the
+owner's own definition. `.brain/` and `.brain-ui/`, which the server writes for
+turns (areas, inbox staging), are never shown, even when protected. Three more
+host checks follow from a review of the first
+cut. A protected name that does not exist is not mounted in a governed worker,
+so a turn can create it, and its end quarantines it; until then it is no proof
+of the owner, so the view is compared with the start manifest of every
+governed turn open or ended since admission began (`appearedInView`,
+`packages/ui-server/src/brain/governed-manifest.ts:160-168`). A brain path
+whose canonical path differs (a link; a trailing slash is not a difference)
+refuses, because the worker's runtime read paths can restore the live brain
+under its real name, outside the empty brain path.
+And every CLI argument naming a brain file is judged however it is spelled.
+
+Protection is judged against the policy at admission. A file that an earlier
+policy left writable keeps what a turn wrote to it then; the supported-input
+contract tells owners to review a file before protecting it. Code outside the
+brain, which no turn writes, still loads. The relative `bun
+scripts/brain-cli.ts` fallback cannot launch in a masked worker at all (the
+launcher requires an absolute executable), so a protected fallback refuses
+too until that is fixed separately (#2865). Host writers that a turn drives
+outside its worker, such as inbox staging and an autonomous turn's exactly
+approved application, do not consult the policy's `protect` list; a
+configuration that reads files they write is outside this rule until they do
+(#2876).
 Markdown documents of the type stay covered by the frontmatter check. Closing
 the asset gap needs the configuration's whole load set protected, which
 [#2699](https://github.com/schlessera/brain-kit/issues/2699) tracks.
@@ -2527,7 +2593,7 @@ Claude from the profile's route, pi from the profile's declared model or a
 resumed session's last model over its `models.json` entry. Admission names the
 recipient only on managed native storage, where the relay runs, and only when
 it can record what the turn is shown (`const recipient = options.exposures`,
-`packages/ui-server/src/brain/governed-turn.ts:148-149`). The turn's relay is
+`packages/ui-server/src/brain/governed-turn.ts:151-152`). The turn's relay is
 then held to that origin: it refuses to start toward any other
 (`if (options.recipientOrigin`, `packages/ui-sdk/src/server/inference-relay.ts:79-81`),
 pi refuses a changed endpoint before its credential is read, and a turn that
@@ -3348,7 +3414,7 @@ and the enforcement cannot drift.
 
 The delivered host note (#1654) receives history availability through the
 existing resolved sandbox. The shared renderer is
-(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:556-621`).
+(`workerSandboxNote`, `packages/ui-sdk/src/server/worker-sandbox.ts:563-628`).
 Journaling is stated as active only after this
 turn's real observation window is admitted; user restoration additionally
 requires the concrete mounted history service and a non-voice turn. Missing

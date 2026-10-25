@@ -150,6 +150,23 @@ export function appearedSince(brainPath: string, start: TurnManifest): { appeare
   return { appeared: sorted.filter((path, i) => !sorted.slice(0, i).some(parent => path.startsWith(`${parent}/`))), changed };
 }
 
+/**
+ * Protected names present in `root` that were absent when a governed turn of
+ * `brainPath` started, for every turn still open or ended at or after `since`
+ * (#2699). `root` may be a checkpoint of the brain: a name a running turn
+ * created reaches a checkpoint before that turn's end quarantines it, so
+ * nothing there proves the owner put it in place.
+ */
+export function appearedInView(db: Database, brainPath: string, root: string, since: number): string[] {
+  let brain: string;
+  try { brain = realpathSync(brainPath); } catch { brain = resolve(brainPath); }
+  const rows = db.query("SELECT manifest FROM governed_turn_manifests WHERE brain = ? AND (ended_at IS NULL OR ended_at >= ?)")
+    .all(brain, since) as { manifest: string }[];
+  const names = new Set<string>();
+  for (const row of rows) for (const path of appearedSince(root, JSON.parse(row.manifest) as TurnManifest).appeared) names.add(path);
+  return [...names].sort();
+}
+
 /** Moves `rel` out of the brain into `destination`, through its parent's descriptor. */
 function moveOut(root: string, rel: string, destination: string): void {
   const chain = walk(root, rel);
@@ -191,6 +208,8 @@ export interface GovernedManifests {
   hasHistory(): boolean;
   /** Protected names present now that are absent from the start manifest of a turn still running. */
   appearedDuringActiveTurns(): string[];
+  /** `appearedInView` for this brain: names in `root` a turn open or ended since `since` created. */
+  appearedIn(root: string, since: number): string[];
 }
 
 export function createGovernedManifests(db: Database, options: { brainPath: string; quarantineDir: string; log?: Logger; now?: () => number }): GovernedManifests {
@@ -265,6 +284,7 @@ export function createGovernedManifests(db: Database, options: { brainPath: stri
     hasHistory() {
       return db.query("SELECT 1 FROM governed_turn_manifests WHERE brain = ? LIMIT 1").get(root) !== null;
     },
+    appearedIn(root, since) { return appearedInView(db, options.brainPath, root, since); },
     appearedDuringActiveTurns() {
       const rows = db.query("SELECT pid, pid_start, manifest FROM governed_turn_manifests WHERE brain = ? AND ended_at IS NULL")
         .all(root) as { pid: number; pid_start: string; manifest: string }[];

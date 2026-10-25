@@ -185,10 +185,33 @@ export const PROVIDER_CACHE_FILES = [".context-cache.jsonl", ".asset-cache.jsonl
  * `.brain-index/`, which must exist in the view. A turn whose proven recipient
  * is allowed every provider folder has no folder to mask (#2695). Each present
  * committed cache of generated text reads as empty in every such turn (#2692).
+ * With `visible`, the brain path starts as an empty tmpfs and only those paths
+ * of the view are bound back, read-only (#2699).
  */
 export function providerMaskMounts(brain: string, view: string, masks: WorkerProviderMasks): string[] {
   const argv: string[] = [];
   if (masks.folders.length && !masks.index) throw new Error("masked provider folders need the turn's private index");
+  if (masks.visible) {
+    argv.push("--tmpfs", brain);
+    for (const rel of [...new Set(masks.visible)].sort()) {
+      if (invalidFolder(rel) || rel === INDEX_DIR || rel.startsWith(`${INDEX_DIR}/`) || rel === ".git" || rel.startsWith(".git/"))
+        throw new Error("invalid visible brain path");
+      // Bubblewrap follows a link in a bind's source, so no name on the way
+      // may be one: a linked name would show whatever it points at instead.
+      const segments = rel.split("/");
+      let info: ReturnType<typeof lstatSync> | undefined;
+      for (let end = 1; end <= segments.length; end++) {
+        try { info = lstatSync(join(view, ...segments.slice(0, end)), { throwIfNoEntry: false }); }
+        catch (error) { if (code(error) !== "ENOTDIR") throw error; info = undefined; }
+        if (!info) break;
+        if (info.isSymbolicLink()) throw new Error(`${segments.slice(0, end).join("/")} is a symbolic link in the worker's view`);
+      }
+      if (!info) continue;
+      if (info.isFile() && info.nlink !== 1) throw new Error(`${rel} is hardlinked in the worker's view`);
+      if (!info.isFile() && !info.isDirectory()) throw new Error(`${rel} is not a regular file or directory in the worker's view`);
+      argv.push("--ro-bind", join(view, rel), join(brain, rel));
+    }
+  }
   // A loose file mask detaches if another namespace renames or unlinks the
   // path. Only exclusive credentialed `--embeddings` runs write these caches,
   // and every concurrent turn under a provider rule hides them alike, allowed
