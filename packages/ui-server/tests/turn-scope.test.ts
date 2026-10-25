@@ -132,7 +132,9 @@ test("the disposable index counts once at its largest size, ignored or not, and 
       writeFileSync(join(f.brain, ".brain-index/brain.db-shm"), bytes(refresh, refresh === 3 ? 32 : 16));
       await f.journal.observe();
     }
-    expect(f.journal.details("ithaca", "voyage")!.changes.filter(change => change.path === ".brain-index/brain.db"), "INDEX_TEN_HASHED_VERSIONS_JOURNALED").toHaveLength(10);
+    const versions = f.journal.details("ithaca", "voyage")!.changes.filter(change => change.path === ".brain-index/brain.db");
+    expect(versions, "INDEX_TEN_VERSIONS_JOURNALED").toHaveLength(10);
+    expect(versions.every(change => change.after?.metadataOnly && !change.after.hash), "INDEX_VERSIONS_METADATA_ONLY").toBe(true);
     expect(facts.at(-1), "INDEX_FAMILY_COUNTS_ONCE_PER_PATH").toEqual({ changedPaths: 3, observedBytes: size + 8 + 32 });
     writeFileSync(join(f.brain, ".brain-index/brain.db"), bytes(1, size * 2)); await f.journal.observe();
     writeFileSync(join(f.brain, ".brain-index/brain.db"), bytes(2, 1)); await f.journal.observe();
@@ -144,7 +146,8 @@ test("the disposable index counts once at its largest size, ignored or not, and 
     rmSync(copy("41b2dd7f-9913-4151-b5bf-53aad064cd96")); await f.journal.observe();
     expect(f.journal.details("ithaca", "voyage")!.changes.some(change => change.path.startsWith(".brain-index/.maintenance-")), "INDEX_PUBLICATION_COPY_STILL_JOURNALED").toBe(true);
     expect(facts.at(-1), "INDEX_PUBLICATION_COPY_GONE_IS_NOT_A_TURN_WRITE").toEqual({ changedPaths: 3, observedBytes: base });
-    // Controls: a copy name that stays, other names and other roots keep their version bytes.
+    // Controls: a copy that stays counts its metadata-only size once; other
+    // names and other roots keep their version bytes.
     writeFileSync(copy("5f662634-1c32-494b-9a6c-d6dc995a8d63"), "Mast"); writeFileSync(copy("raft"), "Raft");
     writeFileSync(join(f.brain, ".brain-index/sail.bin"), "Sail"); writeFileSync(join(f.brain, "notes-.maintenance-41b2dd7f-9913-4151-b5bf-53aad064cd96"), "Loom");
     // Removed files outside the exact copy name keep their bytes too.
@@ -153,7 +156,7 @@ test("the disposable index counts once at its largest size, ignored or not, and 
     for (const fill of [4, 5]) { writeFileSync(join(f.brain, "workspaces/raft/.brain-index/brain.db"), bytes(fill, 16)); await f.journal.observe(); }
     for (const path of removed) rmSync(path);
     await f.journal.observe();
-    expect(facts.at(-1), "OTHER_PATHS_AND_STAYING_COPIES_KEEP_THEIR_VERSION_BYTES").toEqual({ changedPaths: 10, observedBytes: base + 4 * 4 + 16 * 2 + 3 * 2 });
+    expect(facts.at(-1), "OTHER_PATHS_AND_STAYING_COPIES_STAY_COUNTED").toEqual({ changedPaths: 10, observedBytes: base + 4 * 4 + 16 * 2 + 3 * 2 });
     await f.journal.finish("voyage"); f.scope.finish("voyage");
     expect(f.journal.summary("voyage").scope, "INDEX_SCOPE_COUNTER_RETAINED_AFTER_FINISH").toMatchObject({ observedBytes: facts.at(-1)!.observedBytes, receipts: [] });
   } finally { await f.close(); }

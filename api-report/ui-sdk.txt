@@ -6850,6 +6850,8 @@ signatures (every public export and the types it is made of)
         hash?: string;
         target?: string;
         ignored: boolean;
+        metadataOnly?: true;
+        stamp?: string;
     }
   KeyedLock (packages/ui-sdk/src/server/keyed-lock.ts)
     export interface KeyedLock {

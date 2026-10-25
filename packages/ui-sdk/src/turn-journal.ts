@@ -27,6 +27,20 @@ export interface JournalVersion {
   hash?: string;
   target?: string;
   ignored: boolean;
+  /**
+   * Recorded by path, size and mode only, never by content: its bytes were not
+   * retained and it cannot be read or restored. Set for the brain's disposable
+   * index family (`.brain-index/`), which `brain index --force` rebuilds from
+   * Markdown. An intentional observation state, not a failed capture. Such a
+   * version has no `hash` and no symlink `target`.
+   */
+  metadataOnly?: true;
+  /**
+   * Opaque host change stamp of a metadata-only version, so equal sizes still
+   * show distinct changes. Not a content identity; absent on versions recorded
+   * before 0.44.0.
+   */
+  stamp?: string;
 }
 
 export interface JournalObservationReference {

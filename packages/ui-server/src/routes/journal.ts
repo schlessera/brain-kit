@@ -16,6 +16,7 @@ export function createJournalRoutes({ journal }: { journal: TurnJournal }): Hono
       if (!Number.isSafeInteger(sequence) || sequence < 1) return c.json({ error: "Invalid observation." }, 400);
       const details = journal.details(session, turn), change = details?.changes.find(item => item.sequence === sequence);
       if (!change || details?.summary.state === "expired") return c.json({ error: "Journal detail expired or unavailable." }, 404);
+      if (change.before?.metadataOnly || change.after?.metadataOnly) return c.json({ inline: false, reason: "metadata_only" });
       const size = (change.before?.bytes ?? 0) + (change.after?.bytes ?? 0);
       if (size > INLINE_BYTES) return c.json({ inline: false, reason: "size", beforeBytes: change.before?.bytes ?? 0, afterBytes: change.after?.bytes ?? 0 });
       try {
