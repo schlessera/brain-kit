@@ -68,12 +68,12 @@ for (const phase of ["new acquisition", "resumed acquisition", "before prompt"] 
     const launch = spyOn(worker, "launchAgentWorkerAsync").mockImplementation(async input => {
       const child = await realLaunch({ ...input, command: ["/bin/sh", "-c", WAITING] });
       exited = child.exited.then(code => { workerExited = true; return code; });
-      const kill = child.kill.bind(child), release = child.released.bind(child);
+      const kill = child.kill.bind(child), release = child.released.bind(child), turnTemp = child.turnTemp;
       exitWorker = () => kill("SIGKILL");
       // Hold the owned real process alive after cancellation's signal request.
       child.kill = () => { killed.resolve(); };
       child.turnTemp = { root, space: () => ({ total: 0, free: 0 }), close() { throw new Error("PI_SYNC_CLOSE_ON_ASYNC_LIFECYCLE"); },
-        async closeAsync() { closeCalls++; closing.resolve(); await closed.promise; if (refuseClose) throw cleanupRefusal; } };
+        async closeAsync() { closeCalls++; closing.resolve(); await closed.promise; if (refuseClose) throw cleanupRefusal; await turnTemp?.closeAsync(); } };
       child.released = async () => { releaseCalls++; releasing.resolve(); await released.promise; await release(); };
       return child;
     });
