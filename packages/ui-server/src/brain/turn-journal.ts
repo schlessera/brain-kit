@@ -51,6 +51,8 @@ const version = (entry: JournalSnapshotEntry | undefined): JournalVersion | null
 } : null;
 const identity = (entry: JournalSnapshotEntry | undefined) => JSON.stringify(entry ? { ...version(entry), ...(entry.ignored ? { stamp: entry.stamp } : {}) } : null);
 
+type ClaudeMemoryTarget = { directory: string; device: string; inode: string; note: string };
+
 export interface TurnJournalOptions {
   brainPath: string; dbPath: string; objectsRoot: string; capBytes?: number; now?: () => number;
   nativeManager: NativeJournalManager;
@@ -130,6 +132,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     }
   } };
   const capture = createNativeJournalCapture(options.nativeManager, retainVersion, {}, readIdentity);
+  /**
+   * Run in `serialize` order only: an observation reads a turn's sequence
+   * before its commit and stores the result after, so a record between the
+   * two would reuse an observed sequence (#2814).
+   */
+  async function recordClaudeMemory(turnId: string, path: string, target: ClaudeMemoryTarget, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
+    const turn = active.get(turnId); if (!turn) throw new JournalStorageUnavailable("memory observation requires an active turn");
+    const sequence = ++turn.sequence;
+    await retain(() => call("recordClaudeMemory", turnId, sequence, path, target, before, after, now()));
+    publish(turnId);
+  }
   /** Managed worktrees a running turn's workers can reach, each observed as its own root. */
   const worktrees = new Map<string, { turnId: string; capture: ReturnType<typeof createNativeJournalCapture>; policy: NativeJournalPolicy }>();
   async function dropWorktrees(turnId?: string) {
@@ -496,9 +509,11 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
     },
     /**
      * Validated copy-out is the only native source of an external destination.
-     * Every retained object and record commits before `save()` runs.
+     * Every retained object and record commits before `save()` runs. It takes
+     * its turn beside observations: a save requested before `finish` is
+     * recorded before the turn ends, and one requested after is refused unsaved.
      */
-    async persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): Promise<void> {
+    persistClaudeMemory(turnId: string, change: { directory: string; note: string; before: Uint8Array | null; beforeMode: number; after: Uint8Array } | null, save: () => void): Promise<void> { return serialize(async () => {
       if (!active.has(turnId)) throw new JournalStorageUnavailable("memory persistence requires an active turn");
       const path = change ? `claude-memory://${change.note}` : "claude-memory://";
       try {
@@ -517,7 +532,7 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         await retain(() => write([statement("INSERT OR REPLACE INTO turn_journal_claude_memory VALUES (?,?,?,?,?,?,?,?,?)",
           turnId, path, directory, String(info.dev), String(info.ino), change.note, before ? JSON.stringify(before) : null, JSON.stringify(after), "pending")]));
         save();
-        await this.recordClaudeMemory(turnId, path, { directory, device: String(info.dev), inode: String(info.ino), note: change.note }, before, after);
+        await recordClaudeMemory(turnId, path, { directory, device: String(info.dev), inode: String(info.ino), note: change.note }, before, after);
       } catch (error) {
         // A note-specific refusal does not erase other successfully retained
         // changes. If even this bounded missing receipt cannot fit, use the
@@ -528,17 +543,17 @@ export function createTurnJournal(db: Database, options: TurnJournalOptions) {
         } catch { await fail(turnId, error); }
         if (change) throw error;
       }
-    },
+    }); },
     /** @internal Reads only a durable host-created destination, never a requested path. */
     claudeMemoryTarget(turnId: string, path: string) {
       return db.query("SELECT directory,device,inode,note FROM turn_journal_claude_memory WHERE turn_id=? AND path=?").get(turnId, path) as { directory: string; device: string; inode: string; note: string } | null;
     },
-    /** @internal Record a successful native save or authenticated recovery with existing retained objects. */
-    async recordClaudeMemory(turnId: string, path: string, target: { directory: string; device: string; inode: string; note: string }, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
-      const turn = active.get(turnId); if (!turn) throw new JournalStorageUnavailable("memory observation requires an active turn");
-      const sequence = ++turn.sequence;
-      await retain(() => call("recordClaudeMemory", turnId, sequence, path, target, before, after, now()));
-      publish(turnId);
+    /**
+     * @internal Record a successful native save or authenticated recovery with existing retained objects.
+     * Takes its turn beside observations, so its sequence follows any committing one.
+     */
+    recordClaudeMemory(turnId: string, path: string, target: ClaudeMemoryTarget, before: JournalVersion | null, after: JournalVersion | null): Promise<void> {
+      return serialize(() => recordClaudeMemory(turnId, path, target, before, after));
     },
     /** All operation metadata uses the journal's existing physical allocation owner: one accounted write of these statements. */
     writeOperation(statements: readonly JournalStatement[]): Promise<number[]> { return write([...statements]); },
